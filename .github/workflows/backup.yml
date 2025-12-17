@@ -1,0 +1,56 @@
+name: Backup
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC for database, 3 AM UTC for storage
+    - cron: '0 2 * * *'
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  backup-database:
+    name: Backup Database
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 2 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kopia
+        run: |
+          curl -s https://kopia.io/signing-key | sudo apt-key add -
+          echo "deb https://packages.kopia.io/apt/ stable main" | sudo tee /etc/apt/sources.list.d/kopia.list
+          sudo apt-get update
+          sudo apt-get install -y kopia
+
+      - name: Backup database to B2
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          B2_ACCOUNT_ID: ${{ secrets.B2_ACCOUNT_ID }}
+          B2_ACCOUNT_KEY: ${{ secrets.B2_ACCOUNT_KEY }}
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+        run: |
+          pg_dump "$DATABASE_URL" | kopia snapshot create --stdin --tags type:database
+
+  backup-storage:
+    name: Backup Storage
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 3 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kopia
+        run: |
+          curl -s https://kopia.io/signing-key | sudo apt-key add -
+          echo "deb https://packages.kopia.io/apt/ stable main" | sudo tee /etc/apt/sources.list.d/kopia.list
+          sudo apt-get update
+          sudo apt-get install -y kopia
+
+      - name: Backup R2 to B2
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          B2_ACCOUNT_ID: ${{ secrets.B2_ACCOUNT_ID }}
+          B2_ACCOUNT_KEY: ${{ secrets.B2_ACCOUNT_KEY }}
+        run: |
+          # Snapshot R2 buckets to B2 via Kopia
+          kopia snapshot create /path/to/r2/snapshot --tags type:storage
