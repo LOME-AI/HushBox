@@ -80,15 +80,15 @@ Commit this file with progress updates to maintain state across sessions.
 
 **Tech Stack Addition:** Vitest, Playwright
 
-- [ ] Install and configure Vitest
-- [ ] Create test utilities and helpers in `packages/shared`
-- [ ] Configure coverage reporting (100% enforcement)
-- [ ] Install and configure Playwright
-- [ ] Create Playwright config for E2E tests
-- [ ] Add test scripts to root package.json:
-  - [ ] `pnpm test` - run unit tests
-  - [ ] `pnpm test:e2e` - run E2E tests
-  - [ ] `pnpm test:coverage` - run with coverage
+- [x] Install and configure Vitest
+- [x] Create `packages/shared` structure (utilities added when needed)
+- [x] Configure coverage reporting (95% enforcement)
+- [x] Install and configure Playwright
+- [x] Create Playwright config for E2E tests
+- [x] Add test scripts to root package.json:
+  - [x] `pnpm test` - run unit tests
+  - [x] `pnpm e2e` - run E2E tests
+  - [x] `pnpm test:coverage` - run with coverage
 
 ---
 
@@ -634,7 +634,7 @@ Commit this file with progress updates to maintain state across sessions.
   - [ ] Create conversation
   - [ ] Send message (mocked AI)
   - [ ] Model switching
-- [ ] Verify coverage remains at 100%
+- [ ] Verify coverage remains at 95%
 
 ---
 

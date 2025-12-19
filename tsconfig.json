@@ -9,6 +9,6 @@
       "@lome-chat/db/*": ["./packages/db/*"]
     }
   },
-  "include": [],
+  "include": ["*.config.ts"],
   "references": []
 }
