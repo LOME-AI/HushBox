@@ -47,6 +47,9 @@ Thumbs.db
 # Claude Code
 /.claude/settings.local.json
 
+# Local overrides
+*.local*
+
 # Capacitor
 /apps/mobile/ios/
 /apps/mobile/android/

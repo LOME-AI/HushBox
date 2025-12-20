@@ -98,16 +98,16 @@ Commit this file with progress updates to maintain state across sessions.
 
 **Tech Stack Addition:** Zod
 
-- [ ] Create `packages/shared/` package
-- [ ] Install Zod
-- [ ] Create initial schema files:
-  - [ ] `schemas/user.ts`
-  - [ ] `schemas/conversation.ts`
-  - [ ] `schemas/message.ts`
-  - [ ] `schemas/project.ts`
-- [ ] Create shared constants file
-- [ ] Create shared utility types
-- [ ] Export all from package index
+- [x] Create `packages/shared/` package
+- [x] Install Zod
+- [x] Create initial schema files:
+  - [x] `schemas/user.ts`
+  - [x] `schemas/conversation.ts`
+  - [x] `schemas/message.ts`
+  - [x] `schemas/project.ts`
+- [x] Create shared constants file
+- [x] Create shared utility types
+- [x] Export all from package index
 
 ---
 
@@ -117,42 +117,44 @@ Commit this file with progress updates to maintain state across sessions.
 
 **Tech Stack Addition:** Drizzle ORM
 
-- [ ] Create `packages/db/` package
-- [ ] Install Drizzle ORM and Drizzle Kit
-- [ ] Create schema files:
-  - [ ] `schema/users.ts`
-  - [ ] `schema/conversations.ts`
-  - [ ] `schema/messages.ts`
-  - [ ] `schema/projects.ts`
-  - [ ] `schema/memories.ts`
-  - [ ] `schema/documents.ts`
-- [ ] Create `schema/index.ts` exporting all tables
-- [ ] Create `drizzle.config.ts`
-- [ ] Add migration scripts to package.json
-- [ ] Generate initial migration
+- [x] Create `packages/db/` package
+- [x] Install Drizzle ORM and Drizzle Kit
+- [x] Create schema files:
+  - [x] `schema/users.ts`
+  - [x] `schema/conversations.ts`
+  - [x] `schema/messages.ts`
+  - [x] `schema/projects.ts`
+  - [ ] `schema/memories.ts` _(Deferred - MVP scope)_
+  - [ ] `schema/documents.ts` _(Deferred - MVP scope)_
+- [x] Create `schema/index.ts` exporting all tables
+- [x] Create `drizzle.config.ts`
+- [x] Add migration scripts to package.json
+- [x] Generate initial migration _(Deferred to Phase 6 - requires DATABASE_URL)_
 
 ---
 
 ## Phase 6: Database Clients
 
-**Purpose:** Create unified database client supporting both Neon and PGlite.
+**Purpose:** Create unified database client with local development parity via Neon wsproxy.
 
-**Tech Stack Addition:** Neon, PGlite
+**Tech Stack Addition:** Neon (with wsproxy for local dev)
 
-- [ ] Install `@neondatabase/serverless`
-- [ ] Install `@electric-sql/pglite`
-- [ ] Install `drizzle-orm/neon-http` adapter
-- [ ] Install `drizzle-orm/pglite` adapter
-- [ ] Create `client.ts` with `createDb(mode)` function
-- [ ] Create type exports for database instance
-- [ ] Test Neon connection locally (requires account setup)
-- [ ] Test PGlite in browser environment
+- [x] Install `@neondatabase/serverless`
+- [x] Install `drizzle-orm/neon-serverless` adapter
+- [x] Create `client.ts` with `createDb(connectionString)` function
+- [x] Create type exports for database instance
+- [x] Add neon-proxy to Docker Compose for local development
+- [x] Configure WebSocket proxy settings for local dev
+- [x] Test connection locally via wsproxy
+- [x] Integration tests pass against Docker Postgres
 
-**Human Setup Required:**
+**Deferred to Phase 23:** PGlite browser client for local-only mode
+
+**Human Setup Required (for production):**
 
 1. Create Neon account at https://neon.tech
 2. Create new project and database
-3. Copy connection string to `.env.local` as `DATABASE_URL`
+3. Add connection string to Cloudflare Secrets as `DATABASE_URL`
 
 ---
 

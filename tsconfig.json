@@ -9,6 +9,6 @@
       "@lome-chat/db/*": ["./packages/db/*"]
     }
   },
-  "include": ["*.config.ts"],
+  "include": ["*.config.ts", "*.config.js", ".lintstagedrc.js"],
   "references": []
 }

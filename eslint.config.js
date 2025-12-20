@@ -1,5 +1,5 @@
 // @ts-check
-import { baseConfig, prettierConfig } from '@lome-chat/config/eslint';
+import { baseConfig, prettierConfig } from './packages/config/eslint.config.js';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [

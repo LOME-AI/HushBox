@@ -193,15 +193,28 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 
 ---
 
+## CI/CD Infrastructure Principle
+
+CI runs the same Docker Compose infrastructure as local development. GitHub Actions executes `pnpm db:up` (and future `pnpm storage:up`, etc.) rather than defining service containers in workflow YAML.
+
+Benefits:
+
+- Single source of truth: `docker-compose.yml`
+- No duplication between workflow files and compose configuration
+- Identical test environment locally and in CI
+
+---
+
 ## Environment Management
 
-| File                   | Purpose                                                  |
-| ---------------------- | -------------------------------------------------------- |
-| **.env.example**       | Template with all variables, committed to repo.          |
-| **.env.local**         | Local development values, gitignored.                    |
-| **Zod validation**     | Runtime validation of all env vars with typed inference. |
-| **Cloudflare Secrets** | Production secrets stored in Workers.                    |
-| **GitHub Secrets**     | CI/CD secrets for Actions.                               |
+| File                   | Purpose                                         |
+| ---------------------- | ----------------------------------------------- |
+| **.env.development**   | Dev defaults, committed. No secrets.            |
+| **.env.example**       | Production template, committed. Documents vars. |
+| **Cloudflare Secrets** | Production secrets stored in Workers.           |
+| **Github Secrets**     | Production secrets for workflows.               |
+
+Local dev and CI use `.env.development`. No secrets needed outside production.
 
 ---
 
@@ -297,6 +310,7 @@ Starts:
 - Vite (frontend) on :5173
 - Wrangler (Workers) on :8787
 - Postgres (Docker) on :5432
+- Neon Proxy (Docker) on :4444 (WebSocket → Postgres)
 - MinIO (S3 mock) on :9000
 
 All external APIs (OpenRouter, Helcim) are mocked locally. Real API calls (to OpenRouter and Helcim Sandbox) only run in CI when a LOME team member comments "pr test". These tests must pass to merge the PR.

@@ -1,3 +1,3 @@
 #!/bin/sh
-pnpm lint-staged || echo "Warning: Some files have linting issues."
-exit 0
+[ -f .husky/pre-commit.local ] && . .husky/pre-commit.local
+pnpm lint-staged
