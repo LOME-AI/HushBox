@@ -5,7 +5,7 @@ import { createDb, type Database } from '../client';
 import { users } from '../schema/index';
 
 const DATABASE_URL =
-  process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/lome_chat';
+  process.env['DATABASE_URL'] ?? 'postgresql://postgres:postgres@localhost:5432/lome_chat';
 
 describe('createDb', () => {
   let db: Database;
@@ -38,7 +38,10 @@ describe('createDb', () => {
         })
         .returning();
 
-      expect(inserted).toBeDefined();
+      if (inserted === undefined) {
+        throw new Error('Insert failed - no record returned');
+      }
+
       expect(inserted.id).toBeDefined();
       expect(inserted.email).toBe(testEmail);
       expect(inserted.name).toBe('Test User');
@@ -47,7 +50,10 @@ describe('createDb', () => {
 
       const [selected] = await db.select().from(users).where(eq(users.email, testEmail));
 
-      expect(selected).toBeDefined();
+      if (selected === undefined) {
+        throw new Error('Select failed - no record returned');
+      }
+
       expect(selected.id).toBe(inserted.id);
       expect(selected.email).toBe(testEmail);
     });
@@ -59,7 +65,10 @@ describe('createDb', () => {
         .where(eq(users.email, testEmail))
         .returning();
 
-      expect(updated).toBeDefined();
+      if (updated === undefined) {
+        throw new Error('Update failed - no record returned');
+      }
+
       expect(updated.name).toBe('Updated Name');
     });
   });

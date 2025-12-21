@@ -1,5 +1,5 @@
-# Wrangler configuration for local development
-# No Cloudflare account required - runs entirely local in wrangler dev
+# Wrangler configuration for Cloudflare Workers
+# Local dev requires no Cloudflare credentials
 
 name = "lome-chat-api"
 main = "src/index.ts"

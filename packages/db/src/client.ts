@@ -8,7 +8,7 @@ neonConfig.webSocketConstructor = ws;
 
 // Configure WebSocket proxy for local development
 // In production with Neon, this isn't needed as the driver uses Neon's infrastructure
-if (process.env.NODE_ENV === 'development') {
+if (process.env['NODE_ENV'] === 'development') {
   neonConfig.wsProxy = (host, port) => `${host}:${String(port)}/v1`;
   // Use non-TLS WebSocket for local development (ws:// instead of wss://)
   neonConfig.useSecureWebSocket = false;

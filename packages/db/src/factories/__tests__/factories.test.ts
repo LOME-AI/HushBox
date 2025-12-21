@@ -6,7 +6,7 @@ import { users, conversations, messages, projects } from '../../schema/index';
 import { userFactory, projectFactory, conversationFactory, messageFactory } from '../index';
 
 const DATABASE_URL =
-  process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/lome_chat';
+  process.env['DATABASE_URL'] ?? 'postgresql://postgres:postgres@localhost:5432/lome_chat';
 
 describe('userFactory', () => {
   it('builds a complete user object', () => {
@@ -133,24 +133,36 @@ describe('factory integration', () => {
 
   it('inserts factory-built records with proper relationships', async () => {
     const [user] = await db.insert(users).values(userFactory.build()).returning();
+    if (user === undefined) {
+      throw new Error('User insert failed - no record returned');
+    }
     createdUserIds.push(user.id);
 
     const [conv] = await db
       .insert(conversations)
       .values(conversationFactory.build({ userId: user.id }))
       .returning();
+    if (conv === undefined) {
+      throw new Error('Conversation insert failed - no record returned');
+    }
     createdConversationIds.push(conv.id);
 
     const [msg] = await db
       .insert(messages)
       .values(messageFactory.build({ conversationId: conv.id }))
       .returning();
+    if (msg === undefined) {
+      throw new Error('Message insert failed - no record returned');
+    }
     createdMessageIds.push(msg.id);
 
     const [proj] = await db
       .insert(projects)
       .values(projectFactory.build({ userId: user.id }))
       .returning();
+    if (proj === undefined) {
+      throw new Error('Project insert failed - no record returned');
+    }
     createdProjectIds.push(proj.id);
 
     expect(conv.userId).toBe(user.id);
