@@ -284,12 +284,12 @@ Commit this file with progress updates to maintain state across sessions.
 
 **Purpose:** Verify local code actually deploys to cloud before building more features.
 
-- [ ] Deploy `apps/api` to Cloudflare Workers
-- [ ] Deploy `apps/web` to Cloudflare Pages
-- [ ] Verify health endpoint responds in production
-- [ ] Verify frontend loads in production
-- [ ] Document any deployment issues encountered
-- [ ] Create simple deployment script for future deploys
+- [x] Deploy `apps/api` to Cloudflare Workers
+- [x] Deploy `apps/web` to Cloudflare Pages
+- [x] Verify health endpoint responds in production
+- [x] Verify frontend loads in production
+- [x] Document any deployment issues encountered
+- [x] Create simple deployment script for future deploys
 
 **Human Setup Required:**
 
@@ -305,14 +305,14 @@ Commit this file with progress updates to maintain state across sessions.
 
 **Tech Stack Addition:** GitHub Actions
 
-- [ ] Create `.github/workflows/ci.yml`
-- [ ] Configure jobs:
-  - [ ] Lint
-  - [ ] Type check
-  - [ ] Unit tests
-  - [ ] Build verification
-- [ ] Add PR status checks
-- [ ] Verify CI runs on push to main and PRs
+- [x] Create `.github/workflows/ci.yml`
+- [x] Configure jobs:
+  - [x] Lint
+  - [x] Type check
+  - [x] Unit tests
+  - [x] Build verification
+- [x] Add PR status checks
+- [x] Verify CI runs on push to main and PRs
 
 ---
 
