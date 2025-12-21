@@ -21,6 +21,14 @@ jobs:
       - name: Start database
         run: pnpm db:up
 
+      - name: Verify database is ready
+        run: |
+          docker compose ps
+          docker compose logs postgres
+          # Wait a bit more and verify connection
+          sleep 5
+          docker compose exec -T postgres pg_isready -U postgres
+
       - name: Run migrations
         run: pnpm db:migrate
 
