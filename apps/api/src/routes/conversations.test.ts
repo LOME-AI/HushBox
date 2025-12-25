@@ -1,0 +1,282 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion -- json() returns any, assertions provide documentation */
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { Hono } from 'hono';
+import { eq, inArray } from 'drizzle-orm';
+import {
+  createDb,
+  LOCAL_NEON_DEV_CONFIG,
+  conversations,
+  messages,
+  users,
+  accounts,
+  sessions,
+} from '@lome-chat/db';
+import { createConversationsRoutes } from './conversations.js';
+import { createAuthRoutes } from './auth.js';
+import { createAuth } from '../auth/index.js';
+import { createMockEmailClient } from '../services/email/index.js';
+import { createSessionMiddleware } from '../middleware/session.js';
+
+// Response types for type-safe JSON parsing
+interface SignupResponse {
+  user?: { id: string };
+}
+
+interface ErrorResponse {
+  error: string;
+}
+
+interface Conversation {
+  id: string;
+  title: string;
+  userId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface Message {
+  id: string;
+  role: string;
+  content: string;
+  model?: string | null;
+}
+
+interface ConversationsListResponse {
+  conversations: Conversation[];
+}
+
+interface ConversationDetailResponse {
+  conversation: Conversation;
+  messages: Message[];
+}
+
+describe('conversations routes', () => {
+  const connectionString =
+    process.env['DATABASE_URL'] ?? 'postgres://postgres:postgres@localhost:4444/lome_chat';
+  let db: ReturnType<typeof createDb>;
+  let app: Hono;
+  let testUserId: string;
+  let authCookie: string;
+
+  const TEST_EMAIL = `test-conv-${String(Date.now())}@example.com`;
+  const TEST_PASSWORD = 'TestPassword123!';
+  const TEST_NAME = 'Test Conv User';
+
+  // Track created IDs for cleanup
+  const createdConversationIds: string[] = [];
+  const createdMessageIds: string[] = [];
+
+  beforeAll(async () => {
+    db = createDb({ connectionString, neonDev: LOCAL_NEON_DEV_CONFIG });
+
+    const emailClient = createMockEmailClient();
+    const auth = createAuth({
+      db,
+      emailClient,
+      baseUrl: 'http://localhost:8787',
+      secret: 'test-secret-key-at-least-32-characters-long',
+    });
+
+    // Create the app with auth and conversation routes
+    app = new Hono();
+    app.use('*', createSessionMiddleware(auth));
+    app.route('/api/auth', createAuthRoutes(auth));
+    app.route('/conversations', createConversationsRoutes(db, auth));
+
+    // Create user via HTTP request to auth endpoint
+    const signupRes = await app.request('/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: TEST_EMAIL,
+        password: TEST_PASSWORD,
+        name: TEST_NAME,
+      }),
+    });
+
+    if (!signupRes.ok) {
+      throw new Error(`Signup failed: ${await signupRes.text()}`);
+    }
+
+    const signupData = (await signupRes.json()) as SignupResponse;
+    testUserId = signupData.user?.id ?? '';
+    if (!testUserId) {
+      throw new Error('Signup failed - no user ID returned');
+    }
+
+    // Mark email as verified (bypass email verification for testing)
+    await db.update(users).set({ emailVerified: true }).where(eq(users.id, testUserId));
+
+    // Now sign in to get a session cookie
+    const signinRes = await app.request('/api/auth/sign-in/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: TEST_EMAIL,
+        password: TEST_PASSWORD,
+      }),
+    });
+
+    if (!signinRes.ok) {
+      throw new Error(`Signin failed: ${await signinRes.text()}`);
+    }
+
+    const setCookie = signinRes.headers.get('set-cookie');
+    if (setCookie) {
+      authCookie = setCookie.split(';')[0] ?? '';
+    } else {
+      throw new Error('Signin succeeded but no session cookie returned');
+    }
+
+    // Create test conversations
+    const [conv1] = await db
+      .insert(conversations)
+      .values({
+        id: `test-conv-1-${String(Date.now())}`,
+        userId: testUserId,
+        title: 'First conversation',
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-02'),
+      })
+      .returning();
+    if (conv1) createdConversationIds.push(conv1.id);
+
+    const [conv2] = await db
+      .insert(conversations)
+      .values({
+        id: `test-conv-2-${String(Date.now())}`,
+        userId: testUserId,
+        title: 'Second conversation',
+        createdAt: new Date('2024-01-02'),
+        updatedAt: new Date('2024-01-03'),
+      })
+      .returning();
+    if (conv2) createdConversationIds.push(conv2.id);
+
+    // Create test messages
+    if (conv1) {
+      const [msg1] = await db
+        .insert(messages)
+        .values({
+          conversationId: conv1.id,
+          role: 'user',
+          content: 'Hello',
+        })
+        .returning();
+      if (msg1) createdMessageIds.push(msg1.id);
+
+      const [msg2] = await db
+        .insert(messages)
+        .values({
+          conversationId: conv1.id,
+          role: 'assistant',
+          content: 'Hi there!',
+          model: 'gpt-4',
+        })
+        .returning();
+      if (msg2) createdMessageIds.push(msg2.id);
+    }
+  });
+
+  afterAll(async () => {
+    // Clean up test data in correct order (due to FK constraints)
+    if (createdMessageIds.length > 0) {
+      await db.delete(messages).where(inArray(messages.id, createdMessageIds));
+    }
+    if (createdConversationIds.length > 0) {
+      await db.delete(conversations).where(inArray(conversations.id, createdConversationIds));
+    }
+    if (testUserId) {
+      await db.delete(sessions).where(eq(sessions.userId, testUserId));
+      await db.delete(accounts).where(eq(accounts.userId, testUserId));
+      await db.delete(users).where(eq(users.id, testUserId));
+    }
+  });
+
+  describe('GET /conversations', () => {
+    it('returns 401 when not authenticated', async () => {
+      const res = await app.request('/conversations');
+
+      expect(res.status).toBe(401);
+      const json = (await res.json()) as ErrorResponse;
+      expect(json.error).toBe('Unauthorized');
+    });
+
+    it('returns list of conversations for authenticated user', async () => {
+      const res = await app.request('/conversations', {
+        headers: {
+          Cookie: authCookie,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as ConversationsListResponse;
+      expect(json.conversations).toBeDefined();
+      expect(Array.isArray(json.conversations)).toBe(true);
+      expect(json.conversations.length).toBeGreaterThanOrEqual(2);
+
+      // Verify conversations are ordered by updatedAt DESC
+      const conv1 = json.conversations.find((c) => c.title === 'First conversation');
+      const conv2 = json.conversations.find((c) => c.title === 'Second conversation');
+      expect(conv1).toBeDefined();
+      expect(conv2).toBeDefined();
+
+      // Second conversation should come first (newer updatedAt)
+      const conv1Index = json.conversations.findIndex((c) => c.title === 'First conversation');
+      const conv2Index = json.conversations.findIndex((c) => c.title === 'Second conversation');
+      expect(conv2Index).toBeLessThan(conv1Index);
+    });
+  });
+
+  describe('GET /conversations/:id', () => {
+    it('returns 401 when not authenticated', async () => {
+      const convId = createdConversationIds[0];
+      if (!convId) throw new Error('Test setup failed: no conversation created');
+      const res = await app.request(`/conversations/${convId}`);
+
+      expect(res.status).toBe(401);
+      const json = (await res.json()) as ErrorResponse;
+      expect(json.error).toBe('Unauthorized');
+    });
+
+    it('returns 404 for non-existent conversation', async () => {
+      const res = await app.request('/conversations/non-existent-id', {
+        headers: {
+          Cookie: authCookie,
+        },
+      });
+
+      expect(res.status).toBe(404);
+      const json = (await res.json()) as ErrorResponse;
+      expect(json.error).toBe('Conversation not found');
+    });
+
+    it('returns conversation with messages for authenticated user', async () => {
+      const convId = createdConversationIds[0];
+      if (!convId) throw new Error('Test setup failed: no conversation created');
+      const res = await app.request(`/conversations/${convId}`, {
+        headers: {
+          Cookie: authCookie,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as ConversationDetailResponse;
+
+      expect(json.conversation).toBeDefined();
+      expect(json.conversation.id).toBe(convId);
+      expect(json.conversation.title).toBe('First conversation');
+
+      expect(json.messages).toBeDefined();
+      expect(Array.isArray(json.messages)).toBe(true);
+      expect(json.messages.length).toBe(2);
+
+      // Verify message structure
+      const userMsg = json.messages.find((m) => m.role === 'user');
+      const assistantMsg = json.messages.find((m) => m.role === 'assistant');
+      expect(userMsg?.content).toBe('Hello');
+      expect(assistantMsg?.content).toBe('Hi there!');
+      expect(assistantMsg?.model).toBe('gpt-4');
+    });
+  });
+});

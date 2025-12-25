@@ -1,10 +1,13 @@
 import { Outlet, createRootRoute } from '@tanstack/react-router';
 import { QueryProvider } from '@/providers/query-provider';
+import { ThemeProvider } from '@/providers/theme-provider';
 
 export const Route = createRootRoute({
   component: () => (
-    <QueryProvider>
-      <Outlet />
-    </QueryProvider>
+    <ThemeProvider>
+      <QueryProvider>
+        <Outlet />
+      </QueryProvider>
+    </ThemeProvider>
   ),
 });

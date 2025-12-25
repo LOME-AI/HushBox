@@ -70,3 +70,10 @@ export const envSchema = z.object({
 });
 
 export type Env = z.infer<typeof envSchema>;
+
+// Frontend-only schema (validates only VITE_* vars at runtime in browser)
+export const frontendEnvSchema = envSchema.pick({
+  VITE_API_URL: true,
+});
+
+export type FrontendEnv = z.infer<typeof frontendEnvSchema>;

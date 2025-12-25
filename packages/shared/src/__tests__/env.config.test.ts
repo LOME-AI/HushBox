@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { envConfig, envSchema } from '../env.config.js';
+import { envConfig, envSchema, frontendEnvSchema } from '../env.config.js';
 
 describe('envConfig', () => {
   describe('structure', () => {
@@ -180,5 +180,44 @@ describe('envSchema', () => {
 
     const result = envSchema.safeParse(validEnv);
     expect(result.success).toBe(true);
+  });
+});
+
+describe('frontendEnvSchema', () => {
+  it('validates VITE_API_URL', () => {
+    const result = frontendEnvSchema.safeParse({
+      VITE_API_URL: 'http://localhost:8787',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.VITE_API_URL).toBe('http://localhost:8787');
+    }
+  });
+
+  it('rejects invalid URL', () => {
+    const result = frontendEnvSchema.safeParse({
+      VITE_API_URL: 'not-a-url',
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects missing VITE_API_URL', () => {
+    const result = frontendEnvSchema.safeParse({});
+
+    expect(result.success).toBe(false);
+  });
+
+  it('only contains VITE_API_URL (not other env vars)', () => {
+    const result = frontendEnvSchema.safeParse({
+      VITE_API_URL: 'http://localhost:8787',
+      NODE_ENV: 'development', // Should be ignored/stripped
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(Object.keys(result.data)).toEqual(['VITE_API_URL']);
+    }
   });
 });

@@ -1,6 +1,6 @@
 // UI Components
 export { Button, buttonVariants } from './components/button';
-export { Input } from './components/input';
+export { Input, type InputProps } from './components/input';
 export { Textarea } from './components/textarea';
 export {
   Card,
@@ -70,6 +70,8 @@ export { Avatar, AvatarImage, AvatarFallback } from './components/avatar';
 export { ScrollArea, ScrollBar } from './components/scroll-area';
 export { Toaster } from './components/sonner';
 export { toast } from 'sonner';
+export { Label } from './components/label';
+export { Checkbox } from './components/checkbox';
 
 // Utilities
 export { cn } from './lib/utils';

@@ -9,13 +9,20 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AuthVerifyRouteImport } from './routes/_auth/verify'
+import { Route as AuthSignupRouteImport } from './routes/_auth/signup'
+import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AppProjectsRouteImport } from './routes/_app/projects'
 import { Route as AppChatIndexRouteImport } from './routes/_app/chat.index'
 import { Route as AppChatConversationIdRouteImport } from './routes/_app/chat.$conversationId'
 
+const AuthRoute = AuthRouteImport.update({
+  id: '/_auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
@@ -25,10 +32,20 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AppSettingsRoute = AppSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => AppRoute,
+const AuthVerifyRoute = AuthVerifyRouteImport.update({
+  id: '/verify',
+  path: '/verify',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthSignupRoute = AuthSignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthLoginRoute = AuthLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => AuthRoute,
 } as any)
 const AppProjectsRoute = AppProjectsRouteImport.update({
   id: '/projects',
@@ -49,14 +66,18 @@ const AppChatConversationIdRoute = AppChatConversationIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/projects': typeof AppProjectsRoute
-  '/settings': typeof AppSettingsRoute
+  '/login': typeof AuthLoginRoute
+  '/signup': typeof AuthSignupRoute
+  '/verify': typeof AuthVerifyRoute
   '/chat/$conversationId': typeof AppChatConversationIdRoute
   '/chat': typeof AppChatIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/projects': typeof AppProjectsRoute
-  '/settings': typeof AppSettingsRoute
+  '/login': typeof AuthLoginRoute
+  '/signup': typeof AuthSignupRoute
+  '/verify': typeof AuthVerifyRoute
   '/chat/$conversationId': typeof AppChatConversationIdRoute
   '/chat': typeof AppChatIndexRoute
 }
@@ -64,22 +85,42 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
+  '/_auth': typeof AuthRouteWithChildren
   '/_app/projects': typeof AppProjectsRoute
-  '/_app/settings': typeof AppSettingsRoute
+  '/_auth/login': typeof AuthLoginRoute
+  '/_auth/signup': typeof AuthSignupRoute
+  '/_auth/verify': typeof AuthVerifyRoute
   '/_app/chat/$conversationId': typeof AppChatConversationIdRoute
   '/_app/chat/': typeof AppChatIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/projects' | '/settings' | '/chat/$conversationId' | '/chat'
+  fullPaths:
+    | '/'
+    | '/projects'
+    | '/login'
+    | '/signup'
+    | '/verify'
+    | '/chat/$conversationId'
+    | '/chat'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/projects' | '/settings' | '/chat/$conversationId' | '/chat'
+  to:
+    | '/'
+    | '/projects'
+    | '/login'
+    | '/signup'
+    | '/verify'
+    | '/chat/$conversationId'
+    | '/chat'
   id:
     | '__root__'
     | '/'
     | '/_app'
+    | '/_auth'
     | '/_app/projects'
-    | '/_app/settings'
+    | '/_auth/login'
+    | '/_auth/signup'
+    | '/_auth/verify'
     | '/_app/chat/$conversationId'
     | '/_app/chat/'
   fileRoutesById: FileRoutesById
@@ -87,10 +128,18 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
+  AuthRoute: typeof AuthRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/_auth': {
+      id: '/_auth'
+      path: ''
+      fullPath: ''
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app': {
       id: '/_app'
       path: ''
@@ -105,12 +154,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_app/settings': {
-      id: '/_app/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof AppSettingsRouteImport
-      parentRoute: typeof AppRoute
+    '/_auth/verify': {
+      id: '/_auth/verify'
+      path: '/verify'
+      fullPath: '/verify'
+      preLoaderRoute: typeof AuthVerifyRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/signup': {
+      id: '/_auth/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof AuthSignupRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/login': {
+      id: '/_auth/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof AuthLoginRouteImport
+      parentRoute: typeof AuthRoute
     }
     '/_app/projects': {
       id: '/_app/projects'
@@ -138,23 +201,36 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppProjectsRoute: typeof AppProjectsRoute
-  AppSettingsRoute: typeof AppSettingsRoute
   AppChatConversationIdRoute: typeof AppChatConversationIdRoute
   AppChatIndexRoute: typeof AppChatIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppProjectsRoute: AppProjectsRoute,
-  AppSettingsRoute: AppSettingsRoute,
   AppChatConversationIdRoute: AppChatConversationIdRoute,
   AppChatIndexRoute: AppChatIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
+interface AuthRouteChildren {
+  AuthLoginRoute: typeof AuthLoginRoute
+  AuthSignupRoute: typeof AuthSignupRoute
+  AuthVerifyRoute: typeof AuthVerifyRoute
+}
+
+const AuthRouteChildren: AuthRouteChildren = {
+  AuthLoginRoute: AuthLoginRoute,
+  AuthSignupRoute: AuthSignupRoute,
+  AuthVerifyRoute: AuthVerifyRoute,
+}
+
+const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
+  AuthRoute: AuthRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

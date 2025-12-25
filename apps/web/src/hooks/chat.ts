@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Conversation, Message, NewConversation, NewMessage } from '@lome-chat/db';
+import type { NewConversation, NewMessage } from '@lome-chat/db';
+import {
+  api,
+  type Conversation,
+  type Message,
+  type ConversationsResponse,
+  type ConversationResponse,
+} from '../lib/api';
 
 // Query key factory
 export const chatKeys = {
@@ -10,42 +17,47 @@ export const chatKeys = {
     [...chatKeys.conversation(conversationId), 'messages'] as const,
 };
 
-// Queries (disabled until API exists in Phase 11)
+// Queries
 export function useConversations(): ReturnType<typeof useQuery<Conversation[], Error>> {
   return useQuery({
     queryKey: chatKeys.conversations(),
-    queryFn: (): Promise<Conversation[]> =>
-      Promise.reject(new Error('API not implemented - enable in Phase 11')),
-    enabled: false,
+    queryFn: async (): Promise<Conversation[]> => {
+      const response = await api.get<ConversationsResponse>('/conversations');
+      return response.conversations;
+    },
   });
 }
 
 export function useConversation(id: string): ReturnType<typeof useQuery<Conversation, Error>> {
   return useQuery({
     queryKey: chatKeys.conversation(id),
-    queryFn: (): Promise<Conversation> =>
-      Promise.reject(new Error('API not implemented - enable in Phase 11')),
-    enabled: false,
+    queryFn: async (): Promise<Conversation> => {
+      const response = await api.get<ConversationResponse>(`/conversations/${id}`);
+      return response.conversation;
+    },
+    enabled: !!id,
   });
 }
 
 export function useMessages(conversationId: string): ReturnType<typeof useQuery<Message[], Error>> {
   return useQuery({
     queryKey: chatKeys.messages(conversationId),
-    queryFn: (): Promise<Message[]> =>
-      Promise.reject(new Error('API not implemented - enable in Phase 11')),
-    enabled: false,
+    queryFn: async (): Promise<Message[]> => {
+      const response = await api.get<ConversationResponse>(`/conversations/${conversationId}`);
+      return response.messages;
+    },
+    enabled: !!conversationId,
   });
 }
 
-// Mutations (stubs)
+// Mutations (stubs - to be implemented when POST endpoints exist)
 export function useCreateConversation(): ReturnType<
   typeof useMutation<Conversation, Error, NewConversation>
 > {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (): Promise<Conversation> =>
-      Promise.reject(new Error('API not implemented - enable in Phase 11')),
+      Promise.reject(new Error('API not implemented - enable when POST endpoint exists')),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: chatKeys.conversations() });
     },
@@ -58,7 +70,7 @@ export function useSendMessage(): ReturnType<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (): Promise<Message> =>
-      Promise.reject(new Error('API not implemented - enable in Phase 11')),
+      Promise.reject(new Error('API not implemented - enable when POST endpoint exists')),
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({
         queryKey: chatKeys.messages(variables.conversationId),

@@ -383,13 +383,16 @@ Commit this file with progress updates to maintain state across sessions.
   - [x] `createSessionMiddleware(auth)` - extracts session from request
   - [x] Sets `user` and `session` on Hono context
 
-### Frontend (Pending)
+### Frontend (Complete)
 
-- [ ] Create auth client (`apps/web/src/lib/auth.ts`)
-- [ ] Add route guards to `_app.tsx` using `beforeLoad`
-- [ ] Create login page (`routes/login.tsx`)
-- [ ] Create signup page (`routes/signup.tsx`)
-- [ ] Create email verification page (`routes/verify.tsx`)
+- [x] Create env validation (`apps/web/src/env.ts`) - Zod schema for VITE_API_URL
+- [x] Create auth client (`apps/web/src/lib/auth.ts`) - Better Auth React client with requireAuth helper
+- [x] Create auth layout (`apps/web/src/routes/_auth.tsx`) - Centered layout with logo, redirects authenticated users to /chat
+- [x] Add route guards to protected routes using `beforeLoad` - route-level guards (not layout-level)
+- [x] Create login page (`routes/_auth/login.tsx`) - Email/password form with Zod validation
+- [x] Create signup page (`routes/_auth/signup.tsx`) - Name/email/password with confirmation, success state shows email sent
+- [x] Create email verification page (`routes/_auth/verify.tsx`) - Handles token from URL, shows loading/success/error states
+- [x] Delete settings route (settings is modal-only per navigation map)
 
 ### E2E Testing Strategy
 

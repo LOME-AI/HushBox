@@ -49,6 +49,7 @@ Thumbs.db
 
 # Local overrides
 *.local*
+/*Local
 
 # Capacitor
 /apps/mobile/ios/
