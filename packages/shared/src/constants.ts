@@ -15,3 +15,6 @@ export const STRONGEST_MODEL_ID = 'anthropic/claude-3.5-sonnet';
 
 /** Model ID for the "Value" quick-select button */
 export const VALUE_MODEL_ID = 'meta-llama/llama-3.1-70b-instruct';
+
+/** LOME's fee rate on AI model usage (15%) */
+export const LOME_FEE_RATE = 0.15;

@@ -69,7 +69,11 @@ When your messages reach AI providers, they see LOME-CHAT's credentials—not yo
 
 ### Radical Transparency
 
-We charge a **5% fee** on AI model usage. That's it. No hidden fees. No premium tiers that unlock basic features. No "free" tier subsidized by selling your data.
+We charge a **15% fee** on AI model usage. After we pay AI provider fees and credit card fees on your behalf, that leaves us with a **~5% profit margin**.
+
+No hidden fees. No premium tiers that unlock basic features. No "free" tier subsidized by selling your data.
+
+Other services bury additional charges in credit purchases and claim "no fees". We don't.
 
 You pay for what you use. We take a small cut to keep the lights on. The math is simple and public.
 
@@ -82,7 +86,7 @@ We will never:
 - Train AI models on your chats
 - Share your information with data brokers
 
-This isn't a marketing promise—it's our business model. We make money from the 5% fee. We have no incentive to monetize your data because we've built a sustainable business without it.
+This isn't a marketing promise—it's our business model. We make money from the 15% fee. We have no incentive to monetize your data because we've built a sustainable business without it.
 
 ---
 

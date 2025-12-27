@@ -25,10 +25,12 @@ test.describe('Chat Functionality', () => {
   });
 
   test.describe('Existing Conversation', () => {
-    test('displays existing conversation with messages', async ({ authenticatedPage }) => {
+    test('displays existing conversation with messages', async ({
+      authenticatedPage,
+      testConversation,
+    }) => {
       const chatPage = new ChatPage(authenticatedPage);
-
-      // testConversation fixture already created a conversation and navigated to it
+      void testConversation; // Fixture creates conversation and navigates to it
       // Verify the message input is visible
       await expect(chatPage.messageInput).toBeVisible();
 
@@ -36,8 +38,9 @@ test.describe('Chat Functionality', () => {
       await expect(chatPage.messageList).toBeVisible();
     });
 
-    test('can send additional messages', async ({ authenticatedPage }) => {
+    test('can send additional messages', async ({ authenticatedPage, testConversation }) => {
       const chatPage = new ChatPage(authenticatedPage);
+      void testConversation;
       const followupMessage = `Follow-up ${String(Date.now())}`;
 
       await chatPage.sendFollowUpMessage(followupMessage);

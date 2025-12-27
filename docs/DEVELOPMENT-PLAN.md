@@ -530,7 +530,7 @@ Select email client based on environment
 **Features:** Credit System, New Account Credits
 
 - [ ] Track API usage costs per request
-- [ ] Apply 5% fee calculation
+- [ ] Apply 15% fee calculation
 - [ ] Deduct credits after each API call
 - [ ] Block API calls when credits exhausted
 - [ ] Grant $1.00 free credit on account creation
@@ -1464,7 +1464,7 @@ After Phase 22, the product has all MVP features:
 - [ ] Route privacy model requests to Together AI instead of OpenRouter
 - [ ] Create privacy model documentation for users
 - [ ] Display clear indicator when using Privacy Models
-- [ ] Same 5% fee structure on Together AI costs
+- [ ] Same 15% fee structure on Together AI costs
 
 **Human Setup Required:**
 

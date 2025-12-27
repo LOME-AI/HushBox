@@ -6,6 +6,7 @@ import {
   TEST_EMAIL_DOMAIN,
   STRONGEST_MODEL_ID,
   VALUE_MODEL_ID,
+  LOME_FEE_RATE,
 } from '../constants.js';
 
 describe('MESSAGE_ROLES', () => {
@@ -62,5 +63,16 @@ describe('VALUE_MODEL_ID', () => {
 
   it('is different from STRONGEST_MODEL_ID', () => {
     expect(VALUE_MODEL_ID).not.toBe(STRONGEST_MODEL_ID);
+  });
+});
+
+describe('LOME_FEE_RATE', () => {
+  it('is 0.15 (15%)', () => {
+    expect(LOME_FEE_RATE).toBe(0.15);
+  });
+
+  it('is a positive number less than 1', () => {
+    expect(LOME_FEE_RATE).toBeGreaterThan(0);
+    expect(LOME_FEE_RATE).toBeLessThan(1);
   });
 });

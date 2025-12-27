@@ -45,6 +45,7 @@ export function MessageInput({
     <div className="flex gap-2 p-4">
       <Textarea
         placeholder="Type a message..."
+        aria-label="Type a message"
         value={value}
         onChange={(e) => {
           setValue(e.target.value);

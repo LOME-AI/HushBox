@@ -3,7 +3,7 @@ import { Search, ChevronUp, ChevronDown } from 'lucide-react';
 import { ModalOverlay, Input, Badge, Button, ScrollArea } from '@lome-chat/ui';
 import type { Model } from '@lome-chat/shared';
 import { STRONGEST_MODEL_ID, VALUE_MODEL_ID } from '@lome-chat/shared';
-import { formatContextLength, formatPricePer1k } from '../../lib/format';
+import { applyLomeFee, formatContextLength, formatPricePer1k } from '../../lib/format';
 
 type SortField = 'price' | 'context' | null;
 type SortDirection = 'asc' | 'desc';
@@ -261,7 +261,7 @@ export function ModelSelectorModal({
                     Input Price / Token
                   </div>
                   <div className="text-lg font-medium">
-                    {formatPricePer1k(focusedModel.pricePerInputToken)} / 1k
+                    {formatPricePer1k(applyLomeFee(focusedModel.pricePerInputToken))} / 1k
                   </div>
                 </div>
 
@@ -271,7 +271,7 @@ export function ModelSelectorModal({
                     Output Price / Token
                   </div>
                   <div className="text-lg font-medium">
-                    {formatPricePer1k(focusedModel.pricePerOutputToken)} / 1k
+                    {formatPricePer1k(applyLomeFee(focusedModel.pricePerOutputToken))} / 1k
                   </div>
                 </div>
 

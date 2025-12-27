@@ -290,6 +290,26 @@ describe('ModelSelectorModal', () => {
     expect(screen.getByText(/128,000 tokens/)).toBeInTheDocument();
   });
 
+  it('displays prices with LOME fee applied (15% markup)', () => {
+    render(
+      <ModelSelectorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        models={mockModels}
+        selectedId="openai/gpt-4-turbo"
+        onSelect={vi.fn()}
+      />
+    );
+
+    // GPT-4 Turbo has pricePerInputToken: 0.00001, pricePerOutputToken: 0.00003
+    // With 15% fee (exact values, no rounding):
+    // - Input: 0.00001 * 1.15 * 1000 = $0.0115
+    // - Output: 0.00003 * 1.15 * 1000 = $0.0345
+    // Raw prices without fee would be $0.01 and $0.03
+    expect(screen.getByText('$0.0115 / 1k')).toBeInTheDocument();
+    expect(screen.getByText('$0.0345 / 1k')).toBeInTheDocument();
+  });
+
   it('closes on Escape key', async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();

@@ -78,6 +78,7 @@ export function PromptInput({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
+          aria-label={placeholder}
           rows={rows}
           disabled={disabled || isStreaming}
           className={cn(
