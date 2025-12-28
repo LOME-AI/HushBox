@@ -27,3 +27,6 @@ enabled = true
 enabled = true
 head_sampling_rate = 1
 invocation_logs = true
+
+[limits]
+cpu_ms = 30000
