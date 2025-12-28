@@ -24,7 +24,8 @@ function createFastMockOpenRouterClient(): OpenRouterClient {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
       });
     },
-    *chatCompletionStream() {
+    // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for fast tests
+    async *chatCompletionStream() {
       // Yield tokens without delay for fast tests
       for (const char of 'Echo: Hello') {
         yield char;
@@ -285,8 +286,8 @@ describe('chat routes', () => {
         chatCompletion() {
           return Promise.reject(new Error('API Error'));
         },
-        // eslint-disable-next-line require-yield -- intentionally throws before yielding for error test
-        *chatCompletionStream() {
+        // eslint-disable-next-line @typescript-eslint/require-await, require-yield -- intentionally throws for error test
+        async *chatCompletionStream() {
           throw new Error('Stream failed');
         },
         listModels() {
