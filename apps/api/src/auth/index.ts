@@ -19,6 +19,7 @@ export function createAuth(config: AuthConfig): ReturnType<typeof betterAuth> {
     trustedOrigins: [config.frontendUrl],
     database: drizzleAdapter(config.db, {
       provider: 'pg',
+      transaction: true,
       schema: {
         user: schema.users,
         session: schema.sessions,
