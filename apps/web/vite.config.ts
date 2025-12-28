@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'path';
 
 export default defineConfig({
+  envDir: resolve(__dirname, '../..'),
   plugins: [tailwindcss(), TanStackRouterVite({ quoteStyle: 'single' }), react()],
   resolve: {
     alias: {

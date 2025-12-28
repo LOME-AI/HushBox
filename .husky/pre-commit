@@ -1,3 +1,4 @@
 #!/bin/sh
 [ -f .husky/pre-commit.local ] && . .husky/pre-commit.local
 pnpm lint-staged
+pnpm typecheck
