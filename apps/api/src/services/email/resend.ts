@@ -1,6 +1,6 @@
 import type { EmailClient, EmailOptions } from './types.js';
 
-const DEFAULT_FROM = 'LOME-CHAT <noreply@lome-chat.com>';
+const DEFAULT_FROM = 'LOME-CHAT <noreply@mail.lome-chat.com>';
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
 interface ResendErrorResponse {

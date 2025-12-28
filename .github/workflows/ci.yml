@@ -114,6 +114,21 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Verify secrets deployed
+        working-directory: apps/api
+        run: |
+          secrets=$(pnpm exec wrangler secret list --json)
+          for secret in DATABASE_URL BETTER_AUTH_SECRET RESEND_API_KEY; do
+            if ! echo "$secrets" | grep -q "\"name\":\"$secret\""; then
+              echo "ERROR: Secret $secret not found in Workers"
+              exit 1
+            fi
+          done
+          echo "All required secrets verified"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Run database migrations (production)
         run: pnpm --filter @lome-chat/db db:migrate
         env:

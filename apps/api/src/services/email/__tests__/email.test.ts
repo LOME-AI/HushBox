@@ -170,7 +170,7 @@ describe('EmailClient interface', () => {
       const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(options.body as string) as { from: string };
 
-      expect(body.from).toBe('LOME-CHAT <noreply@lome-chat.com>');
+      expect(body.from).toBe('LOME-CHAT <noreply@mail.lome-chat.com>');
     });
 
     it('allows custom from address', async () => {
