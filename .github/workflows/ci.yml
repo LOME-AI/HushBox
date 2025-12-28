@@ -117,9 +117,9 @@ jobs:
       - name: Verify secrets deployed
         working-directory: apps/api
         run: |
-          secrets=$(pnpm exec wrangler secret list --json)
+          secrets=$(pnpm exec wrangler secret list)
           for secret in DATABASE_URL BETTER_AUTH_SECRET RESEND_API_KEY; do
-            if ! echo "$secrets" | grep -q "\"name\":\"$secret\""; then
+            if ! echo "$secrets" | grep -q "$secret"; then
               echo "ERROR: Secret $secret not found in Workers"
               exit 1
             fi
