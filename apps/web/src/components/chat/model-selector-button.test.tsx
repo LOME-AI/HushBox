@@ -14,6 +14,7 @@ const mockModels: Model[] = [
     pricePerOutputToken: 0.00003,
     capabilities: ['vision', 'functions', 'json-mode', 'streaming'],
     description: 'A powerful language model from OpenAI.',
+    supportedParameters: [],
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
@@ -24,6 +25,7 @@ const mockModels: Model[] = [
     pricePerOutputToken: 0.000015,
     capabilities: ['vision', 'functions', 'streaming'],
     description: 'Anthropic most intelligent model.',
+    supportedParameters: [],
   },
 ];
 

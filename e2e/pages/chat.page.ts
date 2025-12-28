@@ -8,6 +8,7 @@ export class ChatPage {
   readonly messageList: Locator;
   readonly newChatPage: Locator;
   readonly suggestionChips: Locator;
+  readonly streamingMessage: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -17,6 +18,7 @@ export class ChatPage {
     this.messageList = page.getByRole('log', { name: 'Chat messages' });
     this.newChatPage = page.getByTestId('new-chat-page');
     this.suggestionChips = page.getByText('Need inspiration? Try these:');
+    this.streamingMessage = page.getByTestId('streaming-message');
   }
 
   async goto(): Promise<void> {
@@ -40,12 +42,14 @@ export class ChatPage {
   }
 
   async waitForConversation(): Promise<string> {
-    await expect(this.page).toHaveURL(/\/chat\/[a-f0-9-]+$/);
-    return this.page.url().split('/').pop() ?? '';
+    // Match /chat/{uuid} with optional query params
+    await expect(this.page).toHaveURL(/\/chat\/[a-f0-9-]+(\?.*)?$/);
+    const url = new URL(this.page.url());
+    return url.pathname.split('/').pop() ?? '';
   }
 
   async expectMessageVisible(message: string): Promise<void> {
-    await expect(this.messageList.getByText(message)).toBeVisible();
+    await expect(this.messageList.getByText(message, { exact: true })).toBeVisible();
   }
 
   async expectNewChatPageVisible(): Promise<void> {
@@ -58,5 +62,23 @@ export class ChatPage {
 
   async expectSuggestionChipsVisible(): Promise<void> {
     await expect(this.suggestionChips).toBeVisible();
+  }
+
+  async waitForAIResponse(timeout = 15000): Promise<void> {
+    // Wait for streaming to complete - either we catch the indicator or the response is already there
+    await Promise.race([
+      // Option 1: Streaming indicator appears then disappears
+      (async (): Promise<void> => {
+        await expect(this.streamingMessage).toBeVisible({ timeout });
+        await expect(this.streamingMessage).not.toBeVisible({ timeout });
+      })(),
+      // Option 2: Response already rendered (streaming was too fast to observe)
+      expect(this.messageList.getByText(/^Echo:/).first()).toBeVisible({ timeout }),
+    ]);
+  }
+
+  async expectAssistantMessageContains(text: string): Promise<void> {
+    // Use .first() to handle cases where multiple messages contain the text
+    await expect(this.messageList.getByText(text).first()).toBeVisible();
   }
 }

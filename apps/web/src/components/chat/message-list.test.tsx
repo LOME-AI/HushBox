@@ -2,31 +2,31 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MessageList } from './message-list';
 
-describe('MessageList', () => {
-  const messages = [
-    {
-      id: '1',
-      conversationId: 'conv-1',
-      role: 'user' as const,
-      content: 'Hello!',
-      createdAt: '2024-01-01T00:00:00Z',
-    },
-    {
-      id: '2',
-      conversationId: 'conv-1',
-      role: 'assistant' as const,
-      content: 'Hi there!',
-      createdAt: '2024-01-01T00:00:01Z',
-    },
-    {
-      id: '3',
-      conversationId: 'conv-1',
-      role: 'user' as const,
-      content: 'How are you?',
-      createdAt: '2024-01-01T00:00:02Z',
-    },
-  ];
+const messages = [
+  {
+    id: '1',
+    conversationId: 'conv-1',
+    role: 'user' as const,
+    content: 'Hello!',
+    createdAt: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: '2',
+    conversationId: 'conv-1',
+    role: 'assistant' as const,
+    content: 'Hi there!',
+    createdAt: '2024-01-01T00:00:01Z',
+  },
+  {
+    id: '3',
+    conversationId: 'conv-1',
+    role: 'user' as const,
+    content: 'How are you?',
+    createdAt: '2024-01-01T00:00:02Z',
+  },
+];
 
+describe('MessageList', () => {
   it('renders all messages', () => {
     render(<MessageList messages={messages} />);
     expect(screen.getByText('Hello!')).toBeInTheDocument();
@@ -72,6 +72,53 @@ describe('MessageList', () => {
       render(<MessageList messages={messages} />);
       const log = screen.getByRole('log');
       expect(log).toHaveAttribute('aria-label', 'Chat messages');
+    });
+  });
+
+  describe('streaming', () => {
+    it('shows streaming message when isStreaming is true and streamingContent provided', () => {
+      render(
+        <MessageList
+          messages={messages}
+          isStreaming={true}
+          streamingContent="Partial response..."
+        />
+      );
+
+      expect(screen.getByTestId('streaming-message')).toBeInTheDocument();
+      expect(screen.getByText('Partial response...')).toBeInTheDocument();
+    });
+
+    it('shows streaming indicator when isStreaming is true', () => {
+      render(
+        <MessageList messages={messages} isStreaming={true} streamingContent="Generating..." />
+      );
+
+      expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument();
+    });
+
+    it('does not show streaming message when isStreaming is false', () => {
+      render(<MessageList messages={messages} isStreaming={false} streamingContent="" />);
+
+      expect(screen.queryByTestId('streaming-message')).not.toBeInTheDocument();
+    });
+
+    it('does not show streaming message when streamingContent is empty and isStreaming is false', () => {
+      render(<MessageList messages={messages} />);
+
+      expect(screen.queryByTestId('streaming-message')).not.toBeInTheDocument();
+    });
+
+    it('shows streaming message after all regular messages', () => {
+      render(<MessageList messages={messages} isStreaming={true} streamingContent="AI response" />);
+
+      const messageItems = screen.getAllByTestId('message-item');
+      const streamingMessage = screen.getByTestId('streaming-message-container');
+
+      // All regular messages should exist
+      expect(messageItems).toHaveLength(3);
+      // Streaming message should also exist
+      expect(streamingMessage).toBeInTheDocument();
     });
   });
 });

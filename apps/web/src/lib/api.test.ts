@@ -7,7 +7,13 @@ vi.mock('@lome-chat/shared', () => ({
   },
 }));
 
-import { api, ApiError } from './api';
+import { api, ApiError, getApiUrl } from './api';
+
+describe('getApiUrl', () => {
+  it('returns the API URL from environment', () => {
+    expect(getApiUrl()).toBe('http://localhost:8787');
+  });
+});
 
 describe('api client', () => {
   const mockFetch = vi.fn();

@@ -141,12 +141,21 @@ describe('createApp', () => {
     });
   });
 
-  describe('chat routes (placeholders)', () => {
-    it('returns 501 for POST /chat/stream', async () => {
+  describe('chat routes', () => {
+    it('returns 401 for POST /chat/stream without auth', async () => {
       const app = createApp();
-      const res = await app.request('/chat/stream', { method: 'POST' });
+      const res = await app.request(
+        '/chat/stream',
+        { method: 'POST' },
+        {
+          DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+          NODE_ENV: 'development',
+        }
+      );
 
-      expect(res.status).toBe(501);
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expect(body).toEqual({ error: 'Unauthorized' });
     });
   });
 

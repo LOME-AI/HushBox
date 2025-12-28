@@ -1,14 +1,21 @@
 import * as React from 'react';
 import { ScrollArea } from '@lome-chat/ui';
 import { MessageItem } from './message-item';
+import { StreamingMessage } from './streaming-message';
 import type { Message } from '@/lib/api';
 
 interface MessageListProps {
   messages: Message[];
+  isStreaming?: boolean;
+  streamingContent?: string;
 }
 
-export function MessageList({ messages }: MessageListProps): React.JSX.Element {
-  if (messages.length === 0) {
+export function MessageList({
+  messages,
+  isStreaming = false,
+  streamingContent = '',
+}: MessageListProps): React.JSX.Element {
+  if (messages.length === 0 && !isStreaming) {
     return (
       <div data-testid="message-list-empty" className="flex flex-1 items-center justify-center">
         <p className="text-muted-foreground">No messages yet</p>
@@ -22,6 +29,7 @@ export function MessageList({ messages }: MessageListProps): React.JSX.Element {
         {messages.map((message) => (
           <MessageItem key={message.id} message={message} />
         ))}
+        {isStreaming && <StreamingMessage content={streamingContent} isStreaming={isStreaming} />}
       </div>
     </ScrollArea>
   );

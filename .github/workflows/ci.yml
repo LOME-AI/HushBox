@@ -26,6 +26,8 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
       - name: Stop database
         if: always()
@@ -37,6 +39,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+
+      - name: Generate environment files
+        run: pnpm generate:env
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium

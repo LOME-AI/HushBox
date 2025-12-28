@@ -22,6 +22,7 @@ const mockModels: Model[] = [
     pricePerOutputToken: 0.00003,
     capabilities: ['vision', 'functions', 'streaming'],
     description: 'Test description for GPT-4 Turbo.',
+    supportedParameters: [],
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
@@ -32,6 +33,7 @@ const mockModels: Model[] = [
     pricePerOutputToken: 0.000015,
     capabilities: ['vision', 'streaming'],
     description: 'Test description for Claude 3.5 Sonnet.',
+    supportedParameters: [],
   },
 ];
 

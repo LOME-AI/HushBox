@@ -39,7 +39,7 @@ describe('modelSchema', () => {
     const result = modelSchema.safeParse(validModel);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data).toEqual(validModel);
+      expect(result.data).toEqual({ ...validModel, supportedParameters: [] });
     }
   });
 
@@ -158,6 +158,7 @@ describe('Model type', () => {
       pricePerOutputToken: 0.0002,
       capabilities: ['streaming'],
       description: 'A test model for type inference.',
+      supportedParameters: ['temperature'],
     };
 
     expect(model.id).toBe('test-model');

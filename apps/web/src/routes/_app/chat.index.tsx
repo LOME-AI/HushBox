@@ -20,10 +20,11 @@ function ChatIndex(): React.JSX.Element {
       { firstMessage: { content } },
       {
         onSuccess: (response) => {
-          // Navigate to the new conversation
+          // Navigate to the new conversation with flag to trigger AI streaming
           void navigate({
             to: '/chat/$conversationId',
             params: { conversationId: response.conversation.id },
+            search: { triggerStreaming: true },
           });
         },
       }

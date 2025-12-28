@@ -38,6 +38,10 @@ export const envConfig = {
       development: '', // Empty = use console email client
       production: null, // Set via GitHub Secrets → wrangler secret put
     },
+    OPENROUTER_API_KEY: {
+      development: '', // Empty = use mock OpenRouter client
+      production: null, // Set via GitHub Secrets → wrangler secret put
+    },
   },
 
   // Local-only variables (only in .env.development, not deployed to production)
@@ -60,6 +64,7 @@ export const envConfig = {
     'BETTER_AUTH_URL',
     'BETTER_AUTH_SECRET',
     'RESEND_API_KEY',
+    'OPENROUTER_API_KEY',
     'FRONTEND_URL',
   ],
 } as const;
@@ -71,6 +76,7 @@ export const envSchema = z.object({
   BETTER_AUTH_URL: z.string().url(),
   BETTER_AUTH_SECRET: z.string().min(32),
   RESEND_API_KEY: z.string().optional(),
+  OPENROUTER_API_KEY: z.string().optional(),
   FRONTEND_URL: z.string().url(),
   VITE_API_URL: z.string().url(),
 });

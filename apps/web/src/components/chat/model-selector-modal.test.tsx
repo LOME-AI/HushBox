@@ -14,6 +14,7 @@ const mockModels: Model[] = [
     pricePerOutputToken: 0.00003,
     capabilities: ['vision', 'functions', 'json-mode', 'streaming'],
     description: 'A powerful language model from OpenAI.',
+    supportedParameters: [],
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
@@ -24,6 +25,7 @@ const mockModels: Model[] = [
     pricePerOutputToken: 0.000015,
     capabilities: ['vision', 'functions', 'streaming'],
     description: 'Anthropic most intelligent model.',
+    supportedParameters: [],
   },
   {
     id: 'meta-llama/llama-3.1-70b-instruct',
@@ -34,6 +36,7 @@ const mockModels: Model[] = [
     pricePerOutputToken: 0.00000079,
     capabilities: ['functions', 'streaming'],
     description: 'Open-weight model offering excellent performance.',
+    supportedParameters: [],
   },
 ];
 

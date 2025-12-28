@@ -1,8 +1,5 @@
 import { z } from 'zod';
 
-/**
- * Valid model capabilities.
- */
 export const modelCapabilitySchema = z.enum(['vision', 'functions', 'json-mode', 'streaming']);
 
 export type ModelCapability = z.infer<typeof modelCapabilitySchema>;
@@ -34,14 +31,17 @@ export const modelSchema = z.object({
 
   /** Human-readable description of the model */
   description: z.string().min(1),
+
+  /**
+   * OpenRouter API parameters supported by this model.
+   * Used to determine which capabilities can be enabled.
+   * Example: ['tools', 'temperature', 'top_p', 'max_tokens']
+   */
+  supportedParameters: z.array(z.string()).default([]),
 });
 
 export type Model = z.infer<typeof modelSchema>;
 
-/**
- * Mock models for UI development.
- * These will be replaced with real data from OpenRouter API.
- */
 export const MOCK_MODELS: Model[] = [
   {
     id: 'openai/gpt-4-turbo',
@@ -53,6 +53,14 @@ export const MOCK_MODELS: Model[] = [
     capabilities: ['vision', 'functions', 'json-mode', 'streaming'],
     description:
       "OpenAI's most capable model. Excels at complex reasoning, creative writing, and following nuanced instructions with high accuracy.",
+    supportedParameters: [
+      'temperature',
+      'top_p',
+      'max_tokens',
+      'tools',
+      'tool_choice',
+      'response_format',
+    ],
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
@@ -64,6 +72,7 @@ export const MOCK_MODELS: Model[] = [
     capabilities: ['vision', 'functions', 'streaming'],
     description:
       "Anthropic's most intelligent model. Excels at complex reasoning, coding, and nuanced content creation with strong safety guardrails.",
+    supportedParameters: ['temperature', 'top_p', 'max_tokens', 'tools', 'tool_choice'],
   },
   {
     id: 'google/gemini-pro-1.5',
@@ -75,6 +84,7 @@ export const MOCK_MODELS: Model[] = [
     capabilities: ['vision', 'functions', 'json-mode', 'streaming'],
     description:
       "Google's flagship model with the largest context window. Ideal for processing long documents, codebases, and multi-turn conversations.",
+    supportedParameters: ['temperature', 'top_p', 'max_tokens', 'tools', 'tool_choice'],
   },
   {
     id: 'meta-llama/llama-3.1-70b-instruct',
@@ -86,5 +96,6 @@ export const MOCK_MODELS: Model[] = [
     capabilities: ['functions', 'streaming'],
     description:
       "Meta's open-weight model offering excellent performance at low cost. Great for general tasks where budget efficiency matters.",
+    supportedParameters: ['temperature', 'top_p', 'max_tokens'],
   },
 ];

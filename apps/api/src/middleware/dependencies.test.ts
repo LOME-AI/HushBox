@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import type { AppEnv } from '../types.js';
 
@@ -21,14 +21,32 @@ vi.mock('../services/email/index.js', () => ({
   createConsoleEmailClient: vi.fn(() => ({ type: 'console' })),
 }));
 
-import { dbMiddleware, authMiddleware, sessionMiddleware } from './dependencies.js';
+vi.mock('../services/openrouter/index.js', () => ({
+  createOpenRouterClient: vi.fn(() => ({ type: 'openrouter' })),
+  createMockOpenRouterClient: vi.fn(() => ({ type: 'mock-openrouter' })),
+}));
+
+import {
+  dbMiddleware,
+  authMiddleware,
+  sessionMiddleware,
+  openRouterMiddleware,
+} from './dependencies.js';
 import { createDb, LOCAL_NEON_DEV_CONFIG } from '@lome-chat/db';
 import { createAuth } from '../auth/index.js';
 import { createResendEmailClient, createConsoleEmailClient } from '../services/email/index.js';
+import {
+  createOpenRouterClient,
+  createMockOpenRouterClient,
+} from '../services/openrouter/index.js';
 
 describe('dbMiddleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
   });
 
   it('sets db on context', async () => {
@@ -93,6 +111,10 @@ describe('dbMiddleware', () => {
 describe('authMiddleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
   });
 
   it('sets auth on context', async () => {
@@ -189,6 +211,10 @@ describe('sessionMiddleware', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
   it('sets user and session on context when authenticated', async () => {
     const mockUser = { id: 'user-1', email: 'test@example.com', name: 'Test User' };
     const mockSession = { id: 'session-1', userId: 'user-1', expiresAt: new Date() };
@@ -266,5 +292,66 @@ describe('sessionMiddleware', () => {
         headers: expect.any(Headers) as object,
       })
     );
+  });
+});
+
+describe('openRouterMiddleware', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('sets openrouter on context', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', openRouterMiddleware());
+    app.get('/', (c) => {
+      c.get('openrouter');
+      return c.json({ hasOpenRouter: true });
+    });
+
+    const res = await app.request('/', {}, {});
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ hasOpenRouter: true });
+  });
+
+  it('uses OpenRouterClient when OPENROUTER_API_KEY is set', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', openRouterMiddleware());
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request('/', {}, { OPENROUTER_API_KEY: 'test-key' });
+
+    expect(createOpenRouterClient).toHaveBeenCalledWith('test-key');
+    expect(createMockOpenRouterClient).not.toHaveBeenCalled();
+  });
+
+  it('uses MockOpenRouterClient when OPENROUTER_API_KEY is not set', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', openRouterMiddleware());
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request('/', {}, {});
+
+    expect(createMockOpenRouterClient).toHaveBeenCalled();
+    expect(createOpenRouterClient).not.toHaveBeenCalled();
+  });
+
+  it('calls next() to continue middleware chain', async () => {
+    const app = new Hono<AppEnv>();
+    const nextCalled = vi.fn();
+    app.use('*', openRouterMiddleware());
+    app.use('*', async (_, next) => {
+      nextCalled();
+      await next();
+    });
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request('/', {}, {});
+
+    expect(nextCalled).toHaveBeenCalled();
   });
 });

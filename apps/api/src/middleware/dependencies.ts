@@ -2,6 +2,10 @@ import type { MiddlewareHandler } from 'hono';
 import { createDb, LOCAL_NEON_DEV_CONFIG } from '@lome-chat/db';
 import { createAuth } from '../auth/index.js';
 import { createResendEmailClient, createConsoleEmailClient } from '../services/email/index.js';
+import {
+  createOpenRouterClient,
+  createMockOpenRouterClient,
+} from '../services/openrouter/index.js';
 import type { AppEnv } from '../types.js';
 
 export function dbMiddleware(): MiddlewareHandler<AppEnv> {
@@ -48,6 +52,16 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
       c.set('session', null);
     }
 
+    await next();
+  };
+}
+
+export function openRouterMiddleware(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const client = c.env.OPENROUTER_API_KEY
+      ? createOpenRouterClient(c.env.OPENROUTER_API_KEY)
+      : createMockOpenRouterClient();
+    c.set('openrouter', client);
     await next();
   };
 }

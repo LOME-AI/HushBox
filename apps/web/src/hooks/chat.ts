@@ -1,6 +1,8 @@
+import { useState, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
+  getApiUrl,
   type Conversation,
   type Message,
   type ConversationsResponse,
@@ -14,7 +16,6 @@ import {
   type CreateMessageResponse,
 } from '../lib/api';
 
-// Query key factory
 export const chatKeys = {
   all: ['chat'] as const,
   conversations: () => [...chatKeys.all, 'conversations'] as const,
@@ -23,7 +24,6 @@ export const chatKeys = {
     [...chatKeys.conversation(conversationId), 'messages'] as const,
 };
 
-// Queries
 export function useConversations(): ReturnType<typeof useQuery<Conversation[], Error>> {
   return useQuery({
     queryKey: chatKeys.conversations(),
@@ -56,11 +56,6 @@ export function useMessages(conversationId: string): ReturnType<typeof useQuery<
   });
 }
 
-// Mutations
-
-/**
- * Creates a new conversation, optionally with a first message.
- */
 export function useCreateConversation(): ReturnType<
   typeof useMutation<CreateConversationResponse, Error, CreateConversationRequest>
 > {
@@ -75,9 +70,6 @@ export function useCreateConversation(): ReturnType<
   });
 }
 
-/**
- * Sends a message to a conversation.
- */
 export function useSendMessage(): ReturnType<
   typeof useMutation<
     CreateMessageResponse,
@@ -106,9 +98,6 @@ export function useSendMessage(): ReturnType<
   });
 }
 
-/**
- * Deletes a conversation.
- */
 export function useDeleteConversation(): ReturnType<
   typeof useMutation<DeleteConversationResponse, Error, string>
 > {
@@ -123,9 +112,6 @@ export function useDeleteConversation(): ReturnType<
   });
 }
 
-/**
- * Updates a conversation (rename).
- */
 export function useUpdateConversation(): ReturnType<
   typeof useMutation<
     UpdateConversationResponse,
@@ -145,11 +131,144 @@ export function useUpdateConversation(): ReturnType<
       return api.patch<UpdateConversationResponse>(`/conversations/${conversationId}`, data);
     },
     onSuccess: (_data, variables) => {
-      // Invalidate both the specific conversation and the list
       void queryClient.invalidateQueries({
         queryKey: chatKeys.conversation(variables.conversationId),
       });
       void queryClient.invalidateQueries({ queryKey: chatKeys.conversations() });
     },
   });
+}
+
+interface StreamRequest {
+  conversationId: string;
+  model: string;
+}
+
+interface StreamResult {
+  userMessageId: string;
+  assistantMessageId: string;
+  content: string;
+}
+
+interface StreamOptions {
+  onToken?: (token: string) => void;
+  signal?: AbortSignal;
+}
+
+interface ChatStreamHook {
+  isStreaming: boolean;
+  startStream: (request: StreamRequest, options?: StreamOptions) => Promise<StreamResult>;
+}
+
+export function useChatStream(): ChatStreamHook {
+  const [isStreaming, setIsStreaming] = useState(false);
+
+  const startStream = useCallback(
+    async (request: StreamRequest, options?: StreamOptions): Promise<StreamResult> => {
+      setIsStreaming(true);
+
+      try {
+        const response = await fetch(`${getApiUrl()}/chat/stream`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify(request),
+          signal: options?.signal ?? null,
+        });
+
+        if (!response.ok) {
+          const data: unknown = await response.json();
+          const errorMessage =
+            typeof data === 'object' &&
+            data !== null &&
+            'error' in data &&
+            typeof data.error === 'string'
+              ? data.error
+              : 'Stream request failed';
+          throw new Error(errorMessage);
+        }
+
+        // Verify content-type before attempting to parse SSE
+        const contentType = response.headers.get('Content-Type');
+        if (!contentType?.includes('text/event-stream')) {
+          const errorData: unknown = await response.json().catch(() => ({}));
+          throw new Error(
+            typeof errorData === 'object' &&
+              errorData !== null &&
+              'error' in errorData &&
+              typeof errorData.error === 'string'
+              ? errorData.error
+              : 'Expected SSE stream but received different content type'
+          );
+        }
+
+        if (!response.body) {
+          throw new Error('Response body is null');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let userMessageId = '';
+        let assistantMessageId = '';
+        let content = '';
+        let currentEvent = '';
+
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- standard pattern for async iterator
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+
+            for (const line of lines) {
+              if (line.startsWith('event: ')) {
+                currentEvent = line.slice(7).trim();
+              } else if (line.startsWith('data: ')) {
+                const data = line.slice(6).trim();
+                if (data && currentEvent) {
+                  const parsed: unknown = JSON.parse(data);
+
+                  if (currentEvent === 'start') {
+                    const startData = parsed as {
+                      userMessageId: string;
+                      assistantMessageId: string;
+                    };
+                    userMessageId = startData.userMessageId;
+                    assistantMessageId = startData.assistantMessageId;
+                  } else if (currentEvent === 'token') {
+                    const tokenData = parsed as { content: string };
+                    content += tokenData.content;
+                    if (options?.onToken) {
+                      options.onToken(tokenData.content);
+                    }
+                  } else if (currentEvent === 'error') {
+                    const errorData = parsed as { message: string; code?: string };
+                    throw new Error(errorData.message);
+                  }
+                }
+              }
+            }
+          }
+
+          return { userMessageId, assistantMessageId, content };
+        } finally {
+          // Always cleanup the reader
+          reader.cancel().catch(() => {
+            // Ignore cancel errors - stream may already be closed
+          });
+        }
+      } finally {
+        setIsStreaming(false);
+      }
+    },
+    []
+  );
+
+  return { isStreaming, startStream };
 }

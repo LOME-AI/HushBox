@@ -6,6 +6,7 @@ import {
   dbMiddleware,
   authMiddleware,
   sessionMiddleware,
+  openRouterMiddleware,
 } from './middleware/index.js';
 import {
   healthRoute,
@@ -15,7 +16,6 @@ import {
 } from './routes/index.js';
 import type { AppEnv } from './types.js';
 
-// Re-export Bindings for backwards compatibility
 export type { Bindings } from './types.js';
 
 export function createApp(): Hono<AppEnv> {
@@ -38,6 +38,10 @@ export function createApp(): Hono<AppEnv> {
   app.use('/conversations/*', sessionMiddleware());
   app.route('/conversations', createConversationsRoutes());
 
+  app.use('/chat/*', dbMiddleware());
+  app.use('/chat/*', authMiddleware());
+  app.use('/chat/*', sessionMiddleware());
+  app.use('/chat/*', openRouterMiddleware());
   app.route('/chat', chatRoute);
 
   app.use('/dev/*', devOnly());

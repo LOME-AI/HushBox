@@ -32,6 +32,10 @@ const env = frontendEnvSchema.parse({
   VITE_API_URL: import.meta.env['VITE_API_URL'] as unknown,
 });
 
+export function getApiUrl(): string {
+  return env.VITE_API_URL;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,

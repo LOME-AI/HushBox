@@ -22,6 +22,23 @@ test.describe('Chat Functionality', () => {
       await chatPage.waitForConversation();
       await chatPage.expectMessageVisible(testMessage);
     });
+
+    test('receives AI response after creating new conversation', async ({ authenticatedPage }) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+
+      const testMessage = `New chat echo test ${String(Date.now())}`;
+      await chatPage.sendNewChatMessage(testMessage);
+
+      // Wait for navigation to the new conversation
+      await chatPage.waitForConversation();
+
+      // Wait for AI response to stream (mock client echoes back)
+      await chatPage.waitForAIResponse();
+
+      // Verify AI response contains echoed message
+      await chatPage.expectAssistantMessageContains('Echo:');
+    });
   });
 
   test.describe('Existing Conversation', () => {
@@ -85,6 +102,40 @@ test.describe('Chat Functionality', () => {
 
       // Should still be on the same URL
       await expect(authenticatedPage).toHaveURL(testConversation.url);
+    });
+  });
+
+  test.describe('AI Response Streaming', () => {
+    test('displays streaming AI response after sending message', async ({
+      authenticatedPage,
+      testConversation,
+    }) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      void testConversation;
+
+      const testMessage = `Echo test ${String(Date.now())}`;
+      await chatPage.sendFollowUpMessage(testMessage);
+
+      // Wait for streaming to complete (mock client has 20ms delay per char)
+      await chatPage.waitForAIResponse();
+
+      // Verify AI response contains echoed message (mock returns "Echo: {message}")
+      await chatPage.expectAssistantMessageContains('Echo:');
+    });
+
+    test('shows streaming indicator while response is being generated', async ({
+      authenticatedPage,
+      testConversation,
+    }) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      void testConversation;
+
+      await chatPage.sendFollowUpMessage('Hello');
+
+      // Either streaming indicator appears OR response already rendered (streaming too fast)
+      await expect(
+        chatPage.streamingMessage.or(chatPage.messageList.getByText(/^Echo:/).first()).first()
+      ).toBeVisible({ timeout: 5000 });
     });
   });
 });

@@ -40,8 +40,17 @@ export const test = base.extend<CustomFixtures>({
     await expect(sendButton).toBeEnabled();
     await sendButton.click();
 
-    await expect(page).toHaveURL(/\/chat\/[a-f0-9-]+$/);
-    const id = page.url().split('/').pop() ?? '';
+    await expect(page).toHaveURL(/\/chat\/[a-f0-9-]+(\?.*)?$/, { timeout: 15000 });
+    const url = new URL(page.url());
+    const id = url.pathname.split('/').pop() ?? '';
+
+    const streamingMessage = page.getByTestId('streaming-message');
+    await expect(streamingMessage).toBeVisible({ timeout: 15000 });
+    await expect(streamingMessage).not.toBeVisible({ timeout: 15000 });
+
+    await expect(page.getByRole('log', { name: 'Chat messages' }).getByText('Echo:')).toBeVisible({
+      timeout: 5000,
+    });
 
     await use({ id, url: page.url() });
   },

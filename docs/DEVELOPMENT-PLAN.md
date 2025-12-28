@@ -456,20 +456,20 @@ Select email client based on environment
 
 ---
 
-## Phase 19: OpenRouter Integration
+## Phase 19: OpenRouter Integration ✅
 
 **Purpose:** Connect to OpenRouter for LLM access.
 
 **Tech Stack Addition:** OpenRouter API
 
-- [ ] Create `packages/shared/openrouter.ts` types
-- [ ] Create OpenRouter client wrapper
-- [ ] Implement model metadata fetching from OpenRouter API
-- [ ] Cache model list and capabilities
-- [ ] Create model selector component
-- [ ] Implement basic (non-streaming) chat completion
-- [ ] Handle API errors gracefully
-- [ ] Display AI responses in chat
+- [x] Create `packages/shared/openrouter.ts` types
+- [x] Create OpenRouter client wrapper
+- [x] Implement model metadata fetching from OpenRouter API
+- [x] Cache model list and capabilities
+- [x] Create model selector component
+- [x] Implement basic (non-streaming) chat completion
+- [x] Handle API errors gracefully
+- [x] Display AI responses in chat
 
 **Human Setup Required:**
 
@@ -479,18 +479,18 @@ Select email client based on environment
 
 ---
 
-## Phase 20: Streaming Responses
+## Phase 20: Streaming Responses ✅
 
 **Purpose:** Implement Server-Sent Events for streaming LLM responses.
 
-- [ ] Create SSE streaming endpoint `POST /chat/stream`
-- [ ] Pipe OpenRouter stream through Hono
-- [ ] Create frontend SSE consumer hook
-- [ ] Display tokens as they arrive
-- [ ] Handle stream interruption gracefully
-- [ ] Add stop generation button
-- [ ] Save complete message to database when stream ends
-- [ ] Test streaming with multiple models
+- [x] Create SSE streaming endpoint `POST /chat/stream`
+- [x] Pipe OpenRouter stream through Hono
+- [x] Create frontend SSE consumer hook
+- [x] Display tokens as they arrive
+- [x] Handle stream interruption gracefully
+- [x] Add stop generation button
+- [x] Save complete message to database when stream ends
+- [x] Test streaming with multiple models
 
 ---
 

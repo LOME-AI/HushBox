@@ -22,6 +22,7 @@ vi.mock('../lib/api', () => ({
     patch: vi.fn(),
     delete: vi.fn(),
   },
+  getApiUrl: () => 'http://localhost:8787',
 }));
 
 import { api } from '../lib/api';
@@ -466,6 +467,287 @@ describe('useDeleteConversation', () => {
     });
 
     expect(result.current.error?.message).toBe('Unauthorized');
+  });
+});
+
+describe('useChatStream', () => {
+  let mockFetch: ReturnType<typeof vi.fn<typeof fetch>>;
+  let originalFetch: typeof global.fetch;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    originalFetch = global.fetch;
+    mockFetch = vi.fn<typeof fetch>();
+    global.fetch = mockFetch;
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+    global.fetch = originalFetch;
+  });
+
+  function createMockSSEResponse(events: { event: string; data: string }[]): Response {
+    const lines = events.map(({ event, data }) => `event: ${event}\ndata: ${data}\n\n`).join('');
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller): void {
+        controller.enqueue(encoder.encode(lines));
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+      },
+    });
+  }
+
+  it('calls POST /chat/stream with conversationId and model', async () => {
+    const mockResponse = createMockSSEResponse([
+      {
+        event: 'start',
+        data: JSON.stringify({ userMessageId: 'msg-1', assistantMessageId: 'msg-2' }),
+      },
+      { event: 'token', data: JSON.stringify({ content: 'Hello' }) },
+      { event: 'done', data: JSON.stringify({}) },
+    ]);
+    mockFetch.mockResolvedValueOnce(mockResponse);
+
+    const { useChatStream } = await import('./chat');
+    const { result } = renderHook(() => useChatStream(), { wrapper: createWrapper() });
+
+    await result.current.startStream({
+      conversationId: 'conv-123',
+      model: 'openai/gpt-4-turbo',
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/chat/stream'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ conversationId: 'conv-123', model: 'openai/gpt-4-turbo' }),
+      })
+    );
+  });
+
+  it('parses start event and returns message IDs', async () => {
+    const mockResponse = createMockSSEResponse([
+      {
+        event: 'start',
+        data: JSON.stringify({ userMessageId: 'msg-1', assistantMessageId: 'msg-2' }),
+      },
+      { event: 'done', data: JSON.stringify({}) },
+    ]);
+    mockFetch.mockResolvedValueOnce(mockResponse);
+
+    const { useChatStream } = await import('./chat');
+    const { result } = renderHook(() => useChatStream(), { wrapper: createWrapper() });
+
+    const streamResult = await result.current.startStream({
+      conversationId: 'conv-123',
+      model: 'openai/gpt-4-turbo',
+    });
+
+    expect(streamResult.userMessageId).toBe('msg-1');
+    expect(streamResult.assistantMessageId).toBe('msg-2');
+  });
+
+  it('accumulates content from token events', async () => {
+    const mockResponse = createMockSSEResponse([
+      {
+        event: 'start',
+        data: JSON.stringify({ userMessageId: 'msg-1', assistantMessageId: 'msg-2' }),
+      },
+      { event: 'token', data: JSON.stringify({ content: 'Hello' }) },
+      { event: 'token', data: JSON.stringify({ content: ' ' }) },
+      { event: 'token', data: JSON.stringify({ content: 'world' }) },
+      { event: 'done', data: JSON.stringify({}) },
+    ]);
+    mockFetch.mockResolvedValueOnce(mockResponse);
+
+    const { useChatStream } = await import('./chat');
+    const { result } = renderHook(() => useChatStream(), { wrapper: createWrapper() });
+
+    const streamResult = await result.current.startStream({
+      conversationId: 'conv-123',
+      model: 'openai/gpt-4-turbo',
+    });
+
+    expect(streamResult.content).toBe('Hello world');
+  });
+
+  it('throws error on stream error event', async () => {
+    const mockResponse = createMockSSEResponse([
+      {
+        event: 'start',
+        data: JSON.stringify({ userMessageId: 'msg-1', assistantMessageId: 'msg-2' }),
+      },
+      {
+        event: 'error',
+        data: JSON.stringify({ message: 'API rate limit exceeded', code: 'RATE_LIMIT' }),
+      },
+    ]);
+    mockFetch.mockResolvedValueOnce(mockResponse);
+
+    const { useChatStream } = await import('./chat');
+    const { result } = renderHook(() => useChatStream(), { wrapper: createWrapper() });
+
+    await expect(
+      result.current.startStream({
+        conversationId: 'conv-123',
+        model: 'openai/gpt-4-turbo',
+      })
+    ).rejects.toThrow('API rate limit exceeded');
+  });
+
+  it('throws error on non-OK response', async () => {
+    const errorResponse = new Response(JSON.stringify({ error: 'Conversation not found' }), {
+      status: 404,
+    });
+    mockFetch.mockResolvedValueOnce(errorResponse);
+
+    const { useChatStream } = await import('./chat');
+    const { result } = renderHook(() => useChatStream(), { wrapper: createWrapper() });
+
+    await expect(
+      result.current.startStream({
+        conversationId: 'invalid',
+        model: 'openai/gpt-4-turbo',
+      })
+    ).rejects.toThrow('Conversation not found');
+  });
+
+  it('returns isStreaming state while streaming', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-empty-function -- placeholder for Promise resolve
+    let resolveStream: () => void = (): void => {};
+    const streamPromise = new Promise<void>((resolve) => {
+      resolveStream = resolve;
+    });
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        controller.enqueue(
+          encoder.encode('event: start\ndata: {"userMessageId":"m1","assistantMessageId":"m2"}\n\n')
+        );
+        await streamPromise;
+        controller.enqueue(encoder.encode('event: done\ndata: {}\n\n'));
+        controller.close();
+      },
+    });
+
+    const mockResponse = new Response(stream, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+    mockFetch.mockResolvedValueOnce(mockResponse);
+
+    const { useChatStream } = await import('./chat');
+    const { result } = renderHook(() => useChatStream(), { wrapper: createWrapper() });
+
+    expect(result.current.isStreaming).toBe(false);
+
+    const streamPromiseResult = result.current.startStream({
+      conversationId: 'conv-123',
+      model: 'openai/gpt-4-turbo',
+    });
+
+    await waitFor(() => {
+      expect(result.current.isStreaming).toBe(true);
+    });
+
+    resolveStream();
+    await streamPromiseResult;
+
+    await waitFor(() => {
+      expect(result.current.isStreaming).toBe(false);
+    });
+  });
+
+  it('provides onToken callback for live updates', async () => {
+    const mockResponse = createMockSSEResponse([
+      {
+        event: 'start',
+        data: JSON.stringify({ userMessageId: 'msg-1', assistantMessageId: 'msg-2' }),
+      },
+      { event: 'token', data: JSON.stringify({ content: 'A' }) },
+      { event: 'token', data: JSON.stringify({ content: 'B' }) },
+      { event: 'done', data: JSON.stringify({}) },
+    ]);
+    mockFetch.mockResolvedValueOnce(mockResponse);
+
+    const tokens: string[] = [];
+    const { useChatStream } = await import('./chat');
+    const { result } = renderHook(() => useChatStream(), { wrapper: createWrapper() });
+
+    await result.current.startStream(
+      {
+        conversationId: 'conv-123',
+        model: 'openai/gpt-4-turbo',
+      },
+      { onToken: (token: string) => tokens.push(token) }
+    );
+
+    expect(tokens).toEqual(['A', 'B']);
+  });
+
+  it('handles SSE events split across multiple chunks', async () => {
+    // Simulate events arriving in separate chunks (the real-world scenario)
+    const chunks = [
+      'event: start\n',
+      'data: {"userMessageId":"msg-1","assistantMessageId":"msg-2"}\n\n',
+      'event: token\n',
+      'data: {"content":"H"}\n\n',
+      'event: token\n',
+      'data: {"content":"i"}\n\n',
+      'event: done\n',
+      'data: {}\n\n',
+    ];
+
+    let chunkIndex = 0;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller): void {
+        if (chunkIndex < chunks.length) {
+          controller.enqueue(encoder.encode(chunks[chunkIndex]));
+          chunkIndex++;
+        } else {
+          controller.close();
+        }
+      },
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      new Response(stream, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+        },
+      })
+    );
+
+    const tokens: string[] = [];
+    const { useChatStream } = await import('./chat');
+    const { result } = renderHook(() => useChatStream(), { wrapper: createWrapper() });
+
+    const streamResult = await result.current.startStream(
+      {
+        conversationId: 'conv-123',
+        model: 'openai/gpt-4-turbo',
+      },
+      { onToken: (token: string) => tokens.push(token) }
+    );
+
+    // Should receive all tokens despite being split across chunks
+    expect(tokens).toEqual(['H', 'i']);
+    expect(streamResult.content).toBe('Hi');
+    expect(streamResult.userMessageId).toBe('msg-1');
+    expect(streamResult.assistantMessageId).toBe('msg-2');
   });
 });
 
