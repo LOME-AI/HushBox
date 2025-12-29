@@ -14,6 +14,8 @@ export interface AuthConfig {
 }
 
 export function createAuth(config: AuthConfig): ReturnType<typeof betterAuth> {
+  const isProduction = config.baseUrl.includes('lome-chat.com');
+
   return betterAuth({
     baseURL: config.baseUrl,
     secret: config.secret,
@@ -62,15 +64,17 @@ export function createAuth(config: AuthConfig): ReturnType<typeof betterAuth> {
       enabled: true,
       requireEmailVerification: true,
     },
-    advanced: {
-      crossSubDomainCookies: {
-        enabled: true,
-        domain: '.lome-chat.com',
+    ...(isProduction && {
+      advanced: {
+        crossSubDomainCookies: {
+          enabled: true,
+          domain: '.lome-chat.com',
+        },
+        defaultCookieAttributes: {
+          sameSite: 'none',
+          secure: true,
+        },
       },
-      defaultCookieAttributes: {
-        sameSite: 'none',
-        secure: true,
-      },
-    },
+    }),
   });
 }

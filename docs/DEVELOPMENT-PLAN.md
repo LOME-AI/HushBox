@@ -518,7 +518,7 @@ Select email client based on environment
 1. Create Helcim account at https://helcim.com
 2. Complete business verification
 3. Generate API tokens
-4. Add `HELCIM_API_KEY` to `.env.local`
+4. Add `HELCIM_API_KEY` to Github secrets
 5. Configure webhook URL in Helcim dashboard
 
 ---
