@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { createAuth } from './index.js';
 import { createDb } from '@lome-chat/db';
 import { createMockEmailClient } from '../services/email/index.js';
-import type { EmailClient } from '../services/email/types.js';
+import type { EmailClient, EmailOptions } from '../services/email/types.js';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
 if (!DATABASE_URL) {
@@ -194,5 +194,118 @@ describe('auth config structure', () => {
         .requireEmailVerification
     ).toBe(true);
     expect((options['emailAndPassword'] as { enabled?: boolean }).enabled).toBe(true);
+  });
+
+  it('emailVerification is configured with autoSignInAfterVerification', () => {
+    const mockEmailClient: EmailClient = {
+      sendEmail: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const db = createDb({ connectionString: 'postgresql://fake' });
+    const auth = createAuth({
+      db,
+      emailClient: mockEmailClient,
+      baseUrl: 'http://localhost:8787',
+      secret: 'test-secret-key-at-least-32-chars',
+      frontendUrl: 'http://localhost:5173',
+    });
+
+    const options = (auth as unknown as { options: Record<string, unknown> }).options;
+
+    expect(options['emailVerification']).toBeDefined();
+    expect(
+      (options['emailVerification'] as { autoSignInAfterVerification?: boolean })
+        .autoSignInAfterVerification
+    ).toBe(true);
+  });
+});
+
+describe('sendVerificationEmail callbackURL rewrite', () => {
+  it('rewrites relative callbackURL to absolute frontend URL', async () => {
+    const sendEmailSpy = vi.fn().mockResolvedValue(undefined);
+    const mockEmailClient: EmailClient = {
+      sendEmail: sendEmailSpy,
+    };
+
+    const db = createDb({ connectionString: 'postgresql://fake' });
+    const auth = createAuth({
+      db,
+      emailClient: mockEmailClient,
+      baseUrl: 'https://api.lome-chat.com',
+      secret: 'test-secret-key-at-least-32-chars',
+      frontendUrl: 'https://lome-chat.com',
+    });
+
+    // Get the sendVerificationEmail callback from the auth options
+    const options = (auth as unknown as { options: Record<string, unknown> }).options;
+    const emailVerification = options['emailVerification'] as {
+      sendVerificationEmail: (params: { user: { email: string }; url: string }) => Promise<void>;
+    };
+
+    // Simulate Better Auth calling sendVerificationEmail with a relative callbackURL
+    const verificationUrl =
+      'https://api.lome-chat.com/api/auth/verify-email?token=abc123&callbackURL=%2F';
+
+    await emailVerification.sendVerificationEmail({
+      user: { email: 'test@example.com' },
+      url: verificationUrl,
+    });
+
+    // Verify sendEmail was called
+    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+
+    // Get the HTML that was sent
+    const emailArgs = sendEmailSpy.mock.calls[0]?.[0] as EmailOptions | undefined;
+    if (!emailArgs) {
+      throw new Error('Expected sendEmail to be called with arguments');
+    }
+    const html = emailArgs.html;
+
+    // The callbackURL in the email link should be rewritten to absolute frontend URL
+    // Before: callbackURL=%2F (relative /)
+    // After: callbackURL=https%3A%2F%2Flome-chat.com%2F (absolute https://lome-chat.com/)
+    expect(html).toContain('callbackURL=https%3A%2F%2Flome-chat.com%2F');
+    expect(html).not.toContain('callbackURL=%2F');
+  });
+
+  it('preserves absolute callbackURL unchanged', async () => {
+    const sendEmailSpy = vi.fn().mockResolvedValue(undefined);
+    const mockEmailClient: EmailClient = {
+      sendEmail: sendEmailSpy,
+    };
+
+    const db = createDb({ connectionString: 'postgresql://fake' });
+    const auth = createAuth({
+      db,
+      emailClient: mockEmailClient,
+      baseUrl: 'https://api.lome-chat.com',
+      secret: 'test-secret-key-at-least-32-chars',
+      frontendUrl: 'https://lome-chat.com',
+    });
+
+    const options = (auth as unknown as { options: Record<string, unknown> }).options;
+    const emailVerification = options['emailVerification'] as {
+      sendVerificationEmail: (params: { user: { email: string }; url: string }) => Promise<void>;
+    };
+
+    // URL already has absolute callbackURL
+    const verificationUrl =
+      'https://api.lome-chat.com/api/auth/verify-email?token=abc123&callbackURL=https%3A%2F%2Fother-site.com%2F';
+
+    await emailVerification.sendVerificationEmail({
+      user: { email: 'test@example.com' },
+      url: verificationUrl,
+    });
+
+    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+
+    const emailArgs = sendEmailSpy.mock.calls[0]?.[0] as EmailOptions | undefined;
+    if (!emailArgs) {
+      throw new Error('Expected sendEmail to be called with arguments');
+    }
+    const html = emailArgs.html;
+
+    // Absolute URL should be preserved
+    expect(html).toContain('callbackURL=https%3A%2F%2Fother-site.com%2F');
   });
 });

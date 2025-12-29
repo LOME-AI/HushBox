@@ -21,6 +21,7 @@ export function createResendEmailClient(apiKey: string): EmailClient {
           to: options.to,
           subject: options.subject,
           html: options.html,
+          ...(options.text && { text: options.text }),
         }),
       });
 

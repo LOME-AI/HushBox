@@ -118,4 +118,29 @@ describe('createResendEmailClient', () => {
 
     await expect(client.sendEmail(testEmail)).rejects.toThrow('Network error');
   });
+
+  it('includes text field when provided', async () => {
+    const client = createResendEmailClient('re_test_key');
+
+    await client.sendEmail({
+      ...testEmail,
+      text: 'Plain text version',
+    });
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string) as { text?: string };
+
+    expect(body.text).toBe('Plain text version');
+  });
+
+  it('omits text field when not provided', async () => {
+    const client = createResendEmailClient('re_test_key');
+
+    await client.sendEmail(testEmail);
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string) as { text?: string };
+
+    expect(body.text).toBeUndefined();
+  });
 });

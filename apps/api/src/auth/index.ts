@@ -3,6 +3,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import * as schema from '@lome-chat/db';
 import type { Database } from '@lome-chat/db';
 import type { EmailClient } from '../services/email/index.js';
+import { verificationEmail } from '../services/email/templates/index.js';
 
 export interface AuthConfig {
   db: Database;
@@ -28,15 +29,32 @@ export function createAuth(config: AuthConfig): ReturnType<typeof betterAuth> {
       },
     }),
     emailVerification: {
-      sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string }) => {
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({
+        user,
+        url,
+      }: {
+        user: { email: string; name?: string };
+        url: string;
+      }) => {
+        // Rewrite relative callbackURL to absolute frontend URL
+        // Better Auth uses baseURL for redirects, but we need to redirect to the frontend
+        const verifyUrl = new URL(url);
+        const callbackUrl = verifyUrl.searchParams.get('callbackURL');
+        if (callbackUrl && !callbackUrl.startsWith('http')) {
+          verifyUrl.searchParams.set('callbackURL', config.frontendUrl + callbackUrl);
+        }
+
+        const emailContent = verificationEmail({
+          userName: user.name,
+          verificationUrl: verifyUrl.toString(),
+        });
+
         await config.emailClient.sendEmail({
           to: user.email,
           subject: 'Verify your email address',
-          html: `
-            <h1>Welcome to LOME-CHAT</h1>
-            <p>Click the link below to verify your email address:</p>
-            <a href="${url}">Verify Email</a>
-          `,
+          html: emailContent.html,
+          text: emailContent.text,
         });
       },
     },

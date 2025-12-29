@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import type { EmailOptions } from './types.js';
 import { createConsoleEmailClient } from './console.js';
+import * as childProcess from 'child_process';
+
+// Mock child_process.exec
+vi.mock('child_process', () => ({
+  exec: vi.fn(),
+}));
 
 describe('createConsoleEmailClient', () => {
   const testEmail: EmailOptions = {
@@ -15,6 +21,7 @@ describe('createConsoleEmailClient', () => {
     consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined) as Mock<
       (message?: unknown, ...optionalParams: unknown[]) => void
     >;
+    vi.mocked(childProcess.exec).mockClear();
   });
 
   afterEach(() => {
@@ -45,5 +52,28 @@ describe('createConsoleEmailClient', () => {
 
     const logOutput = (consoleSpy.mock.calls as unknown[][]).flat().join(' ');
     expect(logOutput).toContain('<p>Test body</p>');
+  });
+
+  it('auto-opens verification links in browser', async () => {
+    const client = createConsoleEmailClient();
+    const verificationEmail: EmailOptions = {
+      to: 'user@example.com',
+      subject: 'Verify your email',
+      html: '<a href="http://localhost:8787/api/auth/verify-email?token=abc123">Verify</a>',
+    };
+
+    await client.sendEmail(verificationEmail);
+
+    expect(childProcess.exec).toHaveBeenCalledTimes(1);
+    const execCall = vi.mocked(childProcess.exec).mock.calls[0]?.[0];
+    expect(execCall).toContain('http://localhost:8787/api/auth/verify-email?token=abc123');
+  });
+
+  it('does not auto-open for non-verification emails', async () => {
+    const client = createConsoleEmailClient();
+
+    await client.sendEmail(testEmail);
+
+    expect(childProcess.exec).not.toHaveBeenCalled();
   });
 });

@@ -1,3 +1,4 @@
+import { exec } from 'child_process';
 import type { EmailClient, EmailOptions } from './types.js';
 
 export function createConsoleEmailClient(): EmailClient {
@@ -12,6 +13,20 @@ export function createConsoleEmailClient(): EmailClient {
       console.log('--- HTML Content ---');
       console.log(options.html);
       console.log('==================');
+
+      const urlMatch = /href="([^"]*verify-email[^"]*)"/.exec(options.html);
+      if (urlMatch?.[1]) {
+        const url = urlMatch[1];
+        console.log(`\n🔗 Opening verification link in browser...`);
+        const cmd =
+          process.platform === 'darwin'
+            ? 'open'
+            : process.platform === 'win32'
+              ? 'start'
+              : 'xdg-open';
+        exec(`${cmd} "${url}"`);
+      }
+
       return Promise.resolve();
     },
   };
