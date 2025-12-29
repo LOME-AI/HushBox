@@ -9,17 +9,6 @@ compatibility_flags = ["nodejs_compat"]
 [dev]
 port = 8787
 local_protocol = "http"
-[vars]
-NODE_ENV = "production"
-BETTER_AUTH_URL = "https://api.lome-chat.com"
-FRONTEND_URL = "https://lome-chat.com"
-
-# Secrets deployed via CI (GitHub Secrets → wrangler secret put):
-# - DATABASE_URL
-# - BETTER_AUTH_SECRET
-# - RESEND_API_KEY
-# - OPENROUTER_API_KEY
-
 [observability]
 enabled = true
 
@@ -30,3 +19,13 @@ invocation_logs = true
 
 [limits]
 cpu_ms = 30000
+[vars]
+NODE_ENV = "production"
+BETTER_AUTH_URL = "https://api.lome-chat.com"
+FRONTEND_URL = "https://lome-chat.com"
+
+# Secrets deployed via CI (GitHub Secrets → wrangler secret put):
+# - DATABASE_URL
+# - BETTER_AUTH_SECRET
+# - RESEND_API_KEY
+# - OPENROUTER_API_KEY

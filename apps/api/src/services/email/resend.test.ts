@@ -1,0 +1,121 @@
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import type { EmailOptions } from './types.js';
+import { createResendEmailClient } from './resend.js';
+
+describe('createResendEmailClient', () => {
+  const testEmail: EmailOptions = {
+    to: 'user@example.com',
+    subject: 'Test Subject',
+    html: '<p>Test body</p>',
+  };
+
+  const originalFetch = globalThis.fetch;
+  let fetchMock: Mock<typeof fetch>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ id: 'email_123' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    ) as Mock<typeof fetch>;
+    globalThis.fetch = fetchMock;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('returns an EmailClient', () => {
+    const client = createResendEmailClient('re_test_key');
+
+    expect(typeof client.sendEmail === 'function').toBe(true);
+  });
+
+  it('calls Resend API with correct endpoint', async () => {
+    const client = createResendEmailClient('re_test_key');
+
+    await client.sendEmail(testEmail);
+
+    expect(fetchMock).toHaveBeenCalledWith('https://api.resend.com/emails', expect.any(Object));
+  });
+
+  it('includes Authorization header with API key', async () => {
+    const client = createResendEmailClient('re_my_api_key');
+
+    await client.sendEmail(testEmail);
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((options.headers as Record<string, string>)['Authorization']).toBe(
+      'Bearer re_my_api_key'
+    );
+  });
+
+  it('sends email data in request body', async () => {
+    const client = createResendEmailClient('re_test_key');
+
+    await client.sendEmail(testEmail);
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string) as {
+      from: string;
+      to: string;
+      subject: string;
+      html: string;
+    };
+
+    expect(body.to).toBe('user@example.com');
+    expect(body.subject).toBe('Test Subject');
+    expect(body.html).toBe('<p>Test body</p>');
+  });
+
+  it('uses default from address', async () => {
+    const client = createResendEmailClient('re_test_key');
+
+    await client.sendEmail(testEmail);
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string) as { from: string };
+
+    expect(body.from).toBe('LOME-CHAT <noreply@mail.lome-chat.com>');
+  });
+
+  it('allows custom from address', async () => {
+    const client = createResendEmailClient('re_test_key');
+
+    await client.sendEmail({
+      ...testEmail,
+      from: 'Custom <custom@example.com>',
+    });
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string) as { from: string };
+
+    expect(body.from).toBe('Custom <custom@example.com>');
+  });
+
+  it('throws on API error response', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ message: 'Invalid API key' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const client = createResendEmailClient('invalid_key');
+
+    await expect(client.sendEmail(testEmail)).rejects.toThrow(
+      'Failed to send email: Invalid API key'
+    );
+  });
+
+  it('throws on network error', async () => {
+    fetchMock.mockRejectedValue(new Error('Network error'));
+
+    const client = createResendEmailClient('re_test_key');
+
+    await expect(client.sendEmail(testEmail)).rejects.toThrow('Network error');
+  });
+});

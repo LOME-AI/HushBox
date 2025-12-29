@@ -27,9 +27,7 @@ export function createAuth(config: AuthConfig): ReturnType<typeof betterAuth> {
         verification: schema.verifications,
       },
     }),
-    emailAndPassword: {
-      enabled: true,
-      requireEmailVerification: true,
+    emailVerification: {
       sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string }) => {
         await config.emailClient.sendEmail({
           to: user.email,
@@ -41,6 +39,10 @@ export function createAuth(config: AuthConfig): ReturnType<typeof betterAuth> {
           `,
         });
       },
+    },
+    emailAndPassword: {
+      enabled: true,
+      requireEmailVerification: true,
     },
   });
 }
