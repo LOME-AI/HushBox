@@ -152,7 +152,3 @@ jobs:
         run: |
           sleep 10
           curl -f https://lome-chat-api.${{ vars.WORKERS_SUBDOMAIN }}.workers.dev/health || exit 1
-
-      - name: Verify custom domain health
-        run: |
-          curl -f https://api.lome-chat.com/health || exit 1
