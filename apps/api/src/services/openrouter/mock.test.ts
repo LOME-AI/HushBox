@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createMockOpenRouterClient } from '../mock.js';
-import type { ChatCompletionRequest, MockOpenRouterClient } from '../types.js';
+import { createMockOpenRouterClient } from './mock.js';
+import type { ChatCompletionRequest, MockOpenRouterClient } from './types.js';
 
 describe('createMockOpenRouterClient', () => {
   let client: MockOpenRouterClient;

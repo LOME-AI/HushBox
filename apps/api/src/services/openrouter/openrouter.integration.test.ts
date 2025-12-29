@@ -1,17 +1,20 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { createOpenRouterClient, clearModelCache } from '../openrouter.js';
-import type { OpenRouterClient } from '../types.js';
+import { createOpenRouterClient, clearModelCache } from './openrouter.js';
+import type { OpenRouterClient } from './types.js';
 
 /**
  * Integration tests for OpenRouter API.
  * These tests call the real OpenRouter API and require OPENROUTER_API_KEY to be set.
- * They are skipped in local development and run in CI where the secret is available.
+ * They are skipped locally and only run in CI with "pr test" command.
+ * See TECH-STACK.md: "Real API calls only run in CI when a LOME team member comments 'pr test'."
  */
 
 // Fallback model if dynamic selection fails
 const FALLBACK_MODEL = 'meta-llama/llama-3.1-8b-instruct';
 
-describe.skipIf(!process.env['OPENROUTER_API_KEY'])('OpenRouter Integration', () => {
+const hasApiKey = Boolean(process.env['OPENROUTER_API_KEY']);
+
+describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
   let client: OpenRouterClient;
   let testModel: string = FALLBACK_MODEL;
 
@@ -19,7 +22,9 @@ describe.skipIf(!process.env['OPENROUTER_API_KEY'])('OpenRouter Integration', ()
     // Clear cache to ensure fresh model list
     clearModelCache();
     const apiKey = process.env['OPENROUTER_API_KEY'];
-    if (!apiKey) throw new Error('OPENROUTER_API_KEY required for integration tests');
+    if (!apiKey) {
+      throw new Error('OPENROUTER_API_KEY is required - this should not happen due to skipIf');
+    }
     client = createOpenRouterClient(apiKey);
 
     // Dynamically select a cheap model that's currently available

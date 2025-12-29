@@ -2,8 +2,10 @@ import { describe, it, expect, beforeAll } from 'vitest';
 
 import { createDb, LOCAL_NEON_DEV_CONFIG, type Database } from './client';
 
-const DATABASE_URL =
-  process.env['DATABASE_URL'] ?? 'postgres://postgres:postgres@localhost:4444/lome_chat';
+const DATABASE_URL = process.env['DATABASE_URL'];
+if (!DATABASE_URL) {
+  throw new Error('DATABASE_URL environment variable is required for tests');
+}
 
 describe('LOCAL_NEON_DEV_CONFIG', () => {
   it('has correct wsProxy function with string port', () => {

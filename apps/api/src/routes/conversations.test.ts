@@ -69,9 +69,13 @@ interface CreateMessageResponse {
   message: Message;
 }
 
+const DATABASE_URL = process.env['DATABASE_URL'];
+if (!DATABASE_URL) {
+  throw new Error('DATABASE_URL environment variable is required for tests');
+}
+
 describe('conversations routes', () => {
-  const connectionString =
-    process.env['DATABASE_URL'] ?? 'postgres://postgres:postgres@localhost:4444/lome_chat';
+  const connectionString = DATABASE_URL;
   let db: ReturnType<typeof createDb>;
   let app: Hono<AppEnv>;
   let testUserId: string;

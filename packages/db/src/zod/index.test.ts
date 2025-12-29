@@ -9,7 +9,7 @@ import {
   selectMessageSchema,
   selectProjectSchema,
   selectUserSchema,
-} from '../zod/index';
+} from './index';
 
 describe('insertUserSchema', () => {
   it('accepts valid user data', () => {

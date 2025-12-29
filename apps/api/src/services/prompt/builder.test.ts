@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { buildPrompt } from '../builder.js';
+import { buildPrompt } from './builder.js';
 import type { CapabilityId } from '@lome-chat/shared';
 
 describe('buildPrompt', () => {

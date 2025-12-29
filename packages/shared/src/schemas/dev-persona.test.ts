@@ -3,7 +3,7 @@ import {
   devPersonaStatsSchema,
   devPersonaSchema,
   devPersonasResponseSchema,
-} from '../schemas/dev-persona.js';
+} from './dev-persona.js';
 
 describe('devPersonaStatsSchema', () => {
   it('validates complete stats object', () => {

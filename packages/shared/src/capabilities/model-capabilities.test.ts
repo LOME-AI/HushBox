@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { getModelCapabilities, modelSupportsCapability } from '../model-capabilities.js';
-import type { Model } from '../../schemas/api/models.js';
+import { getModelCapabilities, modelSupportsCapability } from './model-capabilities.js';
+import type { Model } from '../schemas/api/models.js';
 
 describe('getModelCapabilities', () => {
   it('returns only capabilities with no requirements for model with no supported parameters', () => {

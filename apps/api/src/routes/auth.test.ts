@@ -5,8 +5,13 @@ import { createAuth } from '../auth/index.js';
 import { createDb } from '@lome-chat/db';
 import { createMockEmailClient } from '../services/email/index.js';
 
+const DATABASE_URL = process.env['DATABASE_URL'];
+if (!DATABASE_URL) {
+  throw new Error('DATABASE_URL environment variable is required for tests');
+}
+
 describe('auth routes', () => {
-  const connectionString = process.env['DATABASE_URL'] ?? '';
+  const connectionString = DATABASE_URL;
   let db: ReturnType<typeof createDb>;
   let app: Hono;
 

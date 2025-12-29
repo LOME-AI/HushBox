@@ -7,7 +7,7 @@ import {
   STRONGEST_MODEL_ID,
   VALUE_MODEL_ID,
   LOME_FEE_RATE,
-} from '../constants.js';
+} from './constants.js';
 
 describe('MESSAGE_ROLES', () => {
   it('contains user, assistant, and system roles', () => {

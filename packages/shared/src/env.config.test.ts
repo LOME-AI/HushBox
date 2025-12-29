@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { envConfig, envSchema, frontendEnvSchema } from '../env.config.js';
+import { envConfig, envSchema, frontendEnvSchema } from './env.config.js';
 
 describe('envConfig', () => {
   describe('structure', () => {

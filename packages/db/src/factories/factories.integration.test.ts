@@ -5,8 +5,10 @@ import { createDb, LOCAL_NEON_DEV_CONFIG, type Database } from '../client';
 import { users, conversations, messages, projects } from '../schema/index';
 import { userFactory, projectFactory, conversationFactory, messageFactory } from './index';
 
-const DATABASE_URL =
-  process.env['DATABASE_URL'] ?? 'postgres://postgres:postgres@localhost:4444/lome_chat';
+const DATABASE_URL = process.env['DATABASE_URL'];
+if (!DATABASE_URL) {
+  throw new Error('DATABASE_URL environment variable is required for integration tests');
+}
 
 describe('factory integration', () => {
   let db: Database;

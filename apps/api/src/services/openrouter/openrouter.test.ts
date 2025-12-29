@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi, afterEach, type Mock } from 'vitest';
-import { createOpenRouterClient, clearModelCache } from '../openrouter.js';
+import { createOpenRouterClient, clearModelCache } from './openrouter.js';
 import type {
   OpenRouterClient,
   ChatCompletionRequest,
   ChatCompletionResponse,
   ModelInfo,
-} from '../types.js';
+} from './types.js';
 
 interface MockFetchResponse {
   ok: boolean;
