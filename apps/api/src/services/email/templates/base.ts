@@ -3,7 +3,7 @@ const COLORS = {
   card: '#171717',
   textPrimary: '#fafafa',
   textSecondary: '#a1a1aa',
-  accent: '#3b82f6',
+  accent: '#ec4755',
   border: '#27272a',
 } as const;
 

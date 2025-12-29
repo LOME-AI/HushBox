@@ -62,5 +62,15 @@ export function createAuth(config: AuthConfig): ReturnType<typeof betterAuth> {
       enabled: true,
       requireEmailVerification: true,
     },
+    advanced: {
+      crossSubDomainCookies: {
+        enabled: true,
+        domain: '.lome-chat.com',
+      },
+      defaultCookieAttributes: {
+        sameSite: 'none',
+        secure: true,
+      },
+    },
   });
 }

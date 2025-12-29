@@ -9,6 +9,9 @@ const env = frontendEnvSchema.parse({
 
 export const authClient = createAuthClient({
   baseURL: env.VITE_API_URL,
+  fetchOptions: {
+    credentials: 'include',
+  },
 });
 
 export const { useSession, signIn, signUp, signOut } = authClient;

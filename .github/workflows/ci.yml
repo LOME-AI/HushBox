@@ -82,7 +82,7 @@ jobs:
       - name: Build
         run: pnpm build
         env:
-          VITE_API_URL: https://lome-chat-api.${{ vars.WORKERS_SUBDOMAIN }}.workers.dev
+          VITE_API_URL: https://api.lome-chat.com
 
       - name: Upload web build artifact
         uses: actions/upload-artifact@v4
