@@ -58,7 +58,7 @@ port = 8787
       expect(content).toContain('BETTER_AUTH_URL=http://localhost:8787');
     });
 
-    it('includes all secrets with development values', () => {
+    it('includes secrets with development values', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, '.env.development'), 'utf-8');
@@ -66,7 +66,14 @@ port = 8787
         'DATABASE_URL=postgres://postgres:postgres@localhost:4444/lome_chat'
       );
       expect(content).toContain('BETTER_AUTH_SECRET=');
-      expect(content).toContain('RESEND_API_KEY=');
+    });
+
+    it('does not include prodOnlySecrets', () => {
+      generateEnvFiles(TEST_DIR);
+
+      const content = readFileSync(join(TEST_DIR, '.env.development'), 'utf-8');
+      expect(content).not.toContain('RESEND_API_KEY');
+      expect(content).not.toContain('OPENROUTER_API_KEY');
     });
 
     it('includes all frontend vars with development values', () => {
@@ -109,7 +116,14 @@ port = 8787
       expect(content).toContain('DATABASE_URL=');
       expect(content).toContain('BETTER_AUTH_URL=');
       expect(content).toContain('BETTER_AUTH_SECRET=');
-      // RESEND_API_KEY is empty in dev, so it may or may not be included
+    });
+
+    it('does not include prodOnlySecrets', () => {
+      generateEnvFiles(TEST_DIR);
+
+      const content = readFileSync(join(TEST_DIR, 'apps/api/.dev.vars'), 'utf-8');
+      expect(content).not.toContain('RESEND_API_KEY');
+      expect(content).not.toContain('OPENROUTER_API_KEY');
     });
 
     it('does not include VITE_ vars (frontend only)', () => {
@@ -143,14 +157,17 @@ port = 8787
       expect(content).toContain('BETTER_AUTH_URL = "https://api.lome-chat.com"');
     });
 
-    it('includes comments about secrets', () => {
+    it('includes comments about secrets and prodOnlySecrets', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, 'apps/api/wrangler.toml'), 'utf-8');
       expect(content).toContain('Secrets deployed via CI');
+      // Regular secrets
       expect(content).toContain('DATABASE_URL');
       expect(content).toContain('BETTER_AUTH_SECRET');
+      // Production-only secrets
       expect(content).toContain('RESEND_API_KEY');
+      expect(content).toContain('OPENROUTER_API_KEY');
     });
 
     it('does not include localOnly vars in secrets comment', () => {

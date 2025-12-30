@@ -34,15 +34,15 @@ export const envConfig = {
       development: 'dev-secret-minimum-32-characters-long',
       production: null, // Set via GitHub Secrets → wrangler secret put
     },
-    RESEND_API_KEY: {
-      development: '', // Empty = use console email client
-      production: null, // Set via GitHub Secrets → wrangler secret put
-    },
-    OPENROUTER_API_KEY: {
-      development: '', // Empty = use mock OpenRouter client
-      production: null, // Set via GitHub Secrets → wrangler secret put
-    },
   },
+
+  // Production-only secrets - not written to .env.development or .dev.vars
+  // Code handles missing values by using mocks/fallbacks in development
+  // Set via GitHub Secrets → wrangler secret put in CI
+  prodOnlySecrets: [
+    'RESEND_API_KEY', // Empty = use console email client
+    'OPENROUTER_API_KEY', // Empty = use mock OpenRouter client
+  ],
 
   // Local-only variables (only in .env.development, not deployed to production)
   localOnly: {
@@ -58,15 +58,8 @@ export const envConfig = {
   },
 
   // Which vars the Worker needs (subset for .dev.vars)
-  workerVars: [
-    'NODE_ENV',
-    'DATABASE_URL',
-    'BETTER_AUTH_URL',
-    'BETTER_AUTH_SECRET',
-    'RESEND_API_KEY',
-    'OPENROUTER_API_KEY',
-    'FRONTEND_URL',
-  ],
+  // Note: prodOnlySecrets are excluded - they're only available in production via wrangler secret
+  workerVars: ['NODE_ENV', 'DATABASE_URL', 'BETTER_AUTH_URL', 'BETTER_AUTH_SECRET', 'FRONTEND_URL'],
 } as const;
 
 // Zod schema for runtime validation

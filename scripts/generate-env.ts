@@ -93,6 +93,9 @@ function updateWranglerToml(rootDir: string): void {
   for (const key of Object.keys(envConfig.secrets)) {
     varsLines.push(`# - ${key}`);
   }
+  for (const key of envConfig.prodOnlySecrets) {
+    varsLines.push(`# - ${key}`);
+  }
 
   writeFileSync(tomlPath, content.trimEnd() + varsLines.join('\n') + '\n');
   console.log('  Updated apps/api/wrangler.toml [vars]');

@@ -33,10 +33,10 @@ describe('envConfig', () => {
       expect(envConfig.secrets.BETTER_AUTH_SECRET.production).toBeNull();
     });
 
-    it('has secrets section with RESEND_API_KEY', () => {
-      expect(envConfig.secrets.RESEND_API_KEY).toBeDefined();
-      expect(envConfig.secrets.RESEND_API_KEY.development).toBe('');
-      expect(envConfig.secrets.RESEND_API_KEY.production).toBeNull();
+    it('has prodOnlySecrets array with optional API keys', () => {
+      expect(envConfig.prodOnlySecrets).toBeDefined();
+      expect(envConfig.prodOnlySecrets).toContain('RESEND_API_KEY');
+      expect(envConfig.prodOnlySecrets).toContain('OPENROUTER_API_KEY');
     });
 
     it('has frontend section with VITE_API_URL', () => {
@@ -50,8 +50,12 @@ describe('envConfig', () => {
       expect(envConfig.workerVars).toContain('DATABASE_URL');
       expect(envConfig.workerVars).toContain('BETTER_AUTH_URL');
       expect(envConfig.workerVars).toContain('BETTER_AUTH_SECRET');
-      expect(envConfig.workerVars).toContain('RESEND_API_KEY');
       expect(envConfig.workerVars).toContain('FRONTEND_URL');
+    });
+
+    it('workerVars does not include prodOnlySecrets', () => {
+      expect(envConfig.workerVars).not.toContain('RESEND_API_KEY');
+      expect(envConfig.workerVars).not.toContain('OPENROUTER_API_KEY');
     });
 
     it('has localOnly section with MIGRATION_DATABASE_URL', () => {
