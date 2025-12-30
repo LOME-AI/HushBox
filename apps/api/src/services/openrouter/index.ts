@@ -10,4 +10,4 @@ export type {
 } from './types.js';
 
 export { createMockOpenRouterClient } from './mock.js';
-export { createOpenRouterClient, clearModelCache } from './openrouter.js';
+export { createOpenRouterClient, clearModelCache, fetchModels, getModel } from './openrouter.js';

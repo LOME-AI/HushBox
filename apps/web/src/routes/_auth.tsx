@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Outlet, createFileRoute, redirect } from '@tanstack/react-router';
 import { authClient } from '@/lib/auth';
+import { ThemeToggle } from '@/components/shared/theme-toggle';
 
 export const Route = createFileRoute('/_auth')({
   beforeLoad: async () => {
@@ -18,7 +19,11 @@ export function AuthLayout(): React.JSX.Element {
   return (
     <div data-testid="auth-layout" className="bg-background flex min-h-screen">
       {/* Left: Form area */}
-      <div className="flex flex-1 flex-col justify-center px-8 lg:px-16">
+      <div className="relative flex flex-1 flex-col justify-center px-8 lg:px-16">
+        {/* Theme toggle in top-right corner */}
+        <div className="absolute top-4 right-4">
+          <ThemeToggle />
+        </div>
         <div className="mx-auto w-full max-w-md">
           {/* Decorative FlowerBox image above form */}
           <div className="mb-6 flex justify-center">

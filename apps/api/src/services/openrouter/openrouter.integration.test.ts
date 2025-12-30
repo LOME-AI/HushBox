@@ -5,14 +5,22 @@ import type { OpenRouterClient } from './types.js';
 /**
  * Integration tests for OpenRouter API.
  * These tests call the real OpenRouter API and require OPENROUTER_API_KEY to be set.
- * They are skipped locally and only run in CI with "pr test" command.
- * See TECH-STACK.md: "Real API calls only run in CI when a LOME team member comments 'pr test'."
+ *
+ * - Local dev: Tests skip gracefully (no API key needed)
+ * - CI: Tests fail if API key is missing (ensures real API calls are tested)
  */
 
 // Fallback model if dynamic selection fails
 const FALLBACK_MODEL = 'meta-llama/llama-3.1-8b-instruct';
 
 const hasApiKey = Boolean(process.env['OPENROUTER_API_KEY']);
+const isCI = Boolean(process.env['CI']);
+
+if (isCI && !hasApiKey) {
+  throw new Error(
+    'OPENROUTER_API_KEY is required in CI. Ensure the secret is set in GitHub Actions.'
+  );
+}
 
 describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
   let client: OpenRouterClient;

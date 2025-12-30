@@ -78,7 +78,7 @@ export function PasswordStrength({ password }: PasswordStrengthProps): React.JSX
             />
           ))}
         </div>
-        <p className="text-muted text-xs">{getStrengthLabel(strength)}</p>
+        <p className="text-muted-foreground text-xs">{getStrengthLabel(strength)}</p>
       </div>
     </div>
   );

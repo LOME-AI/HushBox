@@ -170,7 +170,6 @@ describe('createMockOpenRouterClient', () => {
         tokens.push(token);
       }
 
-      // Should stream "Echo: Hi" character by character
       expect(tokens.join('')).toBe('Echo: Hi');
       expect(tokens.length).toBe('Echo: Hi'.length);
     });
@@ -195,7 +194,6 @@ describe('createMockOpenRouterClient', () => {
         messages: [{ role: 'user', content: 'Stream test' }],
       };
 
-      // Consume the stream
       const tokens: string[] = [];
       for await (const token of client.chatCompletionStream(request)) {
         tokens.push(token);
@@ -224,7 +222,6 @@ describe('createMockOpenRouterClient', () => {
       const tokens: string[] = [];
       for await (const token of client.chatCompletionStream(request)) {
         tokens.push(token);
-        // Each token should be a single character
         expect(token.length).toBe(1);
       }
 
@@ -232,46 +229,13 @@ describe('createMockOpenRouterClient', () => {
     });
   });
 
-  describe('listModels', () => {
-    it('returns mock model list', async () => {
-      const models = await client.listModels();
-      const firstModel = models[0];
-
-      expect(models.length).toBeGreaterThan(0);
-      expect(firstModel).toBeDefined();
-      if (firstModel) {
-        expect(firstModel).toHaveProperty('id');
-        expect(firstModel).toHaveProperty('name');
-        expect(firstModel).toHaveProperty('description');
-        expect(firstModel).toHaveProperty('context_length');
-        expect(firstModel).toHaveProperty('pricing');
-        expect(firstModel).toHaveProperty('supported_parameters');
-      }
+  describe('listModels and getModel', () => {
+    it('throws not implemented error for listModels', () => {
+      expect(() => client.listModels()).toThrow('Not implemented');
     });
 
-    it('includes models with tools support', async () => {
-      const models = await client.listModels();
-      const gpt4 = models.find((m) => m.id === 'openai/gpt-4-turbo');
-
-      expect(gpt4).toBeDefined();
-      if (gpt4) {
-        expect(gpt4.supported_parameters).toContain('tools');
-      }
-    });
-  });
-
-  describe('getModel', () => {
-    it('returns specific model by ID', async () => {
-      const model = await client.getModel('openai/gpt-4-turbo');
-
-      expect(model.id).toBe('openai/gpt-4-turbo');
-      expect(model.name).toBe('GPT-4 Turbo');
-    });
-
-    it('throws for unknown model', async () => {
-      await expect(client.getModel('unknown/model')).rejects.toThrow(
-        'Model not found: unknown/model'
-      );
+    it('throws not implemented error for getModel', () => {
+      expect(() => client.getModel('any-model')).toThrow('Not implemented');
     });
   });
 });

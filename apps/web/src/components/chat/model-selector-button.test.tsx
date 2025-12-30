@@ -84,7 +84,7 @@ describe('ModelSelectorButton', () => {
       expect(screen.queryByPlaceholderText('Search models')).not.toBeInTheDocument();
     });
 
-    expect(onSelect).toHaveBeenCalledWith('anthropic/claude-3.5-sonnet');
+    expect(onSelect).toHaveBeenCalledWith('anthropic/claude-3.5-sonnet', 'Claude 3.5 Sonnet');
   });
 
   it('is disabled when disabled prop is true', () => {

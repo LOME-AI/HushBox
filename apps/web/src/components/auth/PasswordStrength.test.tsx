@@ -53,4 +53,10 @@ describe('PasswordStrength', () => {
     render(<PasswordStrength password="password" />);
     expect(screen.getAllByTestId('strength-segment')).toHaveLength(3);
   });
+
+  it('uses accessible text contrast for strength label', () => {
+    render(<PasswordStrength password="test" />);
+    const label = screen.getByText(/weak/i);
+    expect(label).toHaveClass('text-muted-foreground');
+  });
 });

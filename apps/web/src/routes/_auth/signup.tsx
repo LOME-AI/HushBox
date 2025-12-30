@@ -184,7 +184,7 @@ export function SignupPage(): React.JSX.Element {
           </li>
           <li className="flex items-center gap-3">
             <span className="text-primary text-lg">✓</span>
-            Your data stays yours
+            Privacy by design
           </li>
         </ul>
       </div>

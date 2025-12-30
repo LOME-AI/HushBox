@@ -143,7 +143,10 @@ describe('ChatHeader', () => {
       // Double-click to select the model
       await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
 
-      expect(onModelSelect).toHaveBeenCalledWith('anthropic/claude-3.5-sonnet');
+      expect(onModelSelect).toHaveBeenCalledWith(
+        'anthropic/claude-3.5-sonnet',
+        'Claude 3.5 Sonnet'
+      );
     });
 
     it('centers model selector in header', () => {

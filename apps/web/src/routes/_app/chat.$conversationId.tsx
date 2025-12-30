@@ -2,7 +2,6 @@ import * as React from 'react';
 import { createFileRoute, Navigate, useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { MOCK_MODELS } from '@lome-chat/shared';
 import { ChatHeader } from '@/components/chat/chat-header';
 import { MessageList } from '@/components/chat/message-list';
 import { PromptInput } from '@/components/chat/prompt-input';
@@ -14,6 +13,8 @@ import {
   chatKeys,
 } from '@/hooks/chat';
 import { useModelStore } from '@/stores/model';
+import { useModels } from '@/hooks/models';
+import { estimateTokenCount } from '@/lib/tokens';
 import type { Message } from '@/lib/api';
 
 const searchSchema = z.object({
@@ -32,7 +33,10 @@ function ChatConversation(): React.JSX.Element {
   const isNewChat = conversationId === 'new';
   const queryClient = useQueryClient();
 
-  const { selectedModelId, setSelectedModelId } = useModelStore();
+  const { selectedModelId, selectedModelName, setSelectedModel } = useModelStore();
+
+  // Fetch available models from API
+  const { data: models = [] } = useModels();
 
   const { data: conversation, isLoading: isConversationLoading } = useConversation(
     isNewChat ? '' : conversationId
@@ -59,6 +63,16 @@ function ChatConversation(): React.JSX.Element {
     const pendingOptimistic = optimisticMessages.filter((m) => !apiMessageIds.has(m.id));
     return [...messages, ...pendingOptimistic];
   }, [apiMessages, optimisticMessages]);
+
+  // Calculate total tokens used by conversation history
+  const historyTokens = React.useMemo(() => {
+    return allMessages.reduce((total, message) => {
+      return total + estimateTokenCount(message.content);
+    }, 0);
+  }, [allMessages]);
+
+  // Get selected model for context limit
+  const selectedModel = models.find((m) => m.id === selectedModelId);
 
   React.useEffect(() => {
     if (apiMessages && apiMessages.length > 0) {
@@ -185,9 +199,10 @@ function ChatConversation(): React.JSX.Element {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <ChatHeader
-          models={MOCK_MODELS}
+          models={models}
           selectedModelId={selectedModelId}
-          onModelSelect={setSelectedModelId}
+          selectedModelName={selectedModelName}
+          onModelSelect={setSelectedModel}
         />
         <div className="flex flex-1 items-center justify-center">
           <span className="text-muted-foreground">Loading conversation...</span>
@@ -203,9 +218,10 @@ function ChatConversation(): React.JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <ChatHeader
-        models={MOCK_MODELS}
+        models={models}
         selectedModelId={selectedModelId}
-        onModelSelect={setSelectedModelId}
+        selectedModelName={selectedModelName}
+        onModelSelect={setSelectedModel}
         title={conversation.title}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
@@ -223,7 +239,8 @@ function ChatConversation(): React.JSX.Element {
           onChange={setInputValue}
           onSubmit={handleSend}
           placeholder="Type a message..."
-          maxTokens={2000}
+          modelContextLimit={selectedModel?.contextLength}
+          historyTokens={historyTokens}
           rows={3}
           disabled={sendMessage.isPending || isStreaming}
         />

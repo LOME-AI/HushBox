@@ -7,13 +7,16 @@ import type { Model } from '@lome-chat/shared';
 interface ChatHeaderProps {
   models: Model[];
   selectedModelId: string;
-  onModelSelect: (modelId: string) => void;
+  /** Fallback name to display before models load (prevents flash) */
+  selectedModelName?: string;
+  onModelSelect: (modelId: string, modelName: string) => void;
   title?: string;
 }
 
 export function ChatHeader({
   models,
   selectedModelId,
+  selectedModelName,
   onModelSelect,
   title,
 }: ChatHeaderProps): React.JSX.Element {
@@ -37,7 +40,12 @@ export function ChatHeader({
       </div>
 
       {/* Centered model selector */}
-      <ModelSelectorButton models={models} selectedId={selectedModelId} onSelect={onModelSelect} />
+      <ModelSelectorButton
+        models={models}
+        selectedId={selectedModelId}
+        selectedName={selectedModelName}
+        onSelect={onModelSelect}
+      />
 
       {/* Right side with theme toggle */}
       <div className="flex flex-1 justify-end">

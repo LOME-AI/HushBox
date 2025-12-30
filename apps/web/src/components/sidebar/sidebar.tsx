@@ -16,7 +16,7 @@ export function Sidebar(): React.JSX.Element {
         'border-sidebar-border bg-sidebar text-sidebar-foreground',
         'hidden h-full flex-col border-r md:flex',
         'overflow-hidden transition-[width] duration-200 ease-in-out',
-        sidebarOpen ? 'w-60' : 'w-12'
+        sidebarOpen ? 'w-72' : 'w-12'
       )}
     >
       <SidebarHeader />

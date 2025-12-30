@@ -7,6 +7,7 @@ import {
   STRONGEST_MODEL_ID,
   VALUE_MODEL_ID,
   LOME_FEE_RATE,
+  FEATURE_FLAGS,
 } from './constants.js';
 
 describe('MESSAGE_ROLES', () => {
@@ -43,8 +44,8 @@ describe('TEST_EMAIL_DOMAIN', () => {
 });
 
 describe('STRONGEST_MODEL_ID', () => {
-  it('is anthropic/claude-3.5-sonnet', () => {
-    expect(STRONGEST_MODEL_ID).toBe('anthropic/claude-3.5-sonnet');
+  it('is anthropic/claude-opus-4.5', () => {
+    expect(STRONGEST_MODEL_ID).toBe('anthropic/claude-opus-4.5');
   });
 
   it('follows provider/model format', () => {
@@ -53,8 +54,8 @@ describe('STRONGEST_MODEL_ID', () => {
 });
 
 describe('VALUE_MODEL_ID', () => {
-  it('is meta-llama/llama-3.1-70b-instruct', () => {
-    expect(VALUE_MODEL_ID).toBe('meta-llama/llama-3.1-70b-instruct');
+  it('is deepseek/deepseek-r1', () => {
+    expect(VALUE_MODEL_ID).toBe('deepseek/deepseek-r1');
   });
 
   it('follows provider/model format', () => {
@@ -74,5 +75,15 @@ describe('LOME_FEE_RATE', () => {
   it('is a positive number less than 1', () => {
     expect(LOME_FEE_RATE).toBeGreaterThan(0);
     expect(LOME_FEE_RATE).toBeLessThan(1);
+  });
+});
+
+describe('FEATURE_FLAGS', () => {
+  it('has PROJECTS_ENABLED flag', () => {
+    expect(FEATURE_FLAGS).toHaveProperty('PROJECTS_ENABLED');
+  });
+
+  it('has PROJECTS_ENABLED as boolean', () => {
+    expect(typeof FEATURE_FLAGS.PROJECTS_ENABLED).toBe('boolean');
   });
 });

@@ -3,3 +3,4 @@ export { authRoute } from './auth.js';
 export { createConversationsRoutes } from './conversations.js';
 export { chatRoute } from './chat.js';
 export { createDevRoute } from './dev.js';
+export { createModelsRoutes, modelsRoute } from './models.js';

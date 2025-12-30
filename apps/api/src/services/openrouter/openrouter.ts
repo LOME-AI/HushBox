@@ -19,6 +19,42 @@ export function clearModelCache(): void {
   modelCache = null;
 }
 
+/**
+ * Fetch models from OpenRouter API without authentication.
+ * The /models endpoint is public and does not require an API key.
+ * Uses shared cache with 1 hour TTL.
+ */
+export async function fetchModels(): Promise<ModelInfo[]> {
+  if (modelCache && Date.now() - modelCache.fetchedAt < MODEL_CACHE_TTL) {
+    return modelCache.models;
+  }
+
+  const response = await fetch(`${OPENROUTER_API_URL}/models`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch models');
+  }
+
+  const data: { data: ModelInfo[] } = await response.json();
+  modelCache = { models: data.data, fetchedAt: Date.now() };
+  return data.data;
+}
+
+/**
+ * Get a specific model by ID from OpenRouter API without authentication.
+ * Uses the shared model cache.
+ */
+export async function getModel(modelId: string): Promise<ModelInfo> {
+  const models = await fetchModels();
+  const model = models.find((m) => m.id === modelId);
+
+  if (!model) {
+    throw new Error(`Model not found: ${modelId}`);
+  }
+
+  return model;
+}
+
 interface OpenRouterErrorResponse {
   error?: {
     message?: string;

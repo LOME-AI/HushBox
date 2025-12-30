@@ -6,7 +6,9 @@ import { ModelSelectorModal } from './model-selector-modal';
 interface ModelSelectorButtonProps {
   models: Model[];
   selectedId: string;
-  onSelect: (modelId: string) => void;
+  /** Fallback name to display before models load (prevents flash) */
+  selectedName?: string | undefined;
+  onSelect: (modelId: string, modelName: string) => void;
   disabled?: boolean;
 }
 
@@ -17,13 +19,20 @@ interface ModelSelectorButtonProps {
 export function ModelSelectorButton({
   models,
   selectedId,
+  selectedName,
   onSelect,
   disabled = false,
 }: ModelSelectorButtonProps): React.JSX.Element {
   const [isOpen, setIsOpen] = React.useState(false);
 
   const selectedModel = models.find((m) => m.id === selectedId);
-  const displayText = selectedModel?.name ?? 'Select model';
+  // Use model from list if available, otherwise fallback to stored name
+  const displayText = selectedModel?.name ?? selectedName ?? 'Select model';
+
+  const handleSelect = (modelId: string): void => {
+    const model = models.find((m) => m.id === modelId);
+    onSelect(modelId, model?.name ?? modelId);
+  };
 
   const handleClick = (): void => {
     if (!disabled) {
@@ -49,7 +58,7 @@ export function ModelSelectorButton({
         onOpenChange={setIsOpen}
         models={models}
         selectedId={selectedId}
-        onSelect={onSelect}
+        onSelect={handleSelect}
       />
     </>
   );

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, act } from '@testing-library/react';
 import { MessageList } from './message-list';
 
 const messages = [
@@ -76,6 +76,15 @@ describe('MessageList', () => {
   });
 
   describe('streaming', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    });
+
     it('shows streaming message when isStreaming is true and streamingContent provided', () => {
       render(
         <MessageList
@@ -86,6 +95,12 @@ describe('MessageList', () => {
       );
 
       expect(screen.getByTestId('streaming-message')).toBeInTheDocument();
+
+      // Advance timers to allow typing effect to complete
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+
       expect(screen.getByText('Partial response...')).toBeInTheDocument();
     });
 

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Input, Separator } from '@lome-chat/ui';
 import { Search } from 'lucide-react';
+import { FEATURE_FLAGS } from '@lome-chat/shared';
 import { useUIStore } from '@/stores/ui';
 import { NewChatButton } from './new-chat-button';
 import { ChatList } from './chat-list';
@@ -63,11 +64,15 @@ export function SidebarContent({
         <ChatList conversations={filteredConversations} activeId={activeConversationId} />
       </div>
 
-      <Separator className="bg-sidebar-border" />
+      {FEATURE_FLAGS.PROJECTS_ENABLED && (
+        <>
+          <Separator className="bg-sidebar-border" />
 
-      <div className={sidebarOpen ? '' : 'flex justify-center'}>
-        <ProjectsLink />
-      </div>
+          <div className={sidebarOpen ? '' : 'flex justify-center'}>
+            <ProjectsLink />
+          </div>
+        </>
+      )}
     </nav>
   );
 }

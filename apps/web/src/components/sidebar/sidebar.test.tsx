@@ -22,6 +22,17 @@ import { useConversations } from '@/hooks/chat';
 
 const mockUseConversations = vi.mocked(useConversations);
 
+// Mock @lome-chat/shared with feature flags (partial mock)
+vi.mock('@lome-chat/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@lome-chat/shared')>();
+  return {
+    ...actual,
+    FEATURE_FLAGS: {
+      PROJECTS_ENABLED: false,
+    },
+  };
+});
+
 // Mock router for SidebarContent children
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
@@ -92,10 +103,10 @@ describe('Sidebar', () => {
       expect(screen.getByTestId('sidebar-footer')).toBeInTheDocument();
     });
 
-    it('has w-60 class when sidebar is open', () => {
+    it('has w-72 class when sidebar is open', () => {
       render(<Sidebar />, { wrapper: createWrapper() });
       const aside = screen.getByRole('complementary');
-      expect(aside).toHaveClass('w-60');
+      expect(aside).toHaveClass('w-72');
     });
 
     it('has w-12 class when sidebar is collapsed (rail mode)', () => {
@@ -152,9 +163,9 @@ describe('Sidebar', () => {
       expect(screen.getByText('Search')).toBeInTheDocument();
     });
 
-    it('renders ProjectsLink', () => {
+    it('hides ProjectsLink when FEATURE_FLAGS.PROJECTS_ENABLED is false', () => {
       render(<Sidebar />, { wrapper: createWrapper() });
-      expect(screen.getByText('Projects')).toBeInTheDocument();
+      expect(screen.queryByText('Projects')).not.toBeInTheDocument();
     });
   });
 

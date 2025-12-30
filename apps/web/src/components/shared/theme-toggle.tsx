@@ -178,7 +178,11 @@ export function ThemeToggle(): React.JSX.Element {
         {isDark ? (
           <DarkModeIcon data-testid="dark-mode-icon" className="h-3.5 w-3.5 text-white" />
         ) : (
-          <LightModeIcon data-testid="light-mode-icon" className="h-3.5 w-3.5 text-white" />
+          <LightModeIcon
+            data-testid="light-mode-icon"
+            className="h-3.5 w-3.5"
+            style={{ color: 'hsl(var(--primary-foreground))' }}
+          />
         )}
       </div>
 

@@ -208,7 +208,7 @@ describe('ModelSelectorModal', () => {
 
     await user.click(screen.getByRole('button', { name: /strongest/i }));
 
-    expect(onSelect).toHaveBeenCalledWith('anthropic/claude-3.5-sonnet');
+    expect(onSelect).toHaveBeenCalledWith('anthropic/claude-opus-4.5');
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -228,7 +228,7 @@ describe('ModelSelectorModal', () => {
 
     await user.click(screen.getByRole('button', { name: /value/i }));
 
-    expect(onSelect).toHaveBeenCalledWith('meta-llama/llama-3.1-70b-instruct');
+    expect(onSelect).toHaveBeenCalledWith('deepseek/deepseek-r1');
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -466,5 +466,21 @@ describe('ModelSelectorModal', () => {
       const modelItems = screen.getAllByRole('option');
       expect(modelItems[0]).toHaveTextContent('GPT-4 Turbo');
     });
+  });
+
+  it('uses ScrollArea for right panel scrolling', () => {
+    render(
+      <ModelSelectorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        models={mockModels}
+        selectedId="openai/gpt-4-turbo"
+        onSelect={vi.fn()}
+      />
+    );
+
+    // Right panel should use ScrollArea component for consistent scrolling
+    const rightPanel = screen.getByTestId('model-details-panel');
+    expect(rightPanel).toHaveAttribute('data-slot', 'scroll-area');
   });
 });

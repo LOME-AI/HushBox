@@ -25,6 +25,14 @@ describe('AuthLayout component', () => {
     vi.clearAllMocks();
   });
 
+  it('renders theme toggle in top-right of form area', async () => {
+    const { AuthLayout } = await import('./_auth');
+
+    render(<AuthLayout />);
+
+    expect(screen.getByTestId('theme-toggle')).toBeInTheDocument();
+  });
+
   it('renders split-screen layout with decorative header image', async () => {
     const { AuthLayout } = await import('./_auth');
 

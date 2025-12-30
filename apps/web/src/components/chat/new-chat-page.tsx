@@ -1,13 +1,13 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@lome-chat/ui';
-import { MOCK_MODELS } from '@lome-chat/shared';
 import { TypingAnimation } from './typing-animation';
 import { PromptInput } from './prompt-input';
 import { SuggestionChips } from './suggestion-chips';
 import { ChatHeader } from './chat-header';
 import { getGreeting } from '@/lib/greetings';
 import { useModelStore } from '@/stores/model';
+import { useModels } from '@/hooks/models';
 
 interface NewChatPageProps {
   onSend: (message: string) => void;
@@ -29,8 +29,12 @@ export function NewChatPage({
   const [inputValue, setInputValue] = React.useState('');
   const [showSubtitle, setShowSubtitle] = React.useState(false);
 
-  // Model selection from store
-  const { selectedModelId, setSelectedModelId } = useModelStore();
+  const { selectedModelId, selectedModelName, setSelectedModel } = useModelStore();
+
+  const { data: models = [] } = useModels();
+
+  // Find selected model to get context length
+  const selectedModel = models.find((m) => m.id === selectedModelId);
 
   // Get a greeting once on mount
   const greeting = React.useMemo(() => getGreeting(isAuthenticated), [isAuthenticated]);
@@ -54,9 +58,10 @@ export function NewChatPage({
     <div data-testid="new-chat-page" className={cn('flex min-h-full flex-col', className)}>
       {/* ChatHeader with model selector and theme toggle */}
       <ChatHeader
-        models={MOCK_MODELS}
+        models={models}
         selectedModelId={selectedModelId}
-        onModelSelect={setSelectedModelId}
+        selectedModelName={selectedModelName}
+        onModelSelect={setSelectedModel}
       />
 
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-8">
@@ -90,7 +95,8 @@ export function NewChatPage({
               onChange={setInputValue}
               onSubmit={handleSubmit}
               placeholder="Ask me anything..."
-              maxTokens={2000}
+              modelContextLimit={selectedModel?.contextLength}
+              historyTokens={0}
               rows={6}
               disabled={isLoading}
             />

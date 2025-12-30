@@ -3,6 +3,17 @@ import { render, screen } from '@testing-library/react';
 import { SidebarContent } from './sidebar-content';
 import { useUIStore } from '@/stores/ui';
 
+// Mock @lome-chat/shared with feature flags (partial mock)
+vi.mock('@lome-chat/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@lome-chat/shared')>();
+  return {
+    ...actual,
+    FEATURE_FLAGS: {
+      PROJECTS_ENABLED: false,
+    },
+  };
+});
+
 // Mock router
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
@@ -59,9 +70,9 @@ describe('SidebarContent', () => {
     expect(screen.getByText('Test Conversation')).toBeInTheDocument();
   });
 
-  it('renders ProjectsLink', () => {
+  it('hides ProjectsLink when FEATURE_FLAGS.PROJECTS_ENABLED is false', () => {
     render(<SidebarContent conversations={mockConversations} />);
-    expect(screen.getByText('Projects')).toBeInTheDocument();
+    expect(screen.queryByText('Projects')).not.toBeInTheDocument();
   });
 
   it('renders in correct order: NewChat, Search, ChatList, Projects', () => {
@@ -85,7 +96,7 @@ describe('SidebarContent', () => {
       render(<SidebarContent conversations={mockConversations} />);
       expect(screen.queryByText('New Chat')).not.toBeInTheDocument();
       expect(screen.queryByText('Search')).not.toBeInTheDocument();
-      expect(screen.queryByText('Projects')).not.toBeInTheDocument();
+      // Projects is hidden by feature flag, so we just verify sidebar is collapsed
     });
   });
 });

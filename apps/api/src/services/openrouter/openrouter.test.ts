@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach, type Mock } from 'vitest';
-import { createOpenRouterClient, clearModelCache } from './openrouter.js';
+import { createOpenRouterClient, clearModelCache, fetchModels, getModel } from './openrouter.js';
 import type {
   OpenRouterClient,
   ChatCompletionRequest,
@@ -376,5 +376,150 @@ describe('createOpenRouterClient', () => {
         'Model not found: unknown/model'
       );
     });
+  });
+});
+
+describe('fetchModels (public, no auth required)', () => {
+  let fetchMock: FetchMock;
+
+  beforeEach(() => {
+    fetchMock = vi.fn() as FetchMock;
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    clearModelCache();
+  });
+
+  it('calls OpenRouter models endpoint without auth header', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ data: [] }),
+    });
+
+    await fetchModels();
+
+    expect(fetchMock).toHaveBeenCalledWith('https://openrouter.ai/api/v1/models');
+
+    // Verify no Authorization header was sent
+    const calls = fetchMock.mock.calls;
+    const firstCall = calls[0];
+    expect(firstCall).toBeDefined();
+    if (firstCall) {
+      const options = firstCall[1] as { headers?: Record<string, string> } | undefined;
+      expect(options?.headers?.['Authorization']).toBeUndefined();
+    }
+  });
+
+  it('returns models from OpenRouter', async () => {
+    const mockModels: ModelInfo[] = [
+      {
+        id: 'openai/gpt-4',
+        name: 'GPT-4',
+        description: 'Test',
+        context_length: 8192,
+        pricing: { prompt: '0.00001', completion: '0.00003' },
+        supported_parameters: [],
+      },
+    ];
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ data: mockModels }),
+    });
+
+    const result = await fetchModels();
+
+    expect(result).toEqual(mockModels);
+  });
+
+  it('caches models and does not refetch within TTL', async () => {
+    const mockModels = [{ id: 'openai/gpt-4', name: 'GPT-4' }];
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: mockModels }),
+    });
+
+    await fetchModels();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await fetchModels();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws on API error', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      statusText: 'Internal Server Error',
+      json: () => Promise.resolve({}),
+    });
+
+    await expect(fetchModels()).rejects.toThrow('Failed to fetch models');
+  });
+});
+
+describe('getModel (public, no auth required)', () => {
+  let fetchMock: FetchMock;
+
+  beforeEach(() => {
+    fetchMock = vi.fn() as FetchMock;
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    clearModelCache();
+  });
+
+  it('returns specific model by ID', async () => {
+    const mockModels: ModelInfo[] = [
+      {
+        id: 'openai/gpt-4',
+        name: 'GPT-4',
+        description: 'Test',
+        context_length: 8192,
+        pricing: { prompt: '0.00001', completion: '0.00003' },
+        supported_parameters: [],
+      },
+      {
+        id: 'anthropic/claude-3',
+        name: 'Claude 3',
+        description: 'Test',
+        context_length: 200000,
+        pricing: { prompt: '0.00001', completion: '0.00003' },
+        supported_parameters: [],
+      },
+    ];
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ data: mockModels }),
+    });
+
+    const result = await getModel('anthropic/claude-3');
+
+    expect(result.id).toBe('anthropic/claude-3');
+    expect(result.name).toBe('Claude 3');
+  });
+
+  it('throws for unknown model', async () => {
+    const mockModels: ModelInfo[] = [
+      {
+        id: 'openai/gpt-4',
+        name: 'GPT-4',
+        description: 'Test',
+        context_length: 8192,
+        pricing: { prompt: '0.00001', completion: '0.00003' },
+        supported_parameters: [],
+      },
+    ];
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ data: mockModels }),
+    });
+
+    await expect(getModel('unknown/model')).rejects.toThrow('Model not found: unknown/model');
   });
 });

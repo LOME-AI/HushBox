@@ -13,6 +13,7 @@ import {
   chatRoute,
   createDevRoute,
   createConversationsRoutes,
+  createModelsRoutes,
 } from './routes/index.js';
 import type { AppEnv } from './types.js';
 
@@ -43,6 +44,8 @@ export function createApp(): Hono<AppEnv> {
   app.use('/chat/*', sessionMiddleware());
   app.use('/chat/*', openRouterMiddleware());
   app.route('/chat', chatRoute);
+
+  app.route('/models', createModelsRoutes());
 
   app.use('/dev/*', devOnly());
   app.use('/dev/*', dbMiddleware());

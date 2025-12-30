@@ -76,40 +76,46 @@ describe('PromptInput', () => {
   describe('token counter', () => {
     it('displays token counter with current/max format', () => {
       // "Hello" = 5 chars ≈ 2 tokens (5/4 rounded up)
+      // Using modelContextLimit: 12000, historyTokens: 0, buffer: 10000 → available: 2000
       render(
         <PromptInput
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          maxTokens={2000}
+          modelContextLimit={12000}
+          historyTokens={0}
         />
       );
-      expect(screen.getByTestId('token-counter')).toHaveTextContent('2/2000');
+      expect(screen.getByTestId('token-counter')).toHaveTextContent('2/2000 Tokens');
     });
 
-    it('shows over-limit format when exceeding maxTokens', () => {
+    it('shows over-limit format when exceeding available tokens', () => {
       // 8000+ chars = 2000+ tokens
+      // Using modelContextLimit: 12000, historyTokens: 0, buffer: 10000 → available: 2000
       const longText = 'a'.repeat(8020); // ~2005 tokens
       render(
         <PromptInput
           value={longText}
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          maxTokens={2000}
+          modelContextLimit={12000}
+          historyTokens={0}
         />
       );
-      // Should show format like "2000+5/2000"
-      expect(screen.getByTestId('token-counter')).toHaveTextContent(/2000\+\d+\/2000/);
+      // Should show format like "2000+5/2000 Tokens"
+      expect(screen.getByTestId('token-counter')).toHaveTextContent(/2000\+\d+\/2000 Tokens/);
     });
 
     it('shows warning message when over token limit', () => {
+      // Using modelContextLimit: 12000, historyTokens: 0, buffer: 10000 → available: 2000
       const longText = 'a'.repeat(8020); // ~2005 tokens
       render(
         <PromptInput
           value={longText}
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          maxTokens={2000}
+          modelContextLimit={12000}
+          historyTokens={0}
         />
       );
       expect(
@@ -118,21 +124,23 @@ describe('PromptInput', () => {
     });
 
     it('send button is disabled when over token limit', () => {
+      // Using modelContextLimit: 12000, historyTokens: 0, buffer: 10000 → available: 2000
       const longText = 'a'.repeat(8020); // ~2005 tokens
       render(
         <PromptInput
           value={longText}
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          maxTokens={2000}
+          modelContextLimit={12000}
+          historyTokens={0}
         />
       );
       expect(screen.getByRole('button', { name: /send/i })).toBeDisabled();
     });
 
-    it('uses default maxTokens of 2000 when not provided', () => {
+    it('uses default of 2000 tokens when modelContextLimit is not provided', () => {
       render(<PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
-      expect(screen.getByTestId('token-counter')).toHaveTextContent('2/2000');
+      expect(screen.getByTestId('token-counter')).toHaveTextContent('2/2000 Tokens');
     });
 
     it('token counter has aria-live for screen reader announcements', () => {
@@ -145,6 +153,62 @@ describe('PromptInput', () => {
       render(<PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
       const counter = screen.getByTestId('token-counter');
       expect(counter).toHaveAttribute('aria-atomic', 'true');
+    });
+
+    it('calculates available tokens from modelContextLimit minus historyTokens minus 10k buffer', () => {
+      // modelContextLimit: 50000, historyTokens: 5000, buffer: 10000
+      // available = 50000 - 5000 - 10000 = 35000
+      render(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          modelContextLimit={50000}
+          historyTokens={5000}
+        />
+      );
+      expect(screen.getByTestId('token-counter')).toHaveTextContent('2/35000 Tokens');
+    });
+
+    it('uses default 2000 tokens when modelContextLimit is not provided', () => {
+      render(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          historyTokens={0}
+        />
+      );
+      expect(screen.getByTestId('token-counter')).toHaveTextContent('2/2000 Tokens');
+    });
+
+    it('caps available tokens at 0 when history exceeds context limit', () => {
+      // modelContextLimit: 20000, historyTokens: 15000, buffer: 10000
+      // available = 20000 - 15000 - 10000 = -5000 -> capped at 0
+      render(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          modelContextLimit={20000}
+          historyTokens={15000}
+        />
+      );
+      expect(screen.getByTestId('token-counter')).toHaveTextContent('/0 Tokens');
+    });
+
+    it('defaults historyTokens to 0 when not provided', () => {
+      // modelContextLimit: 50000, buffer: 10000
+      // available = 50000 - 0 - 10000 = 40000
+      render(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          modelContextLimit={50000}
+        />
+      );
+      expect(screen.getByTestId('token-counter')).toHaveTextContent('2/40000 Tokens');
     });
   });
 

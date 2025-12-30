@@ -5,12 +5,21 @@ import { Button } from '@lome-chat/ui';
 import { Textarea } from '@lome-chat/ui';
 import { estimateTokenCount } from '@/lib/tokens';
 
+/** Buffer reserved for AI response generation */
+const RESPONSE_BUFFER = 10000;
+
+/** Default max tokens when model context is not available */
+const DEFAULT_MAX_TOKENS = 2000;
+
 interface PromptInputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
   placeholder?: string;
-  maxTokens?: number;
+  /** Model's total context length in tokens */
+  modelContextLimit?: number | undefined;
+  /** Current conversation history token count (system + user + assistant messages) */
+  historyTokens?: number;
   className?: string;
   rows?: number;
   disabled?: boolean;
@@ -29,7 +38,8 @@ export function PromptInput({
   onChange,
   onSubmit,
   placeholder = 'Ask me anything...',
-  maxTokens = 2000,
+  modelContextLimit,
+  historyTokens = 0,
   className,
   rows = 6,
   disabled = false,
@@ -38,10 +48,17 @@ export function PromptInput({
 }: PromptInputProps): React.JSX.Element {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
+  // Calculate available tokens based on model context, history, and response buffer
+  // Formula: available = modelContext - historyTokens - responseBuffer
+  // Falls back to default if model context not provided
+  const availableTokens = modelContextLimit
+    ? Math.max(0, modelContextLimit - historyTokens - RESPONSE_BUFFER)
+    : DEFAULT_MAX_TOKENS;
+
   // Calculate token count
   const currentTokens = estimateTokenCount(value);
-  const isOverLimit = currentTokens > maxTokens;
-  const excessTokens = Math.max(0, currentTokens - maxTokens);
+  const isOverLimit = currentTokens > availableTokens;
+  const excessTokens = Math.max(0, currentTokens - availableTokens);
 
   const canSubmit = value.trim().length > 0 && !isOverLimit && !disabled && !isStreaming;
 
@@ -82,7 +99,7 @@ export function PromptInput({
           rows={rows}
           disabled={disabled || isStreaming}
           className={cn(
-            'min-h-[150px] resize-none pr-14 pb-10 text-base',
+            'max-h-[40vh] min-h-[150px] resize-none overflow-y-auto pr-14 pb-10 text-base',
             isOverLimit && 'border-destructive focus-visible:ring-destructive'
           )}
         />
@@ -99,11 +116,11 @@ export function PromptInput({
         >
           {isOverLimit ? (
             <span>
-              {maxTokens}+{excessTokens}/{maxTokens}
+              {availableTokens}+{excessTokens}/{availableTokens} Tokens
             </span>
           ) : (
             <span>
-              {currentTokens}/{maxTokens}
+              {currentTokens}/{availableTokens} Tokens
             </span>
           )}
         </div>
@@ -137,7 +154,7 @@ export function PromptInput({
       {/* Over limit warning */}
       {isOverLimit && (
         <p className="text-destructive mt-2 text-sm">
-          Tokens beyond the {maxTokens} token limit will not be included.
+          Tokens beyond the {availableTokens} token limit will not be included.
         </p>
       )}
     </div>

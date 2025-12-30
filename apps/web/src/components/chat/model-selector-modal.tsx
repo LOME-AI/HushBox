@@ -108,14 +108,14 @@ export function ModelSelectorModal({
   return (
     <ModalOverlay open={open} onOpenChange={onOpenChange}>
       <div
-        className="bg-background flex h-[80vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg"
+        className="bg-background flex h-[90vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg sm:h-[80vh]"
         role="dialog"
         aria-label="Select model"
       >
         {/* Main content area - side by side on desktop */}
         <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
           {/* Left panel: Search + Quick select + Sort + Model list */}
-          <div className="border-border-strong flex flex-1 flex-col border-b sm:border-r sm:border-b-0">
+          <div className="border-border-strong flex min-h-0 flex-[3] flex-col border-b sm:flex-1 sm:border-r sm:border-b-0">
             {/* Search input */}
             <div className="border-border-strong border-b p-4">
               <div className="relative">
@@ -207,7 +207,7 @@ export function ModelSelectorModal({
             </div>
 
             {/* Model list */}
-            <ScrollArea className="flex-1">
+            <ScrollArea className="min-h-0 flex-1">
               <div className="p-2">
                 {filteredModels.map((model) => (
                   <div
@@ -228,8 +228,8 @@ export function ModelSelectorModal({
                     role="option"
                     aria-selected={model.id === focusedModelId}
                   >
-                    <div className="font-medium">{model.name}</div>
-                    <div className="text-muted-foreground text-xs">
+                    <div className="truncate font-medium">{model.name}</div>
+                    <div className="text-muted-foreground truncate text-xs">
                       {model.provider} • {formatContextLength(model.contextLength)}
                     </div>
                   </div>
@@ -244,73 +244,75 @@ export function ModelSelectorModal({
           </div>
 
           {/* Right panel: Model details */}
-          <div className="flex-1 overflow-y-auto p-6 sm:max-w-sm">
-            {focusedModel && (
-              <div className="space-y-6">
-                {/* Provider */}
-                <div>
-                  <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                    Provider
-                  </div>
-                  <div className="text-lg font-medium">{focusedModel.provider}</div>
-                </div>
-
-                {/* Input Price */}
-                <div>
-                  <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                    Input Price / Token
-                  </div>
-                  <div className="text-lg font-medium">
-                    {formatPricePer1k(applyLomeFee(focusedModel.pricePerInputToken))} / 1k
-                  </div>
-                </div>
-
-                {/* Output Price */}
-                <div>
-                  <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                    Output Price / Token
-                  </div>
-                  <div className="text-lg font-medium">
-                    {formatPricePer1k(applyLomeFee(focusedModel.pricePerOutputToken))} / 1k
-                  </div>
-                </div>
-
-                {/* Context Limit */}
-                <div>
-                  <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                    Context Limit
-                  </div>
-                  <div className="text-lg font-medium">
-                    {formatNumber(focusedModel.contextLength)} tokens
-                  </div>
-                </div>
-
-                {/* Capabilities */}
-                {focusedModel.capabilities.length > 0 && (
+          <ScrollArea data-testid="model-details-panel" className="flex-[2] sm:max-w-sm sm:flex-1">
+            <div className="p-6">
+              {focusedModel && (
+                <div className="space-y-6">
+                  {/* Provider */}
                   <div>
-                    <div className="text-muted-foreground mb-2 text-xs font-medium uppercase">
-                      Capabilities
+                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
+                      Provider
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {focusedModel.capabilities.map((cap) => (
-                        <Badge key={cap} variant="secondary">
-                          {cap}
-                        </Badge>
-                      ))}
-                    </div>
+                    <div className="text-lg font-medium break-words">{focusedModel.provider}</div>
                   </div>
-                )}
 
-                {/* Description */}
-                <div>
-                  <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                    Description
+                  {/* Input Price */}
+                  <div>
+                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
+                      Input Price / Token
+                    </div>
+                    <div className="text-lg font-medium">
+                      {formatPricePer1k(applyLomeFee(focusedModel.pricePerInputToken))} / 1k
+                    </div>
                   </div>
-                  <div className="text-sm">{focusedModel.description}</div>
+
+                  {/* Output Price */}
+                  <div>
+                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
+                      Output Price / Token
+                    </div>
+                    <div className="text-lg font-medium">
+                      {formatPricePer1k(applyLomeFee(focusedModel.pricePerOutputToken))} / 1k
+                    </div>
+                  </div>
+
+                  {/* Context Limit */}
+                  <div>
+                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
+                      Context Limit
+                    </div>
+                    <div className="text-lg font-medium">
+                      {formatNumber(focusedModel.contextLength)} tokens
+                    </div>
+                  </div>
+
+                  {/* Capabilities */}
+                  {focusedModel.capabilities.length > 0 && (
+                    <div>
+                      <div className="text-muted-foreground mb-2 text-xs font-medium uppercase">
+                        Capabilities
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {focusedModel.capabilities.map((cap) => (
+                          <Badge key={cap} variant="secondary">
+                            {cap}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Description */}
+                  <div>
+                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
+                      Description
+                    </div>
+                    <div className="text-sm break-words">{focusedModel.description}</div>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          </ScrollArea>
         </div>
 
         {/* Bottom button - full width */}
