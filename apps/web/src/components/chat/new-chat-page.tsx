@@ -55,7 +55,10 @@ export function NewChatPage({
   };
 
   return (
-    <div data-testid="new-chat-page" className={cn('flex min-h-full flex-col', className)}>
+    <div
+      data-testid="new-chat-page"
+      className={cn('flex h-full flex-col overflow-hidden', className)}
+    >
       {/* ChatHeader with model selector and theme toggle */}
       <ChatHeader
         models={models}
@@ -64,8 +67,8 @@ export function NewChatPage({
         onModelSelect={setSelectedModel}
       />
 
-      <div className="flex flex-1 flex-col items-center justify-center px-4 py-8">
-        <div className="w-full max-w-2xl space-y-8">
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-4 sm:py-8">
+        <div className="w-full max-w-2xl space-y-4 sm:space-y-8">
           {/* Greeting Section */}
           <div className="text-center">
             <h1 className="text-3xl font-bold tracking-tight md:text-4xl">

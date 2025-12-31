@@ -48,7 +48,7 @@ export function ModelSelectorButton({
         disabled={disabled}
         aria-label="Select model"
         data-testid="model-selector-button"
-        className="bg-secondary hover:bg-secondary/80 w-[250px] justify-center"
+        className="bg-secondary hover:bg-secondary/80 mx-2 w-[250px] justify-center"
       >
         <span className="truncate">{displayText}</span>
       </Button>

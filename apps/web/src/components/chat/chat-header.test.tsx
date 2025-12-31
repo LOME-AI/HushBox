@@ -135,9 +135,9 @@ describe('ChatHeader', () => {
       // Click button to open modal
       await user.click(screen.getByTestId('model-selector-button'));
 
-      // Wait for modal to open
+      // Wait for modal to open (search input appears twice for mobile/desktop)
       await waitFor(() => {
-        expect(screen.getByPlaceholderText('Search models')).toBeInTheDocument();
+        expect(screen.getAllByPlaceholderText('Search models').length).toBeGreaterThan(0);
       });
 
       // Double-click to select the model

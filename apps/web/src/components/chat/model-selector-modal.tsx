@@ -112,10 +112,10 @@ export function ModelSelectorModal({
         role="dialog"
         aria-label="Select model"
       >
-        {/* Main content area - side by side on desktop */}
-        <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-          {/* Left panel: Search + Quick select + Sort + Model list */}
-          <div className="border-border-strong flex min-h-0 flex-[3] flex-col border-b sm:flex-1 sm:border-r sm:border-b-0">
+        {/* Main content area */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          {/* Fixed sections - MOBILE ONLY (outside flex competition) */}
+          <div className="flex-shrink-0 sm:hidden">
             {/* Search input */}
             <div className="border-border-strong border-b p-4">
               <div className="relative">
@@ -205,114 +205,221 @@ export function ModelSelectorModal({
                 </Button>
               </div>
             </div>
+          </div>
 
-            {/* Model list */}
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="p-2">
-                {filteredModels.map((model) => (
-                  <div
-                    key={model.id}
-                    data-testid={`model-item-${model.id}`}
-                    data-selected={model.id === focusedModelId}
-                    onClick={() => {
-                      handleModelClick(model.id);
-                    }}
-                    onDoubleClick={() => {
-                      handleModelDoubleClick(model.id);
-                    }}
-                    className={`cursor-pointer rounded-md p-3 transition-colors ${
-                      model.id === focusedModelId
-                        ? 'bg-accent text-accent-foreground'
-                        : 'hover:bg-muted'
-                    }`}
-                    role="option"
-                    aria-selected={model.id === focusedModelId}
-                  >
-                    <div className="truncate font-medium">{model.name}</div>
-                    <div className="text-muted-foreground truncate text-xs">
-                      {model.provider} • {formatContextLength(model.contextLength)}
-                    </div>
+          {/* Split area - model list and info compete here */}
+          <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+            {/* Left panel: Model list (with fixed sections on desktop) */}
+            <div
+              data-testid="model-list-panel"
+              className="border-border-strong flex min-h-0 flex-[2] flex-col border-b sm:flex-1 sm:border-r sm:border-b-0"
+            >
+              {/* Fixed sections - DESKTOP ONLY */}
+              <div className="hidden flex-shrink-0 sm:block">
+                {/* Search input */}
+                <div className="border-border-strong border-b p-4">
+                  <div className="relative">
+                    <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+                    <Input
+                      type="text"
+                      placeholder="Search models"
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                      }}
+                      className="pl-9"
+                    />
                   </div>
-                ))}
-                {filteredModels.length === 0 && (
-                  <div className="text-muted-foreground p-4 text-center text-sm">
-                    No models found
+                </div>
+
+                {/* Quick select buttons */}
+                <div className="border-border-strong border-b p-4">
+                  <div className="text-muted-foreground mb-2 text-xs font-medium uppercase">
+                    Quick Select Model
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        handleQuickSelect(STRONGEST_MODEL_ID);
+                      }}
+                      className="flex-1"
+                    >
+                      Strongest
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        handleQuickSelect(VALUE_MODEL_ID);
+                      }}
+                      className="flex-1"
+                    >
+                      Value
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Sort by section */}
+                <div className="border-border-strong border-b p-4">
+                  <div className="text-muted-foreground mb-2 text-xs font-medium uppercase">
+                    Sort By
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant={sortField === 'price' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        handleSortClick('price');
+                      }}
+                      className="gap-1"
+                      data-active={sortField === 'price'}
+                      data-direction={sortField === 'price' ? sortDirection : undefined}
+                    >
+                      Price
+                      {sortField === 'price' &&
+                        (sortDirection === 'asc' ? (
+                          <ChevronUp className="h-4 w-4" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4" />
+                        ))}
+                    </Button>
+                    <Button
+                      variant={sortField === 'context' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        handleSortClick('context');
+                      }}
+                      className="gap-1"
+                      data-active={sortField === 'context'}
+                      data-direction={sortField === 'context' ? sortDirection : undefined}
+                    >
+                      Context
+                      {sortField === 'context' &&
+                        (sortDirection === 'asc' ? (
+                          <ChevronUp className="h-4 w-4" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4" />
+                        ))}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Model list */}
+              <ScrollArea data-testid="model-list-scroll" className="min-h-0 flex-1">
+                <div className="p-2">
+                  {filteredModels.map((model) => (
+                    <div
+                      key={model.id}
+                      data-testid={`model-item-${model.id}`}
+                      data-selected={model.id === focusedModelId}
+                      onClick={() => {
+                        handleModelClick(model.id);
+                      }}
+                      onDoubleClick={() => {
+                        handleModelDoubleClick(model.id);
+                      }}
+                      className={`cursor-pointer rounded-md p-3 transition-colors ${
+                        model.id === focusedModelId
+                          ? 'bg-accent text-accent-foreground'
+                          : 'hover:bg-muted'
+                      }`}
+                      role="option"
+                      aria-selected={model.id === focusedModelId}
+                    >
+                      <div className="truncate font-medium">{model.name}</div>
+                      <div className="text-muted-foreground truncate text-xs">
+                        {model.provider} • {formatContextLength(model.contextLength)}
+                      </div>
+                    </div>
+                  ))}
+                  {filteredModels.length === 0 && (
+                    <div className="text-muted-foreground p-4 text-center text-sm">
+                      No models found
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+
+            {/* Right panel: Model details - takes 60% on mobile, constrained on desktop */}
+            <ScrollArea
+              data-testid="model-details-panel"
+              className="min-h-0 flex-[3] sm:max-w-sm sm:flex-1"
+            >
+              <div className="p-6">
+                {focusedModel && (
+                  <div className="space-y-6">
+                    {/* Provider */}
+                    <div>
+                      <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
+                        Provider
+                      </div>
+                      <div className="text-lg font-medium break-words">{focusedModel.provider}</div>
+                    </div>
+
+                    {/* Input Price */}
+                    <div>
+                      <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
+                        Input Price / Token
+                      </div>
+                      <div className="text-lg font-medium">
+                        {formatPricePer1k(applyLomeFee(focusedModel.pricePerInputToken))} / 1k
+                      </div>
+                    </div>
+
+                    {/* Output Price */}
+                    <div>
+                      <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
+                        Output Price / Token
+                      </div>
+                      <div className="text-lg font-medium">
+                        {formatPricePer1k(applyLomeFee(focusedModel.pricePerOutputToken))} / 1k
+                      </div>
+                    </div>
+
+                    {/* Context Limit */}
+                    <div>
+                      <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
+                        Context Limit
+                      </div>
+                      <div className="text-lg font-medium">
+                        {formatNumber(focusedModel.contextLength)} tokens
+                      </div>
+                    </div>
+
+                    {/* Capabilities */}
+                    {focusedModel.capabilities.length > 0 && (
+                      <div>
+                        <div className="text-muted-foreground mb-2 text-xs font-medium uppercase">
+                          Capabilities
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {focusedModel.capabilities.map((cap) => (
+                            <Badge key={cap} variant="secondary">
+                              {cap}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Description */}
+                    <div>
+                      <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
+                        Description
+                      </div>
+                      <div className="overflow-hidden text-sm break-words">
+                        {focusedModel.description}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
             </ScrollArea>
           </div>
-
-          {/* Right panel: Model details */}
-          <ScrollArea data-testid="model-details-panel" className="flex-[2] sm:max-w-sm sm:flex-1">
-            <div className="p-6">
-              {focusedModel && (
-                <div className="space-y-6">
-                  {/* Provider */}
-                  <div>
-                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                      Provider
-                    </div>
-                    <div className="text-lg font-medium break-words">{focusedModel.provider}</div>
-                  </div>
-
-                  {/* Input Price */}
-                  <div>
-                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                      Input Price / Token
-                    </div>
-                    <div className="text-lg font-medium">
-                      {formatPricePer1k(applyLomeFee(focusedModel.pricePerInputToken))} / 1k
-                    </div>
-                  </div>
-
-                  {/* Output Price */}
-                  <div>
-                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                      Output Price / Token
-                    </div>
-                    <div className="text-lg font-medium">
-                      {formatPricePer1k(applyLomeFee(focusedModel.pricePerOutputToken))} / 1k
-                    </div>
-                  </div>
-
-                  {/* Context Limit */}
-                  <div>
-                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                      Context Limit
-                    </div>
-                    <div className="text-lg font-medium">
-                      {formatNumber(focusedModel.contextLength)} tokens
-                    </div>
-                  </div>
-
-                  {/* Capabilities */}
-                  {focusedModel.capabilities.length > 0 && (
-                    <div>
-                      <div className="text-muted-foreground mb-2 text-xs font-medium uppercase">
-                        Capabilities
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {focusedModel.capabilities.map((cap) => (
-                          <Badge key={cap} variant="secondary">
-                            {cap}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Description */}
-                  <div>
-                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                      Description
-                    </div>
-                    <div className="text-sm break-words">{focusedModel.description}</div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </ScrollArea>
         </div>
 
         {/* Bottom button - full width */}

@@ -410,7 +410,7 @@ describe('conversations routes', () => {
       if (json.message) createdMessageIds.push(json.message.id);
     });
 
-    it('truncates auto-generated title to 50 characters', async () => {
+    it('truncates auto-generated title to 50 characters without adding ellipsis', async () => {
       const longMessage =
         'This is a very long message that should be truncated when used as the conversation title because it exceeds 50 characters';
       const res = await app.request('/conversations', {
@@ -426,8 +426,9 @@ describe('conversations routes', () => {
 
       expect(res.status).toBe(201);
       const json = (await res.json()) as CreateConversationResponse;
-      expect(json.conversation.title).toBe('This is a very long message that should be truncat...');
-      expect(json.conversation.title.length).toBeLessThanOrEqual(53); // 50 chars + "..."
+      // Title should be truncated to 50 chars without "..." - UI handles ellipsis display
+      expect(json.conversation.title).toBe('This is a very long message that should be truncat');
+      expect(json.conversation.title.length).toBeLessThanOrEqual(50);
 
       // Track for cleanup
       createdConversationIds.push(json.conversation.id);

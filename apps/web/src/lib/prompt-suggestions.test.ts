@@ -24,10 +24,21 @@ describe('promptSuggestions', () => {
     });
   });
 
-  it('each suggestion has a prompt property', () => {
+  it('each suggestion has a prompts array property', () => {
     promptSuggestions.forEach((suggestion) => {
-      expect(suggestion).toHaveProperty('prompt');
-      expect(typeof suggestion.prompt).toBe('string');
+      expect(suggestion).toHaveProperty('prompts');
+      expect(Array.isArray(suggestion.prompts)).toBe(true);
+      expect(suggestion.prompts.length).toBeGreaterThan(0);
+      suggestion.prompts.forEach((prompt) => {
+        expect(typeof prompt).toBe('string');
+        expect(prompt.length).toBeGreaterThan(0);
+      });
+    });
+  });
+
+  it('each category has at least 10 prompts', () => {
+    promptSuggestions.forEach((suggestion) => {
+      expect(suggestion.prompts.length).toBeGreaterThanOrEqual(10);
     });
   });
 
@@ -83,7 +94,8 @@ describe('PromptSuggestion type', () => {
     const typed: PromptSuggestion = suggestion;
     expect(typed.id).toBeDefined();
     expect(typed.label).toBeDefined();
-    expect(typed.prompt).toBeDefined();
+    expect(typed.prompts).toBeDefined();
+    expect(Array.isArray(typed.prompts)).toBe(true);
     expect(typed.icon).toBeDefined();
   });
 });

@@ -292,6 +292,13 @@ describe('isExcludedModel', () => {
     expect(isExcludedModel({ ...baseModel, name: 'AUTO ROUTER' })).toBe(true);
   });
 
+  it('excludes models with "image" in name (case insensitive)', () => {
+    expect(isExcludedModel({ ...baseModel, name: 'DALL-E 3 Image Generator' })).toBe(true);
+    expect(isExcludedModel({ ...baseModel, name: 'Stable Diffusion Image' })).toBe(true);
+    expect(isExcludedModel({ ...baseModel, name: 'IMAGE Model' })).toBe(true);
+    expect(isExcludedModel({ ...baseModel, name: 'image-gen-v2' })).toBe(true);
+  });
+
   it('includes normal paid models', () => {
     expect(isExcludedModel({ ...baseModel, name: 'GPT-4 Turbo' })).toBe(false);
     expect(isExcludedModel({ ...baseModel, name: 'Claude 3.5 Sonnet' })).toBe(false);

@@ -124,7 +124,8 @@ describe('NewChatPage', () => {
 
     // Should populate the textarea instead of calling onSend directly
     const textarea = screen.getByRole('textbox');
-    expect(textarea).toHaveValue('Help me write a function that...');
+    // The prompt should be non-empty (randomly selected from the code category)
+    expect((textarea as HTMLTextAreaElement).value.length).toBeGreaterThan(0);
     expect(mockOnSend).not.toHaveBeenCalled();
   });
 
@@ -135,6 +136,15 @@ describe('NewChatPage', () => {
     const container = screen.getByTestId('new-chat-page');
     expect(container).toHaveClass('flex');
     expect(container).toHaveClass('flex-col');
+  });
+
+  it('has h-full and overflow-hidden to prevent scroll bar', () => {
+    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+      wrapper: createWrapper(),
+    });
+    const container = screen.getByTestId('new-chat-page');
+    expect(container).toHaveClass('h-full');
+    expect(container).toHaveClass('overflow-hidden');
   });
 
   it('shows subtitle text', () => {

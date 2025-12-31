@@ -241,7 +241,9 @@ function ChatConversation(): React.JSX.Element {
           placeholder="Type a message..."
           modelContextLimit={selectedModel?.contextLength}
           historyTokens={historyTokens}
-          rows={3}
+          rows={2}
+          minHeight="56px"
+          maxHeight="112px"
           disabled={sendMessage.isPending || isStreaming}
         />
       </div>

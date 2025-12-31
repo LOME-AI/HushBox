@@ -5,7 +5,7 @@ import { api } from '../lib/api.js';
 /**
  * Patterns for models that should be excluded from the selector.
  */
-const EXCLUDED_MODEL_PATTERNS = [/body builder/i, /auto router/i];
+const EXCLUDED_MODEL_PATTERNS = [/body builder/i, /auto router/i, /image/i];
 
 /**
  * Determine if a model should be excluded from the selector.

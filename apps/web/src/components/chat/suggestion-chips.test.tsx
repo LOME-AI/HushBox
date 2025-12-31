@@ -23,7 +23,7 @@ describe('SuggestionChips', () => {
     });
   });
 
-  it('calls onSelect with the prompt when a chip is clicked', async () => {
+  it('calls onSelect with a prompt from the category when a chip is clicked', async () => {
     const user = userEvent.setup();
     render(<SuggestionChips onSelect={mockOnSelect} />);
 
@@ -32,7 +32,9 @@ describe('SuggestionChips', () => {
     const firstChip = screen.getByText(firstSuggestion.label);
     await user.click(firstChip);
 
-    expect(mockOnSelect).toHaveBeenCalledWith(firstSuggestion.prompt);
+    expect(mockOnSelect).toHaveBeenCalled();
+    const calledPrompt = mockOnSelect.mock.calls[0]?.[0] as string;
+    expect(firstSuggestion.prompts).toContain(calledPrompt);
   });
 
   it('renders chips with icons', () => {
@@ -55,7 +57,7 @@ describe('SuggestionChips', () => {
     expect(screen.getByRole('button', { name: /surprise me/i })).toBeInTheDocument();
   });
 
-  it('"Surprise Me" button calls onSelect with a random prompt', async () => {
+  it('"Surprise Me" button calls onSelect with a random prompt from any category', async () => {
     const user = userEvent.setup();
     render(<SuggestionChips onSelect={mockOnSelect} showSurpriseMe />);
 
@@ -63,12 +65,12 @@ describe('SuggestionChips', () => {
     await user.click(surpriseButton);
 
     expect(mockOnSelect).toHaveBeenCalled();
-    // Verify the prompt is one of the available suggestions
+    // Verify the prompt is one of the available prompts from any category
     const firstCall = mockOnSelect.mock.calls[0];
     if (!firstCall) throw new Error('No call recorded');
-    const calledPrompt: unknown = firstCall[0];
-    const validPrompts = promptSuggestions.map((s) => s.prompt);
-    expect(validPrompts).toContain(calledPrompt);
+    const calledPrompt = firstCall[0] as string;
+    const allValidPrompts = promptSuggestions.flatMap((s) => s.prompts);
+    expect(allValidPrompts).toContain(calledPrompt);
   });
 
   it('does not render "Surprise Me" when showSurpriseMe is false', () => {

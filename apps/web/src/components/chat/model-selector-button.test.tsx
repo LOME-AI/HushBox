@@ -52,9 +52,9 @@ describe('ModelSelectorButton', () => {
 
     await user.click(screen.getByRole('button'));
 
-    // Modal should be open - look for the search input
+    // Modal should be open - look for the search input (appears twice for mobile/desktop)
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('Search models')).toBeInTheDocument();
+      expect(screen.getAllByPlaceholderText('Search models').length).toBeGreaterThan(0);
     });
   });
 
@@ -71,9 +71,9 @@ describe('ModelSelectorButton', () => {
 
     await user.click(screen.getByRole('button'));
 
-    // Wait for modal to open
+    // Wait for modal to open (search input appears twice for mobile/desktop)
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('Search models')).toBeInTheDocument();
+      expect(screen.getAllByPlaceholderText('Search models').length).toBeGreaterThan(0);
     });
 
     // Double-click to select a model

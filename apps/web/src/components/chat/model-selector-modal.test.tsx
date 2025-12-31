@@ -4,6 +4,14 @@ import userEvent from '@testing-library/user-event';
 import { ModelSelectorModal } from './model-selector-modal';
 import type { Model } from '@lome-chat/shared';
 
+function first<T>(arr: T[]): T {
+  const item = arr[0];
+  if (item === undefined) {
+    throw new Error('Expected array to have at least one element');
+  }
+  return item;
+}
+
 const mockModels: Model[] = [
   {
     id: 'openai/gpt-4-turbo',
@@ -83,8 +91,9 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    const searchInput = screen.getByPlaceholderText('Search models');
-    await user.type(searchInput, 'Claude');
+    // Search input appears twice (mobile + desktop), use the first one
+    const searchInputs = screen.getAllByPlaceholderText('Search models');
+    await user.type(first(searchInputs), 'Claude');
 
     expect(screen.getByText('Claude 3.5 Sonnet')).toBeInTheDocument();
     expect(screen.queryByText('GPT-4 Turbo')).not.toBeInTheDocument();
@@ -103,8 +112,9 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    const searchInput = screen.getByPlaceholderText('Search models');
-    await user.type(searchInput, 'openai');
+    // Search input appears twice (mobile + desktop), use the first one
+    const searchInputs = screen.getAllByPlaceholderText('Search models');
+    await user.type(first(searchInputs), 'openai');
 
     expect(screen.getByText('GPT-4 Turbo')).toBeInTheDocument();
     expect(screen.queryByText('Claude 3.5 Sonnet')).not.toBeInTheDocument();
@@ -161,7 +171,8 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    expect(screen.getByText(/quick select model/i)).toBeInTheDocument();
+    // Quick select section appears twice (mobile + desktop), check at least one exists
+    expect(screen.getAllByText(/quick select model/i).length).toBeGreaterThan(0);
   });
 
   it('renders Strongest button', () => {
@@ -175,7 +186,8 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    expect(screen.getByRole('button', { name: /strongest/i })).toBeInTheDocument();
+    // Buttons appear twice (mobile + desktop), check at least one exists
+    expect(screen.getAllByRole('button', { name: /strongest/i }).length).toBeGreaterThan(0);
   });
 
   it('renders Value button', () => {
@@ -189,7 +201,8 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    expect(screen.getByRole('button', { name: /value/i })).toBeInTheDocument();
+    // Buttons appear twice (mobile + desktop), check at least one exists
+    expect(screen.getAllByRole('button', { name: /value/i }).length).toBeGreaterThan(0);
   });
 
   it('selects strongest model and closes when Strongest button is clicked', async () => {
@@ -206,7 +219,8 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: /strongest/i }));
+    // Buttons appear twice (mobile + desktop), click the first one
+    await user.click(first(screen.getAllByRole('button', { name: /strongest/i })));
 
     expect(onSelect).toHaveBeenCalledWith('anthropic/claude-opus-4.5');
     expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -226,7 +240,8 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: /value/i }));
+    // Buttons appear twice (mobile + desktop), click the first one
+    await user.click(first(screen.getAllByRole('button', { name: /value/i })));
 
     expect(onSelect).toHaveBeenCalledWith('deepseek/deepseek-r1');
     expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -383,9 +398,10 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      expect(screen.getByText(/sort by/i)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /price/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /context/i })).toBeInTheDocument();
+      // Sort by buttons appear twice (mobile + desktop), check at least one exists
+      expect(screen.getAllByText(/sort by/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('button', { name: /price/i }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('button', { name: /context/i }).length).toBeGreaterThan(0);
     });
 
     it('highlights Price button when clicked', async () => {
@@ -400,10 +416,12 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      const priceButton = screen.getByRole('button', { name: /price/i });
-      await user.click(priceButton);
+      // Buttons appear twice (mobile + desktop), click the first one
+      const priceButtons = screen.getAllByRole('button', { name: /price/i });
+      await user.click(first(priceButtons));
 
-      expect(priceButton).toHaveAttribute('data-active', 'true');
+      // Both should update since they share state
+      expect(first(priceButtons)).toHaveAttribute('data-active', 'true');
     });
 
     it('toggles arrow direction when active button is clicked again', async () => {
@@ -418,15 +436,16 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      const priceButton = screen.getByRole('button', { name: /price/i });
+      // Buttons appear twice (mobile + desktop), use the first one
+      const priceButtons = screen.getAllByRole('button', { name: /price/i });
 
       // First click - activates with ascending
-      await user.click(priceButton);
-      expect(priceButton).toHaveAttribute('data-direction', 'asc');
+      await user.click(first(priceButtons));
+      expect(first(priceButtons)).toHaveAttribute('data-direction', 'asc');
 
       // Second click - toggles to descending
-      await user.click(priceButton);
-      expect(priceButton).toHaveAttribute('data-direction', 'desc');
+      await user.click(first(priceButtons));
+      expect(first(priceButtons)).toHaveAttribute('data-direction', 'desc');
     });
 
     it('sorts models by price (input + output) ascending', async () => {
@@ -441,11 +460,12 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.click(screen.getByRole('button', { name: /price/i }));
+      // Buttons appear twice (mobile + desktop), click the first one
+      await user.click(first(screen.getAllByRole('button', { name: /price/i })));
 
       // Llama has lowest price, should be first
       const modelItems = screen.getAllByRole('option');
-      expect(modelItems[0]).toHaveTextContent('Llama 3.1 70B');
+      expect(first(modelItems)).toHaveTextContent('Llama 3.1 70B');
     });
 
     it('sorts models by context length ascending', async () => {
@@ -460,11 +480,12 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.click(screen.getByRole('button', { name: /context/i }));
+      // Buttons appear twice (mobile + desktop), click the first one
+      await user.click(first(screen.getAllByRole('button', { name: /context/i })));
 
       // GPT-4 has 128000, should be first (smallest)
       const modelItems = screen.getAllByRole('option');
-      expect(modelItems[0]).toHaveTextContent('GPT-4 Turbo');
+      expect(first(modelItems)).toHaveTextContent('GPT-4 Turbo');
     });
   });
 
@@ -482,5 +503,37 @@ describe('ModelSelectorModal', () => {
     // Right panel should use ScrollArea component for consistent scrolling
     const rightPanel = screen.getByTestId('model-details-panel');
     expect(rightPanel).toHaveAttribute('data-slot', 'scroll-area');
+  });
+
+  describe('mobile layout split', () => {
+    it('model list panel has flex-[2] for 40% of remaining space on mobile', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="openai/gpt-4-turbo"
+          onSelect={vi.fn()}
+        />
+      );
+
+      const modelListPanel = screen.getByTestId('model-list-panel');
+      expect(modelListPanel).toHaveClass('flex-[2]');
+    });
+
+    it('info panel has flex-[3] for 60% of remaining space on mobile', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="openai/gpt-4-turbo"
+          onSelect={vi.fn()}
+        />
+      );
+
+      const detailsPanel = screen.getByTestId('model-details-panel');
+      expect(detailsPanel).toHaveClass('flex-[3]');
+    });
   });
 });

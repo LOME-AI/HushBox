@@ -20,10 +20,14 @@ export function SuggestionChips({
   className,
 }: SuggestionChipsProps): React.JSX.Element {
   const handleSurpriseMe = (): void => {
-    const randomIndex = Math.floor(Math.random() * promptSuggestions.length);
-    const randomSuggestion = promptSuggestions[randomIndex];
-    if (randomSuggestion) {
-      onSelect(randomSuggestion.prompt);
+    const randomCategoryIndex = Math.floor(Math.random() * promptSuggestions.length);
+    const category = promptSuggestions[randomCategoryIndex];
+    if (category && category.prompts.length > 0) {
+      const randomPromptIndex = Math.floor(Math.random() * category.prompts.length);
+      const prompt = category.prompts[randomPromptIndex];
+      if (prompt) {
+        onSelect(prompt);
+      }
     }
   };
 
@@ -40,7 +44,11 @@ export function SuggestionChips({
             variant="outline"
             size="sm"
             onClick={() => {
-              onSelect(suggestion.prompt);
+              const randomIndex = Math.floor(Math.random() * suggestion.prompts.length);
+              const prompt = suggestion.prompts[randomIndex];
+              if (prompt) {
+                onSelect(prompt);
+              }
             }}
             className="gap-2 rounded-full"
           >

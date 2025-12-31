@@ -92,12 +92,14 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.JSX.Eleme
       isTransitioning.current = true;
 
       // Calculate the maximum radius needed to cover the entire viewport
-      const maxRadius = Math.max(
-        Math.hypot(origin.x, origin.y),
-        Math.hypot(window.innerWidth - origin.x, origin.y),
-        Math.hypot(origin.x, window.innerHeight - origin.y),
-        Math.hypot(window.innerWidth - origin.x, window.innerHeight - origin.y)
-      );
+      // Add 15% buffer to account for mobile viewport changes (address bar, safe areas)
+      const maxRadius =
+        Math.max(
+          Math.hypot(origin.x, origin.y),
+          Math.hypot(window.innerWidth - origin.x, origin.y),
+          Math.hypot(origin.x, window.innerHeight - origin.y),
+          Math.hypot(window.innerWidth - origin.x, window.innerHeight - origin.y)
+        ) * 1.15;
 
       // Set CSS custom properties for the animation origin and radius
       document.documentElement.style.setProperty('--transition-x', `${String(origin.x)}px`);
