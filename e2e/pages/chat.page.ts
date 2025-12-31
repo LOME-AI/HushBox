@@ -49,7 +49,8 @@ export class ChatPage {
   }
 
   async expectMessageVisible(message: string): Promise<void> {
-    await expect(this.messageList.getByText(message, { exact: true })).toBeVisible();
+    // Use .first() because the same text may appear in both user message and AI echo response
+    await expect(this.messageList.getByText(message, { exact: true }).first()).toBeVisible();
   }
 
   async expectNewChatPageVisible(): Promise<void> {

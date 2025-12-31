@@ -6,6 +6,9 @@ describe('useVisualViewportHeight', () => {
   let originalVisualViewport: VisualViewport | null;
   let originalInnerHeight: number;
   let resizeHandler: (() => void) | null = null;
+  let windowResizeHandler: (() => void) | null = null;
+  const originalAddEventListener = window.addEventListener.bind(window);
+  const originalRemoveEventListener = window.removeEventListener.bind(window);
 
   const mockVisualViewport = {
     height: 800,
@@ -30,6 +33,22 @@ describe('useVisualViewportHeight', () => {
     originalVisualViewport = window.visualViewport;
     originalInnerHeight = window.innerHeight;
     resizeHandler = null;
+    windowResizeHandler = null;
+
+    // Reset mock viewport height
+    mockVisualViewport.height = 800;
+
+    // Mock window.addEventListener to capture resize handler
+    window.addEventListener = vi.fn((event: string, handler: EventListener) => {
+      if (event === 'resize') {
+        windowResizeHandler = handler as () => void;
+      }
+      originalAddEventListener(event, handler);
+    }) as typeof window.addEventListener;
+
+    window.removeEventListener = vi.fn((event: string, handler: EventListener) => {
+      originalRemoveEventListener(event, handler);
+    }) as typeof window.removeEventListener;
 
     Object.defineProperty(window, 'visualViewport', {
       value: mockVisualViewport,
@@ -58,6 +77,10 @@ describe('useVisualViewportHeight', () => {
       writable: true,
       configurable: true,
     });
+
+    // Restore original event listeners
+    window.addEventListener = originalAddEventListener;
+    window.removeEventListener = originalRemoveEventListener;
 
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -177,5 +200,72 @@ describe('useVisualViewportHeight', () => {
 
     // Should attempt to cancel any pending RAF
     expect(cancelSpy).toHaveBeenCalled();
+  });
+
+  it('registers window resize event listener on mount', () => {
+    renderHook(() => useVisualViewportHeight());
+
+    expect(window.addEventListener).toHaveBeenCalledWith('resize', expect.any(Function));
+  });
+
+  it('removes window resize event listener on unmount', () => {
+    const { unmount } = renderHook(() => useVisualViewportHeight());
+
+    unmount();
+
+    expect(window.removeEventListener).toHaveBeenCalledWith('resize', expect.any(Function));
+  });
+
+  it('updates height when window resizes (Playwright/desktop fallback)', () => {
+    const { result } = renderHook(() => useVisualViewportHeight());
+
+    expect(result.current).toBe(800);
+
+    // Simulate viewport shrinking (like Playwright setViewportSize)
+    mockVisualViewport.height = 450;
+    Object.defineProperty(window, 'innerHeight', {
+      value: 450,
+      writable: true,
+      configurable: true,
+    });
+
+    act(() => {
+      if (windowResizeHandler) windowResizeHandler();
+      vi.runAllTimers();
+    });
+
+    expect(result.current).toBe(450);
+  });
+
+  it('updates height via window.resize when visualViewport is unavailable', () => {
+    Object.defineProperty(window, 'visualViewport', {
+      value: null,
+      writable: true,
+      configurable: true,
+    });
+
+    Object.defineProperty(window, 'innerHeight', {
+      value: 800,
+      writable: true,
+      configurable: true,
+    });
+
+    const { result } = renderHook(() => useVisualViewportHeight());
+
+    expect(result.current).toBe(800);
+
+    // Simulate window resize
+    Object.defineProperty(window, 'innerHeight', {
+      value: 500,
+      writable: true,
+      configurable: true,
+    });
+
+    act(() => {
+      if (windowResizeHandler) windowResizeHandler();
+      vi.runAllTimers();
+    });
+
+    expect(result.current).toBe(500);
   });
 });

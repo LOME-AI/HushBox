@@ -21,10 +21,12 @@ function ChatIndex(): React.JSX.Element {
       {
         onSuccess: (response) => {
           // Navigate to the new conversation with flag to trigger AI streaming
-          void navigate({
+          navigate({
             to: '/chat/$conversationId',
             params: { conversationId: response.conversation.id },
             search: { triggerStreaming: true },
+          }).catch((error: unknown) => {
+            console.error('Navigation failed:', error);
           });
         },
       }

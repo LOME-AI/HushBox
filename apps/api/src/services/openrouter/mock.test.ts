@@ -36,7 +36,7 @@ describe('createMockOpenRouterClient', () => {
 
       expect(firstChoice).toBeDefined();
       if (firstChoice) {
-        expect(firstChoice.message.content).toBe('Echo: Hello, world!');
+        expect(firstChoice.message.content).toBe('Echo:\n\nHello, world!');
         expect(firstChoice.message.role).toBe('assistant');
       }
     });
@@ -52,7 +52,7 @@ describe('createMockOpenRouterClient', () => {
 
       expect(firstChoice).toBeDefined();
       if (firstChoice) {
-        expect(firstChoice.message.content).toBe('Echo: No message');
+        expect(firstChoice.message.content).toBe('Echo:\n\nNo message');
       }
     });
 
@@ -170,8 +170,8 @@ describe('createMockOpenRouterClient', () => {
         tokens.push(token);
       }
 
-      expect(tokens.join('')).toBe('Echo: Hi');
-      expect(tokens.length).toBe('Echo: Hi'.length);
+      expect(tokens.join('')).toBe('Echo:\n\nHi');
+      expect(tokens.length).toBe('Echo:\n\nHi'.length);
     });
 
     it('handles no user message gracefully', async () => {
@@ -185,7 +185,7 @@ describe('createMockOpenRouterClient', () => {
         tokens.push(token);
       }
 
-      expect(tokens.join('')).toBe('Echo: No message');
+      expect(tokens.join('')).toBe('Echo:\n\nNo message');
     });
 
     it('stores requests in history', async () => {
@@ -225,7 +225,7 @@ describe('createMockOpenRouterClient', () => {
         expect(token.length).toBe(1);
       }
 
-      expect(tokens).toEqual(['E', 'c', 'h', 'o', ':', ' ', 'A']);
+      expect(tokens).toEqual(['E', 'c', 'h', 'o', ':', '\n', '\n', 'A']);
     });
   });
 

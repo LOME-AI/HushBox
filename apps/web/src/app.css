@@ -1,5 +1,29 @@
 @import '@lome-chat/config/tailwind';
 
+/* Global scrollbar styling - matches Radix ScrollArea */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* Hide scrollbar but keep scrollability */
 .scrollbar-hide {
   -ms-overflow-style: none; /* IE and Edge */

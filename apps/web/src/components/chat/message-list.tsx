@@ -3,17 +3,20 @@ import { ScrollArea } from '@lome-chat/ui';
 import { MessageItem } from './message-item';
 import { StreamingMessage } from './streaming-message';
 import type { Message } from '@/lib/api';
+import type { Document } from '@/lib/document-parser';
 
 interface MessageListProps {
   messages: Message[];
   isStreaming?: boolean;
   streamingContent?: string;
+  onDocumentsExtracted?: (messageId: string, documents: Document[]) => void;
 }
 
 export function MessageList({
   messages,
   isStreaming = false,
   streamingContent = '',
+  onDocumentsExtracted,
 }: MessageListProps): React.JSX.Element {
   if (messages.length === 0 && !isStreaming) {
     return (
@@ -27,7 +30,11 @@ export function MessageList({
     <ScrollArea data-testid="message-list" className="h-full flex-1 overflow-hidden">
       <div role="log" aria-live="polite" aria-label="Chat messages" className="flex flex-col py-4">
         {messages.map((message) => (
-          <MessageItem key={message.id} message={message} />
+          <MessageItem
+            key={message.id}
+            message={message}
+            onDocumentsExtracted={onDocumentsExtracted}
+          />
         ))}
         {isStreaming && <StreamingMessage content={streamingContent} isStreaming={isStreaming} />}
       </div>

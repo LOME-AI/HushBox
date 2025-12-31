@@ -3,6 +3,17 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MessageItem } from './message-item';
 
+// Mock mermaid to avoid actual rendering
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn().mockResolvedValue({
+      svg: '<svg>Diagram</svg>',
+      bindFunctions: vi.fn(),
+    }),
+  },
+}));
+
 describe('MessageItem', () => {
   const userMessage = {
     id: '1',
@@ -116,6 +127,40 @@ describe('MessageItem', () => {
       const button = screen.getByRole('button', { name: /copy/i });
       // Ghost buttons typically have these classes or no background
       expect(button).toHaveClass('h-6', 'w-6');
+    });
+  });
+
+  describe('document extraction', () => {
+    it('calls onDocumentsExtracted when assistant message has large code blocks', async () => {
+      const largeCode = Array(15)
+        .fill(null)
+        .map((_, i) => `const line${String(i)} = ${String(i)};`)
+        .join('\n');
+      const messageWithCode = {
+        id: 'msg-code',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: `\`\`\`typescript\n${largeCode}\n\`\`\``,
+        createdAt: '2024-01-01T00:00:00Z',
+      };
+      const onDocumentsExtracted = vi.fn();
+
+      render(<MessageItem message={messageWithCode} onDocumentsExtracted={onDocumentsExtracted} />);
+
+      await waitFor(() => {
+        expect(onDocumentsExtracted).toHaveBeenCalled();
+      });
+
+      const [messageId, docs] = onDocumentsExtracted.mock.calls[0] as [string, unknown[]];
+      expect(messageId).toBe('msg-code');
+      expect(docs).toHaveLength(1);
+    });
+
+    it('does not call onDocumentsExtracted for user messages', () => {
+      const onDocumentsExtracted = vi.fn();
+      render(<MessageItem message={userMessage} onDocumentsExtracted={onDocumentsExtracted} />);
+
+      expect(onDocumentsExtracted).not.toHaveBeenCalled();
     });
   });
 });

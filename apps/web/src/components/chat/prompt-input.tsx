@@ -114,7 +114,6 @@ export function PromptInput({
           disabled={disabled || isStreaming}
           className={cn(
             `max-h-[${maxHeight}] min-h-[${minHeight}] resize-none overflow-y-auto border-0 text-base focus-visible:ring-0`,
-            '[&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent',
             isOverLimit && 'text-destructive'
           )}
         />

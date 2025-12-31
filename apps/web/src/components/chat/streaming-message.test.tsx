@@ -78,12 +78,12 @@ describe('StreamingMessage', () => {
     expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument();
   });
 
-  it('preserves whitespace in content', () => {
-    render(<StreamingMessage content="Line 1\nLine 2" isStreaming={false} />);
+  it('renders multi-line content', () => {
+    render(<StreamingMessage content={`Line 1\nLine 2`} isStreaming={false} />);
 
-    // The content paragraph inside the message has whitespace-pre-wrap
-    const content = screen.getByText(/Line 1/);
-    expect(content).toHaveClass('whitespace-pre-wrap');
+    // Content is rendered via MarkdownRenderer which handles newlines
+    expect(screen.getByTestId('markdown-renderer')).toBeInTheDocument();
+    expect(screen.getByText(/Line 1/)).toBeInTheDocument();
   });
 
   it('cursor indicator has correct aria-label for accessibility', () => {

@@ -17,21 +17,29 @@ export function useVisualViewportHeight(): number {
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.visualViewport) {
+    if (typeof window === 'undefined') {
       return;
     }
-
-    const viewport = window.visualViewport;
 
     const handleResize = (): void => {
       updateHeight();
       setTimeout(updateHeight, 300); // iOS Safari reports late
     };
 
-    viewport.addEventListener('resize', handleResize);
+    // Listen to visualViewport for mobile keyboard/pinch-zoom
+    const viewport = window.visualViewport;
+    if (viewport) {
+      viewport.addEventListener('resize', handleResize);
+    }
+
+    // Listen to window resize as fallback (desktop, Playwright tests)
+    window.addEventListener('resize', handleResize);
 
     return () => {
-      viewport.removeEventListener('resize', handleResize);
+      if (viewport) {
+        viewport.removeEventListener('resize', handleResize);
+      }
+      window.removeEventListener('resize', handleResize);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [updateHeight]);

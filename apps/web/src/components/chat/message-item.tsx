@@ -2,14 +2,29 @@ import * as React from 'react';
 import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@lome-chat/ui';
 import { Check, Copy } from 'lucide-react';
 import type { Message } from '@/lib/api';
+import type { Document } from '@/lib/document-parser';
+import { MarkdownRenderer } from './markdown-renderer';
 
 interface MessageItemProps {
   message: Message;
+  onDocumentsExtracted?: ((messageId: string, documents: Document[]) => void) | undefined;
 }
 
-export function MessageItem({ message }: MessageItemProps): React.JSX.Element {
+export function MessageItem({
+  message,
+  onDocumentsExtracted,
+}: MessageItemProps): React.JSX.Element {
   const isUser = message.role === 'user';
   const [copied, setCopied] = React.useState(false);
+
+  const handleDocumentsExtracted = React.useCallback(
+    (docs: Document[]) => {
+      if (onDocumentsExtracted && docs.length > 0) {
+        onDocumentsExtracted(message.id, docs);
+      }
+    },
+    [onDocumentsExtracted, message.id]
+  );
 
   const handleCopy = async (): Promise<void> => {
     await navigator.clipboard.writeText(message.content);
@@ -32,7 +47,16 @@ export function MessageItem({ message }: MessageItemProps): React.JSX.Element {
             isUser ? 'bg-message-user text-foreground rounded-lg' : 'text-foreground'
           )}
         >
-          <p className="text-base leading-relaxed whitespace-pre-wrap">{message.content}</p>
+          {isUser ? (
+            <p className="text-base leading-relaxed whitespace-pre-wrap">{message.content}</p>
+          ) : (
+            <MarkdownRenderer
+              content={message.content}
+              className="text-base leading-relaxed"
+              messageId={message.id}
+              onDocumentsExtracted={handleDocumentsExtracted}
+            />
+          )}
         </div>
 
         {/* Copy button - bottom right of message */}

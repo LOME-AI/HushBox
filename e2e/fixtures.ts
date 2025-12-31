@@ -1,4 +1,4 @@
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Page, type APIRequestContext } from '@playwright/test';
 
 interface TestConversation {
   id: string;
@@ -9,6 +9,7 @@ interface CustomFixtures {
   authenticatedPage: Page;
   unauthenticatedPage: Page;
   testConversation: TestConversation;
+  authenticatedRequest: APIRequestContext;
 }
 
 export const test = base.extend<CustomFixtures>({
@@ -28,7 +29,17 @@ export const test = base.extend<CustomFixtures>({
     await context.close();
   },
 
-  testConversation: async ({ authenticatedPage }, use) => {
+  // Authenticated API request context for cleanup operations
+  authenticatedRequest: async ({ playwright }, use) => {
+    const context = await playwright.request.newContext({
+      baseURL: 'http://localhost:8787',
+      storageState: 'e2e/.auth/test-alice.json',
+    });
+    await use(context);
+    await context.dispose();
+  },
+
+  testConversation: async ({ authenticatedPage, authenticatedRequest }, use) => {
     const page = authenticatedPage;
     await page.goto('/chat');
 
@@ -53,6 +64,14 @@ export const test = base.extend<CustomFixtures>({
     });
 
     await use({ id, url: page.url() });
+
+    // Cleanup: Delete the conversation after the test completes
+    // This prevents test data accumulation and sidebar pollution
+    try {
+      await authenticatedRequest.delete(`/conversations/${id}`);
+    } catch {
+      // Ignore cleanup errors - conversation may already be deleted by the test
+    }
   },
 });
 

@@ -40,15 +40,11 @@ export function ChatItem({ conversation, isActive }: ChatItemProps): React.JSX.E
   const [showRenameDialog, setShowRenameDialog] = React.useState(false);
   const [renameValue, setRenameValue] = React.useState(conversation.title);
 
-  const handleDeleteClick = (e: React.MouseEvent): void => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDeleteClick = (): void => {
     setShowDeleteDialog(true);
   };
 
-  const handleRenameClick = (e: React.MouseEvent): void => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleRenameClick = (): void => {
     setRenameValue(conversation.title);
     setShowRenameDialog(true);
   };
@@ -123,11 +119,11 @@ export function ChatItem({ conversation, isActive }: ChatItemProps): React.JSX.E
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleRenameClick}>
+              <DropdownMenuItem onSelect={handleRenameClick}>
                 <Pencil className="mr-2 h-4 w-4" />
                 Rename
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDeleteClick} className="text-destructive">
+              <DropdownMenuItem onSelect={handleDeleteClick} className="text-destructive">
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>

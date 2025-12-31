@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { ChatHeader } from '@/components/chat/chat-header';
 import { MessageList } from '@/components/chat/message-list';
 import { PromptInput } from '@/components/chat/prompt-input';
+import { DocumentPanel } from '@/components/document-panel/document-panel';
 import {
   useConversation,
   useMessages,
@@ -17,6 +18,7 @@ import { useModels } from '@/hooks/models';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
 import { estimateTokenCount } from '@/lib/tokens';
 import type { Message } from '@/lib/api';
+import type { Document } from '@/lib/document-parser';
 
 const searchSchema = z.object({
   triggerStreaming: z.boolean().optional(),
@@ -57,6 +59,23 @@ function ChatConversation(): React.JSX.Element {
 
   // Optimistic messages shown before API confirms
   const [optimisticMessages, setOptimisticMessages] = React.useState<Message[]>([]);
+
+  // Track documents extracted from messages, keyed by message ID
+  const [documentsByMessage, setDocumentsByMessage] = React.useState<Record<string, Document[]>>(
+    {}
+  );
+
+  const handleDocumentsExtracted = React.useCallback((messageId: string, docs: Document[]) => {
+    setDocumentsByMessage((prev) => ({
+      ...prev,
+      [messageId]: docs,
+    }));
+  }, []);
+
+  // Flatten all documents for the panel
+  const allDocuments = React.useMemo(() => {
+    return Object.values(documentsByMessage).flat();
+  }, [documentsByMessage]);
 
   const allMessages = React.useMemo(() => {
     const messages = apiMessages ?? [];
@@ -232,14 +251,18 @@ function ChatConversation(): React.JSX.Element {
         onModelSelect={setSelectedModel}
         title={conversation.title}
       />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {(allMessages.length > 0 || isStreaming) && (
-          <MessageList
-            messages={allMessages}
-            isStreaming={isStreaming}
-            streamingContent={streamingContent}
-          />
-        )}
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {(allMessages.length > 0 || isStreaming) && (
+            <MessageList
+              messages={allMessages}
+              isStreaming={isStreaming}
+              streamingContent={streamingContent}
+              onDocumentsExtracted={handleDocumentsExtracted}
+            />
+          )}
+        </div>
+        <DocumentPanel documents={allDocuments} />
       </div>
       <div className="flex-shrink-0 border-t p-4">
         <PromptInput

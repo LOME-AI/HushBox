@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from '@lome-chat/ui';
+import { MarkdownRenderer } from './markdown-renderer';
 
 interface StreamingMessageProps {
   content: string;
@@ -123,8 +124,8 @@ export function StreamingMessage({
   return (
     <div data-testid="streaming-message-container" className={cn('w-full px-[2%] py-3', className)}>
       <div data-testid="streaming-message" className="text-foreground px-4 py-2">
-        <p className="text-base leading-relaxed whitespace-pre-wrap">
-          {displayedContent}
+        <div className="text-base leading-relaxed">
+          <MarkdownRenderer content={displayedContent} />
           {isStreaming && (
             <span
               data-testid="streaming-indicator"
@@ -132,7 +133,7 @@ export function StreamingMessage({
               aria-label="Generating response"
             />
           )}
-        </p>
+        </div>
       </div>
     </div>
   );

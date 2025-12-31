@@ -1,6 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, waitFor } from '@testing-library/react';
 import { MessageList } from './message-list';
+
+// Mock mermaid to avoid actual rendering
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn().mockResolvedValue({
+      svg: '<svg>Diagram</svg>',
+      bindFunctions: vi.fn(),
+    }),
+  },
+}));
 
 const messages = [
   {
@@ -134,6 +145,37 @@ describe('MessageList', () => {
       expect(messageItems).toHaveLength(3);
       // Streaming message should also exist
       expect(streamingMessage).toBeInTheDocument();
+    });
+  });
+
+  describe('document extraction', () => {
+    it('calls onDocumentsExtracted when assistant message has documents', async () => {
+      const largeCode = Array(15)
+        .fill(null)
+        .map((_, i) => `const line${String(i)} = ${String(i)};`)
+        .join('\n');
+      const messagesWithCode = [
+        {
+          id: 'msg-with-code',
+          conversationId: 'conv-1',
+          role: 'assistant' as const,
+          content: `\`\`\`typescript\n${largeCode}\n\`\`\``,
+          createdAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+      const onDocumentsExtracted = vi.fn();
+
+      render(
+        <MessageList messages={messagesWithCode} onDocumentsExtracted={onDocumentsExtracted} />
+      );
+
+      await waitFor(() => {
+        expect(onDocumentsExtracted).toHaveBeenCalled();
+      });
+
+      const [messageId, docs] = onDocumentsExtracted.mock.calls[0] as [string, unknown[]];
+      expect(messageId).toBe('msg-with-code');
+      expect(docs).toHaveLength(1);
     });
   });
 });

@@ -66,6 +66,10 @@ test.describe('Chat Functionality', () => {
   });
 
   test.describe('Sidebar Actions', () => {
+    // Run sidebar tests serially to prevent race conditions
+    // Multiple parallel tests modifying the same sidebar causes flakiness
+    test.describe.configure({ mode: 'serial' });
+
     test('shows conversation in sidebar', async ({ authenticatedPage, testConversation }) => {
       const sidebar = new SidebarPage(authenticatedPage);
       await sidebar.expectConversationVisible(testConversation.id);

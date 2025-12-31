@@ -4,6 +4,10 @@ import { RouterProvider } from '@tanstack/react-router';
 import { router } from './router';
 import './app.css';
 
+// Markdown rendering styles
+import 'katex/dist/katex.min.css';
+import 'highlight.js/styles/github-dark.css';
+
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error('Root element not found');

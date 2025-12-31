@@ -25,7 +25,7 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
             index: 0,
             message: {
               role: 'assistant',
-              content: `Echo: ${lastUserMessage?.content ?? 'No message'}`,
+              content: `Echo:\n\n${lastUserMessage?.content ?? 'No message'}`,
             },
             finish_reason: 'stop',
           },
@@ -42,7 +42,7 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
       history.push({ ...request });
 
       const lastUserMessage = [...request.messages].reverse().find((m) => m.role === 'user');
-      const response = `Echo: ${lastUserMessage?.content ?? 'No message'}`;
+      const response = `Echo:\n\n${lastUserMessage?.content ?? 'No message'}`;
 
       for (const char of response) {
         yield char;

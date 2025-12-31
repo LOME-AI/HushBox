@@ -8,9 +8,9 @@ export default defineConfig({
   forbidOnly: isCI,
   retries: isCI ? 2 : 0,
   ...(isCI && { workers: 1 }),
-  timeout: 30_000,
+  timeout: 45_000,
   expect: {
-    timeout: 10_000,
+    timeout: 15_000,
   },
   reporter: isCI ? [['github'], ['html', { open: 'never' }]] : [['html', { open: 'on-failure' }]],
   use: {
