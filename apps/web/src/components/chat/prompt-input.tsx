@@ -4,6 +4,7 @@ import { Send, Square } from 'lucide-react';
 import { Button } from '@lome-chat/ui';
 import { Textarea } from '@lome-chat/ui';
 import { estimateTokenCount } from '@/lib/tokens';
+import { buildSystemPrompt, type CapabilityId } from '@lome-chat/shared';
 
 /** Buffer reserved for AI response generation */
 const RESPONSE_BUFFER = 1000;
@@ -20,6 +21,8 @@ interface PromptInputProps {
   modelContextLimit?: number | undefined;
   /** Current conversation history token count (system + user + assistant messages) */
   historyTokens?: number;
+  /** Active capabilities that affect system prompt size */
+  capabilities?: CapabilityId[];
   className?: string;
   rows?: number;
   disabled?: boolean;
@@ -44,6 +47,7 @@ export function PromptInput({
   placeholder = 'Ask me anything...',
   modelContextLimit,
   historyTokens = 0,
+  capabilities = [],
   className,
   rows = 6,
   disabled = false,
@@ -54,11 +58,15 @@ export function PromptInput({
 }: PromptInputProps): React.JSX.Element {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
-  // Calculate available tokens based on model context, history, and response buffer
-  // Formula: available = modelContext - historyTokens - responseBuffer
+  // Calculate system prompt tokens based on active capabilities
+  const systemPrompt = React.useMemo(() => buildSystemPrompt(capabilities), [capabilities]);
+  const systemPromptTokens = React.useMemo(() => estimateTokenCount(systemPrompt), [systemPrompt]);
+
+  // Calculate available tokens based on model context, history, system prompt, and response buffer
+  // Formula: available = modelContext - historyTokens - systemPromptTokens - responseBuffer
   // Falls back to default if model context not provided
   const availableTokens = modelContextLimit
-    ? Math.max(0, modelContextLimit - historyTokens - RESPONSE_BUFFER)
+    ? Math.max(0, modelContextLimit - historyTokens - systemPromptTokens - RESPONSE_BUFFER)
     : DEFAULT_MAX_TOKENS;
 
   // Calculate token count

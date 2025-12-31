@@ -14,6 +14,7 @@ import {
 } from '@/hooks/chat';
 import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
+import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
 import { estimateTokenCount } from '@/lib/tokens';
 import type { Message } from '@/lib/api';
 
@@ -32,6 +33,7 @@ function ChatConversation(): React.JSX.Element {
   const navigate = useNavigate();
   const isNewChat = conversationId === 'new';
   const queryClient = useQueryClient();
+  const viewportHeight = useVisualViewportHeight();
 
   const { selectedModelId, selectedModelName, setSelectedModel } = useModelStore();
 
@@ -197,7 +199,10 @@ function ChatConversation(): React.JSX.Element {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        style={{ height: `${String(viewportHeight)}px` }}
+      >
         <ChatHeader
           models={models}
           selectedModelId={selectedModelId}
@@ -216,7 +221,10 @@ function ChatConversation(): React.JSX.Element {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      style={{ height: `${String(viewportHeight)}px` }}
+    >
       <ChatHeader
         models={models}
         selectedModelId={selectedModelId}
@@ -233,7 +241,7 @@ function ChatConversation(): React.JSX.Element {
           />
         )}
       </div>
-      <div className="border-t p-4">
+      <div className="flex-shrink-0 border-t p-4">
         <PromptInput
           value={inputValue}
           onChange={setInputValue}

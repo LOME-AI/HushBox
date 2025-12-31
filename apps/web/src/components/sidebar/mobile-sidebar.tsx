@@ -4,6 +4,7 @@ import { useUIStore } from '@/stores/ui';
 import { useConversations } from '@/hooks/chat';
 import { SidebarContent } from './sidebar-content';
 import { SidebarFooter } from './sidebar-footer';
+import { Logo } from '@/components/shared/logo';
 
 /**
  * Mobile sidebar that slides in from the left as an overlay.
@@ -27,8 +28,10 @@ export function MobileSidebar(): React.JSX.Element {
         className="bg-sidebar text-sidebar-foreground flex w-72 flex-col p-0"
         data-testid="mobile-sidebar"
       >
-        <SheetHeader className="border-sidebar-border border-b p-4">
-          <SheetTitle className="text-sidebar-foreground text-lg font-semibold">Menu</SheetTitle>
+        <SheetHeader className="border-sidebar-border border-b px-4 py-3">
+          <SheetTitle asChild>
+            <Logo asLink to="/chat" />
+          </SheetTitle>
         </SheetHeader>
 
         {isLoading ? (

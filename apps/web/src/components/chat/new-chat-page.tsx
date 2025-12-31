@@ -8,6 +8,7 @@ import { ChatHeader } from './chat-header';
 import { getGreeting } from '@/lib/greetings';
 import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
+import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
 
 interface NewChatPageProps {
   onSend: (message: string) => void;
@@ -28,6 +29,7 @@ export function NewChatPage({
 }: NewChatPageProps): React.JSX.Element {
   const [inputValue, setInputValue] = React.useState('');
   const [showSubtitle, setShowSubtitle] = React.useState(false);
+  const viewportHeight = useVisualViewportHeight();
 
   const { selectedModelId, selectedModelName, setSelectedModel } = useModelStore();
 
@@ -57,7 +59,8 @@ export function NewChatPage({
   return (
     <div
       data-testid="new-chat-page"
-      className={cn('flex h-full flex-col overflow-hidden', className)}
+      className={cn('flex flex-col overflow-hidden', className)}
+      style={{ height: `${String(viewportHeight)}px` }}
     >
       {/* ChatHeader with model selector and theme toggle */}
       <ChatHeader

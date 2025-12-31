@@ -1,19 +1,9 @@
 import type { ToolDefinition } from '../../openrouter/types.js';
-import type { PromptModule } from '../types.js';
+import type { ToolModule } from '../types.js';
 
-export const pythonModule: PromptModule = {
+export const pythonModule: ToolModule = {
   id: 'python-execution',
   capability: 'python-execution',
-
-  getSystemPromptSection(): string {
-    return `
-## Python Code Execution
-You can execute Python code using the execute_python tool.
-- Use this for calculations, data processing, file operations
-- Libraries available: numpy, pandas, matplotlib, requests
-- Output is captured from stdout and returned to you
-- Execution timeout: 30 seconds`;
-  },
 
   getTools(): ToolDefinition[] {
     return [

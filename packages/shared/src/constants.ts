@@ -23,8 +23,11 @@ export const LOME_FEE_RATE = 0.15;
 interface FeatureFlags {
   /** Enable projects feature in sidebar. TODO: Enable when projects feature is ready */
   PROJECTS_ENABLED: boolean;
+  /** Enable settings feature in user menu. TODO: Enable when settings feature is ready */
+  SETTINGS_ENABLED: boolean;
 }
 
 export const FEATURE_FLAGS: FeatureFlags = {
   PROJECTS_ENABLED: false,
+  SETTINGS_ENABLED: false,
 };

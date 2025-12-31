@@ -1,13 +1,13 @@
 import type { CapabilityId } from '@lome-chat/shared';
 import type { ChatMessage, ToolDefinition } from '../openrouter/types.js';
 
-export interface PromptModule {
+/**
+ * Module that provides tool definitions for a capability.
+ * System prompts are handled by buildSystemPrompt from @lome-chat/shared.
+ */
+export interface ToolModule {
   id: string;
-
-  /** Set to null for modules that are always included (like the base module) */
-  capability: CapabilityId | null;
-
-  getSystemPromptSection(): string;
+  capability: CapabilityId;
   getTools(): ToolDefinition[];
 }
 

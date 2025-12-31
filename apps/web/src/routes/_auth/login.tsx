@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { useState } from 'react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { toast } from '@lome-chat/ui';
 import { Mail } from 'lucide-react';
 import { signIn } from '@/lib/auth';
 import { AuthInput } from '@/components/auth/AuthInput';
@@ -19,6 +18,8 @@ export function LoginPage(): React.JSX.Element {
   const [password, setPassword] = useState('');
   const [touched, setTouched] = useState({ email: false, password: false });
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState(0);
 
   // Real-time validation
   const emailValidation = touched.email ? validateEmail(email) : { isValid: false };
@@ -42,7 +43,8 @@ export function LoginPage(): React.JSX.Element {
     try {
       const response = await signIn.email({ email, password });
       if (response.error) {
-        toast.error(response.error.message ?? 'Authentication failed');
+        setError(response.error.message ?? 'Authentication failed');
+        setErrorKey((k) => k + 1);
         return;
       }
       void navigate({ to: '/chat' });
@@ -64,6 +66,7 @@ export function LoginPage(): React.JSX.Element {
           void handleSubmit(e);
         }}
         className="space-y-4"
+        noValidate
       >
         <AuthInput
           id="email"
@@ -92,6 +95,16 @@ export function LoginPage(): React.JSX.Element {
           error={passwordValidation.error}
           success={passwordValidation.success}
         />
+
+        {error && (
+          <p
+            key={errorKey}
+            role="alert"
+            className="text-destructive animate-shake text-center text-sm"
+          >
+            {error}
+          </p>
+        )}
 
         <AuthButton type="submit" className="w-full" disabled={isLoading}>
           {isLoading ? 'Logging in...' : 'Log in'}

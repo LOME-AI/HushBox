@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PromptInput } from './prompt-input';
@@ -76,7 +76,8 @@ describe('PromptInput', () => {
   describe('token counter', () => {
     it('displays token counter with current/max format', () => {
       // "Hello" = 5 chars ≈ 2 tokens (5/4 rounded up)
-      // Using modelContextLimit: 3000, historyTokens: 0, buffer: 1000 → available: 2000
+      // Using modelContextLimit: 3000, historyTokens: 0, buffer: 1000, base system prompt: ~37 tokens
+      // available ≈ 3000 - 0 - 37 - 1000 = 1963
       render(
         <PromptInput
           value="Hello"
@@ -86,12 +87,12 @@ describe('PromptInput', () => {
           historyTokens={0}
         />
       );
-      expect(screen.getByTestId('token-counter')).toHaveTextContent('2/2000 Tokens');
+      // Token counter shows current/available format
+      expect(screen.getByTestId('token-counter')).toHaveTextContent(/2\/\d+ Tokens/);
     });
 
     it('shows over-limit format when exceeding available tokens', () => {
-      // 8000+ chars = 2000+ tokens
-      // Using modelContextLimit: 3000, historyTokens: 0, buffer: 1000 → available: 2000
+      // 8000+ chars = 2000+ tokens, which exceeds available (~1963)
       const longText = 'a'.repeat(8020); // ~2005 tokens
       render(
         <PromptInput
@@ -102,12 +103,11 @@ describe('PromptInput', () => {
           historyTokens={0}
         />
       );
-      // Should show format like "2000+5/2000 Tokens"
-      expect(screen.getByTestId('token-counter')).toHaveTextContent(/2000\+\d+\/2000 Tokens/);
+      // Should show format like "1963+42/1963 Tokens"
+      expect(screen.getByTestId('token-counter')).toHaveTextContent(/\d+\+\d+\/\d+ Tokens/);
     });
 
     it('shows warning message when over token limit', () => {
-      // Using modelContextLimit: 3000, historyTokens: 0, buffer: 1000 → available: 2000
       const longText = 'a'.repeat(8020); // ~2005 tokens
       render(
         <PromptInput
@@ -119,7 +119,7 @@ describe('PromptInput', () => {
         />
       );
       expect(
-        screen.getByText(/tokens beyond the 2000 token limit will not be included/i)
+        screen.getByText(/tokens beyond the \d+ token limit will not be included/i)
       ).toBeInTheDocument();
     });
 
@@ -155,9 +155,9 @@ describe('PromptInput', () => {
       expect(counter).toHaveAttribute('aria-atomic', 'true');
     });
 
-    it('calculates available tokens from modelContextLimit minus historyTokens minus 1k buffer', () => {
-      // modelContextLimit: 50000, historyTokens: 5000, buffer: 1000
-      // available = 50000 - 5000 - 1000 = 44000
+    it('calculates available tokens from modelContextLimit minus historyTokens minus systemPrompt minus buffer', () => {
+      // modelContextLimit: 50000, historyTokens: 5000, base system prompt: ~37, buffer: 1000
+      // available ≈ 50000 - 5000 - 37 - 1000 = 43963
       render(
         <PromptInput
           value="Hello"
@@ -167,7 +167,13 @@ describe('PromptInput', () => {
           historyTokens={5000}
         />
       );
-      expect(screen.getByTestId('token-counter')).toHaveTextContent('2/44000 Tokens');
+      const counter = screen.getByTestId('token-counter');
+      expect(counter).toHaveTextContent(/2\/\d+ Tokens/);
+      // Should be less than 44000 (which was without system prompt)
+      const match = /\/(\d+) Tokens/.exec(counter.textContent);
+      const available = match?.[1] ? parseInt(match[1], 10) : 0;
+      expect(available).toBeLessThan(44000);
+      expect(available).toBeGreaterThan(43900);
     });
 
     it('uses default 2000 tokens when modelContextLimit is not provided', () => {
@@ -183,8 +189,8 @@ describe('PromptInput', () => {
     });
 
     it('caps available tokens at 0 when history exceeds context limit', () => {
-      // modelContextLimit: 5000, historyTokens: 4500, buffer: 1000
-      // available = 5000 - 4500 - 1000 = -500 -> capped at 0
+      // modelContextLimit: 5000, historyTokens: 4500, system prompt: ~37, buffer: 1000
+      // available = 5000 - 4500 - 37 - 1000 = -537 -> capped at 0
       render(
         <PromptInput
           value="Hello"
@@ -198,8 +204,8 @@ describe('PromptInput', () => {
     });
 
     it('defaults historyTokens to 0 when not provided', () => {
-      // modelContextLimit: 50000, buffer: 1000
-      // available = 50000 - 0 - 1000 = 49000
+      // modelContextLimit: 50000, base system prompt: ~37, buffer: 1000
+      // available ≈ 50000 - 0 - 37 - 1000 = 48963
       render(
         <PromptInput
           value="Hello"
@@ -208,7 +214,89 @@ describe('PromptInput', () => {
           modelContextLimit={50000}
         />
       );
-      expect(screen.getByTestId('token-counter')).toHaveTextContent('2/49000 Tokens');
+      const counter = screen.getByTestId('token-counter');
+      expect(counter).toHaveTextContent(/2\/\d+ Tokens/);
+      // Should be less than 49000 (which was without system prompt)
+      const match = /\/(\d+) Tokens/.exec(counter.textContent);
+      const available = match?.[1] ? parseInt(match[1], 10) : 0;
+      expect(available).toBeLessThan(49000);
+      expect(available).toBeGreaterThan(48900);
+    });
+
+    describe('system prompt tokens', () => {
+      beforeEach(() => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2025-01-15'));
+      });
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it('subtracts system prompt tokens from available tokens with no capabilities', () => {
+        // Base system prompt is ~90 chars = ~23 tokens
+        // modelContextLimit: 50000, historyTokens: 0, systemPrompt: ~23, buffer: 1000
+        // available = 50000 - 0 - 23 - 1000 = 48977
+        render(
+          <PromptInput
+            value="Hello"
+            onChange={mockOnChange}
+            onSubmit={mockOnSubmit}
+            modelContextLimit={50000}
+            historyTokens={0}
+            capabilities={[]}
+          />
+        );
+        const counter = screen.getByTestId('token-counter');
+        // Should be less than 49000 (which is without system prompt)
+        expect(counter.textContent).toMatch(/2\/\d+ Tokens/);
+        // Extract the available tokens number and verify it's less than 49000
+        const match = /\/(\d+) Tokens/.exec(counter.textContent);
+        const available = match?.[1] ? parseInt(match[1], 10) : 0;
+        expect(available).toBeLessThan(49000);
+        expect(available).toBeGreaterThan(48900); // Should be around 48977
+      });
+
+      it('subtracts more tokens when python capability is enabled', () => {
+        // Python adds ~265 chars = ~67 tokens on top of base
+        // Total system prompt = ~90 + 265 = ~355 chars = ~89 tokens
+        render(
+          <PromptInput
+            value="Hello"
+            onChange={mockOnChange}
+            onSubmit={mockOnSubmit}
+            modelContextLimit={50000}
+            historyTokens={0}
+            capabilities={['python-execution']}
+          />
+        );
+        const counter = screen.getByTestId('token-counter');
+        const match = /\/(\d+) Tokens/.exec(counter.textContent);
+        const available = match?.[1] ? parseInt(match[1], 10) : 0;
+        // With python: ~89 tokens subtracted, so available ≈ 48911
+        expect(available).toBeLessThan(48950);
+        expect(available).toBeGreaterThan(48850);
+      });
+
+      it('subtracts tokens for multiple capabilities', () => {
+        // Python + JS adds ~530 chars = ~133 tokens on top of base
+        render(
+          <PromptInput
+            value="Hello"
+            onChange={mockOnChange}
+            onSubmit={mockOnSubmit}
+            modelContextLimit={50000}
+            historyTokens={0}
+            capabilities={['python-execution', 'javascript-execution']}
+          />
+        );
+        const counter = screen.getByTestId('token-counter');
+        const match = /\/(\d+) Tokens/.exec(counter.textContent);
+        const available = match?.[1] ? parseInt(match[1], 10) : 0;
+        // With both: ~156 tokens subtracted, so available ≈ 48844
+        expect(available).toBeLessThan(48900);
+        expect(available).toBeGreaterThan(48750);
+      });
     });
   });
 

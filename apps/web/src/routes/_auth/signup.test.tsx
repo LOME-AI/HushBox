@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { signUp } from '@/lib/auth';
-import { toast } from '@lome-chat/ui';
 
 // Mock TanStack Router
 vi.mock('@tanstack/react-router', () => ({
@@ -21,9 +20,6 @@ vi.mock('@/lib/auth', () => ({
 
 // Mock UI components
 vi.mock('@lome-chat/ui', () => ({
-  toast: {
-    error: vi.fn(),
-  },
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
 }));
 
@@ -192,7 +188,7 @@ describe('SignupPage', () => {
     expect(screen.getByText(/check your email/i)).toBeInTheDocument();
   });
 
-  it('shows error toast on signup failure', async () => {
+  it('shows inline error on signup failure', async () => {
     vi.mocked(signUp.email).mockResolvedValue({
       data: null,
       error: { message: 'Email already exists' },
@@ -208,7 +204,10 @@ describe('SignupPage', () => {
     await user.type(screen.getByLabelText(/confirm password/i), 'password123');
     await user.click(screen.getByRole('button', { name: /create account/i }));
 
-    expect(toast.error).toHaveBeenCalledWith('Email already exists');
+    const errorAlert = screen
+      .getAllByRole('alert')
+      .find((el) => el.textContent === 'Email already exists');
+    expect(errorAlert).toBeInTheDocument();
   });
 
   it('shows fallback error message when error has no message', async () => {
@@ -227,7 +226,10 @@ describe('SignupPage', () => {
     await user.type(screen.getByLabelText(/confirm password/i), 'password123');
     await user.click(screen.getByRole('button', { name: /create account/i }));
 
-    expect(toast.error).toHaveBeenCalledWith('Signup failed');
+    const errorAlert = screen
+      .getAllByRole('alert')
+      .find((el) => el.textContent === 'Signup failed');
+    expect(errorAlert).toBeInTheDocument();
   });
 
   it('shows success message when name is valid as user types', async () => {

@@ -13,6 +13,18 @@ vi.mock('@/lib/auth', () => ({
   signOutAndClearCache: mockSignOutAndClearCache,
 }));
 
+// Mock @lome-chat/shared with feature flags (partial mock)
+vi.mock('@lome-chat/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@lome-chat/shared')>();
+  return {
+    ...actual,
+    FEATURE_FLAGS: {
+      ...actual.FEATURE_FLAGS,
+      SETTINGS_ENABLED: false,
+    },
+  };
+});
+
 describe('UserMenu', () => {
   const mockUser = {
     name: 'Test User',
@@ -52,12 +64,12 @@ describe('UserMenu', () => {
       expect(screen.getByRole('menuitem', { name: /profile/i })).toBeInTheDocument();
     });
 
-    it('shows Settings option in dropdown', async () => {
+    it('hides Settings option when FEATURE_FLAGS.SETTINGS_ENABLED is false', async () => {
       const user = userEvent.setup();
       render(<UserMenu user={mockUser} />);
 
       await user.click(screen.getByTestId('user-menu-trigger'));
-      expect(screen.getByRole('menuitem', { name: /settings/i })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: /settings/i })).not.toBeInTheDocument();
     });
 
     it('shows Sign out option in dropdown', async () => {

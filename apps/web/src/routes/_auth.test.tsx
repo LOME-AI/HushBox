@@ -11,6 +11,11 @@ vi.mock('@tanstack/react-router', () => ({
   redirect: vi.fn(() => {
     throw redirectError;
   }),
+  Link: ({ children, to, ...props }: { children: React.ReactNode; to: string }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
 }));
 
 // Mock auth client
@@ -31,6 +36,16 @@ describe('AuthLayout component', () => {
     render(<AuthLayout />);
 
     expect(screen.getByTestId('theme-toggle')).toBeInTheDocument();
+  });
+
+  it('renders logo as a link to /chat in top-left', async () => {
+    const { AuthLayout } = await import('./_auth');
+
+    render(<AuthLayout />);
+
+    const logoLink = screen.getByRole('link', { name: /lome/i });
+    expect(logoLink).toBeInTheDocument();
+    expect(logoLink).toHaveAttribute('href', '/chat');
   });
 
   it('renders split-screen layout with decorative header image', async () => {

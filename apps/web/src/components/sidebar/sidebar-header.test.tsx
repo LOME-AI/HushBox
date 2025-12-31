@@ -1,8 +1,17 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SidebarHeader } from './sidebar-header';
 import { useUIStore } from '@/stores/ui';
+
+// Mock TanStack Router's Link component
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children, to, ...props }: { children: React.ReactNode; to: string }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
+}));
 
 describe('SidebarHeader', () => {
   beforeEach(() => {
@@ -20,6 +29,12 @@ describe('SidebarHeader', () => {
       const logo = screen.getByText('LOME');
       expect(logo).toHaveClass('text-primary');
       expect(logo).toHaveClass('font-bold');
+    });
+
+    it('renders logo as a link to /chat when expanded', () => {
+      render(<SidebarHeader />);
+      const link = screen.getByRole('link', { name: /lome/i });
+      expect(link).toHaveAttribute('href', '/chat');
     });
 
     it('renders collapse toggle button when expanded', () => {

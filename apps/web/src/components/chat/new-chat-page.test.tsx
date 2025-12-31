@@ -138,12 +138,13 @@ describe('NewChatPage', () => {
     expect(container).toHaveClass('flex-col');
   });
 
-  it('has h-full and overflow-hidden to prevent scroll bar', () => {
+  it('has dynamic viewport height and overflow-hidden to prevent scroll bar', () => {
     render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
     const container = screen.getByTestId('new-chat-page');
-    expect(container).toHaveClass('h-full');
+    // Uses visual viewport height for mobile keyboard handling
+    expect(container.style.height).toMatch(/\d+px/);
     expect(container).toHaveClass('overflow-hidden');
   });
 

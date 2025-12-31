@@ -59,10 +59,18 @@ describe('MobileSidebar', () => {
     expect(screen.getByTestId('mobile-sidebar')).toBeInTheDocument();
   });
 
-  it('displays Menu title in header', () => {
+  it('displays LOME branding in header', () => {
     useUIStore.setState({ mobileSidebarOpen: true });
     render(<MobileSidebar />);
-    expect(screen.getByText('Menu')).toBeInTheDocument();
+    expect(screen.getByText('LOME')).toBeInTheDocument();
+    expect(screen.getByAltText('LOME Logo')).toBeInTheDocument();
+  });
+
+  it('renders logo as a link to /chat', () => {
+    useUIStore.setState({ mobileSidebarOpen: true });
+    render(<MobileSidebar />);
+    const link = screen.getByRole('link', { name: /lome/i });
+    expect(link).toHaveAttribute('href', '/chat');
   });
 
   it('contains sidebar navigation', () => {

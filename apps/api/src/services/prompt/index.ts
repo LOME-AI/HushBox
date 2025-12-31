@@ -1,3 +1,3 @@
-export type { PromptModule, PromptBuilderOptions, BuiltPrompt } from './types.js';
+export type { ToolModule, PromptBuilderOptions, BuiltPrompt } from './types.js';
 export { buildPrompt } from './builder.js';
-export { baseModule, pythonModule, javascriptModule } from './modules/index.js';
+export { pythonModule, javascriptModule } from './modules/index.js';

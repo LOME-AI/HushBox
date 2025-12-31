@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
   cn,
 } from '@lome-chat/ui';
+import { FEATURE_FLAGS } from '@lome-chat/shared';
 import { LogOut, Settings, User } from 'lucide-react';
 import { useUIStore } from '@/stores/ui';
 import { signOutAndClearCache } from '@/lib/auth';
@@ -77,10 +78,12 @@ export function UserMenu({
           <User className="mr-2 h-4 w-4" aria-hidden="true" />
           Profile
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={onSettingsClick}>
-          <Settings className="mr-2 h-4 w-4" aria-hidden="true" />
-          Settings
-        </DropdownMenuItem>
+        {FEATURE_FLAGS.SETTINGS_ENABLED && (
+          <DropdownMenuItem onClick={onSettingsClick}>
+            <Settings className="mr-2 h-4 w-4" aria-hidden="true" />
+            Settings
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => void handleSignOut()}

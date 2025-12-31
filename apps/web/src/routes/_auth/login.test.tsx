@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { signIn } from '@/lib/auth';
-import { toast } from '@lome-chat/ui';
 
 // Mock TanStack Router
 vi.mock('@tanstack/react-router', () => ({
@@ -22,9 +21,6 @@ vi.mock('@/lib/auth', () => ({
 
 // Mock UI components
 vi.mock('@lome-chat/ui', () => ({
-  toast: {
-    error: vi.fn(),
-  },
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
 }));
 
@@ -145,7 +141,7 @@ describe('LoginPage', () => {
     });
   });
 
-  it('shows error toast on authentication failure', async () => {
+  it('shows inline error on authentication failure', async () => {
     vi.mocked(signIn.email).mockResolvedValue({
       data: null,
       error: { message: 'Invalid credentials' },
@@ -159,7 +155,10 @@ describe('LoginPage', () => {
     await user.type(screen.getByLabelText(/password/i), 'password123');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
-    expect(toast.error).toHaveBeenCalledWith('Invalid credentials');
+    const errorAlert = screen
+      .getAllByRole('alert')
+      .find((el) => el.textContent === 'Invalid credentials');
+    expect(errorAlert).toBeInTheDocument();
   });
 
   it('shows fallback error message when error has no message', async () => {
@@ -176,7 +175,10 @@ describe('LoginPage', () => {
     await user.type(screen.getByLabelText(/password/i), 'password123');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
-    expect(toast.error).toHaveBeenCalledWith('Authentication failed');
+    const errorAlert = screen
+      .getAllByRole('alert')
+      .find((el) => el.textContent === 'Authentication failed');
+    expect(errorAlert).toBeInTheDocument();
   });
 
   it('shows success message when email is valid as user types', async () => {

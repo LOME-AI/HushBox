@@ -9,6 +9,7 @@ vi.mock('@lome-chat/shared', async (importOriginal) => {
   return {
     ...actual,
     FEATURE_FLAGS: {
+      ...actual.FEATURE_FLAGS,
       PROJECTS_ENABLED: false,
     },
   };
