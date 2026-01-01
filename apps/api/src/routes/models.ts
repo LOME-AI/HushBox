@@ -12,6 +12,7 @@ const modelInfoSchema = z.object({
     completion: z.string(),
   }),
   supported_parameters: z.array(z.string()),
+  created: z.number(),
 });
 
 const errorSchema = z.object({

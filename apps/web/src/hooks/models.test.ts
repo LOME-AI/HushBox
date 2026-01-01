@@ -24,6 +24,7 @@ const BASE_MODEL = {
   context_length: 128000,
   pricing: { prompt: '0.00001', completion: '0.00003' },
   supported_parameters: ['temperature', 'tools', 'tool_choice'],
+  created: Math.floor(Date.now() / 1000), // Recent model
 };
 
 // Backend API response format (OpenRouter format)
@@ -62,6 +63,7 @@ describe('transformApiModel', () => {
       context_length: 128000,
       pricing: { prompt: '0.00001', completion: '0.00003' },
       supported_parameters: ['temperature', 'tools', 'tool_choice'],
+      created: 1704067200,
     };
 
     const result = transformApiModel(apiModel);
@@ -74,6 +76,7 @@ describe('transformApiModel', () => {
     expect(result.pricePerOutputToken).toBe(0.00003);
     expect(result.description).toBe('Test model');
     expect(result.supportedParameters).toEqual(['temperature', 'tools', 'tool_choice']);
+    expect(result.created).toBe(1704067200);
   });
 
   it('extracts provider from model ID', () => {
@@ -253,6 +256,12 @@ describe('useModels', () => {
 });
 
 describe('isExcludedModel', () => {
+  // Recent timestamp (within 2 years)
+  const recentCreated = Math.floor(Date.now() / 1000);
+  // Old timestamp (more than 2 years ago)
+  const TWO_YEARS_IN_SECONDS = 2 * 365 * 24 * 60 * 60;
+  const oldCreated = Math.floor(Date.now() / 1000) - TWO_YEARS_IN_SECONDS - 1;
+
   const baseModel: Model = {
     id: 'test/model',
     name: 'Test Model',
@@ -263,6 +272,7 @@ describe('isExcludedModel', () => {
     pricePerOutputToken: 0.001,
     capabilities: [],
     supportedParameters: [],
+    created: recentCreated,
   };
 
   it('excludes free models (both input and output price = 0)', () => {
@@ -302,5 +312,57 @@ describe('isExcludedModel', () => {
   it('includes normal paid models', () => {
     expect(isExcludedModel({ ...baseModel, name: 'GPT-4 Turbo' })).toBe(false);
     expect(isExcludedModel({ ...baseModel, name: 'Claude 3.5 Sonnet' })).toBe(false);
+  });
+
+  it('excludes models older than 2 years', () => {
+    const oldModel = { ...baseModel, created: oldCreated };
+    expect(isExcludedModel(oldModel)).toBe(true);
+  });
+
+  it('includes models within 2 years', () => {
+    const recentModel = { ...baseModel, created: recentCreated };
+    expect(isExcludedModel(recentModel)).toBe(false);
+  });
+
+  it('includes models at exactly 2 years old boundary', () => {
+    const exactlyTwoYearsOld = Math.floor(Date.now() / 1000) - TWO_YEARS_IN_SECONDS;
+    const boundaryModel = { ...baseModel, created: exactlyTwoYearsOld };
+    expect(isExcludedModel(boundaryModel)).toBe(false);
+  });
+
+  it('excludes models cheaper than $0.001 per 1K tokens combined', () => {
+    // Combined price = (0.0000001 + 0.0000001) * 1000 = 0.0002 < 0.001
+    const cheapModel = {
+      ...baseModel,
+      pricePerInputToken: 0.0000001,
+      pricePerOutputToken: 0.0000001,
+    };
+    expect(isExcludedModel(cheapModel)).toBe(true);
+  });
+
+  it('includes models at exactly $0.001 per 1K tokens combined', () => {
+    // Combined price = (0.0000005 + 0.0000005) * 1000 = 0.001
+    const borderlineModel = {
+      ...baseModel,
+      pricePerInputToken: 0.0000005,
+      pricePerOutputToken: 0.0000005,
+    };
+    expect(isExcludedModel(borderlineModel)).toBe(false);
+  });
+
+  it('includes models more expensive than $0.001 per 1K tokens combined', () => {
+    // Combined price = (0.00001 + 0.00003) * 1000 = 0.04 > 0.001
+    const expensiveModel = {
+      ...baseModel,
+      pricePerInputToken: 0.00001,
+      pricePerOutputToken: 0.00003,
+    };
+    expect(isExcludedModel(expensiveModel)).toBe(false);
+  });
+
+  it('handles models without created timestamp (includes them)', () => {
+    const noCreatedModel = { ...baseModel };
+    delete (noCreatedModel as Partial<Model>).created;
+    expect(isExcludedModel(noCreatedModel)).toBe(false);
   });
 });

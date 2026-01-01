@@ -8,6 +8,12 @@ import {
   VALUE_MODEL_ID,
   LOME_FEE_RATE,
   FEATURE_FLAGS,
+  CHARACTERS_PER_KILOBYTE,
+  KILOBYTES_PER_GIGABYTE,
+  MONTHLY_COST_PER_GB,
+  MONTHS_PER_YEAR,
+  STORAGE_YEARS,
+  STORAGE_COST_PER_CHARACTER,
 } from './constants.js';
 
 describe('MESSAGE_ROLES', () => {
@@ -85,5 +91,57 @@ describe('FEATURE_FLAGS', () => {
 
   it('has PROJECTS_ENABLED as boolean', () => {
     expect(typeof FEATURE_FLAGS.PROJECTS_ENABLED).toBe('boolean');
+  });
+});
+
+describe('Storage Fee Constants', () => {
+  describe('base constants', () => {
+    it('defines CHARACTERS_PER_KILOBYTE as 1000', () => {
+      expect(CHARACTERS_PER_KILOBYTE).toBe(1000);
+    });
+
+    it('defines KILOBYTES_PER_GIGABYTE as 1000000', () => {
+      expect(KILOBYTES_PER_GIGABYTE).toBe(1000000);
+    });
+
+    it('defines MONTHLY_COST_PER_GB as 0.5', () => {
+      expect(MONTHLY_COST_PER_GB).toBe(0.5);
+    });
+
+    it('defines MONTHS_PER_YEAR as 12', () => {
+      expect(MONTHS_PER_YEAR).toBe(12);
+    });
+
+    it('defines STORAGE_YEARS as 50', () => {
+      expect(STORAGE_YEARS).toBe(50);
+    });
+  });
+
+  describe('STORAGE_COST_PER_CHARACTER', () => {
+    it('derives from base constants', () => {
+      const expectedCostPerCharacter =
+        (MONTHLY_COST_PER_GB * MONTHS_PER_YEAR * STORAGE_YEARS) /
+        (CHARACTERS_PER_KILOBYTE * KILOBYTES_PER_GIGABYTE);
+
+      expect(STORAGE_COST_PER_CHARACTER).toBe(expectedCostPerCharacter);
+    });
+
+    it('equals $0.0000003 per character', () => {
+      expect(STORAGE_COST_PER_CHARACTER).toBeCloseTo(0.0000003, 10);
+    });
+
+    it('calculates to $0.0003 per 1k characters', () => {
+      const costPer1kChars = STORAGE_COST_PER_CHARACTER * 1000;
+      expect(costPer1kChars).toBeCloseTo(0.0003, 10);
+    });
+
+    it('allows 16k+ 200-character messages for $1', () => {
+      const dollarsAvailable = 1;
+      const charsPerMessage = 200;
+      const totalChars = dollarsAvailable / STORAGE_COST_PER_CHARACTER;
+      const messageCount = totalChars / charsPerMessage;
+
+      expect(messageCount).toBeGreaterThan(16000);
+    });
   });
 });

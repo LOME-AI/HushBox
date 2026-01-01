@@ -8,16 +8,43 @@ import { api } from '../lib/api.js';
 const EXCLUDED_MODEL_PATTERNS = [/body builder/i, /auto router/i, /image/i];
 
 /**
+ * Two years in seconds.
+ */
+const TWO_YEARS_IN_SECONDS = 2 * 365 * 24 * 60 * 60;
+
+/**
+ * Minimum combined price per 1K tokens ($0.001).
+ */
+const MIN_PRICE_PER_1K_TOKENS = 0.001;
+
+/**
  * Determine if a model should be excluded from the selector.
  * Excludes:
  * - Free models (both input and output price = 0)
  * - Utility models like Body Builder and Auto Router
+ * - Models older than 2 years
+ * - Models cheaper than $0.001 per 1K tokens combined
  */
 export function isExcludedModel(model: Model): boolean {
   // Free models
   if (model.pricePerInputToken === 0 && model.pricePerOutputToken === 0) {
     return true;
   }
+
+  // Models older than 2 years
+  if (model.created !== undefined) {
+    const cutoffTimestamp = Math.floor(Date.now() / 1000) - TWO_YEARS_IN_SECONDS;
+    if (model.created < cutoffTimestamp) {
+      return true;
+    }
+  }
+
+  // Models cheaper than $0.001 per 1K tokens combined
+  const combinedPricePer1K = (model.pricePerInputToken + model.pricePerOutputToken) * 1000;
+  if (combinedPricePer1K < MIN_PRICE_PER_1K_TOKENS) {
+    return true;
+  }
+
   // Utility models by name pattern
   return EXCLUDED_MODEL_PATTERNS.some((pattern) => pattern.test(model.name));
 }
@@ -35,6 +62,7 @@ interface ApiModelInfo {
     completion: string;
   };
   supported_parameters: string[];
+  created: number;
 }
 
 /**
@@ -125,6 +153,7 @@ export function transformApiModel(apiModel: ApiModelInfo): Model {
     pricePerOutputToken: parseFloat(apiModel.pricing.completion),
     capabilities: deriveCapabilities(apiModel.supported_parameters),
     supportedParameters: apiModel.supported_parameters,
+    created: apiModel.created,
   };
 }
 

@@ -291,6 +291,7 @@ describe('createOpenRouterClient', () => {
           context_length: 8192,
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: [],
+          created: 1704067200,
         },
         {
           id: 'anthropic/claude-3',
@@ -299,6 +300,7 @@ describe('createOpenRouterClient', () => {
           context_length: 200000,
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: [],
+          created: 1704067200,
         },
       ];
 
@@ -333,6 +335,7 @@ describe('createOpenRouterClient', () => {
           context_length: 8192,
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: ['tools'],
+          created: 1704067200,
         },
         {
           id: 'anthropic/claude-3',
@@ -341,6 +344,7 @@ describe('createOpenRouterClient', () => {
           context_length: 200000,
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: [],
+          created: 1704067200,
         },
       ];
 
@@ -364,6 +368,7 @@ describe('createOpenRouterClient', () => {
           context_length: 8192,
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: [],
+          created: 1704067200,
         },
       ];
 
@@ -421,6 +426,7 @@ describe('fetchModels (public, no auth required)', () => {
         context_length: 8192,
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: [],
+        created: 1704067200,
       },
     ];
 
@@ -481,6 +487,7 @@ describe('getModel (public, no auth required)', () => {
         context_length: 8192,
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: [],
+        created: 1704067200,
       },
       {
         id: 'anthropic/claude-3',
@@ -489,6 +496,7 @@ describe('getModel (public, no auth required)', () => {
         context_length: 200000,
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: [],
+        created: 1704067200,
       },
     ];
 
@@ -512,6 +520,7 @@ describe('getModel (public, no auth required)', () => {
         context_length: 8192,
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: [],
+        created: 1704067200,
       },
     ];
 

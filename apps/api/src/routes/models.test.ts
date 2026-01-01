@@ -11,6 +11,7 @@ interface MockModel {
   context_length: number;
   pricing: { prompt: string; completion: string };
   supported_parameters: string[];
+  created: number;
 }
 
 interface MockFetchResponse {
@@ -29,6 +30,7 @@ const MOCK_MODELS: MockModel[] = [
     context_length: 128000,
     pricing: { prompt: '0.00001', completion: '0.00003' },
     supported_parameters: ['temperature', 'max_tokens'],
+    created: 1704067200, // 2024-01-01
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
@@ -37,6 +39,7 @@ const MOCK_MODELS: MockModel[] = [
     context_length: 200000,
     pricing: { prompt: '0.000003', completion: '0.000015' },
     supported_parameters: ['temperature', 'max_tokens'],
+    created: 1719792000, // 2024-07-01
   },
 ];
 
@@ -100,6 +103,7 @@ describe('Models Routes', () => {
       expect(model).toHaveProperty('pricing');
       expect(model?.pricing).toHaveProperty('prompt');
       expect(model?.pricing).toHaveProperty('completion');
+      expect(model).toHaveProperty('created');
     });
 
     it('returns empty array when no models available', async () => {

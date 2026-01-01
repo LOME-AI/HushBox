@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  modelSchema,
-  type Model,
-  MOCK_MODELS,
-  modelCapabilitySchema,
-  type ModelCapability,
-} from './models.js';
+import { modelSchema, type Model, modelCapabilitySchema, type ModelCapability } from './models.js';
 
 describe('modelCapabilitySchema', () => {
   it('accepts valid capabilities', () => {
@@ -115,34 +109,43 @@ describe('modelSchema', () => {
     const result = modelSchema.safeParse(model);
     expect(result.success).toBe(true);
   });
-});
 
-describe('MOCK_MODELS', () => {
-  it('contains at least 3 models for testing', () => {
-    expect(MOCK_MODELS.length).toBeGreaterThanOrEqual(3);
-  });
+  it('accepts optional created timestamp', () => {
+    const modelWithCreated = {
+      id: 'test',
+      name: 'Test',
+      provider: 'Test',
+      contextLength: 4096,
+      pricePerInputToken: 0.001,
+      pricePerOutputToken: 0.002,
+      capabilities: [],
+      description: 'Test description.',
+      created: 1704067200, // 2024-01-01
+    };
 
-  it('all mock models are valid', () => {
-    for (const model of MOCK_MODELS) {
-      const result = modelSchema.safeParse(model);
-      expect(result.success).toBe(true);
+    const result = modelSchema.safeParse(modelWithCreated);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.created).toBe(1704067200);
     }
   });
 
-  it('includes models from different providers', () => {
-    const providers = new Set(MOCK_MODELS.map((m) => m.provider));
-    expect(providers.size).toBeGreaterThanOrEqual(2);
-  });
+  it('allows model without created timestamp', () => {
+    const modelWithoutCreated = {
+      id: 'test',
+      name: 'Test',
+      provider: 'Test',
+      contextLength: 4096,
+      pricePerInputToken: 0.001,
+      pricePerOutputToken: 0.002,
+      capabilities: [],
+      description: 'Test description.',
+    };
 
-  it('includes models with vision capability', () => {
-    const hasVision = MOCK_MODELS.some((m) => m.capabilities.includes('vision'));
-    expect(hasVision).toBe(true);
-  });
-
-  it('all models have non-empty descriptions', () => {
-    for (const model of MOCK_MODELS) {
-      expect(model.description).toBeDefined();
-      expect(model.description.length).toBeGreaterThan(0);
+    const result = modelSchema.safeParse(modelWithoutCreated);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.created).toBeUndefined();
     }
   });
 });

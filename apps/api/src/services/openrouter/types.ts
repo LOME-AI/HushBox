@@ -59,6 +59,8 @@ export interface ModelInfo {
     completion: string;
   };
   supported_parameters: string[];
+  /** Unix timestamp when the model was created */
+  created: number;
 }
 
 /**

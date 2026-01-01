@@ -19,6 +19,31 @@ export const VALUE_MODEL_ID = 'deepseek/deepseek-r1';
 /** LOME's fee rate on AI model usage (15%) */
 export const LOME_FEE_RATE = 0.15;
 
+// Storage fee configuration - base constants
+/** Characters that fit in one kilobyte */
+export const CHARACTERS_PER_KILOBYTE = 1000;
+
+/** Kilobytes in one gigabyte */
+export const KILOBYTES_PER_GIGABYTE = 1000000;
+
+/** Monthly cost to store one gigabyte in USD */
+export const MONTHLY_COST_PER_GB = 0.5;
+
+/** Months in a year */
+export const MONTHS_PER_YEAR = 12;
+
+/** Number of years to retain storage */
+export const STORAGE_YEARS = 50;
+
+/**
+ * Cost per character for storage in USD.
+ * Derived: (MONTHLY_COST_PER_GB * MONTHS_PER_YEAR * STORAGE_YEARS) / (CHARACTERS_PER_KILOBYTE * KILOBYTES_PER_GIGABYTE)
+ * = ($0.5 * 12 * 50) / (1000 * 1000000) = $300 / 1,000,000,000 = $0.0000003
+ */
+export const STORAGE_COST_PER_CHARACTER =
+  (MONTHLY_COST_PER_GB * MONTHS_PER_YEAR * STORAGE_YEARS) /
+  (CHARACTERS_PER_KILOBYTE * KILOBYTES_PER_GIGABYTE);
+
 /** Feature flags for conditional feature rendering */
 interface FeatureFlags {
   /** Enable projects feature in sidebar. TODO: Enable when projects feature is ready */
