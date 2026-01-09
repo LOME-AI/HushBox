@@ -63,7 +63,7 @@ export function CodeBlock({
       )}
 
       {/* Code content */}
-      <pre className="p-4">
+      <pre className="overflow-x-auto p-4">
         <code className="text-foreground text-sm">{children}</code>
       </pre>
     </div>

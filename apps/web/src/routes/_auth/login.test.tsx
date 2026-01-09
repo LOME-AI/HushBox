@@ -22,11 +22,21 @@ vi.mock('@/lib/auth', () => ({
 // Mock UI components
 vi.mock('@lome-chat/ui', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
+  Input: ({
+    label,
+    id,
+    ...props
+  }: { label?: string; id?: string } & React.InputHTMLAttributes<HTMLInputElement>) => (
+    <div>
+      {label && <label htmlFor={id}>{label}</label>}
+      <input id={id} {...props} />
+    </div>
+  ),
 }));
 
-// Mock AuthInput
-vi.mock('@/components/auth/AuthInput', () => ({
-  AuthInput: ({
+// Mock FormInput
+vi.mock('@/components/shared/form-input', () => ({
+  FormInput: ({
     label,
     id,
     error,

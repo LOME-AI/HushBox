@@ -3,16 +3,21 @@ import { useNavigate } from '@tanstack/react-router';
 import { cn } from '@lome-chat/ui';
 import { Plus } from 'lucide-react';
 import { useUIStore } from '@/stores/ui';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 
 export function NewChatButton(): React.JSX.Element {
   const navigate = useNavigate();
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
+  const setMobileSidebarOpen = useUIStore((state) => state.setMobileSidebarOpen);
+  const isMobile = useIsMobile();
 
   const handleClick = (): void => {
+    if (isMobile) {
+      setMobileSidebarOpen(false);
+    }
     void navigate({ to: '/chat' });
   };
 
-  // Common styles for the slash button
   const slashButtonStyles = {
     clipPath: 'polygon(0 0, 100% 0, 95% 100%, 0 100%)',
   };
@@ -30,7 +35,6 @@ export function NewChatButton(): React.JSX.Element {
         )}
         style={slashButtonStyles}
       >
-        {/* Shine effect */}
         <div
           className="pointer-events-none absolute inset-0 opacity-0 transition-opacity hover:opacity-100"
           aria-hidden="true"
@@ -56,7 +60,6 @@ export function NewChatButton(): React.JSX.Element {
       )}
       style={slashButtonStyles}
     >
-      {/* Shine effect */}
       <div
         className="pointer-events-none absolute inset-0"
         aria-hidden="true"

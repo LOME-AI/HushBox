@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import * as React from 'react';
 import { PromptInput } from './prompt-input';
+import type { PromptInputRef } from './prompt-input';
 
 describe('PromptInput', () => {
   const mockOnChange = vi.fn();
@@ -377,6 +379,28 @@ describe('PromptInput', () => {
         />
       );
       expect(screen.getByRole('textbox')).toBeDisabled();
+    });
+  });
+
+  describe('ref and focus', () => {
+    it('exposes focus method via ref', () => {
+      const ref = React.createRef<PromptInputRef>();
+      render(<PromptInput ref={ref} value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+
+      expect(ref.current).not.toBeNull();
+      expect(typeof ref.current?.focus).toBe('function');
+    });
+
+    it('focuses textarea when focus() is called', () => {
+      const ref = React.createRef<PromptInputRef>();
+      render(<PromptInput ref={ref} value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+
+      const textarea = screen.getByRole('textbox');
+      expect(document.activeElement).not.toBe(textarea);
+
+      ref.current?.focus();
+
+      expect(document.activeElement).toBe(textarea);
     });
   });
 });

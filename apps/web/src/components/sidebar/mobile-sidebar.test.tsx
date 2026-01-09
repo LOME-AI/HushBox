@@ -43,6 +43,23 @@ vi.mock('@/hooks/chat', () => ({
   }),
 }));
 
+vi.mock('@/hooks/billing', () => ({
+  useBalance: () => ({
+    data: { balance: '0.00000000' },
+    isLoading: false,
+  }),
+}));
+
+vi.mock('@/lib/auth', () => ({
+  useSession: () => ({
+    data: {
+      user: { email: 'test@example.com' },
+      session: { id: 'session-123' },
+    },
+  }),
+  signOutAndClearCache: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe('MobileSidebar', () => {
   beforeEach(() => {
     useUIStore.setState({ mobileSidebarOpen: false, sidebarOpen: true });

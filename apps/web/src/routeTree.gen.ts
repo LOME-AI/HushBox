@@ -17,7 +17,9 @@ import { Route as AuthVerifyRouteImport } from './routes/_auth/verify'
 import { Route as AuthSignupRouteImport } from './routes/_auth/signup'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AppProjectsRouteImport } from './routes/_app/projects'
+import { Route as AppBillingRouteImport } from './routes/_app/billing'
 import { Route as AppChatIndexRouteImport } from './routes/_app/chat.index'
+import { Route as AppChatNewRouteImport } from './routes/_app/chat.new'
 import { Route as AppChatConversationIdRouteImport } from './routes/_app/chat.$conversationId'
 
 const AuthRoute = AuthRouteImport.update({
@@ -58,9 +60,19 @@ const AppProjectsRoute = AppProjectsRouteImport.update({
   path: '/projects',
   getParentRoute: () => AppRoute,
 } as any)
+const AppBillingRoute = AppBillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppChatIndexRoute = AppChatIndexRouteImport.update({
   id: '/chat/',
   path: '/chat/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppChatNewRoute = AppChatNewRouteImport.update({
+  id: '/chat/new',
+  path: '/chat/new',
   getParentRoute: () => AppRoute,
 } as any)
 const AppChatConversationIdRoute = AppChatConversationIdRouteImport.update({
@@ -71,22 +83,26 @@ const AppChatConversationIdRoute = AppChatConversationIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/billing': typeof AppBillingRoute
   '/projects': typeof AppProjectsRoute
   '/login': typeof AuthLoginRoute
   '/signup': typeof AuthSignupRoute
   '/verify': typeof AuthVerifyRoute
   '/dev/personas': typeof DevPersonasRoute
   '/chat/$conversationId': typeof AppChatConversationIdRoute
+  '/chat/new': typeof AppChatNewRoute
   '/chat': typeof AppChatIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/billing': typeof AppBillingRoute
   '/projects': typeof AppProjectsRoute
   '/login': typeof AuthLoginRoute
   '/signup': typeof AuthSignupRoute
   '/verify': typeof AuthVerifyRoute
   '/dev/personas': typeof DevPersonasRoute
   '/chat/$conversationId': typeof AppChatConversationIdRoute
+  '/chat/new': typeof AppChatNewRoute
   '/chat': typeof AppChatIndexRoute
 }
 export interface FileRoutesById {
@@ -94,46 +110,54 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
+  '/_app/billing': typeof AppBillingRoute
   '/_app/projects': typeof AppProjectsRoute
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/signup': typeof AuthSignupRoute
   '/_auth/verify': typeof AuthVerifyRoute
   '/dev/personas': typeof DevPersonasRoute
   '/_app/chat/$conversationId': typeof AppChatConversationIdRoute
+  '/_app/chat/new': typeof AppChatNewRoute
   '/_app/chat/': typeof AppChatIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/billing'
     | '/projects'
     | '/login'
     | '/signup'
     | '/verify'
     | '/dev/personas'
     | '/chat/$conversationId'
+    | '/chat/new'
     | '/chat'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/billing'
     | '/projects'
     | '/login'
     | '/signup'
     | '/verify'
     | '/dev/personas'
     | '/chat/$conversationId'
+    | '/chat/new'
     | '/chat'
   id:
     | '__root__'
     | '/'
     | '/_app'
     | '/_auth'
+    | '/_app/billing'
     | '/_app/projects'
     | '/_auth/login'
     | '/_auth/signup'
     | '/_auth/verify'
     | '/dev/personas'
     | '/_app/chat/$conversationId'
+    | '/_app/chat/new'
     | '/_app/chat/'
   fileRoutesById: FileRoutesById
 }
@@ -202,11 +226,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProjectsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/billing': {
+      id: '/_app/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof AppBillingRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/chat/': {
       id: '/_app/chat/'
       path: '/chat'
       fullPath: '/chat'
       preLoaderRoute: typeof AppChatIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/chat/new': {
+      id: '/_app/chat/new'
+      path: '/chat/new'
+      fullPath: '/chat/new'
+      preLoaderRoute: typeof AppChatNewRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/chat/$conversationId': {
@@ -220,14 +258,18 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppBillingRoute: typeof AppBillingRoute
   AppProjectsRoute: typeof AppProjectsRoute
   AppChatConversationIdRoute: typeof AppChatConversationIdRoute
+  AppChatNewRoute: typeof AppChatNewRoute
   AppChatIndexRoute: typeof AppChatIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppBillingRoute: AppBillingRoute,
   AppProjectsRoute: AppProjectsRoute,
   AppChatConversationIdRoute: AppChatConversationIdRoute,
+  AppChatNewRoute: AppChatNewRoute,
   AppChatIndexRoute: AppChatIndexRoute,
 }
 

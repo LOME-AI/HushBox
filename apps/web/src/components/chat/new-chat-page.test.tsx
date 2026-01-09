@@ -70,11 +70,11 @@ describe('NewChatPage', () => {
     expect(screen.getByTestId('new-chat-page')).toBeInTheDocument();
   });
 
-  it('renders a greeting with typing animation', () => {
+  it('renders a greeting heading', () => {
     render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
-    expect(screen.getByTestId('typing-animation')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
   });
 
   it('renders the prompt input', () => {

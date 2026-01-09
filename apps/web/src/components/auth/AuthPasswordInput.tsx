@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { useState } from 'react';
 import { Lock, Eye, EyeOff } from 'lucide-react';
-import { AuthInput, type AuthInputProps } from './AuthInput';
+import { FormInput, type FormInputProps } from '@/components/shared/form-input';
 
-interface AuthPasswordInputProps extends Omit<AuthInputProps, 'type' | 'icon' | 'suffix'> {
+interface AuthPasswordInputProps extends Omit<FormInputProps, 'type' | 'icon' | 'suffix'> {
   label: string;
 }
 
@@ -22,7 +22,7 @@ export function AuthPasswordInput({
     <button
       type="button"
       onClick={toggleVisibility}
-      className="text-muted hover:text-foreground transition-colors"
+      className="text-foreground/50 hover:text-foreground transition-colors"
       aria-label={showPassword ? 'Hide password' : 'Show password'}
     >
       {showPassword ? (
@@ -34,7 +34,7 @@ export function AuthPasswordInput({
   );
 
   return (
-    <AuthInput
+    <FormInput
       type={showPassword ? 'text' : 'password'}
       label={label}
       icon={<Lock className="h-5 w-5" aria-hidden="true" />}

@@ -11,21 +11,30 @@ vi.mock('@tanstack/react-router', () => ({
     to,
     params,
     className,
+    onClick,
   }: {
     children: React.ReactNode;
     to: string;
     params?: { conversationId: string };
     className?: string;
+    onClick?: () => void;
   }) => (
     <a
       href={params ? to.replace('$conversationId', params.conversationId) : to}
       className={className}
       data-testid="chat-link"
+      onClick={onClick}
     >
       {children}
     </a>
   ),
   useNavigate: () => vi.fn(),
+}));
+
+// Mock useIsMobile hook
+let mockIsMobile = false;
+vi.mock('@/hooks/use-is-mobile', () => ({
+  useIsMobile: () => mockIsMobile,
 }));
 
 // Mock chat hooks
@@ -54,7 +63,8 @@ describe('ChatItem', () => {
     vi.clearAllMocks();
     mockDeleteMutate.mockClear();
     mockUpdateMutate.mockClear();
-    useUIStore.setState({ sidebarOpen: true });
+    mockIsMobile = false;
+    useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false });
   });
 
   describe('expanded state', () => {
@@ -230,6 +240,32 @@ describe('ChatItem', () => {
       await user.clear(input);
 
       expect(screen.getByTestId('save-rename-button')).toBeDisabled();
+    });
+  });
+
+  describe('mobile sidebar behavior', () => {
+    it('closes mobile sidebar when clicking chat link on mobile', async () => {
+      mockIsMobile = true;
+      useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: true });
+
+      const user = userEvent.setup();
+      render(<ChatItem conversation={mockConversation} />);
+
+      await user.click(screen.getByTestId('chat-link'));
+
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('does not close mobile sidebar when clicking on desktop', async () => {
+      mockIsMobile = false;
+      useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: true });
+
+      const user = userEvent.setup();
+      render(<ChatItem conversation={mockConversation} />);
+
+      await user.click(screen.getByTestId('chat-link'));
+
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(true);
     });
   });
 });

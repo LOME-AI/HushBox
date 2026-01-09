@@ -9,7 +9,15 @@ interface ModelSelectorButtonProps {
   /** Fallback name to display before models load (prevents flash) */
   selectedName?: string | undefined;
   onSelect: (modelId: string, modelName: string) => void;
-  disabled?: boolean;
+  disabled?: boolean | undefined;
+  /** Set of premium model IDs */
+  premiumIds?: Set<string> | undefined;
+  /** Whether the user can access premium models (defaults to true) */
+  canAccessPremium?: boolean | undefined;
+  /** Whether the user is authenticated (defaults to true) */
+  isAuthenticated?: boolean | undefined;
+  /** Called when user clicks a premium model they cannot access */
+  onPremiumClick?: ((modelId: string) => void) | undefined;
 }
 
 /**
@@ -22,6 +30,10 @@ export function ModelSelectorButton({
   selectedName,
   onSelect,
   disabled = false,
+  premiumIds,
+  canAccessPremium = true,
+  isAuthenticated = true,
+  onPremiumClick,
 }: ModelSelectorButtonProps): React.JSX.Element {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -59,6 +71,10 @@ export function ModelSelectorButton({
         models={models}
         selectedId={selectedId}
         onSelect={handleSelect}
+        premiumIds={premiumIds}
+        canAccessPremium={canAccessPremium}
+        isAuthenticated={isAuthenticated}
+        onPremiumClick={onPremiumClick}
       />
     </>
   );

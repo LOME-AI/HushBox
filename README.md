@@ -1,3 +1,5 @@
+<!-- AUTO-GENERATED from README.template.md - Do not edit directly -->
+
 # LOME-CHAT
 
 **One interface. Every AI model. Your data stays yours.**
@@ -71,15 +73,19 @@ When your messages reach AI providers, they see LOME-CHAT's credentials—not yo
 
 We charge a **15% fee** on AI model usage plus a **storage fee** of $0.0003 per 1,000 characters.
 
-**Why two fees?**
+**Fee breakdown (15% total on model usage):**
+
+- **5%** — LOME profit margin
+- **4.5%** — Credit card processing
+- **5.5%** — AI provider overhead
+
+**Why a separate storage fee?**
 
 The 15% covers operations—servers, development, support. The storage fee covers storing your conversations.
 
 **The storage fee is tiny:**
 
-$1 in storage fees buys you over **16,000 messages** at 200 characters each. Most users will spend less than $1/year on storage while spending far more on AI model usage.
-
-After we pay AI provider fees, credit card fees, and storage costs on your behalf, that leaves us with a **~5% profit margin**.
+$1 in storage fees buys you over **16,666 messages** at 200 characters each. Most users will spend less than $1/year on storage while spending far more on AI model usage.
 
 No hidden fees. No premium tiers that unlock basic features. No "free" tier subsidized by selling your data.
 

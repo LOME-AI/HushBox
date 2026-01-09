@@ -43,6 +43,9 @@ describe('selectUserSchema', () => {
       name: 'Test User',
       emailVerified: false,
       image: null,
+      balance: '0',
+      freeAllowanceCents: 5,
+      freeAllowanceResetAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -55,6 +58,9 @@ describe('selectUserSchema', () => {
       name: 'Test User',
       emailVerified: false,
       image: null,
+      balance: '0',
+      freeAllowanceCents: 5,
+      freeAllowanceResetAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -157,6 +163,8 @@ describe('selectMessageSchema', () => {
       role: 'user',
       content: 'Hello',
       model: null,
+      balanceTransactionId: null,
+      cost: null,
       createdAt: new Date(),
     });
     expect(result.success).toBe(true);

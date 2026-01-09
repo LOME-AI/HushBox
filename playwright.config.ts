@@ -6,8 +6,8 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
   forbidOnly: isCI,
-  retries: isCI ? 2 : 0,
-  ...(isCI && { workers: 1 }),
+  retries: isCI ? 2 : 1,
+  workers: isCI ? 1 : 4,
   timeout: 45_000,
   expect: {
     timeout: 15_000,
@@ -51,6 +51,17 @@ export default defineConfig({
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'], storageState: 'e2e/.auth/test-alice.json' },
+      dependencies: ['setup'],
+    },
+    // Mobile devices
+    {
+      name: 'iphone-15',
+      use: { ...devices['iPhone 15'], storageState: 'e2e/.auth/test-alice.json' },
+      dependencies: ['setup'],
+    },
+    {
+      name: 'pixel-7',
+      use: { ...devices['Pixel 7'], storageState: 'e2e/.auth/test-alice.json' },
       dependencies: ['setup'],
     },
   ],

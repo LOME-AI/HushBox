@@ -29,7 +29,6 @@ export const test = base.extend<CustomFixtures>({
     await context.close();
   },
 
-  // Authenticated API request context for cleanup operations
   authenticatedRequest: async ({ playwright }, use) => {
     const context = await playwright.request.newContext({
       baseURL: 'http://localhost:8787',
@@ -51,26 +50,22 @@ export const test = base.extend<CustomFixtures>({
     await expect(sendButton).toBeEnabled();
     await sendButton.click();
 
+    // Wait for navigation to conversation page first (happens on successful message send)
     await expect(page).toHaveURL(/\/chat\/[a-f0-9-]+(\?.*)?$/, { timeout: 15000 });
+
+    // Then wait for the Echo response to appear
+    const echoMessage = page.getByRole('log', { name: 'Chat messages' }).getByText('Echo:');
+    await expect(echoMessage).toBeVisible({ timeout: 30000 });
+
     const url = new URL(page.url());
     const id = url.pathname.split('/').pop() ?? '';
 
-    const streamingMessage = page.getByTestId('streaming-message');
-    await expect(streamingMessage).toBeVisible({ timeout: 15000 });
-    await expect(streamingMessage).not.toBeVisible({ timeout: 15000 });
-
-    await expect(page.getByRole('log', { name: 'Chat messages' }).getByText('Echo:')).toBeVisible({
-      timeout: 5000,
-    });
-
     await use({ id, url: page.url() });
 
-    // Cleanup: Delete the conversation after the test completes
-    // This prevents test data accumulation and sidebar pollution
     try {
       await authenticatedRequest.delete(`/conversations/${id}`);
     } catch {
-      // Ignore cleanup errors - conversation may already be deleted by the test
+      // Cleanup failures are acceptable - test may have already cleaned up
     }
   },
 });

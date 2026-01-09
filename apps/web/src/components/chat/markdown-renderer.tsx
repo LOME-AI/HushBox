@@ -151,7 +151,7 @@ export function MarkdownRenderer({
     <div
       data-testid="markdown-renderer"
       className={cn(
-        'prose prose-sm dark:prose-invert max-w-none',
+        'prose prose-sm dark:prose-invert max-w-none wrap-anywhere',
         // Customize prose styles
         'prose-headings:mb-2 prose-headings:mt-4',
         'prose-p:my-2',

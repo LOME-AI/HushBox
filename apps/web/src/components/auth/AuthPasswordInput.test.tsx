@@ -89,16 +89,16 @@ describe('AuthPasswordInput', () => {
 
   it('starts with collapsed feedback container', () => {
     render(<AuthPasswordInput label="Password" />);
-    // Feedback container is now from AuthInput with testid 'auth-input-feedback'
-    const feedbackContainer = screen.getByTestId('auth-input-feedback');
+    // Feedback container is from FormInput with testid 'form-input-feedback'
+    const feedbackContainer = screen.getByTestId('form-input-feedback');
     expect(feedbackContainer).toBeInTheDocument();
     expect(feedbackContainer).toHaveClass('h-0');
   });
 
   it('expands feedback container when value is present', () => {
     render(<AuthPasswordInput label="Password" value="secret123" onChange={vi.fn()} />);
-    // Feedback container is now from AuthInput with testid 'auth-input-feedback'
-    const feedbackContainer = screen.getByTestId('auth-input-feedback');
+    // Feedback container is from FormInput with testid 'form-input-feedback'
+    const feedbackContainer = screen.getByTestId('form-input-feedback');
     expect(feedbackContainer).toHaveClass('h-5');
   });
 });

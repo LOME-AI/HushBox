@@ -88,11 +88,11 @@ export function useSendMessage(): ReturnType<
     }): Promise<CreateMessageResponse> => {
       return api.post<CreateMessageResponse>(`/conversations/${conversationId}/messages`, message);
     },
-    onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: chatKeys.messages(variables.conversationId),
-      });
-      // Also invalidate conversations list to update updatedAt ordering
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData(
+        chatKeys.messages(variables.conversationId),
+        (old: Message[] | undefined) => [...(old ?? []), data.message]
+      );
       void queryClient.invalidateQueries({ queryKey: chatKeys.conversations() });
     },
   });
@@ -152,6 +152,7 @@ interface StreamResult {
 
 interface StreamOptions {
   onToken?: (token: string) => void;
+  onStart?: (ids: { userMessageId: string; assistantMessageId: string }) => void;
   signal?: AbortSignal;
 }
 
@@ -218,7 +219,7 @@ export function useChatStream(): ChatStreamHook {
 
         try {
           // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- standard pattern for async iterator
-          while (true) {
+          streamLoop: while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
@@ -241,6 +242,9 @@ export function useChatStream(): ChatStreamHook {
                     };
                     userMessageId = startData.userMessageId;
                     assistantMessageId = startData.assistantMessageId;
+                    if (options?.onStart) {
+                      options.onStart({ userMessageId, assistantMessageId });
+                    }
                   } else if (currentEvent === 'token') {
                     const tokenData = parsed as { content: string };
                     content += tokenData.content;
@@ -250,6 +254,8 @@ export function useChatStream(): ChatStreamHook {
                   } else if (currentEvent === 'error') {
                     const errorData = parsed as { message: string; code?: string };
                     throw new Error(errorData.message);
+                  } else if (currentEvent === 'done') {
+                    break streamLoop;
                   }
                 }
               }
@@ -258,9 +264,8 @@ export function useChatStream(): ChatStreamHook {
 
           return { userMessageId, assistantMessageId, content };
         } finally {
-          // Always cleanup the reader
           reader.cancel().catch(() => {
-            // Ignore cancel errors - stream may already be closed
+            // Reader cleanup errors can be ignored
           });
         }
       } finally {

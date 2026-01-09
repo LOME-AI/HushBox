@@ -85,7 +85,7 @@ describe('ChatHeader', () => {
     expect(header).toHaveClass('border-b');
   });
 
-  it('has proper padding', () => {
+  it('has proper padding and height', () => {
     render(
       <ChatHeader
         models={mockModels}
@@ -95,7 +95,7 @@ describe('ChatHeader', () => {
     );
     const header = screen.getByTestId('chat-header');
     expect(header).toHaveClass('px-4');
-    expect(header).toHaveClass('py-3');
+    expect(header).toHaveClass('h-[57px]');
   });
 
   describe('model selector', () => {
@@ -226,6 +226,19 @@ describe('ChatHeader', () => {
       const title = screen.getByTestId('chat-title');
       expect(title).toHaveClass('hidden');
       expect(title).toHaveClass('md:block');
+    });
+
+    it('uses brand color for title', () => {
+      render(
+        <ChatHeader
+          models={mockModels}
+          selectedModelId="openai/gpt-4-turbo"
+          onModelSelect={vi.fn()}
+          title="Test Conversation"
+        />
+      );
+      const title = screen.getByTestId('chat-title');
+      expect(title).toHaveClass('text-primary');
     });
   });
 });

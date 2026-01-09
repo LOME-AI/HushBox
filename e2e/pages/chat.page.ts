@@ -8,7 +8,7 @@ export class ChatPage {
   readonly messageList: Locator;
   readonly newChatPage: Locator;
   readonly suggestionChips: Locator;
-  readonly streamingMessage: Locator;
+  readonly viewport: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -18,7 +18,7 @@ export class ChatPage {
     this.messageList = page.getByRole('log', { name: 'Chat messages' });
     this.newChatPage = page.getByTestId('new-chat-page');
     this.suggestionChips = page.getByText('Need inspiration? Try these:');
-    this.streamingMessage = page.getByTestId('streaming-message');
+    this.viewport = page.locator('[data-slot="scroll-area-viewport"]');
   }
 
   async goto(): Promise<void> {
@@ -41,15 +41,13 @@ export class ChatPage {
     await expect(this.messageInput).toHaveValue('');
   }
 
-  async waitForConversation(): Promise<string> {
-    // Match /chat/{uuid} with optional query params
-    await expect(this.page).toHaveURL(/\/chat\/[a-f0-9-]+(\?.*)?$/);
+  async waitForConversation(timeout = 15000): Promise<string> {
+    await expect(this.page).toHaveURL(/\/chat\/[a-f0-9-]+(\?.*)?$/, { timeout });
     const url = new URL(this.page.url());
     return url.pathname.split('/').pop() ?? '';
   }
 
   async expectMessageVisible(message: string): Promise<void> {
-    // Use .first() because the same text may appear in both user message and AI echo response
     await expect(this.messageList.getByText(message, { exact: true }).first()).toBeVisible();
   }
 
@@ -65,21 +63,54 @@ export class ChatPage {
     await expect(this.suggestionChips).toBeVisible();
   }
 
-  async waitForAIResponse(timeout = 15000): Promise<void> {
-    // Wait for streaming to complete - either we catch the indicator or the response is already there
-    await Promise.race([
-      // Option 1: Streaming indicator appears then disappears
-      (async (): Promise<void> => {
-        await expect(this.streamingMessage).toBeVisible({ timeout });
-        await expect(this.streamingMessage).not.toBeVisible({ timeout });
-      })(),
-      // Option 2: Response already rendered (streaming was too fast to observe)
-      expect(this.messageList.getByText(/^Echo:/).first()).toBeVisible({ timeout }),
-    ]);
+  async waitForAIResponse(expectedContent?: string, timeout = 15000): Promise<void> {
+    // Only search within assistant messages to avoid matching user's original message
+    const assistantMessages = this.messageList.locator('[data-role="assistant"]');
+
+    if (expectedContent) {
+      // Wait for the echoed content to appear within an assistant message
+      // Note: Markdown splits "Echo:\n\n${content}" into separate <p> elements,
+      // so we search for the content directly instead of the full "Echo:\n\n" prefix
+      await expect(
+        assistantMessages.getByText(expectedContent, { exact: false }).first()
+      ).toBeVisible({
+        timeout,
+      });
+    } else {
+      await expect(assistantMessages.getByText(/^Echo:/).first()).toBeVisible({ timeout });
+    }
   }
 
   async expectAssistantMessageContains(text: string): Promise<void> {
-    // Use .first() to handle cases where multiple messages contain the text
     await expect(this.messageList.getByText(text).first()).toBeVisible();
+  }
+
+  async getScrollPosition(): Promise<{
+    scrollTop: number;
+    scrollHeight: number;
+    clientHeight: number;
+  }> {
+    return this.viewport.evaluate((el) => ({
+      scrollTop: el.scrollTop,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    }));
+  }
+
+  async scrollToTop(): Promise<void> {
+    await this.viewport.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+  }
+
+  async scrollUp(pixels: number): Promise<void> {
+    await this.viewport.evaluate((el, px) => {
+      el.scrollTop = Math.max(0, el.scrollTop - px);
+      el.dispatchEvent(new Event('scroll', { bubbles: true }));
+    }, pixels);
+  }
+
+  async isInputFocused(): Promise<boolean> {
+    return this.messageInput.evaluate((el) => el === document.activeElement);
   }
 }

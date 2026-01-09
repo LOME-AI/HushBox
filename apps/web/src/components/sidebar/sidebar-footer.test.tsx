@@ -5,11 +5,25 @@ import { SidebarFooter } from './sidebar-footer';
 import { useUIStore } from '@/stores/ui';
 
 // Mock dependencies using vi.hoisted for values referenced in vi.mock factory
-const { mockSignOutAndClearCache, mockUseSession, mockNavigate } = vi.hoisted(() => ({
-  mockSignOutAndClearCache: vi.fn().mockResolvedValue(undefined),
-  mockUseSession: vi.fn(),
-  mockNavigate: vi.fn(),
-}));
+const { mockSignOutAndClearCache, mockUseSession, mockNavigate, mockUseBalance, mockFeatureFlags } =
+  vi.hoisted(() => ({
+    mockSignOutAndClearCache: vi.fn().mockResolvedValue(undefined),
+    mockUseSession: vi.fn(),
+    mockNavigate: vi.fn(),
+    mockUseBalance: vi.fn(),
+    mockFeatureFlags: {
+      PROJECTS_ENABLED: false,
+      SETTINGS_ENABLED: false,
+    },
+  }));
+
+vi.mock('@lome-chat/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@lome-chat/shared')>();
+  return {
+    ...actual,
+    FEATURE_FLAGS: mockFeatureFlags,
+  };
+});
 
 vi.mock('@/lib/auth', () => ({
   signOutAndClearCache: mockSignOutAndClearCache,
@@ -18,6 +32,10 @@ vi.mock('@/lib/auth', () => ({
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mockNavigate,
+}));
+
+vi.mock('@/hooks/billing', () => ({
+  useBalance: mockUseBalance,
 }));
 
 describe('SidebarFooter', () => {
@@ -29,6 +47,10 @@ describe('SidebarFooter', () => {
         user: { email: 'test@example.com' },
         session: { id: 'session-123' },
       },
+    });
+    mockUseBalance.mockReturnValue({
+      data: { balance: '12.34567890' },
+      isLoading: false,
     });
   });
 
@@ -43,9 +65,27 @@ describe('SidebarFooter', () => {
       expect(screen.getByTestId('user-email')).toHaveTextContent('test@example.com');
     });
 
-    it('renders credits display when expanded', () => {
+    it('renders credits display when expanded with actual balance', () => {
       render(<SidebarFooter />);
-      expect(screen.getByTestId('user-credits')).toHaveTextContent('$0.0000000');
+      expect(screen.getByTestId('user-credits')).toHaveTextContent('$12.34567890');
+    });
+
+    it('shows loading placeholder when balance is loading', () => {
+      mockUseBalance.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+      });
+      render(<SidebarFooter />);
+      expect(screen.getByTestId('user-credits')).toHaveTextContent('$...');
+    });
+
+    it('shows zero balance when no data returned', () => {
+      mockUseBalance.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+      });
+      render(<SidebarFooter />);
+      expect(screen.getByTestId('user-credits')).toHaveTextContent('$0.00000000');
     });
 
     it('shows dropdown menu on click', async () => {
@@ -56,7 +96,8 @@ describe('SidebarFooter', () => {
       expect(screen.getByRole('menu')).toBeInTheDocument();
     });
 
-    it('shows Settings option in dropdown', async () => {
+    it('shows Settings option in dropdown when SETTINGS_ENABLED is true', async () => {
+      mockFeatureFlags.SETTINGS_ENABLED = true;
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
@@ -70,6 +111,16 @@ describe('SidebarFooter', () => {
 
       await user.click(screen.getByTestId('user-menu-trigger'));
       expect(screen.getByTestId('menu-add-credits')).toBeInTheDocument();
+    });
+
+    it('navigates to /billing when Add Credits is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('menu-add-credits'));
+
+      expect(mockNavigate).toHaveBeenCalledWith({ to: '/billing' });
     });
 
     it('shows GitHub option in dropdown', async () => {
@@ -261,6 +312,35 @@ describe('SidebarFooter', () => {
 
       await user.click(screen.getByTestId('user-menu-trigger'));
       expect(screen.getByTestId('menu-github')).toBeInTheDocument();
+    });
+  });
+
+  describe('SETTINGS_ENABLED feature flag', () => {
+    beforeEach(() => {
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { email: 'test@example.com' },
+          session: { id: 'session-123' },
+        },
+      });
+    });
+
+    it('hides Settings when SETTINGS_ENABLED is false', async () => {
+      mockFeatureFlags.SETTINGS_ENABLED = false;
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('user-menu-trigger'));
+      expect(screen.queryByTestId('menu-settings')).not.toBeInTheDocument();
+    });
+
+    it('shows Settings when SETTINGS_ENABLED is true', async () => {
+      mockFeatureFlags.SETTINGS_ENABLED = true;
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('user-menu-trigger'));
+      expect(screen.getByTestId('menu-settings')).toBeInTheDocument();
     });
   });
 });

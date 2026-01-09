@@ -30,13 +30,10 @@ test.describe('Chat Functionality', () => {
       const testMessage = `New chat echo test ${String(Date.now())}`;
       await chatPage.sendNewChatMessage(testMessage);
 
-      // Wait for navigation to the new conversation
       await chatPage.waitForConversation();
 
-      // Wait for AI response to stream (mock client echoes back)
       await chatPage.waitForAIResponse();
 
-      // Verify AI response contains echoed message
       await chatPage.expectAssistantMessageContains('Echo:');
     });
   });
@@ -47,8 +44,7 @@ test.describe('Chat Functionality', () => {
       testConversation,
     }) => {
       const chatPage = new ChatPage(authenticatedPage);
-      void testConversation; // Fixture creates conversation and navigates to it
-      // Verify the message input is visible
+      void testConversation;
       await expect(chatPage.messageInput).toBeVisible();
 
       // The fixture creates a message starting with "Fixture setup"
@@ -66,8 +62,6 @@ test.describe('Chat Functionality', () => {
   });
 
   test.describe('Sidebar Actions', () => {
-    // Run sidebar tests serially to prevent race conditions
-    // Multiple parallel tests modifying the same sidebar causes flakiness
     test.describe.configure({ mode: 'serial' });
 
     test('shows conversation in sidebar', async ({ authenticatedPage, testConversation }) => {
@@ -94,7 +88,6 @@ test.describe('Chat Functionality', () => {
 
       await sidebar.deleteConversation(testConversation.id);
 
-      // Should navigate back to /chat (new chat page)
       await expect(authenticatedPage).toHaveURL('/chat');
       await chatPage.expectNewChatPageVisible();
     });
@@ -104,7 +97,6 @@ test.describe('Chat Functionality', () => {
 
       await sidebar.cancelDelete(testConversation.id);
 
-      // Should still be on the same URL
       await expect(authenticatedPage).toHaveURL(testConversation.url);
     });
   });
@@ -120,26 +112,94 @@ test.describe('Chat Functionality', () => {
       const testMessage = `Echo test ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(testMessage);
 
-      // Wait for streaming to complete (mock client has 20ms delay per char)
-      await chatPage.waitForAIResponse();
+      await chatPage.waitForAIResponse(testMessage);
 
-      // Verify AI response contains echoed message (mock returns "Echo: {message}")
       await chatPage.expectAssistantMessageContains('Echo:');
     });
+  });
 
-    test('shows streaming indicator while response is being generated', async ({
+  test.describe('Message Layout', () => {
+    test('long unbroken strings do not push previous messages off screen', async ({
       authenticatedPage,
       testConversation,
     }) => {
       const chatPage = new ChatPage(authenticatedPage);
       void testConversation;
 
-      await chatPage.sendFollowUpMessage('Hello');
+      const firstMessage = chatPage.messageList.locator('[data-testid="message-item"]').first();
+      const initialBoundingBox = await firstMessage.boundingBox();
+      expect(initialBoundingBox).not.toBeNull();
 
-      // Either streaming indicator appears OR response already rendered (streaming too fast)
-      await expect(
-        chatPage.streamingMessage.or(chatPage.messageList.getByText(/^Echo:/).first()).first()
-      ).toBeVisible({ timeout: 5000 });
+      const longString = 'test'.repeat(200);
+      await chatPage.sendFollowUpMessage(longString);
+
+      await chatPage.waitForAIResponse(longString);
+
+      const scrollWidth = await authenticatedPage.evaluate(
+        () => document.documentElement.scrollWidth
+      );
+      const clientWidth = await authenticatedPage.evaluate(
+        () => document.documentElement.clientWidth
+      );
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+
+      await expect(firstMessage).toBeAttached();
+
+      await chatPage.scrollToTop();
+      await expect(firstMessage).toBeInViewport({ ratio: 0.5 });
+    });
+
+    test('long messages wrap properly without horizontal overflow', async ({
+      authenticatedPage,
+      testConversation,
+    }) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      void testConversation;
+
+      const longString = 'a'.repeat(500);
+      await chatPage.sendFollowUpMessage(longString);
+      await chatPage.waitForAIResponse(longString);
+
+      const overflowingElements = await authenticatedPage.evaluate(() => {
+        const elements = document.querySelectorAll('*');
+        const results: string[] = [];
+        elements.forEach((el) => {
+          const htmlEl = el as HTMLElement;
+          const overflow = htmlEl.scrollWidth - htmlEl.clientWidth;
+          // Only show elements with significant overflow (>100px) and not sr-only/truncate
+          if (
+            overflow > 100 &&
+            !htmlEl.className.includes('sr-only') &&
+            !htmlEl.className.includes('truncate')
+          ) {
+            const tag = htmlEl.tagName.toLowerCase();
+            const id = htmlEl.id ? `#${htmlEl.id}` : '';
+            const cls = htmlEl.className ? `.${htmlEl.className.replace(/\s+/g, '.')}` : '';
+            const testId = htmlEl.dataset.testid ? `[data-testid="${htmlEl.dataset.testid}"]` : '';
+            const slot = htmlEl.dataset.slot ? `[data-slot="${htmlEl.dataset.slot}"]` : '';
+            results.push(
+              `${tag}${id}${testId}${slot} overflow:${String(overflow)} scrollW:${String(htmlEl.scrollWidth)} clientW:${String(htmlEl.clientWidth)}\n  classes: ${cls.substring(0, 200)}`
+            );
+          }
+        });
+        return results;
+      });
+      console.log('\n=== OVERFLOWING ELEMENTS (>100px overflow) ===');
+      overflowingElements.forEach((el) => {
+        console.log(el);
+      });
+      console.log('=== END OVERFLOWING ELEMENTS ===\n');
+
+      const messageItem = chatPage.messageList.locator('[data-testid="message-item"]').last();
+      await expect(messageItem).toBeVisible();
+      const messageBox = await messageItem.boundingBox();
+
+      const viewportWidth = await authenticatedPage.evaluate(() => window.innerWidth);
+
+      if (messageBox) {
+        expect(messageBox.width).toBeLessThanOrEqual(viewportWidth);
+        expect(messageBox.x + messageBox.width).toBeLessThanOrEqual(viewportWidth);
+      }
     });
   });
 });

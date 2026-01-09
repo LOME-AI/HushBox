@@ -358,6 +358,9 @@ importers:
         specifier: ^3.4.0
         version: 3.4.0
     devDependencies:
+      '@lome-chat/config':
+        specifier: workspace:*
+        version: link:../config
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1

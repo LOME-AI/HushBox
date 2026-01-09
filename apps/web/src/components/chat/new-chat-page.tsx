@@ -1,20 +1,22 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@lome-chat/ui';
-import { TypingAnimation } from './typing-animation';
 import { PromptInput } from './prompt-input';
 import { SuggestionChips } from './suggestion-chips';
 import { ChatHeader } from './chat-header';
 import { getGreeting } from '@/lib/greetings';
 import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
+import { useBalance } from '@/hooks/billing';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
 
 interface NewChatPageProps {
   onSend: (message: string) => void;
   isAuthenticated: boolean;
-  isLoading?: boolean;
-  className?: string;
+  isLoading?: boolean | undefined;
+  className?: string | undefined;
+  /** Called when a guest user clicks a premium model */
+  onPremiumClick?: ((modelId: string) => void) | undefined;
 }
 
 /**
@@ -26,14 +28,21 @@ export function NewChatPage({
   isAuthenticated,
   isLoading = false,
   className,
+  onPremiumClick,
 }: NewChatPageProps): React.JSX.Element {
   const [inputValue, setInputValue] = React.useState('');
-  const [showSubtitle, setShowSubtitle] = React.useState(false);
   const viewportHeight = useVisualViewportHeight();
 
   const { selectedModelId, selectedModelName, setSelectedModel } = useModelStore();
 
-  const { data: models = [] } = useModels();
+  const { data: modelsData } = useModels();
+  const models = modelsData?.models ?? [];
+  const premiumIds = modelsData?.premiumIds ?? new Set<string>();
+
+  // Premium access requires authentication AND positive balance
+  const { data: balanceData } = useBalance();
+  const balance = parseFloat(balanceData?.balance ?? '0');
+  const canAccessPremium = isAuthenticated && balance > 0;
 
   // Find selected model to get context length
   const selectedModel = models.find((m) => m.id === selectedModelId);
@@ -52,41 +61,32 @@ export function NewChatPage({
     setInputValue(prompt);
   };
 
-  const handleTypingComplete = (): void => {
-    setShowSubtitle(true);
-  };
-
   return (
     <div
       data-testid="new-chat-page"
+      data-loading={String(isLoading)}
       className={cn('flex flex-col overflow-hidden', className)}
       style={{ height: `${String(viewportHeight)}px` }}
     >
-      {/* ChatHeader with model selector and theme toggle */}
       <ChatHeader
         models={models}
         selectedModelId={selectedModelId}
         selectedModelName={selectedModelName}
         onModelSelect={setSelectedModel}
+        premiumIds={premiumIds}
+        canAccessPremium={canAccessPremium}
+        isAuthenticated={isAuthenticated}
+        onPremiumClick={onPremiumClick}
       />
 
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-4 sm:py-8">
         <div className="w-full max-w-2xl space-y-4 sm:space-y-8">
-          {/* Greeting Section */}
           <div className="text-center">
-            <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-              <TypingAnimation
-                text={greeting.title}
-                typingSpeed={50}
-                loop={false}
-                onComplete={handleTypingComplete}
-              />
-            </h1>
+            <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{greeting.title}</h1>
 
-            {/* Subtitle with fade-in animation */}
             <motion.p
               initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: showSubtitle ? 1 : 0, y: showSubtitle ? 0 : 10 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.2 }}
               className="text-muted-foreground mt-4 text-lg"
             >
@@ -94,7 +94,6 @@ export function NewChatPage({
             </motion.p>
           </div>
 
-          {/* Prompt Input Section */}
           <div className="w-full">
             <PromptInput
               value={inputValue}
@@ -108,7 +107,6 @@ export function NewChatPage({
             />
           </div>
 
-          {/* Suggestions Section */}
           <div className="space-y-4">
             <p className="text-muted-foreground text-center text-sm">
               Need inspiration? Try these:

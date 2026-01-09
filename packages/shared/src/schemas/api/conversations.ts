@@ -62,6 +62,8 @@ export const messageResponseSchema = z.object({
   role: z.enum(['user', 'assistant', 'system']),
   content: z.string(),
   model: z.string().nullable().optional(),
+  /** Cost of this message in USD (null for user/system messages) */
+  cost: z.string().nullable().optional(),
   createdAt: z.string(),
 });
 

@@ -7,4 +7,5 @@ export {
   authMiddleware,
   sessionMiddleware,
   openRouterMiddleware,
+  helcimMiddleware,
 } from './dependencies.js';

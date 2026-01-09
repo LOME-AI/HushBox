@@ -1,4 +1,6 @@
 #!/bin/sh
 [ -f .husky/pre-commit.local ] && . .husky/pre-commit.local
+pnpm generate:readme
+git add README.md
 pnpm lint-staged
 pnpm typecheck

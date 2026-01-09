@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatContextLength, formatPricePer1k, applyLomeFee } from './format';
+import { formatContextLength, formatPricePer1k, applyFees } from './format';
 
 describe('formatContextLength', () => {
   it('formats thousands as k', () => {
@@ -50,18 +50,18 @@ describe('formatPricePer1k', () => {
   });
 });
 
-describe('applyLomeFee', () => {
+describe('applyFees', () => {
   it('increases price by 15%', () => {
-    expect(applyLomeFee(1)).toBeCloseTo(1.15, 10);
-    expect(applyLomeFee(10)).toBeCloseTo(11.5, 10);
-    expect(applyLomeFee(100)).toBeCloseTo(115, 10);
+    expect(applyFees(1)).toBeCloseTo(1.15, 10);
+    expect(applyFees(10)).toBeCloseTo(11.5, 10);
+    expect(applyFees(100)).toBeCloseTo(115, 10);
   });
 
   it('handles zero price', () => {
-    expect(applyLomeFee(0)).toBe(0);
+    expect(applyFees(0)).toBe(0);
   });
 
   it('handles very small prices', () => {
-    expect(applyLomeFee(0.00001)).toBeCloseTo(0.0000115, 10);
+    expect(applyFees(0.00001)).toBeCloseTo(0.0000115, 10);
   });
 });

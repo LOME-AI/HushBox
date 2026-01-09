@@ -13,7 +13,6 @@ import {
   type CreateMessageResponse,
 } from '@lome-chat/shared';
 
-// Re-export types for consumers
 export type {
   ConversationResponse as Conversation,
   MessageResponse as Message,
@@ -54,12 +53,10 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, ...init } = options;
 
-  // Build headers safely without spreading potentially problematic types
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
 
-  // Merge additional headers if provided
   if (init.headers) {
     const additionalHeaders =
       init.headers instanceof Headers
@@ -80,7 +77,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     fetchOptions.body = JSON.stringify(body);
   }
 
-  const response = await fetch(`${env.VITE_API_URL}${path}`, fetchOptions);
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const response = await fetch(`${env.VITE_API_URL}${normalizedPath}`, fetchOptions);
 
   const data: unknown = await response.json();
 

@@ -2,12 +2,22 @@ import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { streamSSE } from 'hono/streaming';
 import { eq, asc } from 'drizzle-orm';
 import { conversations, messages } from '@lome-chat/db';
+import { canUseModel } from '@lome-chat/shared';
+import type { DeductionSource } from '@lome-chat/shared';
 import type { AppEnv } from '../types.js';
 import type { ChatMessage } from '../services/openrouter/types.js';
 import { buildPrompt } from '../services/prompt/builder.js';
+import { getUserTierInfo, billMessage } from '../services/billing/index.js';
+import { fetchModels } from '../services/openrouter/index.js';
+import { processModels } from '../services/models.js';
 
 const errorSchema = z.object({
   error: z.string(),
+});
+
+const insufficientBalanceSchema = z.object({
+  error: z.literal('Insufficient balance'),
+  currentBalance: z.string(),
 });
 
 const streamChatRequestSchema = z.object({
@@ -38,6 +48,10 @@ const streamChatRoute = createRoute({
     401: {
       content: { 'application/json': { schema: errorSchema } },
       description: 'Unauthorized',
+    },
+    402: {
+      content: { 'application/json': { schema: insufficientBalanceSchema } },
+      description: 'Insufficient balance - user needs to add credits',
     },
     404: {
       content: { 'application/json': { schema: errorSchema } },
@@ -86,6 +100,29 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
       return c.json({ error: 'Last message must be from user' }, 400);
     }
 
+    const tierInfo = await getUserTierInfo(db, user.id);
+
+    const allModels = await fetchModels();
+    const { premiumIds } = processModels(allModels);
+    const isPremiumModel = premiumIds.includes(model);
+
+    if (!canUseModel(tierInfo, isPremiumModel)) {
+      return c.json(
+        {
+          error: 'Premium models require a positive balance. Add credits to access.' as const,
+          currentBalance: (tierInfo.balanceCents / 100).toFixed(2),
+        },
+        402
+      );
+    }
+
+    let deductionSource: DeductionSource = 'balance';
+    if (tierInfo.balanceCents <= 0 && !isPremiumModel && tierInfo.freeAllowanceCents > 0) {
+      deductionSource = 'freeAllowance';
+    } else if (tierInfo.balanceCents <= 0) {
+      return c.json({ error: 'Insufficient balance' as const, currentBalance: '0.00' }, 402);
+    }
+
     const assistantMessageId = crypto.randomUUID();
 
     // TODO: Remove empty capabilities when Python/JavaScript execution is implemented.
@@ -105,29 +142,58 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
       })),
     ];
 
+    const inputCharacters = lastMessage.content.length;
+
     return streamSSE(c, async (stream) => {
-      await stream.writeSSE({
-        event: 'start',
-        data: JSON.stringify({
-          userMessageId: lastMessage.id,
-          assistantMessageId,
-        }),
+      let clientConnected = true;
+
+      stream.onAbort(() => {
+        clientConnected = false;
       });
 
+      try {
+        await stream.writeSSE({
+          event: 'start',
+          data: JSON.stringify({
+            userMessageId: lastMessage.id,
+            assistantMessageId,
+          }),
+        });
+      } catch {
+        clientConnected = false;
+      }
+
       let fullContent = '';
+      let generationId: string | undefined;
+      let streamError: Error | null = null;
 
       try {
-        for await (const token of openrouter.chatCompletionStream({
+        for await (const token of openrouter.chatCompletionStreamWithMetadata({
           model,
           messages: openRouterMessages,
         })) {
-          fullContent += token;
-          await stream.writeSSE({
-            event: 'token',
-            data: JSON.stringify({ content: token }),
-          });
-        }
+          if (token.generationId) {
+            generationId = token.generationId;
+          }
 
+          fullContent += token.content;
+
+          if (clientConnected) {
+            try {
+              await stream.writeSSE({
+                event: 'token',
+                data: JSON.stringify({ content: token.content }),
+              });
+            } catch {
+              clientConnected = false;
+            }
+          }
+        }
+      } catch (error) {
+        streamError = error instanceof Error ? error : new Error('Unknown error');
+      }
+
+      if (fullContent.length > 0 && !streamError) {
         await db.insert(messages).values({
           id: assistantMessageId,
           conversationId,
@@ -136,17 +202,45 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
           model,
         });
 
-        await stream.writeSSE({
-          event: 'done',
-          data: JSON.stringify({}),
-        });
-      } catch (error) {
-        // Send error event - do NOT save partial message
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        await stream.writeSSE({
-          event: 'error',
-          data: JSON.stringify({ message: errorMessage, code: 'STREAM_ERROR' }),
-        });
+        if (generationId) {
+          const outputCharacters = fullContent.length;
+          const genId = generationId; // Capture for closure
+
+          void (async () => {
+            try {
+              const stats = await openrouter.getGenerationStats(genId);
+              await billMessage(db, {
+                userId: user.id,
+                messageId: assistantMessageId,
+                model,
+                generationStats: stats,
+                inputCharacters,
+                outputCharacters,
+                deductionSource,
+              });
+            } catch (billingError) {
+              console.error('Billing failed:', billingError);
+            }
+          })();
+        }
+      }
+
+      if (clientConnected) {
+        try {
+          if (streamError) {
+            await stream.writeSSE({
+              event: 'error',
+              data: JSON.stringify({ message: streamError.message, code: 'STREAM_ERROR' }),
+            });
+          } else {
+            await stream.writeSSE({
+              event: 'done',
+              data: JSON.stringify({}),
+            });
+          }
+        } catch {
+          // Stream cleanup errors can be ignored
+        }
       }
     });
   });

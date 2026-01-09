@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./constants": "./src/constants.ts",
     "./schema": "./src/schema/index.ts",
     "./zod": "./src/zod/index.ts",
     "./factories": "./src/factories/index.ts"

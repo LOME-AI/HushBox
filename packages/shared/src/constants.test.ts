@@ -7,6 +7,9 @@ import {
   STRONGEST_MODEL_ID,
   VALUE_MODEL_ID,
   LOME_FEE_RATE,
+  CREDIT_CARD_FEE_RATE,
+  PROVIDER_FEE_RATE,
+  TOTAL_FEE_RATE,
   FEATURE_FLAGS,
   CHARACTERS_PER_KILOBYTE,
   KILOBYTES_PER_GIGABYTE,
@@ -14,6 +17,7 @@ import {
   MONTHS_PER_YEAR,
   STORAGE_YEARS,
   STORAGE_COST_PER_CHARACTER,
+  STORAGE_COST_PER_1K_CHARS,
 } from './constants.js';
 
 describe('MESSAGE_ROLES', () => {
@@ -73,14 +77,48 @@ describe('VALUE_MODEL_ID', () => {
   });
 });
 
-describe('LOME_FEE_RATE', () => {
-  it('is 0.15 (15%)', () => {
-    expect(LOME_FEE_RATE).toBe(0.15);
+describe('Fee Structure', () => {
+  describe('LOME_FEE_RATE', () => {
+    it('is 0.05 (5%)', () => {
+      expect(LOME_FEE_RATE).toBe(0.05);
+    });
+
+    it('is a positive number less than 1', () => {
+      expect(LOME_FEE_RATE).toBeGreaterThan(0);
+      expect(LOME_FEE_RATE).toBeLessThan(1);
+    });
   });
 
-  it('is a positive number less than 1', () => {
-    expect(LOME_FEE_RATE).toBeGreaterThan(0);
-    expect(LOME_FEE_RATE).toBeLessThan(1);
+  describe('CREDIT_CARD_FEE_RATE', () => {
+    it('is 0.045 (4.5%)', () => {
+      expect(CREDIT_CARD_FEE_RATE).toBe(0.045);
+    });
+
+    it('is a positive number less than 1', () => {
+      expect(CREDIT_CARD_FEE_RATE).toBeGreaterThan(0);
+      expect(CREDIT_CARD_FEE_RATE).toBeLessThan(1);
+    });
+  });
+
+  describe('PROVIDER_FEE_RATE', () => {
+    it('is 0.055 (5.5%)', () => {
+      expect(PROVIDER_FEE_RATE).toBe(0.055);
+    });
+
+    it('is a positive number less than 1', () => {
+      expect(PROVIDER_FEE_RATE).toBeGreaterThan(0);
+      expect(PROVIDER_FEE_RATE).toBeLessThan(1);
+    });
+  });
+
+  describe('TOTAL_FEE_RATE', () => {
+    it('is sum of all individual fees', () => {
+      expect(TOTAL_FEE_RATE).toBe(LOME_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE);
+    });
+
+    it('equals 0.15 (15%)', () => {
+      expect(TOTAL_FEE_RATE).toBe(0.15);
+    });
   });
 });
 
@@ -142,6 +180,16 @@ describe('Storage Fee Constants', () => {
       const messageCount = totalChars / charsPerMessage;
 
       expect(messageCount).toBeGreaterThan(16000);
+    });
+  });
+
+  describe('STORAGE_COST_PER_1K_CHARS', () => {
+    it('equals STORAGE_COST_PER_CHARACTER * 1000', () => {
+      expect(STORAGE_COST_PER_1K_CHARS).toBe(STORAGE_COST_PER_CHARACTER * 1000);
+    });
+
+    it('equals $0.0003', () => {
+      expect(STORAGE_COST_PER_1K_CHARS).toBeCloseTo(0.0003, 10);
     });
   });
 });

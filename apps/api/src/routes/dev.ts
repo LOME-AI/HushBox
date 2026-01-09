@@ -20,6 +20,7 @@ export function createDevRoute(): Hono<AppEnv> {
         email: users.email,
         emailVerified: users.emailVerified,
         image: users.image,
+        balance: users.balance,
       })
       .from(users)
       .where(like(users.email, `%@${emailDomain}`));
@@ -42,6 +43,9 @@ export function createDevRoute(): Hono<AppEnv> {
           .from(projects)
           .where(eq(projects.userId, user.id));
 
+        const balanceNum = parseFloat(user.balance);
+        const formattedCredits = `$${balanceNum.toFixed(2)}`;
+
         return {
           id: user.id,
           name: user.name,
@@ -53,7 +57,7 @@ export function createDevRoute(): Hono<AppEnv> {
             messageCount: msgCount?.count ?? 0,
             projectCount: projCount?.count ?? 0,
           },
-          credits: '$0.00',
+          credits: formattedCredits,
         };
       })
     );
@@ -64,7 +68,6 @@ export function createDevRoute(): Hono<AppEnv> {
   app.delete('/test-data', async (c) => {
     const db = c.get('db');
 
-    // Find all test persona users using existing constant
     const testUsers = await db
       .select({ id: users.id })
       .from(users)

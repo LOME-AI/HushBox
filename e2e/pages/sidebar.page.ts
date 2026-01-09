@@ -2,13 +2,40 @@ import { type Page, type Locator, expect } from '@playwright/test';
 
 export class SidebarPage {
   readonly page: Page;
+  readonly hamburgerButton: Locator;
+  readonly mobileSidebar: Locator;
+  readonly desktopSidebar: Locator;
 
   constructor(page: Page) {
     this.page = page;
+    this.hamburgerButton = page.getByTestId('hamburger-button');
+    this.mobileSidebar = page.getByTestId('mobile-sidebar');
+    this.desktopSidebar = page.locator('aside');
+  }
+
+  private isMobileViewport(): boolean {
+    const viewport = this.page.viewportSize();
+    return viewport !== null && viewport.width < 768;
+  }
+
+  private async openMobileSidebarIfNeeded(): Promise<void> {
+    if (!this.isMobileViewport()) return;
+
+    if (await this.mobileSidebar.isVisible()) return;
+
+    await this.hamburgerButton.click();
+    await expect(this.mobileSidebar).toBeVisible();
+  }
+
+  private getSidebarContainer(): Locator {
+    if (this.isMobileViewport()) {
+      return this.mobileSidebar;
+    }
+    return this.desktopSidebar;
   }
 
   getChatLink(conversationId: string): Locator {
-    return this.page.locator(`a[href="/chat/${conversationId}"]`);
+    return this.getSidebarContainer().locator(`a[href="/chat/${conversationId}"]`);
   }
 
   getChatItemContainer(conversationId: string): Locator {
@@ -16,7 +43,8 @@ export class SidebarPage {
   }
 
   async openMoreMenu(conversationId: string): Promise<void> {
-    const container = this.getChatItemContainer(conversationId);
+    await this.openMobileSidebarIfNeeded();
+    const container = this.getChatItemContainer(conversationId).first();
     await container.hover();
     await container.getByTestId('chat-item-more-button').click();
   }
@@ -50,10 +78,16 @@ export class SidebarPage {
   }
 
   async expectConversationVisible(conversationId: string): Promise<void> {
-    await expect(this.getChatLink(conversationId)).toBeVisible();
+    await this.openMobileSidebarIfNeeded();
+    const link = this.getChatLink(conversationId);
+    await link.scrollIntoViewIfNeeded();
+    await expect(link).toBeVisible();
   }
 
   async expectConversationTitle(conversationId: string, title: string): Promise<void> {
-    await expect(this.getChatLink(conversationId).getByText(title)).toBeVisible();
+    await this.openMobileSidebarIfNeeded();
+    const link = this.getChatLink(conversationId);
+    await link.scrollIntoViewIfNeeded();
+    await expect(link.getByText(title)).toBeVisible();
   }
 }

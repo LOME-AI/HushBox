@@ -6,38 +6,44 @@ import reactHooksPlugin from 'eslint-plugin-react-hooks';
 import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
 import globals from 'globals';
 
-/** @type {import('eslint').Linter.Config[]} */
-export const baseConfig = [
-  {
-    ignores: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/build/**',
-      '**/.turbo/**',
-      '**/coverage/**',
-      '**/*.d.ts',
-      '**/*.config.js',
-      '**/*.config.ts',
-      '**/.lintstagedrc.js',
-      '**/drizzle.config.ts',
-    ],
-  },
-  eslint.configs.recommended,
-  ...tseslint.configs.strictTypeChecked,
-  ...tseslint.configs.stylisticTypeChecked,
-  {
-    languageOptions: {
-      parserOptions: {
-        projectService: true,
-        tsconfigRootDir: import.meta.dirname,
+/**
+ * Creates the base ESLint configuration with correct TypeScript project resolution.
+ * @param {string} tsconfigRootDir - Absolute path to the package/app root (use import.meta.dirname)
+ * @returns {import('eslint').Linter.Config[]}
+ */
+export function createBaseConfig(tsconfigRootDir) {
+  return [
+    {
+      ignores: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/build/**',
+        '**/.turbo/**',
+        '**/coverage/**',
+        '**/*.d.ts',
+        '**/*.config.js',
+        '**/*.config.ts',
+        '**/.lintstagedrc.js',
+        '**/drizzle.config.ts',
+      ],
+    },
+    eslint.configs.recommended,
+    ...tseslint.configs.strictTypeChecked,
+    ...tseslint.configs.stylisticTypeChecked,
+    {
+      languageOptions: {
+        parserOptions: {
+          projectService: true,
+          tsconfigRootDir,
+        },
       },
     },
-  },
-  {
-    files: ['**/*.js', '**/*.mjs', '**/*.cjs'],
-    ...tseslint.configs.disableTypeChecked,
-  },
-];
+    {
+      files: ['**/*.js', '**/*.mjs', '**/*.cjs'],
+      ...tseslint.configs.disableTypeChecked,
+    },
+  ];
+}
 
 /** @type {import('eslint').Linter.Config[]} */
 export const reactConfig = [
@@ -96,5 +102,3 @@ export const workersConfig = [
 
 /** @type {import('eslint').Linter.Config} */
 export const prettierConfig = eslintPluginPrettierRecommended;
-
-export default [...baseConfig, prettierConfig];

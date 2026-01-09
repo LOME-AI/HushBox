@@ -8,6 +8,7 @@
     "./lib/utils": "./src/lib/utils.ts"
   },
   "scripts": {
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
@@ -32,6 +33,7 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@lome-chat/config": "workspace:*",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
     "@testing-library/user-event": "^14.6.1",

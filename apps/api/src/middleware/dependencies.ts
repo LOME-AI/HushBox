@@ -2,6 +2,7 @@ import type { MiddlewareHandler } from 'hono';
 import { createDb, LOCAL_NEON_DEV_CONFIG } from '@lome-chat/db';
 import { createAuth } from '../auth/index.js';
 import { createResendEmailClient, createConsoleEmailClient } from '../services/email/index.js';
+import { createHelcimClient, createMockHelcimClient } from '../services/helcim/index.js';
 import {
   createOpenRouterClient,
   createMockOpenRouterClient,
@@ -62,6 +63,20 @@ export function openRouterMiddleware(): MiddlewareHandler<AppEnv> {
       ? createOpenRouterClient(c.env.OPENROUTER_API_KEY)
       : createMockOpenRouterClient();
     c.set('openrouter', client);
+    await next();
+  };
+}
+
+export function helcimMiddleware(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const client =
+      c.env.HELCIM_API_TOKEN && c.env.HELCIM_WEBHOOK_VERIFIER
+        ? createHelcimClient({
+            apiToken: c.env.HELCIM_API_TOKEN,
+            webhookVerifier: c.env.HELCIM_WEBHOOK_VERIFIER,
+          })
+        : createMockHelcimClient();
+    c.set('helcim', client);
     await next();
   };
 }

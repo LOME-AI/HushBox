@@ -4,6 +4,8 @@ import type {
   ChatCompletionChunk,
   ModelInfo,
   OpenRouterClient,
+  GenerationStats,
+  StreamToken,
 } from './types.js';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1';
@@ -101,6 +103,59 @@ async function* parseSSEStream(
   }
 }
 
+/**
+ * Parse SSE stream from OpenRouter API with metadata extraction.
+ * Yields StreamToken objects containing content and generation ID.
+ * The generation ID is extracted from the first chunk and included with the first token.
+ */
+async function* parseSSEStreamWithMetadata(
+  reader: ReadableStreamDefaultReader<Uint8Array>
+): AsyncIterable<StreamToken> {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let generationId: string | undefined;
+  let isFirstTokenWithId = true;
+
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- standard SSE parsing loop
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+
+      const data = line.slice(6).trim();
+      if (data === '[DONE]') return;
+
+      try {
+        const chunk = JSON.parse(data) as ChatCompletionChunk;
+
+        // Capture generation ID from first chunk (it's in the 'id' field)
+        generationId ??= chunk.id;
+
+        const firstChoice = chunk.choices[0];
+        const content = firstChoice?.delta.content;
+        if (content) {
+          // Include generation ID only with the first token that has content
+          const token: StreamToken = { content };
+          if (isFirstTokenWithId && generationId) {
+            token.generationId = generationId;
+            isFirstTokenWithId = false;
+          }
+          yield token;
+        }
+      } catch (error) {
+        console.warn('Failed to parse SSE chunk:', { data, error });
+        // Continue streaming - don't fail completely
+      }
+    }
+  }
+}
+
 export function createOpenRouterClient(apiKey: string): OpenRouterClient {
   if (apiKey.trim() === '') {
     throw new Error('OPENROUTER_API_KEY is required and cannot be empty');
@@ -149,6 +204,28 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
       yield* parseSSEStream(reader);
     },
 
+    async *chatCompletionStreamWithMetadata(
+      request: ChatCompletionRequest
+    ): AsyncIterable<StreamToken> {
+      const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ...request, stream: true }),
+      });
+
+      if (!response.ok) {
+        const error: OpenRouterErrorResponse = await response.json();
+        throw new Error(`OpenRouter error: ${error.error?.message ?? response.statusText}`);
+      }
+
+      if (!response.body) {
+        throw new Error('Response body is null');
+      }
+
+      const reader = response.body.getReader();
+      yield* parseSSEStreamWithMetadata(reader);
+    },
+
     async listModels(): Promise<ModelInfo[]> {
       if (modelCache && Date.now() - modelCache.fetchedAt < MODEL_CACHE_TTL) {
         return modelCache.models;
@@ -174,6 +251,23 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
       }
 
       return model;
+    },
+
+    async getGenerationStats(generationId: string): Promise<GenerationStats> {
+      const response = await fetch(`${OPENROUTER_API_URL}/generation?id=${generationId}`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        const error: OpenRouterErrorResponse = await response.json();
+        throw new Error(
+          `Failed to get generation stats: ${error.error?.message ?? response.statusText}`
+        );
+      }
+
+      const responseData: { data: GenerationStats } = await response.json();
+      return responseData.data;
     },
   };
 }

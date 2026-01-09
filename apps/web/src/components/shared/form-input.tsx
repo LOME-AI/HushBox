@@ -2,19 +2,19 @@ import * as React from 'react';
 import { useEffect, useId, useState } from 'react';
 import { Input, cn, type InputProps } from '@lome-chat/ui';
 
-interface AuthInputProps extends InputProps {
+interface FormInputProps extends Omit<InputProps, 'placeholder'> {
   error?: string | undefined;
   success?: string | undefined;
 }
 
-export function AuthInput({
+export function FormInput({
   error,
   success,
   className,
   value,
   id,
   ...props
-}: AuthInputProps): React.JSX.Element {
+}: FormInputProps): React.JSX.Element {
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const feedbackId = `${inputId}-feedback`;
@@ -43,7 +43,7 @@ export function AuthInput({
       {/* Feedback area - animates height on first input, then fades in text */}
       <div
         id={feedbackId}
-        data-testid="auth-input-feedback"
+        data-testid="form-input-feedback"
         className={cn(
           'mt-1 overflow-hidden transition-[height] duration-150 ease-out',
           hasBeenTouched ? 'h-5' : 'h-0'
@@ -75,4 +75,4 @@ export function AuthInput({
   );
 }
 
-export type { AuthInputProps };
+export type { FormInputProps };

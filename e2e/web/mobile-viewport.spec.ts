@@ -34,8 +34,15 @@ test.describe('Mobile viewport height', () => {
     );
     expect(initialHeight).toBe('844px');
 
-    // Shrink viewport
     await authenticatedPage.setViewportSize({ width: 390, height: 450 });
+
+    await authenticatedPage.waitForFunction(
+      () => {
+        const el = document.querySelector<HTMLElement>('[data-testid="new-chat-page"]');
+        return el?.style.height === '450px';
+      },
+      { timeout: 5000 }
+    );
 
     const shrunkHeight = await chatPage.newChatPage.evaluate(
       (el) => (el as HTMLElement).style.height

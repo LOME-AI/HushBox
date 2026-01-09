@@ -11,5 +11,7 @@ export const messageFactory = Factory.define<Message>(() => ({
   role: faker.helpers.arrayElement(['user', 'assistant', 'system'] as const),
   content: faker.lorem.paragraphs(),
   model: faker.helpers.arrayElement([null, 'gpt-4', 'claude-3']),
+  balanceTransactionId: null,
+  cost: null,
   createdAt: faker.date.recent(),
 }));

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act, waitFor } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
+import * as React from 'react';
 import { MessageList } from './message-list';
 
 // Mock mermaid to avoid actual rendering
@@ -38,8 +39,19 @@ const messages = [
 ];
 
 describe('MessageList', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+  });
+
   it('renders all messages', () => {
     render(<MessageList messages={messages} />);
+
+    // All messages render immediately (no typing effect)
     expect(screen.getByText('Hello!')).toBeInTheDocument();
     expect(screen.getByText('Hi there!')).toBeInTheDocument();
     expect(screen.getByText('How are you?')).toBeInTheDocument();
@@ -67,6 +79,12 @@ describe('MessageList', () => {
     expect(container).toHaveClass('flex-1');
   });
 
+  it('passes streamingMessageId to mark streaming message', () => {
+    render(<MessageList messages={messages} streamingMessageId="2" />);
+    const messageItems = screen.getAllByTestId('message-item');
+    expect(messageItems).toHaveLength(3);
+  });
+
   describe('accessibility', () => {
     it('has role="log" on messages container', () => {
       render(<MessageList messages={messages} />);
@@ -86,70 +104,8 @@ describe('MessageList', () => {
     });
   });
 
-  describe('streaming', () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
-    });
-
-    afterEach(() => {
-      vi.runOnlyPendingTimers();
-      vi.useRealTimers();
-    });
-
-    it('shows streaming message when isStreaming is true and streamingContent provided', () => {
-      render(
-        <MessageList
-          messages={messages}
-          isStreaming={true}
-          streamingContent="Partial response..."
-        />
-      );
-
-      expect(screen.getByTestId('streaming-message')).toBeInTheDocument();
-
-      // Advance timers to allow typing effect to complete
-      act(() => {
-        vi.advanceTimersByTime(2000);
-      });
-
-      expect(screen.getByText('Partial response...')).toBeInTheDocument();
-    });
-
-    it('shows streaming indicator when isStreaming is true', () => {
-      render(
-        <MessageList messages={messages} isStreaming={true} streamingContent="Generating..." />
-      );
-
-      expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument();
-    });
-
-    it('does not show streaming message when isStreaming is false', () => {
-      render(<MessageList messages={messages} isStreaming={false} streamingContent="" />);
-
-      expect(screen.queryByTestId('streaming-message')).not.toBeInTheDocument();
-    });
-
-    it('does not show streaming message when streamingContent is empty and isStreaming is false', () => {
-      render(<MessageList messages={messages} />);
-
-      expect(screen.queryByTestId('streaming-message')).not.toBeInTheDocument();
-    });
-
-    it('shows streaming message after all regular messages', () => {
-      render(<MessageList messages={messages} isStreaming={true} streamingContent="AI response" />);
-
-      const messageItems = screen.getAllByTestId('message-item');
-      const streamingMessage = screen.getByTestId('streaming-message-container');
-
-      // All regular messages should exist
-      expect(messageItems).toHaveLength(3);
-      // Streaming message should also exist
-      expect(streamingMessage).toBeInTheDocument();
-    });
-  });
-
   describe('document extraction', () => {
-    it('calls onDocumentsExtracted when assistant message has documents', async () => {
+    it('calls onDocumentsExtracted when assistant message has documents', () => {
       const largeCode = Array(15)
         .fill(null)
         .map((_, i) => `const line${String(i)} = ${String(i)};`)
@@ -169,13 +125,37 @@ describe('MessageList', () => {
         <MessageList messages={messagesWithCode} onDocumentsExtracted={onDocumentsExtracted} />
       );
 
-      await waitFor(() => {
-        expect(onDocumentsExtracted).toHaveBeenCalled();
+      // Let any async effects complete
+      act(() => {
+        vi.runAllTimers();
       });
+
+      expect(onDocumentsExtracted).toHaveBeenCalled();
 
       const [messageId, docs] = onDocumentsExtracted.mock.calls[0] as [string, unknown[]];
       expect(messageId).toBe('msg-with-code');
       expect(docs).toHaveLength(1);
+    });
+  });
+
+  describe('scroll support', () => {
+    it('exposes viewport element via viewportRef', () => {
+      const viewportRef = React.createRef<HTMLDivElement>();
+      render(<MessageList messages={messages} viewportRef={viewportRef} />);
+
+      expect(viewportRef.current).toBeInstanceOf(HTMLDivElement);
+      expect(viewportRef.current).toHaveAttribute('data-slot', 'scroll-area-viewport');
+    });
+
+    it('calls onScroll when viewport is scrolled', () => {
+      const handleScroll = vi.fn();
+      render(<MessageList messages={messages} onScroll={handleScroll} />);
+
+      const viewport = document.querySelector('[data-slot="scroll-area-viewport"]');
+      if (!viewport) throw new Error('Viewport not found');
+      fireEvent.scroll(viewport);
+
+      expect(handleScroll).toHaveBeenCalledTimes(1);
     });
   });
 });

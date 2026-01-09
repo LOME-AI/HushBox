@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { Mail, User } from 'lucide-react';
 import { signUp } from '@/lib/auth';
-import { AuthInput } from '@/components/auth/AuthInput';
+import { FormInput } from '@/components/shared/form-input';
 import { AuthButton } from '@/components/auth/AuthButton';
 import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
 import { PasswordStrength } from '@/components/auth/PasswordStrength';
@@ -34,7 +34,6 @@ export function SignupPage(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [errorKey, setErrorKey] = useState(0);
 
-  // Real-time validation
   const nameValidation = touched.name ? validateName(name) : { isValid: false };
   const emailValidation = touched.email ? validateEmail(email) : { isValid: false };
   const passwordValidation = touched.password ? validatePassword(password) : { isValid: false };
@@ -45,10 +44,8 @@ export function SignupPage(): React.JSX.Element {
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
 
-    // Mark all as touched on submit
     setTouched({ name: true, email: true, password: true, confirmPassword: true });
 
-    // Validate before submit
     const nameResult = validateName(name);
     const emailResult = validateEmail(email);
     const passwordResult = validatePassword(password);
@@ -90,7 +87,6 @@ export function SignupPage(): React.JSX.Element {
 
   return (
     <div>
-      {/* Header with tagline */}
       <div className="mb-8 text-center">
         <h1 className="text-foreground mb-2 text-3xl font-bold">Create your account</h1>
         <p className="text-primary text-lg font-medium">One interface for all AI</p>
@@ -103,7 +99,7 @@ export function SignupPage(): React.JSX.Element {
         className="space-y-4"
         noValidate
       >
-        <AuthInput
+        <FormInput
           id="name"
           label="Name"
           type="text"
@@ -118,7 +114,7 @@ export function SignupPage(): React.JSX.Element {
           success={nameValidation.success}
         />
 
-        <AuthInput
+        <FormInput
           id="email"
           label="Email"
           type="email"
@@ -184,7 +180,6 @@ export function SignupPage(): React.JSX.Element {
         </p>
       </form>
 
-      {/* Feature bullets */}
       <div className="border-border mt-8 border-t pt-6">
         <ul className="text-muted-foreground space-y-3 text-sm">
           <li className="flex items-center gap-3">

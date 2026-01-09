@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { conversations as conversationsTable, messages as messagesTable } from '@lome-chat/db';
+import {
+  conversations as conversationsTable,
+  messages as messagesTable,
+  users as usersTable,
+} from '@lome-chat/db';
 import { createChatRoutes } from './chat.js';
 import type { AppEnv } from '../types.js';
 import type { OpenRouterClient } from '../services/openrouter/types.js';
@@ -26,9 +30,20 @@ function createFastMockOpenRouterClient(): OpenRouterClient {
     },
     // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for fast tests
     async *chatCompletionStream() {
-      // Yield tokens without delay for fast tests
       for (const char of 'Echo: Hello') {
         yield char;
+      }
+    },
+    // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for fast tests
+    async *chatCompletionStreamWithMetadata() {
+      let isFirst = true;
+      for (const char of 'Echo: Hello') {
+        if (isFirst) {
+          yield { content: char, generationId: 'mock-gen-123' };
+          isFirst = false;
+        } else {
+          yield { content: char };
+        }
       }
     },
     listModels() {
@@ -36,6 +51,14 @@ function createFastMockOpenRouterClient(): OpenRouterClient {
     },
     getModel() {
       return Promise.reject(new Error('Model not found'));
+    },
+    getGenerationStats(generationId: string) {
+      return Promise.resolve({
+        id: generationId,
+        native_tokens_prompt: 100,
+        native_tokens_completion: 50,
+        total_cost: 0.001,
+      });
     },
   };
 }
@@ -57,30 +80,51 @@ interface MockMessage {
   createdAt: Date;
 }
 
+interface MockUser {
+  id: string;
+  balance: string;
+}
+
 /**
  * Create a mock database for testing.
  */
 function createMockDb(options: {
   conversations?: MockConversation[];
   messages?: MockMessage[];
+  users?: MockUser[];
   onInsert?: (table: unknown, values: unknown) => void;
 }) {
-  const { conversations = [], messages = [], onInsert } = options;
+  const { conversations = [], messages = [], users = [], onInsert } = options;
+
+  function createThenable<T>(value: T) {
+    return {
+      then: (resolve: (v: T) => unknown) => Promise.resolve(resolve(value)),
+      limit: (n: number) => ({
+        then: (resolve: (v: T) => unknown) => {
+          const sliced = Array.isArray(value) ? (value.slice(0, n) as T) : value;
+          return Promise.resolve(resolve(sliced));
+        },
+      }),
+      orderBy: () => Promise.resolve(value),
+    };
+  }
 
   return {
     select: () => ({
       from: (table: unknown) => ({
-        where: () => ({
-          limit: (n: number) => ({
-            then: (cb: (rows: unknown[]) => unknown) => {
-              if (table === conversationsTable) {
-                return Promise.resolve(cb(conversations.slice(0, n)));
-              }
-              return Promise.resolve(cb([]));
-            },
-          }),
-          orderBy: () => Promise.resolve(table === messagesTable ? messages : []),
-        }),
+        where: () => {
+          if (table === conversationsTable) {
+            return createThenable(conversations);
+          }
+          if (table === messagesTable) {
+            return createThenable(messages);
+          }
+          if (table === usersTable) {
+            const user = users[0];
+            return createThenable(user ? [{ balance: user.balance }] : []);
+          }
+          return createThenable([]);
+        },
       }),
     }),
     insert: (table: unknown) => ({
@@ -125,6 +169,12 @@ function createTestApp(dbOptions?: Parameters<typeof createMockDb>[0]) {
         content: 'Hello',
         model: null,
         createdAt: new Date(),
+      },
+    ],
+    users: [
+      {
+        id: 'user-123',
+        balance: '10.00000000',
       },
     ],
   };
@@ -211,7 +261,7 @@ describe('chat routes', () => {
     });
 
     it('streams SSE response for valid request', async () => {
-      vi.useRealTimers(); // SSE streaming needs real timers
+      vi.useRealTimers();
       const app = createTestApp();
       const res = await app.request('/stream', {
         method: 'POST',
@@ -228,7 +278,7 @@ describe('chat routes', () => {
     });
 
     it('returns start event with assistantMessageId', async () => {
-      vi.useRealTimers(); // SSE streaming needs real timers
+      vi.useRealTimers();
       const app = createTestApp();
       const res = await app.request('/stream', {
         method: 'POST',
@@ -245,7 +295,7 @@ describe('chat routes', () => {
     });
 
     it('returns token events with content', async () => {
-      vi.useRealTimers(); // SSE streaming needs real timers
+      vi.useRealTimers();
       const app = createTestApp();
       const res = await app.request('/stream', {
         method: 'POST',
@@ -262,7 +312,7 @@ describe('chat routes', () => {
     });
 
     it('returns done event at the end', async () => {
-      vi.useRealTimers(); // SSE streaming needs real timers
+      vi.useRealTimers();
       const app = createTestApp();
       const res = await app.request('/stream', {
         method: 'POST',
@@ -278,9 +328,8 @@ describe('chat routes', () => {
     });
 
     it('returns error event when stream fails', async () => {
-      vi.useRealTimers(); // SSE streaming needs real timers
+      vi.useRealTimers();
 
-      // Create app with a failing OpenRouter client
       const app = new Hono<AppEnv>();
       const failingClient: OpenRouterClient = {
         chatCompletion() {
@@ -290,11 +339,18 @@ describe('chat routes', () => {
         async *chatCompletionStream() {
           throw new Error('Stream failed');
         },
+        // eslint-disable-next-line @typescript-eslint/require-await, require-yield -- intentionally throws for error test
+        async *chatCompletionStreamWithMetadata() {
+          throw new Error('Stream failed');
+        },
         listModels() {
           return Promise.resolve([]);
         },
         getModel() {
           return Promise.reject(new Error('Model not found'));
+        },
+        getGenerationStats() {
+          return Promise.reject(new Error('Not implemented in mock'));
         },
       };
 
@@ -316,6 +372,12 @@ describe('chat routes', () => {
             content: 'Hello',
             model: null,
             createdAt: new Date(),
+          },
+        ],
+        users: [
+          {
+            id: 'user-123',
+            balance: '10.00000000',
           },
         ],
       });
@@ -387,6 +449,98 @@ describe('chat routes', () => {
       expect(body).toEqual({ error: 'Conversation not found' });
     });
 
+    it('returns 402 when user has zero balance', async () => {
+      const app = createTestApp({
+        conversations: [
+          {
+            id: 'conv-123',
+            userId: 'user-123',
+            title: 'Test',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
+        messages: [
+          {
+            id: 'msg-1',
+            conversationId: 'conv-123',
+            role: 'user',
+            content: 'Hello',
+            model: null,
+            createdAt: new Date(),
+          },
+        ],
+        users: [
+          {
+            id: 'user-123',
+            balance: '0.00000000',
+          },
+        ],
+      });
+
+      const res = await app.request('/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId: 'conv-123',
+          model: 'openai/gpt-4-turbo',
+        }),
+      });
+
+      expect(res.status).toBe(402);
+      const body = await res.json();
+      expect(body).toEqual({
+        error: 'Premium models require a positive balance. Add credits to access.',
+        currentBalance: '0.00',
+      });
+    });
+
+    it('returns 402 when user has negative balance', async () => {
+      const app = createTestApp({
+        conversations: [
+          {
+            id: 'conv-123',
+            userId: 'user-123',
+            title: 'Test',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
+        messages: [
+          {
+            id: 'msg-1',
+            conversationId: 'conv-123',
+            role: 'user',
+            content: 'Hello',
+            model: null,
+            createdAt: new Date(),
+          },
+        ],
+        users: [
+          {
+            id: 'user-123',
+            balance: '-5.00000000',
+          },
+        ],
+      });
+
+      const res = await app.request('/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId: 'conv-123',
+          model: 'openai/gpt-4-turbo',
+        }),
+      });
+
+      expect(res.status).toBe(402);
+      const body = await res.json();
+      expect(body).toEqual({
+        error: 'Premium models require a positive balance. Add credits to access.',
+        currentBalance: '-5.00',
+      });
+    });
+
     it('returns 400 when last message is not from user', async () => {
       const app = createTestApp({
         conversations: [
@@ -453,7 +607,7 @@ describe('chat routes', () => {
     });
 
     it('saves assistant message to database after stream completes', async () => {
-      vi.useRealTimers(); // SSE streaming needs real timers
+      vi.useRealTimers();
 
       let insertedMessage: unknown = null;
 
@@ -475,6 +629,12 @@ describe('chat routes', () => {
             content: 'Hello',
             model: null,
             createdAt: new Date(),
+          },
+        ],
+        users: [
+          {
+            id: 'user-123',
+            balance: '10.00000000',
           },
         ],
         onInsert: (_table, values) => {
@@ -504,7 +664,7 @@ describe('chat routes', () => {
     });
 
     it('includes userMessageId in start event', async () => {
-      vi.useRealTimers(); // SSE streaming needs real timers
+      vi.useRealTimers();
       const app = createTestApp();
       const res = await app.request('/stream', {
         method: 'POST',
@@ -520,9 +680,271 @@ describe('chat routes', () => {
       expect(text).toContain('"userMessageId":"msg-1"');
     });
 
+    describe('storage billing', () => {
+      it('uses only latest user message length for inputCharacters (NOT conversation history)', async () => {
+        vi.useRealTimers();
+
+        const previousMessage1 = {
+          id: 'msg-1',
+          conversationId: 'conv-123',
+          role: 'user',
+          content: 'First message - 30 characters!',
+          model: null,
+          createdAt: new Date('2024-01-15T11:00:00.000Z'),
+        };
+        const previousMessage2 = {
+          id: 'msg-2',
+          conversationId: 'conv-123',
+          role: 'assistant',
+          content: 'Response to first message - about 40 chars',
+          model: 'openai/gpt-4-turbo',
+          createdAt: new Date('2024-01-15T11:01:00.000Z'),
+        };
+        const latestUserMessage = {
+          id: 'msg-3',
+          conversationId: 'conv-123',
+          role: 'user',
+          content: 'Latest!',
+          model: null,
+          createdAt: new Date('2024-01-15T12:00:00.000Z'),
+        };
+
+        const app = createTestApp({
+          conversations: [
+            {
+              id: 'conv-123',
+              userId: 'user-123',
+              title: 'Test',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ],
+          messages: [previousMessage1, previousMessage2, latestUserMessage],
+          users: [{ id: 'user-123', balance: '10.00000000' }],
+        });
+
+        const res = await app.request('/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversationId: 'conv-123',
+            model: 'openai/gpt-4-turbo',
+          }),
+        });
+
+        const text = await res.text();
+        expect(text).toContain('event: done');
+        expect(latestUserMessage.content.length).toBe(7);
+      });
+    });
+
+    describe('client disconnect handling', () => {
+      it('saves complete message when SSE write fails mid-stream', async () => {
+        vi.useRealTimers();
+
+        let insertedMessage: unknown = null;
+
+        const app = new Hono<AppEnv>();
+
+        const openrouter: OpenRouterClient = {
+          chatCompletion() {
+            return Promise.resolve({
+              id: 'mock-123',
+              model: 'openai/gpt-4-turbo',
+              choices: [
+                {
+                  index: 0,
+                  message: { role: 'assistant', content: 'Hello' },
+                  finish_reason: 'stop',
+                },
+              ],
+              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+            });
+          },
+          // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
+          async *chatCompletionStreamWithMetadata() {
+            yield { content: 'Hello', generationId: 'mock-gen-123' };
+            yield { content: ' ' };
+            yield { content: 'World' };
+            yield { content: '!' };
+            yield { content: ' How' };
+            yield { content: ' are' };
+            yield { content: ' you' };
+            yield { content: '?' };
+          },
+          // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
+          async *chatCompletionStream() {
+            yield 'Hello World!';
+          },
+          listModels() {
+            return Promise.resolve([]);
+          },
+          getModel() {
+            return Promise.reject(new Error('Model not found'));
+          },
+          getGenerationStats(generationId: string) {
+            return Promise.resolve({
+              id: generationId,
+              native_tokens_prompt: 100,
+              native_tokens_completion: 50,
+              total_cost: 0.001,
+            });
+          },
+        };
+
+        const mockDb = createMockDb({
+          conversations: [
+            {
+              id: 'conv-123',
+              userId: 'user-123',
+              title: 'Test',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ],
+          messages: [
+            {
+              id: 'msg-1',
+              conversationId: 'conv-123',
+              role: 'user',
+              content: 'Hello',
+              model: null,
+              createdAt: new Date(),
+            },
+          ],
+          users: [{ id: 'user-123', balance: '10.00000000' }],
+          onInsert: (_table, values) => {
+            insertedMessage = values;
+          },
+        });
+
+        app.use('*', async (c, next) => {
+          c.set('user', { id: 'user-123', email: 'test@example.com', name: 'Test' });
+          c.set('session', { id: 'session-123', userId: 'user-123', expiresAt: new Date() });
+          c.set('openrouter', openrouter);
+          c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
+          await next();
+        });
+        app.route('/', createChatRoutes());
+
+        const res = await app.request('/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId: 'conv-123', model: 'openai/gpt-4-turbo' }),
+        });
+
+        await res.text().catch(() => {
+          // Intentionally ignore - we only care about verifying the message was inserted
+        });
+
+        expect(insertedMessage).not.toBeNull();
+        expect(insertedMessage).toMatchObject({
+          conversationId: 'conv-123',
+          role: 'assistant',
+          content: 'Hello World! How are you?',
+          model: 'openai/gpt-4-turbo',
+        });
+      });
+
+      it('triggers billing even when client disconnects', async () => {
+        vi.useRealTimers();
+
+        let billingCalled = false;
+        let insertedMessage: unknown = null;
+
+        const app = new Hono<AppEnv>();
+
+        const openrouter: OpenRouterClient = {
+          chatCompletion() {
+            return Promise.resolve({
+              id: 'mock-123',
+              model: 'openai/gpt-4-turbo',
+              choices: [
+                { index: 0, message: { role: 'assistant', content: 'Hi' }, finish_reason: 'stop' },
+              ],
+              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+            });
+          },
+          // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
+          async *chatCompletionStreamWithMetadata() {
+            yield { content: 'Hello', generationId: 'mock-gen-123' };
+            yield { content: ' World' };
+          },
+          // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
+          async *chatCompletionStream() {
+            yield 'Hello World';
+          },
+          listModels() {
+            return Promise.resolve([]);
+          },
+          getModel() {
+            return Promise.reject(new Error('Model not found'));
+          },
+          getGenerationStats(generationId: string) {
+            billingCalled = true;
+            return Promise.resolve({
+              id: generationId,
+              native_tokens_prompt: 100,
+              native_tokens_completion: 50,
+              total_cost: 0.001,
+            });
+          },
+        };
+
+        const mockDb = createMockDb({
+          conversations: [
+            {
+              id: 'conv-123',
+              userId: 'user-123',
+              title: 'Test',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ],
+          messages: [
+            {
+              id: 'msg-1',
+              conversationId: 'conv-123',
+              role: 'user',
+              content: 'Hello',
+              model: null,
+              createdAt: new Date(),
+            },
+          ],
+          users: [{ id: 'user-123', balance: '10.00000000' }],
+          onInsert: (_table, values) => {
+            insertedMessage = values;
+          },
+        });
+
+        app.use('*', async (c, next) => {
+          c.set('user', { id: 'user-123', email: 'test@example.com', name: 'Test' });
+          c.set('session', { id: 'session-123', userId: 'user-123', expiresAt: new Date() });
+          c.set('openrouter', openrouter);
+          c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
+          await next();
+        });
+        app.route('/', createChatRoutes());
+
+        const res = await app.request('/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId: 'conv-123', model: 'openai/gpt-4-turbo' }),
+        });
+
+        await res.text();
+
+        // Give billing time to fire (it's async/fire-and-forget)
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        expect(insertedMessage).not.toBeNull();
+        expect(billingCalled).toBe(true);
+      });
+    });
+
     describe('concurrent requests', () => {
       it('handles multiple simultaneous stream requests independently', async () => {
-        vi.useRealTimers(); // SSE streaming needs real timers
+        vi.useRealTimers();
 
         const app = createTestApp();
 

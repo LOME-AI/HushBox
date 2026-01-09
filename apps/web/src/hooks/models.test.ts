@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement } from 'react';
 import type { Model } from '@lome-chat/shared';
-import { useModels, transformApiModel, isExcludedModel } from './models.js';
+import { useModels } from './models.js';
 
 // Mock the api module
 vi.mock('../lib/api.js', () => ({
@@ -16,29 +16,39 @@ import { api } from '../lib/api.js';
 
 const mockedApi = vi.mocked(api);
 
-// Base model for testing
-const BASE_MODEL = {
-  id: 'openai/gpt-4-turbo',
-  name: 'GPT-4 Turbo',
-  description: 'Most capable GPT-4 model',
-  context_length: 128000,
-  pricing: { prompt: '0.00001', completion: '0.00003' },
-  supported_parameters: ['temperature', 'tools', 'tool_choice'],
-  created: Math.floor(Date.now() / 1000), // Recent model
-};
-
-// Backend API response format (OpenRouter format)
-const MOCK_API_RESPONSE = [
-  BASE_MODEL,
+// Mock transformed Model objects (as returned by the API)
+const MOCK_MODELS: Model[] = [
+  {
+    id: 'openai/gpt-4-turbo',
+    name: 'GPT-4 Turbo',
+    description: 'Most capable GPT-4 model',
+    provider: 'OpenAI',
+    contextLength: 128000,
+    pricePerInputToken: 0.00001,
+    pricePerOutputToken: 0.00003,
+    capabilities: ['streaming', 'functions'],
+    supportedParameters: ['temperature', 'tools', 'tool_choice'],
+    created: Math.floor(Date.now() / 1000),
+  },
   {
     id: 'anthropic/claude-3.5-sonnet',
     name: 'Claude 3.5 Sonnet',
     description: 'Balanced Claude model',
-    context_length: 200000,
-    pricing: { prompt: '0.000003', completion: '0.000015' },
-    supported_parameters: ['temperature', 'max_tokens'],
+    provider: 'Anthropic',
+    contextLength: 200000,
+    pricePerInputToken: 0.000003,
+    pricePerOutputToken: 0.000015,
+    capabilities: ['streaming'],
+    supportedParameters: ['temperature', 'max_tokens'],
+    created: Math.floor(Date.now() / 1000),
   },
 ];
+
+// Backend API response format
+const MOCK_API_RESPONSE = {
+  models: MOCK_MODELS,
+  premiumModelIds: ['openai/gpt-4-turbo'],
+};
 
 function createWrapper(): React.FC<{ children: React.ReactNode }> {
   const queryClient = new QueryClient({
@@ -54,94 +64,6 @@ function createWrapper(): React.FC<{ children: React.ReactNode }> {
   };
 }
 
-describe('transformApiModel', () => {
-  it('transforms API model to frontend format', () => {
-    const apiModel = {
-      id: 'openai/gpt-4-turbo',
-      name: 'GPT-4 Turbo',
-      description: 'Test model',
-      context_length: 128000,
-      pricing: { prompt: '0.00001', completion: '0.00003' },
-      supported_parameters: ['temperature', 'tools', 'tool_choice'],
-      created: 1704067200,
-    };
-
-    const result = transformApiModel(apiModel);
-
-    expect(result.id).toBe('openai/gpt-4-turbo');
-    expect(result.name).toBe('GPT-4 Turbo');
-    expect(result.provider).toBe('OpenAI');
-    expect(result.contextLength).toBe(128000);
-    expect(result.pricePerInputToken).toBe(0.00001);
-    expect(result.pricePerOutputToken).toBe(0.00003);
-    expect(result.description).toBe('Test model');
-    expect(result.supportedParameters).toEqual(['temperature', 'tools', 'tool_choice']);
-    expect(result.created).toBe(1704067200);
-  });
-
-  it('extracts provider from model ID', () => {
-    expect(transformApiModel({ ...BASE_MODEL, id: 'openai/gpt-4' }).provider).toBe('OpenAI');
-    expect(transformApiModel({ ...BASE_MODEL, id: 'anthropic/claude' }).provider).toBe('Anthropic');
-    expect(transformApiModel({ ...BASE_MODEL, id: 'google/gemini' }).provider).toBe('Google');
-    expect(transformApiModel({ ...BASE_MODEL, id: 'meta-llama/llama-3' }).provider).toBe('Meta');
-    expect(transformApiModel({ ...BASE_MODEL, id: 'deepseek/deepseek-r1' }).provider).toBe(
-      'DeepSeek'
-    );
-    expect(transformApiModel({ ...BASE_MODEL, id: 'unknown/model' }).provider).toBe('Unknown');
-  });
-
-  it('extracts provider from model name format "Provider: Model Name"', () => {
-    const result = transformApiModel({
-      ...BASE_MODEL,
-      id: 'someunknown/model',
-      name: 'Acme Corp: Super Model',
-    });
-    expect(result.provider).toBe('Acme Corp');
-    expect(result.name).toBe('Super Model');
-  });
-
-  it('removes provider prefix from displayed name', () => {
-    const result = transformApiModel({
-      ...BASE_MODEL,
-      id: 'openai/gpt-4',
-      name: 'OpenAI: GPT-4 Turbo',
-    });
-    expect(result.name).toBe('GPT-4 Turbo');
-    expect(result.provider).toBe('OpenAI');
-  });
-
-  it('keeps name as-is when no colon format', () => {
-    const result = transformApiModel({
-      ...BASE_MODEL,
-      id: 'openai/gpt-4',
-      name: 'GPT-4 Turbo',
-    });
-    expect(result.name).toBe('GPT-4 Turbo');
-    expect(result.provider).toBe('OpenAI');
-  });
-
-  it('derives capabilities from supported_parameters', () => {
-    const withTools = transformApiModel({
-      ...BASE_MODEL,
-      supported_parameters: ['tools', 'tool_choice'],
-    });
-    expect(withTools.capabilities).toContain('functions');
-
-    const withJsonMode = transformApiModel({
-      ...BASE_MODEL,
-      supported_parameters: ['response_format'],
-    });
-    expect(withJsonMode.capabilities).toContain('json-mode');
-
-    const basic = transformApiModel({
-      ...BASE_MODEL,
-      supported_parameters: ['temperature'],
-    });
-    expect(basic.capabilities).toContain('streaming');
-    expect(basic.capabilities).not.toContain('functions');
-  });
-});
-
 describe('useModels', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -151,7 +73,7 @@ describe('useModels', () => {
     vi.restoreAllMocks();
   });
 
-  it('fetches and transforms models', async () => {
+  it('fetches models from API', async () => {
     mockedApi.get.mockResolvedValueOnce(MOCK_API_RESPONSE);
 
     const { result } = renderHook(() => useModels(), {
@@ -164,12 +86,44 @@ describe('useModels', () => {
 
     // eslint-disable-next-line @typescript-eslint/unbound-method -- mock method doesn't rely on this
     expect(mockedApi.get).toHaveBeenCalledWith('/models');
-    expect(result.current.data).toHaveLength(2);
-    expect(result.current.data?.[0]).toMatchObject({
+    expect(result.current.data?.models).toHaveLength(2);
+  });
+
+  it('returns models with correct structure', async () => {
+    mockedApi.get.mockResolvedValueOnce(MOCK_API_RESPONSE);
+
+    const { result } = renderHook(() => useModels(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.data?.models[0]).toMatchObject({
       id: 'openai/gpt-4-turbo',
+      name: 'GPT-4 Turbo',
       provider: 'OpenAI',
       contextLength: 128000,
+      pricePerInputToken: 0.00001,
+      pricePerOutputToken: 0.00003,
     });
+  });
+
+  it('returns premiumIds as a Set', async () => {
+    mockedApi.get.mockResolvedValueOnce(MOCK_API_RESPONSE);
+
+    const { result } = renderHook(() => useModels(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.data?.premiumIds).toBeInstanceOf(Set);
+    expect(result.current.data?.premiumIds.has('openai/gpt-4-turbo')).toBe(true);
+    expect(result.current.data?.premiumIds.has('anthropic/claude-3.5-sonnet')).toBe(false);
   });
 
   it('handles API errors', async () => {
@@ -186,8 +140,8 @@ describe('useModels', () => {
     expect(result.current.error?.message).toBe('Network error');
   });
 
-  it('returns empty array when API returns empty', async () => {
-    mockedApi.get.mockResolvedValueOnce([]);
+  it('returns empty data when API returns empty models', async () => {
+    mockedApi.get.mockResolvedValueOnce({ models: [], premiumModelIds: [] });
 
     const { result } = renderHook(() => useModels(), {
       wrapper: createWrapper(),
@@ -197,172 +151,7 @@ describe('useModels', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(result.current.data).toEqual([]);
-  });
-
-  it('filters out free models', async () => {
-    const apiModels = [
-      { ...BASE_MODEL, id: 'paid/model', pricing: { prompt: '0.00001', completion: '0.00001' } },
-      { ...BASE_MODEL, id: 'free/model', pricing: { prompt: '0', completion: '0' } },
-    ];
-    mockedApi.get.mockResolvedValueOnce(apiModels);
-
-    const { result } = renderHook(() => useModels(), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => {
-      expect(result.current.isSuccess).toBe(true);
-    });
-
-    expect(result.current.data).toHaveLength(1);
-    expect(result.current.data?.[0]?.id).toBe('paid/model');
-  });
-
-  it('filters out Body Builder models', async () => {
-    const apiModels = [
-      BASE_MODEL,
-      { ...BASE_MODEL, id: 'openrouter/body-builder', name: 'Body Builder (beta)' },
-    ];
-    mockedApi.get.mockResolvedValueOnce(apiModels);
-
-    const { result } = renderHook(() => useModels(), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => {
-      expect(result.current.isSuccess).toBe(true);
-    });
-
-    expect(result.current.data).toHaveLength(1);
-    expect(result.current.data?.[0]?.id).toBe('openai/gpt-4-turbo');
-  });
-
-  it('filters out Auto Router models', async () => {
-    const apiModels = [BASE_MODEL, { ...BASE_MODEL, id: 'openrouter/auto', name: 'Auto Router' }];
-    mockedApi.get.mockResolvedValueOnce(apiModels);
-
-    const { result } = renderHook(() => useModels(), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => {
-      expect(result.current.isSuccess).toBe(true);
-    });
-
-    expect(result.current.data).toHaveLength(1);
-    expect(result.current.data?.[0]?.id).toBe('openai/gpt-4-turbo');
-  });
-});
-
-describe('isExcludedModel', () => {
-  // Recent timestamp (within 2 years)
-  const recentCreated = Math.floor(Date.now() / 1000);
-  // Old timestamp (more than 2 years ago)
-  const TWO_YEARS_IN_SECONDS = 2 * 365 * 24 * 60 * 60;
-  const oldCreated = Math.floor(Date.now() / 1000) - TWO_YEARS_IN_SECONDS - 1;
-
-  const baseModel: Model = {
-    id: 'test/model',
-    name: 'Test Model',
-    description: 'Test',
-    provider: 'Test',
-    contextLength: 1000,
-    pricePerInputToken: 0.001,
-    pricePerOutputToken: 0.001,
-    capabilities: [],
-    supportedParameters: [],
-    created: recentCreated,
-  };
-
-  it('excludes free models (both input and output price = 0)', () => {
-    const freeModel = { ...baseModel, pricePerInputToken: 0, pricePerOutputToken: 0 };
-    expect(isExcludedModel(freeModel)).toBe(true);
-  });
-
-  it('includes models with non-zero input price', () => {
-    const paidModel = { ...baseModel, pricePerInputToken: 0.001, pricePerOutputToken: 0 };
-    expect(isExcludedModel(paidModel)).toBe(false);
-  });
-
-  it('includes models with non-zero output price', () => {
-    const paidModel = { ...baseModel, pricePerInputToken: 0, pricePerOutputToken: 0.001 };
-    expect(isExcludedModel(paidModel)).toBe(false);
-  });
-
-  it('excludes Body Builder models (case insensitive)', () => {
-    expect(isExcludedModel({ ...baseModel, name: 'Body Builder (beta)' })).toBe(true);
-    expect(isExcludedModel({ ...baseModel, name: 'body builder' })).toBe(true);
-    expect(isExcludedModel({ ...baseModel, name: 'BODY BUILDER' })).toBe(true);
-  });
-
-  it('excludes Auto Router models (case insensitive)', () => {
-    expect(isExcludedModel({ ...baseModel, name: 'Auto Router' })).toBe(true);
-    expect(isExcludedModel({ ...baseModel, name: 'auto router' })).toBe(true);
-    expect(isExcludedModel({ ...baseModel, name: 'AUTO ROUTER' })).toBe(true);
-  });
-
-  it('excludes models with "image" in name (case insensitive)', () => {
-    expect(isExcludedModel({ ...baseModel, name: 'DALL-E 3 Image Generator' })).toBe(true);
-    expect(isExcludedModel({ ...baseModel, name: 'Stable Diffusion Image' })).toBe(true);
-    expect(isExcludedModel({ ...baseModel, name: 'IMAGE Model' })).toBe(true);
-    expect(isExcludedModel({ ...baseModel, name: 'image-gen-v2' })).toBe(true);
-  });
-
-  it('includes normal paid models', () => {
-    expect(isExcludedModel({ ...baseModel, name: 'GPT-4 Turbo' })).toBe(false);
-    expect(isExcludedModel({ ...baseModel, name: 'Claude 3.5 Sonnet' })).toBe(false);
-  });
-
-  it('excludes models older than 2 years', () => {
-    const oldModel = { ...baseModel, created: oldCreated };
-    expect(isExcludedModel(oldModel)).toBe(true);
-  });
-
-  it('includes models within 2 years', () => {
-    const recentModel = { ...baseModel, created: recentCreated };
-    expect(isExcludedModel(recentModel)).toBe(false);
-  });
-
-  it('includes models at exactly 2 years old boundary', () => {
-    const exactlyTwoYearsOld = Math.floor(Date.now() / 1000) - TWO_YEARS_IN_SECONDS;
-    const boundaryModel = { ...baseModel, created: exactlyTwoYearsOld };
-    expect(isExcludedModel(boundaryModel)).toBe(false);
-  });
-
-  it('excludes models cheaper than $0.001 per 1K tokens combined', () => {
-    // Combined price = (0.0000001 + 0.0000001) * 1000 = 0.0002 < 0.001
-    const cheapModel = {
-      ...baseModel,
-      pricePerInputToken: 0.0000001,
-      pricePerOutputToken: 0.0000001,
-    };
-    expect(isExcludedModel(cheapModel)).toBe(true);
-  });
-
-  it('includes models at exactly $0.001 per 1K tokens combined', () => {
-    // Combined price = (0.0000005 + 0.0000005) * 1000 = 0.001
-    const borderlineModel = {
-      ...baseModel,
-      pricePerInputToken: 0.0000005,
-      pricePerOutputToken: 0.0000005,
-    };
-    expect(isExcludedModel(borderlineModel)).toBe(false);
-  });
-
-  it('includes models more expensive than $0.001 per 1K tokens combined', () => {
-    // Combined price = (0.00001 + 0.00003) * 1000 = 0.04 > 0.001
-    const expensiveModel = {
-      ...baseModel,
-      pricePerInputToken: 0.00001,
-      pricePerOutputToken: 0.00003,
-    };
-    expect(isExcludedModel(expensiveModel)).toBe(false);
-  });
-
-  it('handles models without created timestamp (includes them)', () => {
-    const noCreatedModel = { ...baseModel };
-    delete (noCreatedModel as Partial<Model>).created;
-    expect(isExcludedModel(noCreatedModel)).toBe(false);
+    expect(result.current.data?.models).toEqual([]);
+    expect(result.current.data?.premiumIds.size).toBe(0);
   });
 });

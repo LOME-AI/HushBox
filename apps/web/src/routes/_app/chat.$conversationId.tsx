@@ -5,7 +5,10 @@ import { z } from 'zod';
 import { ChatHeader } from '@/components/chat/chat-header';
 import { MessageList } from '@/components/chat/message-list';
 import { PromptInput } from '@/components/chat/prompt-input';
+import type { PromptInputRef } from '@/components/chat/prompt-input';
 import { DocumentPanel } from '@/components/document-panel/document-panel';
+import { SignupModal } from '@/components/auth/signup-modal';
+import { PaymentModal } from '@/components/billing/payment-modal';
 import {
   useConversation,
   useMessages,
@@ -13,9 +16,13 @@ import {
   useChatStream,
   chatKeys,
 } from '@/hooks/chat';
+import { billingKeys, useBalance } from '@/hooks/billing';
+import { useSession } from '@/lib/auth';
 import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
+import { useAutoScroll } from '@/hooks/use-auto-scroll';
+import { useInteractionTracker } from '@/hooks/use-interaction-tracker';
 import { estimateTokenCount } from '@/lib/tokens';
 import type { Message } from '@/lib/api';
 import type { Document } from '@/lib/document-parser';
@@ -37,10 +44,32 @@ function ChatConversation(): React.JSX.Element {
   const queryClient = useQueryClient();
   const viewportHeight = useVisualViewportHeight();
 
+  const { data: session } = useSession();
+  const isAuthenticated = Boolean(session?.user);
+  const { data: balanceData } = useBalance();
+  const balance = parseFloat(balanceData?.balance ?? '0');
+  const canAccessPremium = isAuthenticated && balance > 0;
+
   const { selectedModelId, selectedModelName, setSelectedModel } = useModelStore();
 
-  // Fetch available models from API
-  const { data: models = [] } = useModels();
+  const { data: modelsData } = useModels();
+  const models = modelsData?.models ?? [];
+  const premiumIds = modelsData?.premiumIds ?? new Set<string>();
+
+  const [showSignupModal, setShowSignupModal] = React.useState(false);
+  const [showPaymentModal, setShowPaymentModal] = React.useState(false);
+  const [premiumModelName, setPremiumModelName] = React.useState<string | undefined>();
+
+  const handlePremiumClick = (modelId: string): void => {
+    const model = models.find((m) => m.id === modelId);
+    setPremiumModelName(model?.name);
+
+    if (isAuthenticated) {
+      setShowPaymentModal(true);
+    } else {
+      setShowSignupModal(true);
+    }
+  };
 
   const { data: conversation, isLoading: isConversationLoading } = useConversation(
     isNewChat ? '' : conversationId
@@ -55,12 +84,11 @@ function ChatConversation(): React.JSX.Element {
   const isLoading = isConversationLoading || isMessagesLoading;
 
   const [inputValue, setInputValue] = React.useState('');
-  const [streamingContent, setStreamingContent] = React.useState('');
 
-  // Optimistic messages shown before API confirms
+  const [streamingMessageId, setStreamingMessageId] = React.useState<string | null>(null);
+
   const [optimisticMessages, setOptimisticMessages] = React.useState<Message[]>([]);
 
-  // Track documents extracted from messages, keyed by message ID
   const [documentsByMessage, setDocumentsByMessage] = React.useState<Record<string, Document[]>>(
     {}
   );
@@ -72,36 +100,59 @@ function ChatConversation(): React.JSX.Element {
     }));
   }, []);
 
-  // Flatten all documents for the panel
   const allDocuments = React.useMemo(() => {
     return Object.values(documentsByMessage).flat();
   }, [documentsByMessage]);
 
   const allMessages = React.useMemo(() => {
     const messages = apiMessages ?? [];
-    // Filter out optimistic messages that now exist in API response
     const apiMessageIds = new Set(messages.map((m) => m.id));
     const pendingOptimistic = optimisticMessages.filter((m) => !apiMessageIds.has(m.id));
     return [...messages, ...pendingOptimistic];
   }, [apiMessages, optimisticMessages]);
 
-  // Calculate total tokens used by conversation history
   const historyTokens = React.useMemo(() => {
     return allMessages.reduce((total, message) => {
       return total + estimateTokenCount(message.content);
     }, 0);
   }, [allMessages]);
 
-  // Get selected model for context limit
   const selectedModel = models.find((m) => m.id === selectedModelId);
 
-  React.useEffect(() => {
-    if (apiMessages && apiMessages.length > 0) {
-      setOptimisticMessages([]);
-    }
-  }, [apiMessages]);
+  const streamingMessageIdRef = React.useRef<string | null>(null);
 
-  // Handle new chat flow: create conversation → navigate with flag → trigger AI response
+  const viewportRef = React.useRef<HTMLDivElement>(null);
+  const promptInputRef = React.useRef<PromptInputRef>(null);
+
+  const { handleScroll, scrollToBottom, isAutoScrollEnabledRef } = useAutoScroll({
+    isStreaming,
+    viewportRef,
+  });
+
+  const { hasInteractedSinceSubmit, resetOnSubmit } = useInteractionTracker({
+    isTracking: isStreaming,
+  });
+
+  const shouldFocusAfterStreamingRef = React.useRef(false);
+
+  const wasStreamingRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (wasStreamingRef.current && !isStreaming) {
+      const shouldFocus = shouldFocusAfterStreamingRef.current && !hasInteractedSinceSubmit;
+
+      if (shouldFocus) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            promptInputRef.current?.focus();
+          });
+        });
+      }
+      shouldFocusAfterStreamingRef.current = false;
+    }
+    wasStreamingRef.current = isStreaming;
+  }, [isStreaming, hasInteractedSinceSubmit]);
+
   React.useEffect(() => {
     if (!triggerStreaming) {
       return;
@@ -114,7 +165,6 @@ function ChatConversation(): React.JSX.Element {
     const lastMessage = apiMessages[apiMessages.length - 1];
 
     if (lastMessage?.role === 'user') {
-      // Clear the search param to prevent re-triggering on refresh
       void navigate({
         to: '/chat/$conversationId',
         params: { conversationId },
@@ -122,26 +172,55 @@ function ChatConversation(): React.JSX.Element {
         replace: true,
       });
 
-      setStreamingContent('');
+      shouldFocusAfterStreamingRef.current = true;
+
       void startStream(
         { conversationId, model: selectedModelId },
         {
+          onStart: ({ assistantMessageId }) => {
+            const assistantMessage: Message = {
+              id: assistantMessageId,
+              conversationId,
+              role: 'assistant',
+              content: '',
+              createdAt: new Date().toISOString(),
+            };
+            setOptimisticMessages((prev) => [...prev, assistantMessage]);
+            setStreamingMessageId(assistantMessageId);
+            streamingMessageIdRef.current = assistantMessageId;
+          },
           onToken: (token) => {
-            setStreamingContent((prev) => prev + token);
+            const msgId = streamingMessageIdRef.current;
+            if (msgId) {
+              setOptimisticMessages((prev) =>
+                prev.map((m) => (m.id === msgId ? { ...m, content: m.content + token } : m))
+              );
+            }
+            if (isAutoScrollEnabledRef.current) {
+              scrollToBottom();
+            }
           },
         }
       )
-        .then(() => {
-          void queryClient.invalidateQueries({
-            queryKey: chatKeys.messages(conversationId),
-          });
-          setStreamingContent('');
+        .then(async ({ assistantMessageId }) => {
+          setStreamingMessageId(null);
+          streamingMessageIdRef.current = null;
+
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          await queryClient.invalidateQueries({ queryKey: chatKeys.messages(conversationId) });
+          void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+
+          setOptimisticMessages((prev) => prev.filter((m) => m.id !== assistantMessageId));
         })
         .catch((error: unknown) => {
           console.error('Stream failed:', error);
-          setStreamingContent('');
+          setStreamingMessageId(null);
+          streamingMessageIdRef.current = null;
+          shouldFocusAfterStreamingRef.current = false;
         });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isAutoScrollEnabledRef is a stable ref
   }, [
     triggerStreaming,
     conversationId,
@@ -152,6 +231,7 @@ function ChatConversation(): React.JSX.Element {
     startStream,
     queryClient,
     navigate,
+    scrollToBottom,
   ]);
 
   const handleSend = (): void => {
@@ -162,14 +242,19 @@ function ChatConversation(): React.JSX.Element {
 
     setInputValue('');
 
-    const optimisticMessage: Message = {
+    resetOnSubmit();
+    shouldFocusAfterStreamingRef.current = true;
+
+    const optimisticUserMessage: Message = {
       id: crypto.randomUUID(),
       conversationId,
       role: 'user',
       content,
       createdAt: new Date().toISOString(),
     };
-    setOptimisticMessages((prev) => [...prev, optimisticMessage]);
+    setOptimisticMessages((prev) => [...prev, optimisticUserMessage]);
+
+    scrollToBottom();
 
     sendMessage.mutate(
       {
@@ -181,37 +266,62 @@ function ChatConversation(): React.JSX.Element {
       },
       {
         onSuccess: () => {
-          // API invalidation will fetch real message
-          setOptimisticMessages((prev) => prev.filter((m) => m.id !== optimisticMessage.id));
+          setOptimisticMessages((prev) => prev.filter((m) => m.id !== optimisticUserMessage.id));
 
-          setStreamingContent('');
           void startStream(
             { conversationId, model: selectedModelId },
             {
+              onStart: ({ assistantMessageId }) => {
+                const assistantMessage: Message = {
+                  id: assistantMessageId,
+                  conversationId,
+                  role: 'assistant',
+                  content: '',
+                  createdAt: new Date().toISOString(),
+                };
+                setOptimisticMessages((prev) => [...prev, assistantMessage]);
+                setStreamingMessageId(assistantMessageId);
+                streamingMessageIdRef.current = assistantMessageId;
+              },
               onToken: (token) => {
-                setStreamingContent((prev) => prev + token);
+                const msgId = streamingMessageIdRef.current;
+                if (msgId) {
+                  setOptimisticMessages((prev) =>
+                    prev.map((m) => (m.id === msgId ? { ...m, content: m.content + token } : m))
+                  );
+                }
+                if (isAutoScrollEnabledRef.current) {
+                  scrollToBottom();
+                }
               },
             }
           )
-            .then(() => {
-              void queryClient.invalidateQueries({
-                queryKey: chatKeys.messages(conversationId),
-              });
-              setStreamingContent('');
+            .then(async ({ assistantMessageId }) => {
+              setStreamingMessageId(null);
+              streamingMessageIdRef.current = null;
+
+              await new Promise((resolve) => setTimeout(resolve, 500));
+
+              await queryClient.invalidateQueries({ queryKey: chatKeys.messages(conversationId) });
+              void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+
+              setOptimisticMessages((prev) => prev.filter((m) => m.id !== assistantMessageId));
             })
             .catch((error: unknown) => {
               console.error('Stream failed:', error);
-              setStreamingContent('');
+              setStreamingMessageId(null);
+              streamingMessageIdRef.current = null;
+              shouldFocusAfterStreamingRef.current = false;
             });
         },
         onError: () => {
-          setOptimisticMessages((prev) => prev.filter((m) => m.id !== optimisticMessage.id));
+          setOptimisticMessages((prev) => prev.filter((m) => m.id !== optimisticUserMessage.id));
+          shouldFocusAfterStreamingRef.current = false;
         },
       }
     );
   };
 
-  // Redirect new chat to /chat - should create via NewChatPage
   if (isNewChat) {
     return <Navigate to="/chat" />;
   }
@@ -227,10 +337,26 @@ function ChatConversation(): React.JSX.Element {
           selectedModelId={selectedModelId}
           selectedModelName={selectedModelName}
           onModelSelect={setSelectedModel}
+          premiumIds={premiumIds}
+          canAccessPremium={canAccessPremium}
+          isAuthenticated={isAuthenticated}
+          onPremiumClick={handlePremiumClick}
         />
         <div className="flex flex-1 items-center justify-center">
           <span className="text-muted-foreground">Loading conversation...</span>
         </div>
+        <SignupModal
+          open={showSignupModal}
+          onOpenChange={setShowSignupModal}
+          modelName={premiumModelName}
+        />
+        <PaymentModal
+          open={showPaymentModal}
+          onOpenChange={setShowPaymentModal}
+          onSuccess={() => {
+            void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+          }}
+        />
       </div>
     );
   }
@@ -250,15 +376,20 @@ function ChatConversation(): React.JSX.Element {
         selectedModelName={selectedModelName}
         onModelSelect={setSelectedModel}
         title={conversation.title}
+        premiumIds={premiumIds}
+        canAccessPremium={canAccessPremium}
+        isAuthenticated={isAuthenticated}
+        onPremiumClick={handlePremiumClick}
       />
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex flex-1 flex-col overflow-hidden">
-          {(allMessages.length > 0 || isStreaming) && (
+        <div className="flex min-w-0 flex-1 flex-col">
+          {allMessages.length > 0 && (
             <MessageList
               messages={allMessages}
-              isStreaming={isStreaming}
-              streamingContent={streamingContent}
+              streamingMessageId={streamingMessageId}
               onDocumentsExtracted={handleDocumentsExtracted}
+              viewportRef={viewportRef}
+              onScroll={handleScroll}
             />
           )}
         </div>
@@ -266,6 +397,7 @@ function ChatConversation(): React.JSX.Element {
       </div>
       <div className="flex-shrink-0 border-t p-4">
         <PromptInput
+          ref={promptInputRef}
           value={inputValue}
           onChange={setInputValue}
           onSubmit={handleSend}
@@ -278,6 +410,18 @@ function ChatConversation(): React.JSX.Element {
           disabled={sendMessage.isPending || isStreaming}
         />
       </div>
+      <SignupModal
+        open={showSignupModal}
+        onOpenChange={setShowSignupModal}
+        modelName={premiumModelName}
+      />
+      <PaymentModal
+        open={showPaymentModal}
+        onOpenChange={setShowPaymentModal}
+        onSuccess={() => {
+          void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+        }}
+      />
     </div>
   );
 }

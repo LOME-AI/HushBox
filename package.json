@@ -27,7 +27,8 @@
     "db:generate": "./scripts/with-env pnpm --filter @lome-chat/db db:generate",
     "db:studio": "./scripts/with-env pnpm --filter @lome-chat/db db:studio",
     "db:seed": "./scripts/with-env tsx scripts/seed.ts",
-    "generate:env": "tsx scripts/generate-env.ts"
+    "generate:env": "tsx scripts/generate-env.ts",
+    "generate:readme": "tsx scripts/generate-readme.ts"
   },
   "devDependencies": {
     "@lome-chat/db": "workspace:*",

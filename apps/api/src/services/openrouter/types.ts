@@ -79,11 +79,39 @@ export interface ChatCompletionChunk {
   }[];
 }
 
+/**
+ * Generation stats from OpenRouter's /generation endpoint.
+ * Contains exact cost and native token counts (not normalized).
+ */
+export interface GenerationStats {
+  id: string;
+  native_tokens_prompt: number;
+  native_tokens_completion: number;
+  /** Exact USD cost that OpenRouter charged us */
+  total_cost: number;
+}
+
+/**
+ * Token from streaming response with optional metadata.
+ * Used by chatCompletionStreamWithMetadata to return generation ID
+ * along with content tokens.
+ */
+export interface StreamToken {
+  /** The content of this token */
+  content: string;
+  /** Generation ID from first chunk - only present on first token */
+  generationId?: string;
+}
+
 export interface OpenRouterClient {
   chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse>;
   chatCompletionStream(request: ChatCompletionRequest): AsyncIterable<string>;
+  /** Stream that yields tokens with generation ID on first token (for billing) */
+  chatCompletionStreamWithMetadata(request: ChatCompletionRequest): AsyncIterable<StreamToken>;
   listModels(): Promise<ModelInfo[]>;
   getModel(modelId: string): Promise<ModelInfo>;
+  /** Fetch exact generation stats including native token counts and actual cost */
+  getGenerationStats(generationId: string): Promise<GenerationStats>;
 }
 
 export interface MockOpenRouterClient extends OpenRouterClient {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import { createDevRoute } from './dev.js';
+import { WELCOME_CREDIT_BALANCE } from '@lome-chat/shared';
 import type { DevPersonasResponse } from '@lome-chat/shared';
 import type { AppEnv } from '../types.js';
 
@@ -10,6 +11,7 @@ interface MockUser {
   email: string;
   emailVerified: boolean;
   image: string | null;
+  balance: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -74,6 +76,7 @@ describe('createDevRoute', () => {
           email: 'alice@dev.lome-chat.com',
           emailVerified: true,
           image: null,
+          balance: WELCOME_CREDIT_BALANCE,
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -106,6 +109,7 @@ describe('createDevRoute', () => {
           email: 'alice@dev.lome-chat.com',
           emailVerified: true,
           image: 'https://example.com/alice.png',
+          balance: WELCOME_CREDIT_BALANCE,
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -124,7 +128,7 @@ describe('createDevRoute', () => {
       });
     });
 
-    it('returns credits as $0.00 placeholder', async () => {
+    it('returns credits based on actual user balance', async () => {
       const mockDb = createMockDb([
         {
           id: 'user-1',
@@ -132,6 +136,28 @@ describe('createDevRoute', () => {
           email: 'alice@dev.lome-chat.com',
           emailVerified: true,
           image: null,
+          balance: '1.50000000',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]);
+
+      const app = createTestApp(mockDb);
+      const res = await app.request('/dev/personas');
+      const body: DevPersonasResponse = await res.json();
+
+      expect(body.personas[0]?.credits).toBe('$1.50');
+    });
+
+    it('returns $0.00 for users with zero balance', async () => {
+      const mockDb = createMockDb([
+        {
+          id: 'user-1',
+          name: 'Bob',
+          email: 'bob@dev.lome-chat.com',
+          emailVerified: true,
+          image: null,
+          balance: '0.00000000',
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -144,6 +170,27 @@ describe('createDevRoute', () => {
       expect(body.personas[0]?.credits).toBe('$0.00');
     });
 
+    it('returns default welcome credits for new users', async () => {
+      const mockDb = createMockDb([
+        {
+          id: 'user-1',
+          name: 'NewUser',
+          email: 'newuser@dev.lome-chat.com',
+          emailVerified: true,
+          image: null,
+          balance: WELCOME_CREDIT_BALANCE, // Default welcome credit
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]);
+
+      const app = createTestApp(mockDb);
+      const res = await app.request('/dev/personas');
+      const body: DevPersonasResponse = await res.json();
+
+      expect(body.personas[0]?.credits).toBe('$0.20');
+    });
+
     it('includes stats for each persona', async () => {
       const mockDb = createMockDb(
         [
@@ -153,6 +200,7 @@ describe('createDevRoute', () => {
             email: 'alice@dev.lome-chat.com',
             emailVerified: true,
             image: null,
+            balance: WELCOME_CREDIT_BALANCE,
             createdAt: new Date(),
             updatedAt: new Date(),
           },
@@ -179,6 +227,7 @@ describe('createDevRoute', () => {
           email: 'alice@dev.lome-chat.com',
           emailVerified: true,
           image: null,
+          balance: '1.50000000',
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -188,6 +237,7 @@ describe('createDevRoute', () => {
           email: 'bob@dev.lome-chat.com',
           emailVerified: true,
           image: null,
+          balance: '0.00000000',
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -208,6 +258,7 @@ describe('createDevRoute', () => {
           email: 'alice@dev.lome-chat.com',
           emailVerified: true,
           image: null,
+          balance: WELCOME_CREDIT_BALANCE,
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -230,6 +281,7 @@ describe('createDevRoute', () => {
           email: 'test-alice@test.lome-chat.com',
           emailVerified: true,
           image: null,
+          balance: WELCOME_CREDIT_BALANCE,
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -252,6 +304,7 @@ describe('createDevRoute', () => {
           email: 'alice@dev.lome-chat.com',
           emailVerified: true,
           image: null,
+          balance: WELCOME_CREDIT_BALANCE,
           createdAt: new Date(),
           updatedAt: new Date(),
         },

@@ -44,3 +44,11 @@ export const modelSchema = z.object({
 });
 
 export type Model = z.infer<typeof modelSchema>;
+
+/**
+ * Response from GET /models endpoint.
+ */
+export interface ModelsListResponse {
+  models: Model[];
+  premiumModelIds: string[];
+}

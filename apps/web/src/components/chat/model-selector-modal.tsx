@@ -1,9 +1,9 @@
 import * as React from 'react';
-import { Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { Search, ChevronUp, ChevronDown, Lock } from 'lucide-react';
 import { ModalOverlay, Input, Badge, Button, ScrollArea } from '@lome-chat/ui';
 import type { Model } from '@lome-chat/shared';
 import { STRONGEST_MODEL_ID, VALUE_MODEL_ID } from '@lome-chat/shared';
-import { applyLomeFee, formatContextLength, formatPricePer1k } from '../../lib/format';
+import { applyFees, formatContextLength, formatPricePer1k } from '../../lib/format';
 
 type SortField = 'price' | 'context' | null;
 type SortDirection = 'asc' | 'desc';
@@ -14,6 +14,14 @@ interface ModelSelectorModalProps {
   models: Model[];
   selectedId: string;
   onSelect: (modelId: string) => void;
+  /** Set of premium model IDs */
+  premiumIds?: Set<string> | undefined;
+  /** Whether the user can access premium models (defaults to true) */
+  canAccessPremium?: boolean | undefined;
+  /** Whether the user is authenticated (defaults to true) */
+  isAuthenticated?: boolean | undefined;
+  /** Called when user clicks a premium model they cannot access */
+  onPremiumClick?: ((modelId: string) => void) | undefined;
 }
 
 /**
@@ -32,6 +40,10 @@ export function ModelSelectorModal({
   models,
   selectedId,
   onSelect,
+  premiumIds,
+  canAccessPremium = true,
+  isAuthenticated = true,
+  onPremiumClick,
 }: ModelSelectorModalProps): React.JSX.Element {
   const [searchQuery, setSearchQuery] = React.useState('');
   const [focusedModelId, setFocusedModelId] = React.useState(selectedId);
@@ -74,8 +86,24 @@ export function ModelSelectorModal({
       });
     }
 
+    // Interlace basic and premium models for non-paid users (always, including during sorting)
+    // Paid users see no interlacing and no visual distinction
+    if (!canAccessPremium && premiumIds && premiumIds.size > 0) {
+      const basic = result.filter((m) => !premiumIds.has(m.id));
+      const premium = result.filter((m) => premiumIds.has(m.id));
+      const interlaced: Model[] = [];
+      const maxLen = Math.max(basic.length, premium.length);
+      for (let i = 0; i < maxLen; i++) {
+        const basicModel = basic[i];
+        const premiumModel = premium[i];
+        if (basicModel) interlaced.push(basicModel);
+        if (premiumModel) interlaced.push(premiumModel);
+      }
+      result = interlaced;
+    }
+
     return result;
-  }, [models, searchQuery, sortField, sortDirection]);
+  }, [models, searchQuery, sortField, sortDirection, premiumIds, canAccessPremium]);
 
   const handleSortClick = (field: 'price' | 'context'): void => {
     if (sortField === field) {
@@ -88,20 +116,65 @@ export function ModelSelectorModal({
     }
   };
 
-  // Get the focused model for details panel
+  // Calculate quick select model IDs based on user tier
+  const { strongestId, valueId } = React.useMemo(() => {
+    if (canAccessPremium) {
+      // Paid users: use hardcoded premium models
+      return { strongestId: STRONGEST_MODEL_ID, valueId: VALUE_MODEL_ID };
+    }
+
+    // Non-paid users: find from basic models only
+    const basicModels = models.filter((m) => !premiumIds?.has(m.id));
+    if (basicModels.length === 0) {
+      return { strongestId: models[0]?.id ?? '', valueId: models[0]?.id ?? '' };
+    }
+
+    const sorted = [...basicModels].sort((a, b) => {
+      const priceA = a.pricePerInputToken + a.pricePerOutputToken;
+      const priceB = b.pricePerInputToken + b.pricePerOutputToken;
+      return priceB - priceA;
+    });
+
+    return {
+      strongestId: sorted[0]?.id ?? '',
+      valueId: sorted[sorted.length - 1]?.id ?? '',
+    };
+  }, [models, premiumIds, canAccessPremium]);
+
   const focusedModel = models.find((m) => m.id === focusedModelId) ?? models[0];
+
+  const isPremium = (modelId: string): boolean => {
+    return premiumIds?.has(modelId) ?? false;
+  };
+
+  const isFocusedPremium = isPremium(focusedModelId);
 
   const handleModelClick = (modelId: string): void => {
     setFocusedModelId(modelId);
   };
 
   const handleModelDoubleClick = (modelId: string): void => {
+    // If user can't access premium and clicks a premium model, route to premium handler
+    if (!canAccessPremium && isPremium(modelId)) {
+      onPremiumClick?.(modelId);
+      return;
+    }
     onSelect(modelId);
     onOpenChange(false);
   };
 
   const handleQuickSelect = (modelId: string): void => {
     onSelect(modelId);
+    onOpenChange(false);
+  };
+
+  const handleSelectButton = (): void => {
+    // If user can't access premium and focused model is premium, route to premium handler
+    if (!canAccessPremium && isFocusedPremium) {
+      onPremiumClick?.(focusedModelId);
+      return;
+    }
+    onSelect(focusedModelId);
     onOpenChange(false);
   };
 
@@ -142,9 +215,10 @@ export function ModelSelectorModal({
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    handleQuickSelect(STRONGEST_MODEL_ID);
+                    handleQuickSelect(strongestId);
                   }}
                   className="flex-1"
+                  data-testid="quick-select-strongest"
                 >
                   Strongest
                 </Button>
@@ -152,9 +226,10 @@ export function ModelSelectorModal({
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    handleQuickSelect(VALUE_MODEL_ID);
+                    handleQuickSelect(valueId);
                   }}
                   className="flex-1"
+                  data-testid="quick-select-value"
                 >
                   Value
                 </Button>
@@ -242,9 +317,10 @@ export function ModelSelectorModal({
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        handleQuickSelect(STRONGEST_MODEL_ID);
+                        handleQuickSelect(strongestId);
                       }}
                       className="flex-1"
+                      data-testid="quick-select-strongest-desktop"
                     >
                       Strongest
                     </Button>
@@ -252,9 +328,10 @@ export function ModelSelectorModal({
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        handleQuickSelect(VALUE_MODEL_ID);
+                        handleQuickSelect(valueId);
                       }}
                       className="flex-1"
+                      data-testid="quick-select-value-desktop"
                     >
                       Value
                     </Button>
@@ -310,31 +387,61 @@ export function ModelSelectorModal({
               {/* Model list */}
               <ScrollArea data-testid="model-list-scroll" className="min-h-0 flex-1">
                 <div className="p-2">
-                  {filteredModels.map((model) => (
-                    <div
-                      key={model.id}
-                      data-testid={`model-item-${model.id}`}
-                      data-selected={model.id === focusedModelId}
-                      onClick={() => {
-                        handleModelClick(model.id);
-                      }}
-                      onDoubleClick={() => {
-                        handleModelDoubleClick(model.id);
-                      }}
-                      className={`cursor-pointer rounded-md p-3 transition-colors ${
-                        model.id === focusedModelId
-                          ? 'bg-accent text-accent-foreground'
-                          : 'hover:bg-muted'
-                      }`}
-                      role="option"
-                      aria-selected={model.id === focusedModelId}
-                    >
-                      <div className="truncate font-medium">{model.name}</div>
-                      <div className="text-muted-foreground truncate text-xs">
-                        {model.provider} • {formatContextLength(model.contextLength)}
+                  {filteredModels.map((model) => {
+                    const modelIsPremium = isPremium(model.id);
+                    const showOverlay = modelIsPremium && !canAccessPremium;
+                    const accessMessage = !isAuthenticated
+                      ? 'Sign up to access'
+                      : 'Add credits to unlock';
+
+                    return (
+                      <div
+                        key={model.id}
+                        data-testid={`model-item-${model.id}`}
+                        data-selected={model.id === focusedModelId}
+                        onClick={() => {
+                          handleModelClick(model.id);
+                        }}
+                        onDoubleClick={() => {
+                          handleModelDoubleClick(model.id);
+                        }}
+                        className={`relative cursor-pointer rounded-md p-3 transition-colors ${
+                          model.id === focusedModelId
+                            ? 'bg-accent text-accent-foreground'
+                            : 'hover:bg-muted'
+                        }`}
+                        role="option"
+                        aria-selected={model.id === focusedModelId}
+                      >
+                        {showOverlay && (
+                          <div
+                            data-testid="premium-overlay"
+                            className="bg-background/60 pointer-events-none absolute inset-0 rounded-md"
+                          />
+                        )}
+
+                        <div className="relative flex items-center justify-between gap-2">
+                          <span className="truncate font-medium">{model.name}</span>
+                          {showOverlay && (
+                            <Lock
+                              data-testid="lock-icon"
+                              className="text-muted-foreground h-4 w-4 shrink-0"
+                            />
+                          )}
+                        </div>
+                        <div className="text-muted-foreground relative flex items-center justify-between text-xs">
+                          <span className="truncate">
+                            {model.provider} • {formatContextLength(model.contextLength)}
+                          </span>
+                          {showOverlay && (
+                            <span className="text-muted-foreground shrink-0 text-xs">
+                              {accessMessage}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {filteredModels.length === 0 && (
                     <div className="text-muted-foreground p-4 text-center text-sm">
                       No models found
@@ -366,7 +473,7 @@ export function ModelSelectorModal({
                         Input Price / Token
                       </div>
                       <div className="text-lg font-medium">
-                        {formatPricePer1k(applyLomeFee(focusedModel.pricePerInputToken))} / 1k
+                        {formatPricePer1k(applyFees(focusedModel.pricePerInputToken))} / 1k
                       </div>
                     </div>
 
@@ -376,7 +483,7 @@ export function ModelSelectorModal({
                         Output Price / Token
                       </div>
                       <div className="text-lg font-medium">
-                        {formatPricePer1k(applyLomeFee(focusedModel.pricePerOutputToken))} / 1k
+                        {formatPricePer1k(applyFees(focusedModel.pricePerOutputToken))} / 1k
                       </div>
                     </div>
 
@@ -424,14 +531,7 @@ export function ModelSelectorModal({
 
         {/* Bottom button - full width */}
         <div className="border-t p-4">
-          <Button
-            variant="default"
-            onClick={() => {
-              onSelect(focusedModelId);
-              onOpenChange(false);
-            }}
-            className="w-full"
-          >
+          <Button variant="default" onClick={handleSelectButton} className="w-full">
             Select model
           </Button>
         </div>

@@ -1,7 +1,53 @@
 import { describe, it, expect } from 'vitest';
-import { calculateMessageCost } from './pricing.js';
-import type { MessageCostParams } from './pricing.js';
-import { LOME_FEE_RATE, STORAGE_COST_PER_CHARACTER } from './constants.js';
+import {
+  applyFees,
+  calculateTokenCostWithFees,
+  calculateMessageCost,
+  calculateMessageCostFromOpenRouter,
+} from './pricing.js';
+import type { MessageCostParams, MessageCostFromOpenRouterParams } from './pricing.js';
+import { TOTAL_FEE_RATE, STORAGE_COST_PER_CHARACTER } from './constants.js';
+
+describe('applyFees', () => {
+  it('applies total fee rate (15%) to base price', () => {
+    expect(applyFees(1)).toBeCloseTo(1.15, 10);
+    expect(applyFees(10)).toBeCloseTo(11.5, 10);
+    expect(applyFees(100)).toBeCloseTo(115, 10);
+  });
+
+  it('handles zero price', () => {
+    expect(applyFees(0)).toBe(0);
+  });
+
+  it('handles very small prices', () => {
+    expect(applyFees(0.00001)).toBeCloseTo(0.0000115, 10);
+  });
+});
+
+describe('calculateTokenCostWithFees', () => {
+  it('calculates token cost and applies fees', () => {
+    const result = calculateTokenCostWithFees(100, 200, 0.00001, 0.00003);
+    const baseCost = 100 * 0.00001 + 200 * 0.00003;
+    expect(result).toBeCloseTo(applyFees(baseCost), 10);
+  });
+
+  it('handles zero tokens', () => {
+    const result = calculateTokenCostWithFees(0, 0, 0.00001, 0.00003);
+    expect(result).toBe(0);
+  });
+
+  it('handles input tokens only', () => {
+    const result = calculateTokenCostWithFees(100, 0, 0.00001, 0.00003);
+    const baseCost = 100 * 0.00001;
+    expect(result).toBeCloseTo(applyFees(baseCost), 10);
+  });
+
+  it('handles output tokens only', () => {
+    const result = calculateTokenCostWithFees(0, 200, 0.00001, 0.00003);
+    const baseCost = 200 * 0.00003;
+    expect(result).toBeCloseTo(applyFees(baseCost), 10);
+  });
+});
 
 describe('calculateMessageCost', () => {
   const baseParams: MessageCostParams = {
@@ -17,7 +63,7 @@ describe('calculateMessageCost', () => {
     it('calculates model cost from tokens and prices', () => {
       const result = calculateMessageCost(baseParams);
       const expectedModelCost = 100 * 0.00001 + 200 * 0.00003; // 0.007
-      const expectedLomeFee = expectedModelCost * LOME_FEE_RATE;
+      const expectedLomeFee = expectedModelCost * TOTAL_FEE_RATE;
       const expectedStorageFee = (400 + 800) * STORAGE_COST_PER_CHARACTER;
 
       expect(result).toBeCloseTo(expectedModelCost + expectedLomeFee + expectedStorageFee, 10);
@@ -47,7 +93,7 @@ describe('calculateMessageCost', () => {
   });
 
   describe('LOME fee calculation', () => {
-    it('applies LOME_FEE_RATE to model cost only', () => {
+    it('applies TOTAL_FEE_RATE to model cost only', () => {
       const paramsNoStorage: MessageCostParams = {
         ...baseParams,
         inputCharacters: 0,
@@ -56,7 +102,7 @@ describe('calculateMessageCost', () => {
       const result = calculateMessageCost(paramsNoStorage);
       const modelCost = 100 * 0.00001 + 200 * 0.00003;
 
-      expect(result).toBeCloseTo(modelCost * (1 + LOME_FEE_RATE), 10);
+      expect(result).toBeCloseTo(modelCost * (1 + TOTAL_FEE_RATE), 10);
     });
 
     it('does not apply LOME fee to storage fee', () => {
@@ -119,7 +165,7 @@ describe('calculateMessageCost', () => {
       });
       const modelCost = 100 * 0.00001 + 200 * 0.00003;
 
-      expect(result).toBeCloseTo(modelCost * (1 + LOME_FEE_RATE), 10);
+      expect(result).toBeCloseTo(modelCost * (1 + TOTAL_FEE_RATE), 10);
     });
   });
 
@@ -128,7 +174,7 @@ describe('calculateMessageCost', () => {
       const result = calculateMessageCost(baseParams);
 
       const modelCost = 100 * 0.00001 + 200 * 0.00003;
-      const lomeFee = modelCost * LOME_FEE_RATE;
+      const lomeFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = (400 + 800) * STORAGE_COST_PER_CHARACTER;
 
       expect(result).toBeCloseTo(modelCost + lomeFee + storageFee, 10);
@@ -147,7 +193,7 @@ describe('calculateMessageCost', () => {
       const result = calculateMessageCost(gpt4Params);
 
       const modelCost = 1000 * 0.00003 + 500 * 0.00006; // 0.03 + 0.03 = 0.06
-      const lomeFee = modelCost * LOME_FEE_RATE; // 0.06 * 0.15 = 0.009
+      const lomeFee = modelCost * TOTAL_FEE_RATE; // 0.06 * 0.15 = 0.009
       const storageFee = (4000 + 2000) * STORAGE_COST_PER_CHARACTER;
 
       expect(result).toBeCloseTo(modelCost + lomeFee + storageFee, 10);
@@ -211,7 +257,7 @@ describe('calculateMessageCost', () => {
       const result = calculateMessageCost(inputOnlyParams);
 
       const modelCost = 100 * 0.00001;
-      const lomeFee = modelCost * LOME_FEE_RATE;
+      const lomeFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = 400 * STORAGE_COST_PER_CHARACTER;
 
       expect(result).toBeCloseTo(modelCost + lomeFee + storageFee, 10);
@@ -229,10 +275,179 @@ describe('calculateMessageCost', () => {
       const result = calculateMessageCost(outputOnlyParams);
 
       const modelCost = 200 * 0.00003;
-      const lomeFee = modelCost * LOME_FEE_RATE;
+      const lomeFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = 800 * STORAGE_COST_PER_CHARACTER;
 
       expect(result).toBeCloseTo(modelCost + lomeFee + storageFee, 10);
+    });
+  });
+});
+
+describe('calculateMessageCostFromOpenRouter', () => {
+  const baseParams: MessageCostFromOpenRouterParams = {
+    openRouterCost: 0.001, // $0.001 from OpenRouter
+    inputCharacters: 500,
+    outputCharacters: 200,
+  };
+
+  describe('model cost with fees', () => {
+    it('applies 15% fee to OpenRouter exact cost', () => {
+      const result = calculateMessageCostFromOpenRouter(baseParams);
+      const expectedModelCostWithFees = applyFees(0.001);
+      const expectedStorageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
+
+      expect(result).toBeCloseTo(expectedModelCostWithFees + expectedStorageFee, 10);
+    });
+
+    it('correctly calculates fee ratio as exactly 1.15x', () => {
+      const paramsNoStorage: MessageCostFromOpenRouterParams = {
+        openRouterCost: 0.01,
+        inputCharacters: 0,
+        outputCharacters: 0,
+      };
+      const result = calculateMessageCostFromOpenRouter(paramsNoStorage);
+
+      expect(result / 0.01).toBeCloseTo(1 + TOTAL_FEE_RATE, 10);
+    });
+
+    it('handles zero OpenRouter cost', () => {
+      const zeroCostParams: MessageCostFromOpenRouterParams = {
+        openRouterCost: 0,
+        inputCharacters: 500,
+        outputCharacters: 200,
+      };
+      const result = calculateMessageCostFromOpenRouter(zeroCostParams);
+      const expectedStorageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
+
+      expect(result).toBeCloseTo(expectedStorageFee, 10);
+    });
+
+    it('handles very small OpenRouter costs', () => {
+      const smallCostParams: MessageCostFromOpenRouterParams = {
+        openRouterCost: 0.0000001,
+        inputCharacters: 10,
+        outputCharacters: 10,
+      };
+      const result = calculateMessageCostFromOpenRouter(smallCostParams);
+
+      expect(result).toBeGreaterThan(0);
+      expect(Number.isFinite(result)).toBe(true);
+    });
+  });
+
+  describe('storage fee calculation', () => {
+    it('charges storage fee per character', () => {
+      const paramsNoModelCost: MessageCostFromOpenRouterParams = {
+        openRouterCost: 0,
+        inputCharacters: 1000,
+        outputCharacters: 1000,
+      };
+      const result = calculateMessageCostFromOpenRouter(paramsNoModelCost);
+
+      expect(result).toBeCloseTo(2000 * STORAGE_COST_PER_CHARACTER, 10);
+    });
+
+    it('does not apply fees to storage cost', () => {
+      const modelOnlyResult = calculateMessageCostFromOpenRouter({
+        ...baseParams,
+        inputCharacters: 0,
+        outputCharacters: 0,
+      });
+      const fullResult = calculateMessageCostFromOpenRouter(baseParams);
+      const storageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
+
+      // Full result should be model cost with fees + raw storage fee (no fees on storage)
+      expect(fullResult).toBeCloseTo(modelOnlyResult + storageFee, 10);
+    });
+
+    it('handles zero characters', () => {
+      const noCharsParams: MessageCostFromOpenRouterParams = {
+        openRouterCost: 0.001,
+        inputCharacters: 0,
+        outputCharacters: 0,
+      };
+      const result = calculateMessageCostFromOpenRouter(noCharsParams);
+
+      expect(result).toBeCloseTo(applyFees(0.001), 10);
+    });
+  });
+
+  describe('combined calculation', () => {
+    it('sums model cost with fees and storage fee', () => {
+      const result = calculateMessageCostFromOpenRouter(baseParams);
+
+      const modelCostWithFees = 0.001 * (1 + TOTAL_FEE_RATE);
+      const storageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
+
+      expect(result).toBeCloseTo(modelCostWithFees + storageFee, 10);
+    });
+
+    it('returns correct result with real-world OpenRouter cost', () => {
+      // Typical GPT-4 response costing $0.05
+      const realWorldParams: MessageCostFromOpenRouterParams = {
+        openRouterCost: 0.05,
+        inputCharacters: 4000,
+        outputCharacters: 2000,
+      };
+      const result = calculateMessageCostFromOpenRouter(realWorldParams);
+
+      const modelCostWithFees = 0.05 * (1 + TOTAL_FEE_RATE); // 0.0575
+      const storageFee = (4000 + 2000) * STORAGE_COST_PER_CHARACTER;
+
+      expect(result).toBeCloseTo(modelCostWithFees + storageFee, 10);
+    });
+
+    it('handles large OpenRouter costs', () => {
+      const largeCostParams: MessageCostFromOpenRouterParams = {
+        openRouterCost: 10, // $10 for expensive operation
+        inputCharacters: 100000,
+        outputCharacters: 100000,
+      };
+      const result = calculateMessageCostFromOpenRouter(largeCostParams);
+
+      expect(result).toBeGreaterThan(10);
+      expect(Number.isFinite(result)).toBe(true);
+    });
+  });
+
+  describe('edge cases', () => {
+    it('returns 0 when all inputs are 0', () => {
+      const zeroParams: MessageCostFromOpenRouterParams = {
+        openRouterCost: 0,
+        inputCharacters: 0,
+        outputCharacters: 0,
+      };
+      const result = calculateMessageCostFromOpenRouter(zeroParams);
+
+      expect(result).toBe(0);
+    });
+
+    it('handles input characters only', () => {
+      const inputOnlyParams: MessageCostFromOpenRouterParams = {
+        openRouterCost: 0.001,
+        inputCharacters: 500,
+        outputCharacters: 0,
+      };
+      const result = calculateMessageCostFromOpenRouter(inputOnlyParams);
+
+      const modelCostWithFees = applyFees(0.001);
+      const storageFee = 500 * STORAGE_COST_PER_CHARACTER;
+
+      expect(result).toBeCloseTo(modelCostWithFees + storageFee, 10);
+    });
+
+    it('handles output characters only', () => {
+      const outputOnlyParams: MessageCostFromOpenRouterParams = {
+        openRouterCost: 0.001,
+        inputCharacters: 0,
+        outputCharacters: 200,
+      };
+      const result = calculateMessageCostFromOpenRouter(outputOnlyParams);
+
+      const modelCostWithFees = applyFees(0.001);
+      const storageFee = 200 * STORAGE_COST_PER_CHARACTER;
+
+      expect(result).toBeCloseTo(modelCostWithFees + storageFee, 10);
     });
   });
 });

@@ -556,6 +556,31 @@ describe('useChatStream', () => {
     expect(streamResult.assistantMessageId).toBe('msg-2');
   });
 
+  it('calls onStart callback with message IDs', async () => {
+    const mockResponse = createMockSSEResponse([
+      {
+        event: 'start',
+        data: JSON.stringify({ userMessageId: 'msg-1', assistantMessageId: 'msg-2' }),
+      },
+      { event: 'done', data: JSON.stringify({}) },
+    ]);
+    mockFetch.mockResolvedValueOnce(mockResponse);
+
+    const { useChatStream } = await import('./chat');
+    const { result } = renderHook(() => useChatStream(), { wrapper: createWrapper() });
+
+    const onStart = vi.fn();
+    await result.current.startStream(
+      { conversationId: 'conv-123', model: 'openai/gpt-4-turbo' },
+      { onStart }
+    );
+
+    expect(onStart).toHaveBeenCalledWith({
+      userMessageId: 'msg-1',
+      assistantMessageId: 'msg-2',
+    });
+  });
+
   it('accumulates content from token events', async () => {
     const mockResponse = createMockSSEResponse([
       {
@@ -746,6 +771,46 @@ describe('useChatStream', () => {
     // Should receive all tokens despite being split across chunks
     expect(tokens).toEqual(['H', 'i']);
     expect(streamResult.content).toBe('Hi');
+    expect(streamResult.userMessageId).toBe('msg-1');
+    expect(streamResult.assistantMessageId).toBe('msg-2');
+  });
+
+  it('completes when done event is received even if connection stays open', async () => {
+    // This simulates the real-world scenario where Hono's streamSSE with Wrangler
+    // may not close the HTTP connection after the stream callback completes.
+    // The frontend should exit when it receives the 'done' event.
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller): void {
+        // Send events
+        controller.enqueue(
+          encoder.encode(
+            'event: start\ndata: {"userMessageId":"msg-1","assistantMessageId":"msg-2"}\n\n'
+          )
+        );
+        controller.enqueue(encoder.encode('event: token\ndata: {"content":"Hello"}\n\n'));
+        controller.enqueue(encoder.encode('event: done\ndata: {}\n\n'));
+        // NOTE: We intentionally do NOT call controller.close() to simulate
+        // a connection that stays open after done event
+      },
+    });
+
+    const mockResponse = new Response(stream, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+    mockFetch.mockResolvedValueOnce(mockResponse);
+
+    const { useChatStream } = await import('./chat');
+    const { result } = renderHook(() => useChatStream(), { wrapper: createWrapper() });
+
+    // This should complete when 'done' event is received, not hang waiting for connection close
+    const streamResult = await result.current.startStream({
+      conversationId: 'conv-123',
+      model: 'openai/gpt-4-turbo',
+    });
+
+    expect(streamResult.content).toBe('Hello');
     expect(streamResult.userMessageId).toBe('msg-1');
     expect(streamResult.assistantMessageId).toBe('msg-2');
   });

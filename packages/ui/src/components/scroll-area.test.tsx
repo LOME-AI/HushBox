@@ -1,5 +1,6 @@
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import * as React from 'react';
 import { ScrollArea } from './scroll-area';
 
 describe('ScrollArea', () => {
@@ -66,5 +67,42 @@ describe('ScrollArea', () => {
     );
     const viewport = document.querySelector('[data-slot="scroll-area-viewport"]');
     expect(viewport).toContainElement(screen.getByTestId('child'));
+  });
+
+  it('exposes viewport element via viewportRef', () => {
+    const viewportRef = React.createRef<HTMLDivElement>();
+    render(
+      <ScrollArea viewportRef={viewportRef}>
+        <div>Content</div>
+      </ScrollArea>
+    );
+    expect(viewportRef.current).toBeInstanceOf(HTMLDivElement);
+    expect(viewportRef.current).toHaveAttribute('data-slot', 'scroll-area-viewport');
+  });
+
+  it('calls onScroll when viewport is scrolled', () => {
+    const handleScroll = vi.fn();
+    render(
+      <ScrollArea onScroll={handleScroll}>
+        <div style={{ height: '500px' }}>Tall content</div>
+      </ScrollArea>
+    );
+    const viewport = document.querySelector('[data-slot="scroll-area-viewport"]');
+    if (!viewport) throw new Error('Viewport not found');
+    fireEvent.scroll(viewport);
+    expect(handleScroll).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes scroll event to onScroll callback', () => {
+    const handleScroll = vi.fn();
+    render(
+      <ScrollArea onScroll={handleScroll}>
+        <div style={{ height: '500px' }}>Tall content</div>
+      </ScrollArea>
+    );
+    const viewport = document.querySelector('[data-slot="scroll-area-viewport"]');
+    if (!viewport) throw new Error('Viewport not found');
+    fireEvent.scroll(viewport);
+    expect(handleScroll).toHaveBeenCalledWith(expect.objectContaining({ type: 'scroll' }));
   });
 });

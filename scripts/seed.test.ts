@@ -22,6 +22,11 @@ vi.mock('@lome-chat/db', () => {
       insert: vi.fn(() => ({
         values: vi.fn(() => Promise.resolve()),
       })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => Promise.resolve()),
+        })),
+      })),
     })),
     LOCAL_NEON_DEV_CONFIG: {},
     users: { id: 'id' },
@@ -29,6 +34,8 @@ vi.mock('@lome-chat/db', () => {
     messages: { id: 'id' },
     projects: { id: 'id' },
     accounts: { id: 'id' },
+    payments: { id: 'id' },
+    balanceTransactions: { id: 'id' },
     hashPassword: vi.fn(() => Promise.resolve('mocksalt:mockkey')),
   };
 });
@@ -84,6 +91,53 @@ vi.mock('@lome-chat/db/factories', () => ({
         description: overrides?.description ?? null,
         createdAt: new Date(),
         updatedAt: new Date(),
+      })
+    ),
+  },
+  paymentFactory: {
+    build: vi.fn(
+      (overrides?: {
+        id?: string;
+        userId?: string;
+        amount?: string;
+        status?: string;
+        helcimTransactionId?: string | null;
+        cardType?: string | null;
+        cardLastFour?: string | null;
+      }) => ({
+        id: overrides?.id ?? 'test-payment-id',
+        userId: overrides?.userId ?? 'test-user-id',
+        amount: overrides?.amount ?? '50.00000000',
+        status: overrides?.status ?? 'confirmed',
+        helcimTransactionId: overrides?.helcimTransactionId ?? 'txn-123',
+        cardType: overrides?.cardType ?? 'Visa',
+        cardLastFour: overrides?.cardLastFour ?? '4242',
+        errorMessage: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        webhookReceivedAt: new Date(),
+      })
+    ),
+  },
+  balanceTransactionFactory: {
+    build: vi.fn(
+      (overrides?: {
+        id?: string;
+        userId?: string;
+        amount?: string;
+        balanceAfter?: string;
+        type?: string;
+        paymentId?: string | null;
+        description?: string;
+      }) => ({
+        id: overrides?.id ?? 'test-tx-id',
+        userId: overrides?.userId ?? 'test-user-id',
+        amount: overrides?.amount ?? '50.00000000',
+        balanceAfter: overrides?.balanceAfter ?? '50.00000000',
+        type: overrides?.type ?? 'deposit',
+        paymentId: overrides?.paymentId ?? 'test-payment-id',
+        description: overrides?.description ?? 'Credit purchase - $50.00',
+        createdAt: new Date(),
       })
     ),
   },
@@ -352,6 +406,54 @@ describe('seed script', () => {
       expect(alice?.emailVerified).toBe(true);
       expect(bob?.emailVerified).toBe(true);
       expect(charlie?.emailVerified).toBe(false);
+    });
+
+    it('alice has exactly 14 payments', async () => {
+      const data = await generatePersonaData();
+      const aliceId = seedUUID('dev-user-alice');
+      const alicePayments = data.payments.filter((p) => p.userId === aliceId);
+      expect(alicePayments).toHaveLength(14);
+    });
+
+    it('alice has exactly 14 balance transactions', async () => {
+      const data = await generatePersonaData();
+      const aliceId = seedUUID('dev-user-alice');
+      const aliceTransactions = data.balanceTransactions.filter((t) => t.userId === aliceId);
+      expect(aliceTransactions).toHaveLength(14);
+    });
+
+    it('all alice payments are confirmed status', async () => {
+      const data = await generatePersonaData();
+      const aliceId = seedUUID('dev-user-alice');
+      const alicePayments = data.payments.filter((p) => p.userId === aliceId);
+      for (const payment of alicePayments) {
+        expect(payment.status).toBe('confirmed');
+      }
+    });
+
+    it('balance transactions are linked to payments', async () => {
+      const data = await generatePersonaData();
+      const aliceId = seedUUID('dev-user-alice');
+      const aliceTransactions = data.balanceTransactions.filter((t) => t.userId === aliceId);
+      const alicePaymentIds = new Set(
+        data.payments.filter((p) => p.userId === aliceId).map((p) => p.id)
+      );
+
+      for (const tx of aliceTransactions) {
+        expect(alicePaymentIds.has(tx.paymentId ?? '')).toBe(true);
+      }
+    });
+
+    it('bob and charlie have no payments', async () => {
+      const data = await generatePersonaData();
+      const bobId = seedUUID('dev-user-bob');
+      const charlieId = seedUUID('dev-user-charlie');
+
+      const bobPayments = data.payments.filter((p) => p.userId === bobId);
+      const charliePayments = data.payments.filter((p) => p.userId === charlieId);
+
+      expect(bobPayments).toHaveLength(0);
+      expect(charliePayments).toHaveLength(0);
     });
   });
 

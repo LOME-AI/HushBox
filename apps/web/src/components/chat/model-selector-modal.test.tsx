@@ -91,7 +91,6 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // Search input appears twice (mobile + desktop), use the first one
     const searchInputs = screen.getAllByPlaceholderText('Search models');
     await user.type(first(searchInputs), 'Claude');
 
@@ -112,7 +111,6 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // Search input appears twice (mobile + desktop), use the first one
     const searchInputs = screen.getAllByPlaceholderText('Search models');
     await user.type(first(searchInputs), 'openai');
 
@@ -134,7 +132,6 @@ describe('ModelSelectorModal', () => {
 
     await user.click(screen.getByText('Claude 3.5 Sonnet'));
 
-    // Should show details for Claude
     expect(screen.getByText('Anthropic')).toBeInTheDocument();
     expect(screen.getByText(/200,000 tokens/)).toBeInTheDocument();
     expect(screen.getByText(/Anthropic most intelligent model/)).toBeInTheDocument();
@@ -171,7 +168,6 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // Quick select section appears twice (mobile + desktop), check at least one exists
     expect(screen.getAllByText(/quick select model/i).length).toBeGreaterThan(0);
   });
 
@@ -186,7 +182,6 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // Buttons appear twice (mobile + desktop), check at least one exists
     expect(screen.getAllByRole('button', { name: /strongest/i }).length).toBeGreaterThan(0);
   });
 
@@ -201,7 +196,6 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // Buttons appear twice (mobile + desktop), check at least one exists
     expect(screen.getAllByRole('button', { name: /value/i }).length).toBeGreaterThan(0);
   });
 
@@ -219,7 +213,6 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // Buttons appear twice (mobile + desktop), click the first one
     await user.click(first(screen.getAllByRole('button', { name: /strongest/i })));
 
     expect(onSelect).toHaveBeenCalledWith('anthropic/claude-opus-4.5');
@@ -240,7 +233,6 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // Buttons appear twice (mobile + desktop), click the first one
     await user.click(first(screen.getAllByRole('button', { name: /value/i })));
 
     expect(onSelect).toHaveBeenCalledWith('deepseek/deepseek-r1');
@@ -273,7 +265,6 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // Should show details for the initially selected GPT-4 Turbo
     expect(screen.getByText('OpenAI')).toBeInTheDocument();
     expect(screen.getByText(/A powerful language model/)).toBeInTheDocument();
   });
@@ -289,7 +280,6 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // GPT-4 has vision capability
     expect(screen.getByText('vision')).toBeInTheDocument();
   });
 
@@ -304,7 +294,6 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // 128000 should be formatted as "128,000 tokens"
     expect(screen.getByText(/128,000 tokens/)).toBeInTheDocument();
   });
 
@@ -319,11 +308,6 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // GPT-4 Turbo has pricePerInputToken: 0.00001, pricePerOutputToken: 0.00003
-    // With 15% fee (exact values, no rounding):
-    // - Input: 0.00001 * 1.15 * 1000 = $0.0115
-    // - Output: 0.00003 * 1.15 * 1000 = $0.0345
-    // Raw prices without fee would be $0.01 and $0.03
     expect(screen.getByText('$0.0115 / 1k')).toBeInTheDocument();
     expect(screen.getByText('$0.0345 / 1k')).toBeInTheDocument();
   });
@@ -376,10 +360,7 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // Click a different model to focus it
     await user.click(screen.getByText('Claude 3.5 Sonnet'));
-
-    // Click Select model button
     await user.click(screen.getByRole('button', { name: /select model/i }));
 
     expect(onSelect).toHaveBeenCalledWith('anthropic/claude-3.5-sonnet');
@@ -398,7 +379,6 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Sort by buttons appear twice (mobile + desktop), check at least one exists
       expect(screen.getAllByText(/sort by/i).length).toBeGreaterThan(0);
       expect(screen.getAllByRole('button', { name: /price/i }).length).toBeGreaterThan(0);
       expect(screen.getAllByRole('button', { name: /context/i }).length).toBeGreaterThan(0);
@@ -416,11 +396,9 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Buttons appear twice (mobile + desktop), click the first one
       const priceButtons = screen.getAllByRole('button', { name: /price/i });
       await user.click(first(priceButtons));
 
-      // Both should update since they share state
       expect(first(priceButtons)).toHaveAttribute('data-active', 'true');
     });
 
@@ -436,14 +414,11 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Buttons appear twice (mobile + desktop), use the first one
       const priceButtons = screen.getAllByRole('button', { name: /price/i });
 
-      // First click - activates with ascending
       await user.click(first(priceButtons));
       expect(first(priceButtons)).toHaveAttribute('data-direction', 'asc');
 
-      // Second click - toggles to descending
       await user.click(first(priceButtons));
       expect(first(priceButtons)).toHaveAttribute('data-direction', 'desc');
     });
@@ -460,10 +435,8 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Buttons appear twice (mobile + desktop), click the first one
       await user.click(first(screen.getAllByRole('button', { name: /price/i })));
 
-      // Llama has lowest price, should be first
       const modelItems = screen.getAllByRole('option');
       expect(first(modelItems)).toHaveTextContent('Llama 3.1 70B');
     });
@@ -480,10 +453,8 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Buttons appear twice (mobile + desktop), click the first one
       await user.click(first(screen.getAllByRole('button', { name: /context/i })));
 
-      // GPT-4 has 128000, should be first (smallest)
       const modelItems = screen.getAllByRole('option');
       expect(first(modelItems)).toHaveTextContent('GPT-4 Turbo');
     });
@@ -500,7 +471,6 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // Right panel should use ScrollArea component for consistent scrolling
     const rightPanel = screen.getByTestId('model-details-panel');
     expect(rightPanel).toHaveAttribute('data-slot', 'scroll-area');
   });
@@ -534,6 +504,545 @@ describe('ModelSelectorModal', () => {
 
       const detailsPanel = screen.getByTestId('model-details-panel');
       expect(detailsPanel).toHaveClass('flex-[3]');
+    });
+  });
+
+  describe('premium models', () => {
+    const premiumIds = new Set(['openai/gpt-4-turbo']);
+
+    it('does not show Premium badge on any models (badges removed)', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={vi.fn()}
+          premiumIds={premiumIds}
+        />
+      );
+
+      const gpt4Item = screen.getByTestId('model-item-openai/gpt-4-turbo');
+      expect(gpt4Item).not.toHaveTextContent('Premium');
+    });
+
+    it('shows lock icon on premium models for non-paid users', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={vi.fn()}
+          premiumIds={premiumIds}
+          canAccessPremium={false}
+          isAuthenticated={false}
+        />
+      );
+
+      const gpt4Item = screen.getByTestId('model-item-openai/gpt-4-turbo');
+      expect(gpt4Item.querySelector('[data-testid="lock-icon"]')).toBeInTheDocument();
+    });
+
+    it('does not show lock icon on basic models', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={vi.fn()}
+          premiumIds={premiumIds}
+          canAccessPremium={false}
+          isAuthenticated={false}
+        />
+      );
+
+      const claudeItem = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
+      expect(claudeItem.querySelector('[data-testid="lock-icon"]')).not.toBeInTheDocument();
+    });
+
+    it('does not show lock icon for paid users on premium models', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={vi.fn()}
+          premiumIds={premiumIds}
+          canAccessPremium={true}
+          isAuthenticated={true}
+        />
+      );
+
+      const gpt4Item = screen.getByTestId('model-item-openai/gpt-4-turbo');
+      expect(gpt4Item.querySelector('[data-testid="lock-icon"]')).not.toBeInTheDocument();
+    });
+
+    it('shows "Sign up to access" for guest users on premium models', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={vi.fn()}
+          premiumIds={premiumIds}
+          canAccessPremium={false}
+          isAuthenticated={false}
+        />
+      );
+
+      const gpt4Item = screen.getByTestId('model-item-openai/gpt-4-turbo');
+      expect(gpt4Item).toHaveTextContent('Sign up to access');
+    });
+
+    it('shows "Add credits to unlock" for free users on premium models', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={vi.fn()}
+          premiumIds={premiumIds}
+          canAccessPremium={false}
+          isAuthenticated={true}
+        />
+      );
+
+      const gpt4Item = screen.getByTestId('model-item-openai/gpt-4-turbo');
+      expect(gpt4Item).toHaveTextContent('Add credits to unlock');
+    });
+
+    it('shows tinted overlay on premium models for non-paid users', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={vi.fn()}
+          premiumIds={premiumIds}
+          canAccessPremium={false}
+          isAuthenticated={false}
+        />
+      );
+
+      const gpt4Item = screen.getByTestId('model-item-openai/gpt-4-turbo');
+      expect(gpt4Item.querySelector('[data-testid="premium-overlay"]')).toBeInTheDocument();
+    });
+
+    it('does not show overlay for paid users', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={vi.fn()}
+          premiumIds={premiumIds}
+          canAccessPremium={true}
+          isAuthenticated={true}
+        />
+      );
+
+      const gpt4Item = screen.getByTestId('model-item-openai/gpt-4-turbo');
+      expect(gpt4Item.querySelector('[data-testid="premium-overlay"]')).not.toBeInTheDocument();
+    });
+
+    it('calls onSelect for premium model when canAccessPremium is true', async () => {
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      const onOpenChange = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={onOpenChange}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={onSelect}
+          premiumIds={premiumIds}
+          canAccessPremium={true}
+        />
+      );
+
+      await user.dblClick(screen.getByText('GPT-4 Turbo'));
+
+      expect(onSelect).toHaveBeenCalledWith('openai/gpt-4-turbo');
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it('calls onPremiumClick instead of onSelect when canAccessPremium is false', async () => {
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      const onOpenChange = vi.fn();
+      const onPremiumClick = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={onOpenChange}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={onSelect}
+          premiumIds={premiumIds}
+          canAccessPremium={false}
+          onPremiumClick={onPremiumClick}
+        />
+      );
+
+      await user.dblClick(screen.getByText('GPT-4 Turbo'));
+
+      expect(onPremiumClick).toHaveBeenCalledWith('openai/gpt-4-turbo');
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
+
+    it('allows selecting basic models when canAccessPremium is false', async () => {
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      const onOpenChange = vi.fn();
+      const onPremiumClick = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={onOpenChange}
+          models={mockModels}
+          selectedId="openai/gpt-4-turbo"
+          onSelect={onSelect}
+          premiumIds={premiumIds}
+          canAccessPremium={false}
+          onPremiumClick={onPremiumClick}
+        />
+      );
+
+      await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
+
+      expect(onSelect).toHaveBeenCalledWith('anthropic/claude-3.5-sonnet');
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(onPremiumClick).not.toHaveBeenCalled();
+    });
+
+    it('calls onPremiumClick when Select model button clicked with premium model focused', async () => {
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      const onOpenChange = vi.fn();
+      const onPremiumClick = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={onOpenChange}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={onSelect}
+          premiumIds={premiumIds}
+          canAccessPremium={false}
+          onPremiumClick={onPremiumClick}
+        />
+      );
+
+      await user.click(screen.getByText('GPT-4 Turbo'));
+      await user.click(screen.getByRole('button', { name: /select model/i }));
+
+      expect(onPremiumClick).toHaveBeenCalledWith('openai/gpt-4-turbo');
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('does not show Premium badge in model details panel (badges removed)', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={vi.fn()}
+          premiumIds={premiumIds}
+        />
+      );
+
+      await user.click(screen.getByText('GPT-4 Turbo'));
+
+      const detailsPanel = screen.getByTestId('model-details-panel');
+      expect(detailsPanel).not.toHaveTextContent('Premium');
+    });
+
+    it('defaults canAccessPremium to true for backward compatibility', async () => {
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      const onOpenChange = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={onOpenChange}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={onSelect}
+          premiumIds={premiumIds}
+        />
+      );
+
+      await user.dblClick(screen.getByText('GPT-4 Turbo'));
+
+      // Should call onSelect since canAccessPremium defaults to true
+      expect(onSelect).toHaveBeenCalledWith('openai/gpt-4-turbo');
+    });
+
+    describe('interlacing during sorting', () => {
+      // GPT-4 is premium, Claude and Llama are basic
+      const interlaceModels: Model[] = [
+        {
+          id: 'basic-1',
+          name: 'Basic Model 1',
+          provider: 'Provider A',
+          contextLength: 100000,
+          pricePerInputToken: 0.00001,
+          pricePerOutputToken: 0.00002,
+          capabilities: [],
+          description: 'Basic model 1',
+          supportedParameters: [],
+        },
+        {
+          id: 'basic-2',
+          name: 'Basic Model 2',
+          provider: 'Provider B',
+          contextLength: 200000,
+          pricePerInputToken: 0.00003,
+          pricePerOutputToken: 0.00004,
+          capabilities: [],
+          description: 'Basic model 2',
+          supportedParameters: [],
+        },
+        {
+          id: 'premium-1',
+          name: 'Premium Model 1',
+          provider: 'Provider C',
+          contextLength: 150000,
+          pricePerInputToken: 0.00005,
+          pricePerOutputToken: 0.00006,
+          capabilities: [],
+          description: 'Premium model 1',
+          supportedParameters: [],
+        },
+        {
+          id: 'premium-2',
+          name: 'Premium Model 2',
+          provider: 'Provider D',
+          contextLength: 250000,
+          pricePerInputToken: 0.00007,
+          pricePerOutputToken: 0.00008,
+          capabilities: [],
+          description: 'Premium model 2',
+          supportedParameters: [],
+        },
+      ];
+      const interlacePremiumIds = new Set(['premium-1', 'premium-2']);
+
+      it('interlaces basic and premium models during sorting for non-paid users', async () => {
+        const user = userEvent.setup();
+        render(
+          <ModelSelectorModal
+            open={true}
+            onOpenChange={vi.fn()}
+            models={interlaceModels}
+            selectedId="basic-1"
+            onSelect={vi.fn()}
+            premiumIds={interlacePremiumIds}
+            canAccessPremium={false}
+            isAuthenticated={false}
+          />
+        );
+
+        await user.click(first(screen.getAllByRole('button', { name: /price/i })));
+
+        const modelItems = screen.getAllByRole('option');
+        expect(modelItems[0]).toHaveTextContent('Basic Model 1');
+        expect(modelItems[1]).toHaveTextContent('Premium Model 1');
+        expect(modelItems[2]).toHaveTextContent('Basic Model 2');
+        expect(modelItems[3]).toHaveTextContent('Premium Model 2');
+      });
+
+      it('does not interlace models for paid users during sorting', async () => {
+        const user = userEvent.setup();
+        render(
+          <ModelSelectorModal
+            open={true}
+            onOpenChange={vi.fn()}
+            models={interlaceModels}
+            selectedId="basic-1"
+            onSelect={vi.fn()}
+            premiumIds={interlacePremiumIds}
+            canAccessPremium={true}
+            isAuthenticated={true}
+          />
+        );
+
+        await user.click(first(screen.getAllByRole('button', { name: /price/i })));
+
+        const modelItems = screen.getAllByRole('option');
+        expect(modelItems[0]).toHaveTextContent('Basic Model 1');
+        expect(modelItems[1]).toHaveTextContent('Basic Model 2');
+        expect(modelItems[2]).toHaveTextContent('Premium Model 1');
+        expect(modelItems[3]).toHaveTextContent('Premium Model 2');
+      });
+
+      it('interlaces in descending order when sort is descending for non-paid users', async () => {
+        const user = userEvent.setup();
+        render(
+          <ModelSelectorModal
+            open={true}
+            onOpenChange={vi.fn()}
+            models={interlaceModels}
+            selectedId="basic-1"
+            onSelect={vi.fn()}
+            premiumIds={interlacePremiumIds}
+            canAccessPremium={false}
+            isAuthenticated={true}
+          />
+        );
+
+        await user.click(first(screen.getAllByRole('button', { name: /price/i })));
+        await user.click(first(screen.getAllByRole('button', { name: /price/i })));
+
+        const modelItems = screen.getAllByRole('option');
+        expect(modelItems[0]).toHaveTextContent('Basic Model 2');
+        expect(modelItems[1]).toHaveTextContent('Premium Model 2');
+        expect(modelItems[2]).toHaveTextContent('Basic Model 1');
+        expect(modelItems[3]).toHaveTextContent('Premium Model 1');
+      });
+    });
+
+    describe('quick select for non-paid users', () => {
+      const quickSelectModels: Model[] = [
+        {
+          id: 'basic-cheap',
+          name: 'Basic Cheap Model',
+          provider: 'Provider A',
+          contextLength: 100000,
+          pricePerInputToken: 0.00001,
+          pricePerOutputToken: 0.00002,
+          capabilities: [],
+          description: 'Cheap basic model',
+          supportedParameters: [],
+        },
+        {
+          id: 'basic-expensive',
+          name: 'Basic Expensive Model',
+          provider: 'Provider B',
+          contextLength: 200000,
+          pricePerInputToken: 0.00005,
+          pricePerOutputToken: 0.00006,
+          capabilities: [],
+          description: 'Expensive basic model',
+          supportedParameters: [],
+        },
+        {
+          id: 'premium-model',
+          name: 'Premium Model',
+          provider: 'Provider C',
+          contextLength: 150000,
+          pricePerInputToken: 0.0001,
+          pricePerOutputToken: 0.00012,
+          capabilities: [],
+          description: 'Premium model',
+          supportedParameters: [],
+        },
+      ];
+      const quickSelectPremiumIds = new Set(['premium-model']);
+
+      it('selects highest cost basic model for "Strongest" when user is non-paid', async () => {
+        const user = userEvent.setup();
+        const onSelect = vi.fn();
+        const onOpenChange = vi.fn();
+        render(
+          <ModelSelectorModal
+            open={true}
+            onOpenChange={onOpenChange}
+            models={quickSelectModels}
+            selectedId="basic-cheap"
+            onSelect={onSelect}
+            premiumIds={quickSelectPremiumIds}
+            canAccessPremium={false}
+            isAuthenticated={true}
+          />
+        );
+
+        await user.click(first(screen.getAllByRole('button', { name: /strongest/i })));
+
+        expect(onSelect).toHaveBeenCalledWith('basic-expensive');
+        expect(onOpenChange).toHaveBeenCalledWith(false);
+      });
+
+      it('selects lowest cost basic model for "Value" when user is non-paid', async () => {
+        const user = userEvent.setup();
+        const onSelect = vi.fn();
+        const onOpenChange = vi.fn();
+        render(
+          <ModelSelectorModal
+            open={true}
+            onOpenChange={onOpenChange}
+            models={quickSelectModels}
+            selectedId="basic-cheap"
+            onSelect={onSelect}
+            premiumIds={quickSelectPremiumIds}
+            canAccessPremium={false}
+            isAuthenticated={true}
+          />
+        );
+
+        await user.click(first(screen.getAllByRole('button', { name: /value/i })));
+
+        expect(onSelect).toHaveBeenCalledWith('basic-cheap');
+        expect(onOpenChange).toHaveBeenCalledWith(false);
+      });
+
+      it('uses hardcoded model IDs for paid users regardless of available models', async () => {
+        const user = userEvent.setup();
+        const onSelect = vi.fn();
+        const onOpenChange = vi.fn();
+        render(
+          <ModelSelectorModal
+            open={true}
+            onOpenChange={onOpenChange}
+            models={quickSelectModels}
+            selectedId="basic-cheap"
+            onSelect={onSelect}
+            premiumIds={quickSelectPremiumIds}
+            canAccessPremium={true}
+            isAuthenticated={true}
+          />
+        );
+
+        await user.click(first(screen.getAllByRole('button', { name: /strongest/i })));
+
+        expect(onSelect).toHaveBeenCalledWith('anthropic/claude-opus-4.5');
+        expect(onOpenChange).toHaveBeenCalledWith(false);
+      });
+
+      it('excludes premium models when calculating dynamic quick select for non-paid users', async () => {
+        const user = userEvent.setup();
+        const onSelect = vi.fn();
+        const onOpenChange = vi.fn();
+
+        // Even though premium-model has highest price, it should be excluded
+        render(
+          <ModelSelectorModal
+            open={true}
+            onOpenChange={onOpenChange}
+            models={quickSelectModels}
+            selectedId="basic-cheap"
+            onSelect={onSelect}
+            premiumIds={quickSelectPremiumIds}
+            canAccessPremium={false}
+            isAuthenticated={false}
+          />
+        );
+
+        await user.click(first(screen.getAllByRole('button', { name: /strongest/i })));
+
+        expect(onSelect).toHaveBeenCalledWith('basic-expensive');
+      });
     });
   });
 });

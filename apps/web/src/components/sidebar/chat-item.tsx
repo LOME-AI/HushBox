@@ -18,6 +18,7 @@ import {
 import { MessageSquare, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { useUIStore } from '@/stores/ui';
 import { useDeleteConversation, useUpdateConversation } from '@/hooks/chat';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 
 interface Conversation {
   id: string;
@@ -33,6 +34,8 @@ interface ChatItemProps {
 export function ChatItem({ conversation, isActive }: ChatItemProps): React.JSX.Element {
   const navigate = useNavigate();
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
+  const setMobileSidebarOpen = useUIStore((state) => state.setMobileSidebarOpen);
+  const isMobile = useIsMobile();
   const deleteConversation = useDeleteConversation();
   const updateConversation = useUpdateConversation();
 
@@ -71,6 +74,12 @@ export function ChatItem({ conversation, isActive }: ChatItemProps): React.JSX.E
     }
   };
 
+  const handleLinkClick = (): void => {
+    if (isMobile) {
+      setMobileSidebarOpen(false);
+    }
+  };
+
   return (
     <>
       <div
@@ -85,13 +94,13 @@ export function ChatItem({ conversation, isActive }: ChatItemProps): React.JSX.E
           to="/chat/$conversationId"
           params={{ conversationId: conversation.id }}
           data-testid="chat-link"
+          onClick={handleLinkClick}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-sm',
             !sidebarOpen && 'justify-center px-0',
             sidebarOpen && 'pr-8'
           )}
         >
-          {/* Only show icon when sidebar is collapsed */}
           {!sidebarOpen && (
             <MessageSquare
               data-testid="message-icon"
@@ -132,7 +141,6 @@ export function ChatItem({ conversation, isActive }: ChatItemProps): React.JSX.E
         )}
       </div>
 
-      {/* Delete Confirmation Dialog */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent>
           <DialogHeader>
@@ -164,7 +172,6 @@ export function ChatItem({ conversation, isActive }: ChatItemProps): React.JSX.E
         </DialogContent>
       </Dialog>
 
-      {/* Rename Dialog */}
       <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
         <DialogContent>
           <DialogHeader>

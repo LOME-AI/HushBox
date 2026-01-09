@@ -10,6 +10,8 @@ import {
   messages,
   projects,
   accounts,
+  payments,
+  balanceTransactions,
   hashPassword,
 } from '@lome-chat/db';
 import {
@@ -17,6 +19,8 @@ import {
   conversationFactory,
   messageFactory,
   projectFactory,
+  paymentFactory,
+  balanceTransactionFactory,
 } from '@lome-chat/db/factories';
 import { DEV_PASSWORD, DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN } from '@lome-chat/shared';
 
@@ -94,6 +98,8 @@ type Conversation = typeof conversations.$inferInsert;
 type Message = typeof messages.$inferInsert;
 type Project = typeof projects.$inferInsert;
 type Account = typeof accounts.$inferInsert;
+type Payment = typeof payments.$inferInsert;
+type BalanceTransaction = typeof balanceTransactions.$inferInsert;
 
 interface SeedData {
   users: User[];
@@ -108,6 +114,8 @@ interface PersonaData {
   projects: Project[];
   conversations: Conversation[];
   messages: Message[];
+  payments: Payment[];
+  balanceTransactions: BalanceTransaction[];
 }
 
 export function generateSeedData(): SeedData {
@@ -170,6 +178,8 @@ export async function generatePersonaData(): Promise<PersonaData> {
   const personaProjects: Project[] = [];
   const personaConversations: Conversation[] = [];
   const personaMessages: Message[] = [];
+  const personaPayments: Payment[] = [];
+  const personaBalanceTransactions: BalanceTransaction[] = [];
 
   const hashedPassword = await hashPassword(DEV_PASSWORD);
   const now = new Date();
@@ -236,6 +246,44 @@ export async function generatePersonaData(): Promise<PersonaData> {
           );
         }
       }
+
+      let runningBalance = 0;
+      for (let i = 0; i < 14; i++) {
+        const paymentId = seedUUID(`${persona.name}-payment-${String(i + 1)}`);
+        const amount = 20 + (i % 5) * 10;
+        runningBalance += amount;
+
+        const paymentDate = new Date(now);
+        paymentDate.setDate(paymentDate.getDate() - (14 - i));
+
+        personaPayments.push(
+          paymentFactory.build({
+            id: paymentId,
+            userId,
+            amount: amount.toFixed(8),
+            status: 'confirmed',
+            helcimTransactionId: `hlcm-${persona.name}-${String(i + 1)}`,
+            cardType: i % 2 === 0 ? 'Visa' : 'Mastercard',
+            cardLastFour: String(4000 + i).slice(-4),
+            createdAt: paymentDate,
+            updatedAt: paymentDate,
+            webhookReceivedAt: paymentDate,
+          })
+        );
+
+        personaBalanceTransactions.push(
+          balanceTransactionFactory.build({
+            id: seedUUID(`${persona.name}-tx-${String(i + 1)}`),
+            userId,
+            amount: amount.toFixed(8),
+            balanceAfter: runningBalance.toFixed(8),
+            type: 'deposit',
+            paymentId,
+            description: `Credit purchase - $${String(amount)}.00`,
+            createdAt: paymentDate,
+          })
+        );
+      }
     }
   }
 
@@ -245,6 +293,8 @@ export async function generatePersonaData(): Promise<PersonaData> {
     projects: personaProjects,
     conversations: personaConversations,
     messages: personaMessages,
+    payments: personaPayments,
+    balanceTransactions: personaBalanceTransactions,
   };
 }
 
@@ -254,6 +304,8 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
   const testProjects: Project[] = [];
   const testConversations: Conversation[] = [];
   const testMessages: Message[] = [];
+  const testPayments: Payment[] = [];
+  const testBalanceTransactions: BalanceTransaction[] = [];
 
   const hashedPassword = await hashPassword(DEV_PASSWORD);
   const now = new Date();
@@ -261,6 +313,7 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
   for (const persona of TEST_PERSONAS) {
     const userId = seedUUID(`test-user-${persona.name}`);
     const email = testEmail(persona.name);
+    const balance = persona.hasSampleData ? '100.00000000' : '0.00000000';
 
     testUsers.push({
       id: userId,
@@ -268,6 +321,7 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
       name: persona.displayName,
       emailVerified: persona.emailVerified,
       image: null,
+      balance,
       createdAt: now,
       updatedAt: now,
     });
@@ -320,6 +374,37 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
           );
         }
       }
+
+      const paymentId = seedUUID(`${persona.name}-payment-1`);
+      const amount = 100;
+
+      testPayments.push(
+        paymentFactory.build({
+          id: paymentId,
+          userId,
+          amount: amount.toFixed(8),
+          status: 'confirmed',
+          helcimTransactionId: `hlcm-${persona.name}-1`,
+          cardType: 'Visa',
+          cardLastFour: '4242',
+          createdAt: now,
+          updatedAt: now,
+          webhookReceivedAt: now,
+        })
+      );
+
+      testBalanceTransactions.push(
+        balanceTransactionFactory.build({
+          id: seedUUID(`${persona.name}-tx-1`),
+          userId,
+          amount: amount.toFixed(8),
+          balanceAfter: amount.toFixed(8),
+          type: 'deposit',
+          paymentId,
+          description: `Credit purchase - $${String(amount)}.00`,
+          createdAt: now,
+        })
+      );
     }
   }
 
@@ -329,6 +414,8 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
     projects: testProjects,
     conversations: testConversations,
     messages: testMessages,
+    payments: testPayments,
+    balanceTransactions: testBalanceTransactions,
   };
 }
 
@@ -338,7 +425,9 @@ type Table =
   | typeof conversations
   | typeof messages
   | typeof projects
-  | typeof accounts;
+  | typeof accounts
+  | typeof payments
+  | typeof balanceTransactions;
 
 export async function upsertEntity(
   db: DbClient,
@@ -352,6 +441,17 @@ export async function upsertEntity(
     return 'created';
   }
   return 'exists';
+}
+
+/**
+ * Update user balance (needed because upsertEntity doesn't update existing records)
+ */
+export async function updateUserBalance(
+  db: DbClient,
+  userId: string,
+  balance: string
+): Promise<void> {
+  await db.update(users).set({ balance }).where(eq(users.id, userId));
 }
 
 export async function seed(): Promise<void> {
@@ -382,6 +482,8 @@ export async function seed(): Promise<void> {
   console.log(`  Projects: ${String(personaData.projects.length)}`);
   console.log(`  Conversations: ${String(personaData.conversations.length)}`);
   console.log(`  Messages: ${String(personaData.messages.length)}`);
+  console.log(`  Payments: ${String(personaData.payments.length)}`);
+  console.log(`  Balance Transactions: ${String(personaData.balanceTransactions.length)}`);
   console.log('');
   console.log('Test Personas:');
   console.log(`  Users: ${String(testPersonaData.users.length)}`);
@@ -389,6 +491,8 @@ export async function seed(): Promise<void> {
   console.log(`  Projects: ${String(testPersonaData.projects.length)}`);
   console.log(`  Conversations: ${String(testPersonaData.conversations.length)}`);
   console.log(`  Messages: ${String(testPersonaData.messages.length)}`);
+  console.log(`  Payments: ${String(testPersonaData.payments.length)}`);
+  console.log(`  Balance Transactions: ${String(testPersonaData.balanceTransactions.length)}`);
   console.log('');
   console.log('Random Seed Data:');
   console.log(`  Users: ${String(data.users.length)}`);
@@ -405,6 +509,13 @@ export async function seed(): Promise<void> {
     else exists++;
   }
   console.log(`Persona Users: ${String(created)} created, ${String(exists)} already existed`);
+
+  for (const user of testPersonaData.users) {
+    if ('balance' in user && user.balance && user.balance !== '0.00000000') {
+      await updateUserBalance(db, user.id, user.balance);
+    }
+  }
+  console.log('Test persona balances updated');
 
   created = 0;
   exists = 0;
@@ -454,6 +565,26 @@ export async function seed(): Promise<void> {
     else exists++;
   }
   console.log(`Messages: ${String(created)} created, ${String(exists)} already existed`);
+
+  created = 0;
+  exists = 0;
+  for (const payment of [...personaData.payments, ...testPersonaData.payments]) {
+    const result = await upsertEntity(db, payments, payment);
+    if (result === 'created') created++;
+    else exists++;
+  }
+  console.log(`Payments: ${String(created)} created, ${String(exists)} already existed`);
+
+  created = 0;
+  exists = 0;
+  for (const tx of [...personaData.balanceTransactions, ...testPersonaData.balanceTransactions]) {
+    const result = await upsertEntity(db, balanceTransactions, tx);
+    if (result === 'created') created++;
+    else exists++;
+  }
+  console.log(
+    `Balance Transactions: ${String(created)} created, ${String(exists)} already existed`
+  );
 
   console.log('\nSeed complete!');
 }

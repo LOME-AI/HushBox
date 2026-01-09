@@ -12,6 +12,10 @@ const RESPONSE_BUFFER = 1000;
 /** Default max tokens when model context is not available */
 const DEFAULT_MAX_TOKENS = 2000;
 
+export interface PromptInputRef {
+  focus: () => void;
+}
+
 interface PromptInputProps {
   value: string;
   onChange: (value: string) => void;
@@ -40,23 +44,32 @@ interface PromptInputProps {
  * Large prompt input with token counter, send button, and keyboard handling.
  * Used for the new chat page's main input area.
  */
-export function PromptInput({
-  value,
-  onChange,
-  onSubmit,
-  placeholder = 'Ask me anything...',
-  modelContextLimit,
-  historyTokens = 0,
-  capabilities = [],
-  className,
-  rows = 6,
-  disabled = false,
-  isStreaming = false,
-  onStop,
-  minHeight = '120px',
-  maxHeight = '40vh',
-}: PromptInputProps): React.JSX.Element {
+export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(function PromptInput(
+  {
+    value,
+    onChange,
+    onSubmit,
+    placeholder = 'Ask me anything...',
+    modelContextLimit,
+    historyTokens = 0,
+    capabilities = [],
+    className,
+    rows = 6,
+    disabled = false,
+    isStreaming = false,
+    onStop,
+    minHeight = '120px',
+    maxHeight = '40vh',
+  },
+  ref
+) {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  React.useImperativeHandle(ref, () => ({
+    focus: () => {
+      textareaRef.current?.focus();
+    },
+  }));
 
   // Calculate system prompt tokens based on active capabilities
   const systemPrompt = React.useMemo(() => buildSystemPrompt(capabilities), [capabilities]);
@@ -167,4 +180,4 @@ export function PromptInput({
       )}
     </div>
   );
-}
+});

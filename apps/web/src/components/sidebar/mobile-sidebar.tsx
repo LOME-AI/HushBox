@@ -6,20 +6,28 @@ import { SidebarContent } from './sidebar-content';
 import { SidebarFooter } from './sidebar-footer';
 import { Logo } from '@/components/shared/logo';
 
-/**
- * Mobile sidebar that slides in from the left as an overlay.
- * Uses Sheet component for the slide-over behavior.
- */
 export function MobileSidebar(): React.JSX.Element {
   const { mobileSidebarOpen, setMobileSidebarOpen } = useUIStore();
   const { data: conversations, isLoading } = useConversations();
 
-  // Force sidebar to appear expanded in mobile mode
   React.useEffect(() => {
     if (mobileSidebarOpen) {
       useUIStore.setState({ sidebarOpen: true });
     }
   }, [mobileSidebarOpen]);
+
+  // Force cleanup of Radix UI's body modifications on unmount.
+  // Radix Dialog sets overflow:hidden and pointer-events on body when open.
+  // If the component unmounts during navigation before Radix can clean up,
+  // these styles persist and block interactions on the new page.
+  React.useLayoutEffect(() => {
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.pointerEvents = '';
+      document.body.style.paddingRight = '';
+      document.body.removeAttribute('data-scroll-locked');
+    };
+  }, []);
 
   return (
     <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>

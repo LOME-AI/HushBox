@@ -8,6 +8,34 @@
       "when": 1766375136735,
       "tag": "0000_clumsy_queen_noir",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1767246086595,
+      "tag": "0001_last_wendell_vaughn",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1767488377283,
+      "tag": "0002_lovely_typhoid_mary",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1767558036762,
+      "tag": "0003_confused_elektra",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1767558119989,
+      "tag": "0004_fair_stingray",
+      "breakpoints": true
     }
   ]
 }

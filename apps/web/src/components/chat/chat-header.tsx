@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
-import { HamburgerButton } from '@/components/sidebar/hamburger-button';
+import { PageHeader } from '@/components/shared/page-header';
 import { ModelSelectorButton } from './model-selector-button';
 import type { Model } from '@lome-chat/shared';
 
@@ -8,9 +8,17 @@ interface ChatHeaderProps {
   models: Model[];
   selectedModelId: string;
   /** Fallback name to display before models load (prevents flash) */
-  selectedModelName?: string;
+  selectedModelName?: string | undefined;
   onModelSelect: (modelId: string, modelName: string) => void;
-  title?: string;
+  title?: string | undefined;
+  /** Set of premium model IDs */
+  premiumIds?: Set<string> | undefined;
+  /** Whether the user can access premium models (defaults to true) */
+  canAccessPremium?: boolean | undefined;
+  /** Whether the user is authenticated (defaults to true) */
+  isAuthenticated?: boolean | undefined;
+  /** Called when user clicks a premium model they cannot access */
+  onPremiumClick?: ((modelId: string) => void) | undefined;
 }
 
 export function ChatHeader({
@@ -19,38 +27,30 @@ export function ChatHeader({
   selectedModelName,
   onModelSelect,
   title,
+  premiumIds,
+  canAccessPremium,
+  isAuthenticated,
+  onPremiumClick,
 }: ChatHeaderProps): React.JSX.Element {
   return (
-    <header
-      data-testid="chat-header"
-      className="bg-background/95 supports-backdrop-blur:bg-background/60 sticky top-0 z-10 flex items-center justify-center border-b px-4 py-3 backdrop-blur"
-    >
-      {/* Left side with hamburger (mobile only) and title (desktop only) */}
-      <div className="flex flex-1 items-center justify-start gap-2">
-        <HamburgerButton />
-        {title && (
-          <span
-            data-testid="chat-title"
-            className="hidden max-w-[200px] truncate text-sm font-medium md:block"
-            title={title}
-          >
-            {title}
-          </span>
-        )}
-      </div>
-
-      {/* Centered model selector */}
-      <ModelSelectorButton
-        models={models}
-        selectedId={selectedModelId}
-        selectedName={selectedModelName}
-        onSelect={onModelSelect}
-      />
-
-      {/* Right side with theme toggle */}
-      <div className="flex flex-1 justify-end">
-        <ThemeToggle />
-      </div>
-    </header>
+    <PageHeader
+      testId="chat-header"
+      titleTestId="chat-title"
+      title={title}
+      brandTitle={true}
+      center={
+        <ModelSelectorButton
+          models={models}
+          selectedId={selectedModelId}
+          selectedName={selectedModelName}
+          onSelect={onModelSelect}
+          premiumIds={premiumIds}
+          canAccessPremium={canAccessPremium}
+          isAuthenticated={isAuthenticated}
+          onPremiumClick={onPremiumClick}
+        />
+      }
+      right={<ThemeToggle />}
+    />
   );
 }

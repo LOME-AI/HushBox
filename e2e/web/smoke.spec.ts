@@ -12,11 +12,8 @@ test.describe('Web App Smoke Tests', () => {
     await expect(page.getByRole('textbox', { name: 'Ask me anything...' })).toBeVisible();
   });
 
-  test('/chat/:id shows conversation view', async ({ page }) => {
-    await page.goto('/chat/test-123');
-    // Conversation view should show the header with title
-    await expect(page.locator('body')).toBeVisible();
-  });
+  // Note: /chat/:id conversation view is tested in chat.spec.ts with authenticated sessions
+  // and real conversation IDs. Testing with fake IDs provides no value.
 
   test('/projects renders', async ({ page }) => {
     await page.goto('/projects');
