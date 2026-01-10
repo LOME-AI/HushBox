@@ -1,28 +1,28 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 interface UseInteractionTrackerOptions {
   isTracking: boolean;
 }
 
 interface UseInteractionTrackerResult {
-  hasInteractedSinceSubmit: boolean;
+  hasInteractedRef: React.RefObject<boolean>;
   resetOnSubmit: () => void;
 }
 
 export function useInteractionTracker({
   isTracking,
 }: UseInteractionTrackerOptions): UseInteractionTrackerResult {
-  const [hasInteracted, setHasInteracted] = useState(false);
+  const hasInteractedRef = useRef(false);
 
   const resetOnSubmit = useCallback(() => {
-    setHasInteracted(false);
+    hasInteractedRef.current = false;
   }, []);
 
   useEffect(() => {
     if (!isTracking) return;
 
     const handleInteraction = (): void => {
-      setHasInteracted(true);
+      hasInteractedRef.current = true;
     };
 
     // Use capture phase to catch all events before they're handled
@@ -39,5 +39,5 @@ export function useInteractionTracker({
     };
   }, [isTracking]);
 
-  return { hasInteractedSinceSubmit: hasInteracted, resetOnSubmit };
+  return { hasInteractedRef, resetOnSubmit };
 }

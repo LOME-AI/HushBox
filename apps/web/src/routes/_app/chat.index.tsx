@@ -4,14 +4,25 @@ import { useQueryClient } from '@tanstack/react-query';
 import { NewChatPage } from '@/components/chat/new-chat-page';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
+import { ErrorBoundary } from '@/components/shared/error-boundary';
 import { useSession } from '@/lib/auth';
 import { usePendingChatStore } from '@/stores/pending-chat';
+import { useUIModalsStore } from '@/stores/ui-modals';
 import { useModels } from '@/hooks/models';
+import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
 import { billingKeys, useBalance } from '@/hooks/billing';
 
 export const Route = createFileRoute('/_app/chat/')({
-  component: ChatIndex,
+  component: ChatIndexWithErrorBoundary,
 });
+
+function ChatIndexWithErrorBoundary(): React.JSX.Element {
+  return (
+    <ErrorBoundary>
+      <ChatIndex />
+    </ErrorBoundary>
+  );
+}
 
 export function ChatIndex(): React.JSX.Element {
   const navigate = useNavigate();
@@ -20,27 +31,22 @@ export function ChatIndex(): React.JSX.Element {
   const isAuthenticated = !isPending && Boolean(session?.user);
   useBalance();
 
-  const [showSignupModal, setShowSignupModal] = React.useState(false);
-  const [showPaymentModal, setShowPaymentModal] = React.useState(false);
-  const [premiumModelName, setPremiumModelName] = React.useState<string | undefined>();
+  const {
+    signupModalOpen,
+    paymentModalOpen,
+    premiumModelName,
+    setSignupModalOpen,
+    setPaymentModalOpen,
+  } = useUIModalsStore();
 
   const { data: modelsData } = useModels();
   const models = modelsData?.models ?? [];
 
+  const handlePremiumClick = usePremiumModelClick(models, isAuthenticated);
+
   const handleSend = (content: string): void => {
     usePendingChatStore.getState().setPendingMessage(content);
     void navigate({ to: '/chat/new' });
-  };
-
-  const handlePremiumClick = (modelId: string): void => {
-    const model = models.find((m) => m.id === modelId);
-    setPremiumModelName(model?.name);
-
-    if (isAuthenticated) {
-      setShowPaymentModal(true);
-    } else {
-      setShowSignupModal(true);
-    }
   };
 
   return (
@@ -52,13 +58,13 @@ export function ChatIndex(): React.JSX.Element {
         onPremiumClick={handlePremiumClick}
       />
       <SignupModal
-        open={showSignupModal}
-        onOpenChange={setShowSignupModal}
+        open={signupModalOpen}
+        onOpenChange={setSignupModalOpen}
         modelName={premiumModelName}
       />
       <PaymentModal
-        open={showPaymentModal}
-        onOpenChange={setShowPaymentModal}
+        open={paymentModalOpen}
+        onOpenChange={setPaymentModalOpen}
         onSuccess={() => {
           void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
         }}

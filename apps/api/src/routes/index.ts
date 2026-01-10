@@ -1,5 +1,5 @@
 export { healthRoute } from './health.js';
-export { authRoute } from './auth.js';
+export { createAuthRoutes } from './auth.js';
 export { createBillingRoutes } from './billing.js';
 export { createConversationsRoutes } from './conversations.js';
 export { chatRoute } from './chat.js';

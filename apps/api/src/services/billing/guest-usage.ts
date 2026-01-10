@@ -1,35 +1,18 @@
-import { eq, or } from 'drizzle-orm';
+import { eq, or, desc } from 'drizzle-orm';
 import { guestUsage, type Database } from '@lome-chat/db';
-import { GUEST_MESSAGE_LIMIT } from '@lome-chat/shared';
+import { GUEST_MESSAGE_LIMIT, getUtcMidnight, needsResetBeforeMidnight } from '@lome-chat/shared';
+import { fireAndForget } from '../../lib/fire-and-forget.js';
 
 export interface GuestUsageCheckResult {
   canSend: boolean;
   messageCount: number;
   limit: number;
+  record?: { id: string; messageCount: number; resetAt: Date | null };
 }
 
 export interface GuestUsageRecord {
   id: string;
   messageCount: number;
-}
-
-/**
- * Get the start of the current UTC day.
- */
-function getUtcMidnight(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-}
-
-/**
- * Check if usage needs to be reset (lazy reset at UTC midnight).
- */
-function needsReset(resetAt: Date | null): boolean {
-  if (resetAt === null) {
-    return true;
-  }
-  const midnight = getUtcMidnight();
-  return resetAt < midnight;
 }
 
 /**
@@ -47,19 +30,16 @@ async function findGuestRecord(
       ? or(eq(guestUsage.guestToken, guestToken), eq(guestUsage.ipHash, ipHash))
       : eq(guestUsage.ipHash, ipHash);
 
-  const records = await db.select().from(guestUsage).where(conditions);
+  // Get record with highest message count directly from database
+  const [highest] = await db
+    .select()
+    .from(guestUsage)
+    .where(conditions)
+    .orderBy(desc(guestUsage.messageCount))
+    .limit(1);
 
-  if (records.length === 0) {
+  if (!highest) {
     return null;
-  }
-
-  // Return record with highest message count
-  let highest = records[0];
-  if (!highest) return null;
-  for (const record of records) {
-    if (record.messageCount > highest.messageCount) {
-      highest = record;
-    }
   }
 
   return {
@@ -94,25 +74,32 @@ export async function checkGuestUsage(
 
   // Check if needs reset
   let messageCount = record.messageCount;
-  if (needsReset(record.resetAt)) {
+  let updatedResetAt = record.resetAt;
+  if (needsResetBeforeMidnight(record.resetAt)) {
     messageCount = 0;
+    updatedResetAt = getUtcMidnight();
     // Update the reset in database (fire-and-forget)
-    void db
-      .update(guestUsage)
-      .set({
-        messageCount: 0,
-        resetAt: getUtcMidnight(),
-      })
-      .where(eq(guestUsage.id, record.id))
-      .catch((err: unknown) => {
-        console.error('Failed to reset guest usage:', err);
-      });
+    fireAndForget(
+      db
+        .update(guestUsage)
+        .set({
+          messageCount: 0,
+          resetAt: updatedResetAt,
+        })
+        .where(eq(guestUsage.id, record.id)),
+      'reset guest usage'
+    );
   }
 
   return {
     canSend: messageCount < GUEST_MESSAGE_LIMIT,
     messageCount,
     limit: GUEST_MESSAGE_LIMIT,
+    record: {
+      id: record.id,
+      messageCount,
+      resetAt: updatedResetAt,
+    },
   };
 }
 
@@ -122,14 +109,16 @@ export async function checkGuestUsage(
  * @param db - Database connection
  * @param guestToken - Token stored in localStorage (may be null)
  * @param ipHash - SHA-256 hash of IP address
+ * @param existingRecord - Optional record from checkGuestUsage to skip query
  * @returns Updated usage record
  */
 export async function incrementGuestUsage(
   db: Database,
   guestToken: string | null,
-  ipHash: string
+  ipHash: string,
+  existingRecord?: { id: string; messageCount: number; resetAt: Date | null }
 ): Promise<GuestUsageRecord> {
-  const record = await findGuestRecord(db, guestToken, ipHash);
+  const record = existingRecord ?? (await findGuestRecord(db, guestToken, ipHash));
 
   if (!record) {
     // Create new record
@@ -151,7 +140,7 @@ export async function incrementGuestUsage(
   }
 
   // Check if needs reset
-  const shouldReset = needsReset(record.resetAt);
+  const shouldReset = needsResetBeforeMidnight(record.resetAt);
   const newCount = shouldReset ? 1 : record.messageCount + 1;
 
   // Update existing record

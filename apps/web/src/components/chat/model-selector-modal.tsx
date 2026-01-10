@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Search, ChevronUp, ChevronDown, Lock } from 'lucide-react';
 import { ModalOverlay, Input, Badge, Button, ScrollArea } from '@lome-chat/ui';
 import type { Model } from '@lome-chat/shared';
-import { STRONGEST_MODEL_ID, VALUE_MODEL_ID } from '@lome-chat/shared';
+import { STRONGEST_MODEL_ID, VALUE_MODEL_ID, formatNumber } from '@lome-chat/shared';
 import { applyFees, formatContextLength, formatPricePer1k } from '../../lib/format';
 
 type SortField = 'price' | 'context' | null;
@@ -22,13 +22,6 @@ interface ModelSelectorModalProps {
   isAuthenticated?: boolean | undefined;
   /** Called when user clicks a premium model they cannot access */
   onPremiumClick?: ((modelId: string) => void) | undefined;
-}
-
-/**
- * Format a number with commas for thousands.
- */
-function formatNumber(num: number): string {
-  return num.toLocaleString();
 }
 
 /**
@@ -105,16 +98,19 @@ export function ModelSelectorModal({
     return result;
   }, [models, searchQuery, sortField, sortDirection, premiumIds, canAccessPremium]);
 
-  const handleSortClick = (field: 'price' | 'context'): void => {
-    if (sortField === field) {
-      // Toggle direction if same field
-      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      // Activate new field with ascending
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
+  const handleSortClick = React.useCallback(
+    (field: 'price' | 'context'): void => {
+      if (sortField === field) {
+        // Toggle direction if same field
+        setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      } else {
+        // Activate new field with ascending
+        setSortField(field);
+        setSortDirection('asc');
+      }
+    },
+    [sortField]
+  );
 
   // Calculate quick select model IDs based on user tier
   const { strongestId, valueId } = React.useMemo(() => {
@@ -143,32 +139,41 @@ export function ModelSelectorModal({
 
   const focusedModel = models.find((m) => m.id === focusedModelId) ?? models[0];
 
-  const isPremium = (modelId: string): boolean => {
-    return premiumIds?.has(modelId) ?? false;
-  };
+  const isPremium = React.useCallback(
+    (modelId: string): boolean => {
+      return premiumIds?.has(modelId) ?? false;
+    },
+    [premiumIds]
+  );
 
   const isFocusedPremium = isPremium(focusedModelId);
 
-  const handleModelClick = (modelId: string): void => {
+  const handleModelClick = React.useCallback((modelId: string): void => {
     setFocusedModelId(modelId);
-  };
+  }, []);
 
-  const handleModelDoubleClick = (modelId: string): void => {
-    // If user can't access premium and clicks a premium model, route to premium handler
-    if (!canAccessPremium && isPremium(modelId)) {
-      onPremiumClick?.(modelId);
-      return;
-    }
-    onSelect(modelId);
-    onOpenChange(false);
-  };
+  const handleModelDoubleClick = React.useCallback(
+    (modelId: string): void => {
+      // If user can't access premium and clicks a premium model, route to premium handler
+      if (!canAccessPremium && premiumIds?.has(modelId)) {
+        onPremiumClick?.(modelId);
+        return;
+      }
+      onSelect(modelId);
+      onOpenChange(false);
+    },
+    [canAccessPremium, premiumIds, onPremiumClick, onSelect, onOpenChange]
+  );
 
-  const handleQuickSelect = (modelId: string): void => {
-    onSelect(modelId);
-    onOpenChange(false);
-  };
+  const handleQuickSelect = React.useCallback(
+    (modelId: string): void => {
+      onSelect(modelId);
+      onOpenChange(false);
+    },
+    [onSelect, onOpenChange]
+  );
 
-  const handleSelectButton = (): void => {
+  const handleSelectButton = React.useCallback((): void => {
     // If user can't access premium and focused model is premium, route to premium handler
     if (!canAccessPremium && isFocusedPremium) {
       onPremiumClick?.(focusedModelId);
@@ -176,7 +181,7 @@ export function ModelSelectorModal({
     }
     onSelect(focusedModelId);
     onOpenChange(false);
-  };
+  }, [canAccessPremium, isFocusedPremium, focusedModelId, onPremiumClick, onSelect, onOpenChange]);
 
   return (
     <ModalOverlay open={open} onOpenChange={onOpenChange}>

@@ -3,79 +3,29 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../types.js';
 import type { OpenRouterClient } from '../services/openrouter/types.js';
 import { createGuestChatRoutes } from './guest-chat.js';
+import { createFastMockOpenRouterClient } from '../test-helpers/index.js';
 
-/**
- * Create a fast mock OpenRouter client for testing.
- */
-function createFastMockOpenRouterClient(): OpenRouterClient {
-  return {
-    chatCompletion() {
-      return Promise.resolve({
-        id: 'mock-123',
-        model: 'openai/gpt-4-turbo',
-        choices: [
-          {
-            index: 0,
-            message: { role: 'assistant', content: 'Echo: Hello' },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-      });
-    },
-    // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for fast tests
-    async *chatCompletionStream() {
-      for (const char of 'Echo: Hello') {
-        yield char;
-      }
-    },
-    // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for fast tests
-    async *chatCompletionStreamWithMetadata() {
-      let isFirst = true;
-      for (const char of 'Echo: Hello') {
-        if (isFirst) {
-          yield { content: char, generationId: 'mock-gen-123' };
-          isFirst = false;
-        } else {
-          yield { content: char };
-        }
-      }
-    },
-    listModels() {
-      return Promise.resolve([
-        {
-          id: 'meta-llama/llama-3.1-70b',
-          name: 'Llama 3.1 70B',
-          description: 'Basic model',
-          context_length: 128000,
-          pricing: { prompt: '0.0000005', completion: '0.0000005' },
-          supported_parameters: ['temperature'],
-          created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60, // Old model
-        },
-        {
-          id: 'openai/gpt-4-turbo',
-          name: 'GPT-4 Turbo',
-          description: 'Premium model',
-          context_length: 128000,
-          pricing: { prompt: '0.00001', completion: '0.00003' },
-          supported_parameters: ['temperature'],
-          created: Math.floor(Date.now() / 1000), // Recent model (premium)
-        },
-      ]);
-    },
-    getModel() {
-      return Promise.reject(new Error('Model not found'));
-    },
-    getGenerationStats() {
-      return Promise.resolve({
-        id: 'mock',
-        native_tokens_prompt: 100,
-        native_tokens_completion: 50,
-        total_cost: 0.001,
-      });
-    },
-  };
-}
+// Guest chat specific models for testing
+const guestChatModels = [
+  {
+    id: 'meta-llama/llama-3.1-70b',
+    name: 'Llama 3.1 70B',
+    description: 'Basic model',
+    context_length: 128000,
+    pricing: { prompt: '0.0000005', completion: '0.0000005' },
+    supported_parameters: ['temperature'],
+    created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60, // Old model
+  },
+  {
+    id: 'openai/gpt-4-turbo',
+    name: 'GPT-4 Turbo',
+    description: 'Premium model',
+    context_length: 128000,
+    pricing: { prompt: '0.00001', completion: '0.00003' },
+    supported_parameters: ['temperature'],
+    created: Math.floor(Date.now() / 1000), // Recent model (premium)
+  },
+];
 
 interface MockGuestUsage {
   guestToken: string | null;
@@ -83,13 +33,26 @@ interface MockGuestUsage {
   messageCount: number;
 }
 
+interface ErrorBody {
+  error: string;
+  code?: string;
+  details?: Record<string, unknown>;
+}
+
 function createMockDb(options: { guestUsage?: MockGuestUsage[] } = {}) {
   const { guestUsage = [] } = options;
+
+  // Sort by messageCount descending to simulate SQL ORDER BY DESC
+  const sortedUsage = [...guestUsage].sort((a, b) => b.messageCount - a.messageCount);
 
   return {
     select: () => ({
       from: () => ({
-        where: () => Promise.resolve(guestUsage),
+        where: () => ({
+          orderBy: () => ({
+            limit: (n: number) => Promise.resolve(sortedUsage.slice(0, n)),
+          }),
+        }),
       }),
     }),
     insert: () => ({
@@ -116,7 +79,10 @@ function createTestApp(
   app.use('*', async (c, next) => {
     c.set('user', null); // Guest user
     c.set('session', null);
-    c.set('openrouter', options.openrouterClient ?? createFastMockOpenRouterClient());
+    c.set(
+      'openrouter',
+      options.openrouterClient ?? createFastMockOpenRouterClient({ models: guestChatModels })
+    );
     c.set(
       'db',
       createMockDb({ guestUsage: options.guestUsage ?? [] }) as unknown as AppEnv['Variables']['db']
@@ -206,8 +172,9 @@ describe('guest chat routes', () => {
       });
 
       expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body).toEqual({ error: 'Last message must be from user' });
+      const body: ErrorBody = await res.json();
+      expect(body.error).toBe('Last message must be from user');
+      expect(body.code).toBe('VALIDATION');
     });
 
     it('returns 403 when trying to use premium model', async () => {
@@ -226,8 +193,9 @@ describe('guest chat routes', () => {
       });
 
       expect(res.status).toBe(403);
-      const body: { error: string } = await res.json();
-      expect(body.error.toLowerCase()).toContain('premium');
+      const body: ErrorBody = await res.json();
+      expect(body.error).toBe('Premium models require a free account');
+      expect(body.code).toBe('FORBIDDEN');
     });
 
     it('returns 429 when guest has exceeded daily limit', async () => {
@@ -255,8 +223,11 @@ describe('guest chat routes', () => {
       });
 
       expect(res.status).toBe(429);
-      const body: { error: string } = await res.json();
-      expect(body.error).toContain('limit');
+      const body: ErrorBody = await res.json();
+      expect(body.error).toBe('Daily message limit exceeded');
+      expect(body.code).toBe('RATE_LIMITED');
+      expect(body.details?.['limit']).toBeDefined();
+      expect(body.details?.['remaining']).toBe(0);
     });
 
     it('streams SSE response with token events', async () => {
@@ -329,11 +300,15 @@ describe('guest chat routes', () => {
       app.use('*', async (c, next) => {
         c.set('user', null);
         c.set('session', null);
-        c.set('openrouter', createFastMockOpenRouterClient());
+        c.set('openrouter', createFastMockOpenRouterClient({ models: guestChatModels }));
         c.set('db', {
           select: () => ({
             from: () => ({
-              where: () => Promise.resolve([]),
+              where: () => ({
+                orderBy: () => ({
+                  limit: () => Promise.resolve([]),
+                }),
+              }),
             }),
           }),
           insert: () => {

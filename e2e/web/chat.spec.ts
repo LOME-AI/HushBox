@@ -166,11 +166,14 @@ test.describe('Chat Functionality', () => {
         elements.forEach((el) => {
           const htmlEl = el as HTMLElement;
           const overflow = htmlEl.scrollWidth - htmlEl.clientWidth;
-          // Only show elements with significant overflow (>100px) and not sr-only/truncate
+          // Only show elements with significant overflow (>100px) and meaningful dimensions
+          // Skip: sr-only, truncate, overflow-hidden, or elements with zero width (invisible)
           if (
             overflow > 100 &&
+            htmlEl.clientWidth > 0 &&
             !htmlEl.className.includes('sr-only') &&
-            !htmlEl.className.includes('truncate')
+            !htmlEl.className.includes('truncate') &&
+            !htmlEl.className.includes('overflow-hidden')
           ) {
             const tag = htmlEl.tagName.toLowerCase();
             const id = htmlEl.id ? `#${htmlEl.id}` : '';
@@ -184,11 +187,18 @@ test.describe('Chat Functionality', () => {
         });
         return results;
       });
-      console.log('\n=== OVERFLOWING ELEMENTS (>100px overflow) ===');
-      overflowingElements.forEach((el) => {
-        console.log(el);
-      });
-      console.log('=== END OVERFLOWING ELEMENTS ===\n');
+      if (overflowingElements.length > 0) {
+        console.log('\n=== OVERFLOWING ELEMENTS (>100px overflow) ===');
+        overflowingElements.forEach((el) => {
+          console.log(el);
+        });
+        console.log('=== END OVERFLOWING ELEMENTS ===\n');
+      }
+
+      expect(
+        overflowingElements.length,
+        `Found ${String(overflowingElements.length)} overflowing elements:\n${overflowingElements.join('\n')}`
+      ).toBe(0);
 
       const messageItem = chatPage.messageList.locator('[data-testid="message-item"]').last();
       await expect(messageItem).toBeVisible();

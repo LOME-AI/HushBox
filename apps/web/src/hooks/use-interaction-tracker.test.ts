@@ -13,7 +13,7 @@ describe('useInteractionTracker', () => {
   });
 
   describe('resetOnSubmit', () => {
-    it('resets hasInteractedSinceSubmit to false', () => {
+    it('resets hasInteractedRef to false', () => {
       const { result } = renderHook(() => useInteractionTracker({ isTracking: true }));
 
       // Simulate interaction
@@ -21,52 +21,52 @@ describe('useInteractionTracker', () => {
         document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(true);
+      expect(result.current.hasInteractedRef.current).toBe(true);
 
       // Reset
       act(() => {
         result.current.resetOnSubmit();
       });
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(false);
+      expect(result.current.hasInteractedRef.current).toBe(false);
     });
   });
 
   describe('when isTracking is true', () => {
-    it('sets hasInteractedSinceSubmit to true after click event', () => {
+    it('sets hasInteractedRef to true after click event', () => {
       const { result } = renderHook(() => useInteractionTracker({ isTracking: true }));
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(false);
+      expect(result.current.hasInteractedRef.current).toBe(false);
 
       act(() => {
         document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(true);
+      expect(result.current.hasInteractedRef.current).toBe(true);
     });
 
-    it('sets hasInteractedSinceSubmit to true after keydown event', () => {
+    it('sets hasInteractedRef to true after keydown event', () => {
       const { result } = renderHook(() => useInteractionTracker({ isTracking: true }));
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(false);
+      expect(result.current.hasInteractedRef.current).toBe(false);
 
       act(() => {
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
       });
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(true);
+      expect(result.current.hasInteractedRef.current).toBe(true);
     });
 
-    it('sets hasInteractedSinceSubmit to true after touchstart event', () => {
+    it('sets hasInteractedRef to true after touchstart event', () => {
       const { result } = renderHook(() => useInteractionTracker({ isTracking: true }));
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(false);
+      expect(result.current.hasInteractedRef.current).toBe(false);
 
       act(() => {
         document.dispatchEvent(new TouchEvent('touchstart'));
       });
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(true);
+      expect(result.current.hasInteractedRef.current).toBe(true);
     });
   });
 
@@ -74,37 +74,37 @@ describe('useInteractionTracker', () => {
     it('does not track click events', () => {
       const { result } = renderHook(() => useInteractionTracker({ isTracking: false }));
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(false);
+      expect(result.current.hasInteractedRef.current).toBe(false);
 
       act(() => {
         document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(false);
+      expect(result.current.hasInteractedRef.current).toBe(false);
     });
 
     it('does not track keydown events', () => {
       const { result } = renderHook(() => useInteractionTracker({ isTracking: false }));
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(false);
+      expect(result.current.hasInteractedRef.current).toBe(false);
 
       act(() => {
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
       });
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(false);
+      expect(result.current.hasInteractedRef.current).toBe(false);
     });
 
     it('does not track touchstart events', () => {
       const { result } = renderHook(() => useInteractionTracker({ isTracking: false }));
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(false);
+      expect(result.current.hasInteractedRef.current).toBe(false);
 
       act(() => {
         document.dispatchEvent(new TouchEvent('touchstart'));
       });
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(false);
+      expect(result.current.hasInteractedRef.current).toBe(false);
     });
   });
 
@@ -143,7 +143,7 @@ describe('useInteractionTracker', () => {
   });
 
   describe('state persistence', () => {
-    it('preserves hasInteractedSinceSubmit state when isTracking toggles', () => {
+    it('preserves hasInteractedRef state when isTracking toggles', () => {
       const { result, rerender } = renderHook(
         ({ isTracking }) => useInteractionTracker({ isTracking }),
         { initialProps: { isTracking: true } }
@@ -154,13 +154,13 @@ describe('useInteractionTracker', () => {
         document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
 
-      expect(result.current.hasInteractedSinceSubmit).toBe(true);
+      expect(result.current.hasInteractedRef.current).toBe(true);
 
       // Stop tracking
       rerender({ isTracking: false });
 
       // State should still be true
-      expect(result.current.hasInteractedSinceSubmit).toBe(true);
+      expect(result.current.hasInteractedRef.current).toBe(true);
     });
   });
 });

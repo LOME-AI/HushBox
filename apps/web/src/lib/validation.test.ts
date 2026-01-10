@@ -1,10 +1,48 @@
 import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
 import {
+  createValidator,
   validateName,
   validateEmail,
   validatePassword,
   validateConfirmPassword,
 } from './validation';
+
+describe('createValidator', () => {
+  const testSchema = z.string().min(3, 'Must be at least 3 characters');
+
+  it('returns not valid with no message for empty string', () => {
+    const validate = createValidator(testSchema, 'Test value');
+    const result = validate('');
+    expect(result.isValid).toBe(false);
+    expect(result.error).toBeUndefined();
+    expect(result.success).toBeUndefined();
+  });
+
+  it('returns error when validation fails', () => {
+    const validate = createValidator(testSchema, 'Test value');
+    const result = validate('ab');
+    expect(result.isValid).toBe(false);
+    expect(result.error).toBe('Must be at least 3 characters');
+    expect(result.success).toBeUndefined();
+  });
+
+  it('returns success with custom message when validation passes', () => {
+    const validate = createValidator(testSchema, 'Valid test');
+    const result = validate('abc');
+    expect(result.isValid).toBe(true);
+    expect(result.success).toBe('Valid test');
+    expect(result.error).toBeUndefined();
+  });
+
+  it('uses default success message when none provided', () => {
+    const validate = createValidator(testSchema);
+    const result = validate('abc');
+    expect(result.isValid).toBe(true);
+    expect(result.success).toBe('Valid');
+    expect(result.error).toBeUndefined();
+  });
+});
 
 describe('validateName', () => {
   it('returns not valid with no message for empty string', () => {

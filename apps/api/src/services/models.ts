@@ -6,15 +6,11 @@
 
 import type { Model, ModelCapability } from '@lome-chat/shared';
 
+import { isPremiumModel, PREMIUM_PRICE_PERCENTILE } from './models/premium-check.js';
+
 // ============================================================
 // Constants
 // ============================================================
-
-/** Percentile threshold for premium pricing (0.75 = 75th percentile) */
-const PREMIUM_PRICE_PERCENTILE = 0.75;
-
-/** Recency threshold for premium models (1 year in milliseconds) */
-const PREMIUM_RECENCY_MS = 365 * 24 * 60 * 60 * 1000;
 
 /** Percentile threshold for top context (0.95 = top 5%) */
 const TOP_CONTEXT_PERCENTILE = 0.95;
@@ -111,15 +107,6 @@ function isExcludedByStandardCriteria(model: OpenRouterModel): boolean {
 
   const pricePer1K = getCombinedPrice(model) * 1000;
   return pricePer1K < MIN_PRICE_PER_1K_TOKENS;
-}
-
-/**
- * Check if a model is premium based on price threshold and recency.
- */
-function isPremium(model: OpenRouterModel, priceThreshold: number): boolean {
-  const price = getCombinedPrice(model);
-  const recencyThreshold = Date.now() - PREMIUM_RECENCY_MS;
-  return price >= priceThreshold || model.created * 1000 > recencyThreshold;
 }
 
 /**
@@ -223,7 +210,7 @@ export function processModels(rawModels: OpenRouterModel[]): ProcessedModels {
 
   for (const model of filtered) {
     models.push(transform(model));
-    if (isPremium(model, priceThreshold)) {
+    if (isPremiumModel(model, priceThreshold)) {
       premiumIds.push(model.id);
     }
   }

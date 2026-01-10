@@ -11,6 +11,14 @@ import {
   accounts,
   sessions,
 } from '@lome-chat/db';
+import type {
+  ListConversationsResponse,
+  GetConversationResponse,
+  CreateConversationResponse,
+  UpdateConversationResponse,
+  DeleteConversationResponse,
+  CreateMessageResponse,
+} from '@lome-chat/shared';
 import { createConversationsRoutes } from './conversations.js';
 import { createAuthRoutes } from './auth.js';
 import { createAuth } from '../auth/index.js';
@@ -25,49 +33,13 @@ interface SignupResponse {
 
 interface ErrorResponse {
   error: string;
+  code?: string;
+  details?: Record<string, unknown>;
 }
 
-interface Conversation {
-  id: string;
-  title: string;
-  userId: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface Message {
-  id: string;
-  conversationId: string;
-  role: string;
-  content: string;
-  model?: string | null;
-}
-
-interface ConversationsListResponse {
-  conversations: Conversation[];
-}
-
-interface ConversationDetailResponse {
-  conversation: Conversation;
-  messages: Message[];
-}
-
-interface CreateConversationResponse {
-  conversation: Conversation;
-  message?: Message;
-}
-
-interface UpdateConversationResponse {
-  conversation: Conversation;
-}
-
-interface DeleteConversationResponse {
-  deleted: boolean;
-}
-
-interface CreateMessageResponse {
-  message: Message;
-}
+// Type aliases for backward compatibility with existing test code
+type ConversationsListResponse = ListConversationsResponse;
+type ConversationDetailResponse = GetConversationResponse;
 
 const DATABASE_URL = process.env['DATABASE_URL'];
 if (!DATABASE_URL) {
@@ -230,6 +202,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(401);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Unauthorized');
+      expect(json.code).toBe('UNAUTHORIZED');
     });
 
     it('returns list of conversations for authenticated user', async () => {
@@ -267,6 +240,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(401);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Unauthorized');
+      expect(json.code).toBe('UNAUTHORIZED');
     });
 
     it('returns 404 for non-existent conversation', async () => {
@@ -279,6 +253,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(404);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Conversation not found');
+      expect(json.code).toBe('NOT_FOUND');
     });
 
     it('returns conversation with messages for authenticated user', async () => {
@@ -321,6 +296,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(401);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Unauthorized');
+      expect(json.code).toBe('UNAUTHORIZED');
     });
 
     it('creates conversation with "New Conversation" title by default', async () => {
@@ -447,6 +423,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(401);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Unauthorized');
+      expect(json.code).toBe('UNAUTHORIZED');
     });
 
     it('returns 404 for non-existent conversation', async () => {
@@ -458,6 +435,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(404);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Conversation not found');
+      expect(json.code).toBe('NOT_FOUND');
     });
 
     it('deletes conversation and returns success', async () => {
@@ -504,6 +482,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(401);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Unauthorized');
+      expect(json.code).toBe('UNAUTHORIZED');
     });
 
     it('returns 404 for non-existent conversation', async () => {
@@ -519,6 +498,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(404);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Conversation not found');
+      expect(json.code).toBe('NOT_FOUND');
     });
 
     it('returns 400 for empty title', async () => {
@@ -584,6 +564,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(401);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Unauthorized');
+      expect(json.code).toBe('UNAUTHORIZED');
     });
 
     it('returns 404 for non-existent conversation', async () => {
@@ -599,6 +580,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(404);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Conversation not found');
+      expect(json.code).toBe('NOT_FOUND');
     });
 
     it('returns 400 for invalid role', async () => {
@@ -753,6 +735,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(404);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Conversation not found');
+      expect(json.code).toBe('NOT_FOUND');
     });
 
     it('returns 404 when user B tries to DELETE user A conversation', async () => {
@@ -767,6 +750,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(404);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Conversation not found');
+      expect(json.code).toBe('NOT_FOUND');
     });
 
     it('returns 404 when user B tries to PATCH user A conversation', async () => {
@@ -785,6 +769,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(404);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Conversation not found');
+      expect(json.code).toBe('NOT_FOUND');
     });
 
     it('returns 404 when user B tries to POST message to user A conversation', async () => {
@@ -803,6 +788,7 @@ describe('conversations routes', () => {
       expect(res.status).toBe(404);
       const json = (await res.json()) as ErrorResponse;
       expect(json.error).toBe('Conversation not found');
+      expect(json.code).toBe('NOT_FOUND');
     });
 
     it('user B only sees their own conversations in list', async () => {

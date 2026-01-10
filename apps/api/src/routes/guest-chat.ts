@@ -1,15 +1,28 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { streamSSE } from 'hono/streaming';
-import { createHash } from 'crypto';
+import {
+  errorResponseSchema,
+  ERROR_CODE_VALIDATION,
+  ERROR_CODE_RATE_LIMITED,
+  ERROR_CODE_FORBIDDEN,
+} from '@lome-chat/shared';
 import type { AppEnv } from '../types.js';
-import type { ChatMessage } from '../services/openrouter/types.js';
 import { buildPrompt } from '../services/prompt/builder.js';
 import { checkGuestUsage, incrementGuestUsage } from '../services/billing/index.js';
 import { processModels } from '../services/models.js';
+import { fetchModels } from '../services/openrouter/index.js';
+import { validateLastMessageIsFromUser, buildOpenRouterMessages } from '../services/chat/index.js';
+import { fireAndForget } from '../lib/fire-and-forget.js';
+import { createErrorResponse } from '../lib/error-response.js';
+import { createSSEEventWriter } from '../lib/stream-handler.js';
+import { hashIp, getClientIp } from '../lib/client-ip.js';
+import {
+  ERROR_LAST_MESSAGE_NOT_USER,
+  ERROR_DAILY_LIMIT_EXCEEDED,
+  ERROR_PREMIUM_REQUIRES_ACCOUNT,
+} from '../constants/errors.js';
 
-const errorSchema = z.object({
-  error: z.string(),
-});
+const errorSchema = errorResponseSchema;
 
 const rateLimitSchema = z.object({
   error: z.string(),
@@ -58,32 +71,6 @@ const guestStreamRoute = createRoute({
   },
 });
 
-/**
- * Hash an IP address for privacy.
- */
-function hashIp(ip: string): string {
-  return createHash('sha256').update(ip).digest('hex');
-}
-
-/**
- * Get client IP from request headers.
- */
-function getClientIp(c: { req: { header: (name: string) => string | undefined } }): string {
-  // Check common proxy headers
-  const forwarded = c.req.header('x-forwarded-for');
-  if (forwarded) {
-    // Take the first IP if there are multiple
-    return forwarded.split(',')[0]?.trim() ?? 'unknown';
-  }
-
-  const realIp = c.req.header('x-real-ip');
-  if (realIp) {
-    return realIp;
-  }
-
-  return 'unknown';
-}
-
 export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>();
 
@@ -93,9 +80,8 @@ export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
     const openrouter = c.get('openrouter');
 
     // Validate last message is from user
-    const lastMessage = messages[messages.length - 1];
-    if (lastMessage?.role !== 'user') {
-      return c.json({ error: 'Last message must be from user' }, 400);
+    if (!validateLastMessageIsFromUser(messages)) {
+      return c.json(createErrorResponse(ERROR_LAST_MESSAGE_NOT_USER, ERROR_CODE_VALIDATION), 400);
     }
 
     // Get guest identity
@@ -107,24 +93,20 @@ export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
     const usageCheck = await checkGuestUsage(db, guestToken, ipHash);
     if (!usageCheck.canSend) {
       return c.json(
-        {
-          error: 'Daily message limit reached. Sign up for unlimited access.',
+        createErrorResponse(ERROR_DAILY_LIMIT_EXCEEDED, ERROR_CODE_RATE_LIMITED, {
           limit: usageCheck.limit,
           remaining: 0,
-        },
+        }),
         429
       );
     }
 
     // Check if model is premium (guests can only use basic models)
-    const allModels = await openrouter.listModels();
+    const allModels = await fetchModels();
     const { premiumIds } = processModels(allModels);
 
     if (premiumIds.includes(model)) {
-      return c.json(
-        { error: 'Premium models require a free account. Sign up to access this model.' },
-        403
-      );
+      return c.json(createErrorResponse(ERROR_PREMIUM_REQUIRES_ACCOUNT, ERROR_CODE_FORBIDDEN), 403);
     }
 
     const assistantMessageId = crypto.randomUUID();
@@ -135,51 +117,44 @@ export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
       supportedCapabilities: [],
     });
 
-    const openRouterMessages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt },
-      ...messages.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      })),
-    ];
+    const openRouterMessages = buildOpenRouterMessages(systemPrompt, messages);
 
     return streamSSE(c, async (stream) => {
-      await stream.writeSSE({
-        event: 'start',
-        data: JSON.stringify({
-          assistantMessageId,
-        }),
-      });
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeStart({ assistantMessageId });
+
+      let streamError: Error | null = null;
+      let streamCompleted = false;
 
       try {
         for await (const token of openrouter.chatCompletionStreamWithMetadata({
           model,
           messages: openRouterMessages,
         })) {
-          await stream.writeSSE({
-            event: 'token',
-            data: JSON.stringify({ content: token.content }),
-          });
+          await writer.writeToken(token.content);
         }
-
-        // Increment guest usage after successful completion
-        // Fire-and-forget - don't block response
-        void incrementGuestUsage(db, guestToken, ipHash).catch((err: unknown) => {
-          console.error('Failed to increment guest usage:', err);
-        });
-
-        // Note: We do NOT persist the message for guests (ephemeral)
-
-        await stream.writeSSE({
-          event: 'done',
-          data: JSON.stringify({}),
-        });
+        streamCompleted = true;
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        await stream.writeSSE({
-          event: 'error',
-          data: JSON.stringify({ message: errorMessage, code: 'STREAM_ERROR' }),
-        });
+        streamError = error instanceof Error ? error : new Error('Unknown error');
+      }
+
+      // Increment guest usage after stream completes (regardless of client connection)
+      // Only count if we got any response from OpenRouter
+      // Pass existing record from check to skip duplicate query
+      if (streamCompleted && !streamError) {
+        fireAndForget(
+          incrementGuestUsage(db, guestToken, ipHash, usageCheck.record),
+          'increment guest usage'
+        );
+      }
+
+      // Note: We do NOT persist the message for guests (ephemeral)
+
+      if (streamError) {
+        await writer.writeError({ message: streamError.message, code: 'STREAM_ERROR' });
+      } else {
+        await writer.writeDone();
       }
     });
   });

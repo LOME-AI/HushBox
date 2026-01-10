@@ -1,6 +1,13 @@
 import { eq } from 'drizzle-orm';
 import { users, type Database } from '@lome-chat/db';
-import { getUserTier, FREE_ALLOWANCE_CENTS, type UserTierInfo } from '@lome-chat/shared';
+import {
+  getUserTier,
+  FREE_ALLOWANCE_CENTS,
+  getUtcMidnight,
+  needsResetBeforeMidnight,
+  type UserTierInfo,
+} from '@lome-chat/shared';
+import { fireAndForget } from '../../lib/fire-and-forget.js';
 
 export interface BalanceCheckResult {
   hasBalance: boolean;
@@ -31,7 +38,7 @@ export async function checkUserBalance(db: Database, userId: string): Promise<Ba
 
   // Check if free allowance needs reset
   let freeAllowanceCents = user?.freeAllowanceCents ?? 0;
-  if (user && needsFreeAllowanceReset(user.freeAllowanceResetAt)) {
+  if (user && needsResetBeforeMidnight(user.freeAllowanceResetAt)) {
     freeAllowanceCents = FREE_ALLOWANCE_CENTS;
   }
 
@@ -39,26 +46,6 @@ export async function checkUserBalance(db: Database, userId: string): Promise<Ba
   const hasBalance = balanceValue > 0 || freeAllowanceCents > 0;
 
   return { hasBalance, currentBalance: balance };
-}
-
-/**
- * Get the start of the current UTC day.
- */
-function getUtcMidnight(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-}
-
-/**
- * Check if free allowance needs to be reset (lazy reset at UTC midnight).
- */
-function needsFreeAllowanceReset(resetAt: Date | null): boolean {
-  if (resetAt === null) {
-    // First-time user, or never reset - trigger reset to set timestamp
-    return true;
-  }
-  const midnight = getUtcMidnight();
-  return resetAt < midnight;
 }
 
 /**
@@ -92,22 +79,22 @@ export async function getUserTierInfo(db: Database, userId: string | null): Prom
 
   // Check if free allowance needs reset
   let freeAllowanceCents = user.freeAllowanceCents;
-  if (needsFreeAllowanceReset(user.freeAllowanceResetAt)) {
+  if (needsResetBeforeMidnight(user.freeAllowanceResetAt)) {
     // Reset free allowance
     freeAllowanceCents = FREE_ALLOWANCE_CENTS;
 
     // Update in database (fire-and-forget, don't block)
-    void db
-      .update(users)
-      .set({
-        freeAllowanceCents: FREE_ALLOWANCE_CENTS,
-        freeAllowanceResetAt: getUtcMidnight(),
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, userId))
-      .catch((err: unknown) => {
-        console.error('Failed to reset free allowance:', err);
-      });
+    fireAndForget(
+      db
+        .update(users)
+        .set({
+          freeAllowanceCents: FREE_ALLOWANCE_CENTS,
+          freeAllowanceResetAt: getUtcMidnight(),
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId)),
+      'reset free allowance'
+    );
   }
 
   // Convert balance from dollars to cents

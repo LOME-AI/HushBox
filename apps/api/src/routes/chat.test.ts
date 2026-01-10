@@ -4,64 +4,12 @@ import {
   conversations as conversationsTable,
   messages as messagesTable,
   users as usersTable,
+  balanceTransactions as balanceTransactionsTable,
 } from '@lome-chat/db';
 import { createChatRoutes } from './chat.js';
 import type { AppEnv } from '../types.js';
 import type { OpenRouterClient } from '../services/openrouter/types.js';
-
-/**
- * Create a fast mock OpenRouter client for testing (no delays).
- */
-function createFastMockOpenRouterClient(): OpenRouterClient {
-  return {
-    chatCompletion() {
-      return Promise.resolve({
-        id: 'mock-123',
-        model: 'openai/gpt-4-turbo',
-        choices: [
-          {
-            index: 0,
-            message: { role: 'assistant', content: 'Echo: Hello' },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-      });
-    },
-    // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for fast tests
-    async *chatCompletionStream() {
-      for (const char of 'Echo: Hello') {
-        yield char;
-      }
-    },
-    // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for fast tests
-    async *chatCompletionStreamWithMetadata() {
-      let isFirst = true;
-      for (const char of 'Echo: Hello') {
-        if (isFirst) {
-          yield { content: char, generationId: 'mock-gen-123' };
-          isFirst = false;
-        } else {
-          yield { content: char };
-        }
-      }
-    },
-    listModels() {
-      return Promise.resolve([]);
-    },
-    getModel() {
-      return Promise.reject(new Error('Model not found'));
-    },
-    getGenerationStats(generationId: string) {
-      return Promise.resolve({
-        id: generationId,
-        native_tokens_prompt: 100,
-        native_tokens_completion: 50,
-        total_cost: 0.001,
-      });
-    },
-  };
-}
+import { createFastMockOpenRouterClient } from '../test-helpers/index.js';
 
 interface MockConversation {
   id: string;
@@ -85,6 +33,12 @@ interface MockUser {
   balance: string;
 }
 
+interface ErrorBody {
+  error: string;
+  code?: string;
+  details?: Record<string, unknown>;
+}
+
 /**
  * Create a mock database for testing.
  */
@@ -95,6 +49,9 @@ function createMockDb(options: {
   onInsert?: (table: unknown, values: unknown) => void;
 }) {
   const { conversations = [], messages = [], users = [], onInsert } = options;
+
+  // Track user balance for transaction updates
+  let currentUserBalance = users[0]?.balance ?? '0.00000000';
 
   function createThenable<T>(value: T) {
     return {
@@ -109,32 +66,85 @@ function createMockDb(options: {
     };
   }
 
-  return {
-    select: () => ({
-      from: (table: unknown) => ({
-        where: () => {
-          if (table === conversationsTable) {
-            return createThenable(conversations);
+  function createDbOperations() {
+    return {
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () => {
+            if (table === conversationsTable) {
+              return createThenable(conversations);
+            }
+            if (table === messagesTable) {
+              return createThenable(messages);
+            }
+            if (table === usersTable) {
+              const user = users[0];
+              return createThenable(
+                user
+                  ? [
+                      {
+                        balance: currentUserBalance,
+                        freeAllowanceCents: 0,
+                        freeAllowanceResetAt: new Date(),
+                      },
+                    ]
+                  : []
+              );
+            }
+            return createThenable([]);
+          },
+        }),
+      }),
+      insert: (table: unknown) => ({
+        values: (values: unknown) => {
+          if (onInsert) {
+            onInsert(table, values);
           }
-          if (table === messagesTable) {
-            return createThenable(messages);
-          }
-          if (table === usersTable) {
-            const user = users[0];
-            return createThenable(user ? [{ balance: user.balance }] : []);
-          }
-          return createThenable([]);
+          return {
+            returning: () => {
+              // Return the inserted values as the "inserted record"
+              if (table === messagesTable) {
+                return Promise.resolve([values]);
+              }
+              return Promise.resolve([values]);
+            },
+          };
         },
       }),
-    }),
-    insert: (table: unknown) => ({
-      values: (values: unknown) => {
-        if (onInsert) {
-          onInsert(table, values);
-        }
-        return Promise.resolve();
-      },
-    }),
+      update: (table: unknown) => ({
+        set: (setValues: Record<string, unknown>) => ({
+          where: () => {
+            // For user balance updates, simulate the balance change
+            if (table === usersTable && setValues['balance']) {
+              // Parse the SQL expression or just use a mock balance
+              currentUserBalance = '9.99000000'; // Simulated after deduction
+            }
+            // Return a thenable that also supports .returning()
+            const result = {
+              returning: () => {
+                if (table === usersTable) {
+                  return Promise.resolve([{ balance: currentUserBalance }]);
+                }
+                return Promise.resolve([{}]);
+              },
+              then: (resolve: (v: unknown) => unknown) => Promise.resolve(resolve(undefined)),
+            };
+            return result;
+          },
+        }),
+      }),
+    };
+  }
+
+  const dbOps = createDbOperations();
+
+  return {
+    ...dbOps,
+    // Transaction support: execute callback with the same db operations
+    transaction: async <T>(callback: (tx: typeof dbOps) => Promise<T>): Promise<T> => {
+      // In tests, transactions just run the callback with the same mock operations
+      return callback(createDbOperations());
+    },
   };
 }
 
@@ -234,8 +244,9 @@ describe('chat routes', () => {
       });
 
       expect(res.status).toBe(401);
-      const body = await res.json();
-      expect(body).toEqual({ error: 'Unauthorized' });
+      const body: ErrorBody = await res.json();
+      expect(body.error).toBe('Unauthorized');
+      expect(body.code).toBe('UNAUTHORIZED');
     });
 
     it('returns 400 when conversationId is missing', async () => {
@@ -417,8 +428,9 @@ describe('chat routes', () => {
       });
 
       expect(res.status).toBe(404);
-      const body = await res.json();
-      expect(body).toEqual({ error: 'Conversation not found' });
+      const body: ErrorBody = await res.json();
+      expect(body.error).toBe('Conversation not found');
+      expect(body.code).toBe('NOT_FOUND');
     });
 
     it('returns 404 when conversation belongs to another user', async () => {
@@ -445,8 +457,9 @@ describe('chat routes', () => {
       });
 
       expect(res.status).toBe(404);
-      const body = await res.json();
-      expect(body).toEqual({ error: 'Conversation not found' });
+      const body: ErrorBody = await res.json();
+      expect(body.error).toBe('Conversation not found');
+      expect(body.code).toBe('NOT_FOUND');
     });
 
     it('returns 402 when user has zero balance', async () => {
@@ -488,11 +501,10 @@ describe('chat routes', () => {
       });
 
       expect(res.status).toBe(402);
-      const body = await res.json();
-      expect(body).toEqual({
-        error: 'Premium models require a positive balance. Add credits to access.',
-        currentBalance: '0.00',
-      });
+      const body: ErrorBody = await res.json();
+      expect(body.error).toBe('Premium models require a positive balance');
+      expect(body.code).toBe('PAYMENT_REQUIRED');
+      expect(body.details?.['currentBalance']).toBe('0.00');
     });
 
     it('returns 402 when user has negative balance', async () => {
@@ -534,11 +546,10 @@ describe('chat routes', () => {
       });
 
       expect(res.status).toBe(402);
-      const body = await res.json();
-      expect(body).toEqual({
-        error: 'Premium models require a positive balance. Add credits to access.',
-        currentBalance: '-5.00',
-      });
+      const body: ErrorBody = await res.json();
+      expect(body.error).toBe('Premium models require a positive balance');
+      expect(body.code).toBe('PAYMENT_REQUIRED');
+      expect(body.details?.['currentBalance']).toBe('-5.00');
     });
 
     it('returns 400 when last message is not from user', async () => {
@@ -574,8 +585,9 @@ describe('chat routes', () => {
       });
 
       expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body).toEqual({ error: 'Last message must be from user' });
+      const body: ErrorBody = await res.json();
+      expect(body.error).toBe('Last message must be from user');
+      expect(body.code).toBe('VALIDATION');
     });
 
     it('returns 400 when conversation has no messages', async () => {
@@ -602,8 +614,9 @@ describe('chat routes', () => {
       });
 
       expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body).toEqual({ error: 'Last message must be from user' });
+      const body: ErrorBody = await res.json();
+      expect(body.error).toBe('Last message must be from user');
+      expect(body.code).toBe('VALIDATION');
     });
 
     it('saves assistant message to database after stream completes', async () => {
@@ -637,8 +650,11 @@ describe('chat routes', () => {
             balance: '10.00000000',
           },
         ],
-        onInsert: (_table, values) => {
-          insertedMessage = values;
+        onInsert: (table, values) => {
+          // Only capture message inserts, not balance transactions
+          if (table === messagesTable) {
+            insertedMessage = values;
+          }
         },
       });
 
@@ -738,6 +754,188 @@ describe('chat routes', () => {
       });
     });
 
+    describe('cost calculation routing', () => {
+      it('uses estimated cost in development/test mode (does NOT call getGenerationStats)', async () => {
+        vi.useRealTimers();
+
+        let getGenerationStatsCalled = false;
+
+        const app = new Hono<AppEnv>();
+
+        const openrouter: OpenRouterClient = {
+          chatCompletion() {
+            return Promise.resolve({
+              id: 'mock-123',
+              model: 'openai/gpt-4-turbo',
+              choices: [
+                { index: 0, message: { role: 'assistant', content: 'Hi' }, finish_reason: 'stop' },
+              ],
+              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+            });
+          },
+          // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
+          async *chatCompletionStreamWithMetadata() {
+            yield { content: 'Hello', generationId: 'mock-gen-123' };
+          },
+          // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
+          async *chatCompletionStream() {
+            yield 'Hello';
+          },
+          listModels() {
+            return Promise.resolve([]);
+          },
+          getModel() {
+            return Promise.reject(new Error('Model not found'));
+          },
+          getGenerationStats(generationId: string) {
+            getGenerationStatsCalled = true;
+            return Promise.resolve({
+              id: generationId,
+              native_tokens_prompt: 100,
+              native_tokens_completion: 50,
+              total_cost: 0.001,
+            });
+          },
+        };
+
+        const mockDb = createMockDb({
+          conversations: [
+            {
+              id: 'conv-123',
+              userId: 'user-123',
+              title: 'Test',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ],
+          messages: [
+            {
+              id: 'msg-1',
+              conversationId: 'conv-123',
+              role: 'user',
+              content: 'Hello',
+              model: null,
+              createdAt: new Date(),
+            },
+          ],
+          users: [{ id: 'user-123', balance: '10.00000000' }],
+        });
+
+        app.use('*', async (c, next) => {
+          c.set('user', { id: 'user-123', email: 'test@example.com', name: 'Test' });
+          c.set('session', { id: 'session-123', userId: 'user-123', expiresAt: new Date() });
+          c.set('openrouter', openrouter);
+          c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
+          await next();
+        });
+        app.route('/', createChatRoutes());
+
+        // No NODE_ENV set (defaults to development/test behavior)
+        const res = await app.request('/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId: 'conv-123', model: 'openai/gpt-4-turbo' }),
+        });
+
+        await res.text();
+
+        // In development/test mode, getGenerationStats should NOT be called
+        expect(getGenerationStatsCalled).toBe(false);
+      });
+
+      it('calls getGenerationStats in production mode', async () => {
+        vi.useRealTimers();
+
+        let getGenerationStatsCalled = false;
+
+        const app = new Hono<AppEnv>();
+
+        const openrouter: OpenRouterClient = {
+          chatCompletion() {
+            return Promise.resolve({
+              id: 'mock-123',
+              model: 'openai/gpt-4-turbo',
+              choices: [
+                { index: 0, message: { role: 'assistant', content: 'Hi' }, finish_reason: 'stop' },
+              ],
+              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+            });
+          },
+          // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
+          async *chatCompletionStreamWithMetadata() {
+            yield { content: 'Hello', generationId: 'mock-gen-123' };
+          },
+          // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
+          async *chatCompletionStream() {
+            yield 'Hello';
+          },
+          listModels() {
+            return Promise.resolve([]);
+          },
+          getModel() {
+            return Promise.reject(new Error('Model not found'));
+          },
+          getGenerationStats(generationId: string) {
+            getGenerationStatsCalled = true;
+            return Promise.resolve({
+              id: generationId,
+              native_tokens_prompt: 100,
+              native_tokens_completion: 50,
+              total_cost: 0.001,
+            });
+          },
+        };
+
+        const mockDb = createMockDb({
+          conversations: [
+            {
+              id: 'conv-123',
+              userId: 'user-123',
+              title: 'Test',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ],
+          messages: [
+            {
+              id: 'msg-1',
+              conversationId: 'conv-123',
+              role: 'user',
+              content: 'Hello',
+              model: null,
+              createdAt: new Date(),
+            },
+          ],
+          users: [{ id: 'user-123', balance: '10.00000000' }],
+        });
+
+        app.use('*', async (c, next) => {
+          c.set('user', { id: 'user-123', email: 'test@example.com', name: 'Test' });
+          c.set('session', { id: 'session-123', userId: 'user-123', expiresAt: new Date() });
+          c.set('openrouter', openrouter);
+          c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
+          await next();
+        });
+        app.route('/', createChatRoutes());
+
+        // Pass NODE_ENV: 'production' to simulate production mode
+        const res = await app.request(
+          '/stream',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ conversationId: 'conv-123', model: 'openai/gpt-4-turbo' }),
+          },
+          { NODE_ENV: 'production' } as AppEnv['Bindings']
+        );
+
+        await res.text();
+
+        // In production mode, getGenerationStats SHOULD be called
+        expect(getGenerationStatsCalled).toBe(true);
+      });
+    });
+
     describe('client disconnect handling', () => {
       it('saves complete message when SSE write fails mid-stream', async () => {
         vi.useRealTimers();
@@ -813,8 +1011,11 @@ describe('chat routes', () => {
             },
           ],
           users: [{ id: 'user-123', balance: '10.00000000' }],
-          onInsert: (_table, values) => {
-            insertedMessage = values;
+          onInsert: (table, values) => {
+            // Only capture message inserts, not balance transactions
+            if (table === messagesTable) {
+              insertedMessage = values;
+            }
           },
         });
 
@@ -849,8 +1050,8 @@ describe('chat routes', () => {
       it('triggers billing even when client disconnects', async () => {
         vi.useRealTimers();
 
-        let billingCalled = false;
         let insertedMessage: unknown = null;
+        let balanceTransactionInserted = false;
 
         const app = new Hono<AppEnv>();
 
@@ -881,7 +1082,6 @@ describe('chat routes', () => {
             return Promise.reject(new Error('Model not found'));
           },
           getGenerationStats(generationId: string) {
-            billingCalled = true;
             return Promise.resolve({
               id: generationId,
               native_tokens_prompt: 100,
@@ -912,8 +1112,13 @@ describe('chat routes', () => {
             },
           ],
           users: [{ id: 'user-123', balance: '10.00000000' }],
-          onInsert: (_table, values) => {
-            insertedMessage = values;
+          onInsert: (table, values) => {
+            if (table === messagesTable) {
+              insertedMessage = values;
+            }
+            if (table === balanceTransactionsTable) {
+              balanceTransactionInserted = true;
+            }
           },
         });
 
@@ -938,7 +1143,7 @@ describe('chat routes', () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
 
         expect(insertedMessage).not.toBeNull();
-        expect(billingCalled).toBe(true);
+        expect(balanceTransactionInserted).toBe(true);
       });
     });
 

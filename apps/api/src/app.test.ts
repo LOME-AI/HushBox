@@ -72,8 +72,9 @@ describe('createApp', () => {
       );
 
       expect(res.status).toBe(401);
-      const body = await res.json();
-      expect(body).toEqual({ error: 'Unauthorized' });
+      const body: { error: string; code?: string } = await res.json();
+      expect(body.error).toBe('Unauthorized');
+      expect(body.code).toBe('UNAUTHORIZED');
     });
 
     it('returns 401 for GET /conversations/:id without auth', async () => {
@@ -88,8 +89,9 @@ describe('createApp', () => {
       );
 
       expect(res.status).toBe(401);
-      const body = await res.json();
-      expect(body).toEqual({ error: 'Unauthorized' });
+      const body: { error: string; code?: string } = await res.json();
+      expect(body.error).toBe('Unauthorized');
+      expect(body.code).toBe('UNAUTHORIZED');
     });
 
     it('returns 401 for POST /conversations without auth', async () => {
@@ -104,8 +106,9 @@ describe('createApp', () => {
       );
 
       expect(res.status).toBe(401);
-      const body = await res.json();
-      expect(body).toEqual({ error: 'Unauthorized' });
+      const body: { error: string; code?: string } = await res.json();
+      expect(body.error).toBe('Unauthorized');
+      expect(body.code).toBe('UNAUTHORIZED');
     });
 
     it('returns 401 for DELETE /conversations/:id without auth', async () => {
@@ -120,8 +123,9 @@ describe('createApp', () => {
       );
 
       expect(res.status).toBe(401);
-      const body = await res.json();
-      expect(body).toEqual({ error: 'Unauthorized' });
+      const body: { error: string; code?: string } = await res.json();
+      expect(body.error).toBe('Unauthorized');
+      expect(body.code).toBe('UNAUTHORIZED');
     });
 
     it('returns 401 for PATCH /conversations/:id without auth', async () => {
@@ -136,8 +140,9 @@ describe('createApp', () => {
       );
 
       expect(res.status).toBe(401);
-      const body = await res.json();
-      expect(body).toEqual({ error: 'Unauthorized' });
+      const body: { error: string; code?: string } = await res.json();
+      expect(body.error).toBe('Unauthorized');
+      expect(body.code).toBe('UNAUTHORIZED');
     });
   });
 
@@ -154,8 +159,9 @@ describe('createApp', () => {
       );
 
       expect(res.status).toBe(401);
-      const body = await res.json();
-      expect(body).toEqual({ error: 'Unauthorized' });
+      const body: { error: string; code?: string } = await res.json();
+      expect(body.error).toBe('Unauthorized');
+      expect(body.code).toBe('UNAUTHORIZED');
     });
   });
 

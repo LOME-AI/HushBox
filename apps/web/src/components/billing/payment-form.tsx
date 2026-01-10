@@ -11,10 +11,8 @@ import {
   type HelcimTokenResult,
 } from '../../lib/helcim-loader.js';
 import { useCreatePayment, useProcessPayment, usePaymentStatus } from '../../hooks/billing.js';
-
-// Minimum deposit amount in USD
-const MIN_DEPOSIT_AMOUNT = 5;
-const MAX_DEPOSIT_AMOUNT = 1000;
+import { usePaymentForm } from '../../hooks/use-payment-form.js';
+import { MIN_DEPOSIT_AMOUNT, MAX_DEPOSIT_AMOUNT } from '../../lib/payment-validation.js';
 
 // Declare Helcim global functions
 declare global {
@@ -30,152 +28,13 @@ interface PaymentFormProps {
   onCancel?: () => void;
 }
 
-interface AmountValidation {
-  isValid: boolean;
-  error?: string;
-  success?: string;
-}
-
-// Luhn algorithm for card number validation
-function isValidLuhn(cardNumber: string): boolean {
-  const digits = cardNumber.replace(/\D/g, '');
-  if (digits.length === 0) return false;
-
-  let sum = 0;
-  let isEven = false;
-
-  for (let i = digits.length - 1; i >= 0; i--) {
-    const char = digits[i];
-    if (char === undefined) continue;
-    let digit = parseInt(char, 10);
-
-    if (isEven) {
-      digit *= 2;
-      if (digit > 9) {
-        digit -= 9;
-      }
-    }
-
-    sum += digit;
-    isEven = !isEven;
-  }
-
-  return sum % 10 === 0;
-}
-
-// Format card number: "1234 5678 9012 3456"
-function formatCardNumber(value: string): string {
-  const cleaned = value.replace(/\D/g, '');
-  const groups = cleaned.match(/.{1,4}/g);
-  return groups ? groups.join(' ').substring(0, 19) : '';
-}
-
-// Format expiry: "MM / YY"
-function formatExpiry(value: string): string {
-  const cleaned = value.replace(/\D/g, '');
-  if (cleaned.length >= 3) {
-    return `${cleaned.slice(0, 2)} / ${cleaned.slice(2, 4)}`;
-  }
-  return cleaned;
-}
-
-// Format CVV: digits only, max 4
-function formatCvv(value: string): string {
-  return value.replace(/\D/g, '').slice(0, 4);
-}
-
-// Format ZIP: alphanumeric only
-function formatZip(value: string): string {
-  return value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10);
-}
-
-function validateAmount(value: string): AmountValidation {
-  if (!value) {
-    return { isValid: false, error: 'Please enter an amount' };
-  }
-
-  const numValue = parseFloat(value);
-  if (isNaN(numValue)) {
-    return { isValid: false, error: 'Please enter a valid amount' };
-  }
-
-  if (numValue < MIN_DEPOSIT_AMOUNT) {
-    return { isValid: false, error: `Minimum deposit is $${String(MIN_DEPOSIT_AMOUNT)}` };
-  }
-
-  if (numValue > MAX_DEPOSIT_AMOUNT) {
-    return { isValid: false, error: `Maximum deposit is $${String(MAX_DEPOSIT_AMOUNT)}` };
-  }
-
-  return { isValid: true, success: 'Valid amount' };
-}
-
-function validateCardNumber(cardNumber: string): string | null {
-  const cleaned = cardNumber.replace(/\s/g, '');
-  if (cleaned.length === 0) return 'Card number is required';
-  if (cleaned.length < 13) return 'Card number must be at least 13 digits';
-  if (cleaned.length > 19) return 'Card number is too long';
-  if (!/^\d+$/.test(cleaned)) return 'Card number must contain only digits';
-  if (!isValidLuhn(cleaned)) return 'Invalid card number';
-  return null;
-}
-
-function validateExpiry(expiry: string): string | null {
-  if (expiry.length === 0) return 'Expiry date is required';
-  if (!/^\d{2}\s\/\s\d{2}$/.exec(expiry)) return 'Format: MM / YY';
-
-  const parts = expiry.split(' / ');
-  const monthStr = parts[0] ?? '';
-  const yearStr = parts[1] ?? '';
-  const month = parseInt(monthStr, 10);
-  const year = parseInt(yearStr, 10);
-
-  if (month < 1 || month > 12) return 'Invalid month';
-
-  const now = new Date();
-  const currentYear = now.getFullYear() % 100;
-  const currentMonth = now.getMonth() + 1;
-
-  if (year < currentYear || (year === currentYear && month < currentMonth)) {
-    return 'Card has expired';
-  }
-
-  return null;
-}
-
-function validateCvv(cvv: string): string | null {
-  if (cvv.length === 0) return 'CVV is required';
-  if (cvv.length < 3) return 'CVV must be 3-4 digits';
-  if (!/^\d+$/.test(cvv)) return 'CVV must contain only digits';
-  return null;
-}
-
-function validateZip(zip: string): string | null {
-  if (zip.length === 0) return 'ZIP code is required';
-  if (zip.length < 5) return 'ZIP code must be 5 digits';
-  return null;
-}
-
 export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JSX.Element {
   // Check if we're in dev mode (for simulation buttons)
   const jsToken = import.meta.env['VITE_HELCIM_JS_TOKEN'] as string | undefined;
   const isDevMode = jsToken === 'dev-mock';
 
-  // Amount state
-  const [amount, setAmount] = useState('');
-  const [amountTouched, setAmountTouched] = useState(false);
-
-  // Card input state
-  const [cardNumber, setCardNumber] = useState('');
-  const [expiry, setExpiry] = useState('');
-  const [cvv, setCvv] = useState('');
-  const [zipCode, setZipCode] = useState('');
-  const [cardTouched, setCardTouched] = useState({
-    cardNumber: false,
-    expiry: false,
-    cvv: false,
-    zipCode: false,
-  });
+  // Form state via hook
+  const form = usePaymentForm();
 
   // Payment state
   const [paymentState, setPaymentState] = useState<PaymentState>('idle');
@@ -188,39 +47,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
 
   const createPayment = useCreatePayment();
   const processPayment = useProcessPayment();
-
-  // Real-time validation
-  const amountValidation = amountTouched ? validateAmount(amount) : { isValid: false };
-  const cardValidation = {
-    cardNumber: cardTouched.cardNumber
-      ? {
-          error: validateCardNumber(cardNumber),
-          success:
-            validateCardNumber(cardNumber) === null && cardNumber.length > 0
-              ? 'Valid card'
-              : undefined,
-        }
-      : { error: null, success: undefined },
-    expiry: cardTouched.expiry
-      ? {
-          error: validateExpiry(expiry),
-          success:
-            validateExpiry(expiry) === null && expiry.length > 0 ? 'Valid expiry' : undefined,
-        }
-      : { error: null, success: undefined },
-    cvv: cardTouched.cvv
-      ? {
-          error: validateCvv(cvv),
-          success: validateCvv(cvv) === null && cvv.length > 0 ? 'Valid CVV' : undefined,
-        }
-      : { error: null, success: undefined },
-    zipCode: cardTouched.zipCode
-      ? {
-          error: validateZip(zipCode),
-          success: validateZip(zipCode) === null && zipCode.length > 0 ? 'Valid ZIP' : undefined,
-        }
-      : { error: null, success: undefined },
-  };
 
   // Poll payment status when awaiting webhook
   const { data: paymentStatus } = usePaymentStatus(paymentId, {
@@ -341,7 +167,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
   const handleSimulateSuccess = async (): Promise<void> => {
     try {
       // Use user-entered amount or default to $100
-      const simulateAmount = amount || '100';
+      const simulateAmount = form.amount || '100';
       const formattedAmount = parseFloat(simulateAmount).toFixed(8);
 
       // Step 1: Create payment record
@@ -372,60 +198,11 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     setErrorMessage('Simulated payment failure');
   };
 
-  // Card input handlers
-  const handleCardNumberChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    setCardNumber(formatCardNumber(e.target.value));
-    if (!cardTouched.cardNumber) setCardTouched((prev) => ({ ...prev, cardNumber: true }));
-  };
-
-  const handleExpiryChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    setExpiry(formatExpiry(e.target.value));
-    if (!cardTouched.expiry) setCardTouched((prev) => ({ ...prev, expiry: true }));
-  };
-
-  const handleCvvChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    setCvv(formatCvv(e.target.value));
-    if (!cardTouched.cvv) setCardTouched((prev) => ({ ...prev, cvv: true }));
-  };
-
-  const handleZipChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    setZipCode(formatZip(e.target.value));
-    if (!cardTouched.zipCode) setCardTouched((prev) => ({ ...prev, zipCode: true }));
-  };
-
-  // Validate all card fields
-  const validateCardFields = (): boolean => {
-    const errors = {
-      cardNumber: validateCardNumber(cardNumber),
-      expiry: validateExpiry(expiry),
-      cvv: validateCvv(cvv),
-      zipCode: validateZip(zipCode),
-    };
-
-    // Mark all as touched to show errors
-    setCardTouched({
-      cardNumber: true,
-      expiry: true,
-      cvv: true,
-      zipCode: true,
-    });
-
-    return !errors.cardNumber && !errors.expiry && !errors.cvv && !errors.zipCode;
-  };
-
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
 
-    // Mark amount as touched on submit
-    setAmountTouched(true);
-
-    const validation = validateAmount(amount);
-    if (!validation.isValid) {
-      return;
-    }
-
-    // Validate card fields
-    if (!validateCardFields()) {
+    // Validate all fields
+    if (!form.validateAll()) {
       return;
     }
 
@@ -433,7 +210,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
 
     try {
       // Format to 8 decimal places for backend
-      const formattedAmount = parseFloat(amount).toFixed(8);
+      const formattedAmount = parseFloat(form.amount).toFixed(8);
       const result = await createPayment.mutateAsync({ amount: formattedAmount });
       setPaymentId(result.paymentId);
 
@@ -456,18 +233,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
   };
 
   const handleReset = (): void => {
-    setAmount('');
-    setAmountTouched(false);
-    setCardNumber('');
-    setExpiry('');
-    setCvv('');
-    setZipCode('');
-    setCardTouched({
-      cardNumber: false,
-      expiry: false,
-      cvv: false,
-      zipCode: false,
-    });
+    form.reset();
     setPaymentState('idle');
     setPaymentId(null);
     setErrorMessage(null);
@@ -485,7 +251,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
         <CardContent className="space-y-4">
           <div className="py-4 text-center">
             <p className="text-primary text-2xl font-semibold">
-              +${parseFloat(amount || '0').toFixed(2)}
+              +${parseFloat(form.amount || '0').toFixed(2)}
             </p>
             <p className="text-muted-foreground mt-2">Added to your balance</p>
           </div>
@@ -548,7 +314,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
         >
           {/* Hidden Helcim fields */}
           <input type="hidden" id="token" value={jsToken ?? ''} />
-          <input type="hidden" id="amount" value={amount} />
+          <input type="hidden" id="amount" value={form.amount} />
 
           {/* Amount input */}
           <FormInput
@@ -559,14 +325,13 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
             max={MAX_DEPOSIT_AMOUNT}
             step="0.01"
             icon={<DollarSign className="h-5 w-5" />}
-            value={amount}
+            value={form.amount}
             onChange={(e) => {
-              setAmount(e.target.value);
-              if (!amountTouched) setAmountTouched(true);
+              form.handleAmountChange(e.target.value);
             }}
-            aria-invalid={!!amountValidation.error}
-            error={amountValidation.error}
-            success={amountValidation.success}
+            aria-invalid={!!form.amountValidation.error}
+            error={form.amountValidation.error}
+            success={form.amountValidation.success}
             className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
 
@@ -598,12 +363,14 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
                 inputMode="numeric"
                 autoComplete="cc-number"
                 icon={<CreditCard className="h-5 w-5" />}
-                value={cardNumber}
-                onChange={handleCardNumberChange}
+                value={form.cardNumber}
+                onChange={(e) => {
+                  form.handleCardNumberChange(e.target.value);
+                }}
                 maxLength={19}
-                aria-invalid={!!cardValidation.cardNumber.error}
-                error={cardValidation.cardNumber.error ?? undefined}
-                success={cardValidation.cardNumber.success}
+                aria-invalid={!!form.cardValidation.cardNumber.error}
+                error={form.cardValidation.cardNumber.error ?? undefined}
+                success={form.cardValidation.cardNumber.success}
               />
 
               {/* Expiry and CVV side by side */}
@@ -615,17 +382,19 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
                     type="text"
                     inputMode="numeric"
                     autoComplete="cc-exp"
-                    value={expiry}
-                    onChange={handleExpiryChange}
+                    value={form.expiry}
+                    onChange={(e) => {
+                      form.handleExpiryChange(e.target.value);
+                    }}
                     maxLength={7}
-                    aria-invalid={!!cardValidation.expiry.error}
-                    error={cardValidation.expiry.error ?? undefined}
-                    success={cardValidation.expiry.success}
+                    aria-invalid={!!form.cardValidation.expiry.error}
+                    error={form.cardValidation.expiry.error ?? undefined}
+                    success={form.cardValidation.expiry.success}
                   />
                 </div>
                 {/* Hidden fields for Helcim - it needs month and year separately */}
-                <input type="hidden" id="cardExpiryMonth" value={expiry.split(' / ')[0] ?? ''} />
-                <input type="hidden" id="cardExpiryYear" value={expiry.split(' / ')[1] ?? ''} />
+                <input type="hidden" id="cardExpiryMonth" value={form.expiryParts.month} />
+                <input type="hidden" id="cardExpiryYear" value={form.expiryParts.year} />
 
                 <div className="flex-1">
                   <FormInput
@@ -635,12 +404,14 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
                     inputMode="numeric"
                     autoComplete="cc-csc"
                     icon={<Lock className="h-5 w-5" />}
-                    value={cvv}
-                    onChange={handleCvvChange}
+                    value={form.cvv}
+                    onChange={(e) => {
+                      form.handleCvvChange(e.target.value);
+                    }}
                     maxLength={4}
-                    aria-invalid={!!cardValidation.cvv.error}
-                    error={cardValidation.cvv.error ?? undefined}
-                    success={cardValidation.cvv.success}
+                    aria-invalid={!!form.cardValidation.cvv.error}
+                    error={form.cardValidation.cvv.error ?? undefined}
+                    success={form.cardValidation.cvv.success}
                   />
                 </div>
               </div>
@@ -652,12 +423,14 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
                 type="text"
                 autoComplete="postal-code"
                 icon={<MapPin className="h-5 w-5" />}
-                value={zipCode}
-                onChange={handleZipChange}
+                value={form.zipCode}
+                onChange={(e) => {
+                  form.handleZipChange(e.target.value);
+                }}
                 maxLength={10}
-                aria-invalid={!!cardValidation.zipCode.error}
-                error={cardValidation.zipCode.error ?? undefined}
-                success={cardValidation.zipCode.success}
+                aria-invalid={!!form.cardValidation.zipCode.error}
+                error={form.cardValidation.zipCode.error ?? undefined}
+                success={form.cardValidation.zipCode.success}
               />
 
               {/* Hidden results container for Helcim response */}

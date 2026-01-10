@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   applyFees,
   calculateTokenCostWithFees,
-  calculateMessageCost,
+  estimateMessageCostDevelopment,
   calculateMessageCostFromOpenRouter,
+  estimateTokenCount,
 } from './pricing.js';
 import type { MessageCostParams, MessageCostFromOpenRouterParams } from './pricing.js';
 import { TOTAL_FEE_RATE, STORAGE_COST_PER_CHARACTER } from './constants.js';
@@ -49,7 +50,35 @@ describe('calculateTokenCostWithFees', () => {
   });
 });
 
-describe('calculateMessageCost', () => {
+describe('estimateTokenCount', () => {
+  it('estimates tokens using chars/4 heuristic', () => {
+    expect(estimateTokenCount('hello')).toBe(2); // 5 chars -> ceil(5/4) = 2
+    expect(estimateTokenCount('hello world')).toBe(3); // 11 chars -> ceil(11/4) = 3
+  });
+
+  it('handles empty string', () => {
+    expect(estimateTokenCount('')).toBe(0);
+  });
+
+  it('handles single character', () => {
+    expect(estimateTokenCount('a')).toBe(1);
+  });
+
+  it('handles exactly 4 characters', () => {
+    expect(estimateTokenCount('abcd')).toBe(1);
+  });
+
+  it('handles 5 characters (rounds up)', () => {
+    expect(estimateTokenCount('abcde')).toBe(2);
+  });
+
+  it('handles large text', () => {
+    const text = 'a'.repeat(1000);
+    expect(estimateTokenCount(text)).toBe(250);
+  });
+});
+
+describe('estimateMessageCostDevelopment', () => {
   const baseParams: MessageCostParams = {
     inputTokens: 100,
     outputTokens: 200,
@@ -61,7 +90,7 @@ describe('calculateMessageCost', () => {
 
   describe('model cost calculation', () => {
     it('calculates model cost from tokens and prices', () => {
-      const result = calculateMessageCost(baseParams);
+      const result = estimateMessageCostDevelopment(baseParams);
       const expectedModelCost = 100 * 0.00001 + 200 * 0.00003; // 0.007
       const expectedLomeFee = expectedModelCost * TOTAL_FEE_RATE;
       const expectedStorageFee = (400 + 800) * STORAGE_COST_PER_CHARACTER;
@@ -70,7 +99,7 @@ describe('calculateMessageCost', () => {
     });
 
     it('handles zero tokens', () => {
-      const result = calculateMessageCost({
+      const result = estimateMessageCostDevelopment({
         ...baseParams,
         inputTokens: 0,
         outputTokens: 0,
@@ -81,7 +110,7 @@ describe('calculateMessageCost', () => {
     });
 
     it('handles zero price per token', () => {
-      const result = calculateMessageCost({
+      const result = estimateMessageCostDevelopment({
         ...baseParams,
         pricePerInputToken: 0,
         pricePerOutputToken: 0,
@@ -99,19 +128,19 @@ describe('calculateMessageCost', () => {
         inputCharacters: 0,
         outputCharacters: 0,
       };
-      const result = calculateMessageCost(paramsNoStorage);
+      const result = estimateMessageCostDevelopment(paramsNoStorage);
       const modelCost = 100 * 0.00001 + 200 * 0.00003;
 
       expect(result).toBeCloseTo(modelCost * (1 + TOTAL_FEE_RATE), 10);
     });
 
     it('does not apply LOME fee to storage fee', () => {
-      const modelOnlyResult = calculateMessageCost({
+      const modelOnlyResult = estimateMessageCostDevelopment({
         ...baseParams,
         inputCharacters: 0,
         outputCharacters: 0,
       });
-      const fullResult = calculateMessageCost(baseParams);
+      const fullResult = estimateMessageCostDevelopment(baseParams);
       const storageFee = (400 + 800) * STORAGE_COST_PER_CHARACTER;
 
       // Full result should be model cost with LOME fee + raw storage fee (no LOME fee on storage)
@@ -129,13 +158,13 @@ describe('calculateMessageCost', () => {
         pricePerInputToken: 0,
         pricePerOutputToken: 0,
       };
-      const result = calculateMessageCost(paramsNoModel);
+      const result = estimateMessageCostDevelopment(paramsNoModel);
 
       expect(result).toBeCloseTo(2000 * STORAGE_COST_PER_CHARACTER, 10);
     });
 
     it('applies storage fee to input and output independently', () => {
-      const inputOnly = calculateMessageCost({
+      const inputOnly = estimateMessageCostDevelopment({
         inputTokens: 0,
         outputTokens: 0,
         pricePerInputToken: 0,
@@ -143,7 +172,7 @@ describe('calculateMessageCost', () => {
         inputCharacters: 500,
         outputCharacters: 0,
       });
-      const outputOnly = calculateMessageCost({
+      const outputOnly = estimateMessageCostDevelopment({
         inputTokens: 0,
         outputTokens: 0,
         pricePerInputToken: 0,
@@ -158,7 +187,7 @@ describe('calculateMessageCost', () => {
     });
 
     it('handles zero characters', () => {
-      const result = calculateMessageCost({
+      const result = estimateMessageCostDevelopment({
         ...baseParams,
         inputCharacters: 0,
         outputCharacters: 0,
@@ -171,7 +200,7 @@ describe('calculateMessageCost', () => {
 
   describe('combined calculation', () => {
     it('sums model cost, LOME fee, and storage fee', () => {
-      const result = calculateMessageCost(baseParams);
+      const result = estimateMessageCostDevelopment(baseParams);
 
       const modelCost = 100 * 0.00001 + 200 * 0.00003;
       const lomeFee = modelCost * TOTAL_FEE_RATE;
@@ -190,7 +219,7 @@ describe('calculateMessageCost', () => {
         pricePerInputToken: 0.00003,
         pricePerOutputToken: 0.00006,
       };
-      const result = calculateMessageCost(gpt4Params);
+      const result = estimateMessageCostDevelopment(gpt4Params);
 
       const modelCost = 1000 * 0.00003 + 500 * 0.00006; // 0.03 + 0.03 = 0.06
       const lomeFee = modelCost * TOTAL_FEE_RATE; // 0.06 * 0.15 = 0.009
@@ -208,7 +237,7 @@ describe('calculateMessageCost', () => {
         pricePerInputToken: 0.00001,
         pricePerOutputToken: 0.00003,
       };
-      const result = calculateMessageCost(largeParams);
+      const result = estimateMessageCostDevelopment(largeParams);
 
       expect(result).toBeGreaterThan(0);
       expect(Number.isFinite(result)).toBe(true);
@@ -223,7 +252,7 @@ describe('calculateMessageCost', () => {
         pricePerInputToken: 0.0000001,
         pricePerOutputToken: 0.0000001,
       };
-      const result = calculateMessageCost(smallParams);
+      const result = estimateMessageCostDevelopment(smallParams);
 
       expect(result).toBeGreaterThan(0);
       expect(Number.isFinite(result)).toBe(true);
@@ -240,7 +269,7 @@ describe('calculateMessageCost', () => {
         pricePerInputToken: 0,
         pricePerOutputToken: 0,
       };
-      const result = calculateMessageCost(zeroParams);
+      const result = estimateMessageCostDevelopment(zeroParams);
 
       expect(result).toBe(0);
     });
@@ -254,7 +283,7 @@ describe('calculateMessageCost', () => {
         pricePerInputToken: 0.00001,
         pricePerOutputToken: 0.00003,
       };
-      const result = calculateMessageCost(inputOnlyParams);
+      const result = estimateMessageCostDevelopment(inputOnlyParams);
 
       const modelCost = 100 * 0.00001;
       const lomeFee = modelCost * TOTAL_FEE_RATE;
@@ -272,7 +301,7 @@ describe('calculateMessageCost', () => {
         pricePerInputToken: 0.00001,
         pricePerOutputToken: 0.00003,
       };
-      const result = calculateMessageCost(outputOnlyParams);
+      const result = estimateMessageCostDevelopment(outputOnlyParams);
 
       const modelCost = 200 * 0.00003;
       const lomeFee = modelCost * TOTAL_FEE_RATE;

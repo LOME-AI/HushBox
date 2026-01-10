@@ -1,6 +1,16 @@
 import { TOTAL_FEE_RATE, STORAGE_COST_PER_CHARACTER } from './constants.js';
 
 /**
+ * Estimate token count from text using character-based heuristic.
+ * Uses ~4 characters per token approximation.
+ * This is an approximation - actual tokenization varies by model.
+ */
+export function estimateTokenCount(text: string): number {
+  if (!text) return 0;
+  return Math.ceil(text.length / 4);
+}
+
+/**
  * Apply all fees (LOME + CC + Provider) to a base price.
  * SINGLE SOURCE OF TRUTH for fee application.
  *
@@ -47,9 +57,10 @@ export interface MessageCostParams {
 }
 
 /**
- * Calculate the total cost of a message including model usage and storage fees.
+ * Estimate message cost for development environment using token counts.
  *
- * This is the SINGLE SOURCE OF TRUTH for message costs.
+ * Use this when exact OpenRouter stats are not available (local development).
+ * For production, use calculateMessageCostFromOpenRouter with exact costs.
  *
  * Components:
  * 1. Token cost with fees: uses calculateTokenCostWithFees (includes 15% markup)
@@ -58,7 +69,7 @@ export interface MessageCostParams {
  * Storage fee applies only to new messages (input + output), not conversation history.
  * Fees (15%) apply only to model cost, not to storage fee.
  */
-export function calculateMessageCost(params: MessageCostParams): number {
+export function estimateMessageCostDevelopment(params: MessageCostParams): number {
   const {
     inputTokens,
     outputTokens,

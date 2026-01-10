@@ -15,6 +15,7 @@ import {
   type CreateMessageRequest,
   type CreateMessageResponse,
 } from '../lib/api';
+import { createSSEParser } from '../lib/sse-client';
 
 export const chatKeys = {
   all: ['chat'] as const,
@@ -211,58 +212,48 @@ export function useChatStream(): ChatStreamHook {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let buffer = '';
-        let userMessageId = '';
-        let assistantMessageId = '';
-        let content = '';
-        let currentEvent = '';
+        let streamError: Error | null = null;
+        let streamDone = false;
+
+        const parser = createSSEParser({
+          onStart: (data) => {
+            options?.onStart?.(data);
+          },
+          onToken: (tokenContent) => {
+            options?.onToken?.(tokenContent);
+          },
+          onError: (errorData) => {
+            streamError = new Error(errorData.message);
+          },
+          onDone: () => {
+            streamDone = true;
+          },
+        });
 
         try {
           // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- standard pattern for async iterator
-          streamLoop: while (true) {
+          while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() ?? '';
+            parser.processChunk(decoder.decode(value, { stream: true }));
 
-            for (const line of lines) {
-              if (line.startsWith('event: ')) {
-                currentEvent = line.slice(7).trim();
-              } else if (line.startsWith('data: ')) {
-                const data = line.slice(6).trim();
-                if (data && currentEvent) {
-                  const parsed: unknown = JSON.parse(data);
-
-                  if (currentEvent === 'start') {
-                    const startData = parsed as {
-                      userMessageId: string;
-                      assistantMessageId: string;
-                    };
-                    userMessageId = startData.userMessageId;
-                    assistantMessageId = startData.assistantMessageId;
-                    if (options?.onStart) {
-                      options.onStart({ userMessageId, assistantMessageId });
-                    }
-                  } else if (currentEvent === 'token') {
-                    const tokenData = parsed as { content: string };
-                    content += tokenData.content;
-                    if (options?.onToken) {
-                      options.onToken(tokenData.content);
-                    }
-                  } else if (currentEvent === 'error') {
-                    const errorData = parsed as { message: string; code?: string };
-                    throw new Error(errorData.message);
-                  } else if (currentEvent === 'done') {
-                    break streamLoop;
-                  }
-                }
-              }
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- streamError mutated in onError callback
+            if (streamError) {
+              // eslint-disable-next-line @typescript-eslint/only-throw-error -- streamError is Error when truthy
+              throw streamError;
+            }
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- streamDone mutated in onDone callback
+            if (streamDone) {
+              break;
             }
           }
 
-          return { userMessageId, assistantMessageId, content };
+          return {
+            userMessageId: parser.getUserMessageId(),
+            assistantMessageId: parser.getAssistantMessageId(),
+            content: parser.getContent(),
+          };
         } finally {
           reader.cancel().catch(() => {
             // Reader cleanup errors can be ignored

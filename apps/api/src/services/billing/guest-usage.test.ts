@@ -295,5 +295,67 @@ describe('guest usage service', () => {
       expect(result.messageCount).toBe(5);
       expect(result.id).toBe(record2.id);
     });
+
+    it('uses existingRecord when provided to skip query', async () => {
+      const guestToken = `test-token-${crypto.randomUUID()}`;
+      const ipHash = `test-ip-${crypto.randomUUID()}`;
+
+      // Create existing record
+      const [existing] = await db
+        .insert(guestUsage)
+        .values({
+          guestToken,
+          ipHash,
+          messageCount: 2,
+          resetAt: getUtcMidnight(),
+        })
+        .returning();
+      if (!existing) throw new Error('Failed to create test record');
+      createdIds.push(existing.id);
+
+      // Pass existing record to skip query
+      const result = await incrementGuestUsage(db, guestToken, ipHash, {
+        id: existing.id,
+        messageCount: existing.messageCount,
+        resetAt: existing.resetAt,
+      });
+
+      expect(result.messageCount).toBe(3);
+      expect(result.id).toBe(existing.id);
+    });
+  });
+
+  describe('checkGuestUsage record passthrough', () => {
+    it('returns record in result when guest has existing usage', async () => {
+      const guestToken = `test-token-${crypto.randomUUID()}`;
+      const ipHash = `test-ip-${crypto.randomUUID()}`;
+
+      const [existing] = await db
+        .insert(guestUsage)
+        .values({
+          guestToken,
+          ipHash,
+          messageCount: 2,
+          resetAt: getUtcMidnight(),
+        })
+        .returning();
+      if (!existing) throw new Error('Failed to create test record');
+      createdIds.push(existing.id);
+
+      const result = await checkGuestUsage(db, guestToken, ipHash);
+
+      expect(result.record).toBeDefined();
+      expect(result.record?.id).toBe(existing.id);
+      expect(result.record?.messageCount).toBe(2);
+    });
+
+    it('returns undefined record for new guest', async () => {
+      const guestToken = `test-token-${crypto.randomUUID()}`;
+      const ipHash = `test-ip-${crypto.randomUUID()}`;
+
+      const result = await checkGuestUsage(db, guestToken, ipHash);
+
+      expect(result.record).toBeUndefined();
+    });
   });
 });

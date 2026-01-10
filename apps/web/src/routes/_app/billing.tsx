@@ -40,10 +40,10 @@ export function BillingPage(): React.JSX.Element {
   const hasPrevPage = page > 0;
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex h-full flex-col">
       <PageHeader title="Billing" right={<ThemeToggle />} />
 
-      <div className="container mx-auto max-w-4xl flex-1 space-y-6 p-4">
+      <div className="container mx-auto max-w-4xl flex-1 space-y-6 overflow-y-auto p-4">
         {/* Balance Card */}
         <Card>
           <CardHeader>
@@ -155,6 +155,7 @@ export function BillingPage(): React.JSX.Element {
                 <Button
                   variant="outline"
                   size="sm"
+                  className="w-28"
                   onClick={() => {
                     setPage((p) => Math.max(0, p - 1));
                   }}
@@ -167,6 +168,7 @@ export function BillingPage(): React.JSX.Element {
                 <Button
                   variant="outline"
                   size="sm"
+                  className="w-28"
                   onClick={() => {
                     setPage((p) => p + 1);
                   }}

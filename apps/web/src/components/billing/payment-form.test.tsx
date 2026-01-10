@@ -188,8 +188,9 @@ describe('PaymentForm', () => {
 
       await user.click(screen.getByRole('button', { name: /purchase/i }));
 
+      // Submit touches all fields, so multiple alerts appear
       await waitFor(() => {
-        expect(screen.getByRole('alert')).toHaveTextContent(/enter.*amount/i);
+        expect(screen.getByText(/please enter an amount/i)).toBeInTheDocument();
       });
     });
 
@@ -205,8 +206,9 @@ describe('PaymentForm', () => {
       await user.type(screen.getByLabelText(/amount/i), '3');
       await user.click(screen.getByRole('button', { name: /purchase/i }));
 
+      // Submit touches all fields, so multiple alerts appear
       await waitFor(() => {
-        expect(screen.getByRole('alert')).toHaveTextContent(/minimum.*\$5/i);
+        expect(screen.getByText(/minimum deposit is \$5/i)).toBeInTheDocument();
       });
     });
 
@@ -222,8 +224,9 @@ describe('PaymentForm', () => {
       await user.type(screen.getByLabelText(/amount/i), '1500');
       await user.click(screen.getByRole('button', { name: /purchase/i }));
 
+      // Submit touches all fields, so multiple alerts appear
       await waitFor(() => {
-        expect(screen.getByRole('alert')).toHaveTextContent(/maximum.*\$1000/i);
+        expect(screen.getByText(/maximum deposit is \$1000/i)).toBeInTheDocument();
       });
     });
 

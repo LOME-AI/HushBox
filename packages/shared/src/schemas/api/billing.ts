@@ -1,20 +1,14 @@
 import { z } from 'zod';
+import {
+  paymentStatusSchema,
+  balanceTransactionTypeSchema,
+  type PaymentStatus,
+  type BalanceTransactionType,
+} from '../../enums.js';
 
-// ============================================================
-// Payment Status Enum
-// ============================================================
-
-export const paymentStatusSchema = z.enum(['pending', 'awaiting_webhook', 'confirmed', 'failed']);
-
-export type PaymentStatus = z.infer<typeof paymentStatusSchema>;
-
-// ============================================================
-// Balance Transaction Type Enum
-// ============================================================
-
-export const balanceTransactionTypeSchema = z.enum(['deposit', 'usage', 'adjustment']);
-
-export type BalanceTransactionType = z.infer<typeof balanceTransactionTypeSchema>;
+// Re-export enums for API schema consumers
+export { paymentStatusSchema, balanceTransactionTypeSchema };
+export type { PaymentStatus, BalanceTransactionType };
 
 // ============================================================
 // Request Schemas
@@ -157,11 +151,4 @@ export const listTransactionsResponseSchema = z.object({
 
 export type ListTransactionsResponse = z.infer<typeof listTransactionsResponseSchema>;
 
-/**
- * Standard error response schema.
- */
-export const errorResponseSchema = z.object({
-  error: z.string(),
-});
-
-export type ErrorResponse = z.infer<typeof errorResponseSchema>;
+// Note: errorResponseSchema is exported from ./error.ts

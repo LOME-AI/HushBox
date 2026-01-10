@@ -1,30 +1,9 @@
 import * as React from 'react';
+import { formatCost } from '@lome-chat/shared';
 
 interface MessageCostProps {
   /** Cost in USD as a string (e.g., "0.00136000") */
   cost: string;
-}
-
-/**
- * Formats a cost string for display.
- * - Shows 4 decimal places for costs >= $0.0001
- * - Shows 6 decimal places for very small costs
- * - Prepends $ sign
- */
-function formatCost(cost: string): string {
-  const numericCost = parseFloat(cost);
-
-  if (isNaN(numericCost) || numericCost === 0) {
-    return '$0.00';
-  }
-
-  // For very small costs (< $0.0001), show more precision
-  if (numericCost < 0.0001) {
-    return `$${numericCost.toFixed(6)}`;
-  }
-
-  // For normal costs, show 4 decimal places
-  return `$${numericCost.toFixed(4)}`;
 }
 
 /**

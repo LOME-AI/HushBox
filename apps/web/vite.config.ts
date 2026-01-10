@@ -6,7 +6,14 @@ import { resolve } from 'path';
 
 export default defineConfig({
   envDir: resolve(__dirname, '../..'),
-  plugins: [tailwindcss(), TanStackRouterVite({ quoteStyle: 'single' }), react()],
+  plugins: [
+    tailwindcss(),
+    TanStackRouterVite({
+      quoteStyle: 'single',
+      routeFileIgnorePattern: '.*\\.test\\.tsx?$',
+    }),
+    react(),
+  ],
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),

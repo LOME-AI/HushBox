@@ -1,22 +1,27 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
-import { eq, desc, and } from 'drizzle-orm';
-import {
-  conversations,
-  messages,
-  selectConversationSchema,
-  selectMessageSchema,
-} from '@lome-chat/db';
+import { selectConversationSchema, selectMessageSchema } from '@lome-chat/db';
 import {
   createConversationRequestSchema,
   updateConversationRequestSchema,
   createMessageRequestSchema,
+  errorResponseSchema,
+  ERROR_CODE_UNAUTHORIZED,
+  ERROR_CODE_NOT_FOUND,
 } from '@lome-chat/shared';
+import { createErrorResponse } from '../lib/error-response.js';
+import { ERROR_UNAUTHORIZED, ERROR_CONVERSATION_NOT_FOUND } from '../constants/errors.js';
+import {
+  listConversations,
+  getConversation,
+  createConversation,
+  updateConversation,
+  deleteConversation,
+  createMessage,
+} from '../services/conversations/index.js';
 import type { AppEnv } from '../types.js';
 
 // Response schemas for OpenAPI documentation
-const errorSchema = z.object({
-  error: z.string(),
-});
+const errorSchema = errorResponseSchema;
 
 const conversationsListResponseSchema = z.object({
   conversations: z.array(selectConversationSchema),
@@ -223,15 +228,10 @@ export function createConversationsRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
 
     if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
 
-    const userConversations = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.userId, user.id))
-      .orderBy(desc(conversations.updatedAt));
-
+    const userConversations = await listConversations(db, user.id);
     return c.json({ conversations: userConversations }, 200);
   });
 
@@ -241,29 +241,17 @@ export function createConversationsRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
 
     if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
 
     const { id: conversationId } = c.req.valid('param');
+    const result = await getConversation(db, conversationId, user.id);
 
-    // Get conversation and verify ownership
-    const [conversation] = await db
-      .select()
-      .from(conversations)
-      .where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)));
-
-    if (!conversation) {
-      return c.json({ error: 'Conversation not found' }, 404);
+    if (!result) {
+      return c.json(createErrorResponse(ERROR_CONVERSATION_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }
 
-    // Get messages for conversation
-    const conversationMessages = await db
-      .select()
-      .from(messages)
-      .where(eq(messages.conversationId, conversationId))
-      .orderBy(messages.createdAt);
-
-    return c.json({ conversation, messages: conversationMessages }, 200);
+    return c.json(result, 200);
   });
 
   // POST / - Create a new conversation
@@ -272,46 +260,13 @@ export function createConversationsRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
 
     if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
 
     const body = c.req.valid('json');
-
-    let conversationTitle: string | undefined = body.title;
-    if (!conversationTitle && body.firstMessage) {
-      conversationTitle = body.firstMessage.content.slice(0, 50);
-    }
-
-    // Use transaction to ensure atomicity of conversation + message creation
-    const result = await db.transaction(async (tx) => {
-      // Create conversation - use provided/generated title or default
-      const [conversation] = await tx
-        .insert(conversations)
-        .values({
-          userId: user.id,
-          title: conversationTitle ?? 'New Conversation',
-        })
-        .returning();
-
-      if (!conversation) {
-        throw new Error('Failed to create conversation');
-      }
-
-      // Optionally create first message
-      if (body.firstMessage) {
-        const [message] = await tx
-          .insert(messages)
-          .values({
-            conversationId: conversation.id,
-            role: 'user',
-            content: body.firstMessage.content,
-          })
-          .returning();
-
-        return { conversation, message };
-      }
-
-      return { conversation };
+    const result = await createConversation(db, user.id, {
+      title: body.title,
+      firstMessage: body.firstMessage,
     });
 
     return c.json(result, 201);
@@ -323,34 +278,17 @@ export function createConversationsRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
 
     if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
 
     const { id: conversationId } = c.req.valid('param');
     const body = c.req.valid('json');
-
-    // Verify ownership
-    const [existing] = await db
-      .select()
-      .from(conversations)
-      .where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)));
-
-    if (!existing) {
-      return c.json({ error: 'Conversation not found' }, 404);
-    }
-
-    // Update conversation
-    const [conversation] = await db
-      .update(conversations)
-      .set({
-        title: body.title,
-        updatedAt: new Date(),
-      })
-      .where(eq(conversations.id, conversationId))
-      .returning();
+    const conversation = await updateConversation(db, conversationId, user.id, {
+      title: body.title,
+    });
 
     if (!conversation) {
-      return c.json({ error: 'Failed to update conversation' }, 500);
+      return c.json(createErrorResponse(ERROR_CONVERSATION_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }
 
     return c.json({ conversation }, 200);
@@ -362,23 +300,15 @@ export function createConversationsRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
 
     if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
 
     const { id: conversationId } = c.req.valid('param');
+    const deleted = await deleteConversation(db, conversationId, user.id);
 
-    // Verify ownership
-    const [existing] = await db
-      .select()
-      .from(conversations)
-      .where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)));
-
-    if (!existing) {
-      return c.json({ error: 'Conversation not found' }, 404);
+    if (!deleted) {
+      return c.json(createErrorResponse(ERROR_CONVERSATION_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }
-
-    // Delete conversation (messages cascade via FK)
-    await db.delete(conversations).where(eq(conversations.id, conversationId));
 
     return c.json({ deleted: true }, 200);
   });
@@ -389,42 +319,20 @@ export function createConversationsRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
 
     if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
 
     const { id: conversationId } = c.req.valid('param');
     const body = c.req.valid('json');
-
-    // Verify conversation exists and user owns it
-    const [existing] = await db
-      .select()
-      .from(conversations)
-      .where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)));
-
-    if (!existing) {
-      return c.json({ error: 'Conversation not found' }, 404);
-    }
-
-    // Create message
-    const [message] = await db
-      .insert(messages)
-      .values({
-        conversationId,
-        role: body.role,
-        content: body.content,
-        model: body.model,
-      })
-      .returning();
+    const message = await createMessage(db, conversationId, user.id, {
+      role: body.role,
+      content: body.content,
+      model: body.model,
+    });
 
     if (!message) {
-      return c.json({ error: 'Failed to create message' }, 500);
+      return c.json(createErrorResponse(ERROR_CONVERSATION_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }
-
-    // Update conversation's updatedAt
-    await db
-      .update(conversations)
-      .set({ updatedAt: new Date() })
-      .where(eq(conversations.id, conversationId));
 
     return c.json({ message }, 201);
   });

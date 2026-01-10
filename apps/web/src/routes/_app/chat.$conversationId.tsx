@@ -9,6 +9,7 @@ import type { PromptInputRef } from '@/components/chat/prompt-input';
 import { DocumentPanel } from '@/components/document-panel/document-panel';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
+import { ErrorBoundary } from '@/components/shared/error-boundary';
 import {
   useConversation,
   useMessages,
@@ -19,10 +20,12 @@ import {
 import { billingKeys, useBalance } from '@/hooks/billing';
 import { useSession } from '@/lib/auth';
 import { useModelStore } from '@/stores/model';
+import { useUIModalsStore } from '@/stores/ui-modals';
 import { useModels } from '@/hooks/models';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { useInteractionTracker } from '@/hooks/use-interaction-tracker';
+import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
 import { estimateTokenCount } from '@/lib/tokens';
 import type { Message } from '@/lib/api';
 import type { Document } from '@/lib/document-parser';
@@ -32,9 +35,17 @@ const searchSchema = z.object({
 });
 
 export const Route = createFileRoute('/_app/chat/$conversationId')({
-  component: ChatConversation,
+  component: ChatConversationWithErrorBoundary,
   validateSearch: searchSchema,
 });
+
+function ChatConversationWithErrorBoundary(): React.JSX.Element {
+  return (
+    <ErrorBoundary>
+      <ChatConversation />
+    </ErrorBoundary>
+  );
+}
 
 function ChatConversation(): React.JSX.Element {
   const { conversationId } = Route.useParams();
@@ -53,23 +64,18 @@ function ChatConversation(): React.JSX.Element {
   const { selectedModelId, selectedModelName, setSelectedModel } = useModelStore();
 
   const { data: modelsData } = useModels();
-  const models = modelsData?.models ?? [];
+  const models = React.useMemo(() => modelsData?.models ?? [], [modelsData?.models]);
   const premiumIds = modelsData?.premiumIds ?? new Set<string>();
 
-  const [showSignupModal, setShowSignupModal] = React.useState(false);
-  const [showPaymentModal, setShowPaymentModal] = React.useState(false);
-  const [premiumModelName, setPremiumModelName] = React.useState<string | undefined>();
+  const {
+    signupModalOpen,
+    paymentModalOpen,
+    premiumModelName,
+    setSignupModalOpen,
+    setPaymentModalOpen,
+  } = useUIModalsStore();
 
-  const handlePremiumClick = (modelId: string): void => {
-    const model = models.find((m) => m.id === modelId);
-    setPremiumModelName(model?.name);
-
-    if (isAuthenticated) {
-      setShowPaymentModal(true);
-    } else {
-      setShowSignupModal(true);
-    }
-  };
+  const handlePremiumClick = usePremiumModelClick(models, isAuthenticated);
 
   const { data: conversation, isLoading: isConversationLoading } = useConversation(
     isNewChat ? '' : conversationId
@@ -117,7 +123,9 @@ function ChatConversation(): React.JSX.Element {
     }, 0);
   }, [allMessages]);
 
-  const selectedModel = models.find((m) => m.id === selectedModelId);
+  const selectedModel = React.useMemo(() => {
+    return models.find((m) => m.id === selectedModelId);
+  }, [models, selectedModelId]);
 
   const streamingMessageIdRef = React.useRef<string | null>(null);
 
@@ -129,7 +137,7 @@ function ChatConversation(): React.JSX.Element {
     viewportRef,
   });
 
-  const { hasInteractedSinceSubmit, resetOnSubmit } = useInteractionTracker({
+  const { hasInteractedRef, resetOnSubmit } = useInteractionTracker({
     isTracking: isStreaming,
   });
 
@@ -139,7 +147,7 @@ function ChatConversation(): React.JSX.Element {
 
   React.useEffect(() => {
     if (wasStreamingRef.current && !isStreaming) {
-      const shouldFocus = shouldFocusAfterStreamingRef.current && !hasInteractedSinceSubmit;
+      const shouldFocus = shouldFocusAfterStreamingRef.current && !hasInteractedRef.current;
 
       if (shouldFocus) {
         requestAnimationFrame(() => {
@@ -151,7 +159,7 @@ function ChatConversation(): React.JSX.Element {
       shouldFocusAfterStreamingRef.current = false;
     }
     wasStreamingRef.current = isStreaming;
-  }, [isStreaming, hasInteractedSinceSubmit]);
+  }, [isStreaming, hasInteractedRef]);
 
   React.useEffect(() => {
     if (!triggerStreaming) {
@@ -346,13 +354,13 @@ function ChatConversation(): React.JSX.Element {
           <span className="text-muted-foreground">Loading conversation...</span>
         </div>
         <SignupModal
-          open={showSignupModal}
-          onOpenChange={setShowSignupModal}
+          open={signupModalOpen}
+          onOpenChange={setSignupModalOpen}
           modelName={premiumModelName}
         />
         <PaymentModal
-          open={showPaymentModal}
-          onOpenChange={setShowPaymentModal}
+          open={paymentModalOpen}
+          onOpenChange={setPaymentModalOpen}
           onSuccess={() => {
             void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
           }}
@@ -411,13 +419,13 @@ function ChatConversation(): React.JSX.Element {
         />
       </div>
       <SignupModal
-        open={showSignupModal}
-        onOpenChange={setShowSignupModal}
+        open={signupModalOpen}
+        onOpenChange={setSignupModalOpen}
         modelName={premiumModelName}
       />
       <PaymentModal
-        open={showPaymentModal}
-        onOpenChange={setShowPaymentModal}
+        open={paymentModalOpen}
+        onOpenChange={setPaymentModalOpen}
         onSuccess={() => {
           void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
         }}

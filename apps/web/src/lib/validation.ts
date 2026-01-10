@@ -10,26 +10,32 @@ export interface ValidationResult {
   success?: string | undefined;
 }
 
-export function validateName(value: string): ValidationResult {
-  if (!value) return { isValid: false };
-  const result = nameSchema.safeParse(value);
-  if (result.success) return { isValid: true, success: 'Looks good!' };
-  return { isValid: false, error: result.error.issues[0]?.message };
+/**
+ * Creates a validator function from a Zod schema.
+ *
+ * @param schema - The Zod schema to validate against
+ * @param successMessage - Message to return on successful validation (default: 'Valid')
+ * @returns A function that validates a value and returns a ValidationResult
+ */
+export function createValidator<T>(
+  schema: z.ZodType<T>,
+  successMessage = 'Valid'
+): (value: T) => ValidationResult {
+  return (value: T): ValidationResult => {
+    if (value === '' || value === null || value === undefined) {
+      return { isValid: false };
+    }
+    const result = schema.safeParse(value);
+    if (result.success) {
+      return { isValid: true, success: successMessage };
+    }
+    return { isValid: false, error: result.error.issues[0]?.message };
+  };
 }
 
-export function validateEmail(value: string): ValidationResult {
-  if (!value) return { isValid: false };
-  const result = emailSchema.safeParse(value);
-  if (result.success) return { isValid: true, success: 'Valid email' };
-  return { isValid: false, error: result.error.issues[0]?.message };
-}
-
-export function validatePassword(value: string): ValidationResult {
-  if (!value) return { isValid: false };
-  const result = passwordSchema.safeParse(value);
-  if (result.success) return { isValid: true, success: 'Password meets requirements' };
-  return { isValid: false, error: result.error.issues[0]?.message };
-}
+export const validateName = createValidator(nameSchema, 'Looks good!');
+export const validateEmail = createValidator(emailSchema, 'Valid email');
+export const validatePassword = createValidator(passwordSchema, 'Password meets requirements');
 
 export function validateConfirmPassword(
   password: string,

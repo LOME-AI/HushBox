@@ -12,7 +12,9 @@ import { billingKeys, useBalance } from '@/hooks/billing';
 import { useSession } from '@/lib/auth';
 import { useModelStore } from '@/stores/model';
 import { usePendingChatStore } from '@/stores/pending-chat';
+import { useUIModalsStore } from '@/stores/ui-modals';
 import { useModels } from '@/hooks/models';
+import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
 import type { Message } from '@/lib/api';
 import type { Document } from '@/lib/document-parser';
@@ -44,24 +46,15 @@ export function ChatNew(): React.JSX.Element {
   const createConversation = useCreateConversation();
   const { isStreaming, startStream } = useChatStream();
 
-  // Signup modal state for premium model access (guests)
-  const [showSignupModal, setShowSignupModal] = React.useState(false);
-  // Payment modal state for free users (authenticated but no balance)
-  const [showPaymentModal, setShowPaymentModal] = React.useState(false);
-  const [premiumModelName, setPremiumModelName] = React.useState<string | undefined>();
+  const {
+    signupModalOpen,
+    paymentModalOpen,
+    premiumModelName,
+    setSignupModalOpen,
+    setPaymentModalOpen,
+  } = useUIModalsStore();
 
-  const handlePremiumClick = (modelId: string): void => {
-    const model = models.find((m) => m.id === modelId);
-    setPremiumModelName(model?.name);
-
-    if (isAuthenticated) {
-      // Free user (authenticated but no balance) -> show add credits
-      setShowPaymentModal(true);
-    } else {
-      // Guest -> show signup
-      setShowSignupModal(true);
-    }
-  };
+  const handlePremiumClick = usePremiumModelClick(models, isAuthenticated);
 
   const [conversationId, setConversationId] = React.useState<string | null>(null);
   const [inputValue, setInputValue] = React.useState('');
@@ -197,7 +190,8 @@ export function ChatNew(): React.JSX.Element {
           streamingMessageIdRef.current = null;
 
           // Navigate - destination shows cached content, refetches cost in background
-          void navigate({
+          // Must await to prevent component unmount from orphaning navigation
+          await navigate({
             to: '/chat/$conversationId',
             params: { conversationId: newConversationId },
             replace: true,
@@ -206,6 +200,12 @@ export function ChatNew(): React.JSX.Element {
           console.error('Stream failed:', streamError);
           setStreamingMessageId(null);
           streamingMessageIdRef.current = null;
+          // Still navigate to conversation since it was created
+          await navigate({
+            to: '/chat/$conversationId',
+            params: { conversationId: newConversationId },
+            replace: true,
+          });
         }
       } catch {
         // Keep pending message in store so it can be restored, then navigate back
@@ -272,13 +272,13 @@ export function ChatNew(): React.JSX.Element {
         />
       </div>
       <SignupModal
-        open={showSignupModal}
-        onOpenChange={setShowSignupModal}
+        open={signupModalOpen}
+        onOpenChange={setSignupModalOpen}
         modelName={premiumModelName}
       />
       <PaymentModal
-        open={showPaymentModal}
-        onOpenChange={setShowPaymentModal}
+        open={paymentModalOpen}
+        onOpenChange={setPaymentModalOpen}
         onSuccess={() => {
           void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
         }}

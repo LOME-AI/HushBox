@@ -62,6 +62,8 @@ Coding standards for all contributors (human and AI).
 - Use unique constraints and upsert
 - Check completion before external calls
 - Content-addressable keys for storage
+- Never use check-then-act - Two queries (check if done, then do it) are vulnerable to race conditions.
+- Use atomic conditional updates: `UPDATE ... WHERE condition_not_met` inside a transaction, and check rows affected.
 
 ### Direct Resource Access
 

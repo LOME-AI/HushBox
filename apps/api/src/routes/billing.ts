@@ -1,74 +1,36 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
-import { eq, and, desc, sql, lt } from 'drizzle-orm';
+import { eq, and, desc, lt } from 'drizzle-orm';
 import { payments, balanceTransactions, users } from '@lome-chat/db';
+import { creditUserBalance } from '../services/billing/transaction-writer.js';
 import {
   createPaymentRequestSchema,
   processPaymentRequestSchema,
   listTransactionsQuerySchema,
+  getBalanceResponseSchema,
+  createPaymentResponseSchema,
+  processPaymentResponseSchema,
+  getPaymentStatusResponseSchema,
+  listTransactionsResponseSchema,
+  errorResponseSchema,
+  ERROR_CODE_UNAUTHORIZED,
+  ERROR_CODE_NOT_FOUND,
+  ERROR_CODE_INTERNAL,
+  ERROR_CODE_CONFLICT,
+  ERROR_CODE_EXPIRED,
+  ERROR_CODE_PAYMENT_REQUIRED,
 } from '@lome-chat/shared';
+import { createErrorResponse } from '../lib/error-response.js';
+import {
+  ERROR_UNAUTHORIZED,
+  ERROR_PAYMENT_NOT_FOUND,
+  ERROR_PAYMENT_ALREADY_PROCESSED,
+  ERROR_PAYMENT_EXPIRED,
+  ERROR_PAYMENT_DECLINED,
+  ERROR_PAYMENT_CREATE_FAILED,
+} from '../constants/errors.js';
 import type { AppEnv } from '../types.js';
 
-// Response schemas for OpenAPI documentation
-const errorSchema = z.object({
-  error: z.string(),
-});
-
-const getBalanceResponseSchema = z.object({
-  balance: z.string(),
-});
-
-const createPaymentResponseSchema = z.object({
-  paymentId: z.string(),
-  amount: z.string(),
-});
-
-// Note: paymentStatusSchema used only for reference in response types
-
-const processPaymentResponseSchema = z.union([
-  z.object({
-    status: z.literal('confirmed'),
-    newBalance: z.string(),
-    helcimTransactionId: z.string().optional(),
-  }),
-  z.object({
-    status: z.literal('processing'),
-    helcimTransactionId: z.string(),
-  }),
-]);
-
-const getPaymentStatusResponseSchema = z.union([
-  z.object({
-    status: z.literal('confirmed'),
-    newBalance: z.string(),
-  }),
-  z.object({
-    status: z.literal('failed'),
-    errorMessage: z.string().nullable().optional(),
-  }),
-  z.object({
-    status: z.literal('pending'),
-  }),
-  z.object({
-    status: z.literal('awaiting_webhook'),
-  }),
-]);
-
-const balanceTransactionTypeSchema = z.enum(['deposit', 'usage', 'adjustment']);
-
-const balanceTransactionResponseSchema = z.object({
-  id: z.string(),
-  amount: z.string(),
-  balanceAfter: z.string(),
-  type: balanceTransactionTypeSchema,
-  description: z.string(),
-  paymentId: z.string().nullable().optional(),
-  createdAt: z.string(),
-});
-
-const listTransactionsResponseSchema = z.object({
-  transactions: z.array(balanceTransactionResponseSchema),
-  nextCursor: z.string().nullable().optional(),
-});
+const errorSchema = errorResponseSchema;
 
 // Payment expiration time (30 minutes)
 const PAYMENT_EXPIRATION_MS = 30 * 60 * 1000;
@@ -211,7 +173,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
 
     if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
 
     const [userData] = await db
@@ -228,7 +190,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
 
     if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
 
     const query = c.req.valid('query');
@@ -281,7 +243,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
 
     if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
 
     const body = c.req.valid('json');
@@ -297,7 +259,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       .returning();
 
     if (!payment) {
-      return c.json({ error: 'Failed to create payment' }, 500);
+      return c.json(createErrorResponse(ERROR_PAYMENT_CREATE_FAILED, ERROR_CODE_INTERNAL), 500);
     }
 
     return c.json({ paymentId: payment.id, amount: payment.amount }, 201);
@@ -310,7 +272,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     const helcim = c.get('helcim');
 
     if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
 
     const { id: paymentId } = c.req.valid('param');
@@ -323,11 +285,11 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       .where(and(eq(payments.id, paymentId), eq(payments.userId, user.id)));
 
     if (!payment) {
-      return c.json({ error: 'Payment not found' }, 404);
+      return c.json(createErrorResponse(ERROR_PAYMENT_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }
 
     if (payment.status !== 'pending') {
-      return c.json({ error: 'Payment already processed' }, 400);
+      return c.json(createErrorResponse(ERROR_PAYMENT_ALREADY_PROCESSED, ERROR_CODE_CONFLICT), 400);
     }
 
     // Check expiration (30 minutes)
@@ -342,7 +304,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
         })
         .where(eq(payments.id, payment.id));
 
-      return c.json({ error: 'Payment expired' }, 400);
+      return c.json(createErrorResponse(ERROR_PAYMENT_EXPIRED, ERROR_CODE_EXPIRED), 400);
     }
 
     // Call Helcim with payment.id as idempotency key
@@ -355,50 +317,30 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     if (result.status === 'approved') {
       if (helcim.isMock) {
         // Mock mode: skip webhook, credit immediately
-        await db.transaction(async (tx) => {
-          const [updatedUser] = await tx
-            .update(users)
-            .set({
-              balance: sql`${users.balance} + ${payment.amount}::numeric`,
-              updatedAt: new Date(),
-            })
-            .where(eq(users.id, user.id))
-            .returning({ balance: users.balance });
-
-          if (!updatedUser) {
-            throw new Error('Failed to update user balance');
-          }
-
-          await tx.insert(balanceTransactions).values({
-            userId: user.id,
-            amount: payment.amount,
-            balanceAfter: updatedUser.balance,
-            type: 'deposit',
-            paymentId: payment.id,
-            description: `Deposit of $${parseFloat(payment.amount).toFixed(2)}`,
-          });
-
-          await tx
-            .update(payments)
-            .set({
-              status: 'confirmed',
-              helcimTransactionId: result.transactionId,
-              cardType: result.cardType,
-              cardLastFour: result.cardLastFour,
-              updatedAt: new Date(),
-            })
-            .where(eq(payments.id, payment.id));
+        const creditResult = await creditUserBalance(db, {
+          userId: user.id,
+          amount: payment.amount,
+          paymentId: payment.id,
+          description: `Deposit of $${parseFloat(payment.amount).toFixed(2)}`,
+          transactionDetails: {
+            ...(result.transactionId && { helcimTransactionId: result.transactionId }),
+            ...(result.cardType && { cardType: result.cardType }),
+            ...(result.cardLastFour && { cardLastFour: result.cardLastFour }),
+          },
         });
 
-        const [userData] = await db
-          .select({ balance: users.balance })
-          .from(users)
-          .where(eq(users.id, user.id));
+        if (!creditResult) {
+          // Payment already processed (idempotent - return success)
+          return c.json(
+            createErrorResponse(ERROR_PAYMENT_ALREADY_PROCESSED, ERROR_CODE_CONFLICT),
+            400
+          );
+        }
 
         return c.json(
           {
             status: 'confirmed' as const,
-            newBalance: userData?.balance ?? '0.00000000',
+            newBalance: creditResult.newBalance,
             helcimTransactionId: result.transactionId,
           },
           200
@@ -437,7 +379,13 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       })
       .where(eq(payments.id, payment.id));
 
-    return c.json({ error: result.errorMessage ?? 'Payment declined' }, 400);
+    return c.json(
+      createErrorResponse(
+        result.errorMessage ?? ERROR_PAYMENT_DECLINED,
+        ERROR_CODE_PAYMENT_REQUIRED
+      ),
+      400
+    );
   });
 
   // GET /billing/payments/:id - Poll payment status
@@ -446,7 +394,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
 
     if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
 
     const { id: paymentId } = c.req.valid('param');
@@ -457,7 +405,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       .where(and(eq(payments.id, paymentId), eq(payments.userId, user.id)));
 
     if (!payment) {
-      return c.json({ error: 'Payment not found' }, 404);
+      return c.json(createErrorResponse(ERROR_PAYMENT_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }
 
     if (payment.status === 'confirmed') {

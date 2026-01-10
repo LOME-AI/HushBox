@@ -2,18 +2,40 @@ import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { streamSSE } from 'hono/streaming';
 import { eq, asc } from 'drizzle-orm';
 import { conversations, messages } from '@lome-chat/db';
-import { canUseModel } from '@lome-chat/shared';
-import type { DeductionSource } from '@lome-chat/shared';
+import {
+  errorResponseSchema,
+  ERROR_CODE_UNAUTHORIZED,
+  ERROR_CODE_NOT_FOUND,
+  ERROR_CODE_VALIDATION,
+  ERROR_CODE_PAYMENT_REQUIRED,
+  ERROR_CODE_INSUFFICIENT_BALANCE,
+  type DeductionSource,
+} from '@lome-chat/shared';
 import type { AppEnv } from '../types.js';
-import type { ChatMessage } from '../services/openrouter/types.js';
 import { buildPrompt } from '../services/prompt/builder.js';
-import { getUserTierInfo, billMessage } from '../services/billing/index.js';
+import {
+  getUserTierInfo,
+  calculateMessageCost,
+  canUserSendMessage,
+} from '../services/billing/index.js';
 import { fetchModels } from '../services/openrouter/index.js';
 import { processModels } from '../services/models.js';
+import {
+  validateLastMessageIsFromUser,
+  buildOpenRouterMessages,
+  saveMessageWithBilling,
+} from '../services/chat/index.js';
+import { createErrorResponse } from '../lib/error-response.js';
+import { createSSEEventWriter } from '../lib/stream-handler.js';
+import {
+  ERROR_UNAUTHORIZED,
+  ERROR_CONVERSATION_NOT_FOUND,
+  ERROR_LAST_MESSAGE_NOT_USER,
+  ERROR_INSUFFICIENT_BALANCE,
+  ERROR_PREMIUM_REQUIRES_BALANCE,
+} from '../constants/errors.js';
 
-const errorSchema = z.object({
-  error: z.string(),
-});
+const errorSchema = errorResponseSchema;
 
 const insufficientBalanceSchema = z.object({
   error: z.literal('Insufficient balance'),
@@ -67,7 +89,7 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
     const user = c.get('user');
 
     if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
 
     const { conversationId, model } = c.req.valid('json');
@@ -82,11 +104,11 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
       .then((rows) => rows[0]);
 
     if (!conversation) {
-      return c.json({ error: 'Conversation not found' }, 404);
+      return c.json(createErrorResponse(ERROR_CONVERSATION_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }
 
     if (conversation.userId !== user.id) {
-      return c.json({ error: 'Conversation not found' }, 404);
+      return c.json(createErrorResponse(ERROR_CONVERSATION_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }
 
     const messageHistory = await db
@@ -95,32 +117,45 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
       .where(eq(messages.conversationId, conversationId))
       .orderBy(asc(messages.createdAt));
 
+    if (!validateLastMessageIsFromUser(messageHistory)) {
+      return c.json(createErrorResponse(ERROR_LAST_MESSAGE_NOT_USER, ERROR_CODE_VALIDATION), 400);
+    }
+
     const lastMessage = messageHistory[messageHistory.length - 1];
-    if (lastMessage?.role !== 'user') {
-      return c.json({ error: 'Last message must be from user' }, 400);
+    if (!lastMessage) {
+      return c.json(createErrorResponse(ERROR_LAST_MESSAGE_NOT_USER, ERROR_CODE_VALIDATION), 400);
     }
 
     const tierInfo = await getUserTierInfo(db, user.id);
 
-    const allModels = await fetchModels();
-    const { premiumIds } = processModels(allModels);
+    const openrouterModels = await fetchModels();
+    const { premiumIds } = processModels(openrouterModels);
     const isPremiumModel = premiumIds.includes(model);
 
-    if (!canUseModel(tierInfo, isPremiumModel)) {
+    const sendCheck = canUserSendMessage(tierInfo, isPremiumModel);
+    if (!sendCheck.canSend) {
       return c.json(
-        {
-          error: 'Premium models require a positive balance. Add credits to access.' as const,
+        createErrorResponse(ERROR_PREMIUM_REQUIRES_BALANCE, ERROR_CODE_PAYMENT_REQUIRED, {
           currentBalance: (tierInfo.balanceCents / 100).toFixed(2),
-        },
+        }),
         402
       );
     }
 
-    let deductionSource: DeductionSource = 'balance';
-    if (tierInfo.balanceCents <= 0 && !isPremiumModel && tierInfo.freeAllowanceCents > 0) {
-      deductionSource = 'freeAllowance';
-    } else if (tierInfo.balanceCents <= 0) {
-      return c.json({ error: 'Insufficient balance' as const, currentBalance: '0.00' }, 402);
+    // Determine deduction source: balance first, then free allowance for non-premium models
+    const canUseFreeAllowance =
+      tierInfo.balanceCents <= 0 && !isPremiumModel && tierInfo.freeAllowanceCents > 0;
+    const deductionSource: DeductionSource =
+      tierInfo.balanceCents > 0 ? 'balance' : 'freeAllowance';
+
+    // Check if user has any funds
+    if (tierInfo.balanceCents <= 0 && !canUseFreeAllowance) {
+      return c.json(
+        createErrorResponse(ERROR_INSUFFICIENT_BALANCE, ERROR_CODE_INSUFFICIENT_BALANCE, {
+          currentBalance: '0.00',
+        }),
+        402
+      );
     }
 
     const assistantMessageId = crypto.randomUUID();
@@ -134,34 +169,17 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
       supportedCapabilities: [],
     });
 
-    const openRouterMessages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt },
-      ...messageHistory.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      })),
-    ];
+    const openRouterMessages = buildOpenRouterMessages(systemPrompt, messageHistory);
 
     const inputCharacters = lastMessage.content.length;
 
     return streamSSE(c, async (stream) => {
-      let clientConnected = true;
+      const writer = createSSEEventWriter(stream);
 
-      stream.onAbort(() => {
-        clientConnected = false;
+      await writer.writeStart({
+        userMessageId: lastMessage.id,
+        assistantMessageId,
       });
-
-      try {
-        await stream.writeSSE({
-          event: 'start',
-          data: JSON.stringify({
-            userMessageId: lastMessage.id,
-            assistantMessageId,
-          }),
-        });
-      } catch {
-        clientConnected = false;
-      }
 
       let fullContent = '';
       let generationId: string | undefined;
@@ -177,70 +195,57 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
           }
 
           fullContent += token.content;
-
-          if (clientConnected) {
-            try {
-              await stream.writeSSE({
-                event: 'token',
-                data: JSON.stringify({ content: token.content }),
-              });
-            } catch {
-              clientConnected = false;
-            }
-          }
+          await writer.writeToken(token.content);
         }
       } catch (error) {
         streamError = error instanceof Error ? error : new Error('Unknown error');
       }
 
       if (fullContent.length > 0 && !streamError) {
-        await db.insert(messages).values({
-          id: assistantMessageId,
-          conversationId,
-          role: 'assistant',
-          content: fullContent,
-          model,
-        });
+        const outputCharacters = fullContent.length;
 
-        if (generationId) {
-          const outputCharacters = fullContent.length;
-          const genId = generationId; // Capture for closure
+        try {
+          const modelInfo = openrouterModels.find((m) => m.id === model);
+          const totalCost = await calculateMessageCost({
+            openrouter,
+            modelInfo,
+            generationId,
+            inputContent: lastMessage.content,
+            outputContent: fullContent,
+            isProduction: c.env.NODE_ENV === 'production',
+          });
 
-          void (async () => {
-            try {
-              const stats = await openrouter.getGenerationStats(genId);
-              await billMessage(db, {
-                userId: user.id,
-                messageId: assistantMessageId,
-                model,
-                generationStats: stats,
-                inputCharacters,
-                outputCharacters,
-                deductionSource,
-              });
-            } catch (billingError) {
-              console.error('Billing failed:', billingError);
-            }
-          })();
+          // Atomic save + billing (same path dev/prod)
+          await saveMessageWithBilling(db, {
+            messageId: assistantMessageId,
+            conversationId,
+            content: fullContent,
+            model,
+            userId: user.id,
+            totalCost,
+            inputCharacters,
+            outputCharacters,
+            deductionSource,
+          });
+        } catch (billingError) {
+          console.error(
+            JSON.stringify({
+              event: 'billing_failed',
+              messageId: assistantMessageId,
+              userId: user.id,
+              model,
+              generationId,
+              error: billingError instanceof Error ? billingError.message : String(billingError),
+              timestamp: new Date().toISOString(),
+            })
+          );
         }
       }
 
-      if (clientConnected) {
-        try {
-          if (streamError) {
-            await stream.writeSSE({
-              event: 'error',
-              data: JSON.stringify({ message: streamError.message, code: 'STREAM_ERROR' }),
-            });
-          } else {
-            await stream.writeSSE({
-              event: 'done',
-              data: JSON.stringify({}),
-            });
-          }
-        } catch {
-          // Stream cleanup errors can be ignored
-        }
+      if (streamError) {
+        await writer.writeError({ message: streamError.message, code: 'STREAM_ERROR' });
+      } else {
+        await writer.writeDone();
       }
     });
   });
