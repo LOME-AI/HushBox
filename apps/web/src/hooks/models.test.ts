@@ -3,7 +3,8 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement } from 'react';
 import type { Model } from '@lome-chat/shared';
-import { useModels } from './models.js';
+import { STRONGEST_MODEL_ID, VALUE_MODEL_ID } from '@lome-chat/shared';
+import { useModels, getAccessibleModelIds } from './models.js';
 
 // Mock the api module
 vi.mock('../lib/api.js', () => ({
@@ -153,5 +154,143 @@ describe('useModels', () => {
 
     expect(result.current.data?.models).toEqual([]);
     expect(result.current.data?.premiumIds.size).toBe(0);
+  });
+});
+
+describe('getAccessibleModelIds', () => {
+  // Models with varying prices for testing sorting
+  const testModels: Model[] = [
+    {
+      id: 'expensive-basic',
+      name: 'Expensive Basic',
+      description: 'A pricey basic model',
+      provider: 'TestProvider',
+      contextLength: 100000,
+      pricePerInputToken: 0.00005, // Highest price
+      pricePerOutputToken: 0.00015,
+      capabilities: [],
+      supportedParameters: [],
+      created: Math.floor(Date.now() / 1000),
+    },
+    {
+      id: 'cheap-basic',
+      name: 'Cheap Basic',
+      description: 'An affordable basic model',
+      provider: 'TestProvider',
+      contextLength: 50000,
+      pricePerInputToken: 0.000001, // Lowest price
+      pricePerOutputToken: 0.000003,
+      capabilities: [],
+      supportedParameters: [],
+      created: Math.floor(Date.now() / 1000),
+    },
+    {
+      id: 'mid-basic',
+      name: 'Mid Basic',
+      description: 'A mid-priced basic model',
+      provider: 'TestProvider',
+      contextLength: 75000,
+      pricePerInputToken: 0.00001, // Mid price
+      pricePerOutputToken: 0.00003,
+      capabilities: [],
+      supportedParameters: [],
+      created: Math.floor(Date.now() / 1000),
+    },
+    {
+      id: 'premium-model',
+      name: 'Premium Model',
+      description: 'A premium model',
+      provider: 'TestProvider',
+      contextLength: 200000,
+      pricePerInputToken: 0.0001,
+      pricePerOutputToken: 0.0003,
+      capabilities: [],
+      supportedParameters: [],
+      created: Math.floor(Date.now() / 1000),
+    },
+  ];
+
+  const premiumIds = new Set(['premium-model']);
+
+  it('returns hardcoded premium IDs when canAccessPremium is true', () => {
+    const result = getAccessibleModelIds(testModels, premiumIds, true);
+
+    expect(result.strongestId).toBe(STRONGEST_MODEL_ID);
+    expect(result.valueId).toBe(VALUE_MODEL_ID);
+  });
+
+  it('returns highest-price basic model as strongest when canAccessPremium is false', () => {
+    const result = getAccessibleModelIds(testModels, premiumIds, false);
+
+    // 'expensive-basic' has the highest price among basic models
+    expect(result.strongestId).toBe('expensive-basic');
+  });
+
+  it('returns lowest-price basic model as value when canAccessPremium is false', () => {
+    const result = getAccessibleModelIds(testModels, premiumIds, false);
+
+    // 'cheap-basic' has the lowest price among basic models
+    expect(result.valueId).toBe('cheap-basic');
+  });
+
+  it('handles empty model list gracefully', () => {
+    const result = getAccessibleModelIds([], new Set(), false);
+
+    expect(result.strongestId).toBe('');
+    expect(result.valueId).toBe('');
+  });
+
+  it('handles case where all models are premium', () => {
+    const allPremium = new Set(testModels.map((m) => m.id));
+    const result = getAccessibleModelIds(testModels, allPremium, false);
+
+    // When no basic models, falls back to first model
+    expect(result.strongestId).toBe(testModels[0]?.id);
+    expect(result.valueId).toBe(testModels[0]?.id);
+  });
+
+  it('excludes premium models when finding strongest/value for non-premium users', () => {
+    // Premium model has highest price, but should not be selected
+    const result = getAccessibleModelIds(testModels, premiumIds, false);
+
+    expect(result.strongestId).not.toBe('premium-model');
+    expect(result.valueId).not.toBe('premium-model');
+  });
+
+  it('uses combined input+output price for sorting', () => {
+    // Create models where input/output prices would give different rankings
+    const modelsWithVaryingPrices: Model[] = [
+      {
+        id: 'high-input-low-output',
+        name: 'High Input Low Output',
+        description: 'Test model',
+        provider: 'TestProvider',
+        contextLength: 100000,
+        pricePerInputToken: 0.0001, // High input
+        pricePerOutputToken: 0.00001, // Low output
+        capabilities: [],
+        supportedParameters: [],
+        created: Math.floor(Date.now() / 1000),
+      },
+      {
+        id: 'low-input-high-output',
+        name: 'Low Input High Output',
+        description: 'Test model',
+        provider: 'TestProvider',
+        contextLength: 100000,
+        pricePerInputToken: 0.00001, // Low input
+        pricePerOutputToken: 0.0001, // High output
+        capabilities: [],
+        supportedParameters: [],
+        created: Math.floor(Date.now() / 1000),
+      },
+    ];
+
+    const result = getAccessibleModelIds(modelsWithVaryingPrices, new Set(), false);
+
+    // Both have same combined price, so order depends on stable sort
+    // The important thing is that it doesn't crash and returns valid IDs
+    expect(modelsWithVaryingPrices.map((m) => m.id)).toContain(result.strongestId);
+    expect(modelsWithVaryingPrices.map((m) => m.id)).toContain(result.valueId);
   });
 });

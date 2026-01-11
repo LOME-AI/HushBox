@@ -32,8 +32,13 @@ export interface UseBudgetCalculationInput {
  * @param input - Budget calculation inputs (prices, context, character count)
  * @returns Budget calculation result with canAfford, errors, etc.
  */
-export function useBudgetCalculation(input: UseBudgetCalculationInput): BudgetCalculationResult {
-  const { data: balanceData } = useBalance();
+export function useBudgetCalculation(
+  input: UseBudgetCalculationInput
+): BudgetCalculationResult & { isBalanceLoading: boolean } {
+  const { data: balanceData, isPending: isBalancePending } = useBalance();
+
+  // Loading only applies when authenticated and waiting for balance
+  const isBalanceLoading = input.isAuthenticated && isBalancePending;
 
   // Memoize balance state to avoid recalculation
   const balanceState = React.useMemo((): UserBalanceState | null => {
@@ -75,20 +80,20 @@ export function useBudgetCalculation(input: UseBudgetCalculationInput): BudgetCa
     ]
   );
 
-  // Initialize with computed result (not empty default) to avoid flash
-  const [debouncedResult, setDebouncedResult] =
-    React.useState<BudgetCalculationResult>(computeResult);
+  // Initialize with computed result, ALWAYS filtering tier-specific notices
+  // This prevents flash of incorrect tier notice on initial render
+  // The debounced effect will populate correct tier notices after data loads
+  const [debouncedResult, setDebouncedResult] = React.useState<BudgetCalculationResult>(() => {
+    const result = computeResult();
+    return {
+      ...result,
+      errors: result.errors.filter((e) => e.id !== 'guest_notice' && e.id !== 'free_tier_notice'),
+    };
+  });
 
-  // Track if this is the first render to skip debounce
-  const isFirstRender = React.useRef(true);
-
-  // Debounced calculation effect - skips first render since we computed synchronously
+  // Debounced calculation effect - runs on mount and when computeResult changes
+  // On mount, this populates tier notices that were filtered from initial state
   React.useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
-
     const timer = setTimeout(() => {
       setDebouncedResult(computeResult());
     }, DEBOUNCE_MS);
@@ -98,5 +103,5 @@ export function useBudgetCalculation(input: UseBudgetCalculationInput): BudgetCa
     };
   }, [computeResult]);
 
-  return debouncedResult;
+  return { ...debouncedResult, isBalanceLoading };
 }

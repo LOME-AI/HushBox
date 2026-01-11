@@ -12,7 +12,7 @@ import { useGuestChatStore, type GuestMessage } from '@/stores/guest-chat';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useModels } from '@/hooks/models';
 import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
-import { useBalance } from '@/hooks/billing';
+import { useTierInfo } from '@/hooks/use-tier-info';
 import { useGuestChatStream, GuestRateLimitError } from '@/hooks/use-guest-chat-stream';
 import { useModelStore } from '@/stores/model';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
@@ -40,7 +40,7 @@ function GuestChat(): React.JSX.Element {
 
   const { data: modelsData } = useModels();
   const { selectedModelId, selectedModelName, setSelectedModel } = useModelStore();
-  const { data: balanceData } = useBalance();
+  const { canAccessPremium } = useTierInfo();
   const { isStreaming, startStream } = useGuestChatStream();
 
   const {
@@ -84,8 +84,6 @@ function GuestChat(): React.JSX.Element {
   const isAuthenticated = !isPending && Boolean(session?.user);
   const models = modelsData?.models ?? [];
   const premiumIds = modelsData?.premiumIds ?? new Set<string>();
-  const balance = parseFloat(balanceData?.balance ?? '0');
-  const canAccessPremium = balance > 0; // Always false for guests
 
   const handlePremiumClick = usePremiumModelClick(models, false);
 

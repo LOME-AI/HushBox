@@ -12,7 +12,7 @@ export function SidebarHeader(): React.JSX.Element {
     <div
       data-testid="sidebar-header"
       className={cn(
-        'border-sidebar-border flex h-[57px] items-center border-b px-4',
+        'border-sidebar-border flex h-[53px] shrink-0 items-center border-b px-4',
         sidebarOpen ? 'justify-between' : 'justify-center'
       )}
     >

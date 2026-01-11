@@ -95,7 +95,7 @@ describe('ChatHeader', () => {
     );
     const header = screen.getByTestId('chat-header');
     expect(header).toHaveClass('px-4');
-    expect(header).toHaveClass('h-[57px]');
+    expect(header).toHaveClass('h-[53px]');
   });
 
   describe('model selector', () => {

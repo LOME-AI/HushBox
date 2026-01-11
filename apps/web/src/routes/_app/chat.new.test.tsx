@@ -36,26 +36,30 @@ vi.mock('@/hooks/chat', () => ({
   },
 }));
 
-vi.mock('@/hooks/models', () => ({
-  useModels: () => ({
-    data: {
-      models: [
-        {
-          id: 'test-model',
-          name: 'Test Model',
-          contextLength: 50000,
-          pricePerInputToken: 0.000001,
-          pricePerOutputToken: 0.000002,
-          capabilities: [],
-          provider: { name: 'Test Provider' },
-          description: 'A test model',
-        },
-      ],
-    },
-    isLoading: false,
-    error: null,
-  }),
-}));
+vi.mock('@/hooks/models', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/models')>();
+  return {
+    ...actual,
+    useModels: () => ({
+      data: {
+        models: [
+          {
+            id: 'test-model',
+            name: 'Test Model',
+            contextLength: 50000,
+            pricePerInputToken: 0.000001,
+            pricePerOutputToken: 0.000002,
+            capabilities: [],
+            provider: { name: 'Test Provider' },
+            description: 'A test model',
+          },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    }),
+  };
+});
 
 vi.mock('@/stores/model', () => ({
   useModelStore: () => ({

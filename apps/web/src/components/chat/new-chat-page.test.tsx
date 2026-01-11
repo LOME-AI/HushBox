@@ -30,26 +30,30 @@ vi.mock('@/stores/model', () => ({
   })),
 }));
 
-vi.mock('@/hooks/models', () => ({
-  useModels: vi.fn(() => ({
-    data: {
-      models: [
-        {
-          id: 'test-model',
-          name: 'Test Model',
-          contextLength: 50000,
-          pricePerInputToken: 0.000001,
-          pricePerOutputToken: 0.000002,
-          capabilities: [],
-          provider: { name: 'Test Provider' },
-          description: 'A test model',
-        },
-      ],
-    },
-    isLoading: false,
-    error: null,
-  })),
-}));
+vi.mock('@/hooks/models', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/models')>();
+  return {
+    ...actual,
+    useModels: vi.fn(() => ({
+      data: {
+        models: [
+          {
+            id: 'test-model',
+            name: 'Test Model',
+            contextLength: 50000,
+            pricePerInputToken: 0.000001,
+            pricePerOutputToken: 0.000002,
+            capabilities: [],
+            provider: { name: 'Test Provider' },
+            description: 'A test model',
+          },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    })),
+  };
+});
 
 vi.mock('@/lib/auth', () => ({
   useSession: vi.fn(() => ({

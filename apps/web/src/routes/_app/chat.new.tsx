@@ -8,8 +8,9 @@ import { DocumentPanel } from '@/components/document-panel/document-panel';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
 import { useCreateConversation, useChatStream, chatKeys } from '@/hooks/chat';
-import { billingKeys, useBalance } from '@/hooks/billing';
+import { billingKeys } from '@/hooks/billing';
 import { useSession } from '@/lib/auth';
+import { useTierInfo } from '@/hooks/use-tier-info';
 import { useModelStore } from '@/stores/model';
 import { usePendingChatStore } from '@/stores/pending-chat';
 import { useUIModalsStore } from '@/stores/ui-modals';
@@ -30,9 +31,7 @@ export function ChatNew(): React.JSX.Element {
 
   const { data: session } = useSession();
   const isAuthenticated = Boolean(session?.user);
-  const { data: balanceData } = useBalance();
-  const balance = parseFloat(balanceData?.balance ?? '0');
-  const canAccessPremium = isAuthenticated && balance > 0;
+  const { canAccessPremium } = useTierInfo();
 
   // Use Zustand store for pending message (synchronous, no race condition)
   const pendingMessage = usePendingChatStore((s) => s.pendingMessage);

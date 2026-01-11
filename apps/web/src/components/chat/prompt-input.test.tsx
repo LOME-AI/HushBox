@@ -14,33 +14,43 @@ vi.mock('@/stores/model', () => ({
   })),
 }));
 
-vi.mock('@/hooks/models', () => ({
-  useModels: vi.fn(() => ({
-    data: {
-      models: [
-        {
-          id: 'test-model',
-          name: 'Test Model',
-          contextLength: 50000,
-          pricePerInputToken: 0.000001,
-          pricePerOutputToken: 0.000002,
-        },
-      ],
-    },
-    isLoading: false,
-    error: null,
-  })),
-}));
+vi.mock('@/hooks/models', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/models')>();
+  return {
+    ...actual,
+    useModels: vi.fn(() => ({
+      data: {
+        models: [
+          {
+            id: 'test-model',
+            name: 'Test Model',
+            contextLength: 50000,
+            pricePerInputToken: 0.000001,
+            pricePerOutputToken: 0.000002,
+          },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    })),
+  };
+});
 
-vi.mock('@/lib/auth', () => ({
-  useSession: vi.fn(() => ({
+// Default session mock value
+const defaultSession: { data: { user: { id: string; email: string } } | null; isPending: boolean } =
+  {
     data: { user: { id: 'test-user', email: 'test@example.com' } },
     isPending: false,
-  })),
+  };
+
+const mockUseSession = vi.fn(() => defaultSession);
+
+vi.mock('@/lib/auth', () => ({
+  useSession: () => mockUseSession(),
 }));
 
-// Default budget result - can afford, no errors
-const defaultBudgetResult: BudgetCalculationResult = {
+// Default budget result - can afford, no errors, not loading
+const defaultBudgetResult: BudgetCalculationResult & { isBalanceLoading: boolean } = {
   canAfford: true,
   maxOutputTokens: 1000,
   estimatedInputTokens: 100,
@@ -50,6 +60,7 @@ const defaultBudgetResult: BudgetCalculationResult = {
   currentUsage: 1100,
   capacityPercent: 5,
   errors: [],
+  isBalanceLoading: false,
 };
 
 // Mock useBudgetCalculation with customizable return value
@@ -83,6 +94,7 @@ describe('PromptInput', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     mockBudgetResult.mockReturnValue(defaultBudgetResult);
+    mockUseSession.mockReturnValue(defaultSession);
   });
 
   afterEach(() => {
@@ -283,6 +295,56 @@ describe('PromptInput', () => {
       expect(
         screen.getByText('Free preview. Create an account for full access.')
       ).toBeInTheDocument();
+    });
+
+    it('hides budget messages while balance is loading for authenticated users', () => {
+      mockBudgetResult.mockReturnValue({
+        ...defaultBudgetResult,
+        isBalanceLoading: true,
+        errors: [
+          {
+            id: 'guest_notice',
+            type: 'info',
+            message: 'Free preview. Create an account for full access.',
+          },
+        ],
+      });
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      // Budget messages should be hidden while balance is loading
+      expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('Free preview. Create an account for full access.')
+      ).not.toBeInTheDocument();
+    });
+
+    it('hides budget messages while session is loading', () => {
+      // Session is loading (isPending: true, data is null)
+      mockUseSession.mockReturnValue({
+        data: null,
+        isPending: true,
+      });
+      // Budget calculation returns guest errors because session appears unauthenticated
+      mockBudgetResult.mockReturnValue({
+        ...defaultBudgetResult,
+        isBalanceLoading: false,
+        errors: [
+          {
+            id: 'guest_notice',
+            type: 'info',
+            message: 'Free preview. Create an account for full access.',
+          },
+        ],
+      });
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      // Budget messages should be hidden while session is loading
+      expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('Free preview. Create an account for full access.')
+      ).not.toBeInTheDocument();
     });
   });
 

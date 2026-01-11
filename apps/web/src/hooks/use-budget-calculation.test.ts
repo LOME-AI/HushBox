@@ -25,7 +25,7 @@ describe('useBudgetCalculation', () => {
     vi.useFakeTimers();
     mockUseBalance.mockReturnValue({
       data: { balance: '10.00000000', freeAllowanceCents: 500 },
-      isLoading: false,
+      isPending: false,
     } as UseQueryResult<GetBalanceResponse>);
   });
 
@@ -64,7 +64,7 @@ describe('useBudgetCalculation', () => {
     it('treats authenticated user with positive balance as paid tier', () => {
       mockUseBalance.mockReturnValue({
         data: { balance: '10.00000000', freeAllowanceCents: 0 },
-        isLoading: false,
+        isPending: false,
       } as UseQueryResult<GetBalanceResponse>);
 
       const { result } = renderHook(() => useBudgetCalculation(defaultInput));
@@ -83,7 +83,7 @@ describe('useBudgetCalculation', () => {
     it('treats authenticated user with zero balance as free tier', () => {
       mockUseBalance.mockReturnValue({
         data: { balance: '0.00000000', freeAllowanceCents: 500 },
-        isLoading: false,
+        isPending: false,
       } as UseQueryResult<GetBalanceResponse>);
 
       const { result } = renderHook(() => useBudgetCalculation(defaultInput));
@@ -97,10 +97,10 @@ describe('useBudgetCalculation', () => {
       expect(hasFreeTierNotice).toBe(true);
     });
 
-    it('treats user as guest while balance is loading', () => {
+    it('sets isBalanceLoading true when authenticated and balance is loading', () => {
       mockUseBalance.mockReturnValue({
         data: undefined,
-        isLoading: true,
+        isPending: true,
       } as UseQueryResult<GetBalanceResponse>);
 
       const { result } = renderHook(() => useBudgetCalculation(defaultInput));
@@ -109,9 +109,47 @@ describe('useBudgetCalculation', () => {
         vi.advanceTimersByTime(200);
       });
 
-      // While loading, treat as guest which shows guest notice
-      const hasGuestNotice = result.current.errors.some((e) => e.id === 'guest_notice');
-      expect(hasGuestNotice).toBe(true);
+      // isBalanceLoading should be true for authenticated users while balance is loading
+      expect(result.current.isBalanceLoading).toBe(true);
+      // Calculation still happens with guest tier (errors may include guest notice)
+      // but UI should use isBalanceLoading to suppress display
+    });
+
+    it('sets isBalanceLoading false when not authenticated', () => {
+      mockUseBalance.mockReturnValue({
+        data: undefined,
+        isPending: true,
+      } as UseQueryResult<GetBalanceResponse>);
+
+      const { result } = renderHook(() =>
+        useBudgetCalculation({
+          ...defaultInput,
+          isAuthenticated: false,
+        })
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      // Not authenticated, so loading state doesn't matter
+      expect(result.current.isBalanceLoading).toBe(false);
+    });
+
+    it('sets isBalanceLoading false when balance is loaded', () => {
+      mockUseBalance.mockReturnValue({
+        data: { balance: '10.00000000', freeAllowanceCents: 500 },
+        isPending: false,
+      } as UseQueryResult<GetBalanceResponse>);
+
+      const { result } = renderHook(() => useBudgetCalculation(defaultInput));
+
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      // Balance is loaded, no longer loading
+      expect(result.current.isBalanceLoading).toBe(false);
     });
   });
 
@@ -131,8 +169,8 @@ describe('useBudgetCalculation', () => {
       // Rerender with new value before debounce completes
       rerender({ count: 2000 });
 
-      // Result should still be initial (debounce not complete)
-      expect(result.current).toBe(initialResult);
+      // Result should still be initial values (debounce not complete)
+      expect(result.current).toStrictEqual(initialResult);
 
       // Advance past debounce time
       act(() => {
@@ -148,7 +186,7 @@ describe('useBudgetCalculation', () => {
     it('calculates input tokens based on character count', () => {
       mockUseBalance.mockReturnValue({
         data: { balance: '10.00000000', freeAllowanceCents: 0 },
-        isLoading: false,
+        isPending: false,
       } as UseQueryResult<GetBalanceResponse>);
 
       const { result } = renderHook(() =>
@@ -169,7 +207,7 @@ describe('useBudgetCalculation', () => {
     it('returns canAfford true when balance covers minimum cost', () => {
       mockUseBalance.mockReturnValue({
         data: { balance: '10.00000000', freeAllowanceCents: 0 },
-        isLoading: false,
+        isPending: false,
       } as UseQueryResult<GetBalanceResponse>);
 
       const { result } = renderHook(() => useBudgetCalculation(defaultInput));
@@ -185,7 +223,7 @@ describe('useBudgetCalculation', () => {
     it('returns canAfford false when balance is insufficient', () => {
       mockUseBalance.mockReturnValue({
         data: { balance: '0.00000000', freeAllowanceCents: 0 },
-        isLoading: false,
+        isPending: false,
       } as UseQueryResult<GetBalanceResponse>);
 
       const { result } = renderHook(() =>
@@ -207,7 +245,7 @@ describe('useBudgetCalculation', () => {
     it('calculates capacity percentage correctly', () => {
       mockUseBalance.mockReturnValue({
         data: { balance: '10.00000000', freeAllowanceCents: 0 },
-        isLoading: false,
+        isPending: false,
       } as UseQueryResult<GetBalanceResponse>);
 
       const { result } = renderHook(() =>
@@ -233,7 +271,7 @@ describe('useBudgetCalculation', () => {
     it('includes capacity warning when over threshold', () => {
       mockUseBalance.mockReturnValue({
         data: { balance: '10.00000000', freeAllowanceCents: 0 },
-        isLoading: false,
+        isPending: false,
       } as UseQueryResult<GetBalanceResponse>);
 
       const { result } = renderHook(() =>
@@ -257,7 +295,7 @@ describe('useBudgetCalculation', () => {
       // With expensive output price, maxOutputTokens < 10000 triggers warning
       mockUseBalance.mockReturnValue({
         data: { balance: '0.01000000', freeAllowanceCents: 0 },
-        isLoading: false,
+        isPending: false,
       } as UseQueryResult<GetBalanceResponse>);
 
       const { result } = renderHook(() =>

@@ -2,14 +2,9 @@ import * as React from 'react';
 import { Search, ChevronUp, ChevronDown, Lock } from 'lucide-react';
 import { ModalOverlay, Input, Badge, Button, ScrollArea } from '@lome-chat/ui';
 import type { Model } from '@lome-chat/shared';
-import {
-  STRONGEST_MODEL_ID,
-  VALUE_MODEL_ID,
-  formatNumber,
-  getModelCostPer1k,
-  isExpensiveModel,
-} from '@lome-chat/shared';
+import { formatNumber, getModelCostPer1k, isExpensiveModel } from '@lome-chat/shared';
 import { applyFees, formatContextLength, formatPricePer1k } from '../../lib/format';
+import { getAccessibleModelIds } from '../../hooks/models';
 
 type SortField = 'price' | 'context' | null;
 type SortDirection = 'asc' | 'desc';
@@ -119,29 +114,10 @@ export function ModelSelectorModal({
   );
 
   // Calculate quick select model IDs based on user tier
-  const { strongestId, valueId } = React.useMemo(() => {
-    if (canAccessPremium) {
-      // Paid users: use hardcoded premium models
-      return { strongestId: STRONGEST_MODEL_ID, valueId: VALUE_MODEL_ID };
-    }
-
-    // Non-paid users: find from basic models only
-    const basicModels = models.filter((m) => !premiumIds?.has(m.id));
-    if (basicModels.length === 0) {
-      return { strongestId: models[0]?.id ?? '', valueId: models[0]?.id ?? '' };
-    }
-
-    const sorted = [...basicModels].sort((a, b) => {
-      const priceA = getModelCostPer1k(a.pricePerInputToken, a.pricePerOutputToken);
-      const priceB = getModelCostPer1k(b.pricePerInputToken, b.pricePerOutputToken);
-      return priceB - priceA;
-    });
-
-    return {
-      strongestId: sorted[0]?.id ?? '',
-      valueId: sorted[sorted.length - 1]?.id ?? '',
-    };
-  }, [models, premiumIds, canAccessPremium]);
+  const { strongestId, valueId } = React.useMemo(
+    () => getAccessibleModelIds(models, premiumIds ?? new Set(), canAccessPremium),
+    [models, premiumIds, canAccessPremium]
+  );
 
   const focusedModel = models.find((m) => m.id === focusedModelId) ?? models[0];
 

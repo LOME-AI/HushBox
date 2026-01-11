@@ -4,6 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { AppShell } from './app-shell';
 import { useUIStore } from '@/stores/ui';
+import { useModelValidation } from '@/hooks/use-model-validation';
+
+// Mock model validation hook
+vi.mock('@/hooks/use-model-validation', () => ({
+  useModelValidation: vi.fn(),
+}));
 
 // Mock the chat hooks
 vi.mock('@/hooks/chat', () => ({
@@ -135,5 +141,18 @@ describe('AppShell', () => {
     );
     const main = screen.getByRole('main');
     expect(main).toHaveClass('overflow-hidden');
+  });
+
+  it('calls useModelValidation to validate cached model selection', () => {
+    vi.mocked(useModelValidation).mockClear();
+
+    render(
+      <AppShell>
+        <div>Content</div>
+      </AppShell>,
+      { wrapper: createWrapper() }
+    );
+
+    expect(useModelValidation).toHaveBeenCalled();
   });
 });

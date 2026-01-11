@@ -82,7 +82,7 @@ describe('PageHeader', () => {
     it('has consistent height matching sidebar header', () => {
       render(<PageHeader />);
       const header = screen.getByTestId('page-header');
-      expect(header).toHaveClass('h-[57px]', 'shrink-0');
+      expect(header).toHaveClass('h-[53px]', 'shrink-0');
     });
   });
 

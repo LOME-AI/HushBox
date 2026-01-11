@@ -107,7 +107,7 @@ describe('SidebarHeader', () => {
     it('has consistent height matching page header', () => {
       render(<SidebarHeader />);
       const header = screen.getByTestId('sidebar-header');
-      expect(header).toHaveClass('h-[57px]');
+      expect(header).toHaveClass('h-[53px]', 'shrink-0');
     });
   });
 });

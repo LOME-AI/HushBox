@@ -17,8 +17,9 @@ import {
   useChatStream,
   chatKeys,
 } from '@/hooks/chat';
-import { billingKeys, useBalance } from '@/hooks/billing';
+import { billingKeys } from '@/hooks/billing';
 import { useSession } from '@/lib/auth';
+import { useTierInfo } from '@/hooks/use-tier-info';
 import { useModelStore } from '@/stores/model';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useModels } from '@/hooks/models';
@@ -56,9 +57,7 @@ function ChatConversation(): React.JSX.Element {
 
   const { data: session } = useSession();
   const isAuthenticated = Boolean(session?.user);
-  const { data: balanceData } = useBalance();
-  const balance = parseFloat(balanceData?.balance ?? '0');
-  const canAccessPremium = isAuthenticated && balance > 0;
+  const { canAccessPremium } = useTierInfo();
 
   const { selectedModelId, selectedModelName, setSelectedModel } = useModelStore();
 

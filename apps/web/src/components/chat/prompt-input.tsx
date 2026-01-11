@@ -79,8 +79,8 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
   // Get selected model and pricing from stores/hooks
   const { selectedModelId } = useModelStore();
   const { data: modelsData } = useModels();
-  const { data: session } = useSession();
-  const isAuthenticated = !!session?.user;
+  const { data: session, isPending: isSessionPending } = useSession();
+  const isAuthenticated = !isSessionPending && Boolean(session?.user);
 
   // Find selected model to get pricing and context length
   const selectedModel = modelsData?.models.find((m) => m.id === selectedModelId);
@@ -200,7 +200,8 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
       </div>
 
       {/* Budget messages appear below the input (self-calculated) */}
-      {budgetResult.errors.length > 0 && (
+      {/* Hide messages while session or balance is loading to prevent flash of incorrect tier notice */}
+      {budgetResult.errors.length > 0 && !budgetResult.isBalanceLoading && !isSessionPending && (
         <BudgetMessages errors={budgetResult.errors} className="mt-2" />
       )}
     </div>
