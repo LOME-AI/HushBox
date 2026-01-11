@@ -48,7 +48,7 @@ jobs:
 
       - name: Install Hookdeck CLI
         run: |
-          curl -sL https://cli.hookdeck.com/install.sh | sh
+          npm install -g hookdeck-cli
           hookdeck version
 
       - name: Start database
