@@ -1,4 +1,8 @@
-import { TOTAL_FEE_RATE, STORAGE_COST_PER_CHARACTER } from './constants.js';
+import {
+  TOTAL_FEE_RATE,
+  STORAGE_COST_PER_CHARACTER,
+  EXPENSIVE_MODEL_THRESHOLD_PER_1K,
+} from './constants.js';
 
 /**
  * Estimate token count from text using character-based heuristic.
@@ -126,4 +130,35 @@ export function calculateMessageCostFromOpenRouter(
   const storageFee = (inputCharacters + outputCharacters) * STORAGE_COST_PER_CHARACTER;
 
   return modelCostWithFees + storageFee;
+}
+
+/**
+ * Get combined model cost per 1k tokens with fees applied.
+ * SINGLE SOURCE OF TRUTH for model cost comparison.
+ *
+ * Used by:
+ * - Model selector for sorting
+ * - isExpensiveModel() check
+ * - Any UI showing combined model cost
+ *
+ * @param pricePerInputToken - Model's price per input token in USD
+ * @param pricePerOutputToken - Model's price per output token in USD
+ * @returns Combined cost per 1k tokens with fees applied
+ */
+export function getModelCostPer1k(pricePerInputToken: number, pricePerOutputToken: number): number {
+  const baseCostPer1k = (pricePerInputToken + pricePerOutputToken) * 1000;
+  return applyFees(baseCostPer1k);
+}
+
+/**
+ * Check if a model is considered expensive (>= threshold per 1k tokens with fees).
+ *
+ * @param pricePerInputToken - Model's price per input token in USD
+ * @param pricePerOutputToken - Model's price per output token in USD
+ * @returns true if model cost per 1k >= EXPENSIVE_MODEL_THRESHOLD_PER_1K
+ */
+export function isExpensiveModel(pricePerInputToken: number, pricePerOutputToken: number): boolean {
+  return (
+    getModelCostPer1k(pricePerInputToken, pricePerOutputToken) >= EXPENSIVE_MODEL_THRESHOLD_PER_1K
+  );
 }

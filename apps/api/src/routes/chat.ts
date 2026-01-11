@@ -4,11 +4,11 @@ import { eq, asc } from 'drizzle-orm';
 import { conversations, messages } from '@lome-chat/db';
 import {
   errorResponseSchema,
-  ERROR_CODE_UNAUTHORIZED,
   ERROR_CODE_NOT_FOUND,
   ERROR_CODE_VALIDATION,
   ERROR_CODE_PAYMENT_REQUIRED,
   ERROR_CODE_INSUFFICIENT_BALANCE,
+  ERROR_CODE_UNAUTHORIZED,
   type DeductionSource,
 } from '@lome-chat/shared';
 import type { AppEnv } from '../types.js';
@@ -27,12 +27,13 @@ import {
 } from '../services/chat/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { createSSEEventWriter } from '../lib/stream-handler.js';
+import { requireAuth } from '../middleware/require-auth.js';
 import {
-  ERROR_UNAUTHORIZED,
   ERROR_CONVERSATION_NOT_FOUND,
   ERROR_LAST_MESSAGE_NOT_USER,
   ERROR_INSUFFICIENT_BALANCE,
   ERROR_PREMIUM_REQUIRES_BALANCE,
+  ERROR_UNAUTHORIZED,
 } from '../constants/errors.js';
 
 const errorSchema = errorResponseSchema;
@@ -85,13 +86,13 @@ const streamChatRoute = createRoute({
 export function createChatRoutes(): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>();
 
+  app.use('*', requireAuth());
+
   app.openapi(streamChatRoute, async (c) => {
     const user = c.get('user');
-
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
-
     const { conversationId, model } = c.req.valid('json');
     const db = c.get('db');
     const openrouter = c.get('openrouter');
@@ -148,7 +149,6 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
     const deductionSource: DeductionSource =
       tierInfo.balanceCents > 0 ? 'balance' : 'freeAllowance';
 
-    // Check if user has any funds
     if (tierInfo.balanceCents <= 0 && !canUseFreeAllowance) {
       return c.json(
         createErrorResponse(ERROR_INSUFFICIENT_BALANCE, ERROR_CODE_INSUFFICIENT_BALANCE, {

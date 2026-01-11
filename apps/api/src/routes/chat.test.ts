@@ -140,10 +140,10 @@ function createMockDb(options: {
 
   return {
     ...dbOps,
-    // Transaction support: execute callback with the same db operations
+    // Transaction support: execute callback with the SAME db operations (preserves callbacks)
     transaction: async <T>(callback: (tx: typeof dbOps) => Promise<T>): Promise<T> => {
-      // In tests, transactions just run the callback with the same mock operations
-      return callback(createDbOperations());
+      // Reuse dbOps to preserve onInsert and other callbacks
+      return callback(dbOps);
     },
   };
 }
@@ -191,6 +191,8 @@ function createTestApp(dbOptions?: Parameters<typeof createMockDb>[0]) {
 
   // Mock dependencies middleware
   app.use('*', async (c, next) => {
+    // Set env bindings for tests
+    c.env = { NODE_ENV: 'test' } as AppEnv['Bindings'];
     c.set('user', mockUser);
     c.set('session', mockSession);
     c.set('openrouter', createFastMockOpenRouterClient());
@@ -210,6 +212,8 @@ function createUnauthenticatedTestApp() {
 
   // Mock dependencies middleware without user
   app.use('*', async (c, next) => {
+    // Set env bindings for tests
+    c.env = { NODE_ENV: 'test' } as AppEnv['Bindings'];
     c.set('user', null);
     c.set('session', null);
     c.set('openrouter', createFastMockOpenRouterClient());
@@ -1020,6 +1024,7 @@ describe('chat routes', () => {
         });
 
         app.use('*', async (c, next) => {
+          c.env = { NODE_ENV: 'test' } as AppEnv['Bindings'];
           c.set('user', { id: 'user-123', email: 'test@example.com', name: 'Test' });
           c.set('session', { id: 'session-123', userId: 'user-123', expiresAt: new Date() });
           c.set('openrouter', openrouter);
@@ -1123,6 +1128,7 @@ describe('chat routes', () => {
         });
 
         app.use('*', async (c, next) => {
+          c.env = { NODE_ENV: 'test' } as AppEnv['Bindings'];
           c.set('user', { id: 'user-123', email: 'test@example.com', name: 'Test' });
           c.set('session', { id: 'session-123', userId: 'user-123', expiresAt: new Date() });
           c.set('openrouter', openrouter);

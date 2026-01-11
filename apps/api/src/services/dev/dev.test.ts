@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listDevPersonas, cleanupTestData } from './dev.js';
+import { listDevPersonas, cleanupTestData, resetGuestUsage } from './dev.js';
 
 describe('dev service', () => {
   describe('listDevPersonas', () => {
@@ -128,6 +128,40 @@ describe('dev service', () => {
       const result = await cleanupTestData(mockDb as never);
 
       expect(result).toEqual({ conversations: 2, messages: 10 });
+    });
+  });
+
+  describe('resetGuestUsage', () => {
+    let mockDb: {
+      delete: ReturnType<typeof vi.fn>;
+    };
+
+    beforeEach(() => {
+      mockDb = {
+        delete: vi.fn(),
+      };
+    });
+
+    it('deletes all guest usage records and returns count', async () => {
+      mockDb.delete.mockReturnValue({
+        returning: vi
+          .fn()
+          .mockResolvedValue([{ id: 'record-1' }, { id: 'record-2' }, { id: 'record-3' }]),
+      });
+
+      const result = await resetGuestUsage(mockDb as never);
+
+      expect(result).toEqual({ deleted: 3 });
+    });
+
+    it('returns zero when no guest usage records exist', async () => {
+      mockDb.delete.mockReturnValue({
+        returning: vi.fn().mockResolvedValue([]),
+      });
+
+      const result = await resetGuestUsage(mockDb as never);
+
+      expect(result).toEqual({ deleted: 0 });
     });
   });
 });

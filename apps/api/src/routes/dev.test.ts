@@ -21,6 +21,11 @@ interface TestDataDeleteResponse {
   deleted: { conversations: number; messages: number };
 }
 
+interface GuestUsageResetResponse {
+  success: boolean;
+  deleted: number;
+}
+
 function createMockDb(
   devUsers: MockUser[],
   counts: { conv: number; msg: number; proj: number } = { conv: 0, msg: 0, proj: 0 }
@@ -458,6 +463,54 @@ describe('createDevRoute', () => {
 
       // Delete should be called twice - messages first, then conversations
       expect(mockDelete).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('DELETE /guest-usage', () => {
+    function createGuestUsageMockDb(recordsToDelete: { id: string }[]) {
+      const mockDelete = vi.fn();
+      const mockReturning = vi.fn();
+
+      mockDelete.mockReturnValue({ returning: mockReturning });
+      mockReturning.mockResolvedValue(recordsToDelete);
+
+      return { delete: mockDelete };
+    }
+
+    function createGuestUsageTestApp(
+      mockDb: ReturnType<typeof createGuestUsageMockDb>
+    ): Hono<AppEnv> {
+      const app = new Hono<AppEnv>();
+      app.use('*', async (c, next) => {
+        c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
+        await next();
+      });
+      app.route('/dev', createDevRoute());
+      return app;
+    }
+
+    it('returns success with count of deleted records', async () => {
+      const mockDb = createGuestUsageMockDb([{ id: 'record-1' }, { id: 'record-2' }]);
+
+      const app = createGuestUsageTestApp(mockDb);
+      const res = await app.request('/dev/guest-usage', { method: 'DELETE' });
+
+      expect(res.status).toBe(200);
+      const body: GuestUsageResetResponse = await res.json();
+      expect(body.success).toBe(true);
+      expect(body.deleted).toBe(2);
+    });
+
+    it('returns success with zero when no records exist', async () => {
+      const mockDb = createGuestUsageMockDb([]);
+
+      const app = createGuestUsageTestApp(mockDb);
+      const res = await app.request('/dev/guest-usage', { method: 'DELETE' });
+
+      expect(res.status).toBe(200);
+      const body: GuestUsageResetResponse = await res.json();
+      expect(body.success).toBe(true);
+      expect(body.deleted).toBe(0);
     });
   });
 });

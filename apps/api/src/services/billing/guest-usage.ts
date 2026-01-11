@@ -24,13 +24,11 @@ async function findGuestRecord(
   guestToken: string | null,
   ipHash: string
 ): Promise<{ id: string; messageCount: number; resetAt: Date | null } | null> {
-  // Build OR condition
   const conditions =
     guestToken !== null
       ? or(eq(guestUsage.guestToken, guestToken), eq(guestUsage.ipHash, ipHash))
       : eq(guestUsage.ipHash, ipHash);
 
-  // Get record with highest message count directly from database
   const [highest] = await db
     .select()
     .from(guestUsage)
@@ -72,13 +70,11 @@ export async function checkGuestUsage(
     };
   }
 
-  // Check if needs reset
   let messageCount = record.messageCount;
   let updatedResetAt = record.resetAt;
   if (needsResetBeforeMidnight(record.resetAt)) {
     messageCount = 0;
     updatedResetAt = getUtcMidnight();
-    // Update the reset in database (fire-and-forget)
     fireAndForget(
       db
         .update(guestUsage)
@@ -121,7 +117,6 @@ export async function incrementGuestUsage(
   const record = existingRecord ?? (await findGuestRecord(db, guestToken, ipHash));
 
   if (!record) {
-    // Create new record
     const [newRecord] = await db
       .insert(guestUsage)
       .values({
@@ -139,11 +134,9 @@ export async function incrementGuestUsage(
     };
   }
 
-  // Check if needs reset
   const shouldReset = needsResetBeforeMidnight(record.resetAt);
   const newCount = shouldReset ? 1 : record.messageCount + 1;
 
-  // Update existing record
   await db
     .update(guestUsage)
     .set({

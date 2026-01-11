@@ -29,14 +29,11 @@ interface PaymentFormProps {
 }
 
 export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JSX.Element {
-  // Check if we're in dev mode (for simulation buttons)
   const jsToken = import.meta.env['VITE_HELCIM_JS_TOKEN'] as string | undefined;
   const isDevMode = jsToken === 'dev-mock';
 
-  // Form state via hook
   const form = usePaymentForm();
 
-  // Payment state
   const [paymentState, setPaymentState] = useState<PaymentState>('idle');
   const [scriptLoaded, setScriptLoaded] = useState(false);
   const [scriptError, setScriptError] = useState<string | null>(null);
@@ -54,7 +51,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     refetchInterval: isPolling ? 2000 : false,
   });
 
-  // Handle polling result
   useEffect(() => {
     if (!paymentStatus || !isPolling) return;
 
@@ -73,7 +69,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     }
   }, [paymentStatus, isPolling, onSuccess]);
 
-  // Handle tokenization result
   const handleTokenizationResult = useCallback(
     async (result: HelcimTokenResult): Promise<void> => {
       if (!result.success) {
@@ -109,7 +104,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     [paymentId, processPayment, onSuccess]
   );
 
-  // Load Helcim script on mount
   useEffect(() => {
     // In dev mode, mark as loaded immediately (script will fail but we use simulation)
     if (isDevMode) {
@@ -163,17 +157,13 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     };
   }, [scriptLoaded, handleTokenizationResult]);
 
-  // Dev-only simulation handlers
   const handleSimulateSuccess = async (): Promise<void> => {
     try {
-      // Use user-entered amount or default to $100
       const simulateAmount = form.amount || '100';
       const formattedAmount = parseFloat(simulateAmount).toFixed(8);
 
-      // Step 1: Create payment record
       const payment = await createPayment.mutateAsync({ amount: formattedAmount });
 
-      // Step 2: Process payment with mock token (backend mock Helcim will approve)
       const result = await processPayment.mutateAsync({
         paymentId: payment.paymentId,
         cardToken: 'mock-dev-token',
@@ -201,7 +191,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
 
-    // Validate all fields
     if (!form.validateAll()) {
       return;
     }
@@ -219,7 +208,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
         return;
       }
 
-      // Production: call Helcim to tokenize
       if (window.helcimProcess) {
         window.helcimProcess();
         // MutationObserver on #helcimResults will handle the response
@@ -240,7 +228,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     setIsPolling(false);
   };
 
-  // Render success state
   if (paymentState === 'success') {
     return (
       <Card className="w-full max-w-md">
@@ -263,7 +250,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     );
   }
 
-  // Render error state
   if (paymentState === 'error') {
     return (
       <Card className="w-full max-w-md">
@@ -297,7 +283,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     );
   }
 
-  // Render single-page form
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
@@ -316,7 +301,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
           <input type="hidden" id="token" value={jsToken ?? ''} />
           <input type="hidden" id="amount" value={form.amount} />
 
-          {/* Amount input */}
           <FormInput
             id="amount-input"
             label="Amount (USD) - Minimum $5"
@@ -335,7 +319,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
             className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
 
-          {/* Card inputs or loading/error state */}
           {scriptError ? (
             <div className="py-4 text-center">
               <p className="text-destructive mb-4">Failed to load payment form</p>
@@ -355,7 +338,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
             </div>
           ) : (
             <>
-              {/* Card Number */}
               <FormInput
                 id="cardNumber"
                 label="Card Number"
@@ -373,7 +355,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
                 success={form.cardValidation.cardNumber.success}
               />
 
-              {/* Expiry and CVV side by side */}
               <div className="flex gap-3">
                 <div className="flex-1">
                   <FormInput
@@ -416,7 +397,6 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
                 </div>
               </div>
 
-              {/* ZIP Code */}
               <FormInput
                 id="cardHolderPostalCode"
                 label="ZIP Code"
@@ -444,14 +424,12 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
             </>
           )}
 
-          {/* Processing indicator */}
           {paymentState === 'processing' && (
             <div className="py-4 text-center">
               <p className="text-muted-foreground animate-pulse">Processing payment...</p>
             </div>
           )}
 
-          {/* Action buttons */}
           <div className="flex gap-3">
             {onCancel && (
               <Button type="button" variant="outline" onClick={onCancel} className="flex-1">
@@ -469,12 +447,10 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
             </Button>
           </div>
 
-          {/* Helcim logo */}
           <div data-testid="helcim-security-badge" className="flex justify-center pt-4">
             <HelcimLogo />
           </div>
 
-          {/* Dev-only simulation buttons */}
           <DevOnly>
             <div className="flex gap-2" data-testid="dev-simulation-buttons">
               <Button

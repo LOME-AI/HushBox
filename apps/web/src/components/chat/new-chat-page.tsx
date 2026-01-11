@@ -1,7 +1,9 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@lome-chat/ui';
+import { TypingAnimation } from './typing-animation';
 import { PromptInput } from './prompt-input';
+import type { PromptInputRef } from './prompt-input';
 import { SuggestionChips } from './suggestion-chips';
 import { ChatHeader } from './chat-header';
 import { getGreeting } from '@/lib/greetings';
@@ -31,6 +33,8 @@ export function NewChatPage({
   onPremiumClick,
 }: NewChatPageProps): React.JSX.Element {
   const [inputValue, setInputValue] = React.useState('');
+  const [showSubtitle, setShowSubtitle] = React.useState(false);
+  const promptInputRef = React.useRef<PromptInputRef>(null);
   const viewportHeight = useVisualViewportHeight();
 
   const { selectedModelId, selectedModelName, setSelectedModel } = useModelStore();
@@ -50,6 +54,15 @@ export function NewChatPage({
   // Get a greeting once on mount
   const greeting = React.useMemo(() => getGreeting(isAuthenticated), [isAuthenticated]);
 
+  // Auto-focus input when page finishes loading
+  const prevIsLoadingRef = React.useRef(isLoading);
+  React.useEffect(() => {
+    if (prevIsLoadingRef.current && !isLoading) {
+      promptInputRef.current?.focus();
+    }
+    prevIsLoadingRef.current = isLoading;
+  }, [isLoading]);
+
   const handleSubmit = (): void => {
     if (inputValue.trim()) {
       onSend(inputValue.trim());
@@ -59,6 +72,10 @@ export function NewChatPage({
 
   const handleSuggestionSelect = (prompt: string): void => {
     setInputValue(prompt);
+  };
+
+  const handleTypingComplete = (): void => {
+    setShowSubtitle(true);
   };
 
   return (
@@ -82,11 +99,18 @@ export function NewChatPage({
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-4 sm:py-8">
         <div className="w-full max-w-2xl space-y-4 sm:space-y-8">
           <div className="text-center">
-            <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{greeting.title}</h1>
+            <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
+              <TypingAnimation
+                text={greeting.title}
+                typingSpeed={75}
+                loop={false}
+                onComplete={handleTypingComplete}
+              />
+            </h1>
 
             <motion.p
               initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
+              animate={{ opacity: showSubtitle ? 1 : 0, y: showSubtitle ? 0 : 10 }}
               transition={{ duration: 0.5, delay: 0.2 }}
               className="text-muted-foreground mt-4 text-lg"
             >
@@ -96,6 +120,7 @@ export function NewChatPage({
 
           <div className="w-full">
             <PromptInput
+              ref={promptInputRef}
               value={inputValue}
               onChange={setInputValue}
               onSubmit={handleSubmit}

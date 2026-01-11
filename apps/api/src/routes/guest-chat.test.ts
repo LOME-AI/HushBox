@@ -293,6 +293,37 @@ describe('guest chat routes', () => {
       expect(res.status).toBe(200);
     });
 
+    it('returns 400 when authenticated user tries to use guest endpoint', async () => {
+      const app = new Hono<AppEnv>();
+
+      app.use('*', async (c, next) => {
+        // Simulate authenticated user with valid session
+        c.set('user', { id: 'user-123', email: 'test@example.com', name: 'Test User' });
+        c.set('session', { id: 'session-123', userId: 'user-123', expiresAt: new Date() });
+        c.set('openrouter', createFastMockOpenRouterClient({ models: guestChatModels }));
+        c.set('db', createMockDb() as unknown as AppEnv['Variables']['db']);
+        await next();
+      });
+
+      app.route('/', createGuestChatRoutes());
+
+      const res = await app.request('/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'Hello' }],
+          model: 'meta-llama/llama-3.1-70b',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body: ErrorBody = await res.json();
+      expect(body.error).toBe('Authenticated users should use /chat/stream');
+      expect(body.code).toBe('VALIDATION');
+    });
+
     it('does not persist messages to database', async () => {
       vi.useRealTimers();
 

@@ -1045,4 +1045,88 @@ describe('ModelSelectorModal', () => {
       });
     });
   });
+
+  describe('expensive model warning', () => {
+    const expensiveModels: Model[] = [
+      {
+        id: 'cheap-model',
+        name: 'Cheap Model',
+        provider: 'Provider A',
+        contextLength: 100000,
+        // $0.01/1k input + $0.03/1k output = $0.046/1k with fees (below $0.10 threshold)
+        pricePerInputToken: 0.00001,
+        pricePerOutputToken: 0.00003,
+        capabilities: [],
+        description: 'A cheap model',
+        supportedParameters: [],
+      },
+      {
+        id: 'expensive-model',
+        name: 'Expensive Model',
+        provider: 'Provider B',
+        contextLength: 200000,
+        // $0.05/1k input + $0.05/1k output = $0.115/1k with fees (above $0.10 threshold)
+        pricePerInputToken: 0.00005,
+        pricePerOutputToken: 0.00005,
+        capabilities: [],
+        description: 'An expensive model',
+        supportedParameters: [],
+      },
+    ];
+
+    it('shows warning for expensive models', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={expensiveModels}
+          selectedId="cheap-model"
+          onSelect={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByText('Expensive Model'));
+
+      expect(screen.getByTestId('expensive-model-warning')).toBeInTheDocument();
+      expect(screen.getByText('Long chats with this model can be costly')).toBeInTheDocument();
+    });
+
+    it('does not show warning for cheap models', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={expensiveModels}
+          selectedId="cheap-model"
+          onSelect={vi.fn()}
+        />
+      );
+
+      // Cheap model is initially selected
+      expect(screen.queryByTestId('expensive-model-warning')).not.toBeInTheDocument();
+    });
+
+    it('hides warning when switching from expensive to cheap model', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={expensiveModels}
+          selectedId="expensive-model"
+          onSelect={vi.fn()}
+        />
+      );
+
+      // Initially shows warning for expensive model
+      expect(screen.getByTestId('expensive-model-warning')).toBeInTheDocument();
+
+      // Switch to cheap model
+      await user.click(screen.getByText('Cheap Model'));
+
+      // Warning should disappear
+      expect(screen.queryByTestId('expensive-model-warning')).not.toBeInTheDocument();
+    });
+  });
 });

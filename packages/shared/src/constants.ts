@@ -33,6 +33,12 @@ export const PROVIDER_FEE_RATE = 0.055;
  */
 export const TOTAL_FEE_RATE = LOME_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE;
 
+/**
+ * Threshold per 1k tokens (input + output combined, with fees) above which
+ * models show an expensive warning. Value is in USD.
+ */
+export const EXPENSIVE_MODEL_THRESHOLD_PER_1K = 0.1;
+
 /** Characters that fit in one kilobyte */
 export const CHARACTERS_PER_KILOBYTE = 1000;
 
@@ -62,6 +68,9 @@ export const STORAGE_COST_PER_CHARACTER =
  * Derived: STORAGE_COST_PER_CHARACTER * 1000 = $0.0003
  */
 export const STORAGE_COST_PER_1K_CHARS = STORAGE_COST_PER_CHARACTER * 1000;
+
+/** Payment expiration time in milliseconds (30 minutes) */
+export const PAYMENT_EXPIRATION_MS = 30 * 60 * 1000;
 
 /** Feature flags for conditional feature rendering */
 interface FeatureFlags {

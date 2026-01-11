@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  PREMIUM_PRICE_PERCENTILE,
-  PREMIUM_RECENCY_MS,
-  isPremiumModel,
-  canAccessPremiumModel,
-} from './premium-check.js';
+import { PREMIUM_PRICE_PERCENTILE, PREMIUM_RECENCY_MS, isPremiumModel } from './premium-check.js';
 import type { OpenRouterModel } from '../models.js';
 
 describe('PREMIUM_PRICE_PERCENTILE', () => {
@@ -67,15 +62,5 @@ describe('isPremiumModel', () => {
     const priceThreshold = 0.01;
 
     expect(isPremiumModel(model, priceThreshold)).toBe(false);
-  });
-});
-
-describe('canAccessPremiumModel', () => {
-  it('returns true when user has positive balance', () => {
-    expect(canAccessPremiumModel(true)).toBe(true);
-  });
-
-  it('returns false when user has no balance', () => {
-    expect(canAccessPremiumModel(false)).toBe(false);
   });
 });

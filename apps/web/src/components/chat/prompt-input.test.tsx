@@ -402,5 +402,29 @@ describe('PromptInput', () => {
 
       expect(document.activeElement).toBe(textarea);
     });
+
+    it('does not auto-focus when initially enabled (not a transition)', () => {
+      render(
+        <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} disabled={false} />
+      );
+
+      const textarea = screen.getByRole('textbox');
+      // Should NOT auto-focus on mount when already enabled (no transition)
+      expect(document.activeElement).not.toBe(textarea);
+    });
+
+    it('does not auto-focus when transitioning from enabled to disabled', () => {
+      const { rerender } = render(
+        <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} disabled={false} />
+      );
+
+      const textarea = screen.getByRole('textbox');
+
+      // Transition from enabled to disabled
+      rerender(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} disabled />);
+
+      expect(textarea).toBeDisabled();
+      expect(document.activeElement).not.toBe(textarea);
+    });
   });
 });

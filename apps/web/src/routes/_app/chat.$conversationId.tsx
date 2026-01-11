@@ -161,6 +161,25 @@ function ChatConversation(): React.JSX.Element {
     wasStreamingRef.current = isStreaming;
   }, [isStreaming, hasInteractedRef]);
 
+  // Focus input when arriving on a newly-created conversation
+  // (streaming completed in chat.new, we're arriving with cached data)
+  const hasInitialFocusedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (hasInitialFocusedRef.current) return;
+
+    // If not loading, not streaming, and we have messages, focus the input
+    // This handles arrival from /chat/new where streaming already completed
+    if (!isLoading && !isStreaming && allMessages.length > 0) {
+      hasInitialFocusedRef.current = true;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          promptInputRef.current?.focus();
+        });
+      });
+    }
+  }, [isLoading, isStreaming, allMessages.length]);
+
   React.useEffect(() => {
     if (!triggerStreaming) {
       return;
@@ -325,6 +344,7 @@ function ChatConversation(): React.JSX.Element {
         onError: () => {
           setOptimisticMessages((prev) => prev.filter((m) => m.id !== optimisticUserMessage.id));
           shouldFocusAfterStreamingRef.current = false;
+          promptInputRef.current?.focus();
         },
       }
     );

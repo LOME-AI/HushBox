@@ -41,10 +41,10 @@ describe('TokenCounter', () => {
     expect(counter).toHaveClass('text-destructive');
   });
 
-  it('formats large token counts with k suffix', () => {
+  it('formats large token counts with locale separators', () => {
     render(<TokenCounter currentTokens={50000} contextLimit={128000} />);
 
-    expect(screen.getByText(/50k/)).toBeInTheDocument();
+    expect(screen.getByText(/50,000/)).toBeInTheDocument();
   });
 
   it('shows tooltip on hover', () => {

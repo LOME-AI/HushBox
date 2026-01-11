@@ -5,9 +5,15 @@ import {
   estimateMessageCostDevelopment,
   calculateMessageCostFromOpenRouter,
   estimateTokenCount,
+  getModelCostPer1k,
+  isExpensiveModel,
 } from './pricing.js';
 import type { MessageCostParams, MessageCostFromOpenRouterParams } from './pricing.js';
-import { TOTAL_FEE_RATE, STORAGE_COST_PER_CHARACTER } from './constants.js';
+import {
+  TOTAL_FEE_RATE,
+  STORAGE_COST_PER_CHARACTER,
+  EXPENSIVE_MODEL_THRESHOLD_PER_1K,
+} from './constants.js';
 
 describe('applyFees', () => {
   it('applies total fee rate (15%) to base price', () => {
@@ -478,5 +484,81 @@ describe('calculateMessageCostFromOpenRouter', () => {
 
       expect(result).toBeCloseTo(modelCostWithFees + storageFee, 10);
     });
+  });
+});
+
+describe('getModelCostPer1k', () => {
+  it('calculates combined cost per 1k tokens with fees applied', () => {
+    // input: $0.01/1k, output: $0.03/1k → combined base: $0.04/1k → with 15% fee: $0.046/1k
+    const result = getModelCostPer1k(0.00001, 0.00003);
+    const baseCostPer1k = (0.00001 + 0.00003) * 1000; // 0.04
+    expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
+  });
+
+  it('handles zero prices', () => {
+    expect(getModelCostPer1k(0, 0)).toBe(0);
+  });
+
+  it('handles input price only', () => {
+    const result = getModelCostPer1k(0.00001, 0);
+    const baseCostPer1k = 0.00001 * 1000; // 0.01
+    expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
+  });
+
+  it('handles output price only', () => {
+    const result = getModelCostPer1k(0, 0.00003);
+    const baseCostPer1k = 0.00003 * 1000; // 0.03
+    expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
+  });
+
+  it('handles very small prices', () => {
+    // Llama-style cheap pricing
+    const result = getModelCostPer1k(0.00000059, 0.00000079);
+    const baseCostPer1k = (0.00000059 + 0.00000079) * 1000;
+    expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
+  });
+
+  it('handles expensive model pricing', () => {
+    // Claude Opus-style expensive pricing: $15/1M input, $75/1M output
+    const result = getModelCostPer1k(0.000015, 0.000075);
+    const baseCostPer1k = (0.000015 + 0.000075) * 1000; // 0.09
+    expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
+  });
+});
+
+describe('isExpensiveModel', () => {
+  it('returns false for cheap models (well below threshold)', () => {
+    // Llama 3.1 70B: $0.00159/1k with fees - way below $0.10
+    expect(isExpensiveModel(0.00000059, 0.00000079)).toBe(false);
+  });
+
+  it('returns false for mid-range models (below threshold)', () => {
+    // GPT-4 Turbo: $0.046/1k with fees - below $0.10
+    expect(isExpensiveModel(0.00001, 0.00003)).toBe(false);
+  });
+
+  it('returns true when exactly at threshold', () => {
+    // Need prices that result in exactly $0.10 per 1k with fees
+    // $0.10 = baseCostPer1k * 1.15
+    // baseCostPer1k = $0.10 / 1.15 ≈ $0.0869565
+    // Per token = $0.0869565 / 1000 / 2 ≈ $0.0000434783 each
+    const pricePerToken = 0.1 / (1 + TOTAL_FEE_RATE) / 1000 / 2;
+    expect(isExpensiveModel(pricePerToken, pricePerToken)).toBe(true);
+  });
+
+  it('returns false when just below threshold', () => {
+    // Slightly below $0.10 threshold
+    const pricePerToken = (0.1 / (1 + TOTAL_FEE_RATE) / 1000 / 2) * 0.99;
+    expect(isExpensiveModel(pricePerToken, pricePerToken)).toBe(false);
+  });
+
+  it('returns true for expensive models (above threshold)', () => {
+    // High-end model: input $0.05/1k, output $0.05/1k → $0.115/1k with fees
+    expect(isExpensiveModel(0.00005, 0.00005)).toBe(true);
+  });
+
+  it('uses EXPENSIVE_MODEL_THRESHOLD_PER_1K constant', () => {
+    // Verify the threshold constant is $0.10
+    expect(EXPENSIVE_MODEL_THRESHOLD_PER_1K).toBe(0.1);
   });
 });

@@ -5,8 +5,10 @@ import { ModalOverlay, Button } from '@lome-chat/ui';
 interface SignupModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Optional model name to show in the message */
+  /** Optional model name to show in the message (ignored when variant is 'rate-limit') */
   modelName?: string | undefined;
+  /** Modal variant: 'premium' for premium model access, 'rate-limit' for guest rate limit */
+  variant?: 'premium' | 'rate-limit' | undefined;
 }
 
 /**
@@ -17,6 +19,7 @@ export function SignupModal({
   open,
   onOpenChange,
   modelName,
+  variant = 'premium',
 }: SignupModalProps): React.JSX.Element | null {
   const navigate = useNavigate();
 
@@ -31,15 +34,24 @@ export function SignupModal({
 
   if (!open) return null;
 
+  const isRateLimit = variant === 'rate-limit';
+
   return (
     <ModalOverlay open={open} onOpenChange={onOpenChange}>
       <div
         data-testid="signup-modal"
         className="bg-background w-full max-w-md rounded-lg border p-6 shadow-lg"
       >
-        <h2 className="mb-4 text-xl font-semibold">Unlock Premium Models</h2>
+        <h2 className="mb-4 text-xl font-semibold">
+          {isRateLimit ? 'Continue Chatting for Free' : 'Unlock Premium Models'}
+        </h2>
         <p className="text-muted-foreground mb-6">
-          {modelName ? (
+          {isRateLimit ? (
+            <>
+              You&apos;ve used your 5 free messages today. Sign up for a free account to get more
+              messages and save your conversation history.
+            </>
+          ) : modelName ? (
             <>
               <span className="text-foreground font-medium">{modelName}</span> is a premium model.
               Sign up for free to access the most powerful AI models available.

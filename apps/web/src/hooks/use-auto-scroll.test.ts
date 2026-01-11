@@ -217,19 +217,22 @@ describe('useAutoScroll', () => {
         result.current.scrollToBottom();
       });
 
-      // Should only schedule one additional RAF (total 2: init + scroll)
-      expect(rafSpy).toHaveBeenCalledTimes(2);
+      // Should only schedule one scroll RAF (rapid calls cancel and reschedule)
+      // Total: 1 init + 1 scroll = 2 RAF calls scheduled before running timers
+      // Plus 2 cleanup RAFs (one from each completed RAF) = 4 total
+      // The double RAF pattern ensures scroll events are processed before clearing flags
+      expect(rafSpy).toHaveBeenCalledTimes(4);
 
       act(() => {
         vi.runAllTimers();
       });
 
-      // After RAF completes, can schedule another
+      // After RAF completes, can schedule another (scroll + cleanup = 2 more)
       act(() => {
         result.current.scrollToBottom();
       });
 
-      expect(rafSpy).toHaveBeenCalledTimes(3);
+      expect(rafSpy).toHaveBeenCalledTimes(6);
     });
   });
 

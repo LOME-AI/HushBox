@@ -97,6 +97,35 @@ test.describe('Auto-scroll During Streaming', () => {
 });
 
 test.describe('Auto-focus After Streaming', () => {
+  test('focuses input after first message streaming completes', async ({ authenticatedPage }) => {
+    const chatPage = new ChatPage(authenticatedPage);
+
+    // Start on /chat (new chat page)
+    await chatPage.goto();
+
+    // Send first message - this navigates to /chat/new then to /chat/{id}
+    const message = 'First message auto-focus test';
+    await chatPage.sendNewChatMessage(message);
+
+    // Wait for navigation to conversation page
+    await chatPage.waitForConversation();
+
+    // Wait for AI response to complete
+    await chatPage.waitForAIResponse(message);
+
+    // Allow focus effect to complete
+    await authenticatedPage.waitForTimeout(200);
+
+    // Verify input is focused (desktop only)
+    const viewport = authenticatedPage.viewportSize();
+    if (viewport && viewport.width >= 768) {
+      await expect(chatPage.messageInput).toBeFocused();
+    } else {
+      await expect(chatPage.messageInput).toBeVisible();
+      await expect(chatPage.messageInput).toBeEnabled();
+    }
+  });
+
   test('focuses input after streaming completes', async ({
     authenticatedPage,
     testConversation,

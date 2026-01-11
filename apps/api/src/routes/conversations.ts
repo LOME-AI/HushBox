@@ -5,11 +5,12 @@ import {
   updateConversationRequestSchema,
   createMessageRequestSchema,
   errorResponseSchema,
-  ERROR_CODE_UNAUTHORIZED,
   ERROR_CODE_NOT_FOUND,
+  ERROR_CODE_UNAUTHORIZED,
 } from '@lome-chat/shared';
 import { createErrorResponse } from '../lib/error-response.js';
-import { ERROR_UNAUTHORIZED, ERROR_CONVERSATION_NOT_FOUND } from '../constants/errors.js';
+import { ERROR_CONVERSATION_NOT_FOUND, ERROR_UNAUTHORIZED } from '../constants/errors.js';
+import { requireAuth } from '../middleware/require-auth.js';
 import {
   listConversations,
   getConversation,
@@ -20,7 +21,6 @@ import {
 } from '../services/conversations/index.js';
 import type { AppEnv } from '../types.js';
 
-// Response schemas for OpenAPI documentation
 const errorSchema = errorResponseSchema;
 
 const conversationsListResponseSchema = z.object({
@@ -49,7 +49,6 @@ const createMessageResponseSchema = z.object({
   message: selectMessageSchema,
 });
 
-// Route definitions
 const listConversationsRoute = createRoute({
   method: 'get',
   path: '/',
@@ -215,74 +214,66 @@ const createMessageRoute = createRoute({
   },
 });
 
-/**
- * Creates conversations routes with OpenAPI documentation.
- * Requires dbMiddleware, authMiddleware, and sessionMiddleware to be applied.
- */
 export function createConversationsRoutes(): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>();
 
-  // GET / - List all conversations for authenticated user
+  app.use('*', requireAuth());
+
   app.openapi(listConversationsRoute, async (c) => {
     const user = c.get('user');
-    const db = c.get('db');
-
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
+    const db = c.get('db');
 
     const userConversations = await listConversations(db, user.id);
-    return c.json({ conversations: userConversations }, 200);
+    const response = conversationsListResponseSchema.parse({ conversations: userConversations });
+    return c.json(response, 200);
   });
 
-  // GET /:id - Get single conversation with messages
   app.openapi(getConversationRoute, async (c) => {
     const user = c.get('user');
-    const db = c.get('db');
-
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
-
+    const db = c.get('db');
     const { id: conversationId } = c.req.valid('param');
-    const result = await getConversation(db, conversationId, user.id);
 
+    const result = await getConversation(db, conversationId, user.id);
     if (!result) {
       return c.json(createErrorResponse(ERROR_CONVERSATION_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }
 
-    return c.json(result, 200);
+    const response = conversationDetailResponseSchema.parse(result);
+    return c.json(response, 200);
   });
 
-  // POST / - Create a new conversation
   app.openapi(createConversationRoute, async (c) => {
     const user = c.get('user');
-    const db = c.get('db');
-
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
-
+    const db = c.get('db');
     const body = c.req.valid('json');
+
     const result = await createConversation(db, user.id, {
       title: body.title,
       firstMessage: body.firstMessage,
     });
 
-    return c.json(result, 201);
+    const response = createConversationResponseSchema.parse(result);
+    return c.json(response, 201);
   });
 
-  // PATCH /:id - Update conversation (rename)
   app.openapi(updateConversationRoute, async (c) => {
     const user = c.get('user');
-    const db = c.get('db');
-
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
-
+    const db = c.get('db');
     const { id: conversationId } = c.req.valid('param');
     const body = c.req.valid('json');
+
     const conversation = await updateConversation(db, conversationId, user.id, {
       title: body.title,
     });
@@ -291,39 +282,36 @@ export function createConversationsRoutes(): OpenAPIHono<AppEnv> {
       return c.json(createErrorResponse(ERROR_CONVERSATION_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }
 
-    return c.json({ conversation }, 200);
+    const response = updateConversationResponseSchema.parse({ conversation });
+    return c.json(response, 200);
   });
 
-  // DELETE /:id - Delete conversation
   app.openapi(deleteConversationRoute, async (c) => {
     const user = c.get('user');
-    const db = c.get('db');
-
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
-
+    const db = c.get('db');
     const { id: conversationId } = c.req.valid('param');
-    const deleted = await deleteConversation(db, conversationId, user.id);
 
+    const deleted = await deleteConversation(db, conversationId, user.id);
     if (!deleted) {
       return c.json(createErrorResponse(ERROR_CONVERSATION_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }
 
-    return c.json({ deleted: true }, 200);
+    const response = deleteConversationResponseSchema.parse({ deleted: true });
+    return c.json(response, 200);
   });
 
-  // POST /:id/messages - Add message to conversation
   app.openapi(createMessageRoute, async (c) => {
     const user = c.get('user');
-    const db = c.get('db');
-
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
-
+    const db = c.get('db');
     const { id: conversationId } = c.req.valid('param');
     const body = c.req.valid('json');
+
     const message = await createMessage(db, conversationId, user.id, {
       role: body.role,
       content: body.content,
@@ -334,7 +322,8 @@ export function createConversationsRoutes(): OpenAPIHono<AppEnv> {
       return c.json(createErrorResponse(ERROR_CONVERSATION_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }
 
-    return c.json({ message }, 201);
+    const response = createMessageResponseSchema.parse({ message });
+    return c.json(response, 201);
   });
 
   return app;

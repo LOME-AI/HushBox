@@ -38,14 +38,14 @@ describe('formatTokenCount', () => {
     expect(formatTokenCount(500)).toBe('500');
   });
 
-  it('formats large numbers with K suffix', () => {
-    expect(formatTokenCount(10000)).toBe('10k');
-    expect(formatTokenCount(128000)).toBe('128k');
+  it('formats large numbers with locale separators', () => {
+    expect(formatTokenCount(10000)).toBe('10,000');
+    expect(formatTokenCount(128000)).toBe('128,000');
   });
 
-  it('formats very large numbers with M suffix', () => {
-    expect(formatTokenCount(1000000)).toBe('1M');
-    expect(formatTokenCount(2500000)).toBe('2.5M');
+  it('formats very large numbers with locale separators', () => {
+    expect(formatTokenCount(1000000)).toBe('1,000,000');
+    expect(formatTokenCount(2500000)).toBe('2,500,000');
   });
 });
 

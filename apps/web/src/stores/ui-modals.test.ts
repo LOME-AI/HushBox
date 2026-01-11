@@ -6,6 +6,7 @@ describe('useUIModalsStore', () => {
     // Reset store between tests
     useUIModalsStore.setState({
       signupModalOpen: false,
+      signupModalVariant: 'premium',
       paymentModalOpen: false,
       premiumModelName: undefined,
     });
@@ -37,6 +38,40 @@ describe('useUIModalsStore', () => {
       useUIModalsStore.getState().closeSignupModal();
 
       expect(useUIModalsStore.getState().premiumModelName).toBeUndefined();
+    });
+
+    it('defaults to premium variant', () => {
+      useUIModalsStore.getState().openSignupModal();
+
+      expect(useUIModalsStore.getState().signupModalVariant).toBe('premium');
+    });
+
+    it('opens signup modal with rate-limit variant', () => {
+      useUIModalsStore.getState().openSignupModal(undefined, 'rate-limit');
+
+      expect(useUIModalsStore.getState().signupModalOpen).toBe(true);
+      expect(useUIModalsStore.getState().signupModalVariant).toBe('rate-limit');
+    });
+
+    it('resets variant to premium when closing modal', () => {
+      useUIModalsStore.getState().openSignupModal(undefined, 'rate-limit');
+      useUIModalsStore.getState().closeSignupModal();
+
+      expect(useUIModalsStore.getState().signupModalVariant).toBe('premium');
+    });
+
+    it('preserves variant when setSignupModalOpen(true) is called', () => {
+      useUIModalsStore.getState().openSignupModal(undefined, 'rate-limit');
+      useUIModalsStore.getState().setSignupModalOpen(true);
+
+      expect(useUIModalsStore.getState().signupModalVariant).toBe('rate-limit');
+    });
+
+    it('resets variant when setSignupModalOpen(false) is called', () => {
+      useUIModalsStore.getState().openSignupModal(undefined, 'rate-limit');
+      useUIModalsStore.getState().setSignupModalOpen(false);
+
+      expect(useUIModalsStore.getState().signupModalVariant).toBe('premium');
     });
   });
 

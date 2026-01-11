@@ -12,28 +12,27 @@ import {
   getPaymentStatusResponseSchema,
   listTransactionsResponseSchema,
   errorResponseSchema,
-  ERROR_CODE_UNAUTHORIZED,
   ERROR_CODE_NOT_FOUND,
   ERROR_CODE_INTERNAL,
   ERROR_CODE_CONFLICT,
   ERROR_CODE_EXPIRED,
   ERROR_CODE_PAYMENT_REQUIRED,
+  ERROR_CODE_UNAUTHORIZED,
+  PAYMENT_EXPIRATION_MS,
 } from '@lome-chat/shared';
 import { createErrorResponse } from '../lib/error-response.js';
 import {
-  ERROR_UNAUTHORIZED,
   ERROR_PAYMENT_NOT_FOUND,
   ERROR_PAYMENT_ALREADY_PROCESSED,
   ERROR_PAYMENT_EXPIRED,
   ERROR_PAYMENT_DECLINED,
   ERROR_PAYMENT_CREATE_FAILED,
+  ERROR_UNAUTHORIZED,
 } from '../constants/errors.js';
+import { requireAuth } from '../middleware/require-auth.js';
 import type { AppEnv } from '../types.js';
 
 const errorSchema = errorResponseSchema;
-
-// Payment expiration time (30 minutes)
-const PAYMENT_EXPIRATION_MS = 30 * 60 * 1000;
 
 // Route definitions
 const getBalanceRoute = createRoute({
@@ -167,32 +166,35 @@ const getPaymentStatusRoute = createRoute({
 export function createBillingRoutes(): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>();
 
+  // All billing routes require authentication
+  app.use('*', requireAuth());
+
   // GET /billing/balance - Get user's current balance
   app.openapi(getBalanceRoute, async (c) => {
     const user = c.get('user');
-    const db = c.get('db');
-
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
+    const db = c.get('db');
 
     const [userData] = await db
       .select({ balance: users.balance })
       .from(users)
       .where(eq(users.id, user.id));
 
-    return c.json({ balance: userData?.balance ?? '0.00000000' }, 200);
+    const response = getBalanceResponseSchema.parse({
+      balance: userData?.balance ?? '0.00000000',
+    });
+    return c.json(response, 200);
   });
 
   // GET /billing/transactions - Get balance transaction history
   app.openapi(listTransactionsRoute, async (c) => {
     const user = c.get('user');
-    const db = c.get('db');
-
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
-
+    const db = c.get('db');
     const query = c.req.valid('query');
     const limit = query.limit;
 
@@ -234,18 +236,17 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
 
     const nextCursor = hasMore ? results[limit - 1]?.createdAt.toISOString() : null;
 
-    return c.json({ transactions, nextCursor }, 200);
+    const response = listTransactionsResponseSchema.parse({ transactions, nextCursor });
+    return c.json(response, 200);
   });
 
   // POST /billing/payments - Create a new payment record
   app.openapi(createPaymentRoute, async (c) => {
     const user = c.get('user');
-    const db = c.get('db');
-
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
-
+    const db = c.get('db');
     const body = c.req.valid('json');
 
     // Create payment record BEFORE any processing
@@ -262,19 +263,21 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       return c.json(createErrorResponse(ERROR_PAYMENT_CREATE_FAILED, ERROR_CODE_INTERNAL), 500);
     }
 
-    return c.json({ paymentId: payment.id, amount: payment.amount }, 201);
+    const response = createPaymentResponseSchema.parse({
+      paymentId: payment.id,
+      amount: payment.amount,
+    });
+    return c.json(response, 201);
   });
 
   // POST /billing/payments/:id/process - Process payment with card token
   app.openapi(processPaymentRoute, async (c) => {
     const user = c.get('user');
-    const db = c.get('db');
-    const helcim = c.get('helcim');
-
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
-
+    const db = c.get('db');
+    const helcim = c.get('helcim');
     const { id: paymentId } = c.req.valid('param');
     const body = c.req.valid('json');
 
@@ -337,14 +340,12 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
           );
         }
 
-        return c.json(
-          {
-            status: 'confirmed' as const,
-            newBalance: creditResult.newBalance,
-            helcimTransactionId: result.transactionId,
-          },
-          200
-        );
+        const response = processPaymentResponseSchema.parse({
+          status: 'confirmed' as const,
+          newBalance: creditResult.newBalance,
+          helcimTransactionId: result.transactionId,
+        });
+        return c.json(response, 200);
       }
 
       // Real mode: await webhook
@@ -360,13 +361,11 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
         })
         .where(eq(payments.id, payment.id));
 
-      return c.json(
-        {
-          status: 'processing' as const,
-          helcimTransactionId: transactionId,
-        },
-        200
-      );
+      const response = processPaymentResponseSchema.parse({
+        status: 'processing' as const,
+        helcimTransactionId: transactionId,
+      });
+      return c.json(response, 200);
     }
 
     // Payment declined
@@ -391,12 +390,10 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
   // GET /billing/payments/:id - Poll payment status
   app.openapi(getPaymentStatusRoute, async (c) => {
     const user = c.get('user');
-    const db = c.get('db');
-
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
-
+    const db = c.get('db');
     const { id: paymentId } = c.req.valid('param');
 
     const [payment] = await db
@@ -414,26 +411,23 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
         .from(users)
         .where(eq(users.id, user.id));
 
-      return c.json(
-        {
-          status: 'confirmed' as const,
-          newBalance: userData?.balance ?? '0.00000000',
-        },
-        200
-      );
+      const response = getPaymentStatusResponseSchema.parse({
+        status: 'confirmed' as const,
+        newBalance: userData?.balance ?? '0.00000000',
+      });
+      return c.json(response, 200);
     }
 
     if (payment.status === 'failed') {
-      return c.json(
-        {
-          status: 'failed' as const,
-          errorMessage: payment.errorMessage,
-        },
-        200
-      );
+      const response = getPaymentStatusResponseSchema.parse({
+        status: 'failed' as const,
+        errorMessage: payment.errorMessage,
+      });
+      return c.json(response, 200);
     }
 
-    return c.json({ status: payment.status }, 200);
+    const response = getPaymentStatusResponseSchema.parse({ status: payment.status });
+    return c.json(response, 200);
   });
 
   return app;

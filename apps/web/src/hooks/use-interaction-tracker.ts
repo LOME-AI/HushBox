@@ -25,7 +25,7 @@ export function useInteractionTracker({
       hasInteractedRef.current = true;
     };
 
-    // Use capture phase to catch all events before they're handled
+    // Capture phase catches interactions before they're handled by other handlers
     const options = { capture: true };
 
     document.addEventListener('click', handleInteraction, options);

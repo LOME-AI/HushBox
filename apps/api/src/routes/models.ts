@@ -50,13 +50,11 @@ export function createModelsRoutes(): OpenAPIHono<AppEnv> {
   app.openapi(listModelsRoute, async (c) => {
     const rawModels = await fetchModels();
     const { models, premiumIds } = processModels(rawModels);
-    return c.json(
-      {
-        models,
-        premiumModelIds: premiumIds,
-      },
-      200
-    );
+    const response = modelsListResponseSchema.parse({
+      models,
+      premiumModelIds: premiumIds,
+    });
+    return c.json(response, 200);
   });
 
   app.openapi(getModelRoute, async (c) => {
@@ -68,7 +66,8 @@ export function createModelsRoutes(): OpenAPIHono<AppEnv> {
     try {
       const rawModel = await getModel(decodedModelId);
       const model = transformModel(rawModel);
-      return c.json(model, 200);
+      const response = modelSchema.parse(model);
+      return c.json(response, 200);
     } catch {
       return c.json(createErrorResponse(ERROR_MODEL_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
     }

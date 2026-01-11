@@ -5,15 +5,15 @@ describe('useChatStore', () => {
   beforeEach(() => {
     // Reset store state before each test
     useChatStore.setState({
-      pendingMessages: new Map(),
+      pendingMessages: {},
       streamingContent: null,
     });
   });
 
   describe('initial state', () => {
-    it('has empty pending messages map', () => {
+    it('has empty pending messages record', () => {
       const state = useChatStore.getState();
-      expect(state.pendingMessages.size).toBe(0);
+      expect(Object.keys(state.pendingMessages)).toHaveLength(0);
     });
 
     it('has null streaming content', () => {
@@ -33,7 +33,7 @@ describe('useChatStore', () => {
       expect(messageId).toBeDefined();
       expect(typeof messageId).toBe('string');
 
-      const messages = useChatStore.getState().pendingMessages.get(conversationId);
+      const messages = useChatStore.getState().pendingMessages[conversationId];
       expect(messages).toBeDefined();
       expect(messages).toHaveLength(1);
 
@@ -50,7 +50,7 @@ describe('useChatStore', () => {
       addPendingMessage(conversationId, 'First message');
       addPendingMessage(conversationId, 'Second message');
 
-      const messages = useChatStore.getState().pendingMessages.get(conversationId);
+      const messages = useChatStore.getState().pendingMessages[conversationId];
       expect(messages).toHaveLength(2);
       expect(messages?.[0]?.content).toBe('First message');
       expect(messages?.[1]?.content).toBe('Second message');
@@ -63,10 +63,10 @@ describe('useChatStore', () => {
       addPendingMessage('conv-2', 'Message for conv 2');
 
       const { pendingMessages } = useChatStore.getState();
-      expect(pendingMessages.get('conv-1')).toHaveLength(1);
-      expect(pendingMessages.get('conv-2')).toHaveLength(1);
-      expect(pendingMessages.get('conv-1')?.[0]?.content).toBe('Message for conv 1');
-      expect(pendingMessages.get('conv-2')?.[0]?.content).toBe('Message for conv 2');
+      expect(pendingMessages['conv-1']).toHaveLength(1);
+      expect(pendingMessages['conv-2']).toHaveLength(1);
+      expect(pendingMessages['conv-1']?.[0]?.content).toBe('Message for conv 1');
+      expect(pendingMessages['conv-2']?.[0]?.content).toBe('Message for conv 2');
     });
   });
 
@@ -80,7 +80,7 @@ describe('useChatStore', () => {
 
       removePendingMessage(conversationId, id1);
 
-      const messages = useChatStore.getState().pendingMessages.get(conversationId);
+      const messages = useChatStore.getState().pendingMessages[conversationId];
       expect(messages).toHaveLength(1);
       expect(messages?.[0]?.content).toBe('Second');
     });
@@ -106,7 +106,7 @@ describe('useChatStore', () => {
       clearPendingMessages(conversationId);
 
       const { pendingMessages } = useChatStore.getState();
-      expect(pendingMessages.has(conversationId)).toBe(false);
+      expect(conversationId in pendingMessages).toBe(false);
     });
 
     it('does not affect other conversations', () => {
@@ -118,8 +118,8 @@ describe('useChatStore', () => {
       clearPendingMessages('conv-2');
 
       const { pendingMessages } = useChatStore.getState();
-      expect(pendingMessages.get('conv-1')).toHaveLength(1);
-      expect(pendingMessages.has('conv-2')).toBe(false);
+      expect(pendingMessages['conv-1']).toHaveLength(1);
+      expect('conv-2' in pendingMessages).toBe(false);
     });
   });
 

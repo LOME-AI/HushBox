@@ -37,3 +37,7 @@ export const ERROR_CREATE_MESSAGE_FAILED = 'Failed to create message';
 // Premium/Balance errors
 export const ERROR_PREMIUM_REQUIRES_BALANCE = 'Premium models require a positive balance';
 export const ERROR_PREMIUM_REQUIRES_ACCOUNT = 'Premium models require a free account';
+
+// Guest endpoint errors
+export const ERROR_AUTHENTICATED_USER_ON_GUEST_ENDPOINT =
+  'Authenticated users should use /chat/stream';

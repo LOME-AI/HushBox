@@ -28,7 +28,6 @@ export function ChatNew(): React.JSX.Element {
   const queryClient = useQueryClient();
   const viewportHeight = useVisualViewportHeight();
 
-  // Auth state for premium access
   const { data: session } = useSession();
   const isAuthenticated = Boolean(session?.user);
   const { data: balanceData } = useBalance();
@@ -59,23 +58,19 @@ export function ChatNew(): React.JSX.Element {
   const [conversationId, setConversationId] = React.useState<string | null>(null);
   const [inputValue, setInputValue] = React.useState('');
 
-  // Track which message is currently streaming
   const [streamingMessageId, setStreamingMessageId] = React.useState<string | null>(null);
 
   // Messages including user's pending message and streaming assistant response
   const [messages, setMessages] = React.useState<Message[]>([]);
 
-  // Track if we've already started the creation process and capture the message
   const creationStartedRef = React.useRef(false);
   const capturedMessageRef = React.useRef<string | null>(null);
 
-  // Ref to track streaming message ID for use in callbacks
   const streamingMessageIdRef = React.useRef<string | null>(null);
 
   // Ref to track current messages for cache seeding (avoids stale closure in async IIFE)
   const messagesRef = React.useRef<Message[]>([]);
 
-  // Track documents extracted from messages
   const [documentsByMessage, setDocumentsByMessage] = React.useState<Record<string, Document[]>>(
     {}
   );
@@ -91,12 +86,10 @@ export function ChatNew(): React.JSX.Element {
     return Object.values(documentsByMessage).flat();
   }, [documentsByMessage]);
 
-  // Keep messagesRef in sync with state for cache seeding
   React.useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  // Create conversation on mount if we have a pending message
   React.useEffect(() => {
     if (!pendingMessage || creationStartedRef.current) {
       return;
@@ -105,7 +98,6 @@ export function ChatNew(): React.JSX.Element {
     creationStartedRef.current = true;
     capturedMessageRef.current = pendingMessage;
 
-    // Create optimistic user message immediately
     const userMessage: Message = {
       id: 'pending-user-message',
       conversationId: 'pending',
@@ -125,7 +117,6 @@ export function ChatNew(): React.JSX.Element {
         const newConversationId = response.conversation.id;
         setConversationId(newConversationId);
 
-        // Update user message with real ID
         const realUserMessage: Message = {
           id: response.message?.id ?? 'pending-user-message',
           conversationId: newConversationId,
@@ -142,16 +133,13 @@ export function ChatNew(): React.JSX.Element {
           response.message ? [response.message] : []
         );
 
-        // Clear pending message from store
         clearPendingMessage();
 
-        // Start streaming
         try {
           await startStream(
             { conversationId: newConversationId, model: selectedModelId },
             {
               onStart: ({ assistantMessageId: msgId }) => {
-                // Add empty assistant message
                 const assistantMessage: Message = {
                   id: msgId,
                   conversationId: newConversationId,
@@ -164,7 +152,6 @@ export function ChatNew(): React.JSX.Element {
                 streamingMessageIdRef.current = msgId;
               },
               onToken: (token) => {
-                // Update assistant message content in-place
                 const msgId = streamingMessageIdRef.current;
                 if (msgId) {
                   setMessages((prev) =>
@@ -222,8 +209,6 @@ export function ChatNew(): React.JSX.Element {
     clearPendingMessage,
   ]);
 
-  // Redirect to /chat if no pending message AND we haven't started creating
-  // (once creation starts, we stay on this page even after clearing the pending message)
   if (pendingMessage === null && !creationStartedRef.current) {
     return <Navigate to="/chat" />;
   }
@@ -260,7 +245,7 @@ export function ChatNew(): React.JSX.Element {
           value={inputValue}
           onChange={setInputValue}
           onSubmit={() => {
-            // Can't send another message until conversation is created and streaming is done
+            // Input is disabled until conversation is created, then component navigates away
           }}
           placeholder="Type a message..."
           modelContextLimit={selectedModel?.contextLength}

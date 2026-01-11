@@ -28,15 +28,3 @@ export function isPremiumModel(model: OpenRouterModel, priceThreshold: number): 
   const recencyThreshold = Date.now() - PREMIUM_RECENCY_MS;
   return price >= priceThreshold || model.created * 1000 > recencyThreshold;
 }
-
-/**
- * Check if a user can access premium models.
- *
- * Premium models require a positive balance.
- *
- * @param hasBalance - Whether the user has a positive balance
- * @returns true if the user can access premium models
- */
-export function canAccessPremiumModel(hasBalance: boolean): boolean {
-  return hasBalance;
-}

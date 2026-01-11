@@ -20,6 +20,7 @@ import {
   ERROR_LAST_MESSAGE_NOT_USER,
   ERROR_DAILY_LIMIT_EXCEEDED,
   ERROR_PREMIUM_REQUIRES_ACCOUNT,
+  ERROR_AUTHENTICATED_USER_ON_GUEST_ENDPOINT,
 } from '../constants/errors.js';
 
 const errorSchema = errorResponseSchema;
@@ -79,17 +80,23 @@ export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
     const openrouter = c.get('openrouter');
 
-    // Validate last message is from user
+    // Reject authenticated users - they should use /chat/stream
+    const session = c.get('session');
+    if (session) {
+      return c.json(
+        createErrorResponse(ERROR_AUTHENTICATED_USER_ON_GUEST_ENDPOINT, ERROR_CODE_VALIDATION),
+        400
+      );
+    }
+
     if (!validateLastMessageIsFromUser(messages)) {
       return c.json(createErrorResponse(ERROR_LAST_MESSAGE_NOT_USER, ERROR_CODE_VALIDATION), 400);
     }
 
-    // Get guest identity
     const guestToken = c.req.header('x-guest-token') ?? null;
     const clientIp = getClientIp(c);
     const ipHash = hashIp(clientIp);
 
-    // Check guest usage limits
     const usageCheck = await checkGuestUsage(db, guestToken, ipHash);
     if (!usageCheck.canSend) {
       return c.json(
@@ -101,7 +108,6 @@ export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
       );
     }
 
-    // Check if model is premium (guests can only use basic models)
     const allModels = await fetchModels();
     const { premiumIds } = processModels(allModels);
 
@@ -111,7 +117,6 @@ export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
 
     const assistantMessageId = crypto.randomUUID();
 
-    // Build prompt
     const { systemPrompt } = buildPrompt({
       modelId: model,
       supportedCapabilities: [],

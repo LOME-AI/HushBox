@@ -1,4 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type {
+  GetBalanceResponse,
+  ListTransactionsResponse,
+  CreatePaymentResponse,
+  ProcessPaymentResponse,
+  GetPaymentStatusResponse,
+  BalanceTransactionType,
+} from '@lome-chat/shared';
 import { api } from '../lib/api.js';
 
 // Query key factory for billing-related queries
@@ -11,70 +19,13 @@ export const billingKeys = {
   payment: (id: string) => [...billingKeys.payments(), id] as const,
 };
 
-// Response types
-interface BalanceResponse {
-  balance: string;
-}
-
-interface BalanceTransaction {
-  id: string;
-  amount: string;
-  balanceAfter: string;
-  type: 'deposit' | 'usage' | 'adjustment';
-  description: string;
-  paymentId?: string | null;
-  createdAt: string;
-}
-
-interface TransactionsResponse {
-  transactions: BalanceTransaction[];
-  nextCursor?: string | null;
-}
-
-interface CreatePaymentResponse {
-  paymentId: string;
-  amount: string;
-}
-
-interface ProcessPaymentSuccessResponse {
-  status: 'confirmed';
-  newBalance: string;
-  helcimTransactionId?: string;
-}
-
-interface ProcessPaymentProcessingResponse {
-  status: 'processing';
-  helcimTransactionId: string;
-}
-
-type ProcessPaymentResponse = ProcessPaymentSuccessResponse | ProcessPaymentProcessingResponse;
-
-interface PaymentStatusConfirmedResponse {
-  status: 'confirmed';
-  newBalance: string;
-}
-
-interface PaymentStatusFailedResponse {
-  status: 'failed';
-  errorMessage?: string | null;
-}
-
-interface PaymentStatusPendingResponse {
-  status: 'pending' | 'awaiting_webhook';
-}
-
-type PaymentStatusResponse =
-  | PaymentStatusConfirmedResponse
-  | PaymentStatusFailedResponse
-  | PaymentStatusPendingResponse;
-
 /**
  * Hook to fetch user's current balance.
  */
-export function useBalance(): ReturnType<typeof useQuery<BalanceResponse, Error>> {
+export function useBalance(): ReturnType<typeof useQuery<GetBalanceResponse, Error>> {
   return useQuery({
     queryKey: billingKeys.balance(),
-    queryFn: () => api.get<BalanceResponse>('billing/balance'),
+    queryFn: () => api.get<GetBalanceResponse>('billing/balance'),
   });
 }
 
@@ -82,7 +33,7 @@ interface TransactionsOptions {
   cursor?: string;
   limit?: number;
   offset?: number;
-  type?: 'deposit' | 'usage' | 'adjustment';
+  type?: BalanceTransactionType;
   enabled?: boolean;
 }
 
@@ -91,7 +42,7 @@ interface TransactionsOptions {
  */
 export function useTransactions(
   options?: TransactionsOptions
-): ReturnType<typeof useQuery<TransactionsResponse, Error>> {
+): ReturnType<typeof useQuery<ListTransactionsResponse, Error>> {
   const { cursor, limit = 50, offset, type, enabled = true } = options ?? {};
 
   return useQuery({
@@ -104,7 +55,7 @@ export function useTransactions(
       if (type) params.set('type', type);
 
       const url = `billing/transactions${params.toString() ? `?${params.toString()}` : ''}`;
-      return api.get<TransactionsResponse>(url);
+      return api.get<ListTransactionsResponse>(url);
     },
     enabled,
   });
@@ -157,7 +108,7 @@ export function useProcessPayment(): ReturnType<
 export function usePaymentStatus(
   paymentId: string | null,
   options?: { enabled?: boolean; refetchInterval?: number | false }
-): ReturnType<typeof useQuery<PaymentStatusResponse, Error>> {
+): ReturnType<typeof useQuery<GetPaymentStatusResponse, Error>> {
   const { enabled = true, refetchInterval = false } = options ?? {};
 
   return useQuery({
@@ -166,7 +117,7 @@ export function usePaymentStatus(
       if (!paymentId) {
         throw new Error('Payment ID is required');
       }
-      return api.get<PaymentStatusResponse>(`billing/payments/${paymentId}`);
+      return api.get<GetPaymentStatusResponse>(`billing/payments/${paymentId}`);
     },
     enabled: enabled && !!paymentId,
     refetchInterval,

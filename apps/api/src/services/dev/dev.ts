@@ -1,6 +1,10 @@
 import { like, eq, count, inArray } from 'drizzle-orm';
-import { users, conversations, messages, projects, type Database } from '@lome-chat/db';
+import { users, conversations, messages, projects, guestUsage, type Database } from '@lome-chat/db';
 import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN, type DevPersona } from '@lome-chat/shared';
+
+export interface ResetGuestUsageResult {
+  deleted: number;
+}
 
 export interface CleanupResult {
   conversations: number;
@@ -101,4 +105,13 @@ export async function cleanupTestData(db: Database): Promise<CleanupResult> {
   const deletedConversations = convResult.rowCount ?? 0;
 
   return { conversations: deletedConversations, messages: deletedMessages };
+}
+
+/**
+ * Reset all guest usage records for testing purposes.
+ * This deletes all records from the guest_usage table.
+ */
+export async function resetGuestUsage(db: Database): Promise<ResetGuestUsageResult> {
+  const deleted = await db.delete(guestUsage).returning();
+  return { deleted: deleted.length };
 }

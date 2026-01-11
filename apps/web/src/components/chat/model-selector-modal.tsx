@@ -2,7 +2,13 @@ import * as React from 'react';
 import { Search, ChevronUp, ChevronDown, Lock } from 'lucide-react';
 import { ModalOverlay, Input, Badge, Button, ScrollArea } from '@lome-chat/ui';
 import type { Model } from '@lome-chat/shared';
-import { STRONGEST_MODEL_ID, VALUE_MODEL_ID, formatNumber } from '@lome-chat/shared';
+import {
+  STRONGEST_MODEL_ID,
+  VALUE_MODEL_ID,
+  formatNumber,
+  getModelCostPer1k,
+  isExpensiveModel,
+} from '@lome-chat/shared';
 import { applyFees, formatContextLength, formatPricePer1k } from '../../lib/format';
 
 type SortField = 'price' | 'context' | null;
@@ -69,8 +75,8 @@ export function ModelSelectorModal({
       result = [...result].sort((a, b) => {
         let comparison = 0;
         if (sortField === 'price') {
-          const priceA = a.pricePerInputToken + a.pricePerOutputToken;
-          const priceB = b.pricePerInputToken + b.pricePerOutputToken;
+          const priceA = getModelCostPer1k(a.pricePerInputToken, a.pricePerOutputToken);
+          const priceB = getModelCostPer1k(b.pricePerInputToken, b.pricePerOutputToken);
           comparison = priceA - priceB;
         } else {
           comparison = a.contextLength - b.contextLength;
@@ -126,8 +132,8 @@ export function ModelSelectorModal({
     }
 
     const sorted = [...basicModels].sort((a, b) => {
-      const priceA = a.pricePerInputToken + a.pricePerOutputToken;
-      const priceB = b.pricePerInputToken + b.pricePerOutputToken;
+      const priceA = getModelCostPer1k(a.pricePerInputToken, a.pricePerOutputToken);
+      const priceB = getModelCostPer1k(b.pricePerInputToken, b.pricePerOutputToken);
       return priceB - priceA;
     });
 
@@ -189,6 +195,7 @@ export function ModelSelectorModal({
         className="bg-background flex h-[90vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg sm:h-[80vh]"
         role="dialog"
         aria-label="Select model"
+        data-testid="model-selector-modal"
       >
         {/* Main content area */}
         <div className="flex min-h-0 flex-1 flex-col">
@@ -491,6 +498,19 @@ export function ModelSelectorModal({
                         {formatPricePer1k(applyFees(focusedModel.pricePerOutputToken))} / 1k
                       </div>
                     </div>
+
+                    {/* Expensive Model Warning */}
+                    {isExpensiveModel(
+                      focusedModel.pricePerInputToken,
+                      focusedModel.pricePerOutputToken
+                    ) && (
+                      <p
+                        className="-mt-6 mb-1 text-sm text-amber-500"
+                        data-testid="expensive-model-warning"
+                      >
+                        Long chats with this model can be costly
+                      </p>
+                    )}
 
                     {/* Context Limit */}
                     <div>

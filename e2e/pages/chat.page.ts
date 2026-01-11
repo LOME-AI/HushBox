@@ -64,13 +64,10 @@ export class ChatPage {
   }
 
   async waitForAIResponse(expectedContent?: string, timeout = 15000): Promise<void> {
-    // Only search within assistant messages to avoid matching user's original message
     const assistantMessages = this.messageList.locator('[data-role="assistant"]');
 
     if (expectedContent) {
-      // Wait for the echoed content to appear within an assistant message
-      // Note: Markdown splits "Echo:\n\n${content}" into separate <p> elements,
-      // so we search for the content directly instead of the full "Echo:\n\n" prefix
+      // Markdown splits "Echo:\n\n${content}" into separate <p> elements
       await expect(
         assistantMessages.getByText(expectedContent, { exact: false }).first()
       ).toBeVisible({
@@ -112,5 +109,20 @@ export class ChatPage {
 
   async isInputFocused(): Promise<boolean> {
     return this.messageInput.evaluate((el) => el === document.activeElement);
+  }
+
+  async selectNonPremiumModel(): Promise<void> {
+    const modelSelector = this.page.getByTestId('model-selector-button');
+    await modelSelector.click();
+
+    const modal = this.page.getByTestId('model-selector-modal');
+    await expect(modal).toBeVisible();
+
+    const nonPremiumModel = modal
+      .locator('[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))')
+      .first();
+    await nonPremiumModel.dblclick();
+
+    await expect(modal).not.toBeVisible();
   }
 }
