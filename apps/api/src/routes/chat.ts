@@ -248,7 +248,6 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
             generationId,
             inputContent: lastMessage.content,
             outputContent: fullContent,
-            isProduction: c.env.NODE_ENV === 'production',
           });
 
           // Atomic save + billing (same path dev/prod)

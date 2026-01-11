@@ -166,11 +166,9 @@ export function ModelSelectorModal({
   }, [canAccessPremium, isFocusedPremium, focusedModelId, onPremiumClick, onSelect, onOpenChange]);
 
   return (
-    <ModalOverlay open={open} onOpenChange={onOpenChange}>
+    <ModalOverlay open={open} onOpenChange={onOpenChange} ariaLabel="Select model">
       <div
         className="bg-background flex h-[90vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg sm:h-[80vh]"
-        role="dialog"
-        aria-label="Select model"
         data-testid="model-selector-modal"
       >
         {/* Main content area */}

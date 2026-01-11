@@ -149,9 +149,9 @@ describe('webhooks routes', () => {
     }
   });
 
-  describe('POST /webhooks/helcim', () => {
+  describe('POST /webhooks/payment', () => {
     it('accepts valid webhook payload', async () => {
-      const res = await app.request('/webhooks/helcim', {
+      const res = await app.request('/webhooks/payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -166,7 +166,7 @@ describe('webhooks routes', () => {
     });
 
     it('returns 400 for invalid JSON', async () => {
-      const res = await app.request('/webhooks/helcim', {
+      const res = await app.request('/webhooks/payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: 'invalid json',
@@ -176,7 +176,7 @@ describe('webhooks routes', () => {
     });
 
     it('ignores webhooks for unknown transaction IDs', async () => {
-      const res = await app.request('/webhooks/helcim', {
+      const res = await app.request('/webhooks/payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -224,7 +224,7 @@ describe('webhooks routes', () => {
       );
 
       // Send webhook
-      const webhookRes = await app.request('/webhooks/helcim', {
+      const webhookRes = await app.request('/webhooks/payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -286,7 +286,7 @@ describe('webhooks routes', () => {
       );
 
       // Send webhook TWICE
-      await app.request('/webhooks/helcim', {
+      await app.request('/webhooks/payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -295,7 +295,7 @@ describe('webhooks routes', () => {
         }),
       });
 
-      await app.request('/webhooks/helcim', {
+      await app.request('/webhooks/payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -346,7 +346,7 @@ describe('webhooks routes', () => {
       );
 
       // Send webhook with different event type
-      const webhookRes = await app.request('/webhooks/helcim', {
+      const webhookRes = await app.request('/webhooks/payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -364,6 +364,35 @@ describe('webhooks routes', () => {
       const newBalance = parseFloat(((await balanceRes2.json()) as { balance: string }).balance);
 
       expect(newBalance).toBeCloseTo(initialBalance, 2);
+    });
+
+    it('returns 500 in production when HELCIM_WEBHOOK_VERIFIER is not configured', async () => {
+      // Create a separate app with production settings
+      const productionApp = new Hono<AppEnv>();
+      productionApp.use('*', async (c, next) => {
+        c.set('db', db);
+        // Production env with missing webhook verifier
+        c.env = {
+          DATABASE_URL: connectionString,
+          NODE_ENV: 'production',
+          HELCIM_WEBHOOK_VERIFIER: '',
+        };
+        await next();
+      });
+      productionApp.route('/webhooks', createWebhooksRoutes());
+
+      const res = await productionApp.request('/webhooks/payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'cardTransaction',
+          id: 'test-transaction',
+        }),
+      });
+
+      expect(res.status).toBe(500);
+      const data = (await res.json()) as { error: string };
+      expect(data.error).toContain('not configured');
     });
   });
 });

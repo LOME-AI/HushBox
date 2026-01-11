@@ -173,36 +173,6 @@ describe('createHelcimClient', () => {
       expect(body.amount).toBe(25.5);
     });
   });
-
-  describe('verifyWebhookSignature (sync)', () => {
-    it('returns true for valid-looking signature length', () => {
-      const client = createHelcimClient(config);
-      // Base64 encoded 32 bytes (SHA256 output)
-      const validSignature = btoa(String.fromCharCode(...Array.from({ length: 32 }, () => 65)));
-
-      const result = client.verifyWebhookSignature('payload', validSignature, 'timestamp', 'id');
-
-      expect(result).toBe(true);
-    });
-
-    it('returns false for invalid signature encoding', () => {
-      const client = createHelcimClient(config);
-
-      const result = client.verifyWebhookSignature('payload', '!!!invalid!!!', 'timestamp', 'id');
-
-      expect(result).toBe(false);
-    });
-
-    it('returns false for wrong length signature', () => {
-      const client = createHelcimClient(config);
-      // Wrong length (16 bytes instead of 32)
-      const shortSignature = btoa(String.fromCharCode(...Array.from({ length: 16 }, () => 65)));
-
-      const result = client.verifyWebhookSignature('payload', shortSignature, 'timestamp', 'id');
-
-      expect(result).toBe(false);
-    });
-  });
 });
 
 describe('verifyWebhookSignatureAsync', () => {
@@ -230,6 +200,74 @@ describe('verifyWebhookSignatureAsync', () => {
       verifier,
       payload,
       signature,
+      timestamp,
+      webhookId
+    );
+
+    expect(result).toBe(true);
+  });
+
+  it('returns true for versioned signature format (v1,signature)', async () => {
+    const verifier = btoa('test-secret');
+    const payload = '{"event":"test"}';
+    const timestamp = '1234567890';
+    const webhookId = 'webhook-123';
+
+    // Compute expected signature
+    const encoder = new TextEncoder();
+    const message = `${webhookId}.${timestamp}.${payload}`;
+    const secretBytes = Uint8Array.from(atob(verifier), (c) => c.charCodeAt(0));
+    const key = await crypto.subtle.importKey(
+      'raw',
+      secretBytes,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
+    const rawSignature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+
+    // Helcim sends versioned signatures like "v1,signature"
+    const versionedSignature = `v1,${rawSignature}`;
+
+    const result = await verifyWebhookSignatureAsync(
+      verifier,
+      payload,
+      versionedSignature,
+      timestamp,
+      webhookId
+    );
+
+    expect(result).toBe(true);
+  });
+
+  it('returns true when any version matches in multi-signature header', async () => {
+    const verifier = btoa('test-secret');
+    const payload = '{"event":"test"}';
+    const timestamp = '1234567890';
+    const webhookId = 'webhook-123';
+
+    // Compute expected signature
+    const encoder = new TextEncoder();
+    const message = `${webhookId}.${timestamp}.${payload}`;
+    const secretBytes = Uint8Array.from(atob(verifier), (c) => c.charCodeAt(0));
+    const key = await crypto.subtle.importKey(
+      'raw',
+      secretBytes,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
+    const rawSignature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+
+    // Helcim can send multiple signatures: "v1,sig1 v2,sig2"
+    const multiSignature = `v0,invalidSignature v1,${rawSignature}`;
+
+    const result = await verifyWebhookSignatureAsync(
+      verifier,
+      payload,
+      multiSignature,
       timestamp,
       webhookId
     );

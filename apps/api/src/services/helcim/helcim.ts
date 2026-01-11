@@ -55,58 +55,42 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
         errorMessage,
       };
     },
-
-    verifyWebhookSignature(
-      payload: string,
-      signature: string,
-      timestamp: string,
-      webhookId: string
-    ): boolean {
-      // Helcim uses HMAC-SHA256 for webhook verification
-      // The verifier is base64 encoded
-      const encoder = new TextEncoder();
-
-      // Build the message to sign: webhookId.timestamp.payload
-      const message = `${webhookId}.${timestamp}.${payload}`;
-
-      // Decode the base64 verifier to get the secret
-      const secretBytes = Uint8Array.from(atob(config.webhookVerifier), (c) => c.charCodeAt(0));
-
-      // We need to use the Web Crypto API for HMAC-SHA256
-      // This is async, so we'll compute it synchronously using a workaround
-      // For now, return true and implement proper verification
-      // TODO: Implement proper async webhook verification
-      return computeHmacSha256Sync(secretBytes, encoder.encode(message), signature);
-    },
   };
 }
 
-function computeHmacSha256Sync(
-  _key: Uint8Array,
-  _message: Uint8Array,
-  expectedSignature: string
-): boolean {
-  // Use SubtleCrypto for HMAC-SHA256 verification
-  // This is a synchronous wrapper - in practice we'll verify async
-  // For now, we'll implement timing-safe comparison
-  try {
-    // Decode expected signature from base64
-    const expectedBytes = Uint8Array.from(atob(expectedSignature), (c) => c.charCodeAt(0));
+/**
+ * Parse versioned signature header from Helcim.
+ * Helcim sends signatures in formats like:
+ * - "v1,signature_base64"
+ * - "v1,sig1 v2,sig2" (multiple signatures)
+ * - "raw_signature" (plain base64, for backwards compatibility)
+ */
+function parseSignatures(signatureHeader: string): string[] {
+  const signatures: string[] = [];
 
-    // For this sync function, we'll do a simple computation
-    // In production, the webhook handler will call an async version
-    // This is a placeholder that always returns true for valid-looking signatures
-    return expectedBytes.length === 32; // SHA256 produces 32 bytes
-  } catch {
-    return false;
+  // Split by space for multiple signatures
+  const parts = signatureHeader.split(' ');
+
+  for (const part of parts) {
+    // Check for versioned format "v1,signature"
+    const commaIndex = part.indexOf(',');
+    if (commaIndex > 0 && part.startsWith('v')) {
+      // Extract signature after the version prefix
+      signatures.push(part.slice(commaIndex + 1));
+    } else {
+      // Plain signature without version
+      signatures.push(part);
+    }
   }
+
+  return signatures;
 }
 
 // Async version for proper webhook verification
 export async function verifyWebhookSignatureAsync(
   webhookVerifier: string,
   payload: string,
-  signature: string,
+  signatureHeader: string,
   timestamp: string,
   webhookId: string
 ): Promise<boolean> {
@@ -130,8 +114,17 @@ export async function verifyWebhookSignatureAsync(
     const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
     const computedSignature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
 
-    // Timing-safe comparison
-    return timingSafeEqual(computedSignature, signature);
+    // Parse potentially versioned signature header
+    const signatures = parseSignatures(signatureHeader);
+
+    // Check if any signature matches (timing-safe comparison for each)
+    for (const signature of signatures) {
+      if (timingSafeEqual(computedSignature, signature)) {
+        return true;
+      }
+    }
+
+    return false;
   } catch {
     return false;
   }

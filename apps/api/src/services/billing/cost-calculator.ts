@@ -6,6 +6,8 @@ import {
 
 export interface CalculateMessageCostParams {
   openrouter: {
+    /** True for mock client (dev), false for real client (CI/production) */
+    isMock: boolean;
     getGenerationStats: (generationId: string) => Promise<{ total_cost: number }>;
   };
   modelInfo:
@@ -17,22 +19,21 @@ export interface CalculateMessageCostParams {
   generationId: string | undefined;
   inputContent: string;
   outputContent: string;
-  isProduction: boolean;
 }
 
 /**
- * Calculate message cost based on environment and available data.
- * In production with generationId: uses exact OpenRouter stats.
- * In development or without generationId: estimates from character count.
+ * Calculate message cost based on client type and available data.
+ * Real client (isMock=false) with generationId: uses exact OpenRouter stats.
+ * Mock client (isMock=true) or without generationId: estimates from character count.
  */
 export async function calculateMessageCost(params: CalculateMessageCostParams): Promise<number> {
-  const { openrouter, modelInfo, generationId, inputContent, outputContent, isProduction } = params;
+  const { openrouter, modelInfo, generationId, inputContent, outputContent } = params;
 
   const inputCharacters = inputContent.length;
   const outputCharacters = outputContent.length;
 
-  // Production path: use exact stats from OpenRouter
-  if (isProduction && generationId) {
+  // Real client path: use exact stats from OpenRouter
+  if (!openrouter.isMock && generationId) {
     try {
       const stats = await openrouter.getGenerationStats(generationId);
       return calculateMessageCostFromOpenRouter({
@@ -52,7 +53,7 @@ export async function calculateMessageCost(params: CalculateMessageCostParams): 
     }
   }
 
-  // Development path: estimate from character count
+  // Mock client path: estimate from character count
   return estimateCost(modelInfo, inputContent, outputContent, inputCharacters, outputCharacters);
 }
 

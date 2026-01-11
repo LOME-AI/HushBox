@@ -83,7 +83,7 @@ export function BillingPage(): React.JSX.Element {
             {/* Fixed height container for transaction list */}
             <div data-testid="transaction-list-container" className="h-[320px]">
               {transactionsLoading ? (
-                <div className="flex h-full flex-col justify-between">
+                <div className="flex h-full flex-col">
                   {Array.from({ length: TRANSACTIONS_PER_PAGE }).map((_, i) => (
                     <div
                       key={i}
@@ -118,7 +118,7 @@ export function BillingPage(): React.JSX.Element {
                   <p className="text-muted-foreground">No purchases yet</p>
                 </div>
               ) : (
-                <div className="flex h-full flex-col justify-between">
+                <div className="flex h-full flex-col">
                   {deposits.map((tx) => (
                     <div
                       key={tx.id}

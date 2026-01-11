@@ -22,8 +22,13 @@ vi.mock('../services/email/index.js', () => ({
 }));
 
 vi.mock('../services/openrouter/index.js', () => ({
-  createOpenRouterClient: vi.fn(() => ({ type: 'openrouter' })),
-  createMockOpenRouterClient: vi.fn(() => ({ type: 'mock-openrouter' })),
+  createOpenRouterClient: vi.fn(() => ({ type: 'openrouter', isMock: false })),
+  createMockOpenRouterClient: vi.fn(() => ({ type: 'mock-openrouter', isMock: true })),
+}));
+
+vi.mock('../services/helcim/index.js', () => ({
+  createHelcimClient: vi.fn(() => ({ type: 'helcim', isMock: false })),
+  createMockHelcimClient: vi.fn(() => ({ type: 'mock-helcim', isMock: true })),
 }));
 
 import {
@@ -31,6 +36,7 @@ import {
   authMiddleware,
   sessionMiddleware,
   openRouterMiddleware,
+  helcimMiddleware,
 } from './dependencies.js';
 import { createDb, LOCAL_NEON_DEV_CONFIG } from '@lome-chat/db';
 import { createAuth } from '../auth/index.js';
@@ -39,6 +45,7 @@ import {
   createOpenRouterClient,
   createMockOpenRouterClient,
 } from '../services/openrouter/index.js';
+import { createHelcimClient, createMockHelcimClient } from '../services/helcim/index.js';
 
 describe('dbMiddleware', () => {
   beforeEach(() => {
@@ -344,6 +351,96 @@ describe('openRouterMiddleware', () => {
     const app = new Hono<AppEnv>();
     const nextCalled = vi.fn();
     app.use('*', openRouterMiddleware());
+    app.use('*', async (_, next) => {
+      nextCalled();
+      await next();
+    });
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request('/', {}, {});
+
+    expect(nextCalled).toHaveBeenCalled();
+  });
+});
+
+describe('helcimMiddleware', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('sets helcim on context', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', helcimMiddleware());
+    app.get('/', (c) => {
+      c.get('helcim');
+      return c.json({ hasHelcim: true });
+    });
+
+    const res = await app.request('/', {}, {});
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ hasHelcim: true });
+  });
+
+  it('uses HelcimClient when both HELCIM_API_TOKEN and HELCIM_WEBHOOK_VERIFIER are set', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', helcimMiddleware());
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request(
+      '/',
+      {},
+      { HELCIM_API_TOKEN: 'test-token', HELCIM_WEBHOOK_VERIFIER: 'test-verifier' }
+    );
+
+    expect(createHelcimClient).toHaveBeenCalledWith({
+      apiToken: 'test-token',
+      webhookVerifier: 'test-verifier',
+    });
+    expect(createMockHelcimClient).not.toHaveBeenCalled();
+  });
+
+  it('uses MockHelcimClient when HELCIM_API_TOKEN is not set', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', helcimMiddleware());
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request('/', {}, { HELCIM_WEBHOOK_VERIFIER: 'test-verifier' });
+
+    expect(createMockHelcimClient).toHaveBeenCalled();
+    expect(createHelcimClient).not.toHaveBeenCalled();
+  });
+
+  it('uses MockHelcimClient when HELCIM_WEBHOOK_VERIFIER is not set', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', helcimMiddleware());
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request('/', {}, { HELCIM_API_TOKEN: 'test-token' });
+
+    expect(createMockHelcimClient).toHaveBeenCalled();
+    expect(createHelcimClient).not.toHaveBeenCalled();
+  });
+
+  it('uses MockHelcimClient when neither env var is set', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', helcimMiddleware());
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request('/', {}, {});
+
+    expect(createMockHelcimClient).toHaveBeenCalled();
+    expect(createHelcimClient).not.toHaveBeenCalled();
+  });
+
+  it('calls next() to continue middleware chain', async () => {
+    const app = new Hono<AppEnv>();
+    const nextCalled = vi.fn();
+    app.use('*', helcimMiddleware());
     app.use('*', async (_, next) => {
       nextCalled();
       await next();

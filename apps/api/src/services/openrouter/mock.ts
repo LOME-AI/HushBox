@@ -28,6 +28,8 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
   const generationData = new Map<string, GenerationData>();
 
   return {
+    isMock: true,
+
     chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
       history.push({ ...request });
 

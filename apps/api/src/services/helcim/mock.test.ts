@@ -158,19 +158,4 @@ describe('createMockHelcimClient', () => {
       expect(client.getProcessedPayments()).toEqual([]);
     });
   });
-
-  describe('verifyWebhookSignature', () => {
-    it('always returns true for mock client', () => {
-      const client = createMockHelcimClient();
-
-      const result = client.verifyWebhookSignature(
-        'payload',
-        'signature',
-        'timestamp',
-        'webhookId'
-      );
-
-      expect(result).toBe(true);
-    });
-  });
 });

@@ -25,7 +25,7 @@ export function PaymentModal({
   if (!open) return null;
 
   return (
-    <ModalOverlay open={open} onOpenChange={onOpenChange}>
+    <ModalOverlay open={open} onOpenChange={onOpenChange} ariaLabel="Add credits">
       <div data-testid="payment-modal">
         <PaymentForm onSuccess={handleSuccess} onCancel={handleCancel} />
       </div>

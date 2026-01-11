@@ -30,6 +30,10 @@ export const ERROR_PAYMENT_CREATE_FAILED = 'Failed to create payment';
 export const ERROR_INVALID_SIGNATURE = 'Invalid signature';
 export const ERROR_INVALID_JSON = 'Invalid JSON';
 
+// Configuration errors
+export const ERROR_WEBHOOK_VERIFIER_MISSING =
+  'Webhook verifier not configured - payment webhooks cannot be processed';
+
 // Internal errors
 export const ERROR_UPDATE_FAILED = 'Failed to update conversation';
 export const ERROR_CREATE_MESSAGE_FAILED = 'Failed to create message';

@@ -22,6 +22,7 @@ export function createFastMockOpenRouterClient(
   const { streamContent = 'Echo: Hello', generationId = 'mock-gen-123', models = [] } = options;
 
   return {
+    isMock: true,
     chatCompletion() {
       return Promise.resolve({
         id: 'mock-123',

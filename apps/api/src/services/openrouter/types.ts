@@ -104,6 +104,8 @@ export interface StreamToken {
 }
 
 export interface OpenRouterClient {
+  /** True for mock client (dev), false for real client (CI/production) */
+  readonly isMock: boolean;
   chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse>;
   chatCompletionStream(request: ChatCompletionRequest): AsyncIterable<string>;
   /** Stream that yields tokens with generation ID on first token (for billing) */

@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { calculateMessageCost } from './cost-calculator.js';
 
 describe('calculateMessageCost', () => {
-  const mockOpenRouter = {
+  const createMockOpenRouter = (isMock: boolean) => ({
+    isMock,
     getGenerationStats: vi.fn(),
-  };
+  });
 
   const mockModelInfo = {
     id: 'test-model',
@@ -15,35 +16,35 @@ describe('calculateMessageCost', () => {
     vi.clearAllMocks();
   });
 
-  describe('production mode (with generationId)', () => {
+  describe('real client mode (isMock=false with generationId)', () => {
     it('fetches stats from OpenRouter and calculates cost', async () => {
-      mockOpenRouter.getGenerationStats.mockResolvedValue({
+      const realClient = createMockOpenRouter(false);
+      realClient.getGenerationStats.mockResolvedValue({
         total_cost: 0.0025,
       });
 
       const result = await calculateMessageCost({
-        openrouter: mockOpenRouter,
+        openrouter: realClient,
         modelInfo: mockModelInfo,
         generationId: 'gen-123',
         inputContent: 'Hello world',
         outputContent: 'Hello! How can I help you today?',
-        isProduction: true,
       });
 
-      expect(mockOpenRouter.getGenerationStats).toHaveBeenCalledWith('gen-123');
+      expect(realClient.getGenerationStats).toHaveBeenCalledWith('gen-123');
       expect(result).toBeGreaterThan(0);
     });
 
     it('falls back to estimation if getGenerationStats fails', async () => {
-      mockOpenRouter.getGenerationStats.mockRejectedValue(new Error('API error'));
+      const realClient = createMockOpenRouter(false);
+      realClient.getGenerationStats.mockRejectedValue(new Error('API error'));
 
       const result = await calculateMessageCost({
-        openrouter: mockOpenRouter,
+        openrouter: realClient,
         modelInfo: mockModelInfo,
         generationId: 'gen-123',
         inputContent: 'Hello',
         outputContent: 'World',
-        isProduction: true,
       });
 
       // Should fall back to estimation, not throw
@@ -51,44 +52,47 @@ describe('calculateMessageCost', () => {
     });
   });
 
-  describe('development mode (no generationId or isProduction=false)', () => {
-    it('estimates cost from character count when isProduction is false', async () => {
+  describe('mock client mode (isMock=true or no generationId)', () => {
+    it('estimates cost from character count when isMock is true', async () => {
+      const mockClient = createMockOpenRouter(true);
+
       const result = await calculateMessageCost({
-        openrouter: mockOpenRouter,
+        openrouter: mockClient,
         modelInfo: mockModelInfo,
         generationId: 'gen-123',
         inputContent: 'Hello world',
         outputContent: 'Hello! How can I help you today?',
-        isProduction: false,
       });
 
-      // Should NOT call getGenerationStats in dev mode
-      expect(mockOpenRouter.getGenerationStats).not.toHaveBeenCalled();
+      // Should NOT call getGenerationStats for mock client
+      expect(mockClient.getGenerationStats).not.toHaveBeenCalled();
       expect(result).toBeGreaterThan(0);
     });
 
     it('estimates cost when no generationId provided', async () => {
+      const realClient = createMockOpenRouter(false);
+
       const result = await calculateMessageCost({
-        openrouter: mockOpenRouter,
+        openrouter: realClient,
         modelInfo: mockModelInfo,
         generationId: undefined,
         inputContent: 'Hello world',
         outputContent: 'Hello! How can I help you today?',
-        isProduction: true,
       });
 
-      expect(mockOpenRouter.getGenerationStats).not.toHaveBeenCalled();
+      expect(realClient.getGenerationStats).not.toHaveBeenCalled();
       expect(result).toBeGreaterThan(0);
     });
 
     it('returns 0 when model pricing info is missing', async () => {
+      const mockClient = createMockOpenRouter(true);
+
       const result = await calculateMessageCost({
-        openrouter: mockOpenRouter,
+        openrouter: mockClient,
         modelInfo: undefined,
         generationId: undefined,
         inputContent: 'Hello',
         outputContent: 'World',
-        isProduction: false,
       });
 
       expect(result).toBe(0);
@@ -97,17 +101,17 @@ describe('calculateMessageCost', () => {
 
   describe('cost calculation', () => {
     it('includes storage fee in total cost', async () => {
-      mockOpenRouter.getGenerationStats.mockResolvedValue({
+      const realClient = createMockOpenRouter(false);
+      realClient.getGenerationStats.mockResolvedValue({
         total_cost: 0.001,
       });
 
       const result = await calculateMessageCost({
-        openrouter: mockOpenRouter,
+        openrouter: realClient,
         modelInfo: mockModelInfo,
         generationId: 'gen-123',
         inputContent: 'Short input',
         outputContent: 'Short output',
-        isProduction: true,
       });
 
       // Total should include OpenRouter cost + storage fee

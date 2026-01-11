@@ -169,6 +169,8 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
   };
 
   return {
+    isMock: false,
+
     async chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
       const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
         method: 'POST',

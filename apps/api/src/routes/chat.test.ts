@@ -347,6 +347,7 @@ describe('chat routes', () => {
 
       const app = new Hono<AppEnv>();
       const failingClient: OpenRouterClient = {
+        isMock: true,
         chatCompletion() {
           return Promise.reject(new Error('API Error'));
         },
@@ -767,6 +768,7 @@ describe('chat routes', () => {
         const app = new Hono<AppEnv>();
 
         const openrouter: OpenRouterClient = {
+          isMock: true, // Mock client should NOT call getGenerationStats
           chatCompletion() {
             return Promise.resolve({
               id: 'mock-123',
@@ -855,6 +857,7 @@ describe('chat routes', () => {
         const app = new Hono<AppEnv>();
 
         const openrouter: OpenRouterClient = {
+          isMock: false, // Real client SHOULD call getGenerationStats
           chatCompletion() {
             return Promise.resolve({
               id: 'mock-123',
@@ -949,6 +952,7 @@ describe('chat routes', () => {
         const app = new Hono<AppEnv>();
 
         const openrouter: OpenRouterClient = {
+          isMock: true,
           chatCompletion() {
             return Promise.resolve({
               id: 'mock-123',
@@ -1061,6 +1065,7 @@ describe('chat routes', () => {
         const app = new Hono<AppEnv>();
 
         const openrouter: OpenRouterClient = {
+          isMock: true,
           chatCompletion() {
             return Promise.resolve({
               id: 'mock-123',

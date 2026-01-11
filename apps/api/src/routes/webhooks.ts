@@ -7,7 +7,12 @@ import {
 import { verifyWebhookSignatureAsync } from '../services/helcim/index.js';
 import { processWebhookCredit } from '../services/billing/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
-import { ERROR_INVALID_SIGNATURE, ERROR_INVALID_JSON } from '../constants/errors.js';
+import {
+  ERROR_INVALID_SIGNATURE,
+  ERROR_INVALID_JSON,
+  ERROR_WEBHOOK_VERIFIER_MISSING,
+} from '../constants/errors.js';
+import { ERROR_CODE_INTERNAL } from '@lome-chat/shared';
 import type { AppEnv } from '../types.js';
 
 // Response schemas for OpenAPI documentation
@@ -27,7 +32,7 @@ const helcimWebhookPayloadSchema = z.object({
 // Route definition
 const helcimWebhookRoute = createRoute({
   method: 'post',
-  path: '/helcim',
+  path: '/payment',
   request: {
     body: {
       content: {
@@ -50,6 +55,10 @@ const helcimWebhookRoute = createRoute({
       content: { 'application/json': { schema: errorSchema } },
       description: 'Invalid signature',
     },
+    500: {
+      content: { 'application/json': { schema: errorSchema } },
+      description: 'Server misconfiguration',
+    },
   },
 });
 
@@ -61,7 +70,7 @@ const helcimWebhookRoute = createRoute({
 export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>();
 
-  // POST /webhooks/helcim - Handle Helcim webhook events
+  // POST /webhooks/payment - Handle payment webhook events
   app.openapi(helcimWebhookRoute, async (c) => {
     const db = c.get('db');
 
@@ -69,12 +78,22 @@ export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
     const rawBody = await c.req.text();
 
     // Get signature headers from Helcim
-    const signature = c.req.header('x-helcim-signature');
-    const timestamp = c.req.header('x-helcim-timestamp');
-    const webhookId = c.req.header('x-helcim-webhook-id');
+    // See: https://devdocs.helcim.com/docs/webhooks
+    const signature = c.req.header('webhook-signature');
+    const timestamp = c.req.header('webhook-timestamp');
+    const webhookId = c.req.header('webhook-id');
 
-    // Skip signature verification in development/mock mode
+    // Verify webhook signature
     const webhookVerifier = c.env.HELCIM_WEBHOOK_VERIFIER;
+    const isProduction = c.env.NODE_ENV === 'production';
+
+    // In production, webhook verifier MUST be configured
+    if (isProduction && !webhookVerifier) {
+      console.error('HELCIM_WEBHOOK_VERIFIER not configured in production');
+      return c.json(createErrorResponse(ERROR_WEBHOOK_VERIFIER_MISSING, ERROR_CODE_INTERNAL), 500);
+    }
+
+    // Verify signature if verifier is configured (required in production, optional in dev)
     if (webhookVerifier && signature && timestamp && webhookId) {
       const isValid = await verifyWebhookSignatureAsync(
         webhookVerifier,

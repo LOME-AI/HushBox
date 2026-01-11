@@ -6,7 +6,7 @@ import { ModalOverlay } from './modal-overlay';
 describe('ModalOverlay', () => {
   it('renders children when open', () => {
     render(
-      <ModalOverlay open={true} onOpenChange={vi.fn()}>
+      <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
         <div>Modal content</div>
       </ModalOverlay>
     );
@@ -15,7 +15,7 @@ describe('ModalOverlay', () => {
 
   it('does not render children when closed', () => {
     render(
-      <ModalOverlay open={false} onOpenChange={vi.fn()}>
+      <ModalOverlay open={false} onOpenChange={vi.fn()} ariaLabel="Test modal">
         <div>Modal content</div>
       </ModalOverlay>
     );
@@ -26,7 +26,7 @@ describe('ModalOverlay', () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
     render(
-      <ModalOverlay open={true} onOpenChange={onOpenChange}>
+      <ModalOverlay open={true} onOpenChange={onOpenChange} ariaLabel="Test modal">
         <div>Modal content</div>
       </ModalOverlay>
     );
@@ -44,7 +44,7 @@ describe('ModalOverlay', () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
     render(
-      <ModalOverlay open={true} onOpenChange={onOpenChange}>
+      <ModalOverlay open={true} onOpenChange={onOpenChange} ariaLabel="Test modal">
         <div>Modal content</div>
       </ModalOverlay>
     );
@@ -58,7 +58,7 @@ describe('ModalOverlay', () => {
 
   it('has blur effect on overlay', () => {
     render(
-      <ModalOverlay open={true} onOpenChange={vi.fn()}>
+      <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
         <div>Modal content</div>
       </ModalOverlay>
     );
@@ -69,7 +69,12 @@ describe('ModalOverlay', () => {
 
   it('applies custom className to content wrapper', () => {
     render(
-      <ModalOverlay open={true} onOpenChange={vi.fn()} className="custom-class">
+      <ModalOverlay
+        open={true}
+        onOpenChange={vi.fn()}
+        ariaLabel="Test modal"
+        className="custom-class"
+      >
         <div>Modal content</div>
       </ModalOverlay>
     );
@@ -80,7 +85,7 @@ describe('ModalOverlay', () => {
 
   it('centers content on screen', () => {
     render(
-      <ModalOverlay open={true} onOpenChange={vi.fn()}>
+      <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
         <div>Modal content</div>
       </ModalOverlay>
     );
@@ -93,7 +98,7 @@ describe('ModalOverlay', () => {
 
   it('has data-slot attributes', () => {
     render(
-      <ModalOverlay open={true} onOpenChange={vi.fn()}>
+      <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
         <div>Modal content</div>
       </ModalOverlay>
     );
@@ -106,5 +111,17 @@ describe('ModalOverlay', () => {
       'data-slot',
       'modal-overlay-content'
     );
+  });
+
+  it('renders visually hidden accessible title', () => {
+    render(
+      <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="My accessible title">
+        <div>Modal content</div>
+      </ModalOverlay>
+    );
+
+    const title = screen.getByText('My accessible title');
+    expect(title).toBeInTheDocument();
+    expect(title).toHaveClass('sr-only');
   });
 });

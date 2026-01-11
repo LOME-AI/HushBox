@@ -3,7 +3,7 @@ import { ChatPage } from '../pages';
 
 // All guest chat tests share localhost IP for rate limiting - run only on chromium, serially
 test.describe('Guest Chat', () => {
-  test.beforeEach((_, testInfo) => {
+  test.beforeEach((_fixtures, testInfo) => {
     if (testInfo.project.name !== 'chromium') {
       test.skip(
         true,

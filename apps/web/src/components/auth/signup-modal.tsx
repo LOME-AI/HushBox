@@ -35,9 +35,10 @@ export function SignupModal({
   if (!open) return null;
 
   const isRateLimit = variant === 'rate-limit';
+  const ariaLabel = isRateLimit ? 'Continue chatting for free' : 'Unlock premium models';
 
   return (
-    <ModalOverlay open={open} onOpenChange={onOpenChange}>
+    <ModalOverlay open={open} onOpenChange={onOpenChange} ariaLabel={ariaLabel}>
       <div
         data-testid="signup-modal"
         className="bg-background w-full max-w-md rounded-lg border p-6 shadow-lg"

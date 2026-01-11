@@ -4,6 +4,7 @@ import type { OpenRouterClient, ModelInfo } from './types.js';
 
 function createMockClientWithModels(models: ModelInfo[]): OpenRouterClient {
   return {
+    isMock: true,
     chatCompletion: vi.fn(),
     chatCompletionStream: vi.fn() as unknown as OpenRouterClient['chatCompletionStream'],
     chatCompletionStreamWithMetadata:
@@ -94,6 +95,7 @@ describe('getPaidTestModel', () => {
 
     const listModelsMock = vi.fn().mockResolvedValue(models);
     const client: OpenRouterClient = {
+      isMock: true,
       chatCompletion: vi.fn(),
       chatCompletionStream: vi.fn() as unknown as OpenRouterClient['chatCompletionStream'],
       chatCompletionStreamWithMetadata:

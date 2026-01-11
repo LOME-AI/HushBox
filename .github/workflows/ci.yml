@@ -46,6 +46,11 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Install Hookdeck CLI
+        run: |
+          curl -sL https://cli.hookdeck.com/install.sh | sh
+          hookdeck version
+
       - name: Start database
         run: pnpm db:up
 
@@ -55,10 +60,21 @@ jobs:
       - name: Seed test data
         run: pnpm db:seed
 
+      - name: Start Hookdeck listener
+        run: |
+          hookdeck listen 8787 --ci --source helcim-sandbox --path /webhooks/payment &
+          sleep 5  # Give hookdeck time to establish connection
+        env:
+          HOOKDECK_API_KEY: ${{ secrets.HOOKDECK_API_KEY }}
+
       - name: Run E2E tests
         run: pnpm e2e --project=chromium
         env:
           CI: true
+          # Map Helcim sandbox secrets to runtime vars for E2E payment tests
+          HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
+          HELCIM_WEBHOOK_VERIFIER: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
+          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
@@ -83,6 +99,8 @@ jobs:
         run: pnpm build
         env:
           VITE_API_URL: https://api.lome-chat.com
+          # VITE_ vars are build-time - must be set here, not in deploy
+          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
 
       - name: Upload web build artifact
         uses: actions/upload-artifact@v4
@@ -111,6 +129,9 @@ jobs:
           echo "${{ secrets.BETTER_AUTH_SECRET }}" | pnpm exec wrangler secret put BETTER_AUTH_SECRET
           echo "${{ secrets.RESEND_API_KEY }}" | pnpm exec wrangler secret put RESEND_API_KEY
           echo "${{ secrets.OPENROUTER_API_KEY }}" | pnpm exec wrangler secret put OPENROUTER_API_KEY
+          # Helcim production credentials (explicitly suffixed _PRODUCTION for clarity)
+          echo "${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_API_TOKEN
+          echo "${{ secrets.HELCIM_WEBHOOK_VERIFIER_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_WEBHOOK_VERIFIER
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -119,7 +140,7 @@ jobs:
         working-directory: apps/api
         run: |
           secrets=$(pnpm exec wrangler secret list)
-          for secret in DATABASE_URL BETTER_AUTH_SECRET RESEND_API_KEY OPENROUTER_API_KEY; do
+          for secret in DATABASE_URL BETTER_AUTH_SECRET RESEND_API_KEY OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do
             if ! echo "$secrets" | grep -q "$secret"; then
               echo "ERROR: Secret $secret not found in Workers"
               exit 1

@@ -24,11 +24,6 @@ export function createMockHelcimClient(): MockHelcimClient {
       return Promise.resolve(response);
     },
 
-    verifyWebhookSignature(): boolean {
-      // Mock always returns true - real verification tested in integration tests
-      return true;
-    },
-
     setNextResponse(response: ProcessPaymentResponse): void {
       nextResponse = response;
     },

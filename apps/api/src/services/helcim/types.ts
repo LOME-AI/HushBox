@@ -14,12 +14,6 @@ export interface ProcessPaymentResponse {
 
 export interface HelcimClient {
   processPayment(request: ProcessPaymentRequest): Promise<ProcessPaymentResponse>;
-  verifyWebhookSignature(
-    payload: string,
-    signature: string,
-    timestamp: string,
-    webhookId: string
-  ): boolean;
   readonly isMock: boolean;
 }
 

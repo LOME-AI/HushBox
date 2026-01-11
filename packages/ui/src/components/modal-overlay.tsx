@@ -10,6 +10,8 @@ interface ModalOverlayProps {
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
   className?: string;
+  /** Accessible label for screen readers. Required for accessibility. */
+  ariaLabel: string;
 }
 
 /**
@@ -21,6 +23,7 @@ function ModalOverlay({
   onOpenChange,
   children,
   className,
+  ariaLabel,
 }: ModalOverlayProps): React.JSX.Element {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -43,6 +46,7 @@ function ModalOverlay({
             className
           )}
         >
+          <DialogPrimitive.Title className="sr-only">{ariaLabel}</DialogPrimitive.Title>
           {children}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
