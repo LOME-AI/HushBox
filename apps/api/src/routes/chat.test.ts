@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { Hono } from 'hono';
 import {
   conversations as conversationsTable,
@@ -10,6 +10,7 @@ import { createChatRoutes } from './chat.js';
 import type { AppEnv } from '../types.js';
 import type { OpenRouterClient } from '../services/openrouter/types.js';
 import { createFastMockOpenRouterClient } from '../test-helpers/index.js';
+import { clearModelCache } from '../services/openrouter/index.js';
 
 interface MockConversation {
   id: string;
@@ -38,6 +39,26 @@ interface ErrorBody {
   code?: string;
   details?: Record<string, unknown>;
 }
+
+interface MockFetchResponse {
+  ok: boolean;
+  statusText?: string;
+  json: () => Promise<unknown>;
+}
+
+type FetchMock = Mock<(url: string, init?: RequestInit) => Promise<MockFetchResponse>>;
+
+const mockModels = [
+  {
+    id: 'openai/gpt-4-turbo',
+    name: 'GPT-4 Turbo',
+    description: 'Premium model',
+    context_length: 128000,
+    pricing: { prompt: '0.00001', completion: '0.00003' },
+    supported_parameters: ['temperature'],
+    created: Math.floor(Date.now() / 1000),
+  },
+];
 
 /**
  * Create a mock database for testing.
@@ -226,13 +247,26 @@ function createUnauthenticatedTestApp() {
 }
 
 describe('chat routes', () => {
+  let fetchMock: FetchMock;
+
   beforeEach(() => {
+    fetchMock = vi.fn() as FetchMock;
+    vi.stubGlobal('fetch', fetchMock);
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-15T12:00:00.000Z'));
+    clearModelCache();
+
+    // Default mock for fetchModels
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: mockModels }),
+    });
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.useRealTimers();
+    clearModelCache();
   });
 
   describe('POST /stream', () => {
