@@ -3,7 +3,8 @@ import { ChatPage } from '../pages';
 
 // All guest chat tests share localhost IP for rate limiting - run only on chromium, serially
 test.describe('Guest Chat', () => {
-  test.beforeEach((_fixtures, testInfo) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Playwright requires destructuring pattern
+  test.beforeEach(({ page: _page }, testInfo) => {
     if (testInfo.project.name !== 'chromium') {
       test.skip(
         true,

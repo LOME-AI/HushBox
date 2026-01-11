@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SignupModal } from './signup-modal';
 
@@ -29,7 +29,8 @@ describe('SignupModal', () => {
   it('displays heading about premium models', () => {
     render(<SignupModal open={true} onOpenChange={vi.fn()} />);
 
-    expect(screen.getByRole('heading')).toHaveTextContent(/premium/i);
+    const modal = screen.getByTestId('signup-modal');
+    expect(within(modal).getByRole('heading')).toHaveTextContent(/premium/i);
   });
 
   it('displays description about signing up', () => {
@@ -102,7 +103,8 @@ describe('SignupModal', () => {
     it('shows rate limit heading instead of premium heading', () => {
       render(<SignupModal open={true} onOpenChange={vi.fn()} variant="rate-limit" />);
 
-      expect(screen.getByRole('heading')).toHaveTextContent(/continue chatting/i);
+      const modal = screen.getByTestId('signup-modal');
+      expect(within(modal).getByRole('heading')).toHaveTextContent(/continue chatting/i);
       expect(screen.queryByText(/premium/i)).not.toBeInTheDocument();
     });
 
