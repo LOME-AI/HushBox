@@ -4,13 +4,21 @@ import { Send, Square } from 'lucide-react';
 import { Button } from '@lome-chat/ui';
 import { Textarea } from '@lome-chat/ui';
 import { estimateTokenCount } from '@/lib/tokens';
-import { buildSystemPrompt, type CapabilityId } from '@lome-chat/shared';
+import {
+  buildSystemPrompt,
+  applyFees,
+  type CapabilityId,
+  MINIMUM_OUTPUT_TOKENS,
+} from '@lome-chat/shared';
+import { CapacityBar } from './capacity-bar';
+import { BudgetMessages } from './budget-messages';
+import { useBudgetCalculation } from '@/hooks/use-budget-calculation';
+import { useModelStore } from '@/stores/model';
+import { useModels } from '@/hooks/models';
+import { useSession } from '@/lib/auth';
 
-/** Buffer reserved for AI response generation */
-const RESPONSE_BUFFER = 1000;
-
-/** Default max tokens when model context is not available */
-const DEFAULT_MAX_TOKENS = 2000;
+/** Default model context when not provided */
+const DEFAULT_MODEL_CONTEXT = 4000;
 
 export interface PromptInputRef {
   focus: () => void;
@@ -21,10 +29,8 @@ interface PromptInputProps {
   onChange: (value: string) => void;
   onSubmit: () => void;
   placeholder?: string;
-  /** Model's total context length in tokens */
-  modelContextLimit?: number | undefined;
-  /** Current conversation history token count (system + user + assistant messages) */
-  historyTokens?: number;
+  /** Current conversation history character count (for budget calculation) */
+  historyCharacters?: number;
   /** Active capabilities that affect system prompt size */
   capabilities?: CapabilityId[];
   className?: string;
@@ -41,8 +47,8 @@ interface PromptInputProps {
 }
 
 /**
- * Large prompt input with token counter, send button, and keyboard handling.
- * Used for the new chat page's main input area.
+ * Large prompt input with budget calculation, capacity bar, and keyboard handling.
+ * Self-contained: calculates budget internally using model and balance data.
  */
 export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(function PromptInput(
   {
@@ -50,8 +56,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
     onChange,
     onSubmit,
     placeholder = 'Ask me anything...',
-    modelContextLimit,
-    historyTokens = 0,
+    historyCharacters = 0,
     capabilities = [],
     className,
     rows = 6,
@@ -71,23 +76,57 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
     },
   }));
 
-  // Calculate system prompt tokens based on active capabilities
+  // Get selected model and pricing from stores/hooks
+  const { selectedModelId } = useModelStore();
+  const { data: modelsData } = useModels();
+  const { data: session } = useSession();
+  const isAuthenticated = !!session?.user;
+
+  // Find selected model to get pricing and context length
+  const selectedModel = modelsData?.models.find((m) => m.id === selectedModelId);
+  const modelContextLength = selectedModel?.contextLength ?? DEFAULT_MODEL_CONTEXT;
+
+  // Calculate system prompt based on active capabilities
   const systemPrompt = React.useMemo(() => buildSystemPrompt(capabilities), [capabilities]);
   const systemPromptTokens = React.useMemo(() => estimateTokenCount(systemPrompt), [systemPrompt]);
 
-  // Calculate available tokens based on model context, history, system prompt, and response buffer
-  // Formula: available = modelContext - historyTokens - systemPromptTokens - responseBuffer
-  // Falls back to default if model context not provided
-  const availableTokens = modelContextLimit
-    ? Math.max(0, modelContextLimit - historyTokens - systemPromptTokens - RESPONSE_BUFFER)
-    : DEFAULT_MAX_TOKENS;
+  // Calculate current message tokens for capacity bar
+  const currentMessageTokens = estimateTokenCount(value);
 
-  // Calculate token count
-  const currentTokens = estimateTokenCount(value);
-  const isOverLimit = currentTokens > availableTokens;
-  const excessTokens = Math.max(0, currentTokens - availableTokens);
+  // Estimate history tokens from characters (for capacity bar)
+  // Using conservative estimate of 2 chars per token
+  const historyTokens = Math.ceil(historyCharacters / 2);
 
-  const canSubmit = value.trim().length > 0 && !isOverLimit && !disabled && !isStreaming;
+  // Calculate prompt character count for budget calculation
+  const promptCharacterCount = systemPrompt.length + historyCharacters + value.length;
+
+  // Self-contained budget calculation - handles capacity, affordability, and errors
+  const budgetResult = useBudgetCalculation({
+    promptCharacterCount,
+    modelInputPricePerToken: applyFees(selectedModel?.pricePerInputToken ?? 0),
+    modelOutputPricePerToken: applyFees(selectedModel?.pricePerOutputToken ?? 0),
+    modelContextLength,
+    isAuthenticated,
+  });
+
+  // Use capacity from budget result for consistency
+  const isOverCapacity = budgetResult.capacityPercent > 100;
+
+  // Total current usage for capacity bar (calculate locally for display)
+  const currentUsage =
+    systemPromptTokens + historyTokens + currentMessageTokens + MINIMUM_OUTPUT_TOKENS;
+
+  // Check if there are any blocking errors
+  const hasBlockingError = budgetResult.errors.some((e) => e.type === 'error');
+
+  // Send button disabled, but textarea remains enabled for editing
+  const canSubmit =
+    value.trim().length > 0 &&
+    !isOverCapacity &&
+    budgetResult.canAfford &&
+    !hasBlockingError &&
+    !disabled &&
+    !isStreaming;
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
     onChange(e.target.value);
@@ -125,29 +164,16 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
           aria-label={placeholder}
           rows={rows}
           disabled={disabled || isStreaming}
-          className={cn(
-            `max-h-[${maxHeight}] min-h-[${minHeight}] resize-none overflow-y-auto border-0 text-base focus-visible:ring-0`,
-            isOverLimit && 'text-destructive'
-          )}
+          className={`max-h-[${maxHeight}] min-h-[${minHeight}] resize-none overflow-y-auto border-0 text-base focus-visible:ring-0`}
         />
 
-        <div className="border-border flex items-center justify-between border-t px-3 py-2">
-          <div
-            data-testid="token-counter"
-            aria-live="polite"
-            aria-atomic="true"
-            className={cn('text-sm', isOverLimit ? 'text-destructive' : 'text-muted-foreground')}
-          >
-            {isOverLimit ? (
-              <span>
-                {availableTokens}+{excessTokens}/{availableTokens} Tokens
-              </span>
-            ) : (
-              <span>
-                {currentTokens}/{availableTokens} Tokens
-              </span>
-            )}
-          </div>
+        <div className="border-border flex items-center justify-between gap-4 border-t px-3 py-2">
+          <CapacityBar
+            currentUsage={currentUsage}
+            maxCapacity={modelContextLength}
+            className="flex-1"
+            data-testid="capacity-bar"
+          />
 
           {isStreaming ? (
             <Button
@@ -173,10 +199,9 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
         </div>
       </div>
 
-      {isOverLimit && (
-        <p className="text-destructive mt-2 text-sm">
-          Tokens beyond the {availableTokens} token limit will not be included.
-        </p>
+      {/* Budget messages appear below the input (self-calculated) */}
+      {budgetResult.errors.length > 0 && (
+        <BudgetMessages errors={budgetResult.errors} className="mt-2" />
       )}
     </div>
   );

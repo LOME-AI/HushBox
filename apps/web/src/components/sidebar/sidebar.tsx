@@ -2,6 +2,7 @@ import * as React from 'react';
 import { cn } from '@lome-chat/ui';
 import { useUIStore } from '@/stores/ui';
 import { useConversations } from '@/hooks/chat';
+import { useSession } from '@/lib/auth';
 import { SidebarHeader } from './sidebar-header';
 import { SidebarContent } from './sidebar-content';
 import { SidebarFooter } from './sidebar-footer';
@@ -9,6 +10,8 @@ import { SidebarFooter } from './sidebar-footer';
 export function Sidebar(): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
   const { data: conversations, isLoading } = useConversations();
+  const { data: session, isPending: isSessionPending } = useSession();
+  const isAuthenticated = !isSessionPending && Boolean(session?.user);
 
   return (
     <aside
@@ -25,7 +28,7 @@ export function Sidebar(): React.JSX.Element {
           <span className="text-sidebar-foreground/50 text-sm">Loading...</span>
         </div>
       ) : (
-        <SidebarContent conversations={conversations ?? []} />
+        <SidebarContent conversations={conversations ?? []} isAuthenticated={isAuthenticated} />
       )}
       <SidebarFooter />
     </aside>

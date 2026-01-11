@@ -22,7 +22,7 @@
     "prepare": "husky",
     "db:up": "./scripts/with-env docker compose up -d --wait postgres neon-proxy",
     "db:down": "docker compose down",
-    "db:reset": "docker compose down -v && ./scripts/with-env docker compose up -d postgres neon-proxy",
+    "db:reset": "./scripts/with-env tsx scripts/db-reset.ts",
     "db:migrate": "./scripts/with-env pnpm --filter @lome-chat/db db:migrate",
     "db:generate": "./scripts/with-env pnpm --filter @lome-chat/db db:generate",
     "db:studio": "./scripts/with-env pnpm --filter @lome-chat/db db:studio",

@@ -4,6 +4,7 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { NewChatPage } from './new-chat-page';
+import type { BudgetCalculationResult } from '@lome-chat/shared';
 
 // Mock the api module
 vi.mock('@/lib/api', () => ({
@@ -19,6 +20,59 @@ vi.mock('@/lib/api', () => ({
       },
     ]),
   },
+}));
+
+// Mock hooks used by PromptInput (which is rendered inside NewChatPage)
+vi.mock('@/stores/model', () => ({
+  useModelStore: vi.fn(() => ({
+    selectedModelId: 'test-model',
+    setSelectedModel: vi.fn(),
+  })),
+}));
+
+vi.mock('@/hooks/models', () => ({
+  useModels: vi.fn(() => ({
+    data: {
+      models: [
+        {
+          id: 'test-model',
+          name: 'Test Model',
+          contextLength: 50000,
+          pricePerInputToken: 0.000001,
+          pricePerOutputToken: 0.000002,
+          capabilities: [],
+          provider: { name: 'Test Provider' },
+          description: 'A test model',
+        },
+      ],
+    },
+    isLoading: false,
+    error: null,
+  })),
+}));
+
+vi.mock('@/lib/auth', () => ({
+  useSession: vi.fn(() => ({
+    data: { user: { id: 'test-user', email: 'test@example.com' } },
+    isPending: false,
+  })),
+}));
+
+// Default budget result - can afford, no errors
+const defaultBudgetResult: BudgetCalculationResult = {
+  canAfford: true,
+  maxOutputTokens: 1000,
+  estimatedInputTokens: 100,
+  estimatedInputCost: 0.0001,
+  estimatedMinimumCost: 0.001,
+  effectiveBalance: 1.0,
+  currentUsage: 1100,
+  capacityPercent: 5,
+  errors: [],
+};
+
+vi.mock('@/hooks/use-budget-calculation', () => ({
+  useBudgetCalculation: () => defaultBudgetResult,
 }));
 
 // Mock framer-motion to avoid animation issues in tests

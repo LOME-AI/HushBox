@@ -30,7 +30,7 @@ export function PageHeader({
   return (
     <header
       data-testid={testId}
-      className="bg-background/95 supports-backdrop-blur:bg-background/60 sticky top-0 z-10 flex h-[57px] items-center justify-center border-b px-4 backdrop-blur"
+      className="bg-background/95 supports-backdrop-blur:bg-background/60 sticky top-0 z-10 flex h-[57px] shrink-0 items-center justify-center border-b px-4 backdrop-blur"
     >
       {/* Left side with hamburger (mobile only) and title */}
       <div className="flex flex-1 items-center justify-start gap-2">

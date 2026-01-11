@@ -16,11 +16,14 @@ interface Conversation {
 interface SidebarContentProps {
   conversations: Conversation[];
   activeConversationId?: string;
+  /** Whether the user is authenticated */
+  isAuthenticated?: boolean;
 }
 
 export function SidebarContent({
   conversations,
   activeConversationId,
+  isAuthenticated = true,
 }: SidebarContentProps): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -61,7 +64,11 @@ export function SidebarContent({
 
       {/* Scrollable chat list with hidden scrollbar */}
       <div className="scrollbar-hide min-h-0 flex-1 overflow-y-auto">
-        <ChatList conversations={filteredConversations} activeId={activeConversationId} />
+        <ChatList
+          conversations={filteredConversations}
+          activeId={activeConversationId}
+          isAuthenticated={isAuthenticated}
+        />
       </div>
 
       {FEATURE_FLAGS.PROJECTS_ENABLED && (

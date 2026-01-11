@@ -282,7 +282,7 @@ export function ModelSelectorModal({
                   data-active={sortField === 'context'}
                   data-direction={sortField === 'context' ? sortDirection : undefined}
                 >
-                  Context
+                  Capacity
                   {sortField === 'context' &&
                     (sortDirection === 'asc' ? (
                       <ChevronUp className="h-4 w-4" />
@@ -384,7 +384,7 @@ export function ModelSelectorModal({
                       data-active={sortField === 'context'}
                       data-direction={sortField === 'context' ? sortDirection : undefined}
                     >
-                      Context
+                      Capacity
                       {sortField === 'context' &&
                         (sortDirection === 'asc' ? (
                           <ChevronUp className="h-4 w-4" />
@@ -512,10 +512,10 @@ export function ModelSelectorModal({
                       </p>
                     )}
 
-                    {/* Context Limit */}
+                    {/* Capacity Limit */}
                     <div>
                       <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                        Context Limit
+                        Capacity Limit
                       </div>
                       <div className="text-lg font-medium">
                         {formatNumber(focusedModel.contextLength)} tokens

@@ -9,6 +9,9 @@ import {
   ERROR_CODE_PAYMENT_REQUIRED,
   ERROR_CODE_INSUFFICIENT_BALANCE,
   ERROR_CODE_UNAUTHORIZED,
+  calculateBudget,
+  applyFees,
+  buildSystemPrompt,
   type DeductionSource,
 } from '@lome-chat/shared';
 import type { AppEnv } from '../types.js';
@@ -173,6 +176,38 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
 
     const inputCharacters = lastMessage.content.length;
 
+    // Calculate total prompt character count for budget validation
+    const systemPromptForBudget = buildSystemPrompt([]);
+    const historyCharacters = messageHistory.reduce((sum, m) => sum + m.content.length, 0);
+    const promptCharacterCount = systemPromptForBudget.length + historyCharacters;
+
+    // Get model info for pricing
+    const modelInfo = openrouterModels.find((m) => m.id === model);
+    const inputPricePerToken = applyFees(modelInfo ? parseFloat(modelInfo.pricing.prompt) : 0);
+    const outputPricePerToken = applyFees(modelInfo ? parseFloat(modelInfo.pricing.completion) : 0);
+    const modelContextLength = modelInfo?.context_length ?? 128000;
+
+    // Calculate budget and max_tokens
+    const budgetResult = calculateBudget({
+      tier: tierInfo.tier,
+      balanceCents: tierInfo.balanceCents,
+      freeAllowanceCents: tierInfo.freeAllowanceCents,
+      promptCharacterCount,
+      modelInputPricePerToken: inputPricePerToken,
+      modelOutputPricePerToken: outputPricePerToken,
+      modelContextLength,
+    });
+
+    // Strict budget validation: reject if cannot afford minimum cost
+    if (!budgetResult.canAfford) {
+      return c.json(
+        createErrorResponse(ERROR_INSUFFICIENT_BALANCE, ERROR_CODE_INSUFFICIENT_BALANCE, {
+          currentBalance: (tierInfo.balanceCents / 100).toFixed(2),
+        }),
+        402
+      );
+    }
+
     return streamSSE(c, async (stream) => {
       const writer = createSSEEventWriter(stream);
 
@@ -189,6 +224,7 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
         for await (const token of openrouter.chatCompletionStreamWithMetadata({
           model,
           messages: openRouterMessages,
+          ...(budgetResult.maxOutputTokens > 0 && { max_tokens: budgetResult.maxOutputTokens }),
         })) {
           if (token.generationId) {
             generationId = token.generationId;

@@ -20,6 +20,7 @@ import { Route as AppProjectsRouteImport } from './routes/_app/projects'
 import { Route as AppBillingRouteImport } from './routes/_app/billing'
 import { Route as AppChatIndexRouteImport } from './routes/_app/chat.index'
 import { Route as AppChatNewRouteImport } from './routes/_app/chat.new'
+import { Route as AppChatGuestRouteImport } from './routes/_app/chat.guest'
 import { Route as AppChatConversationIdRouteImport } from './routes/_app/chat.$conversationId'
 
 const AuthRoute = AuthRouteImport.update({
@@ -75,6 +76,11 @@ const AppChatNewRoute = AppChatNewRouteImport.update({
   path: '/chat/new',
   getParentRoute: () => AppRoute,
 } as any)
+const AppChatGuestRoute = AppChatGuestRouteImport.update({
+  id: '/chat/guest',
+  path: '/chat/guest',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppChatConversationIdRoute = AppChatConversationIdRouteImport.update({
   id: '/chat/$conversationId',
   path: '/chat/$conversationId',
@@ -90,6 +96,7 @@ export interface FileRoutesByFullPath {
   '/verify': typeof AuthVerifyRoute
   '/dev/personas': typeof DevPersonasRoute
   '/chat/$conversationId': typeof AppChatConversationIdRoute
+  '/chat/guest': typeof AppChatGuestRoute
   '/chat/new': typeof AppChatNewRoute
   '/chat': typeof AppChatIndexRoute
 }
@@ -102,6 +109,7 @@ export interface FileRoutesByTo {
   '/verify': typeof AuthVerifyRoute
   '/dev/personas': typeof DevPersonasRoute
   '/chat/$conversationId': typeof AppChatConversationIdRoute
+  '/chat/guest': typeof AppChatGuestRoute
   '/chat/new': typeof AppChatNewRoute
   '/chat': typeof AppChatIndexRoute
 }
@@ -117,6 +125,7 @@ export interface FileRoutesById {
   '/_auth/verify': typeof AuthVerifyRoute
   '/dev/personas': typeof DevPersonasRoute
   '/_app/chat/$conversationId': typeof AppChatConversationIdRoute
+  '/_app/chat/guest': typeof AppChatGuestRoute
   '/_app/chat/new': typeof AppChatNewRoute
   '/_app/chat/': typeof AppChatIndexRoute
 }
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
     | '/verify'
     | '/dev/personas'
     | '/chat/$conversationId'
+    | '/chat/guest'
     | '/chat/new'
     | '/chat'
   fileRoutesByTo: FileRoutesByTo
@@ -143,6 +153,7 @@ export interface FileRouteTypes {
     | '/verify'
     | '/dev/personas'
     | '/chat/$conversationId'
+    | '/chat/guest'
     | '/chat/new'
     | '/chat'
   id:
@@ -157,6 +168,7 @@ export interface FileRouteTypes {
     | '/_auth/verify'
     | '/dev/personas'
     | '/_app/chat/$conversationId'
+    | '/_app/chat/guest'
     | '/_app/chat/new'
     | '/_app/chat/'
   fileRoutesById: FileRoutesById
@@ -247,6 +259,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppChatNewRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/chat/guest': {
+      id: '/_app/chat/guest'
+      path: '/chat/guest'
+      fullPath: '/chat/guest'
+      preLoaderRoute: typeof AppChatGuestRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/chat/$conversationId': {
       id: '/_app/chat/$conversationId'
       path: '/chat/$conversationId'
@@ -261,6 +280,7 @@ interface AppRouteChildren {
   AppBillingRoute: typeof AppBillingRoute
   AppProjectsRoute: typeof AppProjectsRoute
   AppChatConversationIdRoute: typeof AppChatConversationIdRoute
+  AppChatGuestRoute: typeof AppChatGuestRoute
   AppChatNewRoute: typeof AppChatNewRoute
   AppChatIndexRoute: typeof AppChatIndexRoute
 }
@@ -269,6 +289,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppBillingRoute: AppBillingRoute,
   AppProjectsRoute: AppProjectsRoute,
   AppChatConversationIdRoute: AppChatConversationIdRoute,
+  AppChatGuestRoute: AppChatGuestRoute,
   AppChatNewRoute: AppChatNewRoute,
   AppChatIndexRoute: AppChatIndexRoute,
 }

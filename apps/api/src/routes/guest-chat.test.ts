@@ -1,9 +1,18 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { Hono } from 'hono';
 import type { AppEnv } from '../types.js';
 import type { OpenRouterClient } from '../services/openrouter/types.js';
 import { createGuestChatRoutes } from './guest-chat.js';
 import { createFastMockOpenRouterClient } from '../test-helpers/index.js';
+import { clearModelCache } from '../services/openrouter/index.js';
+
+interface MockFetchResponse {
+  ok: boolean;
+  statusText?: string;
+  json: () => Promise<unknown>;
+}
+
+type FetchMock = Mock<(url: string, init?: RequestInit) => Promise<MockFetchResponse>>;
 
 // Guest chat specific models for testing
 const guestChatModels = [
@@ -95,13 +104,26 @@ function createTestApp(
 }
 
 describe('guest chat routes', () => {
+  let fetchMock: FetchMock;
+
   beforeEach(() => {
+    fetchMock = vi.fn() as FetchMock;
+    vi.stubGlobal('fetch', fetchMock);
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-15T12:00:00.000Z'));
+    clearModelCache();
+
+    // Default mock for fetchModels - return guestChatModels
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: guestChatModels }),
+    });
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.useRealTimers();
+    clearModelCache();
   });
 
   describe('POST /stream', () => {
@@ -322,6 +344,154 @@ describe('guest chat routes', () => {
       const body: ErrorBody = await res.json();
       expect(body.error).toBe('Authenticated users should use /chat/stream');
       expect(body.code).toBe('VALIDATION');
+    });
+
+    it('returns 402 when message exceeds guest cost limit', async () => {
+      const oneYearAgoSeconds = Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60;
+      // Create models with expensive test model below 75th percentile but still expensive enough
+      // to exceed guest budget. Need multiple models so premium classification works correctly.
+      const budgetTestModels = [
+        {
+          id: 'budget-test/model',
+          name: 'Budget Test Model',
+          description: 'Model for budget testing',
+          context_length: 128000,
+          // Moderately expensive: With fees, a 50k char message = ~25k tokens at conservative rate
+          // 25000 * 0.001 = $25 input + $25 output minimum = $50+ >> $0.01 guest limit
+          pricing: { prompt: '0.001', completion: '0.001' },
+          supported_parameters: ['temperature'],
+          created: oneYearAgoSeconds, // Old model (non-premium by recency)
+        },
+        // Add expensive models to push threshold above our test model's price
+        {
+          id: 'super-expensive/model-1',
+          name: 'Super Expensive 1',
+          description: 'Very expensive',
+          context_length: 128000,
+          pricing: { prompt: '0.1', completion: '0.1' }, // Much more expensive
+          supported_parameters: ['temperature'],
+          created: oneYearAgoSeconds,
+        },
+        {
+          id: 'super-expensive/model-2',
+          name: 'Super Expensive 2',
+          description: 'Very expensive',
+          context_length: 128000,
+          pricing: { prompt: '0.1', completion: '0.1' },
+          supported_parameters: ['temperature'],
+          created: oneYearAgoSeconds,
+        },
+        {
+          id: 'super-expensive/model-3',
+          name: 'Super Expensive 3',
+          description: 'Very expensive',
+          context_length: 128000,
+          pricing: { prompt: '0.1', completion: '0.1' },
+          supported_parameters: ['temperature'],
+          created: oneYearAgoSeconds,
+        },
+      ];
+
+      // Override default fetch mock
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: budgetTestModels }),
+      });
+
+      const app = createTestApp({
+        openrouterClient: createFastMockOpenRouterClient({ models: budgetTestModels }),
+      });
+
+      // Very long message that would exceed $0.01 limit
+      const longMessage = 'x'.repeat(50000);
+
+      const res = await app.request('/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Guest-Token': 'test-guest-token',
+          'X-Forwarded-For': '192.168.1.1',
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: longMessage }],
+          model: 'budget-test/model',
+        }),
+      });
+
+      expect(res.status).toBe(402);
+      const body: ErrorBody = await res.json();
+      expect(body.error).toBe('This message exceeds guest limits. Sign up for more capacity.');
+      expect(body.code).toBe('PAYMENT_REQUIRED');
+    });
+
+    it('allows messages within guest cost limit', async () => {
+      vi.useRealTimers();
+      const oneYearAgoSeconds = Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60;
+      // Create models with cheap test model - need multiple so premium classification works
+      const cheapTestModels = [
+        {
+          id: 'cheap/model',
+          name: 'Cheap Model',
+          description: 'Inexpensive model',
+          context_length: 128000,
+          pricing: { prompt: '0.0000001', completion: '0.0000001' }, // Very cheap
+          supported_parameters: ['temperature'],
+          created: oneYearAgoSeconds, // Old model (non-premium by recency)
+        },
+        // Add expensive models to push threshold above our test model's price
+        {
+          id: 'expensive/model-1',
+          name: 'Expensive 1',
+          description: 'Expensive',
+          context_length: 128000,
+          pricing: { prompt: '0.001', completion: '0.001' },
+          supported_parameters: ['temperature'],
+          created: oneYearAgoSeconds,
+        },
+        {
+          id: 'expensive/model-2',
+          name: 'Expensive 2',
+          description: 'Expensive',
+          context_length: 128000,
+          pricing: { prompt: '0.001', completion: '0.001' },
+          supported_parameters: ['temperature'],
+          created: oneYearAgoSeconds,
+        },
+        {
+          id: 'expensive/model-3',
+          name: 'Expensive 3',
+          description: 'Expensive',
+          context_length: 128000,
+          pricing: { prompt: '0.001', completion: '0.001' },
+          supported_parameters: ['temperature'],
+          created: oneYearAgoSeconds,
+        },
+      ];
+
+      // Override default fetch mock
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: cheapTestModels }),
+      });
+
+      const app = createTestApp({
+        openrouterClient: createFastMockOpenRouterClient({ models: cheapTestModels }),
+      });
+
+      const res = await app.request('/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Guest-Token': 'test-guest-token',
+          'X-Forwarded-For': '192.168.1.1',
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'Hello' }],
+          model: 'cheap/model',
+        }),
+      });
+
+      expect(res.status).toBe(200);
     });
 
     it('does not persist messages to database', async () => {

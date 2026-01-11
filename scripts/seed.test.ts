@@ -378,9 +378,27 @@ describe('seed script', () => {
       expect(bobConversations).toHaveLength(0);
 
       const charlieProjects = data.projects.filter((p) => p.userId === charlieId);
-      const charlieConversations = data.conversations.filter((c) => c.userId === charlieId);
       expect(charlieProjects).toHaveLength(0);
-      expect(charlieConversations).toHaveLength(0);
+      // Charlie has a conversation but no projects/payments
+    });
+
+    it('charlie has exactly 1 conversation with 4 messages', async () => {
+      const data = await generatePersonaData();
+      const charlieId = seedUUID('dev-user-charlie');
+
+      const charlieConversations = data.conversations.filter((c) => c.userId === charlieId);
+      expect(charlieConversations).toHaveLength(1);
+
+      const charlieMessages = data.messages.filter((m) =>
+        charlieConversations.some((c) => c.id === m.conversationId)
+      );
+      expect(charlieMessages).toHaveLength(4);
+
+      // Verify alternating roles
+      expect(charlieMessages[0].role).toBe('user');
+      expect(charlieMessages[1].role).toBe('assistant');
+      expect(charlieMessages[2].role).toBe('user');
+      expect(charlieMessages[3].role).toBe('assistant');
     });
 
     it('alice has exactly 2 projects', async () => {
@@ -405,7 +423,7 @@ describe('seed script', () => {
 
       expect(alice?.emailVerified).toBe(true);
       expect(bob?.emailVerified).toBe(true);
-      expect(charlie?.emailVerified).toBe(false);
+      expect(charlie?.emailVerified).toBe(true);
     });
 
     it('alice has exactly 14 payments', async () => {

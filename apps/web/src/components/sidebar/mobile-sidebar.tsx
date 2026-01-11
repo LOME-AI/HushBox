@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@lome-chat/ui';
 import { useUIStore } from '@/stores/ui';
 import { useConversations } from '@/hooks/chat';
+import { useSession } from '@/lib/auth';
 import { SidebarContent } from './sidebar-content';
 import { SidebarFooter } from './sidebar-footer';
 import { Logo } from '@/components/shared/logo';
@@ -9,6 +10,8 @@ import { Logo } from '@/components/shared/logo';
 export function MobileSidebar(): React.JSX.Element {
   const { mobileSidebarOpen, setMobileSidebarOpen } = useUIStore();
   const { data: conversations, isLoading } = useConversations();
+  const { data: session, isPending: isSessionPending } = useSession();
+  const isAuthenticated = !isSessionPending && Boolean(session?.user);
 
   React.useEffect(() => {
     if (mobileSidebarOpen) {
@@ -47,7 +50,7 @@ export function MobileSidebar(): React.JSX.Element {
             <span className="text-sidebar-foreground/50 text-sm">Loading...</span>
           </div>
         ) : (
-          <SidebarContent conversations={conversations ?? []} />
+          <SidebarContent conversations={conversations ?? []} isAuthenticated={isAuthenticated} />
         )}
 
         <SidebarFooter />

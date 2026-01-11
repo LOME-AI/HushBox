@@ -25,6 +25,10 @@ export class ChatPage {
     await this.page.goto('/chat');
   }
 
+  async gotoGuestChat(): Promise<void> {
+    await this.page.goto('/chat/guest');
+  }
+
   async gotoConversation(conversationId: string): Promise<void> {
     await this.page.goto(`/chat/${conversationId}`);
   }

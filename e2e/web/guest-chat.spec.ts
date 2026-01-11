@@ -46,7 +46,7 @@ test.describe('Guest Chat', () => {
       const testMessage = `Guest test ${String(Date.now())}`;
       await chatPage.sendNewChatMessage(testMessage);
 
-      await expect(unauthenticatedPage).toHaveURL('/chat');
+      await expect(unauthenticatedPage).toHaveURL('/chat/guest');
       await expect(chatPage.messageList).toBeVisible({ timeout: 10000 });
       await chatPage.expectMessageVisible(testMessage);
       await chatPage.waitForAIResponse();

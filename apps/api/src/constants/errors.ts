@@ -41,3 +41,5 @@ export const ERROR_PREMIUM_REQUIRES_ACCOUNT = 'Premium models require a free acc
 // Guest endpoint errors
 export const ERROR_AUTHENTICATED_USER_ON_GUEST_ENDPOINT =
   'Authenticated users should use /chat/stream';
+export const ERROR_GUEST_MESSAGE_TOO_EXPENSIVE =
+  'This message exceeds guest limits. Sign up for more capacity.';

@@ -30,18 +30,21 @@ const DEV_PERSONAS = [
     displayName: 'Alice Developer',
     emailVerified: true,
     hasSampleData: true,
+    balance: '100.00000000',
   },
   {
     name: 'bob',
     displayName: 'Bob Tester',
     emailVerified: true,
     hasSampleData: false,
+    balance: '0.20000000',
   },
   {
     name: 'charlie',
-    displayName: 'Charlie Unverified',
-    emailVerified: false,
+    displayName: 'Charlie Verified',
+    emailVerified: true,
     hasSampleData: false,
+    balance: '0.00000000',
   },
 ] as const;
 
@@ -194,6 +197,7 @@ export async function generatePersonaData(): Promise<PersonaData> {
       name: persona.displayName,
       emailVerified: persona.emailVerified,
       image: null,
+      balance: persona.balance,
       createdAt: now,
       updatedAt: now,
     });
@@ -236,12 +240,14 @@ export async function generatePersonaData(): Promise<PersonaData> {
         const messageCount = 3 + (i % 3);
         for (let j = 0; j < messageCount; j++) {
           const role = j % 2 === 0 ? 'user' : 'assistant';
+          const msgTime = new Date(now.getTime() + i * 10000 + j * 1000); // Stagger timestamps
           personaMessages.push(
             messageFactory.build({
               id: seedUUID(`${persona.name}-msg-${String(i + 1)}-${String(j + 1)}`),
               conversationId: convId,
               role,
               model: role === 'assistant' ? 'gpt-4' : null,
+              createdAt: msgTime,
             })
           );
         }
@@ -250,7 +256,9 @@ export async function generatePersonaData(): Promise<PersonaData> {
       let runningBalance = 0;
       for (let i = 0; i < 14; i++) {
         const paymentId = seedUUID(`${persona.name}-payment-${String(i + 1)}`);
-        const amount = 20 + (i % 5) * 10;
+        // Amounts: 5,6,7,8,9,5,6,7,8,9,5,6,7,12 = $100 total
+        const baseAmount = 5 + (i % 5);
+        const amount = i === 13 ? baseAmount + 4 : baseAmount;
         runningBalance += amount;
 
         const paymentDate = new Date(now);
@@ -281,6 +289,32 @@ export async function generatePersonaData(): Promise<PersonaData> {
             paymentId,
             description: `Credit purchase - $${String(amount)}.00`,
             createdAt: paymentDate,
+          })
+        );
+      }
+    }
+
+    // Special case: Charlie gets a conversation but no projects/payments
+    if (persona.name === 'charlie') {
+      const convId = seedUUID(`${persona.name}-conv-1`);
+      personaConversations.push(
+        conversationFactory.build({
+          id: convId,
+          userId,
+        })
+      );
+
+      // 4 messages alternating user/assistant
+      for (let j = 0; j < 4; j++) {
+        const role = j % 2 === 0 ? 'user' : 'assistant';
+        const msgTime = new Date(now.getTime() + j * 1000); // Stagger by 1 second
+        personaMessages.push(
+          messageFactory.build({
+            id: seedUUID(`${persona.name}-msg-1-${String(j + 1)}`),
+            conversationId: convId,
+            role,
+            model: role === 'assistant' ? 'gpt-4' : null,
+            createdAt: msgTime,
           })
         );
       }
@@ -509,6 +543,13 @@ export async function seed(): Promise<void> {
     else exists++;
   }
   console.log(`Persona Users: ${String(created)} created, ${String(exists)} already existed`);
+
+  for (const user of personaData.users) {
+    if ('balance' in user && user.balance) {
+      await updateUserBalance(db, user.id, user.balance);
+    }
+  }
+  console.log('Dev persona balances updated');
 
   for (const user of testPersonaData.users) {
     if ('balance' in user && user.balance && user.balance !== '0.00000000') {

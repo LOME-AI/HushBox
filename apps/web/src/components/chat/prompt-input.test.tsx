@@ -2,8 +2,78 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PromptInput } from './prompt-input';
 import type { PromptInputRef } from './prompt-input';
+import type { BudgetCalculationResult } from '@lome-chat/shared';
+
+// Mock the hooks used by PromptInput
+vi.mock('@/stores/model', () => ({
+  useModelStore: vi.fn(() => ({
+    selectedModelId: 'test-model',
+  })),
+}));
+
+vi.mock('@/hooks/models', () => ({
+  useModels: vi.fn(() => ({
+    data: {
+      models: [
+        {
+          id: 'test-model',
+          name: 'Test Model',
+          contextLength: 50000,
+          pricePerInputToken: 0.000001,
+          pricePerOutputToken: 0.000002,
+        },
+      ],
+    },
+    isLoading: false,
+    error: null,
+  })),
+}));
+
+vi.mock('@/lib/auth', () => ({
+  useSession: vi.fn(() => ({
+    data: { user: { id: 'test-user', email: 'test@example.com' } },
+    isPending: false,
+  })),
+}));
+
+// Default budget result - can afford, no errors
+const defaultBudgetResult: BudgetCalculationResult = {
+  canAfford: true,
+  maxOutputTokens: 1000,
+  estimatedInputTokens: 100,
+  estimatedInputCost: 0.0001,
+  estimatedMinimumCost: 0.001,
+  effectiveBalance: 1.0,
+  currentUsage: 1100,
+  capacityPercent: 5,
+  errors: [],
+};
+
+// Mock useBudgetCalculation with customizable return value
+const mockBudgetResult = vi.fn(() => defaultBudgetResult);
+
+vi.mock('@/hooks/use-budget-calculation', () => ({
+  useBudgetCalculation: () => mockBudgetResult(),
+}));
+
+function createTestQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        gcTime: 0,
+      },
+    },
+  });
+}
+
+function renderWithProviders(ui: React.ReactElement): ReturnType<typeof render> {
+  const queryClient = createTestQueryClient();
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
 
 describe('PromptInput', () => {
   const mockOnChange = vi.fn();
@@ -11,15 +81,21 @@ describe('PromptInput', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+    mockBudgetResult.mockReturnValue(defaultBudgetResult);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('renders a textarea', () => {
-    render(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+    renderWithProviders(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
     expect(screen.getByRole('textbox')).toBeInTheDocument();
   });
 
   it('displays placeholder text', () => {
-    render(
+    renderWithProviders(
       <PromptInput
         value=""
         onChange={mockOnChange}
@@ -31,280 +107,216 @@ describe('PromptInput', () => {
   });
 
   it('displays the current value', () => {
-    render(<PromptInput value="Hello world" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+    renderWithProviders(
+      <PromptInput value="Hello world" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+    );
     expect(screen.getByRole('textbox')).toHaveValue('Hello world');
   });
 
   it('calls onChange when typing', async () => {
+    vi.useRealTimers();
     const user = userEvent.setup();
-    render(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+    renderWithProviders(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
     const textarea = screen.getByRole('textbox');
     await user.type(textarea, 'Test');
     expect(mockOnChange).toHaveBeenCalled();
   });
 
   it('calls onSubmit when Enter is pressed without Shift', () => {
-    render(<PromptInput value="Test message" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+    renderWithProviders(
+      <PromptInput value="Test message" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+    );
     const textarea = screen.getByRole('textbox');
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
     expect(mockOnSubmit).toHaveBeenCalled();
   });
 
   it('does not call onSubmit when Shift+Enter is pressed (allows newline)', () => {
-    render(<PromptInput value="Test message" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+    renderWithProviders(
+      <PromptInput value="Test message" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+    );
     const textarea = screen.getByRole('textbox');
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter', shiftKey: true });
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });
 
   it('has send button', () => {
-    render(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+    renderWithProviders(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
     expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument();
   });
 
   it('send button calls onSubmit when clicked', async () => {
+    vi.useRealTimers();
     const user = userEvent.setup();
-    render(<PromptInput value="Test" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+    renderWithProviders(
+      <PromptInput value="Test" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+    );
     const sendButton = screen.getByRole('button', { name: /send/i });
     await user.click(sendButton);
     expect(mockOnSubmit).toHaveBeenCalled();
   });
 
   it('send button is disabled when value is empty', () => {
-    render(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+    renderWithProviders(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
     expect(screen.getByRole('button', { name: /send/i })).toBeDisabled();
   });
 
-  describe('token counter', () => {
-    it('displays token counter with current/max format', () => {
-      // "Hello" = 5 chars ≈ 2 tokens (5/4 rounded up)
-      // Using modelContextLimit: 3000, historyTokens: 0, buffer: 1000, base system prompt: ~37 tokens
-      // available ≈ 3000 - 0 - 37 - 1000 = 1963
-      render(
-        <PromptInput
-          value="Hello"
-          onChange={mockOnChange}
-          onSubmit={mockOnSubmit}
-          modelContextLimit={3000}
-          historyTokens={0}
-        />
+  describe('capacity bar', () => {
+    it('displays capacity bar', () => {
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
-      // Token counter shows current/available format
-      expect(screen.getByTestId('token-counter')).toHaveTextContent(/2\/\d+ Tokens/);
+      expect(screen.getByTestId('capacity-bar')).toBeInTheDocument();
     });
 
-    it('shows over-limit format when exceeding available tokens', () => {
-      // 8000+ chars = 2000+ tokens, which exceeds available (~1963)
-      const longText = 'a'.repeat(8020); // ~2005 tokens
-      render(
-        <PromptInput
-          value={longText}
-          onChange={mockOnChange}
-          onSubmit={mockOnSubmit}
-          modelContextLimit={3000}
-          historyTokens={0}
-        />
+    it('shows capacity percentage', () => {
+      mockBudgetResult.mockReturnValue({
+        ...defaultBudgetResult,
+        capacityPercent: 25,
+        currentUsage: 12500,
+      });
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
-      // Should show format like "1963+42/1963 Tokens"
-      expect(screen.getByTestId('token-counter')).toHaveTextContent(/\d+\+\d+\/\d+ Tokens/);
+      expect(screen.getByText(/Model \d+% filled/)).toBeInTheDocument();
     });
 
-    it('shows warning message when over token limit', () => {
-      const longText = 'a'.repeat(8020); // ~2005 tokens
-      render(
-        <PromptInput
-          value={longText}
-          onChange={mockOnChange}
-          onSubmit={mockOnSubmit}
-          modelContextLimit={3000}
-          historyTokens={0}
-        />
-      );
-      expect(
-        screen.getByText(/tokens beyond the \d+ token limit will not be included/i)
-      ).toBeInTheDocument();
-    });
-
-    it('send button is disabled when over token limit', () => {
-      // Using modelContextLimit: 3000, historyTokens: 0, buffer: 1000 → available: 2000
-      const longText = 'a'.repeat(8020); // ~2005 tokens
-      render(
-        <PromptInput
-          value={longText}
-          onChange={mockOnChange}
-          onSubmit={mockOnSubmit}
-          modelContextLimit={3000}
-          historyTokens={0}
-        />
+    it('send button is disabled when over capacity', () => {
+      mockBudgetResult.mockReturnValue({
+        ...defaultBudgetResult,
+        capacityPercent: 105,
+        canAfford: true,
+      });
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
       expect(screen.getByRole('button', { name: /send/i })).toBeDisabled();
     });
 
-    it('uses default of 2000 tokens when modelContextLimit is not provided', () => {
-      render(<PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
-      expect(screen.getByTestId('token-counter')).toHaveTextContent('2/2000 Tokens');
+    it('send button is disabled when cannot afford', () => {
+      mockBudgetResult.mockReturnValue({
+        ...defaultBudgetResult,
+        canAfford: false,
+        errors: [
+          { id: 'insufficient_guest', type: 'error', message: 'Message exceeds guest limits.' },
+        ],
+      });
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      expect(screen.getByRole('button', { name: /send/i })).toBeDisabled();
     });
 
-    it('token counter has aria-live for screen reader announcements', () => {
-      render(<PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
-      const counter = screen.getByTestId('token-counter');
-      expect(counter).toHaveAttribute('aria-live', 'polite');
+    it('textarea remains enabled even when over capacity', () => {
+      mockBudgetResult.mockReturnValue({
+        ...defaultBudgetResult,
+        capacityPercent: 105,
+        canAfford: false,
+      });
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      expect(screen.getByRole('textbox')).not.toBeDisabled();
+    });
+  });
+
+  describe('budget messages', () => {
+    it('displays budget errors when present', () => {
+      mockBudgetResult.mockReturnValue({
+        ...defaultBudgetResult,
+        canAfford: false,
+        errors: [
+          { id: 'insufficient_guest', type: 'error', message: 'Message exceeds guest limits.' },
+        ],
+      });
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      expect(screen.getByTestId('budget-messages')).toBeInTheDocument();
+      expect(screen.getByText('Message exceeds guest limits.')).toBeInTheDocument();
     });
 
-    it('token counter has aria-atomic for complete announcements', () => {
-      render(<PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
-      const counter = screen.getByTestId('token-counter');
-      expect(counter).toHaveAttribute('aria-atomic', 'true');
+    it('does not show budget messages when no errors', () => {
+      mockBudgetResult.mockReturnValue({
+        ...defaultBudgetResult,
+        errors: [],
+      });
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
     });
 
-    it('calculates available tokens from modelContextLimit minus historyTokens minus systemPrompt minus buffer', () => {
-      // modelContextLimit: 50000, historyTokens: 5000, base system prompt: ~37, buffer: 1000
-      // available ≈ 50000 - 5000 - 37 - 1000 = 43963
-      render(
+    it('shows warning messages', () => {
+      mockBudgetResult.mockReturnValue({
+        ...defaultBudgetResult,
+        errors: [
+          {
+            id: 'capacity_warning',
+            type: 'warning',
+            message: "Your conversation is near this model's memory limit.",
+          },
+        ],
+      });
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      expect(
+        screen.getByText("Your conversation is near this model's memory limit.")
+      ).toBeInTheDocument();
+    });
+
+    it('shows info messages', () => {
+      mockBudgetResult.mockReturnValue({
+        ...defaultBudgetResult,
+        errors: [
+          {
+            id: 'guest_notice',
+            type: 'info',
+            message: 'Free preview. Create an account for full access.',
+          },
+        ],
+      });
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      expect(
+        screen.getByText('Free preview. Create an account for full access.')
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe('self-contained budget calculation', () => {
+    it('accepts historyCharacters prop for budget calculation', () => {
+      renderWithProviders(
         <PromptInput
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          modelContextLimit={50000}
-          historyTokens={5000}
+          historyCharacters={5000}
         />
       );
-      const counter = screen.getByTestId('token-counter');
-      expect(counter).toHaveTextContent(/2\/\d+ Tokens/);
-      // Should be less than 44000 (which was without system prompt)
-      const match = /\/(\d+) Tokens/.exec(counter.textContent);
-      const available = match?.[1] ? parseInt(match[1], 10) : 0;
-      expect(available).toBeLessThan(44000);
-      expect(available).toBeGreaterThan(43900);
+      // Component should render without error
+      expect(screen.getByTestId('capacity-bar')).toBeInTheDocument();
     });
 
-    it('uses default 2000 tokens when modelContextLimit is not provided', () => {
-      render(
+    it('accepts capabilities prop for system prompt calculation', () => {
+      renderWithProviders(
         <PromptInput
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          historyTokens={0}
+          capabilities={['web-search']}
         />
       );
-      expect(screen.getByTestId('token-counter')).toHaveTextContent('2/2000 Tokens');
-    });
-
-    it('caps available tokens at 0 when history exceeds context limit', () => {
-      // modelContextLimit: 5000, historyTokens: 4500, system prompt: ~37, buffer: 1000
-      // available = 5000 - 4500 - 37 - 1000 = -537 -> capped at 0
-      render(
-        <PromptInput
-          value="Hello"
-          onChange={mockOnChange}
-          onSubmit={mockOnSubmit}
-          modelContextLimit={5000}
-          historyTokens={4500}
-        />
-      );
-      expect(screen.getByTestId('token-counter')).toHaveTextContent('/0 Tokens');
-    });
-
-    it('defaults historyTokens to 0 when not provided', () => {
-      // modelContextLimit: 50000, base system prompt: ~37, buffer: 1000
-      // available ≈ 50000 - 0 - 37 - 1000 = 48963
-      render(
-        <PromptInput
-          value="Hello"
-          onChange={mockOnChange}
-          onSubmit={mockOnSubmit}
-          modelContextLimit={50000}
-        />
-      );
-      const counter = screen.getByTestId('token-counter');
-      expect(counter).toHaveTextContent(/2\/\d+ Tokens/);
-      // Should be less than 49000 (which was without system prompt)
-      const match = /\/(\d+) Tokens/.exec(counter.textContent);
-      const available = match?.[1] ? parseInt(match[1], 10) : 0;
-      expect(available).toBeLessThan(49000);
-      expect(available).toBeGreaterThan(48900);
-    });
-
-    describe('system prompt tokens', () => {
-      beforeEach(() => {
-        vi.useFakeTimers();
-        vi.setSystemTime(new Date('2025-01-15'));
-      });
-
-      afterEach(() => {
-        vi.useRealTimers();
-      });
-
-      it('subtracts system prompt tokens from available tokens with no capabilities', () => {
-        // Base system prompt is ~90 chars = ~23 tokens
-        // modelContextLimit: 50000, historyTokens: 0, systemPrompt: ~23, buffer: 1000
-        // available = 50000 - 0 - 23 - 1000 = 48977
-        render(
-          <PromptInput
-            value="Hello"
-            onChange={mockOnChange}
-            onSubmit={mockOnSubmit}
-            modelContextLimit={50000}
-            historyTokens={0}
-            capabilities={[]}
-          />
-        );
-        const counter = screen.getByTestId('token-counter');
-        // Should be less than 49000 (which is without system prompt)
-        expect(counter.textContent).toMatch(/2\/\d+ Tokens/);
-        // Extract the available tokens number and verify it's less than 49000
-        const match = /\/(\d+) Tokens/.exec(counter.textContent);
-        const available = match?.[1] ? parseInt(match[1], 10) : 0;
-        expect(available).toBeLessThan(49000);
-        expect(available).toBeGreaterThan(48900); // Should be around 48977
-      });
-
-      it('subtracts more tokens when python capability is enabled', () => {
-        // Python adds ~265 chars = ~67 tokens on top of base
-        // Total system prompt = ~90 + 265 = ~355 chars = ~89 tokens
-        render(
-          <PromptInput
-            value="Hello"
-            onChange={mockOnChange}
-            onSubmit={mockOnSubmit}
-            modelContextLimit={50000}
-            historyTokens={0}
-            capabilities={['python-execution']}
-          />
-        );
-        const counter = screen.getByTestId('token-counter');
-        const match = /\/(\d+) Tokens/.exec(counter.textContent);
-        const available = match?.[1] ? parseInt(match[1], 10) : 0;
-        // With python: ~89 tokens subtracted, so available ≈ 48911
-        expect(available).toBeLessThan(48950);
-        expect(available).toBeGreaterThan(48850);
-      });
-
-      it('subtracts tokens for multiple capabilities', () => {
-        // Python + JS adds ~530 chars = ~133 tokens on top of base
-        render(
-          <PromptInput
-            value="Hello"
-            onChange={mockOnChange}
-            onSubmit={mockOnSubmit}
-            modelContextLimit={50000}
-            historyTokens={0}
-            capabilities={['python-execution', 'javascript-execution']}
-          />
-        );
-        const counter = screen.getByTestId('token-counter');
-        const match = /\/(\d+) Tokens/.exec(counter.textContent);
-        const available = match?.[1] ? parseInt(match[1], 10) : 0;
-        // With both: ~156 tokens subtracted, so available ≈ 48844
-        expect(available).toBeLessThan(48900);
-        expect(available).toBeGreaterThan(48750);
-      });
+      // Component should render without error
+      expect(screen.getByTestId('capacity-bar')).toBeInTheDocument();
     });
   });
 
   describe('custom height props', () => {
     it('applies custom minHeight when provided', () => {
-      render(
+      renderWithProviders(
         <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} minHeight="56px" />
       );
       const textarea = screen.getByRole('textbox');
@@ -312,7 +324,7 @@ describe('PromptInput', () => {
     });
 
     it('applies custom maxHeight when provided', () => {
-      render(
+      renderWithProviders(
         <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} maxHeight="112px" />
       );
       const textarea = screen.getByRole('textbox');
@@ -320,13 +332,13 @@ describe('PromptInput', () => {
     });
 
     it('uses default minHeight when not provided', () => {
-      render(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+      renderWithProviders(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
       const textarea = screen.getByRole('textbox');
       expect(textarea).toHaveClass('min-h-[120px]');
     });
 
     it('uses default maxHeight when not provided', () => {
-      render(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+      renderWithProviders(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
       const textarea = screen.getByRole('textbox');
       expect(textarea).toHaveClass('max-h-[40vh]');
     });
@@ -340,7 +352,7 @@ describe('PromptInput', () => {
     });
 
     it('shows stop button instead of send button when streaming', () => {
-      render(
+      renderWithProviders(
         <PromptInput
           value="Test"
           onChange={mockOnChange}
@@ -354,8 +366,9 @@ describe('PromptInput', () => {
     });
 
     it('calls onStop when stop button is clicked', async () => {
+      vi.useRealTimers();
       const user = userEvent.setup();
-      render(
+      renderWithProviders(
         <PromptInput
           value="Test"
           onChange={mockOnChange}
@@ -369,7 +382,7 @@ describe('PromptInput', () => {
     });
 
     it('disables textarea while streaming', () => {
-      render(
+      renderWithProviders(
         <PromptInput
           value="Test"
           onChange={mockOnChange}
@@ -385,7 +398,9 @@ describe('PromptInput', () => {
   describe('ref and focus', () => {
     it('exposes focus method via ref', () => {
       const ref = React.createRef<PromptInputRef>();
-      render(<PromptInput ref={ref} value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+      renderWithProviders(
+        <PromptInput ref={ref} value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
 
       expect(ref.current).not.toBeNull();
       expect(typeof ref.current?.focus).toBe('function');
@@ -393,7 +408,9 @@ describe('PromptInput', () => {
 
     it('focuses textarea when focus() is called', () => {
       const ref = React.createRef<PromptInputRef>();
-      render(<PromptInput ref={ref} value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+      renderWithProviders(
+        <PromptInput ref={ref} value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
 
       const textarea = screen.getByRole('textbox');
       expect(document.activeElement).not.toBe(textarea);
@@ -404,27 +421,69 @@ describe('PromptInput', () => {
     });
 
     it('does not auto-focus when initially enabled (not a transition)', () => {
-      render(
+      renderWithProviders(
         <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} disabled={false} />
       );
 
       const textarea = screen.getByRole('textbox');
-      // Should NOT auto-focus on mount when already enabled (no transition)
       expect(document.activeElement).not.toBe(textarea);
     });
 
     it('does not auto-focus when transitioning from enabled to disabled', () => {
-      const { rerender } = render(
+      const { rerender } = renderWithProviders(
         <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} disabled={false} />
       );
 
       const textarea = screen.getByRole('textbox');
 
-      // Transition from enabled to disabled
-      rerender(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} disabled />);
+      rerender(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} disabled />
+        </QueryClientProvider>
+      );
 
       expect(textarea).toBeDisabled();
       expect(document.activeElement).not.toBe(textarea);
+    });
+  });
+
+  describe('blocking errors', () => {
+    it('send button is disabled when blocking error present', () => {
+      mockBudgetResult.mockReturnValue({
+        ...defaultBudgetResult,
+        canAfford: true,
+        errors: [
+          {
+            id: 'capacity_exceeded',
+            type: 'error',
+            message: 'Message exceeds model capacity.',
+          },
+        ],
+      });
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      expect(screen.getByRole('button', { name: /send/i })).toBeDisabled();
+    });
+
+    it('Enter key does not submit when blocking error present', () => {
+      mockBudgetResult.mockReturnValue({
+        ...defaultBudgetResult,
+        canAfford: true,
+        errors: [
+          {
+            id: 'capacity_exceeded',
+            type: 'error',
+            message: 'Message exceeds model capacity.',
+          },
+        ],
+      });
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      const textarea = screen.getByRole('textbox');
+      fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+      expect(mockOnSubmit).not.toHaveBeenCalled();
     });
   });
 });

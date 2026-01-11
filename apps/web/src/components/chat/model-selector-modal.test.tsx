@@ -381,7 +381,7 @@ describe('ModelSelectorModal', () => {
 
       expect(screen.getAllByText(/sort by/i).length).toBeGreaterThan(0);
       expect(screen.getAllByRole('button', { name: /price/i }).length).toBeGreaterThan(0);
-      expect(screen.getAllByRole('button', { name: /context/i }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('button', { name: /capacity/i }).length).toBeGreaterThan(0);
     });
 
     it('highlights Price button when clicked', async () => {
@@ -453,7 +453,7 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.click(first(screen.getAllByRole('button', { name: /context/i })));
+      await user.click(first(screen.getAllByRole('button', { name: /capacity/i })));
 
       const modelItems = screen.getAllByRole('option');
       expect(first(modelItems)).toHaveTextContent('GPT-4 Turbo');

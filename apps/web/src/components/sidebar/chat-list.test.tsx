@@ -53,9 +53,14 @@ describe('ChatList', () => {
     expect(screen.getByText('Third Conversation')).toBeInTheDocument();
   });
 
-  it('renders empty state when no conversations', () => {
-    render(<ChatList conversations={[]} />);
-    expect(screen.getByText(/no conversations/i)).toBeInTheDocument();
+  it('renders empty state when no conversations for authenticated users', () => {
+    render(<ChatList conversations={[]} isAuthenticated={true} />);
+    expect(screen.getByText('No conversations yet')).toBeInTheDocument();
+  });
+
+  it('renders signup prompt when no conversations for guests', () => {
+    render(<ChatList conversations={[]} isAuthenticated={false} />);
+    expect(screen.getByText('Sign up to save conversations')).toBeInTheDocument();
   });
 
   it('renders conversations as links', () => {

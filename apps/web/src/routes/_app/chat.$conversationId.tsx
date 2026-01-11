@@ -26,7 +26,6 @@ import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { useInteractionTracker } from '@/hooks/use-interaction-tracker';
 import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
-import { estimateTokenCount } from '@/lib/tokens';
 import type { Message } from '@/lib/api';
 import type { Document } from '@/lib/document-parser';
 
@@ -117,15 +116,11 @@ function ChatConversation(): React.JSX.Element {
     return [...messages, ...pendingOptimistic];
   }, [apiMessages, optimisticMessages]);
 
-  const historyTokens = React.useMemo(() => {
+  const historyCharacters = React.useMemo(() => {
     return allMessages.reduce((total, message) => {
-      return total + estimateTokenCount(message.content);
+      return total + message.content.length;
     }, 0);
   }, [allMessages]);
-
-  const selectedModel = React.useMemo(() => {
-    return models.find((m) => m.id === selectedModelId);
-  }, [models, selectedModelId]);
 
   const streamingMessageIdRef = React.useRef<string | null>(null);
 
@@ -430,8 +425,7 @@ function ChatConversation(): React.JSX.Element {
           onChange={setInputValue}
           onSubmit={handleSend}
           placeholder="Type a message..."
-          modelContextLimit={selectedModel?.contextLength}
-          historyTokens={historyTokens}
+          historyCharacters={historyCharacters}
           rows={2}
           minHeight="56px"
           maxHeight="112px"

@@ -5,6 +5,10 @@ import {
   ERROR_CODE_VALIDATION,
   ERROR_CODE_RATE_LIMITED,
   ERROR_CODE_FORBIDDEN,
+  ERROR_CODE_PAYMENT_REQUIRED,
+  calculateBudget,
+  applyFees,
+  buildSystemPrompt,
 } from '@lome-chat/shared';
 import type { AppEnv } from '../types.js';
 import { buildPrompt } from '../services/prompt/builder.js';
@@ -21,6 +25,7 @@ import {
   ERROR_DAILY_LIMIT_EXCEEDED,
   ERROR_PREMIUM_REQUIRES_ACCOUNT,
   ERROR_AUTHENTICATED_USER_ON_GUEST_ENDPOINT,
+  ERROR_GUEST_MESSAGE_TOO_EXPENSIVE,
 } from '../constants/errors.js';
 
 const errorSchema = errorResponseSchema;
@@ -64,6 +69,10 @@ const guestStreamRoute = createRoute({
     403: {
       content: { 'application/json': { schema: errorSchema } },
       description: 'Premium model not allowed for guests',
+    },
+    402: {
+      content: { 'application/json': { schema: errorSchema } },
+      description: 'Message exceeds guest cost limit',
     },
     429: {
       content: { 'application/json': { schema: rateLimitSchema } },
@@ -115,6 +124,35 @@ export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
       return c.json(createErrorResponse(ERROR_PREMIUM_REQUIRES_ACCOUNT, ERROR_CODE_FORBIDDEN), 403);
     }
 
+    // Get model info for budget calculation
+    const modelInfo = allModels.find((m) => m.id === model);
+    const inputPricePerToken = applyFees(modelInfo ? parseFloat(modelInfo.pricing.prompt) : 0);
+    const outputPricePerToken = applyFees(modelInfo ? parseFloat(modelInfo.pricing.completion) : 0);
+    const modelContextLength = modelInfo?.context_length ?? 128000;
+
+    // Calculate prompt character count for budget validation
+    const systemPromptForBudget = buildSystemPrompt([]);
+    const historyCharacters = messages.reduce((sum, m) => sum + m.content.length, 0);
+    const promptCharacterCount = systemPromptForBudget.length + historyCharacters;
+
+    // Validate budget for guest tier
+    const budgetResult = calculateBudget({
+      tier: 'guest',
+      balanceCents: 0,
+      freeAllowanceCents: 0,
+      promptCharacterCount,
+      modelInputPricePerToken: inputPricePerToken,
+      modelOutputPricePerToken: outputPricePerToken,
+      modelContextLength,
+    });
+
+    if (!budgetResult.canAfford) {
+      return c.json(
+        createErrorResponse(ERROR_GUEST_MESSAGE_TOO_EXPENSIVE, ERROR_CODE_PAYMENT_REQUIRED),
+        402
+      );
+    }
+
     const assistantMessageId = crypto.randomUUID();
 
     const { systemPrompt } = buildPrompt({
@@ -136,6 +174,7 @@ export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
         for await (const token of openrouter.chatCompletionStreamWithMetadata({
           model,
           messages: openRouterMessages,
+          ...(budgetResult.maxOutputTokens > 0 && { max_tokens: budgetResult.maxOutputTokens }),
         })) {
           await writer.writeToken(token.content);
         }

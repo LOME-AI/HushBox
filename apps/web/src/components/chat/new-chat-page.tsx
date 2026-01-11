@@ -48,9 +48,6 @@ export function NewChatPage({
   const balance = parseFloat(balanceData?.balance ?? '0');
   const canAccessPremium = isAuthenticated && balance > 0;
 
-  // Find selected model to get context length
-  const selectedModel = models.find((m) => m.id === selectedModelId);
-
   // Get a greeting once on mount
   const greeting = React.useMemo(() => getGreeting(isAuthenticated), [isAuthenticated]);
 
@@ -125,8 +122,6 @@ export function NewChatPage({
               onChange={setInputValue}
               onSubmit={handleSubmit}
               placeholder="Ask me anything..."
-              modelContextLimit={selectedModel?.contextLength}
-              historyTokens={0}
               rows={6}
               disabled={isLoading}
             />

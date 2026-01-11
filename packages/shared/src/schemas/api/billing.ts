@@ -54,9 +54,13 @@ export type ListTransactionsQuery = z.infer<typeof listTransactionsQuerySchema>;
 
 /**
  * Schema for balance response.
+ * Returns user's primary balance and free daily allowance for budget calculation.
  */
 export const getBalanceResponseSchema = z.object({
-  balance: z.string(), // USD with 8 decimal precision
+  /** Primary balance in USD with 8 decimal precision */
+  balance: z.string(),
+  /** Free daily allowance remaining in cents */
+  freeAllowanceCents: z.number(),
 });
 
 export type GetBalanceResponse = z.infer<typeof getBalanceResponseSchema>;

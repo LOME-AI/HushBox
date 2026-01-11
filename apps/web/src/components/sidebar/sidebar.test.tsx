@@ -33,6 +33,17 @@ vi.mock('@lome-chat/shared', async (importOriginal) => {
   };
 });
 
+// Mock auth to return authenticated user
+vi.mock('@/lib/auth', () => ({
+  useSession: vi.fn(() => ({
+    data: {
+      user: { id: 'user-1', email: 'test@example.com' },
+      session: { id: 'session-1' },
+    },
+    isPending: false,
+  })),
+}));
+
 // Mock router for SidebarContent children
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),

@@ -37,7 +37,24 @@ vi.mock('@/hooks/chat', () => ({
 }));
 
 vi.mock('@/hooks/models', () => ({
-  useModels: () => ({ data: [] }),
+  useModels: () => ({
+    data: {
+      models: [
+        {
+          id: 'test-model',
+          name: 'Test Model',
+          contextLength: 50000,
+          pricePerInputToken: 0.000001,
+          pricePerOutputToken: 0.000002,
+          capabilities: [],
+          provider: { name: 'Test Provider' },
+          description: 'A test model',
+        },
+      ],
+    },
+    isLoading: false,
+    error: null,
+  }),
 }));
 
 vi.mock('@/stores/model', () => ({
@@ -67,6 +84,20 @@ vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({
     invalidateQueries: vi.fn(),
     setQueryData: vi.fn(),
+  }),
+}));
+
+vi.mock('@/hooks/use-budget-calculation', () => ({
+  useBudgetCalculation: () => ({
+    canAfford: true,
+    maxOutputTokens: 1000,
+    estimatedInputTokens: 100,
+    estimatedInputCost: 0.0001,
+    estimatedMinimumCost: 0.001,
+    effectiveBalance: 1.0,
+    currentUsage: 1100,
+    capacityPercent: 5,
+    errors: [],
   }),
 }));
 

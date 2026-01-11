@@ -213,8 +213,6 @@ export function ChatNew(): React.JSX.Element {
     return <Navigate to="/chat" />;
   }
 
-  const selectedModel = models.find((m) => m.id === selectedModelId);
-
   return (
     <div
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -248,8 +246,6 @@ export function ChatNew(): React.JSX.Element {
             // Input is disabled until conversation is created, then component navigates away
           }}
           placeholder="Type a message..."
-          modelContextLimit={selectedModel?.contextLength}
-          historyTokens={0}
           rows={2}
           minHeight="56px"
           maxHeight="112px"

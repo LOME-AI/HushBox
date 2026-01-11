@@ -72,6 +72,70 @@ export const STORAGE_COST_PER_1K_CHARS = STORAGE_COST_PER_CHARACTER * 1000;
 /** Payment expiration time in milliseconds (30 minutes) */
 export const PAYMENT_EXPIRATION_MS = 30 * 60 * 1000;
 
+// ============================================================================
+// Budget Protection Constants
+// ============================================================================
+
+/**
+ * Maximum allowed negative balance in cents for paid users.
+ * Paid users get this cushion above their actual balance.
+ * $0.50 = 50 cents
+ */
+export const MAX_ALLOWED_NEGATIVE_BALANCE_CENTS = 50;
+
+/**
+ * Maximum estimated cost per message for guest users in cents.
+ * Guests are limited to cheap messages to prevent abuse.
+ * $0.01 = 1 cent
+ */
+export const MAX_GUEST_MESSAGE_COST_CENTS = 1;
+
+/**
+ * Minimum output tokens to reserve for AI response.
+ * Used in budget calculations to ensure meaningful responses.
+ */
+export const MINIMUM_OUTPUT_TOKENS = 1000;
+
+/**
+ * Threshold for low balance warning.
+ * When calculated maxOutputTokens < this value, show warning to paid users.
+ */
+export const LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD = 10000;
+
+// ============================================================================
+// Token Estimation Constants
+// ============================================================================
+
+/**
+ * Conservative character-per-token ratio for free/guest users.
+ * Lower value = more tokens estimated = more conservative cost estimate.
+ * We overestimate for free/guest users because we absorb cost overruns.
+ */
+export const CHARS_PER_TOKEN_CONSERVATIVE = 2;
+
+/**
+ * Standard character-per-token ratio for paid users.
+ * This is the typical approximation (~4 chars/token for most models).
+ */
+export const CHARS_PER_TOKEN_STANDARD = 4;
+
+// ============================================================================
+// Capacity UI Thresholds
+// ============================================================================
+
+/**
+ * Capacity threshold for red zone (warning).
+ * When usage >= 67% of model context, show red bar.
+ */
+export const CAPACITY_RED_THRESHOLD = 0.67;
+
+/**
+ * Capacity threshold for yellow zone (caution).
+ * When usage >= 33% of model context, show yellow bar.
+ * Below this, show green bar.
+ */
+export const CAPACITY_YELLOW_THRESHOLD = 0.33;
+
 /** Feature flags for conditional feature rendering */
 interface FeatureFlags {
   /** Enable projects feature in sidebar. TODO: Enable when projects feature is ready */

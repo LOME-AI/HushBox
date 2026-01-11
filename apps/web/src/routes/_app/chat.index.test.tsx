@@ -49,6 +49,50 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
+// Mock hooks used by PromptInput
+vi.mock('@/stores/model', () => ({
+  useModelStore: vi.fn(() => ({
+    selectedModelId: 'test-model',
+    setSelectedModel: vi.fn(),
+  })),
+}));
+
+vi.mock('@/hooks/models', () => ({
+  useModels: vi.fn(() => ({
+    data: {
+      models: [
+        {
+          id: 'test-model',
+          name: 'Test Model',
+          contextLength: 50000,
+          pricePerInputToken: 0.000001,
+          pricePerOutputToken: 0.000002,
+          capabilities: [],
+          provider: { name: 'Test Provider' },
+          description: 'A test model',
+        },
+      ],
+      premiumIds: new Set<string>(),
+    },
+    isLoading: false,
+    error: null,
+  })),
+}));
+
+vi.mock('@/hooks/use-budget-calculation', () => ({
+  useBudgetCalculation: () => ({
+    canAfford: true,
+    maxOutputTokens: 1000,
+    estimatedInputTokens: 100,
+    estimatedInputCost: 0.0001,
+    estimatedMinimumCost: 0.001,
+    effectiveBalance: 1.0,
+    currentUsage: 1100,
+    capacityPercent: 5,
+    errors: [],
+  }),
+}));
+
 // Mock framer-motion
 vi.mock('framer-motion', async () => {
   const react = await import('react');

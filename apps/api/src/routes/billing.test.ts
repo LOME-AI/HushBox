@@ -30,6 +30,7 @@ interface ErrorResponse {
 
 interface BalanceResponse {
   balance: string;
+  freeAllowanceCents: number;
 }
 
 interface CreatePaymentResponse {
@@ -188,7 +189,7 @@ describe('billing routes', () => {
       expect(res.status).toBe(401);
     });
 
-    it('returns user balance', async () => {
+    it('returns user balance and free allowance', async () => {
       const res = await app.request('/billing/balance', {
         headers: { Cookie: authCookie },
       });
@@ -197,6 +198,8 @@ describe('billing routes', () => {
       const data = (await res.json()) as BalanceResponse;
       expect(data.balance).toBeDefined();
       expect(typeof data.balance).toBe('string');
+      expect(typeof data.freeAllowanceCents).toBe('number');
+      expect(data.freeAllowanceCents).toBeGreaterThanOrEqual(0);
     });
 
     it('returns balance as numeric string with decimal precision', async () => {

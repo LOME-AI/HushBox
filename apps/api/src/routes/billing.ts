@@ -178,12 +178,16 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
 
     const [userData] = await db
-      .select({ balance: users.balance })
+      .select({
+        balance: users.balance,
+        freeAllowanceCents: users.freeAllowanceCents,
+      })
       .from(users)
       .where(eq(users.id, user.id));
 
     const response = getBalanceResponseSchema.parse({
       balance: userData?.balance ?? '0.00000000',
+      freeAllowanceCents: userData?.freeAllowanceCents ?? 0,
     });
     return c.json(response, 200);
   });
