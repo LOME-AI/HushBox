@@ -290,9 +290,6 @@ importers:
 
   packages/shared:
     dependencies:
-      '@lome-chat/db':
-        specifier: workspace:*
-        version: link:../db
       zod:
         specifier: ^4.2.1
         version: 4.2.1
