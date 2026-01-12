@@ -265,8 +265,8 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
             </p>
             <p className="text-muted-foreground mt-2">Added to your balance</p>
           </div>
-          <Button onClick={handleReset} className="w-full">
-            Make Another Deposit
+          <Button onClick={onCancel} className="w-full">
+            Close
           </Button>
         </CardContent>
       </Card>

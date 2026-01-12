@@ -33,11 +33,14 @@ test.describe('Billing & Payments', () => {
       await billingPage.openPaymentModal();
       await billingPage.enterAmount('25');
 
-      // Click simulate success - the modal may close immediately after success
+      // Click simulate success
       await billingPage.simulateSuccessButton.click();
 
-      // Wait for modal to close (payment completed and modal auto-closed)
-      await expect(billingPage.paymentModal).not.toBeVisible({ timeout: 15000 });
+      // Wait for success heading to appear
+      await billingPage.expectPaymentSuccess();
+
+      // Close the modal
+      await billingPage.closeSuccessAndReset();
 
       // Reload page to ensure fresh balance data
       await billingPage.goto();

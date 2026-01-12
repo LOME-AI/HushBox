@@ -15,7 +15,6 @@ export function PaymentModal({
 }: PaymentModalProps): React.JSX.Element | null {
   const handleSuccess = (newBalance: string): void => {
     onSuccess(newBalance);
-    onOpenChange(false);
   };
 
   const handleCancel = (): void => {

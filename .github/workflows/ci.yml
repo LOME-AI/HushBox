@@ -46,12 +46,14 @@ jobs:
 
       - name: Generate environment files
         run: pnpm generate:env --mode=ci-e2e
+        # BEGIN GENERATED: e2e-env
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
           HELCIM_WEBHOOK_VERIFIER: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
           VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
+        # END GENERATED: e2e-env
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps
@@ -111,10 +113,11 @@ jobs:
 
       - name: Build
         run: pnpm build
+        # BEGIN GENERATED: build-env
         env:
           VITE_API_URL: https://api.lome-chat.com
-          # VITE_ vars are build-time - must be set here, not in deploy
           VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+        # END GENERATED: build-env
 
       - name: Upload web build artifact
         uses: actions/upload-artifact@v4
@@ -139,13 +142,14 @@ jobs:
       - name: Deploy secrets to Workers
         working-directory: apps/api
         run: |
+          # BEGIN GENERATED: deploy-secrets
           echo "${{ secrets.DATABASE_URL }}" | pnpm exec wrangler secret put DATABASE_URL
           echo "${{ secrets.BETTER_AUTH_SECRET }}" | pnpm exec wrangler secret put BETTER_AUTH_SECRET
           echo "${{ secrets.RESEND_API_KEY }}" | pnpm exec wrangler secret put RESEND_API_KEY
           echo "${{ secrets.OPENROUTER_API_KEY }}" | pnpm exec wrangler secret put OPENROUTER_API_KEY
-          # Helcim production credentials (explicitly suffixed _PRODUCTION for clarity)
           echo "${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_API_TOKEN
           echo "${{ secrets.HELCIM_WEBHOOK_VERIFIER_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_WEBHOOK_VERIFIER
+          # END GENERATED: deploy-secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -154,7 +158,9 @@ jobs:
         working-directory: apps/api
         run: |
           secrets=$(pnpm exec wrangler secret list)
+          # BEGIN GENERATED: verify-secrets
           for secret in DATABASE_URL BETTER_AUTH_SECRET RESEND_API_KEY OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do
+          # END GENERATED: verify-secrets
             if ! echo "$secrets" | grep -q "$secret"; then
               echo "ERROR: Secret $secret not found in Workers"
               exit 1

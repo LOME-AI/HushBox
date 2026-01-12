@@ -31,7 +31,6 @@ export function BillingPage(): React.JSX.Element {
 
   const handlePaymentSuccess = (): void => {
     void refetchBalance();
-    setShowPaymentModal(false);
   };
 
   // Filter to only deposits and calculate pagination

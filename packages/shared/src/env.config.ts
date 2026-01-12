@@ -38,8 +38,14 @@ export const envConfig = {
     // CI/prod secrets - no dev value, needed in CI (from process.env) and prod (via wrangler secret)
     RESEND_API_KEY: {},
     OPENROUTER_API_KEY: {},
-    HELCIM_API_TOKEN: {},
-    HELCIM_WEBHOOK_VERIFIER: {},
+    HELCIM_API_TOKEN: {
+      ciSecretNameSandbox: 'HELCIM_API_TOKEN_SANDBOX',
+      ciSecretNameProduction: 'HELCIM_API_TOKEN_PRODUCTION',
+    },
+    HELCIM_WEBHOOK_VERIFIER: {
+      ciSecretNameSandbox: 'HELCIM_WEBHOOK_VERIFIER_SANDBOX',
+      ciSecretNameProduction: 'HELCIM_WEBHOOK_VERIFIER_PRODUCTION',
+    },
   },
 
   // Frontend vars - go to .env.development, prod values baked at build
@@ -49,7 +55,10 @@ export const envConfig = {
       production: 'https://api.lome-chat.com',
     },
     // CI/prod secret - goes to .env.local in CI
-    VITE_HELCIM_JS_TOKEN: {},
+    VITE_HELCIM_JS_TOKEN: {
+      ciSecretNameSandbox: 'VITE_HELCIM_JS_TOKEN_SANDBOX',
+      ciSecretNameProduction: 'VITE_HELCIM_JS_TOKEN_PRODUCTION',
+    },
   },
 
   // Local tooling only - go to .env.development, never to worker
@@ -61,16 +70,24 @@ export const envConfig = {
 } as const;
 
 // Type helpers for the section structure
-export type VarConfig = { development?: string; production?: string };
+export type VarConfig = {
+  development?: string;
+  production?: string;
+  // GitHub secret name for E2E tests (omit = use key name)
+  ciSecretNameSandbox?: string;
+  // GitHub secret name for production (omit = use key name)
+  ciSecretNameProduction?: string;
+};
 type SectionConfig = Record<string, VarConfig>;
 
 export type EnvConfig = typeof envConfig;
 
 /**
- * Check if a var config is an empty CI/prod secret (no dev value).
+ * Check if a var config is a CI/prod secret (no dev value).
+ * These secrets must be provided from process.env in CI.
  */
 export function isEmptySecret(config: VarConfig): boolean {
-  return Object.keys(config).length === 0;
+  return config.development === undefined;
 }
 
 /**

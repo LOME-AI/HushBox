@@ -16,7 +16,7 @@ export class BillingPage {
   readonly simulateFailureButton: Locator;
   readonly paymentSuccessCard: Locator;
   readonly paymentErrorCard: Locator;
-  readonly makeAnotherDepositButton: Locator;
+  readonly closeButton: Locator;
   readonly tryAgainButton: Locator;
   readonly processingIndicator: Locator;
 
@@ -36,7 +36,7 @@ export class BillingPage {
     this.simulateFailureButton = page.getByTestId('simulate-failure-btn');
     this.paymentSuccessCard = page.getByText('Payment Successful');
     this.paymentErrorCard = page.getByText('Payment Failed');
-    this.makeAnotherDepositButton = page.getByRole('button', { name: 'Make Another Deposit' });
+    this.closeButton = page.getByRole('button', { name: 'Close' });
     this.tryAgainButton = page.getByRole('button', { name: 'Try Again' });
     this.processingIndicator = page.getByText('Processing payment...');
   }
@@ -95,20 +95,18 @@ export class BillingPage {
   }
 
   async expectPaymentSuccess(): Promise<void> {
-    // Wait for "Payment Successful" heading or text
-    const successIndicator = this.page.getByRole('heading', { name: 'Payment Successful' });
-    await expect(successIndicator).toBeVisible({ timeout: 30000 });
+    // Wait for "Payment Successful" text (CardTitle renders as div, not heading)
+    await expect(this.paymentSuccessCard).toBeVisible({ timeout: 30000 });
   }
 
   async expectPaymentError(): Promise<void> {
-    // Wait for "Payment Failed" heading
-    const errorIndicator = this.page.getByRole('heading', { name: 'Payment Failed' });
-    await expect(errorIndicator).toBeVisible({ timeout: 15000 });
+    // Wait for "Payment Failed" text (CardTitle renders as div, not heading)
+    await expect(this.paymentErrorCard).toBeVisible({ timeout: 15000 });
   }
 
   async closeSuccessAndReset(): Promise<void> {
-    await this.makeAnotherDepositButton.click();
-    await expect(this.amountInput).toBeVisible();
+    await this.closeButton.click();
+    await expect(this.paymentModal).not.toBeVisible({ timeout: 5000 });
   }
 
   async closeErrorAndRetry(): Promise<void> {

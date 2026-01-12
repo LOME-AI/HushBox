@@ -2,5 +2,7 @@
 [ -f .husky/pre-commit.local ] && . .husky/pre-commit.local
 pnpm generate:readme
 git add README.md
+pnpm generate:env
+git add .env.development apps/api/wrangler.toml .github/workflows/ci.yml
 pnpm lint-staged
 pnpm typecheck

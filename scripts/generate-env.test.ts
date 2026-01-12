@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { generateEnvFiles } from './generate-env.js';
+import { generateEnvFiles, updateCiWorkflow } from './generate-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEST_DIR = resolve(__dirname, '__test-fixtures__');
@@ -224,20 +224,20 @@ port = 8787
   describe('ci-e2e mode', () => {
     beforeEach(() => {
       // Set up mock CI secrets in process.env
-      process.env.RESEND_API_KEY = 'test-resend-key';
-      process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
-      process.env.HELCIM_API_TOKEN = 'test-helcim-token';
-      process.env.HELCIM_WEBHOOK_VERIFIER = 'test-helcim-verifier';
-      process.env.VITE_HELCIM_JS_TOKEN = 'test-vite-helcim-token';
+      process.env['RESEND_API_KEY'] = 'test-resend-key';
+      process.env['OPENROUTER_API_KEY'] = 'test-openrouter-key';
+      process.env['HELCIM_API_TOKEN'] = 'test-helcim-token';
+      process.env['HELCIM_WEBHOOK_VERIFIER'] = 'test-helcim-verifier';
+      process.env['VITE_HELCIM_JS_TOKEN'] = 'test-vite-helcim-token';
     });
 
     afterEach(() => {
       // Clean up env vars
-      delete process.env.RESEND_API_KEY;
-      delete process.env.OPENROUTER_API_KEY;
-      delete process.env.HELCIM_API_TOKEN;
-      delete process.env.HELCIM_WEBHOOK_VERIFIER;
-      delete process.env.VITE_HELCIM_JS_TOKEN;
+      delete process.env['RESEND_API_KEY'];
+      delete process.env['OPENROUTER_API_KEY'];
+      delete process.env['HELCIM_API_TOKEN'];
+      delete process.env['HELCIM_WEBHOOK_VERIFIER'];
+      delete process.env['VITE_HELCIM_JS_TOKEN'];
     });
 
     it('adds CI=true and E2E=true flags to .dev.vars', () => {
@@ -267,7 +267,7 @@ port = 8787
     });
 
     it('throws if required CI secrets are missing', () => {
-      delete process.env.RESEND_API_KEY;
+      delete process.env['RESEND_API_KEY'];
 
       expect(() => {
         generateEnvFiles(TEST_DIR, 'ci-e2e');
@@ -275,12 +275,202 @@ port = 8787
     });
 
     it('throws listing all missing secrets', () => {
-      delete process.env.RESEND_API_KEY;
-      delete process.env.OPENROUTER_API_KEY;
+      delete process.env['RESEND_API_KEY'];
+      delete process.env['OPENROUTER_API_KEY'];
 
       expect(() => {
         generateEnvFiles(TEST_DIR, 'ci-e2e');
       }).toThrow('Missing required CI secrets in process.env: RESEND_API_KEY, OPENROUTER_API_KEY');
+    });
+  });
+});
+
+describe('updateCiWorkflow', () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    mkdirSync(join(TEST_DIR, '.github/workflows'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(TEST_DIR, { recursive: true, force: true });
+  });
+
+  const createCiYml = (content: string): void => {
+    writeFileSync(join(TEST_DIR, '.github/workflows/ci.yml'), content);
+  };
+
+  const readCiYml = (): string => {
+    return readFileSync(join(TEST_DIR, '.github/workflows/ci.yml'), 'utf-8');
+  };
+
+  describe('e2e-env section', () => {
+    it('generates env block with all CI/prod secrets', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: e2e-env
+old content
+# END GENERATED: e2e-env
+rest of file`);
+
+      updateCiWorkflow(TEST_DIR);
+
+      const content = readCiYml();
+      expect(content).toContain('RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}');
+      expect(content).toContain('OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}');
+    });
+
+    it('uses ciSecretNameSandbox for Helcim secrets', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: e2e-env
+old content
+# END GENERATED: e2e-env`);
+
+      updateCiWorkflow(TEST_DIR);
+
+      const content = readCiYml();
+      expect(content).toContain('HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}');
+      expect(content).toContain(
+        'HELCIM_WEBHOOK_VERIFIER: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}'
+      );
+      expect(content).toContain(
+        'VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}'
+      );
+    });
+
+    it('preserves content outside markers', () => {
+      createCiYml(`name: CI
+before
+# BEGIN GENERATED: e2e-env
+old content
+# END GENERATED: e2e-env
+after`);
+
+      updateCiWorkflow(TEST_DIR);
+
+      const content = readCiYml();
+      expect(content).toContain('name: CI');
+      expect(content).toContain('before');
+      expect(content).toContain('after');
+    });
+  });
+
+  describe('build-env section', () => {
+    it('generates frontend production values', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: build-env
+old content
+# END GENERATED: build-env`);
+
+      updateCiWorkflow(TEST_DIR);
+
+      const content = readCiYml();
+      expect(content).toContain('VITE_API_URL: https://api.lome-chat.com');
+    });
+
+    it('uses ciSecretNameProduction for frontend secrets', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: build-env
+old content
+# END GENERATED: build-env`);
+
+      updateCiWorkflow(TEST_DIR);
+
+      const content = readCiYml();
+      expect(content).toContain(
+        'VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}'
+      );
+    });
+  });
+
+  describe('deploy-secrets section', () => {
+    it('generates wrangler secret put commands for all workerSecrets', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: deploy-secrets
+old content
+# END GENERATED: deploy-secrets`);
+
+      updateCiWorkflow(TEST_DIR);
+
+      const content = readCiYml();
+      expect(content).toContain(
+        'echo "${{ secrets.DATABASE_URL }}" | pnpm exec wrangler secret put DATABASE_URL'
+      );
+      expect(content).toContain(
+        'echo "${{ secrets.BETTER_AUTH_SECRET }}" | pnpm exec wrangler secret put BETTER_AUTH_SECRET'
+      );
+      expect(content).toContain(
+        'echo "${{ secrets.RESEND_API_KEY }}" | pnpm exec wrangler secret put RESEND_API_KEY'
+      );
+      expect(content).toContain(
+        'echo "${{ secrets.OPENROUTER_API_KEY }}" | pnpm exec wrangler secret put OPENROUTER_API_KEY'
+      );
+    });
+
+    it('uses ciSecretNameProduction for Helcim deploy secrets', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: deploy-secrets
+old content
+# END GENERATED: deploy-secrets`);
+
+      updateCiWorkflow(TEST_DIR);
+
+      const content = readCiYml();
+      expect(content).toContain(
+        'echo "${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_API_TOKEN'
+      );
+      expect(content).toContain(
+        'echo "${{ secrets.HELCIM_WEBHOOK_VERIFIER_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_WEBHOOK_VERIFIER'
+      );
+    });
+  });
+
+  describe('verify-secrets section', () => {
+    it('generates for loop with all workerSecrets keys', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: verify-secrets
+old content
+# END GENERATED: verify-secrets`);
+
+      updateCiWorkflow(TEST_DIR);
+
+      const content = readCiYml();
+      expect(content).toContain(
+        'for secret in DATABASE_URL BETTER_AUTH_SECRET RESEND_API_KEY OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do'
+      );
+    });
+  });
+
+  describe('multiple sections', () => {
+    it('updates all sections in a single call', () => {
+      createCiYml(`name: CI
+
+# BEGIN GENERATED: e2e-env
+old e2e
+# END GENERATED: e2e-env
+
+# BEGIN GENERATED: build-env
+old build
+# END GENERATED: build-env
+
+# BEGIN GENERATED: deploy-secrets
+old deploy
+# END GENERATED: deploy-secrets
+
+# BEGIN GENERATED: verify-secrets
+old verify
+# END GENERATED: verify-secrets
+`);
+
+      updateCiWorkflow(TEST_DIR);
+
+      const content = readCiYml();
+      expect(content).not.toContain('old e2e');
+      expect(content).not.toContain('old build');
+      expect(content).not.toContain('old deploy');
+      expect(content).not.toContain('old verify');
+      expect(content).toContain('RESEND_API_KEY:');
+      expect(content).toContain('VITE_API_URL:');
+      expect(content).toContain('wrangler secret put');
+      expect(content).toContain('for secret in');
     });
   });
 });
