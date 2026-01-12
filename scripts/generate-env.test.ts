@@ -50,15 +50,17 @@ port = 8787
       expect(content).toContain('pnpm generate:env');
     });
 
-    it('includes all vars with development values', () => {
+    it('does NOT include worker vars (they only go to .dev.vars)', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, '.env.development'), 'utf-8');
-      expect(content).toContain('NODE_ENV=development');
-      expect(content).toContain('BETTER_AUTH_URL=http://localhost:8787');
+      // NODE_ENV, BETTER_AUTH_URL, FRONTEND_URL are in worker section
+      expect(content).not.toContain('NODE_ENV=');
+      expect(content).not.toContain('BETTER_AUTH_URL=');
+      expect(content).not.toContain('FRONTEND_URL=');
     });
 
-    it('includes secrets with development values', () => {
+    it('includes workerSecrets with development values', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, '.env.development'), 'utf-8');
@@ -68,22 +70,24 @@ port = 8787
       expect(content).toContain('BETTER_AUTH_SECRET=');
     });
 
-    it('does not include prodOnlySecrets', () => {
+    it('does not include CI/prod secrets (empty {} vars)', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, '.env.development'), 'utf-8');
       expect(content).not.toContain('RESEND_API_KEY');
       expect(content).not.toContain('OPENROUTER_API_KEY');
+      expect(content).not.toContain('HELCIM_API_TOKEN');
+      expect(content).not.toContain('VITE_HELCIM_JS_TOKEN');
     });
 
-    it('includes all frontend vars with development values', () => {
+    it('includes frontend vars with development values', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, '.env.development'), 'utf-8');
       expect(content).toContain('VITE_API_URL=http://localhost:8787');
     });
 
-    it('includes localOnly vars', () => {
+    it('includes local vars', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, '.env.development'), 'utf-8');
@@ -108,17 +112,24 @@ port = 8787
       expect(content).toContain('Auto-generated');
     });
 
-    it('includes only workerVars', () => {
+    it('includes worker vars', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, 'apps/api/.dev.vars'), 'utf-8');
       expect(content).toContain('NODE_ENV=development');
+      expect(content).toContain('BETTER_AUTH_URL=http://localhost:8787');
+      expect(content).toContain('FRONTEND_URL=http://localhost:5173');
+    });
+
+    it('includes workerSecrets with development values', () => {
+      generateEnvFiles(TEST_DIR);
+
+      const content = readFileSync(join(TEST_DIR, 'apps/api/.dev.vars'), 'utf-8');
       expect(content).toContain('DATABASE_URL=');
-      expect(content).toContain('BETTER_AUTH_URL=');
       expect(content).toContain('BETTER_AUTH_SECRET=');
     });
 
-    it('does not include prodOnlySecrets', () => {
+    it('does not include CI/prod secrets in local mode', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, 'apps/api/.dev.vars'), 'utf-8');
@@ -133,7 +144,7 @@ port = 8787
       expect(content).not.toContain('VITE_');
     });
 
-    it('does not include localOnly vars (dev script only)', () => {
+    it('does not include local vars (tooling only)', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, 'apps/api/.dev.vars'), 'utf-8');
@@ -149,28 +160,30 @@ port = 8787
       expect(content).toContain('[vars]');
     });
 
-    it('includes production values for vars', () => {
+    it('includes production values for worker vars', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, 'apps/api/wrangler.toml'), 'utf-8');
       expect(content).toContain('NODE_ENV = "production"');
       expect(content).toContain('BETTER_AUTH_URL = "https://api.lome-chat.com"');
+      expect(content).toContain('FRONTEND_URL = "https://lome-chat.com"');
     });
 
-    it('includes comments about secrets and prodOnlySecrets', () => {
+    it('includes comments about workerSecrets', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, 'apps/api/wrangler.toml'), 'utf-8');
       expect(content).toContain('Secrets deployed via CI');
-      // Regular secrets
+      // All workerSecrets (both with dev values and CI/prod secrets)
       expect(content).toContain('DATABASE_URL');
       expect(content).toContain('BETTER_AUTH_SECRET');
-      // Production-only secrets
       expect(content).toContain('RESEND_API_KEY');
       expect(content).toContain('OPENROUTER_API_KEY');
+      expect(content).toContain('HELCIM_API_TOKEN');
+      expect(content).toContain('HELCIM_WEBHOOK_VERIFIER');
     });
 
-    it('does not include localOnly vars in secrets comment', () => {
+    it('does not include local vars in secrets comment', () => {
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, 'apps/api/wrangler.toml'), 'utf-8');
@@ -205,6 +218,69 @@ port = 8787
       const content = readFileSync(join(TEST_DIR, 'apps/api/wrangler.toml'), 'utf-8');
       expect(content).not.toContain('OLD_VAR');
       expect(content).toContain('NODE_ENV = "production"');
+    });
+  });
+
+  describe('ci-e2e mode', () => {
+    beforeEach(() => {
+      // Set up mock CI secrets in process.env
+      process.env.RESEND_API_KEY = 'test-resend-key';
+      process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
+      process.env.HELCIM_API_TOKEN = 'test-helcim-token';
+      process.env.HELCIM_WEBHOOK_VERIFIER = 'test-helcim-verifier';
+      process.env.VITE_HELCIM_JS_TOKEN = 'test-vite-helcim-token';
+    });
+
+    afterEach(() => {
+      // Clean up env vars
+      delete process.env.RESEND_API_KEY;
+      delete process.env.OPENROUTER_API_KEY;
+      delete process.env.HELCIM_API_TOKEN;
+      delete process.env.HELCIM_WEBHOOK_VERIFIER;
+      delete process.env.VITE_HELCIM_JS_TOKEN;
+    });
+
+    it('adds CI=true and E2E=true flags to .dev.vars', () => {
+      generateEnvFiles(TEST_DIR, 'ci-e2e');
+
+      const content = readFileSync(join(TEST_DIR, 'apps/api/.dev.vars'), 'utf-8');
+      expect(content).toContain('CI=true');
+      expect(content).toContain('E2E=true');
+    });
+
+    it('includes CI/prod secrets from process.env in .dev.vars', () => {
+      generateEnvFiles(TEST_DIR, 'ci-e2e');
+
+      const content = readFileSync(join(TEST_DIR, 'apps/api/.dev.vars'), 'utf-8');
+      expect(content).toContain('RESEND_API_KEY=test-resend-key');
+      expect(content).toContain('OPENROUTER_API_KEY=test-openrouter-key');
+      expect(content).toContain('HELCIM_API_TOKEN=test-helcim-token');
+      expect(content).toContain('HELCIM_WEBHOOK_VERIFIER=test-helcim-verifier');
+    });
+
+    it('generates .env.local with frontend CI/prod secrets', () => {
+      generateEnvFiles(TEST_DIR, 'ci-e2e');
+
+      expect(existsSync(join(TEST_DIR, '.env.local'))).toBe(true);
+      const content = readFileSync(join(TEST_DIR, '.env.local'), 'utf-8');
+      expect(content).toContain('VITE_HELCIM_JS_TOKEN=test-vite-helcim-token');
+    });
+
+    it('throws if required CI secrets are missing', () => {
+      delete process.env.RESEND_API_KEY;
+
+      expect(() => {
+        generateEnvFiles(TEST_DIR, 'ci-e2e');
+      }).toThrow('Missing required CI secrets in process.env: RESEND_API_KEY');
+    });
+
+    it('throws listing all missing secrets', () => {
+      delete process.env.RESEND_API_KEY;
+      delete process.env.OPENROUTER_API_KEY;
+
+      expect(() => {
+        generateEnvFiles(TEST_DIR, 'ci-e2e');
+      }).toThrow('Missing required CI secrets in process.env: RESEND_API_KEY, OPENROUTER_API_KEY');
     });
   });
 });

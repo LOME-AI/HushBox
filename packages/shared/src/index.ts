@@ -4,6 +4,7 @@ export * from './formatting.js';
 export * from './pricing.js';
 export * from './tiers.js';
 export * from './budget.js';
+export * from './env.js';
 export * from './env.config.js';
 export * from './schemas/dev-persona.js';
 export * from './schemas/api/index.js';

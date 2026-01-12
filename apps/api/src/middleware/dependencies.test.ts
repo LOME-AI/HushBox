@@ -17,18 +17,15 @@ vi.mock('../auth/index.js', () => ({
 }));
 
 vi.mock('../services/email/index.js', () => ({
-  createResendEmailClient: vi.fn(() => ({ type: 'resend' })),
-  createConsoleEmailClient: vi.fn(() => ({ type: 'console' })),
+  getEmailClient: vi.fn(() => ({ type: 'email' })),
 }));
 
 vi.mock('../services/openrouter/index.js', () => ({
-  createOpenRouterClient: vi.fn(() => ({ type: 'openrouter', isMock: false })),
-  createMockOpenRouterClient: vi.fn(() => ({ type: 'mock-openrouter', isMock: true })),
+  getOpenRouterClient: vi.fn(() => ({ type: 'openrouter', isMock: false })),
 }));
 
 vi.mock('../services/helcim/index.js', () => ({
-  createHelcimClient: vi.fn(() => ({ type: 'helcim', isMock: false })),
-  createMockHelcimClient: vi.fn(() => ({ type: 'mock-helcim', isMock: true })),
+  getHelcimClient: vi.fn(() => ({ type: 'helcim', isMock: false })),
 }));
 
 import {
@@ -40,12 +37,9 @@ import {
 } from './dependencies.js';
 import { createDb, LOCAL_NEON_DEV_CONFIG } from '@lome-chat/db';
 import { createAuth } from '../auth/index.js';
-import { createResendEmailClient, createConsoleEmailClient } from '../services/email/index.js';
-import {
-  createOpenRouterClient,
-  createMockOpenRouterClient,
-} from '../services/openrouter/index.js';
-import { createHelcimClient, createMockHelcimClient } from '../services/helcim/index.js';
+import { getEmailClient } from '../services/email/index.js';
+import { getOpenRouterClient } from '../services/openrouter/index.js';
+import { getHelcimClient } from '../services/helcim/index.js';
 
 describe('dbMiddleware', () => {
   beforeEach(() => {
@@ -139,28 +133,20 @@ describe('authMiddleware', () => {
     expect(body).toEqual({ hasAuth: true });
   });
 
-  it('uses ResendEmailClient when RESEND_API_KEY is set', async () => {
+  it('passes env to getEmailClient factory', async () => {
     const app = new Hono<AppEnv>();
     app.use('*', dbMiddleware());
     app.use('*', authMiddleware());
     app.get('/', (c) => c.json({ ok: true }));
 
-    await app.request('/', {}, { DATABASE_URL: 'postgres://test', RESEND_API_KEY: 'test-key' });
+    const env = {
+      DATABASE_URL: 'postgres://test',
+      RESEND_API_KEY: 'test-key',
+      NODE_ENV: 'production',
+    };
+    await app.request('/', {}, env);
 
-    expect(createResendEmailClient).toHaveBeenCalledWith('test-key');
-    expect(createConsoleEmailClient).not.toHaveBeenCalled();
-  });
-
-  it('uses ConsoleEmailClient when RESEND_API_KEY is not set', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', dbMiddleware());
-    app.use('*', authMiddleware());
-    app.get('/', (c) => c.json({ ok: true }));
-
-    await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
-
-    expect(createConsoleEmailClient).toHaveBeenCalled();
-    expect(createResendEmailClient).not.toHaveBeenCalled();
+    expect(getEmailClient).toHaveBeenCalledWith(env);
   });
 
   it('uses default auth URL when BETTER_AUTH_URL not set', async () => {
@@ -325,26 +311,15 @@ describe('openRouterMiddleware', () => {
     expect(body).toEqual({ hasOpenRouter: true });
   });
 
-  it('uses OpenRouterClient when OPENROUTER_API_KEY is set', async () => {
+  it('passes env to getOpenRouterClient factory', async () => {
     const app = new Hono<AppEnv>();
     app.use('*', openRouterMiddleware());
     app.get('/', (c) => c.json({ ok: true }));
 
-    await app.request('/', {}, { OPENROUTER_API_KEY: 'test-key' });
+    const env = { OPENROUTER_API_KEY: 'test-key', NODE_ENV: 'production' };
+    await app.request('/', {}, env);
 
-    expect(createOpenRouterClient).toHaveBeenCalledWith('test-key');
-    expect(createMockOpenRouterClient).not.toHaveBeenCalled();
-  });
-
-  it('uses MockOpenRouterClient when OPENROUTER_API_KEY is not set', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', openRouterMiddleware());
-    app.get('/', (c) => c.json({ ok: true }));
-
-    await app.request('/', {}, {});
-
-    expect(createMockOpenRouterClient).toHaveBeenCalled();
-    expect(createOpenRouterClient).not.toHaveBeenCalled();
+    expect(getOpenRouterClient).toHaveBeenCalledWith(env);
   });
 
   it('calls next() to continue middleware chain', async () => {
@@ -386,55 +361,19 @@ describe('helcimMiddleware', () => {
     expect(body).toEqual({ hasHelcim: true });
   });
 
-  it('uses HelcimClient when both HELCIM_API_TOKEN and HELCIM_WEBHOOK_VERIFIER are set', async () => {
+  it('passes env to getHelcimClient factory', async () => {
     const app = new Hono<AppEnv>();
     app.use('*', helcimMiddleware());
     app.get('/', (c) => c.json({ ok: true }));
 
-    await app.request(
-      '/',
-      {},
-      { HELCIM_API_TOKEN: 'test-token', HELCIM_WEBHOOK_VERIFIER: 'test-verifier' }
-    );
+    const env = {
+      HELCIM_API_TOKEN: 'test-token',
+      HELCIM_WEBHOOK_VERIFIER: 'test-verifier',
+      NODE_ENV: 'production',
+    };
+    await app.request('/', {}, env);
 
-    expect(createHelcimClient).toHaveBeenCalledWith({
-      apiToken: 'test-token',
-      webhookVerifier: 'test-verifier',
-    });
-    expect(createMockHelcimClient).not.toHaveBeenCalled();
-  });
-
-  it('uses MockHelcimClient when HELCIM_API_TOKEN is not set', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', helcimMiddleware());
-    app.get('/', (c) => c.json({ ok: true }));
-
-    await app.request('/', {}, { HELCIM_WEBHOOK_VERIFIER: 'test-verifier' });
-
-    expect(createMockHelcimClient).toHaveBeenCalled();
-    expect(createHelcimClient).not.toHaveBeenCalled();
-  });
-
-  it('uses MockHelcimClient when HELCIM_WEBHOOK_VERIFIER is not set', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', helcimMiddleware());
-    app.get('/', (c) => c.json({ ok: true }));
-
-    await app.request('/', {}, { HELCIM_API_TOKEN: 'test-token' });
-
-    expect(createMockHelcimClient).toHaveBeenCalled();
-    expect(createHelcimClient).not.toHaveBeenCalled();
-  });
-
-  it('uses MockHelcimClient when neither env var is set', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', helcimMiddleware());
-    app.get('/', (c) => c.json({ ok: true }));
-
-    await app.request('/', {}, {});
-
-    expect(createMockHelcimClient).toHaveBeenCalled();
-    expect(createHelcimClient).not.toHaveBeenCalled();
+    expect(getHelcimClient).toHaveBeenCalledWith(env);
   });
 
   it('calls next() to continue middleware chain', async () => {

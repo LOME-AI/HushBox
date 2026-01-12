@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from 'hono';
+import { createEnvUtils } from '@lome-chat/shared';
 
 interface DevOnlyBindings {
   NODE_ENV?: string;
@@ -6,8 +7,8 @@ interface DevOnlyBindings {
 
 export function devOnly(): MiddlewareHandler<{ Bindings: DevOnlyBindings }> {
   return async (c, next): Promise<Response | undefined> => {
-    const env = c.env.NODE_ENV ?? 'development';
-    if (env === 'production') {
+    const env = createEnvUtils(c.env);
+    if (env.isProduction) {
       return c.json({ error: 'Not Found' }, 404);
     }
     await next();

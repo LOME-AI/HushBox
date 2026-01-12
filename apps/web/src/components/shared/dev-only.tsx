@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { env } from '@/lib/env';
 
 interface DevOnlyProps {
   children: React.ReactNode;
@@ -6,7 +7,7 @@ interface DevOnlyProps {
 }
 
 export function DevOnly({ children, showBorder = true }: DevOnlyProps): React.ReactNode {
-  if (!import.meta.env.DEV) {
+  if (!env.isDev) {
     return null;
   }
 

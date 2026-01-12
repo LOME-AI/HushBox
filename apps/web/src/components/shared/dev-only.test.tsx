@@ -1,18 +1,29 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DevOnly } from './dev-only';
 
+vi.mock('@/lib/env', () => ({
+  env: {
+    isDev: true,
+    isLocalDev: true,
+    isProduction: false,
+    isCI: false,
+    requiresRealServices: false,
+  },
+}));
+
 describe('DevOnly', () => {
-  const originalDev = import.meta.env.DEV;
-
-  afterEach(() => {
-    // Restore original DEV value
-    vi.stubEnv('DEV', originalDev);
-  });
-
   describe('in development mode', () => {
-    beforeEach(() => {
-      vi.stubEnv('DEV', true);
+    beforeEach(async () => {
+      const envModule = await import('@/lib/env');
+      vi.mocked(envModule).env = {
+        isDev: true,
+        isLocalDev: true,
+        isProduction: false,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: false,
+      };
     });
 
     it('renders children in development', () => {
@@ -49,8 +60,16 @@ describe('DevOnly', () => {
   });
 
   describe('in production mode', () => {
-    beforeEach(() => {
-      vi.stubEnv('DEV', false);
+    beforeEach(async () => {
+      const envModule = await import('@/lib/env');
+      vi.mocked(envModule).env = {
+        isDev: false,
+        isLocalDev: false,
+        isProduction: true,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: true,
+      };
     });
 
     it('does not render children in production', () => {

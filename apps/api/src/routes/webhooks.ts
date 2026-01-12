@@ -1,5 +1,6 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import {
+  createEnvUtils,
   errorResponseSchema,
   ERROR_CODE_UNAUTHORIZED,
   ERROR_CODE_VALIDATION,
@@ -85,7 +86,7 @@ export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
 
     // Verify webhook signature
     const webhookVerifier = c.env.HELCIM_WEBHOOK_VERIFIER;
-    const isProduction = c.env.NODE_ENV === 'production';
+    const { isProduction } = createEnvUtils(c.env);
 
     // In production, webhook verifier MUST be configured
     if (isProduction && !webhookVerifier) {

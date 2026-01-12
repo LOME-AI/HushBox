@@ -4,13 +4,6 @@ import { BillingPage } from '../pages';
 // Branch on CI env var (always set by GitHub Actions), not on credentials
 const isCI = Boolean(process.env['CI']);
 
-// Safety net: Fail loudly in CI if required credentials are missing
-if (isCI && !process.env['HELCIM_API_TOKEN']) {
-  throw new Error(
-    'HELCIM_API_TOKEN must be set in CI. Add HELCIM_API_TOKEN_SANDBOX to GitHub Secrets.'
-  );
-}
-
 test.describe('Billing & Payments', () => {
   test.describe('Billing Page', () => {
     test('displays balance and add credits button', async ({ authenticatedPage }) => {

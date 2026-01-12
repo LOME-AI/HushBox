@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PaymentForm } from './payment-form';
 import * as helcimLoader from '../../lib/helcim-loader';
 import * as billingHooks from '../../hooks/billing';
+import * as envModule from '@/lib/env';
 
 // Mock helcim loader
 vi.mock('../../lib/helcim-loader', () => ({
@@ -17,6 +18,17 @@ vi.mock('../../hooks/billing', () => ({
   useCreatePayment: vi.fn(),
   useProcessPayment: vi.fn(),
   usePaymentStatus: vi.fn(),
+}));
+
+// Mock env module
+vi.mock('@/lib/env', () => ({
+  env: {
+    isDev: true,
+    isLocalDev: false, // Default to non-local dev (like CI) for most tests
+    isProduction: false,
+    isCI: false,
+    requiresRealServices: false,
+  },
 }));
 
 // Mock FormInput to avoid full component tree
@@ -93,15 +105,18 @@ describe('PaymentForm', () => {
     submittedAt: 0,
   };
 
-  // Store original env value
-  const originalEnv: string | undefined = import.meta.env['VITE_HELCIM_JS_TOKEN'] as
-    | string
-    | undefined;
-
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset to a non-mock token for most tests (real Helcim behavior)
-    import.meta.env['VITE_HELCIM_JS_TOKEN'] = 'test-token';
+
+    // Reset env mock to default (non-local dev) for most tests
+    vi.mocked(envModule).env = {
+      isDev: true,
+      isLocalDev: false,
+      isProduction: false,
+      isCI: false,
+      isE2E: false,
+      requiresRealServices: false,
+    };
 
     vi.mocked(billingHooks.useCreatePayment).mockReturnValue(
       mockCreatePayment as unknown as ReturnType<typeof billingHooks.useCreatePayment>
@@ -121,15 +136,6 @@ describe('PaymentForm', () => {
 
     // Mock window function
     window.helcimProcess = vi.fn();
-  });
-
-  afterEach(() => {
-    // Restore original env value
-    if (originalEnv === undefined) {
-      delete import.meta.env['VITE_HELCIM_JS_TOKEN'];
-    } else {
-      (import.meta.env as Record<string, string>)['VITE_HELCIM_JS_TOKEN'] = originalEnv;
-    }
   });
 
   describe('single-page layout', () => {
@@ -609,8 +615,15 @@ describe('PaymentForm', () => {
 
   describe('dev simulation buttons', () => {
     it('does not show simulation buttons in production mode', async () => {
-      // Stub DEV to false to simulate production mode
-      vi.stubEnv('DEV', false);
+      // Mock env as production mode (isDev = false)
+      vi.mocked(envModule).env = {
+        isDev: false,
+        isLocalDev: false,
+        isProduction: true,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: true,
+      };
 
       renderWithProviders(<PaymentForm />);
 
@@ -622,13 +635,18 @@ describe('PaymentForm', () => {
       expect(screen.queryByTestId('dev-simulation-buttons')).not.toBeInTheDocument();
       expect(screen.queryByTestId('simulate-success-btn')).not.toBeInTheDocument();
       expect(screen.queryByTestId('simulate-failure-btn')).not.toBeInTheDocument();
-
-      // Restore DEV to true
-      vi.stubEnv('DEV', true);
     });
 
-    it('shows simulation buttons in dev mode', async () => {
-      import.meta.env['VITE_HELCIM_JS_TOKEN'] = 'dev-mock';
+    it('shows simulation buttons in local dev mode', async () => {
+      // Mock env as local dev mode
+      vi.mocked(envModule).env = {
+        isDev: true,
+        isLocalDev: true,
+        isProduction: false,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: false,
+      };
 
       renderWithProviders(<PaymentForm />);
 
@@ -645,7 +663,16 @@ describe('PaymentForm', () => {
     it('triggers success state when simulate success clicked', async () => {
       const user = userEvent.setup();
       const onSuccess = vi.fn();
-      import.meta.env['VITE_HELCIM_JS_TOKEN'] = 'dev-mock';
+
+      // Mock env as local dev mode
+      vi.mocked(envModule).env = {
+        isDev: true,
+        isLocalDev: true,
+        isProduction: false,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: false,
+      };
 
       // Mock API calls for simulate success
       mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
@@ -678,7 +705,16 @@ describe('PaymentForm', () => {
 
     it('triggers error state when simulate failure clicked', async () => {
       const user = userEvent.setup();
-      import.meta.env['VITE_HELCIM_JS_TOKEN'] = 'dev-mock';
+
+      // Mock env as local dev mode
+      vi.mocked(envModule).env = {
+        isDev: true,
+        isLocalDev: true,
+        isProduction: false,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: false,
+      };
 
       renderWithProviders(<PaymentForm />);
 

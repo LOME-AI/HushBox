@@ -1,20 +1,18 @@
 import type { MiddlewareHandler } from 'hono';
 import { createDb, LOCAL_NEON_DEV_CONFIG } from '@lome-chat/db';
+import { createEnvUtils } from '@lome-chat/shared';
 import { createAuth } from '../auth/index.js';
-import { createResendEmailClient, createConsoleEmailClient } from '../services/email/index.js';
-import { createHelcimClient, createMockHelcimClient } from '../services/helcim/index.js';
-import {
-  createOpenRouterClient,
-  createMockOpenRouterClient,
-} from '../services/openrouter/index.js';
+import { getEmailClient } from '../services/email/index.js';
+import { getHelcimClient } from '../services/helcim/index.js';
+import { getOpenRouterClient } from '../services/openrouter/index.js';
 import type { AppEnv } from '../types.js';
 
 export function dbMiddleware(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const dbConfig =
-      c.env.NODE_ENV === 'development'
-        ? { connectionString: c.env.DATABASE_URL, neonDev: LOCAL_NEON_DEV_CONFIG }
-        : { connectionString: c.env.DATABASE_URL };
+    const { isDev } = createEnvUtils(c.env);
+    const dbConfig = isDev
+      ? { connectionString: c.env.DATABASE_URL, neonDev: LOCAL_NEON_DEV_CONFIG }
+      : { connectionString: c.env.DATABASE_URL };
     c.set('db', createDb(dbConfig));
     await next();
   };
@@ -23,9 +21,7 @@ export function dbMiddleware(): MiddlewareHandler<AppEnv> {
 export function authMiddleware(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const db = c.get('db');
-    const emailClient = c.env.RESEND_API_KEY
-      ? createResendEmailClient(c.env.RESEND_API_KEY)
-      : createConsoleEmailClient();
+    const emailClient = getEmailClient(c.env);
 
     const auth = createAuth({
       db,
@@ -59,24 +55,14 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
 
 export function openRouterMiddleware(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const client = c.env.OPENROUTER_API_KEY
-      ? createOpenRouterClient(c.env.OPENROUTER_API_KEY)
-      : createMockOpenRouterClient();
-    c.set('openrouter', client);
+    c.set('openrouter', getOpenRouterClient(c.env));
     await next();
   };
 }
 
 export function helcimMiddleware(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const client =
-      c.env.HELCIM_API_TOKEN && c.env.HELCIM_WEBHOOK_VERIFIER
-        ? createHelcimClient({
-            apiToken: c.env.HELCIM_API_TOKEN,
-            webhookVerifier: c.env.HELCIM_WEBHOOK_VERIFIER,
-          })
-        : createMockHelcimClient();
-    c.set('helcim', client);
+    c.set('helcim', getHelcimClient(c.env));
     await next();
   };
 }

@@ -5,6 +5,7 @@ import { HelcimLogo } from './helcim-logo.js';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@lome-chat/ui';
 import { FormInput } from '@/components/shared/form-input';
 import { DevOnly } from '@/components/shared/dev-only';
+import { env } from '@/lib/env';
 import {
   loadHelcimScript,
   readHelcimResult,
@@ -30,7 +31,8 @@ interface PaymentFormProps {
 
 export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JSX.Element {
   const jsToken = import.meta.env['VITE_HELCIM_JS_TOKEN'] as string | undefined;
-  const isDevMode = jsToken === 'dev-mock';
+  // Use shared env utility for mock mode detection
+  const isDevMode = env.isLocalDev;
 
   const form = usePaymentForm();
 

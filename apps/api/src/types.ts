@@ -6,6 +6,8 @@ import type { OpenRouterClient } from './services/openrouter/index.js';
 export interface Bindings {
   DATABASE_URL: string;
   NODE_ENV?: string;
+  CI?: string;
+  E2E?: string;
   BETTER_AUTH_URL?: string;
   BETTER_AUTH_SECRET?: string;
   RESEND_API_KEY?: string;
