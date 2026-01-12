@@ -37,11 +37,18 @@ describe('envConfig', () => {
       expect('production' in envConfig.workerSecrets.BETTER_AUTH_SECRET).toBe(false);
     });
 
-    it('has CI/prod secrets as empty objects', () => {
+    it('has CI/prod secrets without development values', () => {
       expect(Object.keys(envConfig.workerSecrets.RESEND_API_KEY)).toHaveLength(0);
       expect(Object.keys(envConfig.workerSecrets.OPENROUTER_API_KEY)).toHaveLength(0);
-      expect(Object.keys(envConfig.workerSecrets.HELCIM_API_TOKEN)).toHaveLength(0);
-      expect(Object.keys(envConfig.workerSecrets.HELCIM_WEBHOOK_VERIFIER)).toHaveLength(0);
+      // Helcim secrets have CI secret name mappings but no development values
+      expect('development' in envConfig.workerSecrets.HELCIM_API_TOKEN).toBe(false);
+      expect(envConfig.workerSecrets.HELCIM_API_TOKEN.ciSecretNameSandbox).toBe(
+        'HELCIM_API_TOKEN_SANDBOX'
+      );
+      expect('development' in envConfig.workerSecrets.HELCIM_WEBHOOK_VERIFIER).toBe(false);
+      expect(envConfig.workerSecrets.HELCIM_WEBHOOK_VERIFIER.ciSecretNameSandbox).toBe(
+        'HELCIM_WEBHOOK_VERIFIER_SANDBOX'
+      );
     });
   });
 
@@ -51,8 +58,14 @@ describe('envConfig', () => {
       expect(envConfig.frontend.VITE_API_URL.production).toBe('https://api.lome-chat.com');
     });
 
-    it('has VITE_HELCIM_JS_TOKEN as empty object (CI/prod secret)', () => {
-      expect(Object.keys(envConfig.frontend.VITE_HELCIM_JS_TOKEN)).toHaveLength(0);
+    it('has VITE_HELCIM_JS_TOKEN as CI/prod secret with name mappings', () => {
+      expect('development' in envConfig.frontend.VITE_HELCIM_JS_TOKEN).toBe(false);
+      expect(envConfig.frontend.VITE_HELCIM_JS_TOKEN.ciSecretNameSandbox).toBe(
+        'VITE_HELCIM_JS_TOKEN_SANDBOX'
+      );
+      expect(envConfig.frontend.VITE_HELCIM_JS_TOKEN.ciSecretNameProduction).toBe(
+        'VITE_HELCIM_JS_TOKEN_PRODUCTION'
+      );
     });
   });
 
@@ -74,8 +87,8 @@ describe('helper functions', () => {
       expect(isEmptySecret({ development: 'value' })).toBe(false);
     });
 
-    it('returns false for object with production value', () => {
-      expect(isEmptySecret({ production: 'value' })).toBe(false);
+    it('returns true for object with CI secret names but no development value', () => {
+      expect(isEmptySecret({ ciSecretNameSandbox: 'SECRET_SANDBOX' })).toBe(true);
     });
   });
 
