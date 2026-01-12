@@ -79,7 +79,8 @@ jobs:
 
       - name: Start Hookdeck listener
         run: |
-          hookdeck listen 8787 --ci --source helcim-sandbox --path /webhooks/payment &
+          hookdeck ci --api-key $HOOKDECK_API_KEY
+          hookdeck listen 8787 --source helcim-sandbox --path /webhooks/payment --output quiet &
           for i in {1..30}; do
             if hookdeck whoami 2>/dev/null; then
               echo "Hookdeck connected successfully"
