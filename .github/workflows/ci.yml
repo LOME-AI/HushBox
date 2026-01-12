@@ -47,6 +47,19 @@ jobs:
       - name: Generate environment files
         run: pnpm generate:env
 
+      - name: Configure E2E environment
+        run: |
+          # Override dev-mock with real Helcim sandbox credentials
+          # .env.local has higher priority than .env.development in Vite
+          echo "VITE_HELCIM_JS_TOKEN=$VITE_HELCIM_JS_TOKEN" >> .env.local
+          # API needs credentials in .dev.vars for wrangler dev
+          echo "HELCIM_API_TOKEN=$HELCIM_API_TOKEN" >> apps/api/.dev.vars
+          echo "HELCIM_WEBHOOK_VERIFIER=$HELCIM_WEBHOOK_VERIFIER" >> apps/api/.dev.vars
+        env:
+          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
+          HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
+          HELCIM_WEBHOOK_VERIFIER: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
+
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps
 
@@ -67,7 +80,14 @@ jobs:
       - name: Start Hookdeck listener
         run: |
           hookdeck listen 8787 --ci --source helcim-sandbox --path /webhooks/payment &
-          sleep 5  # Give hookdeck time to establish connection
+          for i in {1..30}; do
+            if hookdeck whoami 2>/dev/null; then
+              echo "Hookdeck connected successfully"
+              break
+            fi
+            echo "Waiting for Hookdeck connection... ($i/30)"
+            sleep 1
+          done
         env:
           HOOKDECK_API_KEY: ${{ secrets.HOOKDECK_API_KEY }}
 
@@ -75,10 +95,6 @@ jobs:
         run: pnpm e2e --project=${{ matrix.project }}
         env:
           CI: true
-          # Map Helcim sandbox secrets to runtime vars for E2E payment tests
-          HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
-          HELCIM_WEBHOOK_VERIFIER: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
-          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4

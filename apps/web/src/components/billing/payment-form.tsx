@@ -40,6 +40,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  const [pollingStartTime, setPollingStartTime] = useState<number | null>(null);
   const observerRef = useRef<MutationObserver | null>(null);
 
   const createPayment = useCreatePayment();
@@ -51,23 +52,42 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     refetchInterval: isPolling ? 2000 : false,
   });
 
+  const POLLING_TIMEOUT_MS = 60000;
+
   useEffect(() => {
-    if (!paymentStatus || !isPolling) return;
+    if (!isPolling) return;
+
+    if (!pollingStartTime) {
+      setPollingStartTime(Date.now());
+      return;
+    }
+
+    if (Date.now() - pollingStartTime > POLLING_TIMEOUT_MS) {
+      setIsPolling(false);
+      setPollingStartTime(null);
+      setPaymentState('error');
+      setErrorMessage('Payment confirmation timed out. Please check your balance.');
+      return;
+    }
+
+    if (!paymentStatus) return;
 
     if (paymentStatus.status === 'confirmed') {
       setIsPolling(false);
+      setPollingStartTime(null);
       setPaymentState('success');
       if ('newBalance' in paymentStatus) {
         onSuccess?.(paymentStatus.newBalance);
       }
     } else if (paymentStatus.status === 'failed') {
       setIsPolling(false);
+      setPollingStartTime(null);
       setPaymentState('error');
       if ('errorMessage' in paymentStatus && paymentStatus.errorMessage) {
         setErrorMessage(paymentStatus.errorMessage);
       }
     }
-  }, [paymentStatus, isPolling, onSuccess]);
+  }, [paymentStatus, isPolling, pollingStartTime, onSuccess]);
 
   const handleTokenizationResult = useCallback(
     async (result: HelcimTokenResult): Promise<void> => {
@@ -226,6 +246,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     setPaymentId(null);
     setErrorMessage(null);
     setIsPolling(false);
+    setPollingStartTime(null);
   };
 
   if (paymentState === 'success') {
