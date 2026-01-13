@@ -314,6 +314,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
       </CardHeader>
       <CardContent>
         <form
+          id="helcimForm"
           onSubmit={(e) => {
             void handleSubmit(e);
           }}
