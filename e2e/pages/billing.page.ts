@@ -1,5 +1,10 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 
+interface DiagnosticData {
+  apiResponses: { url: string; status: number; body: string }[];
+  consoleLogs: string[];
+}
+
 export class BillingPage {
   readonly page: Page;
   readonly balanceDisplay: Locator;
@@ -19,6 +24,11 @@ export class BillingPage {
   readonly closeButton: Locator;
   readonly tryAgainButton: Locator;
   readonly processingIndicator: Locator;
+
+  private diagnostics: DiagnosticData = {
+    apiResponses: [],
+    consoleLogs: [],
+  };
 
   constructor(page: Page) {
     this.page = page;
@@ -141,5 +151,85 @@ export class BillingPage {
     throw new Error(
       `Payment not confirmed within ${String(timeout)}ms. Expected balance increase of $${String(expectedIncrease)}`
     );
+  }
+
+  /**
+   * Enable diagnostic logging for debugging test failures.
+   * Captures API responses and console errors/warnings.
+   * Call this at the start of a test to begin collecting data.
+   */
+  enableDiagnostics(): void {
+    // Capture API responses for billing/webhook endpoints
+    this.page.on('response', async (response) => {
+      const url = response.url();
+      if (url.includes('/billing/') || url.includes('/webhooks/') || url.includes('helcim')) {
+        try {
+          const body = await response.text();
+          this.diagnostics.apiResponses.push({
+            url,
+            status: response.status(),
+            body: body.substring(0, 1000),
+          });
+        } catch {
+          this.diagnostics.apiResponses.push({
+            url,
+            status: response.status(),
+            body: '[unable to read body]',
+          });
+        }
+      }
+    });
+
+    // Capture console errors/warnings from the browser
+    this.page.on('console', (msg) => {
+      const type = msg.type();
+      if (type === 'error' || type === 'warning') {
+        this.diagnostics.consoleLogs.push(`[${type}] ${msg.text()}`);
+      }
+    });
+  }
+
+  /**
+   * Capture the current UI state for debugging.
+   * Shows which payment states are visible.
+   */
+  async captureCurrentState(): Promise<{
+    processingVisible: boolean;
+    successVisible: boolean;
+    errorVisible: boolean;
+    formVisible: boolean;
+    scriptLoadingVisible: boolean;
+    visibleText: string;
+  }> {
+    const [processingVisible, successVisible, errorVisible, formVisible, scriptLoadingVisible] =
+      await Promise.all([
+        this.processingIndicator.isVisible().catch(() => false),
+        this.paymentSuccessCard.isVisible().catch(() => false),
+        this.paymentErrorCard.isVisible().catch(() => false),
+        this.cardNumberInput.isVisible().catch(() => false),
+        this.page
+          .getByTestId('helcim-loading')
+          .isVisible()
+          .catch(() => false),
+      ]);
+
+    const visibleText = await this.paymentModal.innerText().catch(() => '[modal not found]');
+
+    return {
+      processingVisible,
+      successVisible,
+      errorVisible,
+      formVisible,
+      scriptLoadingVisible,
+      visibleText: visibleText.substring(0, 500),
+    };
+  }
+
+  /**
+   * Get the diagnostic report as a JSON string.
+   * Contains all captured API responses and console logs.
+   */
+  getDiagnosticReport(): string {
+    return JSON.stringify(this.diagnostics, null, 2);
   }
 }

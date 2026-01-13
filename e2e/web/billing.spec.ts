@@ -103,6 +103,7 @@ test.describe('Billing & Payments', () => {
       // 5. Balance update in database
 
       const billingPage = new BillingPage(authenticatedPage);
+      billingPage.enableDiagnostics();
       await billingPage.goto();
 
       const initialBalance = await billingPage.getBalance();
@@ -121,7 +122,16 @@ test.describe('Billing & Payments', () => {
       // Webhook flow: Helcim → Hookdeck → CI runner → signature verified → balance credited
 
       // Wait for payment to complete (either immediate mock or webhook-based real)
-      await billingPage.expectPaymentSuccess();
+      try {
+        await billingPage.expectPaymentSuccess();
+      } catch (error) {
+        console.log('\n=== E2E DIAGNOSTIC REPORT (full payment flow) ===');
+        console.log('\nUI State:');
+        console.log(JSON.stringify(await billingPage.captureCurrentState(), null, 2));
+        console.log('\nAPI Responses & Console Logs:');
+        console.log(billingPage.getDiagnosticReport());
+        throw error;
+      }
 
       // Navigate to billing page to check balance
       await billingPage.goto();
@@ -135,6 +145,7 @@ test.describe('Billing & Payments', () => {
 
     test('handles declined card', async ({ authenticatedPage }) => {
       const billingPage = new BillingPage(authenticatedPage);
+      billingPage.enableDiagnostics();
       await billingPage.goto();
 
       await billingPage.openPaymentModal();
@@ -146,7 +157,16 @@ test.describe('Billing & Payments', () => {
 
       await billingPage.submitPayment();
 
-      await billingPage.expectPaymentError();
+      try {
+        await billingPage.expectPaymentError();
+      } catch (error) {
+        console.log('\n=== E2E DIAGNOSTIC REPORT (declined card) ===');
+        console.log('\nUI State:');
+        console.log(JSON.stringify(await billingPage.captureCurrentState(), null, 2));
+        console.log('\nAPI Responses & Console Logs:');
+        console.log(billingPage.getDiagnosticReport());
+        throw error;
+      }
     });
 
     test('verifies webhook signature is validated (real Helcim signature)', async ({
@@ -160,6 +180,7 @@ test.describe('Billing & Payments', () => {
       // The fact that balance updates proves signature verification passed.
 
       const billingPage = new BillingPage(authenticatedPage);
+      billingPage.enableDiagnostics();
       await billingPage.goto();
 
       const initialBalance = await billingPage.getBalance();
@@ -169,7 +190,17 @@ test.describe('Billing & Payments', () => {
       await billingPage.fillCardDetails('4030000010001234', '12/30', '100', '12345');
       await billingPage.submitPayment();
 
-      await billingPage.expectPaymentSuccess();
+      try {
+        await billingPage.expectPaymentSuccess();
+      } catch (error) {
+        console.log('\n=== E2E DIAGNOSTIC REPORT (webhook signature) ===');
+        console.log('\nUI State:');
+        console.log(JSON.stringify(await billingPage.captureCurrentState(), null, 2));
+        console.log('\nAPI Responses & Console Logs:');
+        console.log(billingPage.getDiagnosticReport());
+        throw error;
+      }
+
       await billingPage.goto();
 
       // If webhook signature verification failed, this would timeout
