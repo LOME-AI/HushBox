@@ -5,17 +5,31 @@ import { SidebarFooter } from './sidebar-footer';
 import { useUIStore } from '@/stores/ui';
 
 // Mock dependencies using vi.hoisted for values referenced in vi.mock factory
-const { mockSignOutAndClearCache, mockUseSession, mockNavigate, mockUseBalance, mockFeatureFlags } =
-  vi.hoisted(() => ({
-    mockSignOutAndClearCache: vi.fn().mockResolvedValue(undefined),
-    mockUseSession: vi.fn(),
-    mockNavigate: vi.fn(),
-    mockUseBalance: vi.fn(),
-    mockFeatureFlags: {
-      PROJECTS_ENABLED: false,
-      SETTINGS_ENABLED: false,
-    },
-  }));
+const {
+  mockSignOutAndClearCache,
+  mockUseSession,
+  mockNavigate,
+  mockUseBalance,
+  mockFeatureFlags,
+  mockEnv,
+} = vi.hoisted(() => ({
+  mockSignOutAndClearCache: vi.fn().mockResolvedValue(undefined),
+  mockUseSession: vi.fn(),
+  mockNavigate: vi.fn(),
+  mockUseBalance: vi.fn(),
+  mockFeatureFlags: {
+    PROJECTS_ENABLED: false,
+    SETTINGS_ENABLED: false,
+  },
+  mockEnv: {
+    isDev: true,
+    isLocalDev: true,
+    isProduction: false,
+    isCI: false,
+    isE2E: false,
+    requiresRealServices: false,
+  },
+}));
 
 vi.mock('@lome-chat/shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@lome-chat/shared')>();
@@ -36,6 +50,10 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('@/hooks/billing', () => ({
   useBalance: mockUseBalance,
+}));
+
+vi.mock('@/lib/env', () => ({
+  env: mockEnv,
 }));
 
 describe('SidebarFooter', () => {
@@ -233,13 +251,11 @@ describe('SidebarFooter', () => {
       });
     });
 
-    it('uses import.meta.env.DEV for conditional rendering', () => {
-      // This test documents that Personas visibility is controlled by import.meta.env.DEV.
-      // In Vitest, import.meta.env.DEV is true, so Personas appears.
-      // In production builds, Vite sets DEV to false and dead code elimination
-      // removes the Personas code entirely from the bundle.
-      // This is verified by the build process, not unit tests.
-      expect(import.meta.env.DEV).toBe(true);
+    it('uses env.isLocalDev for conditional rendering', () => {
+      // Personas visibility is controlled by env.isLocalDev (not import.meta.env.DEV).
+      // isLocalDev = isDev && !isCI, so Personas is hidden in CI but shown locally.
+      // The mock sets isLocalDev: true to test the dev-only UI in this test suite.
+      expect(mockEnv.isLocalDev).toBe(true);
     });
   });
 
