@@ -7,44 +7,79 @@ import { z } from 'zod';
  * - frontend: .env.development (prod values baked at build time)
  * - local: .env.development only (tooling, never goes to worker)
  *
- * Value structure:
- * - { development: '...', production: '...' } = known values for both envs
- * - { development: '...' } = dev value only, no prod value needed
- * - {} = CI/prod secret (no dev value, read from process.env in CI, wrangler secret in prod)
+ * Value patterns:
+ * - 'literal'         - Use this exact string
+ * - '$SECRET_NAME'    - Read from GitHub secret at runtime
+ * - 'duplicate_x'     - Use same value as environment x (e.g., 'duplicate_development')
+ * - (missing)         - Not set in this environment
  *
  * Usage:
  * - Run `pnpm generate:env` to generate .env.development, .dev.vars, and wrangler.toml [vars]
- * - Run `pnpm generate:env --mode=ci-e2e` in CI to include secrets from process.env
+ * - Run `pnpm generate:env --mode=ciE2E` in CI to include secrets from process.env
  * - Production secrets are set via GitHub Secrets → wrangler secret put in CI
  */
 export const envConfig = {
   // Worker vars - go to .dev.vars + wrangler.toml [vars] (NOT .env.development)
   worker: {
-    NODE_ENV: { development: 'development', production: 'production' },
+    NODE_ENV: {
+      development: 'development',
+      ciVitest: 'duplicate_development',
+      ciE2E: 'duplicate_development',
+      production: 'production',
+    },
     BETTER_AUTH_URL: {
       development: 'http://localhost:8787',
+      ciVitest: 'duplicate_development',
+      ciE2E: 'duplicate_development',
       production: 'https://api.lome-chat.com',
     },
     FRONTEND_URL: {
       development: 'http://localhost:5173',
+      ciVitest: 'duplicate_development',
+      ciE2E: 'duplicate_development',
       production: 'https://lome-chat.com',
+    },
+    CI: {
+      ciVitest: 'true',
+      ciE2E: 'duplicate_ciVitest',
+    },
+    E2E: {
+      ciE2E: 'true',
     },
   },
 
   // Worker secrets - go to .dev.vars + .env.development (prod via wrangler secret put)
   workerSecrets: {
-    DATABASE_URL: { development: 'postgres://postgres:postgres@localhost:4444/lome_chat' },
-    BETTER_AUTH_SECRET: { development: 'dev-secret-minimum-32-characters-long' },
-    // CI/prod secrets - no dev value, needed in CI (from process.env) and prod (via wrangler secret)
-    RESEND_API_KEY: {},
-    OPENROUTER_API_KEY: {},
+    DATABASE_URL: {
+      development: 'postgres://postgres:postgres@localhost:4444/lome_chat',
+      ciVitest: 'duplicate_development',
+      ciE2E: 'duplicate_development',
+      production: '$DATABASE_URL',
+    },
+    BETTER_AUTH_SECRET: {
+      development: 'dev-secret-minimum-32-characters-long',
+      ciVitest: 'duplicate_development',
+      ciE2E: 'duplicate_development',
+      production: '$BETTER_AUTH_SECRET',
+    },
+    RESEND_API_KEY: {
+      ciVitest: '$RESEND_API_KEY',
+      ciE2E: 'duplicate_ciVitest',
+      production: 'duplicate_ciVitest',
+    },
+    OPENROUTER_API_KEY: {
+      ciVitest: '$OPENROUTER_API_KEY',
+      production: 'duplicate_ciVitest',
+      // NOT in ciE2E - E2E tests don't need OpenRouter
+    },
     HELCIM_API_TOKEN: {
-      ciSecretNameSandbox: 'HELCIM_API_TOKEN_SANDBOX',
-      ciSecretNameProduction: 'HELCIM_API_TOKEN_PRODUCTION',
+      ciE2E: '$HELCIM_API_TOKEN_SANDBOX',
+      production: '$HELCIM_API_TOKEN_PRODUCTION',
+      // NOT in ciVitest - unit tests don't need Helcim
     },
     HELCIM_WEBHOOK_VERIFIER: {
-      ciSecretNameSandbox: 'HELCIM_WEBHOOK_VERIFIER_SANDBOX',
-      ciSecretNameProduction: 'HELCIM_WEBHOOK_VERIFIER_PRODUCTION',
+      ciE2E: '$HELCIM_WEBHOOK_VERIFIER_SANDBOX',
+      production: '$HELCIM_WEBHOOK_VERIFIER_PRODUCTION',
     },
   },
 
@@ -52,12 +87,17 @@ export const envConfig = {
   frontend: {
     VITE_API_URL: {
       development: 'http://localhost:8787',
+      ciVitest: 'duplicate_development',
+      ciE2E: 'duplicate_development',
       production: 'https://api.lome-chat.com',
     },
-    // CI/prod secret - goes to .env.local in CI
     VITE_HELCIM_JS_TOKEN: {
-      ciSecretNameSandbox: 'VITE_HELCIM_JS_TOKEN_SANDBOX',
-      ciSecretNameProduction: 'VITE_HELCIM_JS_TOKEN_PRODUCTION',
+      ciE2E: '$VITE_HELCIM_JS_TOKEN_SANDBOX',
+      production: '$VITE_HELCIM_JS_TOKEN_PRODUCTION',
+    },
+    VITE_CI: {
+      ciVitest: 'true',
+      ciE2E: 'duplicate_ciVitest',
     },
   },
 
@@ -69,14 +109,24 @@ export const envConfig = {
   },
 } as const;
 
-// Type helpers for the section structure
+/**
+ * Environment-specific value configuration.
+ *
+ * Value patterns:
+ * - 'literal'         - Use this exact string
+ * - '$SECRET_NAME'    - Read from GitHub secret at runtime
+ * - 'duplicate_x'     - Use same value as environment x (e.g., 'duplicate_development')
+ * - (missing)         - Not set in this environment
+ */
 export type VarConfig = {
+  /** Local development value */
   development?: string;
+  /** CI unit/integration tests (Vitest) */
+  ciVitest?: string;
+  /** CI E2E tests (Playwright) */
+  ciE2E?: string;
+  /** Production deployment */
   production?: string;
-  // GitHub secret name for E2E tests (omit = use key name)
-  ciSecretNameSandbox?: string;
-  // GitHub secret name for production (omit = use key name)
-  ciSecretNameProduction?: string;
 };
 type SectionConfig = Record<string, VarConfig>;
 
@@ -88,6 +138,33 @@ export type EnvConfig = typeof envConfig;
  */
 export function isEmptySecret(config: VarConfig): boolean {
   return config.development === undefined;
+}
+
+/**
+ * Check if a value is a secret reference (starts with $).
+ * Example: '$HELCIM_API_TOKEN_SANDBOX' means "read from GitHub secret HELCIM_API_TOKEN_SANDBOX"
+ */
+export function isSecretRef(value: string): boolean {
+  return value.startsWith('$');
+}
+
+/**
+ * Check if a value is a duplicate reference (starts with 'duplicate_').
+ * Example: 'duplicate_development' means "use the same value as development"
+ */
+export function isDuplicateRef(value: string): boolean {
+  return value.startsWith('duplicate_');
+}
+
+/**
+ * Extract the referenced environment key from a duplicate reference.
+ * Example: 'duplicate_development' → 'development'
+ */
+export function getDuplicateKey(value: string): string {
+  if (!isDuplicateRef(value)) {
+    return value;
+  }
+  return value.replace('duplicate_', '');
 }
 
 /**

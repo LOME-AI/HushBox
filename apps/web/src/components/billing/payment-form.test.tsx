@@ -452,8 +452,8 @@ describe('PaymentForm', () => {
       await user.click(screen.getByRole('button', { name: /purchase/i }));
 
       await waitFor(() => {
-        // Check for the specific error message in the error view
-        expect(screen.getByText(/payment creation error/i)).toBeInTheDocument();
+        // Check for the user-facing error message (specific error only shown in DevOnly)
+        expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
         // Also verify we're on the error view
         expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
       });

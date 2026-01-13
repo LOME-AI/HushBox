@@ -221,66 +221,71 @@ port = 8787
     });
   });
 
-  describe('ci-e2e mode', () => {
+  describe('ciE2E mode', () => {
     beforeEach(() => {
       // Set up mock CI secrets in process.env
+      // For ciE2E mode: RESEND_API_KEY (via duplicate_ciVitest), HELCIM secrets, VITE_HELCIM_JS_TOKEN, VITE_CI
       process.env['RESEND_API_KEY'] = 'test-resend-key';
-      process.env['OPENROUTER_API_KEY'] = 'test-openrouter-key';
-      process.env['HELCIM_API_TOKEN'] = 'test-helcim-token';
-      process.env['HELCIM_WEBHOOK_VERIFIER'] = 'test-helcim-verifier';
-      process.env['VITE_HELCIM_JS_TOKEN'] = 'test-vite-helcim-token';
+      process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test-helcim-token';
+      process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test-helcim-verifier';
+      process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'] = 'test-vite-helcim-token';
     });
 
     afterEach(() => {
       // Clean up env vars
       delete process.env['RESEND_API_KEY'];
-      delete process.env['OPENROUTER_API_KEY'];
-      delete process.env['HELCIM_API_TOKEN'];
-      delete process.env['HELCIM_WEBHOOK_VERIFIER'];
-      delete process.env['VITE_HELCIM_JS_TOKEN'];
+      delete process.env['HELCIM_API_TOKEN_SANDBOX'];
+      delete process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'];
+      delete process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'];
     });
 
     it('adds CI=true and E2E=true flags to .dev.vars', () => {
-      generateEnvFiles(TEST_DIR, 'ci-e2e');
+      generateEnvFiles(TEST_DIR, 'ciE2E');
 
       const content = readFileSync(join(TEST_DIR, 'apps/api/.dev.vars'), 'utf-8');
       expect(content).toContain('CI=true');
       expect(content).toContain('E2E=true');
     });
 
-    it('includes CI/prod secrets from process.env in .dev.vars', () => {
-      generateEnvFiles(TEST_DIR, 'ci-e2e');
+    it('includes ciE2E secrets from process.env in .dev.vars', () => {
+      generateEnvFiles(TEST_DIR, 'ciE2E');
 
       const content = readFileSync(join(TEST_DIR, 'apps/api/.dev.vars'), 'utf-8');
+      // RESEND_API_KEY comes via duplicate_ciVitest which references $RESEND_API_KEY
       expect(content).toContain('RESEND_API_KEY=test-resend-key');
-      expect(content).toContain('OPENROUTER_API_KEY=test-openrouter-key');
+      // HELCIM secrets are ciE2E-only
       expect(content).toContain('HELCIM_API_TOKEN=test-helcim-token');
       expect(content).toContain('HELCIM_WEBHOOK_VERIFIER=test-helcim-verifier');
+      // OPENROUTER should NOT be present (only in ciVitest, not ciE2E)
+      expect(content).not.toContain('OPENROUTER_API_KEY');
     });
 
-    it('generates .env.local with frontend CI/prod secrets', () => {
-      generateEnvFiles(TEST_DIR, 'ci-e2e');
+    it('generates .env.local with frontend CI secrets', () => {
+      generateEnvFiles(TEST_DIR, 'ciE2E');
 
       expect(existsSync(join(TEST_DIR, '.env.local'))).toBe(true);
       const content = readFileSync(join(TEST_DIR, '.env.local'), 'utf-8');
       expect(content).toContain('VITE_HELCIM_JS_TOKEN=test-vite-helcim-token');
+      expect(content).toContain('VITE_CI=true');
     });
 
-    it('throws if required CI secrets are missing', () => {
-      delete process.env['RESEND_API_KEY'];
+    it('throws if required ciE2E secrets are missing', () => {
+      delete process.env['HELCIM_API_TOKEN_SANDBOX'];
 
       expect(() => {
-        generateEnvFiles(TEST_DIR, 'ci-e2e');
-      }).toThrow('Missing required CI secrets in process.env: RESEND_API_KEY');
+        generateEnvFiles(TEST_DIR, 'ciE2E');
+      }).toThrow('Missing required secrets in process.env: HELCIM_API_TOKEN_SANDBOX');
     });
 
     it('throws listing all missing secrets', () => {
-      delete process.env['RESEND_API_KEY'];
-      delete process.env['OPENROUTER_API_KEY'];
+      delete process.env['HELCIM_API_TOKEN_SANDBOX'];
+      delete process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'];
 
       expect(() => {
-        generateEnvFiles(TEST_DIR, 'ci-e2e');
-      }).toThrow('Missing required CI secrets in process.env: RESEND_API_KEY, OPENROUTER_API_KEY');
+        generateEnvFiles(TEST_DIR, 'ciE2E');
+      }).toThrow(
+        'Missing required secrets in process.env: HELCIM_API_TOKEN_SANDBOX, HELCIM_WEBHOOK_VERIFIER_SANDBOX'
+      );
     });
   });
 });
@@ -304,7 +309,7 @@ describe('updateCiWorkflow', () => {
   };
 
   describe('e2e-env section', () => {
-    it('generates env block with all CI/prod secrets', () => {
+    it('generates env block with ciE2E secrets only', () => {
       createCiYml(`name: CI
 # BEGIN GENERATED: e2e-env
 old content
@@ -314,11 +319,14 @@ rest of file`);
       updateCiWorkflow(TEST_DIR);
 
       const content = readCiYml();
+      // These have ciE2E values
       expect(content).toContain('RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}');
-      expect(content).toContain('OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}');
+      expect(content).toContain('HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}');
+      // OPENROUTER should NOT be present (only in ciVitest, not ciE2E)
+      expect(content).not.toContain('OPENROUTER_API_KEY');
     });
 
-    it('uses ciSecretNameSandbox for Helcim secrets', () => {
+    it('uses sandbox secret names for Helcim secrets', () => {
       createCiYml(`name: CI
 # BEGIN GENERATED: e2e-env
 old content

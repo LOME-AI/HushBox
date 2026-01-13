@@ -45,11 +45,10 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Generate environment files
-        run: pnpm generate:env --mode=ci-e2e
+        run: pnpm generate:env --mode=ciE2E
         # BEGIN GENERATED: e2e-env
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
           HELCIM_WEBHOOK_VERIFIER: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
           VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}

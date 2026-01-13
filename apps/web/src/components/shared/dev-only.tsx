@@ -7,7 +7,8 @@ interface DevOnlyProps {
 }
 
 export function DevOnly({ children, showBorder = true }: DevOnlyProps): React.ReactNode {
-  if (!env.isDev) {
+  // Use isLocalDev instead of isDev to hide dev-only content in CI
+  if (!env.isLocalDev) {
     return null;
   }
 

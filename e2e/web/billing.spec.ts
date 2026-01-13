@@ -24,6 +24,10 @@ test.describe('Billing & Payments', () => {
   });
 
   test.describe('Payment Flow (Dev Mode)', () => {
+    // Dev Mode tests use simulate buttons which are only visible in local dev (isLocalDev)
+    // In CI, VITE_CI=true makes isLocalDev=false, so simulate buttons are hidden
+    test.skip(isCI, 'Dev mode tests only run locally (simulate buttons hidden in CI)');
+
     test('simulates successful payment and updates balance', async ({ authenticatedPage }) => {
       const billingPage = new BillingPage(authenticatedPage);
       await billingPage.goto();
