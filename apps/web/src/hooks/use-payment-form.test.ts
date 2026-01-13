@@ -8,10 +8,12 @@ describe('usePaymentForm', () => {
       const { result } = renderHook(() => usePaymentForm());
 
       expect(result.current.amount).toBe('');
-      expect(result.current.cardNumber).toBe('');
-      expect(result.current.expiry).toBe('');
-      expect(result.current.cvv).toBe('');
-      expect(result.current.zipCode).toBe('');
+      expect(result.current.cardFields.cardNumber).toBe('');
+      expect(result.current.cardFields.expiry).toBe('');
+      expect(result.current.cardFields.cvv).toBe('');
+      expect(result.current.cardFields.cardHolderName).toBe('');
+      expect(result.current.cardFields.billingAddress).toBe('');
+      expect(result.current.cardFields.zipCode).toBe('');
     });
 
     it('initializes with untouched state', () => {
@@ -21,6 +23,8 @@ describe('usePaymentForm', () => {
       expect(result.current.cardTouched.cardNumber).toBe(false);
       expect(result.current.cardTouched.expiry).toBe(false);
       expect(result.current.cardTouched.cvv).toBe(false);
+      expect(result.current.cardTouched.cardHolderName).toBe(false);
+      expect(result.current.cardTouched.billingAddress).toBe(false);
       expect(result.current.cardTouched.zipCode).toBe(false);
     });
 
@@ -32,6 +36,8 @@ describe('usePaymentForm', () => {
       expect(result.current.cardValidation.cardNumber.error).toBeNull();
       expect(result.current.cardValidation.expiry.error).toBeNull();
       expect(result.current.cardValidation.cvv.error).toBeNull();
+      expect(result.current.cardValidation.cardHolderName.error).toBeNull();
+      expect(result.current.cardValidation.billingAddress.error).toBeNull();
       expect(result.current.cardValidation.zipCode.error).toBeNull();
     });
   });
@@ -80,22 +86,22 @@ describe('usePaymentForm', () => {
     });
   });
 
-  describe('card number handling', () => {
+  describe('handleFieldChange', () => {
     it('updates and formats card number', () => {
       const { result } = renderHook(() => usePaymentForm());
 
       act(() => {
-        result.current.handleCardNumberChange('4111111111111111');
+        result.current.handleFieldChange('cardNumber', '4111111111111111');
       });
 
-      expect(result.current.cardNumber).toBe('4111 1111 1111 1111');
+      expect(result.current.cardFields.cardNumber).toBe('4111 1111 1111 1111');
     });
 
     it('marks card number as touched', () => {
       const { result } = renderHook(() => usePaymentForm());
 
       act(() => {
-        result.current.handleCardNumberChange('4111');
+        result.current.handleFieldChange('cardNumber', '4111');
       });
 
       expect(result.current.cardTouched.cardNumber).toBe(true);
@@ -105,74 +111,150 @@ describe('usePaymentForm', () => {
       const { result } = renderHook(() => usePaymentForm());
 
       act(() => {
-        result.current.handleCardNumberChange('4111111111111111');
+        result.current.handleFieldChange('cardNumber', '4111111111111111');
       });
 
       expect(result.current.cardValidation.cardNumber.error).toBeNull();
       expect(result.current.cardValidation.cardNumber.success).toBe('Valid card');
     });
-  });
 
-  describe('expiry handling', () => {
     it('updates and formats expiry', () => {
       const { result } = renderHook(() => usePaymentForm());
 
       act(() => {
-        result.current.handleExpiryChange('1230');
+        result.current.handleFieldChange('expiry', '1230');
       });
 
-      expect(result.current.expiry).toBe('12 / 30');
+      expect(result.current.cardFields.expiry).toBe('12 / 30');
     });
 
     it('marks expiry as touched', () => {
       const { result } = renderHook(() => usePaymentForm());
 
       act(() => {
-        result.current.handleExpiryChange('12');
+        result.current.handleFieldChange('expiry', '12');
       });
 
       expect(result.current.cardTouched.expiry).toBe(true);
     });
-  });
 
-  describe('CVV handling', () => {
     it('updates and formats CVV', () => {
       const { result } = renderHook(() => usePaymentForm());
 
       act(() => {
-        result.current.handleCvvChange('1234');
+        result.current.handleFieldChange('cvv', '1234');
       });
 
-      expect(result.current.cvv).toBe('1234');
+      expect(result.current.cardFields.cvv).toBe('1234');
     });
 
     it('marks CVV as touched', () => {
       const { result } = renderHook(() => usePaymentForm());
 
       act(() => {
-        result.current.handleCvvChange('123');
+        result.current.handleFieldChange('cvv', '123');
       });
 
       expect(result.current.cardTouched.cvv).toBe(true);
     });
-  });
 
-  describe('ZIP code handling', () => {
+    it('updates cardholder name without formatting', () => {
+      const { result } = renderHook(() => usePaymentForm());
+
+      act(() => {
+        result.current.handleFieldChange('cardHolderName', 'John Smith');
+      });
+
+      expect(result.current.cardFields.cardHolderName).toBe('John Smith');
+    });
+
+    it('marks cardholder name as touched', () => {
+      const { result } = renderHook(() => usePaymentForm());
+
+      act(() => {
+        result.current.handleFieldChange('cardHolderName', 'John');
+      });
+
+      expect(result.current.cardTouched.cardHolderName).toBe(true);
+    });
+
+    it('validates valid cardholder name', () => {
+      const { result } = renderHook(() => usePaymentForm());
+
+      act(() => {
+        result.current.handleFieldChange('cardHolderName', 'John Smith');
+      });
+
+      expect(result.current.cardValidation.cardHolderName.error).toBeNull();
+      expect(result.current.cardValidation.cardHolderName.success).toBe('Valid name');
+    });
+
+    it('shows error for invalid cardholder name', () => {
+      const { result } = renderHook(() => usePaymentForm());
+
+      act(() => {
+        result.current.handleFieldChange('cardHolderName', 'A');
+      });
+
+      expect(result.current.cardValidation.cardHolderName.error).toBe('Name is too short');
+    });
+
+    it('updates billing address without formatting', () => {
+      const { result } = renderHook(() => usePaymentForm());
+
+      act(() => {
+        result.current.handleFieldChange('billingAddress', '123 Main Street');
+      });
+
+      expect(result.current.cardFields.billingAddress).toBe('123 Main Street');
+    });
+
+    it('marks billing address as touched', () => {
+      const { result } = renderHook(() => usePaymentForm());
+
+      act(() => {
+        result.current.handleFieldChange('billingAddress', '123');
+      });
+
+      expect(result.current.cardTouched.billingAddress).toBe(true);
+    });
+
+    it('validates valid billing address', () => {
+      const { result } = renderHook(() => usePaymentForm());
+
+      act(() => {
+        result.current.handleFieldChange('billingAddress', '123 Main Street');
+      });
+
+      expect(result.current.cardValidation.billingAddress.error).toBeNull();
+      expect(result.current.cardValidation.billingAddress.success).toBe('Valid address');
+    });
+
+    it('shows error for invalid billing address', () => {
+      const { result } = renderHook(() => usePaymentForm());
+
+      act(() => {
+        result.current.handleFieldChange('billingAddress', '123');
+      });
+
+      expect(result.current.cardValidation.billingAddress.error).toBe('Address is too short');
+    });
+
     it('updates and formats ZIP code', () => {
       const { result } = renderHook(() => usePaymentForm());
 
       act(() => {
-        result.current.handleZipChange('12345');
+        result.current.handleFieldChange('zipCode', '12345');
       });
 
-      expect(result.current.zipCode).toBe('12345');
+      expect(result.current.cardFields.zipCode).toBe('12345');
     });
 
     it('marks ZIP code as touched', () => {
       const { result } = renderHook(() => usePaymentForm());
 
       act(() => {
-        result.current.handleZipChange('12345');
+        result.current.handleFieldChange('zipCode', '12345');
       });
 
       expect(result.current.cardTouched.zipCode).toBe(true);
@@ -191,6 +273,8 @@ describe('usePaymentForm', () => {
       expect(result.current.cardTouched.cardNumber).toBe(true);
       expect(result.current.cardTouched.expiry).toBe(true);
       expect(result.current.cardTouched.cvv).toBe(true);
+      expect(result.current.cardTouched.cardHolderName).toBe(true);
+      expect(result.current.cardTouched.billingAddress).toBe(true);
       expect(result.current.cardTouched.zipCode).toBe(true);
     });
   });
@@ -227,10 +311,12 @@ describe('usePaymentForm', () => {
 
       act(() => {
         result.current.handleAmountChange('50');
-        result.current.handleCardNumberChange('4111111111111111');
-        result.current.handleExpiryChange('1230');
-        result.current.handleCvvChange('123');
-        result.current.handleZipChange('12345');
+        result.current.handleFieldChange('cardNumber', '4111111111111111');
+        result.current.handleFieldChange('expiry', '1230');
+        result.current.handleFieldChange('cvv', '123');
+        result.current.handleFieldChange('cardHolderName', 'John Smith');
+        result.current.handleFieldChange('billingAddress', '123 Main Street');
+        result.current.handleFieldChange('zipCode', '12345');
       });
 
       let isValid = false;
@@ -250,6 +336,8 @@ describe('usePaymentForm', () => {
 
       expect(result.current.amountTouched).toBe(true);
       expect(result.current.cardTouched.cardNumber).toBe(true);
+      expect(result.current.cardTouched.cardHolderName).toBe(true);
+      expect(result.current.cardTouched.billingAddress).toBe(true);
     });
   });
 
@@ -259,10 +347,12 @@ describe('usePaymentForm', () => {
 
       act(() => {
         result.current.handleAmountChange('50');
-        result.current.handleCardNumberChange('4111111111111111');
-        result.current.handleExpiryChange('1230');
-        result.current.handleCvvChange('123');
-        result.current.handleZipChange('12345');
+        result.current.handleFieldChange('cardNumber', '4111111111111111');
+        result.current.handleFieldChange('expiry', '1230');
+        result.current.handleFieldChange('cvv', '123');
+        result.current.handleFieldChange('cardHolderName', 'John Smith');
+        result.current.handleFieldChange('billingAddress', '123 Main Street');
+        result.current.handleFieldChange('zipCode', '12345');
       });
 
       act(() => {
@@ -270,10 +360,12 @@ describe('usePaymentForm', () => {
       });
 
       expect(result.current.amount).toBe('');
-      expect(result.current.cardNumber).toBe('');
-      expect(result.current.expiry).toBe('');
-      expect(result.current.cvv).toBe('');
-      expect(result.current.zipCode).toBe('');
+      expect(result.current.cardFields.cardNumber).toBe('');
+      expect(result.current.cardFields.expiry).toBe('');
+      expect(result.current.cardFields.cvv).toBe('');
+      expect(result.current.cardFields.cardHolderName).toBe('');
+      expect(result.current.cardFields.billingAddress).toBe('');
+      expect(result.current.cardFields.zipCode).toBe('');
     });
 
     it('resets touched state', () => {
@@ -281,6 +373,7 @@ describe('usePaymentForm', () => {
 
       act(() => {
         result.current.handleAmountChange('50');
+        result.current.handleFieldChange('cardHolderName', 'John');
       });
 
       act(() => {
@@ -289,6 +382,8 @@ describe('usePaymentForm', () => {
 
       expect(result.current.amountTouched).toBe(false);
       expect(result.current.cardTouched.cardNumber).toBe(false);
+      expect(result.current.cardTouched.cardHolderName).toBe(false);
+      expect(result.current.cardTouched.billingAddress).toBe(false);
     });
   });
 
@@ -297,16 +392,20 @@ describe('usePaymentForm', () => {
       const { result } = renderHook(() => usePaymentForm());
 
       act(() => {
-        result.current.handleCardNumberChange('4111111111111111');
-        result.current.handleExpiryChange('1230');
-        result.current.handleCvvChange('123');
-        result.current.handleZipChange('12345');
+        result.current.handleFieldChange('cardNumber', '4111111111111111');
+        result.current.handleFieldChange('expiry', '1230');
+        result.current.handleFieldChange('cvv', '123');
+        result.current.handleFieldChange('cardHolderName', 'John Smith');
+        result.current.handleFieldChange('billingAddress', '123 Main Street');
+        result.current.handleFieldChange('zipCode', '12345');
       });
 
       expect(result.current.cardFields).toEqual({
         cardNumber: '4111 1111 1111 1111',
         expiry: '12 / 30',
         cvv: '123',
+        cardHolderName: 'John Smith',
+        billingAddress: '123 Main Street',
         zipCode: '12345',
       });
     });
@@ -317,7 +416,7 @@ describe('usePaymentForm', () => {
       const { result } = renderHook(() => usePaymentForm());
 
       act(() => {
-        result.current.handleExpiryChange('1230');
+        result.current.handleFieldChange('expiry', '1230');
       });
 
       expect(result.current.expiryParts).toEqual({ month: '12', year: '30' });

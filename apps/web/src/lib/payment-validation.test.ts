@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   validateAmount,
+  validateCardHolderName,
+  validateBillingAddress,
   getCardValidationState,
   validateAllCardFields,
   MIN_DEPOSIT_AMOUNT,
@@ -53,11 +55,70 @@ describe('payment-validation', () => {
     });
   });
 
+  describe('validateCardHolderName', () => {
+    it('returns error for empty name', () => {
+      expect(validateCardHolderName('')).toBe('Name is required');
+    });
+
+    it('returns error for whitespace-only name', () => {
+      expect(validateCardHolderName('   ')).toBe('Name is required');
+    });
+
+    it('returns error for name that is too short', () => {
+      expect(validateCardHolderName('A')).toBe('Name is too short');
+    });
+
+    it('returns error for name with invalid characters', () => {
+      expect(validateCardHolderName('John123')).toBe('Name contains invalid characters');
+      expect(validateCardHolderName('John@Doe')).toBe('Name contains invalid characters');
+    });
+
+    it('returns null for valid name', () => {
+      expect(validateCardHolderName('John Smith')).toBeNull();
+    });
+
+    it('allows hyphens in name', () => {
+      expect(validateCardHolderName('Mary-Jane Watson')).toBeNull();
+    });
+
+    it('allows apostrophes in name', () => {
+      expect(validateCardHolderName("O'Connor")).toBeNull();
+    });
+
+    it('allows periods in name', () => {
+      expect(validateCardHolderName('Dr. John Smith')).toBeNull();
+    });
+  });
+
+  describe('validateBillingAddress', () => {
+    it('returns error for empty address', () => {
+      expect(validateBillingAddress('')).toBe('Address is required');
+    });
+
+    it('returns error for whitespace-only address', () => {
+      expect(validateBillingAddress('   ')).toBe('Address is required');
+    });
+
+    it('returns error for address that is too short', () => {
+      expect(validateBillingAddress('123')).toBe('Address is too short');
+    });
+
+    it('returns null for valid address', () => {
+      expect(validateBillingAddress('123 Main Street')).toBeNull();
+    });
+
+    it('returns null for minimum length address', () => {
+      expect(validateBillingAddress('12345')).toBeNull();
+    });
+  });
+
   describe('getCardValidationState', () => {
     const cardFields = {
       cardNumber: '4111 1111 1111 1111',
       expiry: '12 / 30',
       cvv: '123',
+      cardHolderName: 'John Smith',
+      billingAddress: '123 Main Street',
       zipCode: '12345',
     };
 
@@ -65,6 +126,8 @@ describe('payment-validation', () => {
       cardNumber: true,
       expiry: true,
       cvv: true,
+      cardHolderName: true,
+      billingAddress: true,
       zipCode: true,
     };
 
@@ -72,6 +135,8 @@ describe('payment-validation', () => {
       cardNumber: false,
       expiry: false,
       cvv: false,
+      cardHolderName: false,
+      billingAddress: false,
       zipCode: false,
     };
 
@@ -81,6 +146,8 @@ describe('payment-validation', () => {
       expect(result.cardNumber.error).toBeNull();
       expect(result.expiry.error).toBeNull();
       expect(result.cvv.error).toBeNull();
+      expect(result.cardHolderName.error).toBeNull();
+      expect(result.billingAddress.error).toBeNull();
       expect(result.zipCode.error).toBeNull();
     });
 
@@ -90,6 +157,8 @@ describe('payment-validation', () => {
       expect(result.cardNumber.success).toBeUndefined();
       expect(result.expiry.success).toBeUndefined();
       expect(result.cvv.success).toBeUndefined();
+      expect(result.cardHolderName.success).toBeUndefined();
+      expect(result.billingAddress.success).toBeUndefined();
       expect(result.zipCode.success).toBeUndefined();
     });
 
@@ -100,6 +169,8 @@ describe('payment-validation', () => {
       expect(result.cardNumber.success).toBe('Valid card');
       expect(result.expiry.success).toBe('Valid expiry');
       expect(result.cvv.success).toBe('Valid CVV');
+      expect(result.cardHolderName.success).toBe('Valid name');
+      expect(result.billingAddress.success).toBe('Valid address');
       expect(result.zipCode.success).toBe('Valid ZIP');
     });
 
@@ -108,6 +179,8 @@ describe('payment-validation', () => {
         cardNumber: '1234',
         expiry: '13/99',
         cvv: '1',
+        cardHolderName: '',
+        billingAddress: '',
         zipCode: '',
       };
 
@@ -116,6 +189,8 @@ describe('payment-validation', () => {
       expect(result.cardNumber.error).toBeTruthy();
       expect(result.expiry.error).toBeTruthy();
       expect(result.cvv.error).toBeTruthy();
+      expect(result.cardHolderName.error).toBeTruthy();
+      expect(result.billingAddress.error).toBeTruthy();
       expect(result.zipCode.error).toBeTruthy();
     });
 
@@ -124,6 +199,8 @@ describe('payment-validation', () => {
         cardNumber: '1234',
         expiry: '13/99',
         cvv: '1',
+        cardHolderName: '',
+        billingAddress: '',
         zipCode: '',
       };
 
@@ -131,6 +208,8 @@ describe('payment-validation', () => {
         cardNumber: true,
         expiry: false,
         cvv: true,
+        cardHolderName: false,
+        billingAddress: true,
         zipCode: false,
       };
 
@@ -139,6 +218,8 @@ describe('payment-validation', () => {
       expect(result.cardNumber.error).toBeTruthy();
       expect(result.expiry.error).toBeNull();
       expect(result.cvv.error).toBeTruthy();
+      expect(result.cardHolderName.error).toBeNull();
+      expect(result.billingAddress.error).toBeTruthy();
       expect(result.zipCode.error).toBeNull();
     });
   });
@@ -149,6 +230,8 @@ describe('payment-validation', () => {
         cardNumber: '4111 1111 1111 1111',
         expiry: '12 / 30',
         cvv: '123',
+        cardHolderName: 'John Smith',
+        billingAddress: '123 Main Street',
         zipCode: '12345',
       };
 
@@ -160,6 +243,8 @@ describe('payment-validation', () => {
         cardNumber: '1234',
         expiry: '12 / 30',
         cvv: '123',
+        cardHolderName: 'John Smith',
+        billingAddress: '123 Main Street',
         zipCode: '12345',
       };
 
@@ -171,6 +256,8 @@ describe('payment-validation', () => {
         cardNumber: '4111 1111 1111 1111',
         expiry: '13 / 99',
         cvv: '123',
+        cardHolderName: 'John Smith',
+        billingAddress: '123 Main Street',
         zipCode: '12345',
       };
 
@@ -182,6 +269,34 @@ describe('payment-validation', () => {
         cardNumber: '4111 1111 1111 1111',
         expiry: '12 / 30',
         cvv: '1',
+        cardHolderName: 'John Smith',
+        billingAddress: '123 Main Street',
+        zipCode: '12345',
+      };
+
+      expect(validateAllCardFields(fields)).toBe(false);
+    });
+
+    it('returns false if cardholder name is invalid', () => {
+      const fields = {
+        cardNumber: '4111 1111 1111 1111',
+        expiry: '12 / 30',
+        cvv: '123',
+        cardHolderName: '',
+        billingAddress: '123 Main Street',
+        zipCode: '12345',
+      };
+
+      expect(validateAllCardFields(fields)).toBe(false);
+    });
+
+    it('returns false if billing address is invalid', () => {
+      const fields = {
+        cardNumber: '4111 1111 1111 1111',
+        expiry: '12 / 30',
+        cvv: '123',
+        cardHolderName: 'John Smith',
+        billingAddress: '',
         zipCode: '12345',
       };
 
@@ -193,6 +308,8 @@ describe('payment-validation', () => {
         cardNumber: '4111 1111 1111 1111',
         expiry: '12 / 30',
         cvv: '123',
+        cardHolderName: 'John Smith',
+        billingAddress: '123 Main Street',
         zipCode: '',
       };
 

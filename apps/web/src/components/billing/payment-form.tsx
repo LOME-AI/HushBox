@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@lome-chat/ui';
-import { DollarSign, CreditCard, Lock, MapPin } from 'lucide-react';
+import { DollarSign, CreditCard, Lock, MapPin, User, Home } from 'lucide-react';
 import { HelcimLogo } from './helcim-logo.js';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@lome-chat/ui';
 import { FormInput } from '@/components/shared/form-input';
@@ -337,6 +337,12 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
             onChange={(e) => {
               form.handleAmountChange(e.target.value);
             }}
+            onKeyDown={(e) => {
+              // Block non-numeric characters that number inputs allow (e, E, +, -)
+              if (['e', 'E', '+', '-'].includes(e.key)) {
+                e.preventDefault();
+              }
+            }}
             aria-invalid={!!form.amountValidation.error}
             error={form.amountValidation.error}
             success={form.amountValidation.success}
@@ -369,9 +375,9 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
                 inputMode="numeric"
                 autoComplete="cc-number"
                 icon={<CreditCard className="h-5 w-5" />}
-                value={form.cardNumber}
+                value={form.cardFields.cardNumber}
                 onChange={(e) => {
-                  form.handleCardNumberChange(e.target.value);
+                  form.handleFieldChange('cardNumber', e.target.value);
                 }}
                 maxLength={19}
                 aria-invalid={!!form.cardValidation.cardNumber.error}
@@ -387,9 +393,9 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
                     type="text"
                     inputMode="numeric"
                     autoComplete="cc-exp"
-                    value={form.expiry}
+                    value={form.cardFields.expiry}
                     onChange={(e) => {
-                      form.handleExpiryChange(e.target.value);
+                      form.handleFieldChange('expiry', e.target.value);
                     }}
                     maxLength={7}
                     aria-invalid={!!form.cardValidation.expiry.error}
@@ -409,9 +415,9 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
                     inputMode="numeric"
                     autoComplete="cc-csc"
                     icon={<Lock className="h-5 w-5" />}
-                    value={form.cvv}
+                    value={form.cardFields.cvv}
                     onChange={(e) => {
-                      form.handleCvvChange(e.target.value);
+                      form.handleFieldChange('cvv', e.target.value);
                     }}
                     maxLength={4}
                     aria-invalid={!!form.cardValidation.cvv.error}
@@ -421,15 +427,47 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
                 </div>
               </div>
 
+              {/* Name on Card - Required by Helcim */}
+              <FormInput
+                id="cardHolderName"
+                label="Name on Card"
+                type="text"
+                autoComplete="cc-name"
+                icon={<User className="h-5 w-5" />}
+                value={form.cardFields.cardHolderName}
+                onChange={(e) => {
+                  form.handleFieldChange('cardHolderName', e.target.value);
+                }}
+                aria-invalid={!!form.cardValidation.cardHolderName.error}
+                error={form.cardValidation.cardHolderName.error ?? undefined}
+                success={form.cardValidation.cardHolderName.success}
+              />
+
+              {/* Billing Address - Required by Helcim */}
+              <FormInput
+                id="cardHolderAddress"
+                label="Billing Address"
+                type="text"
+                autoComplete="address-line1"
+                icon={<Home className="h-5 w-5" />}
+                value={form.cardFields.billingAddress}
+                onChange={(e) => {
+                  form.handleFieldChange('billingAddress', e.target.value);
+                }}
+                aria-invalid={!!form.cardValidation.billingAddress.error}
+                error={form.cardValidation.billingAddress.error ?? undefined}
+                success={form.cardValidation.billingAddress.success}
+              />
+
               <FormInput
                 id="cardHolderPostalCode"
                 label="ZIP Code"
                 type="text"
                 autoComplete="postal-code"
                 icon={<MapPin className="h-5 w-5" />}
-                value={form.zipCode}
+                value={form.cardFields.zipCode}
                 onChange={(e) => {
-                  form.handleZipChange(e.target.value);
+                  form.handleFieldChange('zipCode', e.target.value);
                 }}
                 maxLength={10}
                 aria-invalid={!!form.cardValidation.zipCode.error}

@@ -113,7 +113,14 @@ test.describe('Billing & Payments', () => {
 
       // Use Helcim test card numbers from devdocs.helcim.com
       // Visa: 4030000010001234 - Approved
-      await billingPage.fillCardDetails('4030000010001234', '12/30', '100', '12345');
+      await billingPage.fillCardDetails(
+        '4030000010001234',
+        '12/30',
+        '100',
+        'Test User',
+        '123 Test Street',
+        '12345'
+      );
 
       await billingPage.submitPayment();
 
@@ -153,7 +160,14 @@ test.describe('Billing & Payments', () => {
 
       // Use Helcim test card that gets declined
       // CVV 209 = "Do Not Honor" decline
-      await billingPage.fillCardDetails('4030000010001234', '12/30', '209', '12345');
+      await billingPage.fillCardDetails(
+        '4030000010001234',
+        '12/30',
+        '209',
+        'Test User',
+        '123 Test Street',
+        '12345'
+      );
 
       await billingPage.submitPayment();
 
@@ -187,7 +201,14 @@ test.describe('Billing & Payments', () => {
 
       await billingPage.openPaymentModal();
       await billingPage.enterAmount('5');
-      await billingPage.fillCardDetails('4030000010001234', '12/30', '100', '12345');
+      await billingPage.fillCardDetails(
+        '4030000010001234',
+        '12/30',
+        '100',
+        'Test User',
+        '123 Test Street',
+        '12345'
+      );
       await billingPage.submitPayment();
 
       try {

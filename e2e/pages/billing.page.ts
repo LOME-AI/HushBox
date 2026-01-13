@@ -15,6 +15,8 @@ export class BillingPage {
   readonly cardNumberInput: Locator;
   readonly expiryInput: Locator;
   readonly cvvInput: Locator;
+  readonly cardHolderNameInput: Locator;
+  readonly billingAddressInput: Locator;
   readonly zipInput: Locator;
   readonly purchaseButton: Locator;
   readonly simulateSuccessButton: Locator;
@@ -40,6 +42,8 @@ export class BillingPage {
     this.cardNumberInput = page.locator('#cardNumber');
     this.expiryInput = page.locator('#cardExpiryDate');
     this.cvvInput = page.locator('#cardCVV');
+    this.cardHolderNameInput = page.locator('#cardHolderName');
+    this.billingAddressInput = page.locator('#cardHolderAddress');
     this.zipInput = page.locator('#cardHolderPostalCode');
     this.purchaseButton = page.getByRole('button', { name: 'Purchase' });
     this.simulateSuccessButton = page.getByTestId('simulate-success-btn');
@@ -92,11 +96,15 @@ export class BillingPage {
     cardNumber: string,
     expiry: string,
     cvv: string,
+    cardHolderName: string,
+    billingAddress: string,
     zip: string
   ): Promise<void> {
     await this.cardNumberInput.fill(cardNumber);
     await this.expiryInput.fill(expiry);
     await this.cvvInput.fill(cvv);
+    await this.cardHolderNameInput.fill(cardHolderName);
+    await this.billingAddressInput.fill(billingAddress);
     await this.zipInput.fill(zip);
   }
 

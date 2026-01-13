@@ -10,13 +10,37 @@ import {
   type CardValidationState,
 } from '../lib/payment-validation.js';
 
+// Formatter config - auto-applied based on field name
+const FIELD_FORMATTERS: Partial<Record<keyof CardFields, (v: string) => string>> = {
+  cardNumber: formatCardNumber,
+  expiry: formatExpiry,
+  cvv: formatCvv,
+  zipCode: formatZip,
+  // cardHolderName and billingAddress have no formatter (pass-through)
+};
+
+const INITIAL_CARD_FIELDS: CardFields = {
+  cardNumber: '',
+  expiry: '',
+  cvv: '',
+  cardHolderName: '',
+  billingAddress: '',
+  zipCode: '',
+};
+
+const INITIAL_TOUCHED_STATE: CardTouchedState = {
+  cardNumber: false,
+  expiry: false,
+  cvv: false,
+  cardHolderName: false,
+  billingAddress: false,
+  zipCode: false,
+};
+
 interface UsePaymentFormReturn {
   // Values
   amount: string;
-  cardNumber: string;
-  expiry: string;
-  cvv: string;
-  zipCode: string;
+  cardFields: CardFields;
 
   // Touched state
   amountTouched: boolean;
@@ -28,10 +52,7 @@ interface UsePaymentFormReturn {
 
   // Handlers
   handleAmountChange: (value: string) => void;
-  handleCardNumberChange: (value: string) => void;
-  handleExpiryChange: (value: string) => void;
-  handleCvvChange: (value: string) => void;
-  handleZipChange: (value: string) => void;
+  handleFieldChange: (field: keyof CardFields, value: string) => void;
 
   // Actions
   touchAllFields: () => void;
@@ -39,7 +60,6 @@ interface UsePaymentFormReturn {
   reset: () => void;
 
   // Computed values
-  cardFields: CardFields;
   expiryParts: { month: string; year: string };
 }
 
@@ -51,37 +71,18 @@ export function usePaymentForm(): UsePaymentFormReturn {
   const [amount, setAmount] = useState('');
   const [amountTouched, setAmountTouched] = useState(false);
 
-  // Card input state
-  const [cardNumber, setCardNumber] = useState('');
-  const [expiry, setExpiry] = useState('');
-  const [cvv, setCvv] = useState('');
-  const [zipCode, setZipCode] = useState('');
-  const [cardTouched, setCardTouched] = useState<CardTouchedState>({
-    cardNumber: false,
-    expiry: false,
-    cvv: false,
-    zipCode: false,
-  });
-
-  // Computed card fields
-  const cardFields = useMemo<CardFields>(
-    () => ({
-      cardNumber,
-      expiry,
-      cvv,
-      zipCode,
-    }),
-    [cardNumber, expiry, cvv, zipCode]
-  );
+  // Card fields as single state object
+  const [cardFields, setCardFields] = useState<CardFields>(INITIAL_CARD_FIELDS);
+  const [cardTouched, setCardTouched] = useState<CardTouchedState>(INITIAL_TOUCHED_STATE);
 
   // Computed expiry parts for Helcim hidden fields
   const expiryParts = useMemo(() => {
-    const parts = expiry.split(' / ');
+    const parts = cardFields.expiry.split(' / ');
     return {
       month: parts[0] ?? '',
       year: parts[1] ?? '',
     };
-  }, [expiry]);
+  }, [cardFields.expiry]);
 
   // Computed validation state
   const amountValidation = useMemo<AmountValidation>(
@@ -94,30 +95,19 @@ export function usePaymentForm(): UsePaymentFormReturn {
     [cardFields, cardTouched]
   );
 
-  // Handlers
+  // Amount handler
   const handleAmountChange = useCallback((value: string) => {
     setAmount(value);
     setAmountTouched(true);
   }, []);
 
-  const handleCardNumberChange = useCallback((value: string) => {
-    setCardNumber(formatCardNumber(value));
-    setCardTouched((prev) => ({ ...prev, cardNumber: true }));
-  }, []);
+  // Generic field handler - ONE handler for ALL card fields
+  const handleFieldChange = useCallback((field: keyof CardFields, value: string) => {
+    const formatter = FIELD_FORMATTERS[field];
+    const formattedValue = formatter ? formatter(value) : value;
 
-  const handleExpiryChange = useCallback((value: string) => {
-    setExpiry(formatExpiry(value));
-    setCardTouched((prev) => ({ ...prev, expiry: true }));
-  }, []);
-
-  const handleCvvChange = useCallback((value: string) => {
-    setCvv(formatCvv(value));
-    setCardTouched((prev) => ({ ...prev, cvv: true }));
-  }, []);
-
-  const handleZipChange = useCallback((value: string) => {
-    setZipCode(formatZip(value));
-    setCardTouched((prev) => ({ ...prev, zipCode: true }));
+    setCardFields((prev) => ({ ...prev, [field]: formattedValue }));
+    setCardTouched((prev) => ({ ...prev, [field]: true }));
   }, []);
 
   // Touch all fields (for form submission)
@@ -127,6 +117,8 @@ export function usePaymentForm(): UsePaymentFormReturn {
       cardNumber: true,
       expiry: true,
       cvv: true,
+      cardHolderName: true,
+      billingAddress: true,
       zipCode: true,
     });
   }, []);
@@ -145,25 +137,14 @@ export function usePaymentForm(): UsePaymentFormReturn {
   const reset = useCallback(() => {
     setAmount('');
     setAmountTouched(false);
-    setCardNumber('');
-    setExpiry('');
-    setCvv('');
-    setZipCode('');
-    setCardTouched({
-      cardNumber: false,
-      expiry: false,
-      cvv: false,
-      zipCode: false,
-    });
+    setCardFields(INITIAL_CARD_FIELDS);
+    setCardTouched(INITIAL_TOUCHED_STATE);
   }, []);
 
   return {
     // Values
     amount,
-    cardNumber,
-    expiry,
-    cvv,
-    zipCode,
+    cardFields,
 
     // Touched state
     amountTouched,
@@ -175,10 +156,7 @@ export function usePaymentForm(): UsePaymentFormReturn {
 
     // Handlers
     handleAmountChange,
-    handleCardNumberChange,
-    handleExpiryChange,
-    handleCvvChange,
-    handleZipChange,
+    handleFieldChange,
 
     // Actions
     touchAllFields,
@@ -186,7 +164,6 @@ export function usePaymentForm(): UsePaymentFormReturn {
     reset,
 
     // Computed values
-    cardFields,
     expiryParts,
   };
 }

@@ -2,6 +2,8 @@ import { validateCardNumber, validateExpiry, validateCvv, validateZip } from './
 
 export const MIN_DEPOSIT_AMOUNT = 5;
 export const MAX_DEPOSIT_AMOUNT = 1000;
+export const MIN_NAME_LENGTH = 2;
+export const MIN_ADDRESS_LENGTH = 5;
 
 export interface AmountValidation {
   isValid: boolean;
@@ -13,6 +15,8 @@ export interface CardFields {
   cardNumber: string;
   expiry: string;
   cvv: string;
+  cardHolderName: string;
+  billingAddress: string;
   zipCode: string;
 }
 
@@ -20,6 +24,8 @@ export interface CardTouchedState {
   cardNumber: boolean;
   expiry: boolean;
   cvv: boolean;
+  cardHolderName: boolean;
+  billingAddress: boolean;
   zipCode: boolean;
 }
 
@@ -32,6 +38,8 @@ export interface CardValidationState {
   cardNumber: FieldValidationState;
   expiry: FieldValidationState;
   cvv: FieldValidationState;
+  cardHolderName: FieldValidationState;
+  billingAddress: FieldValidationState;
   zipCode: FieldValidationState;
 }
 
@@ -57,6 +65,25 @@ export function validateAmount(value: string): AmountValidation {
   }
 
   return { isValid: true, success: 'Valid amount' };
+}
+
+/**
+ * Validates cardholder name.
+ */
+export function validateCardHolderName(name: string): string | null {
+  if (!name || name.trim().length === 0) return 'Name is required';
+  if (name.trim().length < MIN_NAME_LENGTH) return 'Name is too short';
+  if (!/^[a-zA-Z\s\-'.]+$/.test(name)) return 'Name contains invalid characters';
+  return null;
+}
+
+/**
+ * Validates billing address.
+ */
+export function validateBillingAddress(address: string): string | null {
+  if (!address || address.trim().length === 0) return 'Address is required';
+  if (address.trim().length < MIN_ADDRESS_LENGTH) return 'Address is too short';
+  return null;
 }
 
 /**
@@ -93,6 +120,26 @@ export function getCardValidationState(
             validateCvv(fields.cvv) === null && fields.cvv.length > 0 ? 'Valid CVV' : undefined,
         }
       : { error: null, success: undefined },
+    cardHolderName: touched.cardHolderName
+      ? {
+          error: validateCardHolderName(fields.cardHolderName),
+          success:
+            validateCardHolderName(fields.cardHolderName) === null &&
+            fields.cardHolderName.length > 0
+              ? 'Valid name'
+              : undefined,
+        }
+      : { error: null, success: undefined },
+    billingAddress: touched.billingAddress
+      ? {
+          error: validateBillingAddress(fields.billingAddress),
+          success:
+            validateBillingAddress(fields.billingAddress) === null &&
+            fields.billingAddress.length > 0
+              ? 'Valid address'
+              : undefined,
+        }
+      : { error: null, success: undefined },
     zipCode: touched.zipCode
       ? {
           error: validateZip(fields.zipCode),
@@ -113,8 +160,17 @@ export function validateAllCardFields(fields: CardFields): boolean {
     cardNumber: validateCardNumber(fields.cardNumber),
     expiry: validateExpiry(fields.expiry),
     cvv: validateCvv(fields.cvv),
+    cardHolderName: validateCardHolderName(fields.cardHolderName),
+    billingAddress: validateBillingAddress(fields.billingAddress),
     zipCode: validateZip(fields.zipCode),
   };
 
-  return !errors.cardNumber && !errors.expiry && !errors.cvv && !errors.zipCode;
+  return (
+    !errors.cardNumber &&
+    !errors.expiry &&
+    !errors.cvv &&
+    !errors.cardHolderName &&
+    !errors.billingAddress &&
+    !errors.zipCode
+  );
 }

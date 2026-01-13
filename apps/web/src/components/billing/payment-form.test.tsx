@@ -155,6 +155,8 @@ describe('PaymentForm', () => {
         expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
         expect(screen.getByLabelText(/expiry/i)).toBeInTheDocument();
         expect(screen.getByLabelText(/cvv/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/name on card/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/billing address/i)).toBeInTheDocument();
         expect(screen.getByLabelText(/zip/i)).toBeInTheDocument();
       });
     });
@@ -250,6 +252,24 @@ describe('PaymentForm', () => {
       await waitFor(() => {
         expect(screen.getByTestId('amount-input-success')).toHaveTextContent(/valid/i);
       });
+    });
+
+    it('blocks non-numeric characters in amount field', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      // Wait for script to load
+      await waitFor(() => {
+        expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
+      });
+
+      const amountInput = screen.getByLabelText(/amount/i);
+
+      // Try typing characters that should be blocked
+      await user.type(amountInput, '1e5');
+
+      // Only '15' should be entered, 'e' should be blocked
+      expect(amountInput).toHaveValue(15);
     });
   });
 
@@ -386,6 +406,8 @@ describe('PaymentForm', () => {
       await user.type(screen.getByLabelText(/card number/i), '4111111111111111');
       await user.type(screen.getByLabelText(/expiry/i), '1230');
       await user.type(screen.getByLabelText(/cvv/i), '123');
+      await user.type(screen.getByLabelText(/name on card/i), 'Test User');
+      await user.type(screen.getByLabelText(/billing address/i), '123 Test Street');
       await user.type(screen.getByLabelText(/zip/i), '12345');
     }
 
@@ -483,6 +505,8 @@ describe('PaymentForm', () => {
       await user.type(screen.getByLabelText(/card number/i), '4111111111111111');
       await user.type(screen.getByLabelText(/expiry/i), '1230');
       await user.type(screen.getByLabelText(/cvv/i), '123');
+      await user.type(screen.getByLabelText(/name on card/i), 'Test User');
+      await user.type(screen.getByLabelText(/billing address/i), '123 Test Street');
       await user.type(screen.getByLabelText(/zip/i), '12345');
     }
 
