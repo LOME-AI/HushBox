@@ -2,146 +2,87 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import {
   envConfig,
-  isSecretRef,
-  isDuplicateRef,
-  getDuplicateKey,
+  Dest,
+  Mode,
+  isSecret,
+  isProductionSecret,
+  getDestinations,
+  resolveValue,
+  resolveRaw,
+  type EnvMode,
   type VarConfig,
 } from '../packages/shared/src/env.config.js';
-
-export type EnvMode = 'development' | 'ciVitest' | 'ciE2E' | 'production';
-
-/**
- * Resolve a value from a VarConfig for a given mode.
- * Handles: literal values, $SECRET_NAME references, duplicate_x references.
- * Returns null if the value is not set for this mode.
- */
-export function resolveValue(
-  config: VarConfig,
-  targetMode: EnvMode,
-  getEnvVar: (name: string) => string | undefined = (name) => process.env[name]
-): string | null {
-  const raw = config[targetMode];
-  if (raw === undefined) {
-    return null;
-  }
-
-  // Handle duplicate references (e.g., 'duplicate_development')
-  if (isDuplicateRef(raw)) {
-    const refKey = getDuplicateKey(raw) as EnvMode;
-    return resolveValue(config, refKey, getEnvVar);
-  }
-
-  // Handle secret references (e.g., '$HELCIM_API_TOKEN_SANDBOX')
-  if (isSecretRef(raw)) {
-    const secretName = raw.slice(1); // Remove leading $
-    const value = getEnvVar(secretName);
-    if (value === undefined) {
-      throw new Error(`Missing secret: ${secretName}`);
-    }
-    return value;
-  }
-
-  // Literal value
-  return raw;
-}
 
 /**
  * Generate all environment files from the single source of truth (env.config.ts).
  *
- * Section-based routing:
- * - worker: .dev.vars + wrangler.toml [vars] (NOT .env.development)
- * - workerSecrets: .dev.vars + .env.development (prod via wrangler secret put)
- * - frontend: .env.development (prod values baked at build time)
- * - local: .env.development only (tooling, never goes to worker)
+ * Destinations:
+ * - Dest.Backend  → .dev.vars (local) / wrangler.toml + secrets (prod)
+ * - Dest.Frontend → .env.development (Vite, VITE_* vars only)
+ * - Dest.Scripts  → .env.scripts (migrations, seed, etc.)
  *
  * Modes:
- * - development (default): Generate files with development values only
- * - ciVitest: Generate files for CI unit tests (not typically used)
+ * - development (default): Generate files with development values
+ * - ciVitest: Generate files for CI unit tests
  * - ciE2E: Include CI secrets from process.env for E2E tests
  * - production: Ensure wrangler.toml has production values
  */
-export function generateEnvFiles(rootDir: string, mode: EnvMode = 'development'): void {
-  const devVarsLines: string[] = ['# Auto-generated - do not edit'];
-  const envDevLines: string[] = [
-    '# Auto-generated from packages/shared/src/env.config.ts',
-    '# Do not edit directly - run: pnpm generate:env',
-    '',
-  ];
-
+export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Development): void {
   const missing: string[] = [];
-  const resolve = (config: VarConfig): string | null => {
-    try {
-      return resolveValue(config, mode);
-    } catch (e) {
-      if (e instanceof Error && e.message.startsWith('Missing secret:')) {
-        const secretName = e.message.replace('Missing secret: ', '');
-        missing.push(secretName);
-        return null;
-      }
-      throw e;
+
+  const getSecret = (name: string): string => {
+    const val = process.env[name];
+    if (!val) {
+      missing.push(name);
+      return ''; // Placeholder, will throw after collecting all missing
     }
+    return val;
   };
 
-  // worker section → .dev.vars + wrangler.toml [vars] (NOT .env.development)
-  devVarsLines.push('', '# Worker vars');
-  for (const [key, config] of Object.entries(envConfig.worker) as [string, VarConfig][]) {
-    const value = resolve(config);
-    if (value !== null) {
-      devVarsLines.push(`${key}=${value}`);
-    }
-  }
+  // Helper to generate lines for a destination
+  const generateLines = (dest: Dest): string[] =>
+    Object.entries(envConfig)
+      .filter(([, config]) => getDestinations(config as VarConfig, mode).includes(dest))
+      .map(([key, config]) => {
+        const val = resolveValue(config as VarConfig, mode, getSecret);
+        // Return null if val is null (defensive, filtered out by subsequent .filter())
+        /* istanbul ignore next -- @preserve defensive check */
+        if (val === null) return null;
+        return `${key}=${val}`;
+      })
+      .filter((line): line is string => line !== null);
 
-  // workerSecrets section → .dev.vars + .env.development
-  devVarsLines.push('', '# Worker secrets');
-  envDevLines.push('# Worker secrets (needed by scripts)');
-  for (const [key, config] of Object.entries(envConfig.workerSecrets) as [string, VarConfig][]) {
-    const value = resolve(config);
-    if (value !== null) {
-      devVarsLines.push(`${key}=${value}`);
-      envDevLines.push(`${key}=${value}`);
-    }
-  }
-
-  // frontend section → .env.development
-  envDevLines.push('', '# Frontend (exposed to browser)');
-  const envLocalLines: string[] = ['# Auto-generated CI secrets - do not edit'];
-  for (const [key, config] of Object.entries(envConfig.frontend) as [string, VarConfig][]) {
-    const value = resolve(config);
-    if (value !== null) {
-      envDevLines.push(`${key}=${value}`);
-      // In CI modes, also write to .env.local for Vite to pick up
-      if (mode === 'ciVitest' || mode === 'ciE2E') {
-        envLocalLines.push(`${key}=${value}`);
-      }
-    }
-  }
-
-  // local section → .env.development only
-  envDevLines.push('', '# Local only (not deployed)');
-  for (const [key, config] of Object.entries(envConfig.local) as [string, VarConfig][]) {
-    const value = resolve(config);
-    if (value !== null) {
-      envDevLines.push(`${key}=${value}`);
-    }
-  }
+  // Generate lines for each destination
+  const backendLines = generateLines(Dest.Backend);
+  const frontendLines = generateLines(Dest.Frontend);
+  const scriptsLines = generateLines(Dest.Scripts);
 
   // Check for missing secrets
   if (missing.length > 0) {
     throw new Error(`Missing required secrets in process.env: ${missing.join(', ')}`);
   }
 
-  // Write files
-  writeFileSync(resolvePath(rootDir, '.env.development'), envDevLines.join('\n') + '\n');
-  console.log('  Generated .env.development');
-
-  writeFileSync(resolvePath(rootDir, 'apps/api/.dev.vars'), devVarsLines.join('\n') + '\n');
+  // Write .dev.vars (Backend)
+  const devVarsContent = ['# Auto-generated - do not edit', '', ...backendLines].join('\n') + '\n';
+  writeFileSync(resolvePath(rootDir, 'apps/api/.dev.vars'), devVarsContent);
   console.log('  Generated apps/api/.dev.vars');
 
-  // Write .env.local for CI frontend secrets (only if there's content)
-  if ((mode === 'ciVitest' || mode === 'ciE2E') && envLocalLines.length > 1) {
-    writeFileSync(resolvePath(rootDir, '.env.local'), envLocalLines.join('\n') + '\n');
-    console.log('  Generated .env.local (CI frontend secrets)');
-  }
+  // Write .env.development (Frontend)
+  const envDevContent =
+    [
+      '# Auto-generated from packages/shared/src/env.config.ts',
+      '# Do not edit directly - run: pnpm generate:env',
+      '',
+      ...frontendLines,
+    ].join('\n') + '\n';
+  writeFileSync(resolvePath(rootDir, '.env.development'), envDevContent);
+  console.log('  Generated .env.development');
+
+  // Write .env.scripts (Scripts)
+  const envScriptsContent =
+    ['# Auto-generated - do not edit', '', ...scriptsLines].join('\n') + '\n';
+  writeFileSync(resolvePath(rootDir, '.env.scripts'), envScriptsContent);
+  console.log('  Generated .env.scripts');
 
   // Update wrangler.toml [vars] with production values
   updateWranglerToml(rootDir);
@@ -152,6 +93,9 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = 'development')
   console.log('✓ All environment files generated');
 }
 
+/**
+ * Update wrangler.toml with [vars] section containing production non-secret values.
+ */
 function updateWranglerToml(rootDir: string): void {
   const tomlPath = resolvePath(rootDir, 'apps/api/wrangler.toml');
   let content = readFileSync(tomlPath, 'utf-8');
@@ -159,54 +103,44 @@ function updateWranglerToml(rootDir: string): void {
   // Remove existing [vars] section if present
   content = content.replace(/\n?\[vars\][\s\S]*?(?=\n\[[^\]]+\]|$)/, '');
 
-  // Build new [vars] section with production values from worker section
+  // Build new [vars] section with production non-secret values from backend
   const varsLines: string[] = ['', '[vars]'];
-  for (const [key, config] of Object.entries(envConfig.worker) as [string, VarConfig][]) {
-    // Only include literal production values (not secret refs)
-    const prodValue = config.production;
-    if (prodValue && !isSecretRef(prodValue) && !isDuplicateRef(prodValue)) {
-      varsLines.push(`${key} = "${prodValue}"`);
+  for (const [key, config] of Object.entries(envConfig)) {
+    const destinations = getDestinations(config as VarConfig, Mode.Production);
+    if (!destinations.includes(Dest.Backend)) continue;
+
+    const raw = resolveRaw(config as VarConfig, Mode.Production);
+    // Only include literal production values (not secrets)
+    if (raw && typeof raw === 'string') {
+      varsLines.push(`${key} = "${raw}"`);
     }
   }
 
-  // Add comment about secrets
-  varsLines.push('');
-  varsLines.push('# Secrets deployed via CI (GitHub Secrets → wrangler secret put):');
-  for (const key of Object.keys(envConfig.workerSecrets)) {
-    varsLines.push(`# - ${key}`);
+  // Add comment about secrets (always has secrets with current envConfig)
+  const secretKeys = getBackendSecretKeys();
+  /* istanbul ignore next -- @preserve always true with current config */
+  if (secretKeys.length > 0) {
+    varsLines.push('');
+    varsLines.push('# Secrets deployed via CI (GitHub Secrets → wrangler secret put):');
+    for (const key of secretKeys) {
+      varsLines.push(`# - ${key}`);
+    }
   }
 
   writeFileSync(tomlPath, content.trimEnd() + varsLines.join('\n') + '\n');
   console.log('  Updated apps/api/wrangler.toml [vars]');
 }
 
-function parseArgs(args: string[]): EnvMode {
-  const modeArg = args.find((arg) => arg.startsWith('--mode='));
-  if (modeArg) {
-    const mode = modeArg.split('=')[1] ?? '';
-    if (
-      mode === 'development' ||
-      mode === 'ciVitest' ||
-      mode === 'ciE2E' ||
-      mode === 'production'
-    ) {
-      return mode;
-    }
-    throw new Error(`Invalid mode: ${mode}. Valid modes: development, ciVitest, ciE2E, production`);
-  }
-  return 'development';
-}
-
 /**
- * Extract the GitHub secret name from a value.
- * For '$SECRET_NAME', returns 'SECRET_NAME'.
- * For literal values, returns the key name (for production secrets like DATABASE_URL).
+ * Get the list of backend keys that are secrets (for wrangler secret put).
  */
-function getGitHubSecretName(value: string | undefined, fallbackKey: string): string {
-  if (value && isSecretRef(value)) {
-    return value.slice(1); // Remove leading $
-  }
-  return fallbackKey;
+function getBackendSecretKeys(): string[] {
+  return Object.entries(envConfig)
+    .filter(([, config]) => {
+      const destinations = getDestinations(config as VarConfig, Mode.Production);
+      return destinations.includes(Dest.Backend) && isProductionSecret(config as VarConfig);
+    })
+    .map(([key]) => key);
 }
 
 /**
@@ -214,14 +148,12 @@ function getGitHubSecretName(value: string | undefined, fallbackKey: string): st
  * Detects indentation from the BEGIN marker and applies it to generated content.
  */
 function replaceSection(content: string, marker: string, newContent: string): string {
-  // Match the marker including leading whitespace to detect indentation
   const regex = new RegExp(
     `([ ]*)# BEGIN GENERATED: ${marker}\\n[\\s\\S]*?# END GENERATED: ${marker}`,
     'g'
   );
 
   return content.replace(regex, (_, indent: string) => {
-    // Apply the detected indentation to each line of the new content
     const indentedContent = newContent
       .split('\n')
       .map((line) => (line ? indent + line : line))
@@ -231,47 +163,27 @@ function replaceSection(content: string, marker: string, newContent: string): st
 }
 
 /**
- * Resolve a ciE2E value to its secret name, following duplicate references.
+ * Resolve a ciE2E value to its secret name, following refs.
  * Returns the secret name if it's a secret reference, or null if not.
  */
 function resolveCiE2ESecret(config: VarConfig): string | null {
-  let value = config.ciE2E;
-  if (!value) return null;
-
-  // Follow duplicate references
-  while (value && isDuplicateRef(value)) {
-    const refKey = getDuplicateKey(value) as keyof VarConfig;
-    value = config[refKey];
-  }
-
-  // Check if it's a secret reference
-  if (value && isSecretRef(value)) {
-    return value.slice(1); // Remove leading $
-  }
-
+  const raw = resolveRaw(config, Mode.CiE2E);
+  if (!raw) return null;
+  if (isSecret(raw)) return raw.name;
   return null;
 }
 
 /**
  * Generate the e2e-env section (secrets for E2E tests).
- * Only includes variables where ciE2E resolves to a secret reference.
+ * Uses the secret name for BOTH the env var name AND GitHub secret reference.
  */
 function generateE2EEnv(): string {
   const lines: string[] = ['env:'];
 
-  // workerSecrets that have ciE2E secret references
-  for (const [key, config] of Object.entries(envConfig.workerSecrets) as [string, VarConfig][]) {
-    const secretName = resolveCiE2ESecret(config);
+  for (const [, config] of Object.entries(envConfig)) {
+    const secretName = resolveCiE2ESecret(config as VarConfig);
     if (secretName) {
-      lines.push(`  ${key}: \${{ secrets.${secretName} }}`);
-    }
-  }
-
-  // frontend vars that have ciE2E secret references
-  for (const [key, config] of Object.entries(envConfig.frontend) as [string, VarConfig][]) {
-    const secretName = resolveCiE2ESecret(config);
-    if (secretName) {
-      lines.push(`  ${key}: \${{ secrets.${secretName} }}`);
+      lines.push(`  ${secretName}: \${{ secrets.${secretName} }}`);
     }
   }
 
@@ -284,17 +196,20 @@ function generateE2EEnv(): string {
 function generateBuildEnv(): string {
   const lines: string[] = ['env:'];
 
-  for (const [key, config] of Object.entries(envConfig.frontend) as [string, VarConfig][]) {
-    const prodValue = config.production;
-    if (prodValue) {
-      if (isSecretRef(prodValue)) {
-        // Secret reference - use GitHub secrets syntax
-        const secretName = prodValue.slice(1);
-        lines.push(`  ${key}: \${{ secrets.${secretName} }}`);
-      } else if (!isDuplicateRef(prodValue)) {
-        // Literal value
-        lines.push(`  ${key}: ${prodValue}`);
-      }
+  for (const [key, config] of Object.entries(envConfig)) {
+    const destinations = getDestinations(config as VarConfig, Mode.Production);
+    if (!destinations.includes(Dest.Frontend)) continue;
+
+    const raw = resolveRaw(config as VarConfig, Mode.Production);
+    // All frontend vars have production values
+    /* istanbul ignore next -- @preserve defensive check */
+    if (!raw) continue;
+
+    if (isSecret(raw)) {
+      lines.push(`  ${key}: \${{ secrets.${raw.name} }}`);
+      /* istanbul ignore next -- @preserve frontend prod is always secret or literal */
+    } else if (typeof raw === 'string') {
+      lines.push(`  ${key}: ${raw}`);
     }
   }
 
@@ -307,11 +222,13 @@ function generateBuildEnv(): string {
 function generateDeploySecrets(): string {
   const lines: string[] = [];
 
-  for (const [key, config] of Object.entries(envConfig.workerSecrets) as [string, VarConfig][]) {
-    const prodValue = config.production;
-    if (prodValue) {
-      const secretName = getGitHubSecretName(prodValue, key);
-      lines.push(`echo "\${{ secrets.${secretName} }}" | pnpm exec wrangler secret put ${key}`);
+  for (const [key, config] of Object.entries(envConfig)) {
+    const destinations = getDestinations(config as VarConfig, Mode.Production);
+    if (!destinations.includes(Dest.Backend)) continue;
+
+    const raw = resolveRaw(config as VarConfig, Mode.Production);
+    if (raw && isSecret(raw)) {
+      lines.push(`echo "\${{ secrets.${raw.name} }}" | pnpm exec wrangler secret put ${key}`);
     }
   }
 
@@ -322,7 +239,7 @@ function generateDeploySecrets(): string {
  * Generate the verify-secrets section (for loop of secret names).
  */
 function generateVerifySecrets(): string {
-  const secretKeys = Object.keys(envConfig.workerSecrets);
+  const secretKeys = getBackendSecretKeys();
   return `for secret in ${secretKeys.join(' ')}; do\n`;
 }
 
@@ -349,9 +266,25 @@ export function updateCiWorkflow(rootDir: string): void {
   console.log('  Updated .github/workflows/ci.yml');
 }
 
+export function parseArgs(args: string[]): EnvMode {
+  const modeArg = args.find((arg) => arg.startsWith('--mode='));
+  if (modeArg) {
+    const parts = modeArg.split('=');
+    const mode = parts[1] ?? '';
+    const validModes = Object.values(Mode);
+    if (validModes.includes(mode as Mode)) {
+      return mode as EnvMode;
+    }
+    throw new Error(`Invalid mode: ${mode}. Valid modes: ${validModes.join(', ')}`);
+  }
+  return Mode.Development;
+}
+
 // CLI entry point
+/* v8 ignore start */
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;
 if (isMain) {
   const mode = parseArgs(process.argv.slice(2));
   generateEnvFiles(process.cwd(), mode);
 }
+/* v8 ignore stop */

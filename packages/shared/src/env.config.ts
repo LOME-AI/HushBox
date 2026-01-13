@@ -1,192 +1,145 @@
 import { z } from 'zod';
+import { ref, secret, Dest, Mode, type VarConfig } from './env-types.js';
+
+// Re-export everything from env-types for convenience
+export * from './env-types.js';
 
 /**
- * Section-based env config. Section name determines destination:
- * - worker: .dev.vars + wrangler.toml [vars] only (NOT .env.development)
- * - workerSecrets: .dev.vars + .env.development (prod via wrangler secret put)
- * - frontend: .env.development (prod values baked at build time)
- * - local: .env.development only (tooling, never goes to worker)
+ * Environment configuration with typed values.
  *
- * Value patterns:
- * - 'literal'         - Use this exact string
- * - '$SECRET_NAME'    - Read from GitHub secret at runtime
- * - 'duplicate_x'     - Use same value as environment x (e.g., 'duplicate_development')
- * - (missing)         - Not set in this environment
+ * Each var has:
+ * - `to`: Default destinations for this var
+ * - Per-mode values: `Mode.Development`, `Mode.CiVitest`, `Mode.CiE2E`, `Mode.Production`
  *
- * Usage:
- * - Run `pnpm generate:env` to generate .env.development, .dev.vars, and wrangler.toml [vars]
- * - Run `pnpm generate:env --mode=ciE2E` in CI to include secrets from process.env
- * - Production secrets are set via GitHub Secrets → wrangler secret put in CI
+ * Value types:
+ * - `'literal'`                    - Use this exact string
+ * - `ref(Mode.X)`                  - Use same value as another mode
+ * - `secret('NAME')`               - Read from GitHub secret at runtime
+ * - `{ value: ..., to: [...] }`    - Override destinations for this mode
+ *
+ * Destinations:
+ * - `Dest.Backend`  → .dev.vars (local) / wrangler.toml + secrets (prod)
+ * - `Dest.Frontend` → .env.development (Vite, VITE_* vars only)
+ * - `Dest.Scripts`  → .env.scripts (migrations, seed, etc.)
  */
 export const envConfig = {
-  // Worker vars - go to .dev.vars + wrangler.toml [vars] (NOT .env.development)
-  worker: {
-    NODE_ENV: {
-      development: 'development',
-      ciVitest: 'duplicate_development',
-      ciE2E: 'duplicate_development',
-      production: 'production',
+  // Backend + Scripts in dev (seed.ts needs it), Backend only in CI/prod
+  DATABASE_URL: {
+    to: [Dest.Backend],
+    [Mode.Development]: {
+      value: 'postgres://postgres:postgres@localhost:4444/lome_chat',
+      to: [Dest.Backend, Dest.Scripts],
     },
-    BETTER_AUTH_URL: {
-      development: 'http://localhost:8787',
-      ciVitest: 'duplicate_development',
-      ciE2E: 'duplicate_development',
-      production: 'https://api.lome-chat.com',
-    },
-    FRONTEND_URL: {
-      development: 'http://localhost:5173',
-      ciVitest: 'duplicate_development',
-      ciE2E: 'duplicate_development',
-      production: 'https://lome-chat.com',
-    },
-    CI: {
-      ciVitest: 'true',
-      ciE2E: 'duplicate_ciVitest',
-    },
-    E2E: {
-      ciE2E: 'true',
-    },
+    [Mode.CiVitest]: ref(Mode.Development), // Backend only (uses default `to`)
+    [Mode.CiE2E]: ref(Mode.Development), // Backend only (uses default `to`)
+    [Mode.Production]: secret('DATABASE_URL'), // Backend only (uses default `to`)
   },
 
-  // Worker secrets - go to .dev.vars + .env.development (prod via wrangler secret put)
-  workerSecrets: {
-    DATABASE_URL: {
-      development: 'postgres://postgres:postgres@localhost:4444/lome_chat',
-      ciVitest: 'duplicate_development',
-      ciE2E: 'duplicate_development',
-      production: '$DATABASE_URL',
-    },
-    BETTER_AUTH_SECRET: {
-      development: 'dev-secret-minimum-32-characters-long',
-      ciVitest: 'duplicate_development',
-      ciE2E: 'duplicate_development',
-      production: '$BETTER_AUTH_SECRET',
-    },
-    RESEND_API_KEY: {
-      ciVitest: '$RESEND_API_KEY',
-      ciE2E: 'duplicate_ciVitest',
-      production: 'duplicate_ciVitest',
-    },
-    OPENROUTER_API_KEY: {
-      ciVitest: '$OPENROUTER_API_KEY',
-      production: 'duplicate_ciVitest',
-      // NOT in ciE2E - E2E tests don't need OpenRouter
-    },
-    HELCIM_API_TOKEN: {
-      ciE2E: '$HELCIM_API_TOKEN_SANDBOX',
-      production: '$HELCIM_API_TOKEN_PRODUCTION',
-      // NOT in ciVitest - unit tests don't need Helcim
-    },
-    HELCIM_WEBHOOK_VERIFIER: {
-      ciE2E: '$HELCIM_WEBHOOK_VERIFIER_SANDBOX',
-      production: '$HELCIM_WEBHOOK_VERIFIER_PRODUCTION',
-    },
+  // Backend only
+  NODE_ENV: {
+    to: [Dest.Backend],
+    [Mode.Development]: 'development',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.Production]: 'production',
   },
 
-  // Frontend vars - go to .env.development, prod values baked at build
-  frontend: {
-    VITE_API_URL: {
-      development: 'http://localhost:8787',
-      ciVitest: 'duplicate_development',
-      ciE2E: 'duplicate_development',
-      production: 'https://api.lome-chat.com',
-    },
-    VITE_HELCIM_JS_TOKEN: {
-      ciE2E: '$VITE_HELCIM_JS_TOKEN_SANDBOX',
-      production: '$VITE_HELCIM_JS_TOKEN_PRODUCTION',
-    },
-    VITE_CI: {
-      ciVitest: 'true',
-      ciE2E: 'duplicate_ciVitest',
-    },
+  BETTER_AUTH_URL: {
+    to: [Dest.Backend],
+    [Mode.Development]: 'http://localhost:8787',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.Production]: 'https://api.lome-chat.com',
   },
 
-  // Local tooling only - go to .env.development, never to worker
-  local: {
-    MIGRATION_DATABASE_URL: {
-      development: 'postgresql://postgres:postgres@localhost:5432/lome_chat',
-    },
+  FRONTEND_URL: {
+    to: [Dest.Backend],
+    [Mode.Development]: 'http://localhost:5173',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.Production]: 'https://lome-chat.com',
   },
-} as const;
 
-/**
- * Environment-specific value configuration.
- *
- * Value patterns:
- * - 'literal'         - Use this exact string
- * - '$SECRET_NAME'    - Read from GitHub secret at runtime
- * - 'duplicate_x'     - Use same value as environment x (e.g., 'duplicate_development')
- * - (missing)         - Not set in this environment
- */
-export type VarConfig = {
-  /** Local development value */
-  development?: string;
-  /** CI unit/integration tests (Vitest) */
-  ciVitest?: string;
-  /** CI E2E tests (Playwright) */
-  ciE2E?: string;
-  /** Production deployment */
-  production?: string;
-};
-type SectionConfig = Record<string, VarConfig>;
+  CI: {
+    to: [Dest.Backend],
+    [Mode.CiVitest]: 'true',
+    [Mode.CiE2E]: ref(Mode.CiVitest),
+  },
+
+  E2E: {
+    to: [Dest.Backend],
+    [Mode.CiE2E]: 'true',
+  },
+
+  BETTER_AUTH_SECRET: {
+    to: [Dest.Backend],
+    [Mode.Development]: 'dev-secret-minimum-32-characters-long',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.Production]: secret('BETTER_AUTH_SECRET'),
+  },
+
+  RESEND_API_KEY: {
+    to: [Dest.Backend],
+    [Mode.Production]: secret('RESEND_API_KEY'),
+    // NOT in CI - email service uses console client when CI=true
+  },
+
+  OPENROUTER_API_KEY: {
+    to: [Dest.Backend],
+    [Mode.CiVitest]: secret('OPENROUTER_API_KEY'),
+    [Mode.Production]: ref(Mode.CiVitest),
+    // NOT in ciE2E - E2E tests don't need OpenRouter
+  },
+
+  HELCIM_API_TOKEN: {
+    to: [Dest.Backend],
+    [Mode.CiE2E]: secret('HELCIM_API_TOKEN_SANDBOX'),
+    [Mode.Production]: secret('HELCIM_API_TOKEN_PRODUCTION'),
+    // NOT in ciVitest - unit tests don't need Helcim
+  },
+
+  HELCIM_WEBHOOK_VERIFIER: {
+    to: [Dest.Backend],
+    [Mode.CiE2E]: secret('HELCIM_WEBHOOK_VERIFIER_SANDBOX'),
+    [Mode.Production]: secret('HELCIM_WEBHOOK_VERIFIER_PRODUCTION'),
+  },
+
+  // Frontend only
+  VITE_API_URL: {
+    to: [Dest.Frontend],
+    [Mode.Development]: 'http://localhost:8787',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.Production]: 'https://api.lome-chat.com',
+  },
+
+  VITE_HELCIM_JS_TOKEN: {
+    to: [Dest.Frontend],
+    [Mode.CiE2E]: secret('VITE_HELCIM_JS_TOKEN_SANDBOX'),
+    [Mode.Production]: secret('VITE_HELCIM_JS_TOKEN_PRODUCTION'),
+  },
+
+  VITE_CI: {
+    to: [Dest.Frontend],
+    [Mode.CiVitest]: 'true',
+    [Mode.CiE2E]: ref(Mode.CiVitest),
+  },
+
+  // Scripts only
+  MIGRATION_DATABASE_URL: {
+    to: [Dest.Scripts],
+    [Mode.Development]: 'postgresql://postgres:postgres@localhost:5432/lome_chat',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+  },
+} as const satisfies Record<string, VarConfig>;
 
 export type EnvConfig = typeof envConfig;
-
-/**
- * Check if a var config is a CI/prod secret (no dev value).
- * These secrets must be provided from process.env in CI.
- */
-export function isEmptySecret(config: VarConfig): boolean {
-  return config.development === undefined;
-}
-
-/**
- * Check if a value is a secret reference (starts with $).
- * Example: '$HELCIM_API_TOKEN_SANDBOX' means "read from GitHub secret HELCIM_API_TOKEN_SANDBOX"
- */
-export function isSecretRef(value: string): boolean {
-  return value.startsWith('$');
-}
-
-/**
- * Check if a value is a duplicate reference (starts with 'duplicate_').
- * Example: 'duplicate_development' means "use the same value as development"
- */
-export function isDuplicateRef(value: string): boolean {
-  return value.startsWith('duplicate_');
-}
-
-/**
- * Extract the referenced environment key from a duplicate reference.
- * Example: 'duplicate_development' → 'development'
- */
-export function getDuplicateKey(value: string): string {
-  if (!isDuplicateRef(value)) {
-    return value;
-  }
-  return value.replace('duplicate_', '');
-}
-
-/**
- * Get all keys from a section that have development values.
- */
-export function getDevKeys(section: SectionConfig): string[] {
-  return Object.entries(section)
-    .filter(([, config]) => config.development !== undefined)
-    .map(([key]) => key);
-}
-
-/**
- * Get all keys from a section that are CI/prod secrets (empty {}).
- */
-export function getCiProdSecretKeys(section: SectionConfig): string[] {
-  return Object.entries(section)
-    .filter(([, config]) => isEmptySecret(config))
-    .map(([key]) => key);
-}
+export type EnvKey = keyof EnvConfig;
 
 // Zod schemas for validation
-export const workerEnvSchema = z.object({
+export const backendEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']),
   BETTER_AUTH_URL: z.string().url(),
   FRONTEND_URL: z.string().url(),
@@ -198,7 +151,7 @@ export const workerEnvSchema = z.object({
   HELCIM_WEBHOOK_VERIFIER: z.string().optional(),
 });
 
-export type WorkerEnv = z.infer<typeof workerEnvSchema>;
+export type BackendEnv = z.infer<typeof backendEnvSchema>;
 
 export const frontendEnvSchema = z.object({
   VITE_API_URL: z.string().url(),
@@ -206,7 +159,3 @@ export const frontendEnvSchema = z.object({
 });
 
 export type FrontendEnv = z.infer<typeof frontendEnvSchema>;
-
-// Legacy exports for backward compatibility during migration
-export const envSchema = workerEnvSchema.merge(frontendEnvSchema.pick({ VITE_API_URL: true }));
-export type Env = z.infer<typeof envSchema>;

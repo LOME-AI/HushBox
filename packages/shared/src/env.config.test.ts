@@ -1,223 +1,241 @@
 import { describe, it, expect } from 'vitest';
 import {
   envConfig,
-  workerEnvSchema,
+  backendEnvSchema,
   frontendEnvSchema,
-  isEmptySecret,
-  getDevKeys,
-  getCiProdSecretKeys,
-  isSecretRef,
-  isDuplicateRef,
-  getDuplicateKey,
+  Dest,
+  Mode,
+  isSecret,
+  getDestinations,
+  resolveRaw,
 } from './env.config.js';
 
 describe('envConfig', () => {
-  describe('worker section', () => {
-    it('has NODE_ENV with dev and prod values', () => {
-      expect(envConfig.worker.NODE_ENV.development).toBe('development');
-      expect(envConfig.worker.NODE_ENV.production).toBe('production');
+  describe('DATABASE_URL', () => {
+    it('has development value going to Backend + Scripts', () => {
+      expect(getDestinations(envConfig.DATABASE_URL, Mode.Development)).toEqual([
+        Dest.Backend,
+        Dest.Scripts,
+      ]);
     });
 
-    it('has BETTER_AUTH_URL with dev and prod values', () => {
-      expect(envConfig.worker.BETTER_AUTH_URL.development).toBe('http://localhost:8787');
-      expect(envConfig.worker.BETTER_AUTH_URL.production).toBe('https://api.lome-chat.com');
+    it('has ciVitest/ciE2E value going to Backend only (via ref)', () => {
+      expect(getDestinations(envConfig.DATABASE_URL, Mode.CiVitest)).toEqual([Dest.Backend]);
+      expect(getDestinations(envConfig.DATABASE_URL, Mode.CiE2E)).toEqual([Dest.Backend]);
     });
 
-    it('has FRONTEND_URL with dev and prod values', () => {
-      expect(envConfig.worker.FRONTEND_URL.development).toBe('http://localhost:5173');
-      expect(envConfig.worker.FRONTEND_URL.production).toBe('https://lome-chat.com');
-    });
-
-    it('has CI flag only in CI environments', () => {
-      expect('development' in envConfig.worker.CI).toBe(false);
-      expect(envConfig.worker.CI.ciVitest).toBe('true');
-      expect(envConfig.worker.CI.ciE2E).toBe('duplicate_ciVitest');
-      expect('production' in envConfig.worker.CI).toBe(false);
-    });
-
-    it('has E2E flag only in ciE2E environment', () => {
-      expect('development' in envConfig.worker.E2E).toBe(false);
-      expect('ciVitest' in envConfig.worker.E2E).toBe(false);
-      expect(envConfig.worker.E2E.ciE2E).toBe('true');
-      expect('production' in envConfig.worker.E2E).toBe(false);
+    it('has production secret going to Backend only', () => {
+      expect(getDestinations(envConfig.DATABASE_URL, Mode.Production)).toEqual([Dest.Backend]);
+      const raw = resolveRaw(envConfig.DATABASE_URL, Mode.Production);
+      expect(isSecret(raw)).toBe(true);
     });
   });
 
-  describe('workerSecrets section', () => {
-    it('has DATABASE_URL with dev and production values', () => {
-      expect(envConfig.workerSecrets.DATABASE_URL.development).toContain('postgres://');
-      expect(envConfig.workerSecrets.DATABASE_URL.production).toBe('$DATABASE_URL');
+  describe('NODE_ENV', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.NODE_ENV.to).toEqual([Dest.Backend]);
     });
 
-    it('has BETTER_AUTH_SECRET with dev and production values', () => {
-      expect(envConfig.workerSecrets.BETTER_AUTH_SECRET.development).toBeTruthy();
-      expect(envConfig.workerSecrets.BETTER_AUTH_SECRET.production).toBe('$BETTER_AUTH_SECRET');
+    it('has development value', () => {
+      expect(resolveRaw(envConfig.NODE_ENV, Mode.Development)).toBe('development');
     });
 
-    it('has RESEND_API_KEY only in CI environments and production', () => {
-      expect('development' in envConfig.workerSecrets.RESEND_API_KEY).toBe(false);
-      expect(envConfig.workerSecrets.RESEND_API_KEY.ciVitest).toBe('$RESEND_API_KEY');
-      expect(envConfig.workerSecrets.RESEND_API_KEY.ciE2E).toBe('duplicate_ciVitest');
+    it('has production value', () => {
+      expect(resolveRaw(envConfig.NODE_ENV, Mode.Production)).toBe('production');
     });
 
-    it('has OPENROUTER_API_KEY only in ciVitest and production (not ciE2E)', () => {
-      expect('development' in envConfig.workerSecrets.OPENROUTER_API_KEY).toBe(false);
-      expect(envConfig.workerSecrets.OPENROUTER_API_KEY.ciVitest).toBe('$OPENROUTER_API_KEY');
-      expect('ciE2E' in envConfig.workerSecrets.OPENROUTER_API_KEY).toBe(false);
-      expect(envConfig.workerSecrets.OPENROUTER_API_KEY.production).toBe('duplicate_ciVitest');
+    it('refs development for CI environments', () => {
+      expect(resolveRaw(envConfig.NODE_ENV, Mode.CiVitest)).toBe('development');
+      expect(resolveRaw(envConfig.NODE_ENV, Mode.CiE2E)).toBe('development');
+    });
+  });
+
+  describe('BETTER_AUTH_URL', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.BETTER_AUTH_URL.to).toEqual([Dest.Backend]);
     });
 
-    it('has HELCIM secrets only in ciE2E and production (not ciVitest)', () => {
-      expect('development' in envConfig.workerSecrets.HELCIM_API_TOKEN).toBe(false);
-      expect('ciVitest' in envConfig.workerSecrets.HELCIM_API_TOKEN).toBe(false);
-      expect(envConfig.workerSecrets.HELCIM_API_TOKEN.ciE2E).toBe('$HELCIM_API_TOKEN_SANDBOX');
-      expect(envConfig.workerSecrets.HELCIM_API_TOKEN.production).toBe(
-        '$HELCIM_API_TOKEN_PRODUCTION'
-      );
-
-      expect('development' in envConfig.workerSecrets.HELCIM_WEBHOOK_VERIFIER).toBe(false);
-      expect('ciVitest' in envConfig.workerSecrets.HELCIM_WEBHOOK_VERIFIER).toBe(false);
-      expect(envConfig.workerSecrets.HELCIM_WEBHOOK_VERIFIER.ciE2E).toBe(
-        '$HELCIM_WEBHOOK_VERIFIER_SANDBOX'
+    it('has dev and prod values', () => {
+      expect(resolveRaw(envConfig.BETTER_AUTH_URL, Mode.Development)).toBe('http://localhost:8787');
+      expect(resolveRaw(envConfig.BETTER_AUTH_URL, Mode.Production)).toBe(
+        'https://api.lome-chat.com'
       );
     });
   });
 
-  describe('frontend section', () => {
-    it('has VITE_API_URL with dev and prod values', () => {
-      expect(envConfig.frontend.VITE_API_URL.development).toBe('http://localhost:8787');
-      expect(envConfig.frontend.VITE_API_URL.production).toBe('https://api.lome-chat.com');
+  describe('FRONTEND_URL', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.FRONTEND_URL.to).toEqual([Dest.Backend]);
     });
 
-    it('has VITE_HELCIM_JS_TOKEN only in ciE2E and production', () => {
-      expect('development' in envConfig.frontend.VITE_HELCIM_JS_TOKEN).toBe(false);
-      expect('ciVitest' in envConfig.frontend.VITE_HELCIM_JS_TOKEN).toBe(false);
-      expect(envConfig.frontend.VITE_HELCIM_JS_TOKEN.ciE2E).toBe('$VITE_HELCIM_JS_TOKEN_SANDBOX');
-      expect(envConfig.frontend.VITE_HELCIM_JS_TOKEN.production).toBe(
-        '$VITE_HELCIM_JS_TOKEN_PRODUCTION'
-      );
-    });
-
-    it('has VITE_CI only in CI environments', () => {
-      expect('development' in envConfig.frontend.VITE_CI).toBe(false);
-      expect(envConfig.frontend.VITE_CI.ciVitest).toBe('true');
-      expect(envConfig.frontend.VITE_CI.ciE2E).toBe('duplicate_ciVitest');
-      expect('production' in envConfig.frontend.VITE_CI).toBe(false);
+    it('has dev and prod values', () => {
+      expect(resolveRaw(envConfig.FRONTEND_URL, Mode.Development)).toBe('http://localhost:5173');
+      expect(resolveRaw(envConfig.FRONTEND_URL, Mode.Production)).toBe('https://lome-chat.com');
     });
   });
 
-  describe('local section', () => {
-    it('has MIGRATION_DATABASE_URL with dev value only', () => {
-      expect(envConfig.local.MIGRATION_DATABASE_URL.development).toContain('postgresql://');
-      expect('production' in envConfig.local.MIGRATION_DATABASE_URL).toBe(false);
+  describe('CI flag', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.CI.to).toEqual([Dest.Backend]);
+    });
+
+    it('is only set in CI environments', () => {
+      expect(resolveRaw(envConfig.CI, Mode.Development)).toBeUndefined();
+      expect(resolveRaw(envConfig.CI, Mode.CiVitest)).toBe('true');
+      expect(resolveRaw(envConfig.CI, Mode.CiE2E)).toBe('true');
+      expect(resolveRaw(envConfig.CI, Mode.Production)).toBeUndefined();
+    });
+  });
+
+  describe('E2E flag', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.E2E.to).toEqual([Dest.Backend]);
+    });
+
+    it('is only set in ciE2E environment', () => {
+      expect(resolveRaw(envConfig.E2E, Mode.Development)).toBeUndefined();
+      expect(resolveRaw(envConfig.E2E, Mode.CiVitest)).toBeUndefined();
+      expect(resolveRaw(envConfig.E2E, Mode.CiE2E)).toBe('true');
+      expect(resolveRaw(envConfig.E2E, Mode.Production)).toBeUndefined();
+    });
+  });
+
+  describe('BETTER_AUTH_SECRET', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.BETTER_AUTH_SECRET.to).toEqual([Dest.Backend]);
+    });
+
+    it('has dev value and production secret', () => {
+      expect(resolveRaw(envConfig.BETTER_AUTH_SECRET, Mode.Development)).toBe(
+        'dev-secret-minimum-32-characters-long'
+      );
+      const raw = resolveRaw(envConfig.BETTER_AUTH_SECRET, Mode.Production);
+      expect(isSecret(raw)).toBe(true);
+    });
+  });
+
+  describe('RESEND_API_KEY', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.RESEND_API_KEY.to).toEqual([Dest.Backend]);
+    });
+
+    it('is only set in production (not in dev or CI)', () => {
+      expect(resolveRaw(envConfig.RESEND_API_KEY, Mode.Development)).toBeUndefined();
+      expect(resolveRaw(envConfig.RESEND_API_KEY, Mode.CiVitest)).toBeUndefined();
+      expect(resolveRaw(envConfig.RESEND_API_KEY, Mode.CiE2E)).toBeUndefined();
+      const production = resolveRaw(envConfig.RESEND_API_KEY, Mode.Production);
+      expect(isSecret(production)).toBe(true);
+    });
+  });
+
+  describe('OPENROUTER_API_KEY', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.OPENROUTER_API_KEY.to).toEqual([Dest.Backend]);
+    });
+
+    it('is only in ciVitest and production (NOT ciE2E)', () => {
+      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.Development)).toBeUndefined();
+      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.CiVitest)).toBeDefined();
+      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.CiE2E)).toBeUndefined();
+      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.Production)).toBeDefined();
+    });
+  });
+
+  describe('HELCIM_API_TOKEN', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.HELCIM_API_TOKEN.to).toEqual([Dest.Backend]);
+    });
+
+    it('is only in ciE2E and production (NOT ciVitest)', () => {
+      expect(resolveRaw(envConfig.HELCIM_API_TOKEN, Mode.Development)).toBeUndefined();
+      expect(resolveRaw(envConfig.HELCIM_API_TOKEN, Mode.CiVitest)).toBeUndefined();
+      expect(resolveRaw(envConfig.HELCIM_API_TOKEN, Mode.CiE2E)).toBeDefined();
+      expect(resolveRaw(envConfig.HELCIM_API_TOKEN, Mode.Production)).toBeDefined();
+    });
+
+    it('uses different secrets for ciE2E and production', () => {
+      const ciE2E = resolveRaw(envConfig.HELCIM_API_TOKEN, Mode.CiE2E);
+      const production = resolveRaw(envConfig.HELCIM_API_TOKEN, Mode.Production);
+      expect(isSecret(ciE2E)).toBe(true);
+      expect(isSecret(production)).toBe(true);
+      expect(ciE2E).not.toEqual(production);
+    });
+  });
+
+  describe('HELCIM_WEBHOOK_VERIFIER', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.HELCIM_WEBHOOK_VERIFIER.to).toEqual([Dest.Backend]);
+    });
+
+    it('uses different secrets for ciE2E and production', () => {
+      const ciE2E = resolveRaw(envConfig.HELCIM_WEBHOOK_VERIFIER, Mode.CiE2E);
+      const production = resolveRaw(envConfig.HELCIM_WEBHOOK_VERIFIER, Mode.Production);
+      expect(isSecret(ciE2E)).toBe(true);
+      expect(isSecret(production)).toBe(true);
+      expect(ciE2E).not.toEqual(production);
+    });
+  });
+
+  describe('VITE_API_URL', () => {
+    it('goes to Frontend only', () => {
+      expect(envConfig.VITE_API_URL.to).toEqual([Dest.Frontend]);
+    });
+
+    it('has dev and prod values', () => {
+      expect(resolveRaw(envConfig.VITE_API_URL, Mode.Development)).toBe('http://localhost:8787');
+      expect(resolveRaw(envConfig.VITE_API_URL, Mode.Production)).toBe('https://api.lome-chat.com');
+    });
+  });
+
+  describe('VITE_HELCIM_JS_TOKEN', () => {
+    it('goes to Frontend only', () => {
+      expect(envConfig.VITE_HELCIM_JS_TOKEN.to).toEqual([Dest.Frontend]);
+    });
+
+    it('is only in ciE2E and production', () => {
+      expect(resolveRaw(envConfig.VITE_HELCIM_JS_TOKEN, Mode.Development)).toBeUndefined();
+      expect(resolveRaw(envConfig.VITE_HELCIM_JS_TOKEN, Mode.CiVitest)).toBeUndefined();
+      expect(resolveRaw(envConfig.VITE_HELCIM_JS_TOKEN, Mode.CiE2E)).toBeDefined();
+      expect(resolveRaw(envConfig.VITE_HELCIM_JS_TOKEN, Mode.Production)).toBeDefined();
+    });
+  });
+
+  describe('VITE_CI', () => {
+    it('goes to Frontend only', () => {
+      expect(envConfig.VITE_CI.to).toEqual([Dest.Frontend]);
+    });
+
+    it('is only set in CI environments', () => {
+      expect(resolveRaw(envConfig.VITE_CI, Mode.Development)).toBeUndefined();
+      expect(resolveRaw(envConfig.VITE_CI, Mode.CiVitest)).toBe('true');
+      expect(resolveRaw(envConfig.VITE_CI, Mode.CiE2E)).toBe('true');
+      expect(resolveRaw(envConfig.VITE_CI, Mode.Production)).toBeUndefined();
+    });
+  });
+
+  describe('MIGRATION_DATABASE_URL', () => {
+    it('goes to Scripts only', () => {
+      expect(envConfig.MIGRATION_DATABASE_URL.to).toEqual([Dest.Scripts]);
+    });
+
+    it('has development value', () => {
+      expect(resolveRaw(envConfig.MIGRATION_DATABASE_URL, Mode.Development)).toContain(
+        'postgresql://'
+      );
+    });
+
+    it('is available in CI environments via ref', () => {
+      expect(resolveRaw(envConfig.MIGRATION_DATABASE_URL, Mode.CiVitest)).toBeDefined();
+      expect(resolveRaw(envConfig.MIGRATION_DATABASE_URL, Mode.CiE2E)).toBeDefined();
+    });
+
+    it('is not set in production (scripts not deployed)', () => {
+      expect(resolveRaw(envConfig.MIGRATION_DATABASE_URL, Mode.Production)).toBeUndefined();
     });
   });
 });
 
-describe('helper functions', () => {
-  describe('isEmptySecret', () => {
-    it('returns true for empty object', () => {
-      expect(isEmptySecret({})).toBe(true);
-    });
-
-    it('returns false for object with development value', () => {
-      expect(isEmptySecret({ development: 'value' })).toBe(false);
-    });
-
-    it('returns true for object with CI values but no development value', () => {
-      expect(isEmptySecret({ ciE2E: '$SECRET_SANDBOX' })).toBe(true);
-      expect(isEmptySecret({ ciVitest: '$SECRET', production: '$SECRET' })).toBe(true);
-    });
-  });
-
-  describe('getDevKeys', () => {
-    it('returns keys with development values', () => {
-      const keys = getDevKeys(envConfig.workerSecrets);
-      expect(keys).toContain('DATABASE_URL');
-      expect(keys).toContain('BETTER_AUTH_SECRET');
-      expect(keys).not.toContain('RESEND_API_KEY');
-    });
-
-    it('returns all keys from worker section', () => {
-      const keys = getDevKeys(envConfig.worker);
-      expect(keys).toContain('NODE_ENV');
-      expect(keys).toContain('BETTER_AUTH_URL');
-      expect(keys).toContain('FRONTEND_URL');
-    });
-  });
-
-  describe('getCiProdSecretKeys', () => {
-    it('returns keys that are empty objects', () => {
-      const keys = getCiProdSecretKeys(envConfig.workerSecrets);
-      expect(keys).toContain('RESEND_API_KEY');
-      expect(keys).toContain('OPENROUTER_API_KEY');
-      expect(keys).toContain('HELCIM_API_TOKEN');
-      expect(keys).toContain('HELCIM_WEBHOOK_VERIFIER');
-      expect(keys).not.toContain('DATABASE_URL');
-    });
-
-    it('returns frontend CI/prod secrets', () => {
-      const keys = getCiProdSecretKeys(envConfig.frontend);
-      expect(keys).toContain('VITE_HELCIM_JS_TOKEN');
-      expect(keys).not.toContain('VITE_API_URL');
-    });
-  });
-
-  describe('isSecretRef', () => {
-    it('returns true for strings starting with $', () => {
-      expect(isSecretRef('$HELCIM_API_TOKEN_SANDBOX')).toBe(true);
-      expect(isSecretRef('$DATABASE_URL')).toBe(true);
-    });
-
-    it('returns false for literal strings', () => {
-      expect(isSecretRef('development')).toBe(false);
-      expect(isSecretRef('http://localhost:8787')).toBe(false);
-    });
-
-    it('returns false for duplicate references', () => {
-      expect(isSecretRef('duplicate_development')).toBe(false);
-    });
-
-    it('returns false for empty string', () => {
-      expect(isSecretRef('')).toBe(false);
-    });
-  });
-
-  describe('isDuplicateRef', () => {
-    it('returns true for strings starting with duplicate_', () => {
-      expect(isDuplicateRef('duplicate_development')).toBe(true);
-      expect(isDuplicateRef('duplicate_ciVitest')).toBe(true);
-    });
-
-    it('returns false for literal strings', () => {
-      expect(isDuplicateRef('development')).toBe(false);
-      expect(isDuplicateRef('production')).toBe(false);
-    });
-
-    it('returns false for secret references', () => {
-      expect(isDuplicateRef('$SECRET_NAME')).toBe(false);
-    });
-
-    it('returns false for empty string', () => {
-      expect(isDuplicateRef('')).toBe(false);
-    });
-  });
-
-  describe('getDuplicateKey', () => {
-    it('extracts the key from duplicate reference', () => {
-      expect(getDuplicateKey('duplicate_development')).toBe('development');
-      expect(getDuplicateKey('duplicate_ciVitest')).toBe('ciVitest');
-      expect(getDuplicateKey('duplicate_ciE2E')).toBe('ciE2E');
-      expect(getDuplicateKey('duplicate_production')).toBe('production');
-    });
-
-    it('returns original string if not a duplicate reference', () => {
-      expect(getDuplicateKey('development')).toBe('development');
-    });
-  });
-});
-
-describe('workerEnvSchema', () => {
+describe('backendEnvSchema', () => {
   it('validates correct development environment', () => {
     const validEnv = {
       NODE_ENV: 'development',
@@ -227,7 +245,7 @@ describe('workerEnvSchema', () => {
       FRONTEND_URL: 'http://localhost:5173',
     };
 
-    const result = workerEnvSchema.safeParse(validEnv);
+    const result = backendEnvSchema.safeParse(validEnv);
     expect(result.success).toBe(true);
   });
 
@@ -244,7 +262,7 @@ describe('workerEnvSchema', () => {
       HELCIM_WEBHOOK_VERIFIER: 'webhook-verifier',
     };
 
-    const result = workerEnvSchema.safeParse(validEnv);
+    const result = backendEnvSchema.safeParse(validEnv);
     expect(result.success).toBe(true);
   });
 
@@ -257,7 +275,7 @@ describe('workerEnvSchema', () => {
       FRONTEND_URL: 'http://localhost:5173',
     };
 
-    const result = workerEnvSchema.safeParse(invalidEnv);
+    const result = backendEnvSchema.safeParse(invalidEnv);
     expect(result.success).toBe(false);
   });
 
@@ -269,7 +287,7 @@ describe('workerEnvSchema', () => {
       FRONTEND_URL: 'http://localhost:5173',
     };
 
-    const result = workerEnvSchema.safeParse(invalidEnv);
+    const result = backendEnvSchema.safeParse(invalidEnv);
     expect(result.success).toBe(false);
   });
 
@@ -282,7 +300,7 @@ describe('workerEnvSchema', () => {
       FRONTEND_URL: 'http://localhost:5173',
     };
 
-    const result = workerEnvSchema.safeParse(invalidEnv);
+    const result = backendEnvSchema.safeParse(invalidEnv);
     expect(result.success).toBe(false);
   });
 
@@ -295,7 +313,7 @@ describe('workerEnvSchema', () => {
       FRONTEND_URL: 'http://localhost:5173',
     };
 
-    const result = workerEnvSchema.safeParse(invalidEnv);
+    const result = backendEnvSchema.safeParse(invalidEnv);
     expect(result.success).toBe(false);
   });
 
@@ -308,7 +326,7 @@ describe('workerEnvSchema', () => {
       FRONTEND_URL: 'http://localhost:5173',
     };
 
-    const result = workerEnvSchema.safeParse(validEnv);
+    const result = backendEnvSchema.safeParse(validEnv);
     expect(result.success).toBe(true);
   });
 });

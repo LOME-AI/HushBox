@@ -48,10 +48,9 @@ jobs:
         run: pnpm generate:env --mode=ciE2E
         # BEGIN GENERATED: e2e-env
         env:
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
-          HELCIM_WEBHOOK_VERIFIER: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
-          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
+          HELCIM_API_TOKEN_SANDBOX: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
+          HELCIM_WEBHOOK_VERIFIER_SANDBOX: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
+          VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
         # END GENERATED: e2e-env
 
       - name: Install Playwright browsers
