@@ -1,8 +1,9 @@
 #!/bin/bash
-# Load environment variables for scripts (migrations, seed, etc.)
-# Sources both backend vars (.dev.vars) and scripts vars (.env.scripts)
+# Load environment variables for local development and CI
+# Sources backend vars (.dev.vars), frontend vars (.env.development), and scripts vars (.env.scripts)
 set -a
 source "$(dirname "$0")/../apps/api/.dev.vars"
+source "$(dirname "$0")/../.env.development"
 source "$(dirname "$0")/../.env.scripts"
 set +a
 exec "$@"
