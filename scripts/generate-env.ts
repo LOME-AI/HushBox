@@ -163,27 +163,16 @@ function replaceSection(content: string, marker: string, newContent: string): st
 }
 
 /**
- * Resolve a ciE2E value to its secret name, following refs.
- * Returns the secret name if it's a secret reference, or null if not.
- */
-function resolveCiE2ESecret(config: VarConfig): string | null {
-  const raw = resolveRaw(config, Mode.CiE2E);
-  if (!raw) return null;
-  if (isSecret(raw)) return raw.name;
-  return null;
-}
-
-/**
- * Generate the e2e-env section (secrets for E2E tests).
+ * Generate a secrets env section for a given mode.
  * Uses the secret name for BOTH the env var name AND GitHub secret reference.
  */
-function generateE2EEnv(): string {
+function generateSecretsEnv(mode: EnvMode): string {
   const lines: string[] = ['env:'];
 
   for (const [, config] of Object.entries(envConfig)) {
-    const secretName = resolveCiE2ESecret(config as VarConfig);
-    if (secretName) {
-      lines.push(`  ${secretName}: \${{ secrets.${secretName} }}`);
+    const raw = resolveRaw(config as VarConfig, mode);
+    if (raw && isSecret(raw)) {
+      lines.push(`  ${raw.name}: \${{ secrets.${raw.name} }}`);
     }
   }
 
@@ -257,7 +246,8 @@ export function updateCiWorkflow(rootDir: string): void {
   let content = readFileSync(ciPath, 'utf-8');
 
   // Generate and replace each section
-  content = replaceSection(content, 'e2e-env', generateE2EEnv());
+  content = replaceSection(content, 'vitest-env', generateSecretsEnv(Mode.CiVitest));
+  content = replaceSection(content, 'e2e-env', generateSecretsEnv(Mode.CiE2E));
   content = replaceSection(content, 'build-env', generateBuildEnv());
   content = replaceSection(content, 'deploy-secrets', generateDeploySecrets());
   content = replaceSection(content, 'verify-secrets', generateVerifySecrets());
