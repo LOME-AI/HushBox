@@ -7,6 +7,7 @@ describe('createMockHelcimClient', () => {
     cardToken: 'test-token-123',
     amount: '10.00000000',
     paymentId: 'payment-uuid-123',
+    ipAddress: '192.168.1.1',
   };
 
   describe('isMock property', () => {

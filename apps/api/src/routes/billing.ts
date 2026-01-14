@@ -30,11 +30,11 @@ import {
   ERROR_UNAUTHORIZED,
 } from '../constants/errors.js';
 import { requireAuth } from '../middleware/require-auth.js';
+import { getClientIp } from '../lib/client-ip.js';
 import type { AppEnv } from '../types.js';
 
 const errorSchema = errorResponseSchema;
 
-// Route definitions
 const getBalanceRoute = createRoute({
   method: 'get',
   path: '/balance',
@@ -166,10 +166,8 @@ const getPaymentStatusRoute = createRoute({
 export function createBillingRoutes(): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>();
 
-  // All billing routes require authentication
   app.use('*', requireAuth());
 
-  // GET /billing/balance - Get user's current balance
   app.openapi(getBalanceRoute, async (c) => {
     const user = c.get('user');
     if (!user) {
@@ -192,7 +190,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     return c.json(response, 200);
   });
 
-  // GET /billing/transactions - Get balance transaction history
   app.openapi(listTransactionsRoute, async (c) => {
     const user = c.get('user');
     if (!user) {
@@ -202,15 +199,12 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     const query = c.req.valid('query');
     const limit = query.limit;
 
-    // Build conditions array
     const conditions = [eq(balanceTransactions.userId, user.id)];
 
-    // Add type filter if provided
     if (query.type) {
       conditions.push(eq(balanceTransactions.type, query.type));
     }
 
-    // Add cursor filter if provided
     if (query.cursor) {
       const cursorDate = new Date(query.cursor);
       conditions.push(lt(balanceTransactions.createdAt, cursorDate));
@@ -223,7 +217,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       .orderBy(desc(balanceTransactions.createdAt))
       .limit(limit + 1);
 
-    // Apply offset if provided (for offset-based pagination)
     const results =
       query.offset !== undefined ? await baseQuery.offset(query.offset) : await baseQuery;
 
@@ -244,7 +237,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     return c.json(response, 200);
   });
 
-  // POST /billing/payments - Create a new payment record
   app.openapi(createPaymentRoute, async (c) => {
     const user = c.get('user');
     if (!user) {
@@ -253,7 +245,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
     const body = c.req.valid('json');
 
-    // Create payment record BEFORE any processing
     const [payment] = await db
       .insert(payments)
       .values({
@@ -274,7 +265,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     return c.json(response, 201);
   });
 
-  // POST /billing/payments/:id/process - Process payment with card token
   app.openapi(processPaymentRoute, async (c) => {
     const user = c.get('user');
     if (!user) {
@@ -285,7 +275,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     const { id: paymentId } = c.req.valid('param');
     const body = c.req.valid('json');
 
-    // Find payment and verify ownership
     const [payment] = await db
       .select()
       .from(payments)
@@ -299,7 +288,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       return c.json(createErrorResponse(ERROR_PAYMENT_ALREADY_PROCESSED, ERROR_CODE_CONFLICT), 400);
     }
 
-    // Check expiration (30 minutes)
     const ageMs = Date.now() - payment.createdAt.getTime();
     if (ageMs > PAYMENT_EXPIRATION_MS) {
       await db
@@ -314,16 +302,17 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       return c.json(createErrorResponse(ERROR_PAYMENT_EXPIRED, ERROR_CODE_EXPIRED), 400);
     }
 
-    // Call Helcim with payment.id as idempotency key
+    const ipAddress = getClientIp(c, '0.0.0.0');
+
     const result = await helcim.processPayment({
       cardToken: body.cardToken,
       amount: payment.amount,
       paymentId: payment.id,
+      ipAddress,
     });
 
     if (result.status === 'approved') {
       if (helcim.isMock) {
-        // Mock mode: skip webhook, credit immediately
         const creditResult = await creditUserBalance(db, {
           userId: user.id,
           amount: payment.amount,
@@ -337,7 +326,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
         });
 
         if (!creditResult) {
-          // Payment already processed (idempotent - return success)
           return c.json(
             createErrorResponse(ERROR_PAYMENT_ALREADY_PROCESSED, ERROR_CODE_CONFLICT),
             400
@@ -352,7 +340,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
         return c.json(response, 200);
       }
 
-      // Real mode: await webhook
       const transactionId = result.transactionId ?? '';
       await db
         .update(payments)
@@ -372,7 +359,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       return c.json(response, 200);
     }
 
-    // Payment declined
     await db
       .update(payments)
       .set({
@@ -391,7 +377,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     );
   });
 
-  // GET /billing/payments/:id - Poll payment status
   app.openapi(getPaymentStatusRoute, async (c) => {
     const user = c.get('user');
     if (!user) {

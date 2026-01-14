@@ -74,4 +74,41 @@ describe('getClientIp', () => {
 
     expect(ip).toBe('unknown');
   });
+
+  it('returns cf-connecting-ip when present', () => {
+    const ctx = createMockContext({
+      'cf-connecting-ip': '203.0.113.42',
+    });
+
+    const ip = getClientIp(ctx);
+
+    expect(ip).toBe('203.0.113.42');
+  });
+
+  it('prioritizes cf-connecting-ip over x-forwarded-for', () => {
+    const ctx = createMockContext({
+      'cf-connecting-ip': '203.0.113.42',
+      'x-forwarded-for': '198.51.100.1',
+    });
+
+    const ip = getClientIp(ctx);
+
+    expect(ip).toBe('203.0.113.42');
+  });
+
+  it('uses custom fallback when no headers present', () => {
+    const ctx = createMockContext({});
+
+    const ip = getClientIp(ctx, '0.0.0.0');
+
+    expect(ip).toBe('0.0.0.0');
+  });
+
+  it('uses default fallback when no custom fallback provided', () => {
+    const ctx = createMockContext({});
+
+    const ip = getClientIp(ctx);
+
+    expect(ip).toBe('unknown');
+  });
 });

@@ -359,6 +359,95 @@ describe('billing routes', () => {
       });
     });
 
+    it('passes client IP from cf-connecting-ip header to Helcim', async () => {
+      helcimClient.clearProcessedPayments();
+
+      const createRes = await app.request('/billing/payments', {
+        method: 'POST',
+        headers: {
+          Cookie: authCookie,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ amount: '5.00000000' }),
+      });
+
+      const createData = (await createRes.json()) as CreatePaymentResponse;
+      createdPaymentIds.push(createData.paymentId);
+
+      await app.request(`/billing/payments/${createData.paymentId}/process`, {
+        method: 'POST',
+        headers: {
+          Cookie: authCookie,
+          'Content-Type': 'application/json',
+          'cf-connecting-ip': '203.0.113.42',
+        },
+        body: JSON.stringify({ cardToken: 'test-token' }),
+      });
+
+      const processedPayments = helcimClient.getProcessedPayments();
+      expect(processedPayments.length).toBeGreaterThan(0);
+      expect(processedPayments[processedPayments.length - 1]?.ipAddress).toBe('203.0.113.42');
+    });
+
+    it('passes client IP from x-forwarded-for header when cf-connecting-ip is absent', async () => {
+      helcimClient.clearProcessedPayments();
+
+      const createRes = await app.request('/billing/payments', {
+        method: 'POST',
+        headers: {
+          Cookie: authCookie,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ amount: '5.00000000' }),
+      });
+
+      const createData = (await createRes.json()) as CreatePaymentResponse;
+      createdPaymentIds.push(createData.paymentId);
+
+      await app.request(`/billing/payments/${createData.paymentId}/process`, {
+        method: 'POST',
+        headers: {
+          Cookie: authCookie,
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '198.51.100.178, 70.41.3.18',
+        },
+        body: JSON.stringify({ cardToken: 'test-token' }),
+      });
+
+      const processedPayments = helcimClient.getProcessedPayments();
+      expect(processedPayments.length).toBeGreaterThan(0);
+      expect(processedPayments[processedPayments.length - 1]?.ipAddress).toBe('198.51.100.178');
+    });
+
+    it('uses fallback IP when no IP headers present', async () => {
+      helcimClient.clearProcessedPayments();
+
+      const createRes = await app.request('/billing/payments', {
+        method: 'POST',
+        headers: {
+          Cookie: authCookie,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ amount: '5.00000000' }),
+      });
+
+      const createData = (await createRes.json()) as CreatePaymentResponse;
+      createdPaymentIds.push(createData.paymentId);
+
+      await app.request(`/billing/payments/${createData.paymentId}/process`, {
+        method: 'POST',
+        headers: {
+          Cookie: authCookie,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ cardToken: 'test-token' }),
+      });
+
+      const processedPayments = helcimClient.getProcessedPayments();
+      expect(processedPayments.length).toBeGreaterThan(0);
+      expect(processedPayments[processedPayments.length - 1]?.ipAddress).toBe('0.0.0.0');
+    });
+
     it('rejects processing already processed payment', async () => {
       // Create and process a payment
       const createRes = await app.request('/billing/payments', {

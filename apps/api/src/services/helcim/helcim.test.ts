@@ -45,6 +45,7 @@ describe('createHelcimClient', () => {
         cardToken: 'test-token',
         amount: '10.00000000',
         paymentId: 'payment-123',
+        ipAddress: '192.168.1.1',
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
@@ -57,9 +58,12 @@ describe('createHelcimClient', () => {
             'idempotency-key': 'payment-123',
           },
           body: JSON.stringify({
-            cardToken: 'test-token',
             amount: 10,
             currency: 'USD',
+            ipAddress: '192.168.1.1',
+            cardData: {
+              cardToken: 'test-token',
+            },
           }),
         })
       );
@@ -82,6 +86,7 @@ describe('createHelcimClient', () => {
         cardToken: 'test-token',
         amount: '10.00000000',
         paymentId: 'payment-123',
+        ipAddress: '192.168.1.1',
       });
 
       expect(result.status).toBe('approved');
@@ -104,6 +109,7 @@ describe('createHelcimClient', () => {
         cardToken: 'test-token',
         amount: '10.00000000',
         paymentId: 'payment-123',
+        ipAddress: '192.168.1.1',
       });
 
       expect(result.status).toBe('declined');
@@ -127,6 +133,7 @@ describe('createHelcimClient', () => {
         cardToken: 'invalid-token',
         amount: '10.00000000',
         paymentId: 'payment-123',
+        ipAddress: '192.168.1.1',
       });
 
       expect(result.status).toBe('declined');
@@ -144,6 +151,7 @@ describe('createHelcimClient', () => {
         cardToken: 'test-token',
         amount: '10.00000000',
         paymentId: 'payment-123',
+        ipAddress: '192.168.1.1',
       });
 
       expect(result.status).toBe('declined');
@@ -165,6 +173,7 @@ describe('createHelcimClient', () => {
         cardToken: 'test-token',
         amount: '25.50000000',
         paymentId: 'payment-123',
+        ipAddress: '192.168.1.1',
       });
 
       const call = mockFetch.mock.calls[0] as [string, { body: string }] | undefined;

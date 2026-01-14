@@ -29,9 +29,12 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
           'idempotency-key': request.paymentId,
         },
         body: JSON.stringify({
-          cardToken: request.cardToken,
           amount: parseFloat(request.amount),
           currency: 'USD',
+          ipAddress: request.ipAddress,
+          cardData: {
+            cardToken: request.cardToken,
+          },
         }),
       });
 

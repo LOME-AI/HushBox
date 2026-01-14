@@ -2,6 +2,7 @@ export interface ProcessPaymentRequest {
   cardToken: string;
   amount: string; // USD amount as decimal string, e.g., "10.00000000"
   paymentId: string; // Used as idempotency key
+  ipAddress: string; // Required by Helcim API for card token purchases
 }
 
 export interface ProcessPaymentResponse {
