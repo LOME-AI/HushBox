@@ -122,10 +122,12 @@ describe('createHelcimClient', () => {
         ok: false,
         json: () =>
           Promise.resolve({
-            errors: [
-              { field: 'cardToken', message: 'Invalid card token' },
-              { field: 'amount', message: 'Invalid amount' },
-            ],
+            errors: {
+              ERR_INVALID_REQUEST: [
+                { code: 'ERR_INVALID_REQUEST', message: 'Invalid card token' },
+                { code: 'ERR_INVALID_REQUEST', message: 'Invalid amount' },
+              ],
+            },
           }),
       });
 
@@ -137,7 +139,8 @@ describe('createHelcimClient', () => {
       });
 
       expect(result.status).toBe('declined');
-      expect(result.errorMessage).toBe('Invalid card token, Invalid amount');
+      expect(result.errorMessage).toContain('Invalid card token');
+      expect(result.errorMessage).toContain('Invalid amount');
     });
 
     it('returns default error message when no specific message provided', async () => {

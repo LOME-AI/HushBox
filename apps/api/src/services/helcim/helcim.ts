@@ -2,18 +2,32 @@ import type { HelcimClient, ProcessPaymentRequest, ProcessPaymentResponse } from
 
 const HELCIM_API_URL = 'https://api.helcim.com/v2/payment/purchase';
 
+interface HelcimErrorDetail {
+  code: string;
+  message: string;
+  source?: string;
+  data?: string;
+}
+
 interface HelcimApiResponse {
   transactionId?: number;
   approvalCode?: string;
   responseMessage?: string;
   cardNumber?: string;
   cardType?: string;
-  errors?: { field: string; message: string }[];
+  errors?: Record<string, HelcimErrorDetail[]>;
 }
 
 interface HelcimClientConfig {
   apiToken: string;
   webhookVerifier: string;
+}
+
+function extractHelcimErrors(errors: Record<string, HelcimErrorDetail[]>): string {
+  return Object.values(errors)
+    .flat()
+    .map((e) => e.message)
+    .join(', ');
 }
 
 export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
@@ -49,9 +63,10 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
         };
       }
 
-      // Payment declined or error
       const errorMessage =
-        data.responseMessage ?? data.errors?.map((e) => e.message).join(', ') ?? 'Payment declined';
+        data.responseMessage ??
+        (data.errors ? extractHelcimErrors(data.errors) : null) ??
+        'Payment declined';
 
       return {
         status: 'declined',
