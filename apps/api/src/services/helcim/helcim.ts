@@ -35,6 +35,18 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
     isMock: false,
 
     async processPayment(request: ProcessPaymentRequest): Promise<ProcessPaymentResponse> {
+      const requestBody = {
+        amount: parseFloat(request.amount),
+        currency: 'USD',
+        ipAddress: request.ipAddress,
+        customerCode: request.customerCode,
+        cardData: {
+          cardToken: request.cardToken,
+        },
+      };
+
+      console.log('[Helcim] Purchase request:', JSON.stringify(requestBody, null, 2));
+
       const response = await fetch(HELCIM_API_URL, {
         method: 'POST',
         headers: {
@@ -42,18 +54,13 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
           'Content-Type': 'application/json',
           'idempotency-key': request.paymentId,
         },
-        body: JSON.stringify({
-          amount: parseFloat(request.amount),
-          currency: 'USD',
-          ipAddress: request.ipAddress,
-          customerCode: request.customerCode,
-          cardData: {
-            cardToken: request.cardToken,
-          },
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const data: HelcimApiResponse = await response.json();
+
+      console.log('[Helcim] Response status:', response.status);
+      console.log('[Helcim] Response body:', JSON.stringify(data, null, 2));
 
       if (response.ok && data.approvalCode) {
         return {
@@ -68,6 +75,8 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
         data.responseMessage ??
         (data.errors ? extractHelcimErrors(data.errors) : null) ??
         'Payment declined';
+
+      console.log('[Helcim] Payment declined. Error:', errorMessage);
 
       return {
         status: 'declined',
