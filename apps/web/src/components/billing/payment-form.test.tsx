@@ -724,6 +724,7 @@ describe('PaymentForm', () => {
       expect(mockProcessPayment.mutateAsync).toHaveBeenCalledWith({
         paymentId: 'pay_123',
         cardToken: 'mock-dev-token',
+        customerCode: 'mock-dev-customer',
       });
     });
 
