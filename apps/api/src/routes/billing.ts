@@ -372,7 +372,8 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     return c.json(
       createErrorResponse(
         result.errorMessage ?? ERROR_PAYMENT_DECLINED,
-        ERROR_CODE_PAYMENT_REQUIRED
+        ERROR_CODE_PAYMENT_REQUIRED,
+        result.debugInfo
       ),
       400
     );

@@ -12,6 +12,11 @@ export interface ProcessPaymentResponse {
   errorMessage?: string | undefined;
   cardType?: string | undefined;
   cardLastFour?: string | undefined;
+  /** Diagnostic info for debugging failed payments (only present on declined) */
+  debugInfo?: {
+    httpStatus: number;
+    responseBody: unknown;
+  };
 }
 
 export interface HelcimClient {
