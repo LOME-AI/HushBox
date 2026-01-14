@@ -161,9 +161,12 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     if (!resultsDiv) return;
 
     observerRef.current = new MutationObserver(() => {
-      // Only process if there's actual data in the response field
+      // Wait for both response and customerCode to be populated
+      // Helcim.js may populate fields sequentially, so we need to ensure
+      // all required fields are set before processing the result
       const responseEl = document.getElementById('response') as HTMLInputElement | null;
-      if (!responseEl?.value) return;
+      const customerCodeEl = document.getElementById('customerCode') as HTMLInputElement | null;
+      if (!responseEl?.value || !customerCodeEl?.value) return;
 
       const result = readHelcimResult();
       void handleTokenizationResult(result);
