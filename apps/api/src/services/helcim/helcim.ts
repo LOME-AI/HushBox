@@ -46,6 +46,7 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
           amount: parseFloat(request.amount),
           currency: 'USD',
           ipAddress: request.ipAddress,
+          customerCode: request.customerCode,
           cardData: {
             cardToken: request.cardToken,
           },

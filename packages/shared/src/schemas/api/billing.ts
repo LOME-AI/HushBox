@@ -29,9 +29,11 @@ export type CreatePaymentRequest = z.infer<typeof createPaymentRequestSchema>;
 
 /**
  * Request schema for processing a payment with a card token.
+ * customerCode is required as Helcim links card tokens to customers.
  */
 export const processPaymentRequestSchema = z.object({
   cardToken: z.string().min(1, 'Card token is required'),
+  customerCode: z.string().min(1, 'Customer code is required'),
 });
 
 export type ProcessPaymentRequest = z.infer<typeof processPaymentRequestSchema>;

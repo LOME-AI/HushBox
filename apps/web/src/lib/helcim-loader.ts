@@ -59,6 +59,7 @@ export interface HelcimTokenResult {
   cardToken?: string | undefined;
   cardType?: string | undefined;
   cardLastFour?: string | undefined;
+  customerCode?: string | undefined;
   errorMessage?: string | undefined;
 }
 
@@ -72,12 +73,14 @@ export function readHelcimResult(): HelcimTokenResult {
   const cardTokenEl = document.getElementById('cardToken') as HTMLInputElement | null;
   const cardTypeEl = document.getElementById('cardType') as HTMLInputElement | null;
   const cardF4L4El = document.getElementById('cardF4L4') as HTMLInputElement | null;
+  const customerCodeEl = document.getElementById('customerCode') as HTMLInputElement | null;
 
   const response = responseEl?.value;
   const responseMessage = responseMessageEl?.value;
   const cardToken = cardTokenEl?.value;
   const cardType = cardTypeEl?.value;
   const cardF4L4 = cardF4L4El?.value;
+  const customerCode = customerCodeEl?.value;
 
   if (response === '1') {
     return {
@@ -85,6 +88,7 @@ export function readHelcimResult(): HelcimTokenResult {
       cardToken,
       cardType,
       cardLastFour: cardF4L4?.slice(-4),
+      customerCode,
     };
   }
 

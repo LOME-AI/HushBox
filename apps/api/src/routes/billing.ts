@@ -306,6 +306,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
 
     const result = await helcim.processPayment({
       cardToken: body.cardToken,
+      customerCode: body.customerCode,
       amount: payment.amount,
       paymentId: payment.id,
       ipAddress,

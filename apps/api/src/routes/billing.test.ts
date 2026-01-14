@@ -275,7 +275,7 @@ describe('billing routes', () => {
           Cookie: authCookie,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ cardToken: 'test-token' }),
+        body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
       });
 
       expect(res.status).toBe(404);
@@ -303,7 +303,7 @@ describe('billing routes', () => {
           Cookie: authCookie,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ cardToken: 'test-token-123' }),
+        body: JSON.stringify({ cardToken: 'test-token-123', customerCode: 'CST1234' }),
       });
 
       expect(processRes.status).toBe(200);
@@ -343,7 +343,7 @@ describe('billing routes', () => {
           Cookie: authCookie,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ cardToken: 'test-token-456' }),
+        body: JSON.stringify({ cardToken: 'test-token-456', customerCode: 'CST1234' }),
       });
 
       expect(processRes.status).toBe(400);
@@ -381,7 +381,7 @@ describe('billing routes', () => {
           'Content-Type': 'application/json',
           'cf-connecting-ip': '203.0.113.42',
         },
-        body: JSON.stringify({ cardToken: 'test-token' }),
+        body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
       });
 
       const processedPayments = helcimClient.getProcessedPayments();
@@ -411,7 +411,7 @@ describe('billing routes', () => {
           'Content-Type': 'application/json',
           'x-forwarded-for': '198.51.100.178, 70.41.3.18',
         },
-        body: JSON.stringify({ cardToken: 'test-token' }),
+        body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
       });
 
       const processedPayments = helcimClient.getProcessedPayments();
@@ -440,7 +440,7 @@ describe('billing routes', () => {
           Cookie: authCookie,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ cardToken: 'test-token' }),
+        body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
       });
 
       const processedPayments = helcimClient.getProcessedPayments();
@@ -469,7 +469,7 @@ describe('billing routes', () => {
           Cookie: authCookie,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ cardToken: 'test-token' }),
+        body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
       });
 
       // Try to process again
@@ -481,7 +481,7 @@ describe('billing routes', () => {
             Cookie: authCookie,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ cardToken: 'test-token' }),
+          body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
         }
       );
 
@@ -577,7 +577,7 @@ describe('billing routes', () => {
           Cookie: authCookie,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ cardToken: 'test-token' }),
+        body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
       });
 
       // Create a usage transaction directly in DB

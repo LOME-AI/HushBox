@@ -99,9 +99,9 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
         return;
       }
 
-      if (!result.cardToken || !paymentId) {
+      if (!result.cardToken || !result.customerCode || !paymentId) {
         setPaymentState('error');
-        setErrorMessage('Missing card token or payment ID');
+        setErrorMessage('Missing card token, customer code, or payment ID');
         return;
       }
 
@@ -109,6 +109,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
         const response = await processPayment.mutateAsync({
           paymentId,
           cardToken: result.cardToken,
+          customerCode: result.customerCode,
         });
 
         if (response.status === 'confirmed') {
@@ -189,6 +190,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
       const result = await processPayment.mutateAsync({
         paymentId: payment.paymentId,
         cardToken: 'mock-dev-token',
+        customerCode: 'mock-dev-customer',
       });
 
       if (result.status === 'confirmed') {
@@ -482,6 +484,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
                 <input type="hidden" id="cardToken" />
                 <input type="hidden" id="cardType" />
                 <input type="hidden" id="cardF4L4" />
+                <input type="hidden" id="customerCode" />
               </div>
             </>
           )}

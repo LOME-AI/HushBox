@@ -43,6 +43,7 @@ describe('createHelcimClient', () => {
 
       await client.processPayment({
         cardToken: 'test-token',
+        customerCode: 'CST1234',
         amount: '10.00000000',
         paymentId: 'payment-123',
         ipAddress: '192.168.1.1',
@@ -61,6 +62,7 @@ describe('createHelcimClient', () => {
             amount: 10,
             currency: 'USD',
             ipAddress: '192.168.1.1',
+            customerCode: 'CST1234',
             cardData: {
               cardToken: 'test-token',
             },
@@ -84,6 +86,7 @@ describe('createHelcimClient', () => {
 
       const result = await client.processPayment({
         cardToken: 'test-token',
+        customerCode: 'CST1234',
         amount: '10.00000000',
         paymentId: 'payment-123',
         ipAddress: '192.168.1.1',
@@ -107,6 +110,7 @@ describe('createHelcimClient', () => {
 
       const result = await client.processPayment({
         cardToken: 'test-token',
+        customerCode: 'CST1234',
         amount: '10.00000000',
         paymentId: 'payment-123',
         ipAddress: '192.168.1.1',
@@ -133,6 +137,7 @@ describe('createHelcimClient', () => {
 
       const result = await client.processPayment({
         cardToken: 'invalid-token',
+        customerCode: 'CST1234',
         amount: '10.00000000',
         paymentId: 'payment-123',
         ipAddress: '192.168.1.1',
@@ -152,6 +157,7 @@ describe('createHelcimClient', () => {
 
       const result = await client.processPayment({
         cardToken: 'test-token',
+        customerCode: 'CST1234',
         amount: '10.00000000',
         paymentId: 'payment-123',
         ipAddress: '192.168.1.1',
@@ -174,6 +180,7 @@ describe('createHelcimClient', () => {
 
       await client.processPayment({
         cardToken: 'test-token',
+        customerCode: 'CST1234',
         amount: '25.50000000',
         paymentId: 'payment-123',
         ipAddress: '192.168.1.1',

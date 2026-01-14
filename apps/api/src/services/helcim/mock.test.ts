@@ -5,6 +5,7 @@ import type { ProcessPaymentRequest, ProcessPaymentResponse } from './types.js';
 describe('createMockHelcimClient', () => {
   const testPayment: ProcessPaymentRequest = {
     cardToken: 'test-token-123',
+    customerCode: 'CST1234',
     amount: '10.00000000',
     paymentId: 'payment-uuid-123',
     ipAddress: '192.168.1.1',

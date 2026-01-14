@@ -1,5 +1,6 @@
 export interface ProcessPaymentRequest {
   cardToken: string;
+  customerCode: string; // Required: card tokens are linked to customer codes
   amount: string; // USD amount as decimal string, e.g., "10.00000000"
   paymentId: string; // Used as idempotency key
   ipAddress: string; // Required by Helcim API for card token purchases

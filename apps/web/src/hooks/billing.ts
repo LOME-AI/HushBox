@@ -82,15 +82,31 @@ export function useCreatePayment(): ReturnType<
 
 /**
  * Hook to process a payment with a card token.
+ * customerCode is required as Helcim links card tokens to customers.
  */
 export function useProcessPayment(): ReturnType<
-  typeof useMutation<ProcessPaymentResponse, Error, { paymentId: string; cardToken: string }>
+  typeof useMutation<
+    ProcessPaymentResponse,
+    Error,
+    { paymentId: string; cardToken: string; customerCode: string }
+  >
 > {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ paymentId, cardToken }: { paymentId: string; cardToken: string }) =>
-      api.post<ProcessPaymentResponse>(`billing/payments/${paymentId}/process`, { cardToken }),
+    mutationFn: ({
+      paymentId,
+      cardToken,
+      customerCode,
+    }: {
+      paymentId: string;
+      cardToken: string;
+      customerCode: string;
+    }) =>
+      api.post<ProcessPaymentResponse>(`billing/payments/${paymentId}/process`, {
+        cardToken,
+        customerCode,
+      }),
     onSuccess: (data) => {
       // Invalidate balance when payment is confirmed
       if (data.status === 'confirmed') {
