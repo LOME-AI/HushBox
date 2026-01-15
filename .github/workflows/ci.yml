@@ -79,13 +79,14 @@ jobs:
         if: matrix.project == 'chromium'
         run: |
           hookdeck ci --api-key $HOOKDECK_API_KEY
-          hookdeck listen 8787 --source helcim-sandbox --path /webhooks/payment --output quiet &
-          for i in {1..30}; do
-            if hookdeck whoami 2>/dev/null; then
-              echo "Hookdeck connected successfully"
+          hookdeck listen 8787 --source helcim-sandbox --path /webhooks/payment 2>&1 | tee /tmp/hookdeck.log &
+          for i in {1..60}; do
+            if grep -q "Dashboard" /tmp/hookdeck.log 2>/dev/null; then
+              echo "Hookdeck listener ready"
+              cat /tmp/hookdeck.log
               break
             fi
-            echo "Waiting for Hookdeck connection... ($i/30)"
+            echo "Waiting for Hookdeck listener... ($i/60)"
             sleep 1
           done
         env:
