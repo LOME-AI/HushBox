@@ -76,6 +76,7 @@ jobs:
         run: pnpm db:seed
 
       - name: Start Hookdeck listener
+        if: matrix.project == 'chromium'
         run: |
           hookdeck ci --api-key $HOOKDECK_API_KEY
           hookdeck listen 8787 --source helcim-sandbox --path /webhooks/payment --output quiet &
@@ -94,6 +95,7 @@ jobs:
         run: pnpm e2e --project=${{ matrix.project }}
         env:
           CI: true
+          SKIP_WEBHOOK_TESTS: ${{ matrix.project != 'chromium' && 'true' || '' }}
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4

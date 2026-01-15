@@ -88,6 +88,8 @@ test.describe('Billing & Payments', () => {
     // Only run in CI where real Helcim sandbox credentials are available
     // Local dev uses simulate buttons instead
     test.skip(!isCI, 'Helcim sandbox tests only run in CI');
+    // Only run on chromium - webhooks only delivered to one CLI listener
+    test.skip(() => !!process.env.SKIP_WEBHOOK_TESTS, 'Webhook tests only run on chromium runner');
 
     // Increase timeout for real payment tests (webhook may take time)
     test.setTimeout(60000);
