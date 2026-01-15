@@ -48,8 +48,8 @@ describe('getHelcimClient', () => {
       const client = getHelcimClient({
         NODE_ENV: 'development',
         CI: 'true',
-        HELCIM_API_TOKEN: 'token',
-        HELCIM_WEBHOOK_VERIFIER: 'verifier',
+        HELCIM_API_TOKEN: 'test-api-token-valid',
+        HELCIM_WEBHOOK_VERIFIER: 'test-verifier-valid',
       });
       expect(client.isMock).toBe(false);
     });
@@ -77,8 +77,8 @@ describe('getHelcimClient', () => {
     it('returns real client when credentials are provided', () => {
       const client = getHelcimClient({
         NODE_ENV: 'production',
-        HELCIM_API_TOKEN: 'token',
-        HELCIM_WEBHOOK_VERIFIER: 'verifier',
+        HELCIM_API_TOKEN: 'test-api-token-valid',
+        HELCIM_WEBHOOK_VERIFIER: 'test-verifier-valid',
       });
       expect(client.isMock).toBe(false);
     });

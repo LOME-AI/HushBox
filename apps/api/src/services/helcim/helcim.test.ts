@@ -19,6 +19,38 @@ describe('createHelcimClient', () => {
     vi.restoreAllMocks();
   });
 
+  describe('validation', () => {
+    it('throws if apiToken is missing', () => {
+      expect(() =>
+        createHelcimClient({ apiToken: '', webhookVerifier: config.webhookVerifier })
+      ).toThrow('Helcim API token is not configured');
+    });
+
+    it('throws if apiToken is only whitespace', () => {
+      expect(() =>
+        createHelcimClient({ apiToken: '   ', webhookVerifier: config.webhookVerifier })
+      ).toThrow('Helcim API token is empty');
+    });
+
+    it('throws if apiToken is too short', () => {
+      expect(() =>
+        createHelcimClient({ apiToken: 'short', webhookVerifier: config.webhookVerifier })
+      ).toThrow('Helcim API token appears invalid (too short)');
+    });
+
+    it('throws if webhookVerifier is missing', () => {
+      expect(() => createHelcimClient({ apiToken: config.apiToken, webhookVerifier: '' })).toThrow(
+        'Helcim webhook verifier is not configured'
+      );
+    });
+
+    it('throws if webhookVerifier is only whitespace', () => {
+      expect(() =>
+        createHelcimClient({ apiToken: config.apiToken, webhookVerifier: '   ' })
+      ).toThrow('Helcim webhook verifier is empty');
+    });
+  });
+
   describe('isMock property', () => {
     it('returns false for real client', () => {
       const client = createHelcimClient(config);
@@ -56,6 +88,7 @@ describe('createHelcimClient', () => {
           headers: {
             'api-token': 'test-api-token',
             'Content-Type': 'application/json',
+            accept: 'application/json',
             'idempotency-key': 'payment-123',
           },
           body: JSON.stringify({
