@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { generateEnvFiles, updateCiWorkflow, parseArgs } from './generate-env.js';
+import { generateEnvFiles, updateCiWorkflow, parseArgs, escapeEnvValue } from './generate-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEST_DIR = resolve(__dirname, '__test-fixtures__');
@@ -53,11 +53,11 @@ port = 8787
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, 'apps/api/.dev.vars'), 'utf-8');
-      expect(content).toContain('NODE_ENV=development');
-      expect(content).toContain('BETTER_AUTH_URL=http://localhost:8787');
-      expect(content).toContain('FRONTEND_URL=http://localhost:5173');
-      expect(content).toContain('DATABASE_URL=');
-      expect(content).toContain('BETTER_AUTH_SECRET=');
+      expect(content).toContain('NODE_ENV="development"');
+      expect(content).toContain('BETTER_AUTH_URL="http://localhost:8787"');
+      expect(content).toContain('FRONTEND_URL="http://localhost:5173"');
+      expect(content).toContain('DATABASE_URL="');
+      expect(content).toContain('BETTER_AUTH_SECRET="');
     });
 
     it('does not include CI/prod secrets in development mode', () => {
@@ -103,7 +103,7 @@ port = 8787
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, '.env.development'), 'utf-8');
-      expect(content).toContain('VITE_API_URL=http://localhost:8787');
+      expect(content).toContain('VITE_API_URL="http://localhost:8787"');
     });
 
     it('does NOT include backend vars', () => {
@@ -155,7 +155,7 @@ port = 8787
 
       const content = readFileSync(join(TEST_DIR, '.env.scripts'), 'utf-8');
       expect(content).toContain(
-        'MIGRATION_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lome_chat'
+        'MIGRATION_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/lome_chat"'
       );
     });
 
@@ -163,7 +163,7 @@ port = 8787
       generateEnvFiles(TEST_DIR);
 
       const content = readFileSync(join(TEST_DIR, '.env.scripts'), 'utf-8');
-      expect(content).toContain('DATABASE_URL=postgres://');
+      expect(content).toContain('DATABASE_URL="postgres://');
     });
 
     it('does not include frontend vars', () => {
@@ -261,16 +261,16 @@ port = 8787
       generateEnvFiles(TEST_DIR, 'ciE2E');
 
       const content = readFileSync(join(TEST_DIR, 'apps/api/.dev.vars'), 'utf-8');
-      expect(content).toContain('CI=true');
-      expect(content).toContain('E2E=true');
+      expect(content).toContain('CI="true"');
+      expect(content).toContain('E2E="true"');
     });
 
     it('includes ciE2E secrets from process.env in .dev.vars', () => {
       generateEnvFiles(TEST_DIR, 'ciE2E');
 
       const content = readFileSync(join(TEST_DIR, 'apps/api/.dev.vars'), 'utf-8');
-      expect(content).toContain('HELCIM_API_TOKEN=test-helcim-token');
-      expect(content).toContain('HELCIM_WEBHOOK_VERIFIER=test-helcim-verifier');
+      expect(content).toContain('HELCIM_API_TOKEN="test-helcim-token"');
+      expect(content).toContain('HELCIM_WEBHOOK_VERIFIER="test-helcim-verifier"');
       // RESEND and OPENROUTER should NOT be present (not in ciE2E)
       expect(content).not.toContain('RESEND_API_KEY');
       expect(content).not.toContain('OPENROUTER_API_KEY');
@@ -280,8 +280,8 @@ port = 8787
       generateEnvFiles(TEST_DIR, 'ciE2E');
 
       const content = readFileSync(join(TEST_DIR, '.env.development'), 'utf-8');
-      expect(content).toContain('VITE_HELCIM_JS_TOKEN=test-vite-helcim-token');
-      expect(content).toContain('VITE_CI=true');
+      expect(content).toContain('VITE_HELCIM_JS_TOKEN="test-vite-helcim-token"');
+      expect(content).toContain('VITE_CI="true"');
     });
 
     it('throws if required ciE2E secrets are missing', () => {
@@ -554,5 +554,47 @@ describe('parseArgs', () => {
 
   it('throws for empty mode', () => {
     expect(() => parseArgs(['--mode='])).toThrow('Invalid mode: . Valid modes:');
+  });
+});
+
+describe('escapeEnvValue', () => {
+  it('wraps simple values in double quotes', () => {
+    expect(escapeEnvValue('simple')).toBe('"simple"');
+  });
+
+  it('handles values with equals signs', () => {
+    expect(escapeEnvValue('abc123=xyz')).toBe('"abc123=xyz"');
+  });
+
+  it('handles values with hash characters (comments)', () => {
+    expect(escapeEnvValue('value#comment')).toBe('"value#comment"');
+  });
+
+  it('handles values with spaces', () => {
+    expect(escapeEnvValue('hello world')).toBe('"hello world"');
+  });
+
+  it('handles values with multiple special characters', () => {
+    expect(escapeEnvValue('abc=def#ghi jkl')).toBe('"abc=def#ghi jkl"');
+  });
+
+  it('escapes internal double quotes', () => {
+    expect(escapeEnvValue('say "hello"')).toBe('"say \\"hello\\""');
+  });
+
+  it('escapes backslashes', () => {
+    expect(escapeEnvValue('path\\to\\file')).toBe('"path\\\\to\\\\file"');
+  });
+
+  it('escapes backslashes before double quotes', () => {
+    expect(escapeEnvValue('value\\"quoted')).toBe('"value\\\\\\"quoted"');
+  });
+
+  it('handles empty values', () => {
+    expect(escapeEnvValue('')).toBe('""');
+  });
+
+  it('handles values with newlines', () => {
+    expect(escapeEnvValue('line1\nline2')).toBe('"line1\nline2"');
   });
 });

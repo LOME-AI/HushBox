@@ -14,6 +14,16 @@ import {
 } from '../packages/shared/src/env.config.js';
 
 /**
+ * Escape a value for dotenv format.
+ * Always double-quote and escape internal double-quotes and backslashes.
+ */
+export function escapeEnvValue(value: string): string {
+  // Escape backslashes first, then double quotes
+  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return `"${escaped}"`;
+}
+
+/**
  * Generate all environment files from the single source of truth (env.config.ts).
  *
  * Destinations:
@@ -48,7 +58,7 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
         // Return null if val is null (defensive, filtered out by subsequent .filter())
         /* istanbul ignore next -- @preserve defensive check */
         if (val === null) return null;
-        return `${key}=${val}`;
+        return `${key}=${escapeEnvValue(val)}`;
       })
       .filter((line): line is string => line !== null);
 
