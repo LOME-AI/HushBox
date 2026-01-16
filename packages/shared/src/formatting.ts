@@ -66,3 +66,29 @@ export function formatCost(cost: string | number): string {
   // For normal costs, show 4 decimal places
   return `$${numericCost.toFixed(4)}`;
 }
+
+/**
+ * Shorten a model name by removing version/date suffixes.
+ * Removes patterns like:
+ * - Date formats: -2024-08-06, -20240806
+ * - Version numbers: -1-5, -1-2-3-4
+ *
+ * Preserves names like GPT-4 where the number is part of the model name.
+ *
+ * @param name - The model name to shorten
+ * @returns Shortened model name with trailing date/version removed
+ */
+export function shortenModelName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  // Pattern matches trailing date/version suffixes:
+  // - Single group with 4+ digits (e.g., -20240806)
+  // - Multiple groups of digits (e.g., -2024-08-06, -1-5)
+  // Does NOT match single-digit suffixes like GPT-4
+  const versionDatePattern = /-(\d{4,}|\d+(-\d+)+)$/;
+
+  return trimmed.replace(versionDatePattern, '');
+}

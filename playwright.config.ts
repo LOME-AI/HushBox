@@ -37,23 +37,29 @@ export default defineConfig({
       name: 'setup',
       testMatch: /auth\.setup\.ts/,
     },
-    // Browser projects use test-alice's auth state by default
+    // Desktop browser projects run web/ and api/ tests only
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/test-alice.json' },
+      testDir: './e2e',
+      testIgnore: ['**/mobile/**'],
       dependencies: ['setup'],
     },
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'], storageState: 'e2e/.auth/test-alice.json' },
+      testDir: './e2e',
+      testIgnore: ['**/mobile/**'],
       dependencies: ['setup'],
     },
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'], storageState: 'e2e/.auth/test-alice.json' },
+      testDir: './e2e',
+      testIgnore: ['**/mobile/**'],
       dependencies: ['setup'],
     },
-    // Mobile devices
+    // Mobile device projects run all tests (including mobile-specific)
     {
       name: 'iphone-15',
       use: { ...devices['iPhone 15'], storageState: 'e2e/.auth/test-alice.json' },

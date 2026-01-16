@@ -2,9 +2,15 @@ import * as React from 'react';
 import { Search, ChevronUp, ChevronDown, Lock } from 'lucide-react';
 import { ModalOverlay, Input, Badge, Button, ScrollArea } from '@lome-chat/ui';
 import type { Model } from '@lome-chat/shared';
-import { formatNumber, getModelCostPer1k, isExpensiveModel } from '@lome-chat/shared';
+import {
+  formatNumber,
+  getModelCostPer1k,
+  isExpensiveModel,
+  shortenModelName,
+} from '@lome-chat/shared';
 import { applyFees, formatContextLength, formatPricePer1k } from '../../lib/format';
 import { getAccessibleModelIds } from '../../hooks/models';
+import { useIsMobile } from '../../hooks/use-is-mobile';
 
 type SortField = 'price' | 'context' | null;
 type SortDirection = 'asc' | 'desc';
@@ -39,6 +45,7 @@ export function ModelSelectorModal({
   isAuthenticated = true,
   onPremiumClick,
 }: ModelSelectorModalProps): React.JSX.Element {
+  const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = React.useState('');
   const [focusedModelId, setFocusedModelId] = React.useState(selectedId);
   const [sortField, setSortField] = React.useState<SortField>(null);
@@ -165,8 +172,23 @@ export function ModelSelectorModal({
     onOpenChange(false);
   }, [canAccessPremium, isFocusedPremium, focusedModelId, onPremiumClick, onSelect, onOpenChange]);
 
+  // Prevent auto-focus on mobile to avoid triggering keyboard
+  const handleOpenAutoFocus = React.useCallback(
+    (event: Event) => {
+      if (isMobile) {
+        event.preventDefault();
+      }
+    },
+    [isMobile]
+  );
+
   return (
-    <ModalOverlay open={open} onOpenChange={onOpenChange} ariaLabel="Select model">
+    <ModalOverlay
+      open={open}
+      onOpenChange={onOpenChange}
+      ariaLabel="Select model"
+      onOpenAutoFocus={handleOpenAutoFocus}
+    >
       <div
         className="bg-background flex h-[90vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg sm:h-[80vh]"
         data-testid="model-selector-modal"
@@ -407,7 +429,9 @@ export function ModelSelectorModal({
                         )}
 
                         <div className="relative flex items-center justify-between gap-2">
-                          <span className="truncate font-medium">{model.name}</span>
+                          <span className="truncate font-medium">
+                            {shortenModelName(model.name)}
+                          </span>
                           {showOverlay && (
                             <Lock
                               data-testid="lock-icon"

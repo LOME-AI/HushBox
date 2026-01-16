@@ -1,5 +1,17 @@
 @import '@lome-chat/config/tailwind';
 
+/* Prevent double scrolling on mobile - body never scrolls */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 /* Global scrollbar styling - matches Radix ScrollArea */
 * {
   scrollbar-width: thin;

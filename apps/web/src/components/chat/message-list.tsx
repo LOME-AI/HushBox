@@ -10,6 +10,8 @@ interface MessageListProps {
   onDocumentsExtracted?: (messageId: string, documents: Document[]) => void;
   viewportRef?: React.Ref<HTMLDivElement>;
   onScroll?: (event: React.UIEvent<HTMLDivElement>) => void;
+  /** Bottom padding in pixels to account for fixed input on mobile */
+  bottomPadding?: number | undefined;
 }
 
 export function MessageList({
@@ -18,6 +20,7 @@ export function MessageList({
   onDocumentsExtracted,
   viewportRef,
   onScroll,
+  bottomPadding,
 }: MessageListProps): React.JSX.Element {
   if (messages.length === 0) {
     return (
@@ -40,6 +43,7 @@ export function MessageList({
         aria-live="polite"
         aria-label="Chat messages"
         className="flex w-full flex-col py-4"
+        style={bottomPadding ? { paddingBottom: `${String(bottomPadding)}px` } : undefined}
       >
         {messages.map((message) => (
           <MessageItem

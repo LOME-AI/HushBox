@@ -17,9 +17,6 @@ import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
 import { useSession } from '@/lib/auth';
 
-/** Default model context when not provided */
-const DEFAULT_MODEL_CONTEXT = 4000;
-
 export interface PromptInputRef {
   focus: () => void;
 }
@@ -78,13 +75,13 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
 
   // Get selected model and pricing from stores/hooks
   const { selectedModelId } = useModelStore();
-  const { data: modelsData } = useModels();
+  const { data: modelsData, isLoading: isModelsLoading } = useModels();
   const { data: session, isPending: isSessionPending } = useSession();
   const isAuthenticated = !isSessionPending && Boolean(session?.user);
 
   // Find selected model to get pricing and context length
   const selectedModel = modelsData?.models.find((m) => m.id === selectedModelId);
-  const modelContextLength = selectedModel?.contextLength ?? DEFAULT_MODEL_CONTEXT;
+  const modelContextLength = selectedModel?.contextLength;
 
   // Calculate system prompt based on active capabilities
   const systemPrompt = React.useMemo(() => buildSystemPrompt(capabilities), [capabilities]);
@@ -100,13 +97,14 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
   // Calculate prompt character count for budget calculation
   const promptCharacterCount = systemPrompt.length + historyCharacters + value.length;
 
-  // Self-contained budget calculation - handles capacity, affordability, and errors
   const budgetResult = useBudgetCalculation({
     promptCharacterCount,
     modelInputPricePerToken: applyFees(selectedModel?.pricePerInputToken ?? 0),
     modelOutputPricePerToken: applyFees(selectedModel?.pricePerOutputToken ?? 0),
-    modelContextLength,
+    modelContextLength: modelContextLength ?? 0,
     isAuthenticated,
+    isAuthPending: isSessionPending,
+    isModelsLoading,
   });
 
   // Use capacity from budget result for consistency
@@ -169,8 +167,8 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
 
         <div className="border-border flex items-center justify-between gap-4 border-t px-3 py-2">
           <CapacityBar
-            currentUsage={currentUsage}
-            maxCapacity={modelContextLength}
+            currentUsage={modelContextLength ? currentUsage : 0}
+            maxCapacity={modelContextLength ?? 1}
             className="flex-1"
             data-testid="capacity-bar"
           />

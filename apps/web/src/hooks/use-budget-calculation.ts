@@ -20,6 +20,10 @@ export interface UseBudgetCalculationInput {
   modelContextLength: number;
   /** Whether the user is authenticated */
   isAuthenticated: boolean;
+  /** Whether auth state is still being determined */
+  isAuthPending?: boolean | undefined;
+  /** Whether models data is still loading */
+  isModelsLoading?: boolean | undefined;
 }
 
 /**
@@ -39,6 +43,9 @@ export function useBudgetCalculation(
 
   // Loading only applies when authenticated and waiting for balance
   const isBalanceLoading = input.isAuthenticated && isBalancePending;
+
+  // Tier is uncertain until auth settles AND (if authenticated) balance loads
+  const isTierUncertain = Boolean(input.isAuthPending) || isBalanceLoading;
 
   // Memoize balance state to avoid recalculation
   const balanceState = React.useMemo((): UserBalanceState | null => {
@@ -80,28 +87,47 @@ export function useBudgetCalculation(
     ]
   );
 
-  // Initialize with computed result, ALWAYS filtering tier-specific notices
-  // This prevents flash of incorrect tier notice on initial render
-  // The debounced effect will populate correct tier notices after data loads
+  // Initialize with computed result, ALWAYS filtering tier-specific notices and capacity errors
+  // This prevents flash of incorrect messages on initial render
+  // The debounced effect will populate correct messages after data loads
   const [debouncedResult, setDebouncedResult] = React.useState<BudgetCalculationResult>(() => {
     const result = computeResult();
     return {
       ...result,
-      errors: result.errors.filter((e) => e.id !== 'guest_notice' && e.id !== 'free_tier_notice'),
+      errors: result.errors.filter(
+        (e) =>
+          e.id !== 'guest_notice' && e.id !== 'free_tier_notice' && e.id !== 'capacity_exceeded'
+      ),
     };
   });
 
-  // Debounced calculation effect - runs on mount and when computeResult changes
-  // On mount, this populates tier notices that were filtered from initial state
+  // Debounced calculation effect - runs on mount and when inputs change
+  // Filters tier notices when user tier is uncertain (auth pending or balance loading)
+  // Filters capacity errors when models are still loading
   React.useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedResult(computeResult());
+      const result = computeResult();
+      const isModelsLoading = Boolean(input.isModelsLoading);
+
+      if (isTierUncertain || isModelsLoading) {
+        setDebouncedResult({
+          ...result,
+          errors: result.errors.filter(
+            (e) =>
+              e.id !== 'guest_notice' &&
+              e.id !== 'free_tier_notice' &&
+              !(isModelsLoading && e.id === 'capacity_exceeded')
+          ),
+        });
+      } else {
+        setDebouncedResult(result);
+      }
     }, DEBOUNCE_MS);
 
     return () => {
       clearTimeout(timer);
     };
-  }, [computeResult]);
+  }, [computeResult, isTierUncertain, input.isModelsLoading]);
 
   return { ...debouncedResult, isBalanceLoading };
 }

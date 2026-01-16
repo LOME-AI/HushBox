@@ -37,24 +37,29 @@ export function CapacityBar({
   className,
 }: CapacityBarProps): React.JSX.Element {
   const percentage = Math.round((currentUsage / maxCapacity) * 100);
-
-  // Cap the visual fill at 100% but show actual percentage in label
-  const fillWidth = Math.min(percentage, 100);
+  const targetWidth = Math.min(percentage, 100);
   const fillColor = getFillColor(percentage);
+
+  const [animatedWidth, setAnimatedWidth] = React.useState(0);
+
+  React.useEffect(() => {
+    const frameId = requestAnimationFrame(() => {
+      setAnimatedWidth(targetWidth);
+    });
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [targetWidth]);
 
   return (
     <div data-testid="capacity-bar" className={cn('flex items-center gap-2', className)}>
-      {/* Progress bar track */}
       <div data-testid="capacity-bar-track" className="bg-muted h-2 flex-1 overflow-hidden rounded">
-        {/* Fill */}
         <div
           data-testid="capacity-bar-fill"
           className={cn('h-full rounded transition-all duration-300', fillColor)}
-          style={{ width: `${String(fillWidth)}%` }}
+          style={{ width: `${String(animatedWidth)}%` }}
         />
       </div>
-
-      {/* Label */}
       <span className="text-muted-foreground text-sm whitespace-nowrap">
         Model {percentage}% filled
       </span>

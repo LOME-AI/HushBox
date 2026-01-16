@@ -124,4 +124,46 @@ describe('ModalOverlay', () => {
     expect(title).toBeInTheDocument();
     expect(title).toHaveClass('sr-only');
   });
+
+  it('calls onOpenAutoFocus when modal opens', async () => {
+    const onOpenAutoFocus = vi.fn();
+    render(
+      <ModalOverlay
+        open={true}
+        onOpenChange={vi.fn()}
+        ariaLabel="Test modal"
+        onOpenAutoFocus={onOpenAutoFocus}
+      >
+        <div>Modal content</div>
+      </ModalOverlay>
+    );
+
+    await waitFor(() => {
+      expect(onOpenAutoFocus).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('allows preventing auto-focus via onOpenAutoFocus', async () => {
+    const handleOpenAutoFocus = vi.fn((event: Event) => {
+      event.preventDefault();
+    });
+    render(
+      <ModalOverlay
+        open={true}
+        onOpenChange={vi.fn()}
+        ariaLabel="Test modal"
+        onOpenAutoFocus={handleOpenAutoFocus}
+      >
+        <input data-testid="test-input" />
+      </ModalOverlay>
+    );
+
+    await waitFor(() => {
+      expect(handleOpenAutoFocus).toHaveBeenCalled();
+    });
+
+    // The input should not be focused because we prevented the default behavior
+    const input = screen.getByTestId('test-input');
+    expect(input).not.toHaveFocus();
+  });
 });

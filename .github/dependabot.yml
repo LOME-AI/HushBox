@@ -1,0 +1,51 @@
+# Dependabot configuration for LOME-CHAT
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # npm/pnpm - handles all workspace packages automatically
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'monthly'
+    open-pull-requests-limit: 10
+    groups:
+      # Group all production dependency updates by type
+      production-minor-patch:
+        dependency-type: 'production'
+        update-types:
+          - 'minor'
+          - 'patch'
+      production-major:
+        dependency-type: 'production'
+        update-types:
+          - 'major'
+      # Group all development dependency updates together
+      development:
+        dependency-type: 'development'
+        update-types:
+          - 'minor'
+          - 'patch'
+          - 'major'
+
+  # Docker Compose - postgres and neon-proxy images
+  - package-ecosystem: 'docker-compose'
+    directory: '/'
+    schedule:
+      interval: 'monthly'
+    open-pull-requests-limit: 5
+    groups:
+      docker-images:
+        patterns:
+          - '*'
+
+  # GitHub Actions - ci.yml and backup.yml workflows
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'monthly'
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - '*'

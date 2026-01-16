@@ -11,6 +11,7 @@ import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
 import { useBalance } from '@/hooks/billing';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 
 interface NewChatPageProps {
   onSend: (message: string) => void;
@@ -36,6 +37,7 @@ export function NewChatPage({
   const [showSubtitle, setShowSubtitle] = React.useState(false);
   const promptInputRef = React.useRef<PromptInputRef>(null);
   const viewportHeight = useVisualViewportHeight();
+  const isMobile = useIsMobile();
 
   const { selectedModelId, selectedModelName, setSelectedModel } = useModelStore();
 
@@ -48,17 +50,23 @@ export function NewChatPage({
   const balance = parseFloat(balanceData?.balance ?? '0');
   const canAccessPremium = isAuthenticated && balance > 0;
 
-  // Get a greeting once on mount
-  const greeting = React.useMemo(() => getGreeting(isAuthenticated), [isAuthenticated]);
+  // Get a greeting once auth state is settled (prevents flash when isAuthenticated changes)
+  // Use null while loading, generate greeting only after isLoading becomes false
+  const greeting = React.useMemo(() => {
+    if (isLoading) return null;
+    return getGreeting(isAuthenticated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading]); // Intentionally exclude isAuthenticated - we only want to compute once after loading
 
-  // Auto-focus input when page finishes loading
+  // Auto-focus input when page finishes loading (desktop only)
+  // Skip on mobile to avoid triggering keyboard unexpectedly
   const prevIsLoadingRef = React.useRef(isLoading);
   React.useEffect(() => {
-    if (prevIsLoadingRef.current && !isLoading) {
+    if (prevIsLoadingRef.current && !isLoading && !isMobile) {
       promptInputRef.current?.focus();
     }
     prevIsLoadingRef.current = isLoading;
-  }, [isLoading]);
+  }, [isLoading, isMobile]);
 
   const handleSubmit = (): void => {
     if (inputValue.trim()) {
@@ -93,16 +101,21 @@ export function NewChatPage({
         onPremiumClick={onPremiumClick}
       />
 
-      <div className="flex flex-1 flex-col items-center justify-center px-4 py-4 sm:py-8">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-4 py-4 sm:py-8">
         <div className="w-full max-w-2xl space-y-4 sm:space-y-8">
           <div className="text-center">
             <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-              <TypingAnimation
-                text={greeting.title}
-                typingSpeed={75}
-                loop={false}
-                onComplete={handleTypingComplete}
-              />
+              {greeting ? (
+                <TypingAnimation
+                  text={greeting.title}
+                  typingSpeed={75}
+                  loop={false}
+                  onComplete={handleTypingComplete}
+                />
+              ) : (
+                // Invisible placeholder to prevent layout shift while loading
+                <span className="invisible">Loading...</span>
+              )}
             </h1>
 
             <motion.p
@@ -111,7 +124,7 @@ export function NewChatPage({
               transition={{ duration: 0.5, delay: 0.2 }}
               className="text-muted-foreground mt-4 text-lg"
             >
-              {greeting.subtitle}
+              {greeting?.subtitle ?? '\u00A0'}
             </motion.p>
           </div>
 

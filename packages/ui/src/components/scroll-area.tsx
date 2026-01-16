@@ -27,7 +27,7 @@ function ScrollArea({
         ref={viewportRef}
         onScroll={onScroll}
         data-slot="scroll-area-viewport"
-        className="focus-visible:ring-ring/50 size-full min-w-0 rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1"
+        className="focus-visible:ring-ring/50 size-full min-w-0 overscroll-y-contain rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1"
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

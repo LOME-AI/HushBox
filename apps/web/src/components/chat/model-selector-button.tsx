@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Button } from '@lome-chat/ui';
 import type { Model } from '@lome-chat/shared';
+import { shortenModelName } from '@lome-chat/shared';
 import { ModelSelectorModal } from './model-selector-modal';
 
 interface ModelSelectorButtonProps {
@@ -38,8 +39,8 @@ export function ModelSelectorButton({
   const [isOpen, setIsOpen] = React.useState(false);
 
   const selectedModel = models.find((m) => m.id === selectedId);
-  // Use model from list if available, otherwise fallback to stored name
-  const displayText = selectedModel?.name ?? selectedName ?? 'Select model';
+  const rawName = selectedModel?.name ?? selectedName ?? 'Select model';
+  const displayText = rawName === 'Select model' ? rawName : shortenModelName(rawName);
 
   const handleSelect = (modelId: string): void => {
     const model = models.find((m) => m.id === modelId);

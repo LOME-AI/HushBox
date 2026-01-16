@@ -41,7 +41,7 @@ export function SignupModal({
     <ModalOverlay open={open} onOpenChange={onOpenChange} ariaLabel={ariaLabel}>
       <div
         data-testid="signup-modal"
-        className="bg-background w-full max-w-md rounded-lg border p-6 shadow-lg"
+        className="bg-background w-[90vw] max-w-md rounded-lg border p-6 shadow-lg"
       >
         <h2 className="mb-4 text-xl font-semibold">
           {isRateLimit ? 'Continue Chatting for Free' : 'Unlock Premium Models'}

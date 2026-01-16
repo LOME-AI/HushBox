@@ -151,6 +151,52 @@ describe('useBudgetCalculation', () => {
       // Balance is loaded, no longer loading
       expect(result.current.isBalanceLoading).toBe(false);
     });
+
+    it('filters tier notices when isAuthPending is true', () => {
+      mockUseBalance.mockReturnValue({
+        data: undefined,
+        isPending: false,
+      } as UseQueryResult<GetBalanceResponse>);
+
+      const { result } = renderHook(() =>
+        useBudgetCalculation({
+          ...defaultInput,
+          isAuthenticated: false,
+          isAuthPending: true,
+        })
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      const hasTierNotice = result.current.errors.some(
+        (e) => e.id === 'guest_notice' || e.id === 'free_tier_notice'
+      );
+      expect(hasTierNotice).toBe(false);
+    });
+
+    it('shows tier notices after auth and balance settle', () => {
+      mockUseBalance.mockReturnValue({
+        data: { balance: '0.00000000', freeAllowanceCents: 500 },
+        isPending: false,
+      } as UseQueryResult<GetBalanceResponse>);
+
+      const { result } = renderHook(() =>
+        useBudgetCalculation({
+          ...defaultInput,
+          isAuthenticated: true,
+          isAuthPending: false,
+        })
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      const hasFreeTierNotice = result.current.errors.some((e) => e.id === 'free_tier_notice');
+      expect(hasFreeTierNotice).toBe(true);
+    });
   });
 
   describe('debouncing', () => {

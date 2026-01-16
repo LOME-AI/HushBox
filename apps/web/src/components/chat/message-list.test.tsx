@@ -158,4 +158,21 @@ describe('MessageList', () => {
       expect(handleScroll).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('mobile fixed input support', () => {
+    it('applies bottomPadding style when provided', () => {
+      render(<MessageList messages={messages} bottomPadding={80} />);
+
+      const log = screen.getByRole('log');
+      expect(log).toHaveStyle({ paddingBottom: '80px' });
+    });
+
+    it('does not apply bottomPadding style when undefined', () => {
+      render(<MessageList messages={messages} bottomPadding={undefined} />);
+
+      const log = screen.getByRole('log');
+      // Default py-4 class provides default padding
+      expect(log).not.toHaveStyle({ paddingBottom: '80px' });
+    });
+  });
 });

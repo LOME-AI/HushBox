@@ -263,7 +263,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
 
   if (paymentState === 'success') {
     return (
-      <Card className="w-full max-w-md">
+      <Card className="w-[90vw] max-w-md">
         <CardHeader>
           <CardTitle>Payment Successful</CardTitle>
           <CardDescription>Your deposit has been processed</CardDescription>
@@ -285,7 +285,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
 
   if (paymentState === 'error') {
     return (
-      <Card className="w-full max-w-md">
+      <Card className="w-[90vw] max-w-md">
         <CardHeader>
           <CardTitle>Payment Failed</CardTitle>
           <CardDescription>We couldn&apos;t process your payment</CardDescription>
@@ -317,7 +317,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
   }
 
   return (
-    <Card className="w-full max-w-md">
+    <Card className="w-[90vw] max-w-md">
       <CardHeader>
         <CardTitle>Add Credits</CardTitle>
         <CardDescription>Enter amount and card details</CardDescription>

@@ -12,6 +12,8 @@ interface ModalOverlayProps {
   className?: string;
   /** Accessible label for screen readers. Required for accessibility. */
   ariaLabel: string;
+  /** Callback when modal opens before auto-focus. Prevent default to disable auto-focus. */
+  onOpenAutoFocus?: (event: Event) => void;
 }
 
 /**
@@ -24,6 +26,7 @@ function ModalOverlay({
   children,
   className,
   ariaLabel,
+  onOpenAutoFocus,
 }: ModalOverlayProps): React.JSX.Element {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -45,6 +48,7 @@ function ModalOverlay({
             'fixed top-[50%] left-[50%] z-50 translate-x-[-50%] translate-y-[-50%] outline-none',
             className
           )}
+          onOpenAutoFocus={onOpenAutoFocus}
         >
           <DialogPrimitive.Title className="sr-only">{ariaLabel}</DialogPrimitive.Title>
           {children}

@@ -24,6 +24,8 @@ import { useModelStore } from '@/stores/model';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useModels } from '@/hooks/models';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
+import { useKeyboardOffset } from '@/hooks/use-keyboard-offset';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { useInteractionTracker } from '@/hooks/use-interaction-tracker';
 import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
@@ -54,6 +56,14 @@ function ChatConversation(): React.JSX.Element {
   const isNewChat = conversationId === 'new';
   const queryClient = useQueryClient();
   const viewportHeight = useVisualViewportHeight();
+  const isMobile = useIsMobile();
+  const { bottom: keyboardOffset, isKeyboardVisible } = useKeyboardOffset();
+
+  // Fixed input height for mobile (input container height + safe area)
+  const MOBILE_INPUT_HEIGHT = 80;
+
+  // Calculate mobile bottom padding: input height + 1/6 viewport for comfortable scrolling
+  const mobileBottomPadding = MOBILE_INPUT_HEIGHT + Math.floor(viewportHeight / 6);
 
   const { data: session } = useSession();
   const isAuthenticated = Boolean(session?.user);
@@ -141,7 +151,9 @@ function ChatConversation(): React.JSX.Element {
 
   React.useEffect(() => {
     if (wasStreamingRef.current && !isStreaming) {
-      const shouldFocus = shouldFocusAfterStreamingRef.current && !hasInteractedRef.current;
+      // Don't auto-focus on mobile - it triggers the keyboard which is disruptive
+      const shouldFocus =
+        !isMobile && shouldFocusAfterStreamingRef.current && !hasInteractedRef.current;
 
       if (shouldFocus) {
         requestAnimationFrame(() => {
@@ -153,14 +165,15 @@ function ChatConversation(): React.JSX.Element {
       shouldFocusAfterStreamingRef.current = false;
     }
     wasStreamingRef.current = isStreaming;
-  }, [isStreaming, hasInteractedRef]);
+  }, [isStreaming, hasInteractedRef, isMobile]);
 
   // Focus input when arriving on a newly-created conversation
   // (streaming completed in chat.new, we're arriving with cached data)
+  // Skip on mobile to avoid triggering keyboard unexpectedly
   const hasInitialFocusedRef = React.useRef(false);
 
   React.useEffect(() => {
-    if (hasInitialFocusedRef.current) return;
+    if (hasInitialFocusedRef.current || isMobile) return;
 
     // If not loading, not streaming, and we have messages, focus the input
     // This handles arrival from /chat/new where streaming already completed
@@ -172,7 +185,7 @@ function ChatConversation(): React.JSX.Element {
         });
       });
     }
-  }, [isLoading, isStreaming, allMessages.length]);
+  }, [isLoading, isStreaming, allMessages.length, isMobile]);
 
   React.useEffect(() => {
     if (!triggerStreaming) {
@@ -412,12 +425,28 @@ function ChatConversation(): React.JSX.Element {
               onDocumentsExtracted={handleDocumentsExtracted}
               viewportRef={viewportRef}
               onScroll={handleScroll}
+              bottomPadding={isMobile ? mobileBottomPadding : undefined}
             />
           )}
         </div>
         <DocumentPanel documents={allDocuments} />
       </div>
-      <div className="flex-shrink-0 border-t p-4">
+      <div
+        className="bg-background flex-shrink-0 border-t p-4"
+        style={
+          isMobile
+            ? {
+                position: 'fixed',
+                left: 0,
+                right: 0,
+                bottom: `${String(keyboardOffset)}px`,
+                paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))',
+                transition: isKeyboardVisible ? 'none' : 'bottom 0.2s ease-out',
+                zIndex: 10,
+              }
+            : undefined
+        }
+      >
         <PromptInput
           ref={promptInputRef}
           value={inputValue}

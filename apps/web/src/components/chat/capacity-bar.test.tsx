@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, act } from '@testing-library/react';
 import { CapacityBar } from './capacity-bar';
 
 describe('CapacityBar', () => {
@@ -63,22 +63,45 @@ describe('CapacityBar', () => {
   });
 
   describe('fill width', () => {
-    it('sets fill width based on percentage', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('sets fill width based on percentage after animation', async () => {
       render(<CapacityBar currentUsage={5000} maxCapacity={10000} />);
       const fill = screen.getByTestId('capacity-bar-fill');
+
+      await act(async () => {
+        await vi.advanceTimersToNextTimerAsync();
+      });
+
       expect(fill).toHaveStyle({ width: '50%' });
     });
 
-    it('caps fill width at 100% when over capacity', () => {
+    it('caps fill width at 100% when over capacity', async () => {
       render(<CapacityBar currentUsage={15000} maxCapacity={10000} />);
       const fill = screen.getByTestId('capacity-bar-fill');
+
+      await act(async () => {
+        await vi.advanceTimersToNextTimerAsync();
+      });
+
       // Should not exceed 100%
       expect(fill).toHaveStyle({ width: '100%' });
     });
 
-    it('shows 0% width when currentUsage is 0', () => {
+    it('shows 0% width when currentUsage is 0', async () => {
       render(<CapacityBar currentUsage={0} maxCapacity={10000} />);
       const fill = screen.getByTestId('capacity-bar-fill');
+
+      await act(async () => {
+        await vi.advanceTimersToNextTimerAsync();
+      });
+
       expect(fill).toHaveStyle({ width: '0%' });
     });
   });
@@ -106,9 +129,67 @@ describe('CapacityBar', () => {
     });
   });
 
-  describe('styling', () => {
-    it('has correct bar structure', () => {
+  describe('animation', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('starts at 0% width and animates to target', async () => {
       render(<CapacityBar currentUsage={5000} maxCapacity={10000} />);
+      const fill = screen.getByTestId('capacity-bar-fill');
+
+      // Initially should be 0%
+      expect(fill).toHaveStyle({ width: '0%' });
+
+      // After animation frame, should animate to target
+      await act(async () => {
+        await vi.advanceTimersToNextTimerAsync();
+      });
+
+      expect(fill).toHaveStyle({ width: '50%' });
+    });
+
+    it('animates when capacity changes', async () => {
+      const { rerender } = render(<CapacityBar currentUsage={3000} maxCapacity={10000} />);
+      const fill = screen.getByTestId('capacity-bar-fill');
+
+      // Advance to get initial animation
+      await act(async () => {
+        await vi.advanceTimersToNextTimerAsync();
+      });
+      expect(fill).toHaveStyle({ width: '30%' });
+
+      // Update capacity
+      rerender(<CapacityBar currentUsage={7000} maxCapacity={10000} />);
+
+      // After animation frame, should update to new target
+      await act(async () => {
+        await vi.advanceTimersToNextTimerAsync();
+      });
+      expect(fill).toHaveStyle({ width: '70%' });
+    });
+  });
+
+  describe('styling', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('has correct bar structure', async () => {
+      render(<CapacityBar currentUsage={5000} maxCapacity={10000} />);
+
+      // Advance timers for animation
+      await act(async () => {
+        await vi.advanceTimersToNextTimerAsync();
+      });
 
       // Background track
       const track = screen.getByTestId('capacity-bar-track');
