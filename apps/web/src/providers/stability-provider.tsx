@@ -19,7 +19,7 @@ interface StabilityProviderProps {
 
 export function StabilityProvider({ children }: StabilityProviderProps): React.JSX.Element {
   const { data: session, isPending: isSessionPending } = useSession();
-  const { data: balanceData, isPending: isBalancePending } = useBalance();
+  const { data: balanceData } = useBalance();
 
   const isAuthenticated = Boolean(session?.user);
 
@@ -28,8 +28,8 @@ export function StabilityProvider({ children }: StabilityProviderProps): React.J
 
   // Balance is stable when:
   // - User is guest (no balance to load), OR
-  // - User is authenticated AND balance query finished AND we have data
-  const isBalanceStable = !isAuthenticated || (!isBalancePending && Boolean(balanceData));
+  // - User is authenticated AND we have balance data (cached or fresh)
+  const isBalanceStable = !isAuthenticated || Boolean(balanceData);
 
   // App is stable when all core queries settle
   const isAppStable = isAuthStable && isBalanceStable;
