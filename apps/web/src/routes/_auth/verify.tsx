@@ -4,7 +4,7 @@ import { createFileRoute, useSearch, useNavigate } from '@tanstack/react-router'
 import { toast } from '@lome-chat/ui';
 import { authClient } from '@/lib/auth';
 
-type VerifyState = 'loading' | 'success' | 'error' | 'no-token';
+type VerifyState = 'loading' | 'success' | 'error';
 
 export const Route = createFileRoute('/_auth/verify')({
   component: VerifyPage,
@@ -19,10 +19,7 @@ export function VerifyPage(): React.JSX.Element {
   const token = (search as { token?: string }).token;
 
   useEffect(() => {
-    if (!token) {
-      setState('no-token');
-      return;
-    }
+    if (!token) return;
 
     // Token is validated above, capture it for the async closure
     const verificationToken = token;
@@ -49,7 +46,7 @@ export function VerifyPage(): React.JSX.Element {
     void verify();
   }, [token, navigate]);
 
-  if (state === 'no-token') {
+  if (!token) {
     return (
       <div className="text-center">
         <h1 className="text-foreground mb-2 text-3xl font-bold">No verification token</h1>

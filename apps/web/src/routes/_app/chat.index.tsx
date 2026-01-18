@@ -47,7 +47,9 @@ export function ChatIndex(): React.JSX.Element {
 
   // Ref to get latest session at call time - avoids stale closure in handleSend
   const sessionRef = React.useRef(session);
-  sessionRef.current = session;
+  React.useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   // Routes to /chat/new for authenticated users, /chat/guest for guests
   const handleSend = React.useCallback(

@@ -25,7 +25,8 @@ export function MermaidDiagram({ chart, className }: MermaidDiagramProps): React
   const [svg, setSvg] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const idRef = React.useRef(`mermaid-${Math.random().toString(36).slice(2, 11)}`);
+  const reactId = React.useId();
+  const id = `mermaid-${reactId.replace(/:/g, '')}`;
 
   React.useEffect(() => {
     let mounted = true;
@@ -33,7 +34,7 @@ export function MermaidDiagram({ chart, className }: MermaidDiagramProps): React
     const renderDiagram = async (): Promise<void> => {
       try {
         initializeMermaid();
-        const { svg: renderedSvg } = await mermaid.render(idRef.current, chart);
+        const { svg: renderedSvg } = await mermaid.render(id, chart);
 
         if (mounted) {
           setSvg(renderedSvg);
@@ -54,7 +55,7 @@ export function MermaidDiagram({ chart, className }: MermaidDiagramProps): React
     return () => {
       mounted = false;
     };
-  }, [chart]);
+  }, [chart, id]);
 
   if (loading) {
     return (
