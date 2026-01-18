@@ -18,10 +18,10 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20251221.0",
+    "@cloudflare/workers-types": "^4.20260117.0",
     "@lome-chat/config": "workspace:*",
     "typescript": "^5.7.2",
-    "vitest": "^4.0.16",
-    "wrangler": "^4.56.0"
+    "vitest": "^4.0.17",
+    "wrangler": "^4.59.2"
   }
 }
