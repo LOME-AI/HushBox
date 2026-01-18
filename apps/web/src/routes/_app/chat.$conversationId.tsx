@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createFileRoute, Navigate, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, Link, Navigate, useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { ChatHeader } from '@/components/chat/chat-header';
@@ -34,6 +34,7 @@ import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
 import type { Message } from '@/lib/api';
 import type { Document } from '@/lib/document-parser';
+import { ROUTES } from '@/lib/routes';
 
 const searchSchema = z.object({
   triggerStreaming: z.boolean().optional(),
@@ -217,6 +218,25 @@ export function ChatConversation(): React.JSX.Element {
   // (streaming completed in chat.new, we're arriving with cached data)
   // Skip on mobile to avoid triggering keyboard unexpectedly
   const hasInitialFocusedRef = React.useRef(false);
+
+  // Sync realConversationId when navigating between existing conversations
+  // This handles the case where route param changes but component doesn't remount
+  React.useEffect(() => {
+    if (isExistingChat && routeConversationId !== realConversationId) {
+      setRealConversationId(routeConversationId);
+      // Reset state for new conversation
+      setOptimisticMessages([]);
+      setLocalMessages([]);
+      setLocalTitle(null);
+      setDocumentsByMessage({});
+      setStreamingMessageId(null);
+      streamingMessageIdRef.current = null;
+      // Reset creation tracking for the new conversation context
+      creationStartedRef.current = false;
+      // Reset focus tracking so input can be focused after load
+      hasInitialFocusedRef.current = false;
+    }
+  }, [isExistingChat, routeConversationId, realConversationId]);
 
   React.useEffect(() => {
     if (hasInitialFocusedRef.current || isMobile) return;
@@ -693,7 +713,7 @@ export function ChatConversation(): React.JSX.Element {
 
   // Guest: Redirect authenticated users to /chat
   if (isGuestChat && !isSessionPending && isAuthenticated) {
-    return <Navigate to="/chat" />;
+    return <Navigate to={ROUTES.CHAT} />;
   }
 
   // Guest: Redirect to /chat if no pending message and no messages (user navigated here directly)
@@ -703,12 +723,12 @@ export function ChatConversation(): React.JSX.Element {
     guestMessages.length === 0 &&
     !creationStartedRef.current
   ) {
-    return <Navigate to="/chat" />;
+    return <Navigate to={ROUTES.CHAT} />;
   }
 
   // Redirect if /chat/new with no pending message and creation hasn't started
   if (isNewChat && !pendingMessage && !creationStartedRef.current) {
-    return <Navigate to="/chat" />;
+    return <Navigate to={ROUTES.CHAT} />;
   }
 
   if (isLoading) {
@@ -752,7 +772,7 @@ export function ChatConversation(): React.JSX.Element {
   // (meaning API fetch failed or conversation was deleted)
   // Don't redirect for new/guest chats - we use local state
   if (isExistingChat && realConversationId && !conversation && !isConversationLoading) {
-    return <Navigate to="/chat" />;
+    return <Navigate to={ROUTES.CHAT} />;
   }
 
   // Use local title for new chats (set before pendingMessage is cleared)
@@ -807,7 +827,11 @@ export function ChatConversation(): React.JSX.Element {
       >
         {isGuestChat && isRateLimited && (
           <p className="text-destructive mb-2 text-center text-sm">
-            You&apos;ve used all 5 free messages today. Sign up to continue chatting!
+            You&apos;ve used all 5 free messages today.{' '}
+            <Link to={ROUTES.SIGNUP} className="text-primary hover:underline">
+              Sign up
+            </Link>{' '}
+            to continue chatting!
           </p>
         )}
         <PromptInput

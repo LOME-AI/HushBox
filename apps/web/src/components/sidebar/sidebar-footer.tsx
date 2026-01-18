@@ -15,6 +15,7 @@ import { FEATURE_FLAGS } from '@lome-chat/shared';
 import { useUIStore } from '@/stores/ui';
 import { useSession, signOutAndClearCache } from '@/lib/auth';
 import { useStableBalance } from '@/hooks/use-stable-balance';
+import { ROUTES } from '@/lib/routes';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { formatBalance } from '@/lib/format';
 import { DevOnly } from '@/components/shared/dev-only';
@@ -32,7 +33,7 @@ export function SidebarFooter(): React.JSX.Element {
 
   const handleLogout = async (): Promise<void> => {
     await signOutAndClearCache();
-    void navigate({ to: '/login' });
+    void navigate({ to: ROUTES.LOGIN });
   };
 
   const displayName = isAuthenticated ? session.user.email : 'Guest User';
@@ -90,7 +91,7 @@ export function SidebarFooter(): React.JSX.Element {
                   if (isMobile) {
                     setMobileSidebarOpen(false);
                   }
-                  void navigate({ to: '/billing' });
+                  void navigate({ to: ROUTES.BILLING });
                 }}
                 data-testid="menu-add-credits"
               >
@@ -122,7 +123,7 @@ export function SidebarFooter(): React.JSX.Element {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => {
-                    void navigate({ to: '/dev/personas', search: { type: undefined } });
+                    void navigate({ to: ROUTES.DEV_PERSONAS, search: { type: undefined } });
                   }}
                   data-testid="menu-personas"
                 >
@@ -146,7 +147,7 @@ export function SidebarFooter(): React.JSX.Element {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => {
-                  void navigate({ to: '/login' });
+                  void navigate({ to: ROUTES.LOGIN });
                 }}
                 data-testid="menu-login"
               >
@@ -155,7 +156,7 @@ export function SidebarFooter(): React.JSX.Element {
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
-                  void navigate({ to: '/signup' });
+                  void navigate({ to: ROUTES.SIGNUP });
                 }}
                 data-testid="menu-signup"
               >
@@ -166,7 +167,7 @@ export function SidebarFooter(): React.JSX.Element {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => {
-                    void navigate({ to: '/dev/personas', search: { type: undefined } });
+                    void navigate({ to: ROUTES.DEV_PERSONAS, search: { type: undefined } });
                   }}
                   data-testid="menu-personas"
                 >

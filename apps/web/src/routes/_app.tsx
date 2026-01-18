@@ -8,8 +8,10 @@ export const Route = createFileRoute('/_app')({
 
 function AppLayout(): React.JSX.Element {
   return (
-    <AppShell>
-      <Outlet />
-    </AppShell>
+    <div className="h-dvh overflow-hidden">
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    </div>
   );
 }

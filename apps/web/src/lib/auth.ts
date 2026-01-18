@@ -2,6 +2,7 @@ import { createAuthClient } from 'better-auth/react';
 import { redirect } from '@tanstack/react-router';
 import { frontendEnvSchema } from '@lome-chat/shared';
 import { queryClient } from '@/providers/query-provider';
+import { ROUTES } from '@/lib/routes';
 
 const env = frontendEnvSchema.parse({
   VITE_API_URL: import.meta.env['VITE_API_URL'] as unknown,
@@ -24,7 +25,7 @@ export async function requireAuth(): Promise<{
   if (!session.data) {
     // TanStack Router redirect is designed to be thrown
     // eslint-disable-next-line @typescript-eslint/only-throw-error
-    throw redirect({ to: '/login' });
+    throw redirect({ to: ROUTES.LOGIN });
   }
   return session.data;
 }

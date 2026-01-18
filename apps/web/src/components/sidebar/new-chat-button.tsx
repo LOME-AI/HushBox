@@ -4,6 +4,7 @@ import { cn } from '@lome-chat/ui';
 import { Plus } from 'lucide-react';
 import { useUIStore } from '@/stores/ui';
 import { useIsMobile } from '@/hooks/use-is-mobile';
+import { ROUTES } from '@/lib/routes';
 
 export function NewChatButton(): React.JSX.Element {
   const navigate = useNavigate();
@@ -15,7 +16,7 @@ export function NewChatButton(): React.JSX.Element {
     if (isMobile) {
       setMobileSidebarOpen(false);
     }
-    void navigate({ to: '/chat' });
+    void navigate({ to: ROUTES.CHAT });
   };
 
   const slashButtonStyles = {

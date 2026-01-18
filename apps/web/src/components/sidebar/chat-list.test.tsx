@@ -60,7 +60,27 @@ describe('ChatList', () => {
 
   it('renders signup prompt when no conversations for guests', () => {
     render(<ChatList conversations={[]} isAuthenticated={false} />);
-    expect(screen.getByText('Sign up to save conversations')).toBeInTheDocument();
+    expect(screen.getByText(/Sign up/)).toBeInTheDocument();
+    expect(screen.getByText(/to save conversations/)).toBeInTheDocument();
+  });
+
+  it('renders "Sign up" as a clickable link for guests', () => {
+    render(<ChatList conversations={[]} isAuthenticated={false} />);
+    const signUpLink = screen.getByRole('link', { name: 'Sign up' });
+    expect(signUpLink).toBeInTheDocument();
+    expect(signUpLink).toHaveAttribute('href', '/signup');
+  });
+
+  it('renders "Sign up" link with primary styling', () => {
+    render(<ChatList conversations={[]} isAuthenticated={false} />);
+    const signUpLink = screen.getByRole('link', { name: 'Sign up' });
+    expect(signUpLink).toHaveClass('text-primary');
+  });
+
+  it('does not render sign-up link for authenticated users', () => {
+    render(<ChatList conversations={[]} isAuthenticated={true} />);
+    expect(screen.queryByRole('link', { name: 'Sign up' })).not.toBeInTheDocument();
+    expect(screen.getByText('No conversations yet')).toBeInTheDocument();
   });
 
   it('renders conversations as links', () => {

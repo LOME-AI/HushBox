@@ -6,6 +6,7 @@ import { useSession } from '@/lib/auth';
 import { SidebarContent } from './sidebar-content';
 import { SidebarFooter } from './sidebar-footer';
 import { Logo } from '@/components/shared/logo';
+import { ROUTES } from '@/lib/routes';
 
 export function MobileSidebar(): React.JSX.Element {
   const { mobileSidebarOpen, setMobileSidebarOpen } = useUIStore();
@@ -41,7 +42,7 @@ export function MobileSidebar(): React.JSX.Element {
       >
         <SheetHeader className="border-sidebar-border border-b px-4 py-3">
           <SheetTitle asChild>
-            <Logo asLink to="/chat" />
+            <Logo asLink to={ROUTES.CHAT} />
           </SheetTitle>
         </SheetHeader>
 

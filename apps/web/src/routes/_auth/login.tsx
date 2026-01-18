@@ -7,6 +7,7 @@ import { FormInput } from '@/components/shared/form-input';
 import { AuthButton } from '@/components/auth/AuthButton';
 import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
 import { validateEmail, validatePassword } from '@/lib/validation';
+import { ROUTES } from '@/lib/routes';
 
 export const Route = createFileRoute('/_auth/login')({
   component: LoginPage,
@@ -44,7 +45,7 @@ export function LoginPage(): React.JSX.Element {
         setErrorKey((k) => k + 1);
         return;
       }
-      void navigate({ to: '/chat' });
+      void navigate({ to: ROUTES.CHAT });
     } finally {
       setIsLoading(false);
     }
@@ -61,7 +62,7 @@ export function LoginPage(): React.JSX.Element {
         onSubmit={(e) => {
           void handleSubmit(e);
         }}
-        className="space-y-4"
+        className="space-y-2"
         noValidate
       >
         <FormInput
@@ -106,15 +107,15 @@ export function LoginPage(): React.JSX.Element {
           {isLoading ? 'Logging in...' : 'Log in'}
         </AuthButton>
 
-        <p className="text-muted-foreground text-center text-sm">
+        <p className="text-muted-foreground mt-2 text-center text-sm">
           Don&apos;t have an account?{' '}
-          <Link to="/signup" className="text-primary hover:underline">
+          <Link to={ROUTES.SIGNUP} className="text-primary hover:underline">
             Sign up
           </Link>
         </p>
       </form>
 
-      <div className="border-border mt-8 border-t pt-6">
+      <div className="border-border mt-4 border-t pt-6">
         <ul className="text-muted-foreground space-y-3 text-sm">
           <li className="flex items-center gap-3">
             <span className="text-primary text-lg">✓</span>

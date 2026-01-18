@@ -124,7 +124,7 @@ describe('AppShell', () => {
       { wrapper: createWrapper() }
     );
     const shell = screen.getByTestId('app-shell');
-    expect(shell).toHaveClass('h-screen');
+    expect(shell).toHaveClass('h-dvh');
   });
 
   it('renders main content area', () => {

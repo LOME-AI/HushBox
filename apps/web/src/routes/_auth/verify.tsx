@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { createFileRoute, useSearch, useNavigate } from '@tanstack/react-router';
 import { toast } from '@lome-chat/ui';
 import { authClient } from '@/lib/auth';
+import { ROUTES } from '@/lib/routes';
 
 type VerifyState = 'loading' | 'success' | 'error';
 
@@ -36,7 +37,7 @@ export function VerifyPage(): React.JSX.Element {
         }
         setState('success');
         toast.success('Email verified successfully!');
-        void navigate({ to: '/chat' });
+        void navigate({ to: ROUTES.CHAT });
       } catch {
         setState('error');
         setErrorMessage('Verification failed. Please try again.');

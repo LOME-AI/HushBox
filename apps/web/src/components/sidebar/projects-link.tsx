@@ -3,13 +3,14 @@ import { Link } from '@tanstack/react-router';
 import { cn } from '@lome-chat/ui';
 import { FolderOpen } from 'lucide-react';
 import { useUIStore } from '@/stores/ui';
+import { ROUTES } from '@/lib/routes';
 
 export function ProjectsLink(): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
 
   return (
     <Link
-      to="/projects"
+      to={ROUTES.PROJECTS}
       data-testid="projects-link"
       className={cn(
         'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm',

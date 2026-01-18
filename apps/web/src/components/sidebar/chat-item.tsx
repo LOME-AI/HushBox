@@ -19,6 +19,7 @@ import { MessageSquare, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { useUIStore } from '@/stores/ui';
 import { useDeleteConversation, useUpdateConversation } from '@/hooks/chat';
 import { useIsMobile } from '@/hooks/use-is-mobile';
+import { ROUTES } from '@/lib/routes';
 
 interface Conversation {
   id: string;
@@ -56,7 +57,7 @@ export function ChatItem({ conversation, isActive }: ChatItemProps): React.JSX.E
     deleteConversation.mutate(conversation.id, {
       onSuccess: () => {
         setShowDeleteDialog(false);
-        void navigate({ to: '/chat' });
+        void navigate({ to: ROUTES.CHAT });
       },
     });
   };
@@ -91,7 +92,7 @@ export function ChatItem({ conversation, isActive }: ChatItemProps): React.JSX.E
         )}
       >
         <Link
-          to="/chat/$conversationId"
+          to={ROUTES.CHAT_CONVERSATION}
           params={{ conversationId: conversation.id }}
           data-testid="chat-link"
           onClick={handleLinkClick}

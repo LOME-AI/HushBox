@@ -50,11 +50,14 @@ test.describe('Auto-scroll During Streaming', () => {
     void testConversation;
 
     // First, build up enough content to create a scrollable area
-    // Send several messages to ensure content exceeds viewport height
+    // Send several messages to ensure content exceeds viewport height on ALL devices
+    // (iPad Pro 11 has a larger viewport than phones, so we need more messages)
     const setupMessages = [
       'Building scrollable content - message one with enough text to add height',
       'Building scrollable content - message two with enough text to add height',
       'Building scrollable content - message three with enough text to add height',
+      'Building scrollable content - message four with enough text to add height',
+      'Building scrollable content - message five with enough text to add height',
     ];
 
     for (const msg of setupMessages) {
@@ -70,7 +73,7 @@ test.describe('Auto-scroll During Streaming', () => {
     // Mock streams at 10ms/char, so ~500 chars = ~5 seconds of streaming
     const testMessage = 'Testing scroll behavior during streaming. '.repeat(12);
 
-    // Count "Echo:" texts before sending (fixture + 3 setup messages = 4 total)
+    // Count "Echo:" texts before sending (fixture + 5 setup messages = 6 total)
     const echoCountBefore = await chatPage.messageList.getByText('Echo:').count();
 
     await chatPage.sendFollowUpMessage(testMessage);

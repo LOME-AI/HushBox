@@ -1,6 +1,8 @@
 import * as React from 'react';
+import { Link } from '@tanstack/react-router';
 import { useUIStore } from '@/stores/ui';
 import { ChatItem } from './chat-item';
+import { ROUTES } from '@/lib/routes';
 
 interface Conversation {
   id: string;
@@ -23,10 +25,25 @@ export function ChatList({
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
 
   if (conversations.length === 0) {
-    const emptyMessage = isAuthenticated ? 'No conversations yet' : 'Sign up to save conversations';
+    if (!isAuthenticated) {
+      return (
+        <div className="text-sidebar-foreground/50 overflow-hidden px-2 py-4 text-center text-sm whitespace-nowrap">
+          {sidebarOpen ? (
+            <>
+              <Link to={ROUTES.SIGNUP} className="text-primary hover:underline">
+                Sign up
+              </Link>
+              {' to save conversations'}
+            </>
+          ) : (
+            ''
+          )}
+        </div>
+      );
+    }
     return (
       <div className="text-sidebar-foreground/50 overflow-hidden px-2 py-4 text-center text-sm whitespace-nowrap">
-        {sidebarOpen ? emptyMessage : ''}
+        {sidebarOpen ? 'No conversations yet' : ''}
       </div>
     );
   }

@@ -22,11 +22,21 @@ const mockUseSendMessage = vi.fn();
 const mockUseChatStream = vi.fn();
 const mockUseCreateConversation = vi.fn();
 
+// These track what conversation IDs are being passed to the hooks
+const useConversationSpy = vi.fn();
+const useMessagesSpy = vi.fn();
+
 vi.mock('@/hooks/chat', () => ({
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  useConversation: () => mockUseConversation(),
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  useMessages: () => mockUseMessages(),
+  useConversation: (id: string) => {
+    useConversationSpy(id);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    return mockUseConversation(id);
+  },
+  useMessages: (id: string) => {
+    useMessagesSpy(id);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    return mockUseMessages(id);
+  },
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   useSendMessage: () => mockUseSendMessage(),
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
@@ -178,6 +188,8 @@ describe('ChatConversation', () => {
     mockUseSendMessage.mockReturnValue({ mutate: vi.fn(), isPending: false });
     mockUseChatStream.mockReturnValue({ isStreaming: false, startStream: vi.fn() });
     mockUseCreateConversation.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
+    useConversationSpy.mockClear();
+    useMessagesSpy.mockClear();
   });
 
   describe('loading state with cached data', () => {
@@ -243,6 +255,67 @@ describe('ChatConversation', () => {
       render(<ChatConversation />, { wrapper: createWrapper() });
 
       expect(screen.getByTestId('navigate-redirect')).toHaveTextContent('/chat');
+    });
+  });
+
+  describe('navigation between existing conversations', () => {
+    it('calls hooks with new conversation ID when route param changes', () => {
+      // Start with conversation A
+      mockConversationId.mockReturnValue('conv-A');
+      mockUseConversation.mockReturnValue({
+        data: { id: 'conv-A', title: 'Conversation A' },
+        isLoading: false,
+      });
+      mockUseMessages.mockReturnValue({
+        data: [
+          {
+            id: 'msg-A1',
+            conversationId: 'conv-A',
+            role: 'user',
+            content: 'Hello from A',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        isLoading: false,
+      });
+
+      const { rerender } = render(<ChatConversation />, { wrapper: createWrapper() });
+
+      // Verify hooks were called with conv-A
+      expect(useConversationSpy).toHaveBeenCalledWith('conv-A');
+      expect(useMessagesSpy).toHaveBeenCalledWith('conv-A');
+
+      // Clear the spies to check the next call
+      useConversationSpy.mockClear();
+      useMessagesSpy.mockClear();
+
+      // Simulate navigation to conversation B by changing the route param
+      mockConversationId.mockReturnValue('conv-B');
+      mockUseConversation.mockReturnValue({
+        data: { id: 'conv-B', title: 'Conversation B' },
+        isLoading: false,
+      });
+      mockUseMessages.mockReturnValue({
+        data: [
+          {
+            id: 'msg-B1',
+            conversationId: 'conv-B',
+            role: 'user',
+            content: 'Hello from B',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        isLoading: false,
+      });
+
+      // Re-render to simulate route change (same component, different params)
+      rerender(<ChatConversation />);
+
+      // BUG: The hooks should be called with 'conv-B' but due to stale realConversationId state,
+      // they are still being called with 'conv-A'
+      // This test will FAIL until we fix the sync effect
+      expect(useConversationSpy).toHaveBeenCalledWith('conv-B');
+      expect(useMessagesSpy).toHaveBeenCalledWith('conv-B');
     });
   });
 });

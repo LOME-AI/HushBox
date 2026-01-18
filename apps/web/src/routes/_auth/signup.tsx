@@ -13,6 +13,7 @@ import {
   validatePassword,
   validateConfirmPassword,
 } from '@/lib/validation';
+import { ROUTES } from '@/lib/routes';
 
 export const Route = createFileRoute('/_auth/signup')({
   component: SignupPage,
@@ -96,7 +97,7 @@ export function SignupPage(): React.JSX.Element {
         onSubmit={(e) => {
           void handleSubmit(e);
         }}
-        className="space-y-4"
+        className="space-y-2"
         noValidate
       >
         <FormInput
@@ -172,15 +173,15 @@ export function SignupPage(): React.JSX.Element {
           {isLoading ? 'Creating account...' : 'Create account'}
         </AuthButton>
 
-        <p className="text-muted-foreground text-center text-sm">
+        <p className="text-muted-foreground mt-2 text-center text-sm">
           Already have an account?{' '}
-          <Link to="/login" className="text-primary hover:underline">
+          <Link to={ROUTES.LOGIN} className="text-primary hover:underline">
             Log in
           </Link>
         </p>
       </form>
 
-      <div className="border-border mt-8 border-t pt-6">
+      <div className="border-border mt-4 border-t pt-6">
         <ul className="text-muted-foreground space-y-3 text-sm">
           <li className="flex items-center gap-3">
             <span className="text-primary text-lg">✓</span>

@@ -1,8 +1,9 @@
 import * as React from 'react';
+import { Link } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertTriangle, Info } from 'lucide-react';
 import { cn } from '@lome-chat/ui';
-import type { BudgetError } from '@lome-chat/shared';
+import type { BudgetError, MessageSegment } from '@lome-chat/shared';
 
 interface BudgetMessagesProps {
   /** Array of budget errors/warnings/info to display */
@@ -43,6 +44,23 @@ function getIcon(type: BudgetError['type']): React.ComponentType<{ className?: s
   }
 }
 
+function renderMessageContent(error: BudgetError): React.ReactNode {
+  if (!error.segments || error.segments.length === 0) {
+    return error.message;
+  }
+
+  return error.segments.map((segment: MessageSegment, index: number) => {
+    if (segment.link) {
+      return (
+        <Link key={index} to={segment.link} className="text-primary hover:underline">
+          {segment.text}
+        </Link>
+      );
+    }
+    return <React.Fragment key={index}>{segment.text}</React.Fragment>;
+  });
+}
+
 export function BudgetMessages({ errors, className }: BudgetMessagesProps): React.JSX.Element {
   if (errors.length === 0) {
     return <></>;
@@ -80,7 +98,7 @@ export function BudgetMessages({ errors, className }: BudgetMessagesProps): Reac
                   data-testid={`budget-message-icon-${error.id}`}
                   className={cn('h-4 w-4 shrink-0', getIconColor(error.type))}
                 />
-                <span>{error.message}</span>
+                <span>{renderMessageContent(error)}</span>
               </div>
             </motion.div>
           );

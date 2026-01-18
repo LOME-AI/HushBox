@@ -3,6 +3,7 @@ import { Button, cn } from '@lome-chat/ui';
 import { PanelLeft, PanelLeftClose } from 'lucide-react';
 import { useUIStore } from '@/stores/ui';
 import { Logo } from '@/components/shared/logo';
+import { ROUTES } from '@/lib/routes';
 
 export function SidebarHeader(): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
@@ -18,7 +19,7 @@ export function SidebarHeader(): React.JSX.Element {
     >
       {sidebarOpen ? (
         <>
-          <Logo asLink to="/chat" />
+          <Logo asLink to={ROUTES.CHAT} />
           <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Collapse sidebar">
             <PanelLeftClose className="h-4 w-4" />
           </Button>

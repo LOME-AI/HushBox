@@ -3,13 +3,14 @@ import { Outlet, createFileRoute, redirect } from '@tanstack/react-router';
 import { authClient } from '@/lib/auth';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { Logo } from '@/components/shared/logo';
+import { ROUTES } from '@/lib/routes';
 
 export const Route = createFileRoute('/_auth')({
   beforeLoad: async () => {
     const session = await authClient.getSession();
     if (session.data) {
       // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router redirect is designed to be thrown
-      throw redirect({ to: '/chat' });
+      throw redirect({ to: ROUTES.CHAT });
     }
   },
   component: AuthLayout,
@@ -17,10 +18,10 @@ export const Route = createFileRoute('/_auth')({
 
 export function AuthLayout(): React.JSX.Element {
   return (
-    <div data-testid="auth-layout" className="bg-background flex min-h-screen overflow-y-auto">
+    <div data-testid="auth-layout" className="bg-background flex min-h-dvh">
       <div className="relative flex flex-1 flex-col justify-center px-8 pt-20 pb-8 lg:px-16 lg:pt-0 lg:pb-0">
         <div className="absolute top-4 left-4">
-          <Logo asLink to="/chat" />
+          <Logo asLink to={ROUTES.CHAT} />
         </div>
         <div className="absolute top-4 right-4">
           <ThemeToggle />

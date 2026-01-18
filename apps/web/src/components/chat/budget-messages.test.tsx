@@ -1,7 +1,24 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitForElementToBeRemoved } from '@testing-library/react';
 import { BudgetMessages } from './budget-messages';
 import type { BudgetError } from '@lome-chat/shared';
+
+// Mock Link component
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({
+    children,
+    to,
+    className,
+  }: {
+    children: React.ReactNode;
+    to: string;
+    className?: string;
+  }) => (
+    <a href={to} className={className} data-testid="budget-link">
+      {children}
+    </a>
+  ),
+}));
 
 describe('BudgetMessages', () => {
   describe('rendering', () => {
@@ -258,6 +275,125 @@ describe('BudgetMessages', () => {
 
       // Second message should animate out
       await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-second'));
+    });
+  });
+
+  describe('link rendering', () => {
+    it('renders plain message when no segments provided', () => {
+      const errors: BudgetError[] = [{ id: 'test', type: 'info', message: 'Plain message' }];
+      render(<BudgetMessages errors={errors} />);
+
+      expect(screen.getByText('Plain message')).toBeInTheDocument();
+      expect(screen.queryByTestId('budget-link')).not.toBeInTheDocument();
+    });
+
+    it('renders plain message when segments is empty array', () => {
+      const errors: BudgetError[] = [
+        { id: 'test', type: 'info', message: 'Plain message', segments: [] },
+      ];
+      render(<BudgetMessages errors={errors} />);
+
+      expect(screen.getByText('Plain message')).toBeInTheDocument();
+      expect(screen.queryByTestId('budget-link')).not.toBeInTheDocument();
+    });
+
+    it('renders clickable link when segment has link property', () => {
+      const errors: BudgetError[] = [
+        {
+          id: 'test',
+          type: 'info',
+          message: 'Free preview. Sign up for full access.',
+          segments: [
+            { text: 'Free preview. ' },
+            { text: 'Sign up', link: '/signup' },
+            { text: ' for full access.' },
+          ],
+        },
+      ];
+      render(<BudgetMessages errors={errors} />);
+
+      const link = screen.getByTestId('budget-link');
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute('href', '/signup');
+      expect(link).toHaveTextContent('Sign up');
+    });
+
+    it('renders link with primary styling', () => {
+      const errors: BudgetError[] = [
+        {
+          id: 'test',
+          type: 'info',
+          message: 'Using free allowance. Top up for longer conversations.',
+          segments: [
+            { text: 'Using free allowance. ' },
+            { text: 'Top up', link: '/billing' },
+            { text: ' for longer conversations.' },
+          ],
+        },
+      ];
+      render(<BudgetMessages errors={errors} />);
+
+      const link = screen.getByTestId('budget-link');
+      expect(link).toHaveClass('text-primary');
+      expect(link).toHaveClass('hover:underline');
+    });
+
+    it('renders all text segments correctly', () => {
+      const errors: BudgetError[] = [
+        {
+          id: 'test',
+          type: 'error',
+          message: 'Insufficient balance. Top up or try a more affordable model.',
+          segments: [
+            { text: 'Insufficient balance. ' },
+            { text: 'Top up', link: '/billing' },
+            { text: ' or try a more affordable model.' },
+          ],
+        },
+      ];
+      render(<BudgetMessages errors={errors} />);
+
+      expect(screen.getByText(/Insufficient balance\./)).toBeInTheDocument();
+      expect(screen.getByText('Top up')).toBeInTheDocument();
+      expect(screen.getByText(/or try a more affordable model\./)).toBeInTheDocument();
+    });
+
+    it('renders billing link correctly', () => {
+      const errors: BudgetError[] = [
+        {
+          id: 'test',
+          type: 'info',
+          message: 'Using free allowance. Top up for longer conversations.',
+          segments: [
+            { text: 'Using free allowance. ' },
+            { text: 'Top up', link: '/billing' },
+            { text: ' for longer conversations.' },
+          ],
+        },
+      ];
+      render(<BudgetMessages errors={errors} />);
+
+      const link = screen.getByRole('link', { name: 'Top up' });
+      expect(link).toHaveAttribute('href', '/billing');
+    });
+
+    it('renders signup link correctly', () => {
+      const errors: BudgetError[] = [
+        {
+          id: 'test',
+          type: 'info',
+          message: 'Free preview. Sign up for full access.',
+          segments: [
+            { text: 'Free preview. ' },
+            { text: 'Sign up', link: '/signup' },
+            { text: ' for full access.' },
+          ],
+        },
+      ];
+      render(<BudgetMessages errors={errors} />);
+
+      const link = screen.getByRole('link', { name: 'Sign up' });
+      expect(link).toHaveAttribute('href', '/signup');
     });
   });
 });

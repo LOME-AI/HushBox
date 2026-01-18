@@ -43,13 +43,11 @@ export function formatPricePer1k(pricePerToken: number): string {
 
 /**
  * Format a cost value for display.
- * Uses variable precision based on magnitude:
- * - Very small costs (< $0.0001): 6 decimal places
- * - Normal costs: 4 decimal places
- * - Zero: "$0.00"
+ * Shows full precision (up to 8 decimals, matching database storage)
+ * with trailing zeros stripped for clean display.
  *
  * @param cost - Cost as string or number
- * @returns Formatted string (e.g., "$0.0234")
+ * @returns Formatted string (e.g., "$0.00136")
  */
 export function formatCost(cost: string | number): string {
   const numericCost = typeof cost === 'string' ? parseFloat(cost) : cost;
@@ -58,13 +56,9 @@ export function formatCost(cost: string | number): string {
     return '$0.00';
   }
 
-  // For very small costs (< $0.0001), show more precision
-  if (numericCost < 0.0001) {
-    return `$${numericCost.toFixed(6)}`;
-  }
-
-  // For normal costs, show 4 decimal places
-  return `$${numericCost.toFixed(4)}`;
+  const fixed = numericCost.toFixed(8);
+  const stripped = fixed.replace(/\.?0+$/, '');
+  return `$${stripped}`;
 }
 
 /**

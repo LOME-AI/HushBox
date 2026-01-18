@@ -70,5 +70,10 @@ export default defineConfig({
       use: { ...devices['Pixel 7'], storageState: 'e2e/.auth/test-alice.json' },
       dependencies: ['setup'],
     },
+    {
+      name: 'ipad-pro',
+      use: { ...devices['iPad Pro 11'], storageState: 'e2e/.auth/test-alice.json' },
+      dependencies: ['setup'],
+    },
   ],
 });

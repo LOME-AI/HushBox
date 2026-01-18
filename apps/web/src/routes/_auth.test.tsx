@@ -73,17 +73,20 @@ describe('AuthLayout component', () => {
     render(<AuthLayout />);
 
     const container = screen.getByTestId('auth-layout');
-    expect(container).toHaveClass('min-h-screen');
+    expect(container).toHaveClass('min-h-dvh');
     expect(container).toHaveClass('flex');
   });
 
-  it('allows vertical scrolling on mobile when content exceeds viewport', async () => {
+  it('allows vertical scrolling when content exceeds viewport', async () => {
     const { AuthLayout } = await import('./_auth');
 
     render(<AuthLayout />);
 
     const container = screen.getByTestId('auth-layout');
-    expect(container).toHaveClass('overflow-y-auto');
+    // Auth layout uses min-h-dvh and relies on normal document scrolling
+    // (no overflow:hidden on parent containers)
+    expect(container).toHaveClass('min-h-dvh');
+    expect(container).not.toHaveClass('overflow-hidden');
   });
 });
 

@@ -1,7 +1,9 @@
 import * as React from 'react';
+import { Link } from '@tanstack/react-router';
 import { Search, ChevronUp, ChevronDown, Lock } from 'lucide-react';
 import { ModalOverlay, Input, Badge, Button, ScrollArea } from '@lome-chat/ui';
 import type { Model } from '@lome-chat/shared';
+import { ROUTES } from '@/lib/routes';
 import {
   formatNumber,
   getModelCostPer1k,
@@ -398,9 +400,6 @@ export function ModelSelectorModal({
                   {filteredModels.map((model) => {
                     const modelIsPremium = isPremium(model.id);
                     const showOverlay = modelIsPremium && !canAccessPremium;
-                    const accessMessage = !isAuthenticated
-                      ? 'Sign up to access'
-                      : 'Add credits to unlock';
 
                     return (
                       <div
@@ -444,8 +443,34 @@ export function ModelSelectorModal({
                             {model.provider} • {formatContextLength(model.contextLength)}
                           </span>
                           {showOverlay && (
-                            <span className="text-muted-foreground shrink-0 text-xs">
-                              {accessMessage}
+                            <span className="shrink-0 text-xs">
+                              {!isAuthenticated ? (
+                                <>
+                                  <Link
+                                    to={ROUTES.SIGNUP}
+                                    className="text-primary hover:underline"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                    }}
+                                  >
+                                    Sign up
+                                  </Link>
+                                  <span className="text-muted-foreground"> to access</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Link
+                                    to={ROUTES.BILLING}
+                                    className="text-primary hover:underline"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                    }}
+                                  >
+                                    Top up
+                                  </Link>
+                                  <span className="text-muted-foreground"> to unlock</span>
+                                </>
+                              )}
                             </span>
                           )}
                         </div>

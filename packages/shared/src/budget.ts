@@ -58,13 +58,25 @@ export interface BudgetCalculationResult {
   errors: BudgetError[];
 }
 
+/**
+ * A segment of a message, optionally with a link.
+ */
+export interface MessageSegment {
+  /** The text content of this segment */
+  text: string;
+  /** Route path if this segment should be a clickable link */
+  link?: string;
+}
+
 export interface BudgetError {
   /** Unique identifier for the error type */
   id: string;
   /** Severity: 'error' blocks send, 'warning' allows, 'info' is informational */
   type: 'warning' | 'error' | 'info';
-  /** Human-readable message to display */
+  /** Human-readable message to display (plain text fallback) */
   message: string;
+  /** Structured message with optional links for rendering */
+  segments?: MessageSegment[];
 }
 
 // ============================================================================
@@ -140,8 +152,12 @@ export function generateBudgetErrors(
         errors.push({
           id: 'insufficient_paid',
           type: 'error',
-          message:
-            'Insufficient balance for this message. Try a shorter conversation or more affordable model.',
+          message: 'Insufficient balance. Top up or try a more affordable model.',
+          segments: [
+            { text: 'Insufficient balance. ' },
+            { text: 'Top up', link: '/billing' },
+            { text: ' or try a more affordable model.' },
+          ],
         });
         break;
       case 'free':
@@ -157,6 +173,11 @@ export function generateBudgetErrors(
           id: 'insufficient_guest',
           type: 'error',
           message: 'This message exceeds guest limits. Sign up for more capacity.',
+          segments: [
+            { text: 'This message exceeds guest limits. ' },
+            { text: 'Sign up', link: '/signup' },
+            { text: ' for more capacity.' },
+          ],
         });
         break;
     }
@@ -191,12 +212,22 @@ export function generateBudgetErrors(
       id: 'free_tier_notice',
       type: 'info',
       message: 'Using free allowance. Top up for longer conversations.',
+      segments: [
+        { text: 'Using free allowance. ' },
+        { text: 'Top up', link: '/billing' },
+        { text: ' for longer conversations.' },
+      ],
     });
   } else if (tier === 'guest') {
     errors.push({
       id: 'guest_notice',
       type: 'info',
-      message: 'Free preview. Create an account for full access.',
+      message: 'Free preview. Sign up for full access.',
+      segments: [
+        { text: 'Free preview. ' },
+        { text: 'Sign up', link: '/signup' },
+        { text: ' for full access.' },
+      ],
     });
   }
 

@@ -74,13 +74,14 @@ describe('formatting utilities', () => {
       expect(formatCost('0.00000000')).toBe('$0.00');
     });
 
-    it('formats normal costs with 4 decimal places', () => {
+    it('formats costs with full precision, stripping trailing zeros', () => {
       expect(formatCost(0.0234)).toBe('$0.0234');
-      expect(formatCost('0.12345678')).toBe('$0.1235');
+      expect(formatCost('0.12345678')).toBe('$0.12345678');
+      expect(formatCost(0.00136)).toBe('$0.00136');
     });
 
-    it('formats very small costs with 6 decimal places', () => {
-      expect(formatCost(0.00001)).toBe('$0.000010');
+    it('formats very small costs with full precision', () => {
+      expect(formatCost(0.00001)).toBe('$0.00001');
       expect(formatCost('0.000005')).toBe('$0.000005');
     });
 
@@ -89,9 +90,11 @@ describe('formatting utilities', () => {
       expect(formatCost(NaN)).toBe('$0.00');
     });
 
-    it('accepts both string and number inputs', () => {
-      expect(formatCost(1.5)).toBe('$1.5000');
-      expect(formatCost('1.5')).toBe('$1.5000');
+    it('strips trailing zeros from costs', () => {
+      expect(formatCost(1.5)).toBe('$1.5');
+      expect(formatCost('1.5')).toBe('$1.5');
+      expect(formatCost(1.0)).toBe('$1');
+      expect(formatCost('2.00000000')).toBe('$2');
     });
   });
 

@@ -298,16 +298,14 @@ describe('PromptInput', () => {
           {
             id: 'guest_notice',
             type: 'info',
-            message: 'Free preview. Create an account for full access.',
+            message: 'Free preview. Sign up for full access.',
           },
         ],
       });
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
-      expect(
-        screen.getByText('Free preview. Create an account for full access.')
-      ).toBeInTheDocument();
+      expect(screen.getByText('Free preview. Sign up for full access.')).toBeInTheDocument();
     });
 
     it('hides budget messages while app is not stable (balance loading)', () => {
@@ -324,7 +322,7 @@ describe('PromptInput', () => {
           {
             id: 'guest_notice',
             type: 'info',
-            message: 'Free preview. Create an account for full access.',
+            message: 'Free preview. Sign up for full access.',
           },
         ],
       });
@@ -333,9 +331,7 @@ describe('PromptInput', () => {
       );
       // Budget messages should be hidden while app is not stable
       expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
-      expect(
-        screen.queryByText('Free preview. Create an account for full access.')
-      ).not.toBeInTheDocument();
+      expect(screen.queryByText('Free preview. Sign up for full access.')).not.toBeInTheDocument();
     });
 
     it('hides budget messages while app is not stable (session loading)', () => {
@@ -357,7 +353,7 @@ describe('PromptInput', () => {
           {
             id: 'guest_notice',
             type: 'info',
-            message: 'Free preview. Create an account for full access.',
+            message: 'Free preview. Sign up for full access.',
           },
         ],
       });
@@ -366,9 +362,7 @@ describe('PromptInput', () => {
       );
       // Budget messages should be hidden while app is not stable
       expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
-      expect(
-        screen.queryByText('Free preview. Create an account for full access.')
-      ).not.toBeInTheDocument();
+      expect(screen.queryByText('Free preview. Sign up for full access.')).not.toBeInTheDocument();
     });
   });
 

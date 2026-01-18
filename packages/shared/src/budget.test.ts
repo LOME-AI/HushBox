@@ -548,7 +548,7 @@ describe('generateBudgetErrors', () => {
     it('insufficient errors have correct messages', () => {
       const paidErrors = generateBudgetErrors('paid', { ...baseResult, canAfford: false });
       expect(paidErrors.find((e) => e.id === 'insufficient_paid')?.message).toBe(
-        'Insufficient balance for this message. Try a shorter conversation or more affordable model.'
+        'Insufficient balance. Top up or try a more affordable model.'
       );
 
       const freeErrors = generateBudgetErrors('free', { ...baseResult, canAfford: false });
@@ -562,6 +562,26 @@ describe('generateBudgetErrors', () => {
       );
     });
 
+    it('insufficient_paid has correct segments with link', () => {
+      const errors = generateBudgetErrors('paid', { ...baseResult, canAfford: false });
+      const error = errors.find((e) => e.id === 'insufficient_paid');
+      expect(error?.segments).toEqual([
+        { text: 'Insufficient balance. ' },
+        { text: 'Top up', link: '/billing' },
+        { text: ' or try a more affordable model.' },
+      ]);
+    });
+
+    it('insufficient_guest has correct segments with link', () => {
+      const errors = generateBudgetErrors('guest', { ...baseResult, canAfford: false });
+      const error = errors.find((e) => e.id === 'insufficient_guest');
+      expect(error?.segments).toEqual([
+        { text: 'This message exceeds guest limits. ' },
+        { text: 'Sign up', link: '/signup' },
+        { text: ' for more capacity.' },
+      ]);
+    });
+
     it('tier notices have correct positive messages', () => {
       const freeErrors = generateBudgetErrors('free', baseResult);
       expect(freeErrors.find((e) => e.id === 'free_tier_notice')?.message).toBe(
@@ -570,8 +590,28 @@ describe('generateBudgetErrors', () => {
 
       const guestErrors = generateBudgetErrors('guest', baseResult);
       expect(guestErrors.find((e) => e.id === 'guest_notice')?.message).toBe(
-        'Free preview. Create an account for full access.'
+        'Free preview. Sign up for full access.'
       );
+    });
+
+    it('free_tier_notice has correct segments with link', () => {
+      const errors = generateBudgetErrors('free', baseResult);
+      const error = errors.find((e) => e.id === 'free_tier_notice');
+      expect(error?.segments).toEqual([
+        { text: 'Using free allowance. ' },
+        { text: 'Top up', link: '/billing' },
+        { text: ' for longer conversations.' },
+      ]);
+    });
+
+    it('guest_notice has correct segments with link', () => {
+      const errors = generateBudgetErrors('guest', baseResult);
+      const error = errors.find((e) => e.id === 'guest_notice');
+      expect(error?.segments).toEqual([
+        { text: 'Free preview. ' },
+        { text: 'Sign up', link: '/signup' },
+        { text: ' for full access.' },
+      ]);
     });
   });
 

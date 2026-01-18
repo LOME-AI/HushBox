@@ -328,7 +328,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
           onSubmit={(e) => {
             void handleSubmit(e);
           }}
-          className="space-y-4"
+          className="space-y-2"
           noValidate
         >
           {/* Hidden Helcim fields */}

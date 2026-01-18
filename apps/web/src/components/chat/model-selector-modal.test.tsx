@@ -4,6 +4,25 @@ import userEvent from '@testing-library/user-event';
 import { ModelSelectorModal } from './model-selector-modal';
 import type { Model } from '@lome-chat/shared';
 
+// Mock Link component
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({
+    children,
+    to,
+    className,
+    onClick,
+  }: {
+    children: React.ReactNode;
+    to: string;
+    className?: string;
+    onClick?: (e: React.MouseEvent) => void;
+  }) => (
+    <a href={to} className={className} onClick={onClick} data-testid="signup-link">
+      {children}
+    </a>
+  ),
+}));
+
 function first<T>(arr: T[]): T {
   const item = arr[0];
   if (item === undefined) {
@@ -595,10 +614,31 @@ describe('ModelSelectorModal', () => {
       );
 
       const gpt4Item = screen.getByTestId('model-item-openai/gpt-4-turbo');
-      expect(gpt4Item).toHaveTextContent('Sign up to access');
+      expect(gpt4Item).toHaveTextContent('Sign up');
+      expect(gpt4Item).toHaveTextContent('to access');
     });
 
-    it('shows "Add credits to unlock" for free users on premium models', () => {
+    it('renders "Sign up" as a clickable link for guest users', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={vi.fn()}
+          premiumIds={premiumIds}
+          canAccessPremium={false}
+          isAuthenticated={false}
+        />
+      );
+
+      const signupLink = screen.getByTestId('signup-link');
+      expect(signupLink).toHaveAttribute('href', '/signup');
+      expect(signupLink).toHaveTextContent('Sign up');
+      expect(signupLink).toHaveClass('text-primary');
+    });
+
+    it('shows "Top up to unlock" for free users on premium models', () => {
       render(
         <ModelSelectorModal
           open={true}
@@ -613,7 +653,27 @@ describe('ModelSelectorModal', () => {
       );
 
       const gpt4Item = screen.getByTestId('model-item-openai/gpt-4-turbo');
-      expect(gpt4Item).toHaveTextContent('Add credits to unlock');
+      expect(gpt4Item).toHaveTextContent('Top up');
+      expect(gpt4Item).toHaveTextContent('to unlock');
+    });
+
+    it('renders "Top up" as a clickable link for free users', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedId="anthropic/claude-3.5-sonnet"
+          onSelect={vi.fn()}
+          premiumIds={premiumIds}
+          canAccessPremium={false}
+          isAuthenticated={true}
+        />
+      );
+
+      const topUpLink = screen.getByRole('link', { name: 'Top up' });
+      expect(topUpLink).toHaveAttribute('href', '/billing');
+      expect(topUpLink).toHaveClass('text-primary');
     });
 
     it('shows tinted overlay on premium models for non-paid users', () => {

@@ -12,7 +12,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
   useModelValidation();
 
   return (
-    <div data-testid="app-shell" className="bg-background flex h-screen">
+    <div data-testid="app-shell" className="bg-background flex h-dvh">
       {/* Desktop sidebar */}
       <Sidebar />
 

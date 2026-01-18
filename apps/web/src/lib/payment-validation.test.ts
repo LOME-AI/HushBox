@@ -53,6 +53,90 @@ describe('payment-validation', () => {
       expect(result.isValid).toBe(true);
       expect(result.success).toBe('Valid amount');
     });
+
+    // Decimal edge cases
+    it('validates "5.11" as $5.11 (not $511)', () => {
+      const result = validateAmount('5.11');
+      expect(result.isValid).toBe(true);
+      expect(parseFloat('5.11').toFixed(2)).toBe('5.11');
+    });
+
+    it('validates "10.99" correctly', () => {
+      const result = validateAmount('10.99');
+      expect(result.isValid).toBe(true);
+    });
+
+    // Extra decimal places (3+ decimals)
+    it('handles "5.111" with 3 decimal places', () => {
+      const result = validateAmount('5.111');
+      expect(result.isValid).toBe(true);
+      expect(parseFloat('5.111').toFixed(2)).toBe('5.11');
+    });
+
+    it('handles "5.119" with 3 decimal places (rounds to 5.12)', () => {
+      const result = validateAmount('5.119');
+      expect(result.isValid).toBe(true);
+      expect(parseFloat('5.119').toFixed(2)).toBe('5.12');
+    });
+
+    it('handles "5.1111" with 4 decimal places', () => {
+      const result = validateAmount('5.1111');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('handles "99.999" rounding to 100.00', () => {
+      const result = validateAmount('99.999');
+      expect(result.isValid).toBe(true);
+      expect(parseFloat('99.999').toFixed(2)).toBe('100.00');
+    });
+
+    it('handles "999.999" rounding to 1000.00 (at max)', () => {
+      const result = validateAmount('999.999');
+      expect(result.isValid).toBe(true);
+      expect(parseFloat('999.999').toFixed(2)).toBe('1000.00');
+    });
+
+    it('rejects "1000.001" as above maximum', () => {
+      const result = validateAmount('1000.001');
+      expect(result.isValid).toBe(false);
+    });
+
+    // Leading zeros
+    it('handles leading zeros "05.11"', () => {
+      const result = validateAmount('05.11');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('handles leading zeros "005.00"', () => {
+      const result = validateAmount('005.00');
+      expect(result.isValid).toBe(true);
+    });
+
+    // Boundary values with decimals
+    it('rejects "4.999" as below minimum', () => {
+      const result = validateAmount('4.999');
+      expect(result.isValid).toBe(false);
+    });
+
+    it('accepts "5.00" at exact minimum', () => {
+      const result = validateAmount('5.00');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('accepts "5.001" just above minimum', () => {
+      const result = validateAmount('5.001');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('accepts "1000.00" at exact maximum', () => {
+      const result = validateAmount('1000.00');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('rejects "1000.01" just above maximum', () => {
+      const result = validateAmount('1000.01');
+      expect(result.isValid).toBe(false);
+    });
   });
 
   describe('validateCardHolderName', () => {

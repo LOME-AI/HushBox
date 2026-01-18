@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { ModalOverlay, Button } from '@lome-chat/ui';
+import { ROUTES } from '@/lib/routes';
 
 interface SignupModalProps {
   open: boolean;
@@ -24,7 +25,7 @@ export function SignupModal({
   const navigate = useNavigate();
 
   const handleSignUp = (): void => {
-    void navigate({ to: '/signup' });
+    void navigate({ to: ROUTES.SIGNUP });
     onOpenChange(false);
   };
 
