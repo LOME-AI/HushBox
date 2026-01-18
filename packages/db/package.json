@@ -30,14 +30,14 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@faker-js/faker": "^10.1.0",
+    "@faker-js/faker": "^10.2.0",
     "@lome-chat/config": "workspace:*",
     "@types/ws": "^8.18.1",
     "better-auth": "^1.4.7",
     "drizzle-kit": "^0.31.0",
     "fishery": "^2.4.0",
-    "pg": "^8.16.3",
+    "pg": "^8.17.1",
     "typescript": "^5.7.2",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.17"
   }
 }
