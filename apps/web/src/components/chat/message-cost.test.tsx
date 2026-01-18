@@ -3,10 +3,10 @@ import { render, screen } from '@testing-library/react';
 import { MessageCost } from './message-cost';
 
 describe('MessageCost', () => {
-  it('renders formatted cost with 4 decimal places', () => {
+  it('renders cost with full precision, trailing zeros stripped', () => {
     render(<MessageCost cost="0.00136000" />);
 
-    expect(screen.getByTestId('message-cost')).toHaveTextContent('$0.0014');
+    expect(screen.getByTestId('message-cost')).toHaveTextContent('$0.00136');
   });
 
   it('renders zero cost as $0.00', () => {
@@ -21,10 +21,10 @@ describe('MessageCost', () => {
     expect(screen.getByTestId('message-cost')).toHaveTextContent('$0.000021');
   });
 
-  it('renders normal cost correctly', () => {
+  it('strips trailing zeros from cost', () => {
     render(<MessageCost cost="0.01500000" />);
 
-    expect(screen.getByTestId('message-cost')).toHaveTextContent('$0.0150');
+    expect(screen.getByTestId('message-cost')).toHaveTextContent('$0.015');
   });
 
   it('handles invalid cost string gracefully', () => {
