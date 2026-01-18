@@ -190,7 +190,7 @@ export function ModelSelectorModal({
       onOpenAutoFocus={handleOpenAutoFocus}
     >
       <div
-        className="bg-background flex h-[90vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg sm:h-[80vh]"
+        className="bg-background flex h-[85vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg sm:h-[80vh]"
         data-testid="model-selector-modal"
       >
         {/* Main content area */}
@@ -214,8 +214,8 @@ export function ModelSelectorModal({
             </div>
 
             {/* Quick select buttons */}
-            <div className="border-border-strong border-b p-4">
-              <div className="text-muted-foreground mb-2 text-xs font-medium uppercase">
+            <div className="border-border-strong border-b px-4 py-2">
+              <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
                 Quick Select Model
               </div>
               <div className="flex gap-2">
@@ -245,8 +245,8 @@ export function ModelSelectorModal({
             </div>
 
             {/* Sort by section */}
-            <div className="border-border-strong border-b p-4">
-              <div className="text-muted-foreground mb-2 text-xs font-medium uppercase">
+            <div className="border-border-strong border-b px-4 py-2">
+              <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
                 Sort By
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -295,7 +295,7 @@ export function ModelSelectorModal({
             {/* Left panel: Model list (with fixed sections on desktop) */}
             <div
               data-testid="model-list-panel"
-              className="border-border-strong flex min-h-0 flex-[2] flex-col border-b sm:flex-1 sm:border-r sm:border-b-0"
+              className="border-border-strong flex min-h-0 flex-[9] flex-col border-b sm:flex-1 sm:border-r sm:border-b-0"
             >
               {/* Fixed sections - DESKTOP ONLY */}
               <div className="hidden flex-shrink-0 sm:block">
@@ -464,7 +464,7 @@ export function ModelSelectorModal({
             {/* Right panel: Model details - takes 60% on mobile, constrained on desktop */}
             <ScrollArea
               data-testid="model-details-panel"
-              className="min-h-0 flex-[3] sm:max-w-sm sm:flex-1"
+              className="min-h-0 flex-[11] sm:max-w-sm sm:flex-1"
             >
               <div className="p-6">
                 {focusedModel && (

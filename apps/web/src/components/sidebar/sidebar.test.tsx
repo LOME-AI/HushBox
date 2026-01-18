@@ -63,6 +63,22 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ conversationId: undefined }),
 }));
 
+// Mock stability hooks for SidebarFooter
+vi.mock('@/hooks/use-stable-balance', () => ({
+  useStableBalance: () => ({
+    displayBalance: '10.00',
+    isStable: true,
+  }),
+}));
+
+vi.mock('@/providers/stability-provider', () => ({
+  useStability: () => ({
+    isAuthStable: true,
+    isBalanceStable: true,
+    isAppStable: true,
+  }),
+}));
+
 function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
   const queryClient = new QueryClient({
     defaultOptions: {

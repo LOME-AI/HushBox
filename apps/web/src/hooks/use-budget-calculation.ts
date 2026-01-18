@@ -6,6 +6,7 @@ import {
   type UserBalanceState,
 } from '@lome-chat/shared';
 import { useBalance } from './billing.js';
+import { useStability } from '@/providers/stability-provider';
 
 const DEBOUNCE_MS = 150;
 
@@ -20,8 +21,6 @@ export interface UseBudgetCalculationInput {
   modelContextLength: number;
   /** Whether the user is authenticated */
   isAuthenticated: boolean;
-  /** Whether auth state is still being determined */
-  isAuthPending?: boolean | undefined;
   /** Whether models data is still loading */
   isModelsLoading?: boolean | undefined;
 }
@@ -39,21 +38,19 @@ export interface UseBudgetCalculationInput {
 export function useBudgetCalculation(
   input: UseBudgetCalculationInput
 ): BudgetCalculationResult & { isBalanceLoading: boolean } {
-  const { data: balanceData, isPending: isBalancePending } = useBalance();
+  const { data: balanceData } = useBalance();
+  const { isAppStable, isBalanceStable } = useStability();
 
-  // Loading only applies when authenticated and waiting for balance
-  const isBalanceLoading = input.isAuthenticated && isBalancePending;
-
-  // Tier is uncertain until auth settles AND (if authenticated) balance loads
-  const isTierUncertain = Boolean(input.isAuthPending) || isBalanceLoading;
+  // Balance is loading when authenticated and balance isn't stable yet
+  const isBalanceLoading = input.isAuthenticated && !isBalanceStable;
 
   // Memoize balance state to avoid recalculation
   const balanceState = React.useMemo((): UserBalanceState | null => {
     if (!input.isAuthenticated) {
-      return null; // Guest
+      return null;
     }
     if (!balanceData) {
-      return null; // Treat as guest while loading
+      return null;
     }
     return {
       balanceCents: Math.round(parseFloat(balanceData.balance) * 100),
@@ -87,29 +84,36 @@ export function useBudgetCalculation(
     ]
   );
 
-  // Initialize with computed result, ALWAYS filtering tier-specific notices and capacity errors
-  // This prevents flash of incorrect messages on initial render
-  // The debounced effect will populate correct messages after data loads
+  // Initialize with computed result, filtering errors that depend on loading state
+  // This prevents flash of incorrect messages while data is still loading
   const [debouncedResult, setDebouncedResult] = React.useState<BudgetCalculationResult>(() => {
     const result = computeResult();
-    return {
-      ...result,
-      errors: result.errors.filter(
-        (e) =>
-          e.id !== 'guest_notice' && e.id !== 'free_tier_notice' && e.id !== 'capacity_exceeded'
-      ),
-    };
+    const isModelsLoading = Boolean(input.isModelsLoading);
+
+    // Use same filtering logic as debounced effect for consistency
+    if (!isAppStable || isModelsLoading) {
+      return {
+        ...result,
+        errors: result.errors.filter(
+          (e) =>
+            e.id !== 'guest_notice' &&
+            e.id !== 'free_tier_notice' &&
+            !(isModelsLoading && e.id === 'capacity_exceeded')
+        ),
+      };
+    }
+    return result;
   });
 
   // Debounced calculation effect - runs on mount and when inputs change
-  // Filters tier notices when user tier is uncertain (auth pending or balance loading)
+  // Filters tier notices when app is not stable (auth/balance still loading)
   // Filters capacity errors when models are still loading
   React.useEffect(() => {
     const timer = setTimeout(() => {
       const result = computeResult();
       const isModelsLoading = Boolean(input.isModelsLoading);
 
-      if (isTierUncertain || isModelsLoading) {
+      if (!isAppStable || isModelsLoading) {
         setDebouncedResult({
           ...result,
           errors: result.errors.filter(
@@ -127,7 +131,7 @@ export function useBudgetCalculation(
     return () => {
       clearTimeout(timer);
     };
-  }, [computeResult, isTierUncertain, input.isModelsLoading]);
+  }, [computeResult, isAppStable, input.isModelsLoading]);
 
   return { ...debouncedResult, isBalanceLoading };
 }

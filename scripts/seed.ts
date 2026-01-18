@@ -67,6 +67,25 @@ const TEST_PERSONAS = [
     emailVerified: false,
     hasSampleData: false,
   },
+  // Dedicated billing test users (isolated to avoid balance state bleeding between tests)
+  {
+    name: 'test-billing-success',
+    displayName: 'Test Billing Success',
+    emailVerified: true,
+    hasSampleData: false,
+  },
+  {
+    name: 'test-billing-failure',
+    displayName: 'Test Billing Failure',
+    emailVerified: true,
+    hasSampleData: false,
+  },
+  {
+    name: 'test-billing-validation',
+    displayName: 'Test Billing Validation',
+    emailVerified: true,
+    hasSampleData: false,
+  },
 ] as const;
 
 function devEmail(name: string): string {

@@ -1,8 +1,6 @@
-import { useState, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
-  getApiUrl,
   type Conversation,
   type Message,
   type ConversationsResponse,
@@ -15,7 +13,6 @@ import {
   type CreateMessageRequest,
   type CreateMessageResponse,
 } from '../lib/api';
-import { createSSEParser } from '../lib/sse-client';
 
 export const chatKeys = {
   all: ['chat'] as const,
@@ -138,133 +135,4 @@ export function useUpdateConversation(): ReturnType<
       void queryClient.invalidateQueries({ queryKey: chatKeys.conversations() });
     },
   });
-}
-
-interface StreamRequest {
-  conversationId: string;
-  model: string;
-}
-
-interface StreamResult {
-  userMessageId: string;
-  assistantMessageId: string;
-  content: string;
-}
-
-interface StreamOptions {
-  onToken?: (token: string) => void;
-  onStart?: (ids: { userMessageId: string; assistantMessageId: string }) => void;
-  signal?: AbortSignal;
-}
-
-interface ChatStreamHook {
-  isStreaming: boolean;
-  startStream: (request: StreamRequest, options?: StreamOptions) => Promise<StreamResult>;
-}
-
-export function useChatStream(): ChatStreamHook {
-  const [isStreaming, setIsStreaming] = useState(false);
-
-  const startStream = useCallback(
-    async (request: StreamRequest, options?: StreamOptions): Promise<StreamResult> => {
-      setIsStreaming(true);
-
-      try {
-        const response = await fetch(`${getApiUrl()}/chat/stream`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify(request),
-          signal: options?.signal ?? null,
-        });
-
-        if (!response.ok) {
-          const data: unknown = await response.json();
-          const errorMessage =
-            typeof data === 'object' &&
-            data !== null &&
-            'error' in data &&
-            typeof data.error === 'string'
-              ? data.error
-              : 'Stream request failed';
-          throw new Error(errorMessage);
-        }
-
-        // Verify content-type before attempting to parse SSE
-        const contentType = response.headers.get('Content-Type');
-        if (!contentType?.includes('text/event-stream')) {
-          const errorData: unknown = await response.json().catch(() => ({}));
-          throw new Error(
-            typeof errorData === 'object' &&
-              errorData !== null &&
-              'error' in errorData &&
-              typeof errorData.error === 'string'
-              ? errorData.error
-              : 'Expected SSE stream but received different content type'
-          );
-        }
-
-        if (!response.body) {
-          throw new Error('Response body is null');
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let streamError: Error | null = null;
-        let streamDone = false;
-
-        const parser = createSSEParser({
-          onStart: (data) => {
-            options?.onStart?.(data);
-          },
-          onToken: (tokenContent) => {
-            options?.onToken?.(tokenContent);
-          },
-          onError: (errorData) => {
-            streamError = new Error(errorData.message);
-          },
-          onDone: () => {
-            streamDone = true;
-          },
-        });
-
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- standard pattern for async iterator
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            parser.processChunk(decoder.decode(value, { stream: true }));
-
-            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- streamError mutated in onError callback
-            if (streamError) {
-              // eslint-disable-next-line @typescript-eslint/only-throw-error -- streamError is Error when truthy
-              throw streamError;
-            }
-            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- streamDone mutated in onDone callback
-            if (streamDone) {
-              break;
-            }
-          }
-
-          return {
-            userMessageId: parser.getUserMessageId(),
-            assistantMessageId: parser.getAssistantMessageId(),
-            content: parser.getContent(),
-          };
-        } finally {
-          reader.cancel().catch(() => {
-            // Reader cleanup errors can be ignored
-          });
-        }
-      } finally {
-        setIsStreaming(false);
-      }
-    },
-    []
-  );
-
-  return { isStreaming, startStream };
 }

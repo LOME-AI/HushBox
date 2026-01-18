@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitForElementToBeRemoved } from '@testing-library/react';
 import { BudgetMessages } from './budget-messages';
 import type { BudgetError } from '@lome-chat/shared';
 
 describe('BudgetMessages', () => {
   describe('rendering', () => {
-    it('renders nothing when errors array is empty', () => {
-      const { container } = render(<BudgetMessages errors={[]} />);
-      expect(container.firstChild).toBeNull();
+    it('renders no visible content when errors array is empty', () => {
+      render(<BudgetMessages errors={[]} />);
+      expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
     });
 
     it('renders single error message', () => {
@@ -192,6 +192,72 @@ describe('BudgetMessages', () => {
 
       const container = screen.getByTestId('budget-messages');
       expect(container).toHaveClass('custom-class');
+    });
+  });
+
+  describe('animation', () => {
+    it('removes all messages when errors becomes empty', () => {
+      const errors: BudgetError[] = [{ id: 'test', type: 'error', message: 'Test' }];
+      const { rerender } = render(<BudgetMessages errors={errors} />);
+
+      expect(screen.getByTestId('budget-message-test')).toBeInTheDocument();
+
+      rerender(<BudgetMessages errors={[]} />);
+
+      expect(screen.queryByTestId('budget-message-test')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
+    });
+
+    it('animates individual messages when list changes', () => {
+      const initialErrors: BudgetError[] = [{ id: 'first', type: 'error', message: 'First' }];
+      const { rerender } = render(<BudgetMessages errors={initialErrors} />);
+
+      expect(screen.getByTestId('budget-message-first')).toBeInTheDocument();
+
+      const updatedErrors: BudgetError[] = [
+        { id: 'first', type: 'error', message: 'First' },
+        { id: 'second', type: 'warning', message: 'Second' },
+      ];
+      rerender(<BudgetMessages errors={updatedErrors} />);
+
+      expect(screen.getByTestId('budget-message-first')).toBeInTheDocument();
+      expect(screen.getByTestId('budget-message-second')).toBeInTheDocument();
+    });
+
+    it('wraps each individual message in overflow-hidden container for height animation', () => {
+      const errors: BudgetError[] = [
+        { id: 'first', type: 'error', message: 'First' },
+        { id: 'second', type: 'warning', message: 'Second' },
+      ];
+      render(<BudgetMessages errors={errors} />);
+
+      const firstMessage = screen.getByTestId('budget-message-first');
+      const secondMessage = screen.getByTestId('budget-message-second');
+
+      // Each message should have an overflow-hidden parent wrapper for height animation
+      expect(firstMessage.parentElement).toHaveClass('overflow-hidden');
+      expect(secondMessage.parentElement).toHaveClass('overflow-hidden');
+    });
+
+    it('animates individual message removal while keeping others visible', async () => {
+      const initialErrors: BudgetError[] = [
+        { id: 'first', type: 'error', message: 'First' },
+        { id: 'second', type: 'warning', message: 'Second' },
+      ];
+      const { rerender } = render(<BudgetMessages errors={initialErrors} />);
+
+      expect(screen.getByTestId('budget-message-first')).toBeInTheDocument();
+      expect(screen.getByTestId('budget-message-second')).toBeInTheDocument();
+
+      // Remove second message, first should remain visible
+      const updatedErrors: BudgetError[] = [{ id: 'first', type: 'error', message: 'First' }];
+      rerender(<BudgetMessages errors={updatedErrors} />);
+
+      // First message still immediately visible
+      expect(screen.getByTestId('budget-message-first')).toBeInTheDocument();
+
+      // Second message should animate out
+      await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-second'));
     });
   });
 });

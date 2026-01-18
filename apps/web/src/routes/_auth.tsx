@@ -17,7 +17,7 @@ export const Route = createFileRoute('/_auth')({
 
 export function AuthLayout(): React.JSX.Element {
   return (
-    <div data-testid="auth-layout" className="bg-background flex min-h-screen">
+    <div data-testid="auth-layout" className="bg-background flex min-h-screen overflow-y-auto">
       <div className="relative flex flex-1 flex-col justify-center px-8 pt-20 pb-8 lg:px-16 lg:pt-0 lg:pb-0">
         <div className="absolute top-4 left-4">
           <Logo asLink to="/chat" />

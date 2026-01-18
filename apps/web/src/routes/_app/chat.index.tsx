@@ -5,7 +5,7 @@ import { NewChatPage } from '@/components/chat/new-chat-page';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
-import { useSession } from '@/lib/auth';
+import { useStableSession } from '@/hooks/use-stable-session';
 import { usePendingChatStore } from '@/stores/pending-chat';
 import { useGuestChatStore } from '@/stores/guest-chat';
 import { useUIModalsStore } from '@/stores/ui-modals';
@@ -28,8 +28,7 @@ function ChatIndexWithErrorBoundary(): React.JSX.Element {
 export function ChatIndex(): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: session, isPending } = useSession();
-  const isAuthenticated = !isPending && Boolean(session?.user);
+  const { session, isAuthenticated, isStable } = useStableSession();
   useBalance();
 
   const {
@@ -57,12 +56,12 @@ export function ChatIndex(): React.JSX.Element {
       const isUserAuthenticated = Boolean(currentSession?.user);
       if (isUserAuthenticated) {
         usePendingChatStore.getState().setPendingMessage(content);
-        void navigate({ to: '/chat/new' });
+        void navigate({ to: '/chat/$conversationId', params: { conversationId: 'new' } });
       } else {
         // Reset any previous guest session and start fresh
         useGuestChatStore.getState().reset();
         useGuestChatStore.getState().setPendingMessage(content);
-        void navigate({ to: '/chat/guest' });
+        void navigate({ to: '/chat/$conversationId', params: { conversationId: 'guest' } });
       }
     },
     [navigate]
@@ -70,13 +69,13 @@ export function ChatIndex(): React.JSX.Element {
 
   // Initial view - same UI for guests and authenticated users
   // Auth status is checked at send time, not render time
-  // Input is disabled while isPending, preventing race conditions
+  // Input is disabled while not stable, preventing race conditions
   return (
     <div className="flex h-full flex-col">
       <NewChatPage
         onSend={handleSend}
         isAuthenticated={isAuthenticated}
-        isLoading={isPending}
+        isLoading={!isStable}
         onPremiumClick={handlePremiumClick}
       />
       <SignupModal
@@ -90,7 +89,7 @@ export function ChatIndex(): React.JSX.Element {
           open={paymentModalOpen}
           onOpenChange={setPaymentModalOpen}
           onSuccess={() => {
-            void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+            queryClient.invalidateQueries({ queryKey: billingKeys.balance() }).catch(console.error);
           }}
         />
       )}

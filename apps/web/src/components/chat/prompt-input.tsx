@@ -3,19 +3,15 @@ import { cn } from '@lome-chat/ui';
 import { Send, Square } from 'lucide-react';
 import { Button } from '@lome-chat/ui';
 import { Textarea } from '@lome-chat/ui';
-import { estimateTokenCount } from '@/lib/tokens';
-import {
-  buildSystemPrompt,
-  applyFees,
-  type CapabilityId,
-  MINIMUM_OUTPUT_TOKENS,
-} from '@lome-chat/shared';
+import { buildSystemPrompt, applyFees, type CapabilityId } from '@lome-chat/shared';
 import { CapacityBar } from './capacity-bar';
 import { BudgetMessages } from './budget-messages';
 import { useBudgetCalculation } from '@/hooks/use-budget-calculation';
 import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
 import { useSession } from '@/lib/auth';
+import { useStability } from '@/providers/stability-provider';
+import { StableContent } from '@/components/shared/stable-content';
 
 export interface PromptInputRef {
   focus: () => void;
@@ -33,10 +29,8 @@ interface PromptInputProps {
   className?: string;
   rows?: number;
   disabled?: boolean;
-  /** When true, shows stop button instead of send and disables textarea */
-  isStreaming?: boolean;
-  /** Called when stop button is clicked during streaming */
-  onStop?: () => void;
+  /** When true, blocks sending (shows stop icon on disabled button) */
+  isProcessing?: boolean;
   /** Custom minimum height for textarea (e.g., "56px"). Defaults to "120px" */
   minHeight?: string;
   /** Custom maximum height for textarea (e.g., "112px"). Defaults to "40vh" */
@@ -58,8 +52,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
     className,
     rows = 6,
     disabled = false,
-    isStreaming = false,
-    onStop,
+    isProcessing = false,
     minHeight = '120px',
     maxHeight = '40vh',
   },
@@ -73,28 +66,16 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
     },
   }));
 
-  // Get selected model and pricing from stores/hooks
   const { selectedModelId } = useModelStore();
   const { data: modelsData, isLoading: isModelsLoading } = useModels();
   const { data: session, isPending: isSessionPending } = useSession();
+  const { isAppStable } = useStability();
   const isAuthenticated = !isSessionPending && Boolean(session?.user);
 
-  // Find selected model to get pricing and context length
   const selectedModel = modelsData?.models.find((m) => m.id === selectedModelId);
   const modelContextLength = selectedModel?.contextLength;
 
-  // Calculate system prompt based on active capabilities
   const systemPrompt = React.useMemo(() => buildSystemPrompt(capabilities), [capabilities]);
-  const systemPromptTokens = React.useMemo(() => estimateTokenCount(systemPrompt), [systemPrompt]);
-
-  // Calculate current message tokens for capacity bar
-  const currentMessageTokens = estimateTokenCount(value);
-
-  // Estimate history tokens from characters (for capacity bar)
-  // Using conservative estimate of 2 chars per token
-  const historyTokens = Math.ceil(historyCharacters / 2);
-
-  // Calculate prompt character count for budget calculation
   const promptCharacterCount = systemPrompt.length + historyCharacters + value.length;
 
   const budgetResult = useBudgetCalculation({
@@ -103,35 +84,25 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
     modelOutputPricePerToken: applyFees(selectedModel?.pricePerOutputToken ?? 0),
     modelContextLength: modelContextLength ?? 0,
     isAuthenticated,
-    isAuthPending: isSessionPending,
     isModelsLoading,
   });
 
-  // Use capacity from budget result for consistency
   const isOverCapacity = budgetResult.capacityPercent > 100;
-
-  // Total current usage for capacity bar (calculate locally for display)
-  const currentUsage =
-    systemPromptTokens + historyTokens + currentMessageTokens + MINIMUM_OUTPUT_TOKENS;
-
-  // Check if there are any blocking errors
   const hasBlockingError = budgetResult.errors.some((e) => e.type === 'error');
 
-  // Send button disabled, but textarea remains enabled for editing
   const canSubmit =
     value.trim().length > 0 &&
     !isOverCapacity &&
     budgetResult.canAfford &&
     !hasBlockingError &&
     !disabled &&
-    !isStreaming;
+    !isProcessing;
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
     onChange(e.target.value);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    // Submit on Enter (without Shift)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (canSubmit) {
@@ -146,10 +117,6 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
     }
   };
 
-  const handleStopClick = (): void => {
-    onStop?.();
-  };
-
   return (
     <div className={cn('w-full', className)}>
       <div className="border-border-strong bg-background dark:border-input flex flex-col rounded-md border">
@@ -161,47 +128,37 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
           placeholder={placeholder}
           aria-label={placeholder}
           rows={rows}
-          disabled={disabled || isStreaming}
+          disabled={disabled}
           className={`max-h-[${maxHeight}] min-h-[${minHeight}] resize-none overflow-y-auto border-0 text-base focus-visible:ring-0`}
         />
 
         <div className="border-border flex items-center justify-between gap-4 border-t px-3 py-2">
           <CapacityBar
-            currentUsage={modelContextLength ? currentUsage : 0}
+            currentUsage={modelContextLength ? budgetResult.currentUsage : 0}
             maxCapacity={modelContextLength ?? 1}
             className="flex-1"
             data-testid="capacity-bar"
           />
 
-          {isStreaming ? (
-            <Button
-              type="button"
-              size="icon"
-              onClick={handleStopClick}
-              aria-label="Stop"
-              variant="destructive"
-            >
+          <Button
+            type="button"
+            size="icon"
+            onClick={handleSubmitClick}
+            disabled={!canSubmit}
+            aria-label={canSubmit ? 'Send' : 'Cannot send'}
+          >
+            {isProcessing ? (
               <Square className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              size="icon"
-              onClick={handleSubmitClick}
-              disabled={!canSubmit}
-              aria-label="Send"
-            >
+            ) : (
               <Send className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          )}
+            )}
+          </Button>
         </div>
       </div>
 
-      {/* Budget messages appear below the input (self-calculated) */}
-      {/* Hide messages while session or balance is loading to prevent flash of incorrect tier notice */}
-      {budgetResult.errors.length > 0 && !budgetResult.isBalanceLoading && !isSessionPending && (
+      <StableContent isStable={isAppStable}>
         <BudgetMessages errors={budgetResult.errors} className="mt-2" />
-      )}
+      </StableContent>
     </div>
   );
 });

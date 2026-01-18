@@ -4,10 +4,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Mock dependencies using vi.hoisted for values referenced in vi.mock factory
-const { mockUseSession, mockNavigate, mockUseBalance } = vi.hoisted(() => ({
-  mockUseSession: vi.fn(),
+const { mockUseStableSession, mockNavigate, mockUseBalance, mockUseStability } = vi.hoisted(() => ({
+  mockUseStableSession: vi.fn(),
   mockNavigate: vi.fn(),
   mockUseBalance: vi.fn(),
+  mockUseStability: vi.fn(),
 }));
 
 // Mock tanstack router
@@ -20,9 +21,14 @@ vi.mock('@tanstack/react-router', async () => {
   };
 });
 
-// Mock auth
-vi.mock('@/lib/auth', () => ({
-  useSession: mockUseSession,
+// Mock stable session hook
+vi.mock('@/hooks/use-stable-session', () => ({
+  useStableSession: mockUseStableSession,
+}));
+
+// Mock stability provider
+vi.mock('@/providers/stability-provider', () => ({
+  useStability: mockUseStability,
 }));
 
 // Mock billing
@@ -109,12 +115,18 @@ vi.mock('framer-motion', async () => {
     );
   };
 
+  // AnimatePresence just renders children
+  const AnimatePresence = ({ children }: { children?: React.ReactNode }) => {
+    return react.createElement(react.Fragment, null, children);
+  };
+
   return {
     motion: {
       span: createMotionComponent('span'),
       div: createMotionComponent('div'),
       p: createMotionComponent('p'),
     },
+    AnimatePresence,
   };
 });
 
@@ -140,11 +152,18 @@ describe('ChatIndex', () => {
     vi.clearAllMocks();
     // Default mock values
     mockUseBalance.mockReturnValue({ data: { balance: '0.00' } });
+    mockUseStability.mockReturnValue({
+      isAuthStable: true,
+      isBalanceStable: true,
+      isAppStable: true,
+    });
   });
 
-  it('shows loading state while session is pending', () => {
-    mockUseSession.mockReturnValue({
-      data: null,
+  it('shows loading state while session is not stable', () => {
+    mockUseStableSession.mockReturnValue({
+      session: null,
+      isAuthenticated: false,
+      isStable: false,
       isPending: true,
     });
 
@@ -154,12 +173,14 @@ describe('ChatIndex', () => {
     expect(screen.getByTestId('new-chat-page')).toHaveAttribute('data-loading', 'true');
   });
 
-  it('shows authenticated greeting after session loads', async () => {
-    mockUseSession.mockReturnValue({
-      data: {
+  it('shows authenticated greeting after session becomes stable', async () => {
+    mockUseStableSession.mockReturnValue({
+      session: {
         user: { email: 'test@example.com' },
         session: { id: 'session-123' },
       },
+      isAuthenticated: true,
+      isStable: true,
       isPending: false,
     });
 
@@ -170,21 +191,25 @@ describe('ChatIndex', () => {
     });
   });
 
-  it('does not re-render greeting when session loads', async () => {
+  it('does not re-render greeting when session becomes stable', async () => {
     // Start with pending session
-    mockUseSession.mockReturnValue({
-      data: null,
+    mockUseStableSession.mockReturnValue({
+      session: null,
+      isAuthenticated: false,
+      isStable: false,
       isPending: true,
     });
 
     const { rerender } = render(<ChatIndex />, { wrapper: createWrapper() });
 
-    // Session becomes available
-    mockUseSession.mockReturnValue({
-      data: {
+    // Session becomes available and stable
+    mockUseStableSession.mockReturnValue({
+      session: {
         user: { email: 'test@example.com' },
         session: { id: 'session-123' },
       },
+      isAuthenticated: true,
+      isStable: true,
       isPending: false,
     });
 
@@ -199,8 +224,10 @@ describe('ChatIndex', () => {
   describe('premium click modal routing', () => {
     it('renders SignupModal component for guests', () => {
       // Guest: not authenticated
-      mockUseSession.mockReturnValue({
-        data: null,
+      mockUseStableSession.mockReturnValue({
+        session: null,
+        isAuthenticated: false,
+        isStable: true,
         isPending: false,
       });
       mockUseBalance.mockReturnValue({ data: { balance: '0.00' } });
@@ -214,11 +241,13 @@ describe('ChatIndex', () => {
 
     it('renders PaymentModal component for authenticated users', () => {
       // Free user: authenticated but no balance
-      mockUseSession.mockReturnValue({
-        data: {
+      mockUseStableSession.mockReturnValue({
+        session: {
           user: { email: 'test@example.com' },
           session: { id: 'session-123' },
         },
+        isAuthenticated: true,
+        isStable: true,
         isPending: false,
       });
       mockUseBalance.mockReturnValue({ data: { balance: '0.00' } });

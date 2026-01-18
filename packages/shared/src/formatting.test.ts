@@ -5,6 +5,9 @@ import {
   formatPricePer1k,
   formatCost,
   shortenModelName,
+  generateChatTitle,
+  CHAT_TITLE_MAX_LENGTH,
+  DEFAULT_CHAT_TITLE,
 } from './formatting';
 
 describe('formatting utilities', () => {
@@ -124,6 +127,34 @@ describe('formatting utilities', () => {
 
     it('trims whitespace from result', () => {
       expect(shortenModelName('  Claude 3.5 Sonnet-2024-08-06  ')).toBe('Claude 3.5 Sonnet');
+    });
+  });
+
+  describe('generateChatTitle', () => {
+    it('returns default title when no content provided', () => {
+      expect(generateChatTitle()).toBe(DEFAULT_CHAT_TITLE);
+      expect(generateChatTitle(undefined)).toBe(DEFAULT_CHAT_TITLE);
+      expect(generateChatTitle('')).toBe(DEFAULT_CHAT_TITLE);
+    });
+
+    it('uses first 50 characters of message content', () => {
+      const shortMessage = 'Hello, world!';
+      expect(generateChatTitle(shortMessage)).toBe(shortMessage);
+    });
+
+    it('truncates messages longer than 50 characters', () => {
+      const longMessage =
+        'This is a very long message that exceeds the fifty character limit for titles';
+      expect(generateChatTitle(longMessage)).toBe(longMessage.slice(0, CHAT_TITLE_MAX_LENGTH));
+      expect(generateChatTitle(longMessage).length).toBe(CHAT_TITLE_MAX_LENGTH);
+    });
+
+    it('exports CHAT_TITLE_MAX_LENGTH as 50', () => {
+      expect(CHAT_TITLE_MAX_LENGTH).toBe(50);
+    });
+
+    it('exports DEFAULT_CHAT_TITLE as "New Conversation"', () => {
+      expect(DEFAULT_CHAT_TITLE).toBe('New Conversation');
     });
   });
 });

@@ -6,6 +6,7 @@ import {
   type Conversation,
   type Message,
 } from '@lome-chat/db';
+import { generateChatTitle, DEFAULT_CHAT_TITLE } from '@lome-chat/shared';
 
 export interface ConversationWithMessages {
   conversation: Conversation;
@@ -81,7 +82,7 @@ export async function createConversation(
 ): Promise<CreateConversationResult> {
   let title = params.title;
   if (!title && params.firstMessage) {
-    title = params.firstMessage.content.slice(0, 50);
+    title = generateChatTitle(params.firstMessage.content);
   }
 
   return db.transaction(async (tx) => {
@@ -89,7 +90,7 @@ export async function createConversation(
       .insert(conversations)
       .values({
         userId,
-        title: title ?? 'New Conversation',
+        title: title ?? DEFAULT_CHAT_TITLE,
       })
       .returning();
 

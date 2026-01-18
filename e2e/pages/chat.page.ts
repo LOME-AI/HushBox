@@ -41,6 +41,8 @@ export class ChatPage {
 
   async sendFollowUpMessage(message: string): Promise<void> {
     await this.messageInput.fill(message);
+    // Wait for streaming to complete (button enabled means canSubmit = true)
+    await expect(this.sendButton).toBeEnabled();
     await this.messageInput.press('Enter');
     await expect(this.messageInput).toHaveValue('');
   }

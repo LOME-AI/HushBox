@@ -125,17 +125,67 @@ describe('FormInput', () => {
     expect(screen.queryByText('Valid')).not.toBeInTheDocument();
   });
 
-  it('starts with collapsed feedback container', () => {
-    render(<FormInput label="Email" />);
-    const feedbackContainer = screen.getByTestId('form-input-feedback');
-    expect(feedbackContainer).toBeInTheDocument();
-    expect(feedbackContainer).toHaveClass('h-0');
-  });
+  describe('feedback visibility', () => {
+    it('hides feedback when unfocused and no message', () => {
+      render(<FormInput label="Email" />);
+      const feedbackContainer = screen.getByTestId('form-input-feedback');
+      expect(feedbackContainer).toHaveClass('h-0');
+    });
 
-  it('expands feedback container when value is present', () => {
-    render(<FormInput label="Email" value="test@example.com" onChange={vi.fn()} />);
-    const feedbackContainer = screen.getByTestId('form-input-feedback');
-    expect(feedbackContainer).toHaveClass('h-5');
+    it('hides feedback when focused but no message', async () => {
+      const user = userEvent.setup();
+      render(<FormInput label="Email" />);
+
+      const input = screen.getByRole('textbox');
+      await user.click(input);
+
+      const feedbackContainer = screen.getByTestId('form-input-feedback');
+      expect(feedbackContainer).toHaveClass('h-0');
+    });
+
+    it('shows error when unfocused', () => {
+      render(<FormInput label="Email" error="Invalid email" />);
+      const feedbackContainer = screen.getByTestId('form-input-feedback');
+      expect(feedbackContainer).toHaveClass('h-5');
+      expect(screen.getByText('Invalid email')).toBeInTheDocument();
+    });
+
+    it('shows error when focused', async () => {
+      const user = userEvent.setup();
+      render(<FormInput label="Email" error="Invalid email" />);
+
+      const input = screen.getByRole('textbox');
+      await user.click(input);
+
+      const feedbackContainer = screen.getByTestId('form-input-feedback');
+      expect(feedbackContainer).toHaveClass('h-5');
+    });
+
+    it('shows success when focused', async () => {
+      const user = userEvent.setup();
+      render(<FormInput label="Email" success="Valid email" />);
+
+      const input = screen.getByRole('textbox');
+      await user.click(input);
+
+      const feedbackContainer = screen.getByTestId('form-input-feedback');
+      expect(feedbackContainer).toHaveClass('h-5');
+      expect(screen.getByText('Valid email')).toBeInTheDocument();
+    });
+
+    it('hides success when unfocused', async () => {
+      const user = userEvent.setup();
+      render(<FormInput label="Email" success="Valid email" />);
+
+      const input = screen.getByRole('textbox');
+      await user.click(input);
+
+      const feedbackContainer = screen.getByTestId('form-input-feedback');
+      expect(feedbackContainer).toHaveClass('h-5');
+
+      await user.tab();
+      expect(feedbackContainer).toHaveClass('h-0');
+    });
   });
 
   describe('accessibility', () => {

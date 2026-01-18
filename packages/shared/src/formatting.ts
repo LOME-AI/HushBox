@@ -92,3 +92,13 @@ export function shortenModelName(name: string): string {
 
   return trimmed.replace(versionDatePattern, '');
 }
+
+export const CHAT_TITLE_MAX_LENGTH = 50;
+export const DEFAULT_CHAT_TITLE = 'New Conversation';
+
+export function generateChatTitle(firstMessageContent?: string): string {
+  if (!firstMessageContent) {
+    return DEFAULT_CHAT_TITLE;
+  }
+  return firstMessageContent.slice(0, CHAT_TITLE_MAX_LENGTH);
+}

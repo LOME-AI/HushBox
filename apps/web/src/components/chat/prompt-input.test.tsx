@@ -70,6 +70,18 @@ vi.mock('@/hooks/use-budget-calculation', () => ({
   useBudgetCalculation: () => mockBudgetResult(),
 }));
 
+// Mock stability hooks - configurable via mockUseStability
+const defaultStabilityState = {
+  isAuthStable: true,
+  isBalanceStable: true,
+  isAppStable: true,
+};
+const mockUseStability = vi.fn(() => defaultStabilityState);
+
+vi.mock('@/providers/stability-provider', () => ({
+  useStability: () => mockUseStability(),
+}));
+
 function createTestQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
@@ -95,6 +107,7 @@ describe('PromptInput', () => {
     vi.useFakeTimers();
     mockBudgetResult.mockReturnValue(defaultBudgetResult);
     mockUseSession.mockReturnValue(defaultSession);
+    mockUseStability.mockReturnValue(defaultStabilityState);
   });
 
   afterEach(() => {
@@ -297,7 +310,13 @@ describe('PromptInput', () => {
       ).toBeInTheDocument();
     });
 
-    it('hides budget messages while balance is loading for authenticated users', () => {
+    it('hides budget messages while app is not stable (balance loading)', () => {
+      // App is not stable (isAppStable: false)
+      mockUseStability.mockReturnValue({
+        isAuthStable: true,
+        isBalanceStable: false,
+        isAppStable: false,
+      });
       mockBudgetResult.mockReturnValue({
         ...defaultBudgetResult,
         isBalanceLoading: true,
@@ -312,15 +331,20 @@ describe('PromptInput', () => {
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
-      // Budget messages should be hidden while balance is loading
+      // Budget messages should be hidden while app is not stable
       expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
       expect(
         screen.queryByText('Free preview. Create an account for full access.')
       ).not.toBeInTheDocument();
     });
 
-    it('hides budget messages while session is loading', () => {
-      // Session is loading (isPending: true, data is null)
+    it('hides budget messages while app is not stable (session loading)', () => {
+      // Session is loading - stability reflects this
+      mockUseStability.mockReturnValue({
+        isAuthStable: false,
+        isBalanceStable: true,
+        isAppStable: false,
+      });
       mockUseSession.mockReturnValue({
         data: null,
         isPending: true,
@@ -340,7 +364,7 @@ describe('PromptInput', () => {
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
-      // Budget messages should be hidden while session is loading
+      // Budget messages should be hidden while app is not stable
       expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
       expect(
         screen.queryByText('Free preview. Create an account for full access.')
@@ -406,54 +430,30 @@ describe('PromptInput', () => {
     });
   });
 
-  describe('streaming mode', () => {
-    const mockOnStop = vi.fn();
-
-    beforeEach(() => {
-      mockOnStop.mockClear();
+  describe('processing mode', () => {
+    it('shows stop icon and disables button when processing', () => {
+      renderWithProviders(
+        <PromptInput value="Test" onChange={mockOnChange} onSubmit={mockOnSubmit} isProcessing />
+      );
+      const button = screen.getByRole('button', { name: /cannot send/i });
+      expect(button).toBeDisabled();
+      // Button contains Square icon (stop), not Send icon
+      expect(button.querySelector('svg')).toBeInTheDocument();
     });
 
-    it('shows stop button instead of send button when streaming', () => {
+    it('keeps textarea enabled during processing for type-ahead', () => {
       renderWithProviders(
-        <PromptInput
-          value="Test"
-          onChange={mockOnChange}
-          onSubmit={mockOnSubmit}
-          isStreaming
-          onStop={mockOnStop}
-        />
+        <PromptInput value="Test" onChange={mockOnChange} onSubmit={mockOnSubmit} isProcessing />
       );
-      expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument();
+      expect(screen.getByRole('textbox')).not.toBeDisabled();
     });
 
-    it('calls onStop when stop button is clicked', async () => {
-      vi.useRealTimers();
-      const user = userEvent.setup();
+    it('shows send icon when not processing and can submit', () => {
       renderWithProviders(
-        <PromptInput
-          value="Test"
-          onChange={mockOnChange}
-          onSubmit={mockOnSubmit}
-          isStreaming
-          onStop={mockOnStop}
-        />
+        <PromptInput value="Test" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
-      await user.click(screen.getByRole('button', { name: /stop/i }));
-      expect(mockOnStop).toHaveBeenCalled();
-    });
-
-    it('disables textarea while streaming', () => {
-      renderWithProviders(
-        <PromptInput
-          value="Test"
-          onChange={mockOnChange}
-          onSubmit={mockOnSubmit}
-          isStreaming
-          onStop={mockOnStop}
-        />
-      );
-      expect(screen.getByRole('textbox')).toBeDisabled();
+      const button = screen.getByRole('button', { name: /send/i });
+      expect(button).not.toBeDisabled();
     });
   });
 

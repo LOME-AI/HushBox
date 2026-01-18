@@ -1,5 +1,16 @@
 import '@testing-library/jest-dom/vitest';
 
+// Global mock for stability provider - provides a stable state by default
+// Individual tests can override this via vi.mock() if they need different behavior
+vi.mock('@/providers/stability-provider', () => ({
+  useStability: () => ({
+    isAuthStable: true,
+    isBalanceStable: true,
+    isAppStable: true,
+  }),
+  StabilityProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 // ResizeObserver polyfill for Radix UI Tooltip/Popover components
 class ResizeObserverMock {
   observe(): void {

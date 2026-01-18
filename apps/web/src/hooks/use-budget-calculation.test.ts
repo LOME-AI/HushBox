@@ -5,9 +5,19 @@ import * as billingHooks from './billing';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type { GetBalanceResponse } from '@lome-chat/shared';
 
+// Hoist mock functions for vi.mock factories
+const { mockUseStability } = vi.hoisted(() => ({
+  mockUseStability: vi.fn(),
+}));
+
 // Mock the billing hooks module
 vi.mock('./billing', () => ({
   useBalance: vi.fn(),
+}));
+
+// Mock stability provider
+vi.mock('@/providers/stability-provider', () => ({
+  useStability: mockUseStability,
 }));
 
 const mockUseBalance = vi.mocked(billingHooks.useBalance);
@@ -27,6 +37,11 @@ describe('useBudgetCalculation', () => {
       data: { balance: '10.00000000', freeAllowanceCents: 500 },
       isPending: false,
     } as UseQueryResult<GetBalanceResponse>);
+    mockUseStability.mockReturnValue({
+      isAuthStable: true,
+      isBalanceStable: true,
+      isAppStable: true,
+    });
   });
 
   afterEach(() => {
@@ -97,7 +112,12 @@ describe('useBudgetCalculation', () => {
       expect(hasFreeTierNotice).toBe(true);
     });
 
-    it('sets isBalanceLoading true when authenticated and balance is loading', () => {
+    it('sets isBalanceLoading true when authenticated and balance is not stable', () => {
+      mockUseStability.mockReturnValue({
+        isAuthStable: true,
+        isBalanceStable: false,
+        isAppStable: false,
+      });
       mockUseBalance.mockReturnValue({
         data: undefined,
         isPending: true,
@@ -109,16 +129,21 @@ describe('useBudgetCalculation', () => {
         vi.advanceTimersByTime(200);
       });
 
-      // isBalanceLoading should be true for authenticated users while balance is loading
+      // isBalanceLoading should be true for authenticated users while balance is not stable
       expect(result.current.isBalanceLoading).toBe(true);
       // Calculation still happens with guest tier (errors may include guest notice)
       // but UI should use isBalanceLoading to suppress display
     });
 
     it('sets isBalanceLoading false when not authenticated', () => {
+      mockUseStability.mockReturnValue({
+        isAuthStable: true,
+        isBalanceStable: true, // Still true because balance is stable for guests (no balance to load)
+        isAppStable: true,
+      });
       mockUseBalance.mockReturnValue({
         data: undefined,
-        isPending: true,
+        isPending: false,
       } as UseQueryResult<GetBalanceResponse>);
 
       const { result } = renderHook(() =>
@@ -136,7 +161,12 @@ describe('useBudgetCalculation', () => {
       expect(result.current.isBalanceLoading).toBe(false);
     });
 
-    it('sets isBalanceLoading false when balance is loaded', () => {
+    it('sets isBalanceLoading false when balance is stable', () => {
+      mockUseStability.mockReturnValue({
+        isAuthStable: true,
+        isBalanceStable: true,
+        isAppStable: true,
+      });
       mockUseBalance.mockReturnValue({
         data: { balance: '10.00000000', freeAllowanceCents: 500 },
         isPending: false,
@@ -148,11 +178,16 @@ describe('useBudgetCalculation', () => {
         vi.advanceTimersByTime(200);
       });
 
-      // Balance is loaded, no longer loading
+      // Balance is stable, no longer loading
       expect(result.current.isBalanceLoading).toBe(false);
     });
 
-    it('filters tier notices when isAuthPending is true', () => {
+    it('filters tier notices when app is not stable', () => {
+      mockUseStability.mockReturnValue({
+        isAuthStable: false, // Auth pending
+        isBalanceStable: true,
+        isAppStable: false,
+      });
       mockUseBalance.mockReturnValue({
         data: undefined,
         isPending: false,
@@ -162,7 +197,6 @@ describe('useBudgetCalculation', () => {
         useBudgetCalculation({
           ...defaultInput,
           isAuthenticated: false,
-          isAuthPending: true,
         })
       );
 
@@ -176,7 +210,12 @@ describe('useBudgetCalculation', () => {
       expect(hasTierNotice).toBe(false);
     });
 
-    it('shows tier notices after auth and balance settle', () => {
+    it('shows tier notices after app becomes stable', () => {
+      mockUseStability.mockReturnValue({
+        isAuthStable: true,
+        isBalanceStable: true,
+        isAppStable: true,
+      });
       mockUseBalance.mockReturnValue({
         data: { balance: '0.00000000', freeAllowanceCents: 500 },
         isPending: false,
@@ -186,7 +225,6 @@ describe('useBudgetCalculation', () => {
         useBudgetCalculation({
           ...defaultInput,
           isAuthenticated: true,
-          isAuthPending: false,
         })
       );
 

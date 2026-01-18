@@ -43,10 +43,19 @@ vi.mock('@/hooks/chat', () => ({
   }),
 }));
 
-vi.mock('@/hooks/billing', () => ({
-  useBalance: () => ({
-    data: { balance: '0.00000000' },
-    isLoading: false,
+// Mock stability hooks for SidebarFooter
+vi.mock('@/hooks/use-stable-balance', () => ({
+  useStableBalance: () => ({
+    displayBalance: '0.00000000',
+    isStable: true,
+  }),
+}));
+
+vi.mock('@/providers/stability-provider', () => ({
+  useStability: () => ({
+    isAuthStable: true,
+    isBalanceStable: true,
+    isAppStable: true,
   }),
 }));
 

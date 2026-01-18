@@ -465,6 +465,171 @@ describe('fetchModels (public, no auth required)', () => {
   });
 });
 
+describe('chatCompletionStreamWithMetadata retry logic', () => {
+  let client: OpenRouterClient;
+  const TEST_API_KEY = 'test-api-key-12345';
+  let fetchMock: FetchMock;
+
+  beforeEach(() => {
+    fetchMock = vi.fn() as FetchMock;
+    vi.stubGlobal('fetch', fetchMock);
+    client = createOpenRouterClient(TEST_API_KEY);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    clearModelCache();
+  });
+
+  function createMockStreamResponse(
+    tokens: string[]
+  ): MockFetchResponse & { body: ReadableStream } {
+    const chunks = tokens.map(
+      (t) => `data: ${JSON.stringify({ id: 'gen-123', choices: [{ delta: { content: t } }] })}\n\n`
+    );
+    chunks.push('data: [DONE]\n\n');
+
+    const encoder = new TextEncoder();
+    let index = 0;
+
+    return {
+      ok: true,
+      body: new ReadableStream({
+        pull(controller) {
+          if (index < chunks.length) {
+            controller.enqueue(encoder.encode(chunks[index]));
+            index++;
+          } else {
+            controller.close();
+          }
+        },
+      }),
+      json: () => Promise.resolve({}),
+    };
+  }
+
+  it('retries with corrected max_tokens on context length error', async () => {
+    const contextLengthError = {
+      error: {
+        message:
+          "This endpoint's maximum context length is 204800 tokens. However, you requested about 4262473 tokens (65 of text input, 4262408 in the output).",
+      },
+    };
+
+    // First call fails with context length error
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      statusText: 'Bad Request',
+      json: () => Promise.resolve(contextLengthError),
+    });
+
+    // Retry succeeds
+    fetchMock.mockResolvedValueOnce(createMockStreamResponse(['Hello', ' world']));
+
+    const tokens: string[] = [];
+    for await (const token of client.chatCompletionStreamWithMetadata({
+      model: 'test/model',
+      messages: [{ role: 'user', content: 'Hi' }],
+      max_tokens: 4262408, // Original request with too many tokens
+    })) {
+      tokens.push(token.content);
+    }
+
+    expect(tokens).toEqual(['Hello', ' world']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Verify retry was called with corrected max_tokens
+    const retryCall = fetchMock.mock.calls[1];
+    if (retryCall === undefined) {
+      throw new Error('Expected retry call to exist');
+    }
+    const retryBody = JSON.parse((retryCall[1] as { body: string }).body) as {
+      max_tokens?: number;
+    };
+    // maxContext (204800) - textInput (65) = 204735
+    expect(retryBody.max_tokens).toBe(204735);
+  });
+
+  it('throws original error if retry also fails', async () => {
+    const contextLengthError = {
+      error: {
+        message:
+          "This endpoint's maximum context length is 204800 tokens. However, you requested about 4262473 tokens (65 of text input, 4262408 in the output).",
+      },
+    };
+
+    // First call fails with context length error
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      statusText: 'Bad Request',
+      json: () => Promise.resolve(contextLengthError),
+    });
+
+    // Retry also fails
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      statusText: 'Bad Request',
+      json: () => Promise.resolve({ error: { message: 'Still too long' } }),
+    });
+
+    await expect(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _ of client.chatCompletionStreamWithMetadata({
+        model: 'test/model',
+        messages: [{ role: 'user', content: 'Hi' }],
+      })) {
+        // consume stream
+      }
+    }).rejects.toThrow('OpenRouter error: Still too long');
+  });
+
+  it('does not retry on non-context-length errors', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      statusText: 'Bad Request',
+      json: () => Promise.resolve({ error: { message: 'Invalid API key' } }),
+    });
+
+    await expect(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _ of client.chatCompletionStreamWithMetadata({
+        model: 'test/model',
+        messages: [{ role: 'user', content: 'Hi' }],
+      })) {
+        // consume stream
+      }
+    }).rejects.toThrow('OpenRouter error: Invalid API key');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry if error message cannot be parsed', async () => {
+    const unparsableError = {
+      error: {
+        message: 'Context length exceeded but in a different format',
+      },
+    };
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      statusText: 'Bad Request',
+      json: () => Promise.resolve(unparsableError),
+    });
+
+    await expect(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _ of client.chatCompletionStreamWithMetadata({
+        model: 'test/model',
+        messages: [{ role: 'user', content: 'Hi' }],
+      })) {
+        // consume stream
+      }
+    }).rejects.toThrow('OpenRouter error: Context length exceeded but in a different format');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('getModel (public, no auth required)', () => {
   let fetchMock: FetchMock;
 

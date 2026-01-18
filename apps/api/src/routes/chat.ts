@@ -28,6 +28,7 @@ import {
   buildOpenRouterMessages,
   saveMessageWithBilling,
 } from '../services/chat/index.js';
+import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { createSSEEventWriter } from '../lib/stream-handler.js';
 import { requireAuth } from '../middleware/require-auth.js';
@@ -208,6 +209,12 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
       );
     }
 
+    const safeMaxTokens = computeSafeMaxTokens({
+      budgetMaxTokens: budgetResult.maxOutputTokens,
+      modelContextLength,
+      estimatedInputTokens: budgetResult.estimatedInputTokens,
+    });
+
     return streamSSE(c, async (stream) => {
       const writer = createSSEEventWriter(stream);
 
@@ -224,7 +231,7 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
         for await (const token of openrouter.chatCompletionStreamWithMetadata({
           model,
           messages: openRouterMessages,
-          ...(budgetResult.maxOutputTokens > 0 && { max_tokens: budgetResult.maxOutputTokens }),
+          ...(safeMaxTokens !== undefined && { max_tokens: safeMaxTokens }),
         })) {
           if (token.generationId) {
             generationId = token.generationId;

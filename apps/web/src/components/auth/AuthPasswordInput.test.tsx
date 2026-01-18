@@ -89,15 +89,35 @@ describe('AuthPasswordInput', () => {
 
   it('starts with collapsed feedback container', () => {
     render(<AuthPasswordInput label="Password" />);
-    // Feedback container is from FormInput with testid 'form-input-feedback'
     const feedbackContainer = screen.getByTestId('form-input-feedback');
     expect(feedbackContainer).toBeInTheDocument();
     expect(feedbackContainer).toHaveClass('h-0');
   });
 
-  it('expands feedback container when value is present', () => {
-    render(<AuthPasswordInput label="Password" value="secret123" onChange={vi.fn()} />);
-    // Feedback container is from FormInput with testid 'form-input-feedback'
+  it('expands feedback container when focused with success message', async () => {
+    const user = userEvent.setup();
+    render(<AuthPasswordInput label="Password" id="password" success="Strong password" />);
+
+    const input = screen.getByLabelText('Password');
+    await user.click(input);
+
+    const feedbackContainer = screen.getByTestId('form-input-feedback');
+    expect(feedbackContainer).toHaveClass('h-5');
+  });
+
+  it('keeps feedback collapsed when focused without message', async () => {
+    const user = userEvent.setup();
+    render(<AuthPasswordInput label="Password" id="password" />);
+
+    const input = screen.getByLabelText('Password');
+    await user.click(input);
+
+    const feedbackContainer = screen.getByTestId('form-input-feedback');
+    expect(feedbackContainer).toHaveClass('h-0');
+  });
+
+  it('shows error when unfocused', () => {
+    render(<AuthPasswordInput label="Password" error="Required" />);
     const feedbackContainer = screen.getByTestId('form-input-feedback');
     expect(feedbackContainer).toHaveClass('h-5');
   });

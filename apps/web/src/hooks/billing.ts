@@ -73,9 +73,9 @@ export function useCreatePayment(): ReturnType<
   return useMutation({
     mutationFn: ({ amount }: { amount: string }) =>
       api.post<CreatePaymentResponse>('billing/payments', { amount }),
-    onSuccess: () => {
+    onSuccess: async () => {
       // Invalidate balance in case it changed
-      void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+      await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
     },
   });
 }
@@ -107,11 +107,11 @@ export function useProcessPayment(): ReturnType<
         cardToken,
         customerCode,
       }),
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       // Invalidate balance when payment is confirmed
       if (data.status === 'confirmed') {
-        void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
-        void queryClient.invalidateQueries({ queryKey: billingKeys.transactions() });
+        await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+        await queryClient.invalidateQueries({ queryKey: billingKeys.transactions() });
       }
     },
   });

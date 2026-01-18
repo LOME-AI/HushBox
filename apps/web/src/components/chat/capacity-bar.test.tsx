@@ -138,18 +138,11 @@ describe('CapacityBar', () => {
       vi.useRealTimers();
     });
 
-    it('starts at 0% width and animates to target', async () => {
+    it('starts at target width on mount (no animation)', () => {
       render(<CapacityBar currentUsage={5000} maxCapacity={10000} />);
       const fill = screen.getByTestId('capacity-bar-fill');
 
-      // Initially should be 0%
-      expect(fill).toHaveStyle({ width: '0%' });
-
-      // After animation frame, should animate to target
-      await act(async () => {
-        await vi.advanceTimersToNextTimerAsync();
-      });
-
+      // Should immediately show target value on mount - no animation from 0
       expect(fill).toHaveStyle({ width: '50%' });
     });
 
@@ -157,16 +150,13 @@ describe('CapacityBar', () => {
       const { rerender } = render(<CapacityBar currentUsage={3000} maxCapacity={10000} />);
       const fill = screen.getByTestId('capacity-bar-fill');
 
-      // Advance to get initial animation
-      await act(async () => {
-        await vi.advanceTimersToNextTimerAsync();
-      });
+      // Immediately at target value (no mount animation)
       expect(fill).toHaveStyle({ width: '30%' });
 
       // Update capacity
       rerender(<CapacityBar currentUsage={7000} maxCapacity={10000} />);
 
-      // After animation frame, should update to new target
+      // After animation frame, should animate to new target
       await act(async () => {
         await vi.advanceTimersToNextTimerAsync();
       });

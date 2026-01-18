@@ -476,7 +476,7 @@ describe('ModelSelectorModal', () => {
   });
 
   describe('mobile layout split', () => {
-    it('model list panel has flex-[2] for 40% of remaining space on mobile', () => {
+    it('model list panel has flex-[9] for 45% of remaining space on mobile', () => {
       render(
         <ModelSelectorModal
           open={true}
@@ -488,10 +488,10 @@ describe('ModelSelectorModal', () => {
       );
 
       const modelListPanel = screen.getByTestId('model-list-panel');
-      expect(modelListPanel).toHaveClass('flex-[2]');
+      expect(modelListPanel).toHaveClass('flex-[9]');
     });
 
-    it('info panel has flex-[3] for 60% of remaining space on mobile', () => {
+    it('info panel has flex-[11] for 55% of remaining space on mobile', () => {
       render(
         <ModelSelectorModal
           open={true}
@@ -503,7 +503,7 @@ describe('ModelSelectorModal', () => {
       );
 
       const detailsPanel = screen.getByTestId('model-details-panel');
-      expect(detailsPanel).toHaveClass('flex-[3]');
+      expect(detailsPanel).toHaveClass('flex-[11]');
     });
   });
 

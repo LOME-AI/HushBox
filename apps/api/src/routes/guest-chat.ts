@@ -16,6 +16,7 @@ import { checkGuestUsage, incrementGuestUsage } from '../services/billing/index.
 import { processModels } from '../services/models.js';
 import { fetchModels } from '../services/openrouter/index.js';
 import { validateLastMessageIsFromUser, buildOpenRouterMessages } from '../services/chat/index.js';
+import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { fireAndForget } from '../lib/fire-and-forget.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { createSSEEventWriter } from '../lib/stream-handler.js';
@@ -153,6 +154,12 @@ export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
       );
     }
 
+    const safeMaxTokens = computeSafeMaxTokens({
+      budgetMaxTokens: budgetResult.maxOutputTokens,
+      modelContextLength,
+      estimatedInputTokens: budgetResult.estimatedInputTokens,
+    });
+
     const assistantMessageId = crypto.randomUUID();
 
     const { systemPrompt } = buildPrompt({
@@ -174,7 +181,7 @@ export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
         for await (const token of openrouter.chatCompletionStreamWithMetadata({
           model,
           messages: openRouterMessages,
-          ...(budgetResult.maxOutputTokens > 0 && { max_tokens: budgetResult.maxOutputTokens }),
+          ...(safeMaxTokens !== undefined && { max_tokens: safeMaxTokens }),
         })) {
           await writer.writeToken(token.content);
         }

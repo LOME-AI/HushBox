@@ -246,8 +246,9 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
     maxOutputTokens = Math.floor(remainingBudget / modelOutputPricePerToken);
   }
 
-  // 6. Calculate capacity
-  const currentUsage = estimatedInputTokens + MINIMUM_OUTPUT_TOKENS;
+  // 6. Calculate capacity (always use standard 4 chars/token - model context is fixed regardless of tier)
+  const capacityInputTokens = Math.ceil(promptCharacterCount / CHARS_PER_TOKEN_STANDARD);
+  const currentUsage = capacityInputTokens + MINIMUM_OUTPUT_TOKENS;
   const capacityPercent = (currentUsage / modelContextLength) * 100;
 
   // Build result without errors first

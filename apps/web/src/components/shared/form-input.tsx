@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useEffect, useId, useState } from 'react';
+import { useId, useState } from 'react';
 import { Input, cn, type InputProps } from '@lome-chat/ui';
 
 interface FormInputProps extends Omit<InputProps, 'placeholder'> {
@@ -13,21 +13,27 @@ export function FormInput({
   className,
   value,
   id,
+  onFocus,
+  onBlur,
   ...props
 }: FormInputProps): React.JSX.Element {
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const feedbackId = `${inputId}-feedback`;
-  const [hasBeenTouched, setHasBeenTouched] = useState(false);
-  const hasValue = value !== undefined && String(value).length > 0;
+  const [isFocused, setIsFocused] = useState(false);
   const hasFeedback = Boolean(error ?? success);
 
-  // Track when input first receives a value (stays true permanently)
-  useEffect(() => {
-    if (hasValue && !hasBeenTouched) {
-      setHasBeenTouched(true);
-    }
-  }, [hasValue, hasBeenTouched]);
+  const showFeedback = hasFeedback && (isFocused || Boolean(error));
+
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>): void => {
+    setIsFocused(true);
+    onFocus?.(e);
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>): void => {
+    setIsFocused(false);
+    onBlur?.(e);
+  };
 
   return (
     <div>
@@ -37,16 +43,17 @@ export function FormInput({
         className={cn(error && 'border-destructive', className)}
         aria-invalid={Boolean(error)}
         aria-describedby={hasFeedback ? feedbackId : undefined}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
         {...props}
       />
 
-      {/* Feedback area - animates height on first input, then fades in text */}
       <div
         id={feedbackId}
         data-testid="form-input-feedback"
         className={cn(
           'mt-1 overflow-hidden transition-[height] duration-150 ease-out',
-          hasBeenTouched ? 'h-5' : 'h-0'
+          showFeedback ? 'h-5' : 'h-0'
         )}
       >
         {error && (
@@ -54,7 +61,7 @@ export function FormInput({
             role="alert"
             className={cn(
               'text-destructive text-xs transition-opacity duration-200',
-              hasBeenTouched ? 'opacity-100 delay-150' : 'opacity-0'
+              showFeedback ? 'opacity-100 delay-150' : 'opacity-0'
             )}
           >
             {error}
@@ -64,7 +71,7 @@ export function FormInput({
           <p
             className={cn(
               'text-success text-xs transition-opacity duration-200',
-              hasBeenTouched ? 'opacity-100 delay-150' : 'opacity-0'
+              showFeedback ? 'opacity-100 delay-150' : 'opacity-0'
             )}
           >
             {success}

@@ -3,7 +3,9 @@ import { createFileRoute } from '@tanstack/react-router';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } from '@lome-chat/ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { requireAuth } from '@/lib/auth';
-import { useBalance, useTransactions } from '@/hooks/billing';
+import { useStableBalance } from '@/hooks/use-stable-balance';
+import { useTransactions } from '@/hooks/billing';
+import { formatBalance } from '@/lib/format';
 import { PageHeader } from '@/components/shared/page-header';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { PaymentModal } from '@/components/billing/payment-modal';
@@ -22,7 +24,7 @@ export const Route = createFileRoute('/_app/billing')({
 export function BillingPage(): React.JSX.Element {
   const [showPaymentModal, setShowPaymentModal] = React.useState(false);
   const [page, setPage] = React.useState(0);
-  const { data: balanceData, isLoading: balanceLoading, refetch: refetchBalance } = useBalance();
+  const { displayBalance, isStable: isBalanceStable, refetch: refetchBalance } = useStableBalance();
   const { data: transactionsData, isLoading: transactionsLoading } = useTransactions({
     limit: TRANSACTIONS_PER_PAGE,
     offset: page * TRANSACTIONS_PER_PAGE,
@@ -52,11 +54,11 @@ export function BillingPage(): React.JSX.Element {
           <CardContent>
             <div className="flex items-center justify-between">
               <div>
-                {balanceLoading ? (
+                {!isBalanceStable ? (
                   <div className="bg-muted h-10 w-48 animate-pulse rounded" />
                 ) : (
                   <p data-testid="balance-display" className="text-4xl font-bold">
-                    ${parseFloat(balanceData?.balance ?? '0').toFixed(8)}
+                    {formatBalance(displayBalance)}
                   </p>
                 )}
               </div>
@@ -140,7 +142,7 @@ export function BillingPage(): React.JSX.Element {
                           +${parseFloat(tx.amount).toFixed(2)}
                         </p>
                         <p className="text-muted-foreground text-sm">
-                          Balance: ${parseFloat(tx.balanceAfter).toFixed(8)}
+                          Balance: {formatBalance(tx.balanceAfter)}
                         </p>
                       </div>
                     </div>

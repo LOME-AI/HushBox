@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { AlertTriangle, Info } from 'lucide-react';
 import { cn } from '@lome-chat/ui';
 import type { BudgetError } from '@lome-chat/shared';
@@ -10,10 +11,6 @@ interface BudgetMessagesProps {
   className?: string;
 }
 
-/**
- * Get border color class based on error type.
- * Uses colored left border for visual distinction while keeping text neutral.
- */
 function getBorderColor(type: BudgetError['type']): string {
   switch (type) {
     case 'error':
@@ -25,10 +22,6 @@ function getBorderColor(type: BudgetError['type']): string {
   }
 }
 
-/**
- * Get icon color class based on error type.
- * Icons retain semantic colors for visual indication.
- */
 function getIconColor(type: BudgetError['type']): string {
   switch (type) {
     case 'error':
@@ -40,9 +33,6 @@ function getIconColor(type: BudgetError['type']): string {
   }
 }
 
-/**
- * Get icon component based on error type.
- */
 function getIcon(type: BudgetError['type']): React.ComponentType<{ className?: string }> {
   switch (type) {
     case 'error':
@@ -53,42 +43,49 @@ function getIcon(type: BudgetError['type']): React.ComponentType<{ className?: s
   }
 }
 
-/**
- * Component to display budget-related messages (errors, warnings, info).
- * Uses accessible styling: neutral background + colored left border + colored icon.
- * Renders below the prompt input to inform users about budget/capacity issues.
- */
-export function BudgetMessages({
-  errors,
-  className,
-}: BudgetMessagesProps): React.JSX.Element | null {
+export function BudgetMessages({ errors, className }: BudgetMessagesProps): React.JSX.Element {
   if (errors.length === 0) {
-    return null;
+    return <></>;
   }
 
   return (
-    <div data-testid="budget-messages" className={cn('flex flex-col gap-2', className)}>
-      {errors.map((error) => {
-        const Icon = getIcon(error.type);
-        return (
-          <div
-            key={error.id}
-            data-testid={`budget-message-${error.id}`}
-            role="alert"
-            className={cn(
-              'flex items-center gap-2 rounded px-3 py-2 text-sm',
-              'bg-muted/50 text-foreground border-l-3',
-              getBorderColor(error.type)
-            )}
-          >
-            <Icon
-              data-testid={`budget-message-icon-${error.id}`}
-              className={cn('h-4 w-4 shrink-0', getIconColor(error.type))}
-            />
-            <span>{error.message}</span>
-          </div>
-        );
-      })}
+    <div
+      data-testid="budget-messages"
+      className={cn('flex flex-col gap-2', className)}
+      role="region"
+      aria-live="polite"
+    >
+      <AnimatePresence>
+        {errors.map((error) => {
+          const Icon = getIcon(error.type);
+          return (
+            <motion.div
+              key={error.id}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.3, ease: 'easeOut' }}
+              className="overflow-hidden"
+            >
+              <div
+                data-testid={`budget-message-${error.id}`}
+                role="alert"
+                className={cn(
+                  'flex items-center gap-2 rounded px-3 py-2 text-sm',
+                  'bg-muted/50 text-foreground border-l-3',
+                  getBorderColor(error.type)
+                )}
+              >
+                <Icon
+                  data-testid={`budget-message-icon-${error.id}`}
+                  className={cn('h-4 w-4 shrink-0', getIconColor(error.type))}
+                />
+                <span>{error.message}</span>
+              </div>
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
     </div>
   );
 }

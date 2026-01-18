@@ -9,14 +9,15 @@ const {
   mockSignOutAndClearCache,
   mockUseSession,
   mockNavigate,
-  mockUseBalance,
+  mockUseStableBalance,
   mockFeatureFlags,
   mockEnv,
+  mockUseIsMobile,
 } = vi.hoisted(() => ({
   mockSignOutAndClearCache: vi.fn().mockResolvedValue(undefined),
   mockUseSession: vi.fn(),
   mockNavigate: vi.fn(),
-  mockUseBalance: vi.fn(),
+  mockUseStableBalance: vi.fn(),
   mockFeatureFlags: {
     PROJECTS_ENABLED: false,
     SETTINGS_ENABLED: false,
@@ -29,6 +30,7 @@ const {
     isE2E: false,
     requiresRealServices: false,
   },
+  mockUseIsMobile: vi.fn(),
 }));
 
 vi.mock('@lome-chat/shared', async (importOriginal) => {
@@ -48,28 +50,41 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mockNavigate,
 }));
 
-vi.mock('@/hooks/billing', () => ({
-  useBalance: mockUseBalance,
+vi.mock('@/hooks/use-stable-balance', () => ({
+  useStableBalance: mockUseStableBalance,
+}));
+
+vi.mock('@/providers/stability-provider', () => ({
+  useStability: () => ({
+    isAuthStable: true,
+    isBalanceStable: true,
+    isAppStable: true,
+  }),
 }));
 
 vi.mock('@/lib/env', () => ({
   env: mockEnv,
 }));
 
+vi.mock('@/hooks/use-is-mobile', () => ({
+  useIsMobile: mockUseIsMobile,
+}));
+
 describe('SidebarFooter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useUIStore.setState({ sidebarOpen: true });
+    useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false });
     mockUseSession.mockReturnValue({
       data: {
         user: { email: 'test@example.com' },
         session: { id: 'session-123' },
       },
     });
-    mockUseBalance.mockReturnValue({
-      data: { balance: '12.34567890' },
-      isLoading: false,
+    mockUseStableBalance.mockReturnValue({
+      displayBalance: '12.34567890',
+      isStable: true,
     });
+    mockUseIsMobile.mockReturnValue(false);
   });
 
   describe('expanded state', () => {
@@ -83,27 +98,27 @@ describe('SidebarFooter', () => {
       expect(screen.getByTestId('user-email')).toHaveTextContent('test@example.com');
     });
 
-    it('renders credits display when expanded with actual balance', () => {
+    it('renders credits display when expanded with 4 decimal places', () => {
       render(<SidebarFooter />);
-      expect(screen.getByTestId('user-credits')).toHaveTextContent('$12.34567890');
+      expect(screen.getByTestId('user-credits')).toHaveTextContent('$12.3457');
     });
 
-    it('shows loading placeholder when balance is loading', () => {
-      mockUseBalance.mockReturnValue({
-        data: undefined,
-        isLoading: true,
+    it('shows loading placeholder when balance is not stable', () => {
+      mockUseStableBalance.mockReturnValue({
+        displayBalance: '0',
+        isStable: false,
       });
       render(<SidebarFooter />);
       expect(screen.getByTestId('user-credits')).toHaveTextContent('$...');
     });
 
-    it('shows zero balance when no data returned', () => {
-      mockUseBalance.mockReturnValue({
-        data: undefined,
-        isLoading: false,
+    it('shows zero balance when balance is zero', () => {
+      mockUseStableBalance.mockReturnValue({
+        displayBalance: '0',
+        isStable: true,
       });
       render(<SidebarFooter />);
-      expect(screen.getByTestId('user-credits')).toHaveTextContent('$0.00000000');
+      expect(screen.getByTestId('user-credits')).toHaveTextContent('$0.0000');
     });
 
     it('shows dropdown menu on click', async () => {
@@ -138,6 +153,34 @@ describe('SidebarFooter', () => {
       await user.click(screen.getByTestId('user-menu-trigger'));
       await user.click(screen.getByTestId('menu-add-credits'));
 
+      expect(mockNavigate).toHaveBeenCalledWith({ to: '/billing' });
+    });
+
+    it('closes mobile sidebar before navigating to billing on mobile', async () => {
+      mockUseIsMobile.mockReturnValue(true);
+      useUIStore.setState({ mobileSidebarOpen: true });
+
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('menu-add-credits'));
+
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+      expect(mockNavigate).toHaveBeenCalledWith({ to: '/billing' });
+    });
+
+    it('does not modify mobile sidebar state on desktop', async () => {
+      mockUseIsMobile.mockReturnValue(false);
+      useUIStore.setState({ mobileSidebarOpen: true });
+
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('menu-add-credits'));
+
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(true);
       expect(mockNavigate).toHaveBeenCalledWith({ to: '/billing' });
     });
 

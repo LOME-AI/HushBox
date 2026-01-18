@@ -62,6 +62,14 @@ vi.mock('@/lib/auth', () => ({
   })),
 }));
 
+// Mock stable balance hook
+vi.mock('@/hooks/use-stable-balance', () => ({
+  useStableBalance: vi.fn(() => ({
+    displayBalance: '10.00',
+    isStable: true,
+  })),
+}));
+
 // Default budget result - can afford, no errors
 const defaultBudgetResult: BudgetCalculationResult = {
   canAfford: true,
@@ -91,12 +99,18 @@ vi.mock('framer-motion', async () => {
     );
   };
 
+  // AnimatePresence just renders children
+  const AnimatePresence = ({ children }: { children?: React.ReactNode }) => {
+    return react.createElement(react.Fragment, null, children);
+  };
+
   return {
     motion: {
       span: createMotionComponent('span'),
       div: createMotionComponent('div'),
       p: createMotionComponent('p'),
     },
+    AnimatePresence,
   };
 });
 

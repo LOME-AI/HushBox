@@ -76,6 +76,15 @@ describe('AuthLayout component', () => {
     expect(container).toHaveClass('min-h-screen');
     expect(container).toHaveClass('flex');
   });
+
+  it('allows vertical scrolling on mobile when content exceeds viewport', async () => {
+    const { AuthLayout } = await import('./_auth');
+
+    render(<AuthLayout />);
+
+    const container = screen.getByTestId('auth-layout');
+    expect(container).toHaveClass('overflow-y-auto');
+  });
 });
 
 describe('Auth route beforeLoad', () => {

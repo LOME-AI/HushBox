@@ -9,7 +9,7 @@ import { ChatHeader } from './chat-header';
 import { getGreeting } from '@/lib/greetings';
 import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
-import { useBalance } from '@/hooks/billing';
+import { useStableBalance } from '@/hooks/use-stable-balance';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 
@@ -46,8 +46,8 @@ export function NewChatPage({
   const premiumIds = modelsData?.premiumIds ?? new Set<string>();
 
   // Premium access requires authentication AND positive balance
-  const { data: balanceData } = useBalance();
-  const balance = parseFloat(balanceData?.balance ?? '0');
+  const { displayBalance } = useStableBalance();
+  const balance = parseFloat(displayBalance);
   const canAccessPremium = isAuthenticated && balance > 0;
 
   // Get a greeting once auth state is settled (prevents flash when isAuthenticated changes)

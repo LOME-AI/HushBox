@@ -7,6 +7,7 @@ import type {
   GenerationStats,
   StreamToken,
 } from './types.js';
+import { parseContextLengthError } from './context-error.js';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1';
 
@@ -209,22 +210,45 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
     async *chatCompletionStreamWithMetadata(
       request: ChatCompletionRequest
     ): AsyncIterable<StreamToken> {
-      const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ ...request, stream: true }),
-      });
+      const makeRequest = async (
+        req: ChatCompletionRequest
+      ): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
+        const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ ...req, stream: true }),
+        });
 
-      if (!response.ok) {
-        const error: OpenRouterErrorResponse = await response.json();
-        throw new Error(`OpenRouter error: ${error.error?.message ?? response.statusText}`);
+        if (!response.ok) {
+          const error: OpenRouterErrorResponse = await response.json();
+          const message = error.error?.message ?? response.statusText;
+          throw new Error(`OpenRouter error: ${message}`);
+        }
+
+        if (!response.body) {
+          throw new Error('Response body is null');
+        }
+
+        return response.body.getReader();
+      };
+
+      let reader: ReadableStreamDefaultReader<Uint8Array>;
+      try {
+        reader = await makeRequest(request);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('OpenRouter error:')) {
+          const contextError = parseContextLengthError(error.message);
+          if (contextError) {
+            const correctedMaxTokens = contextError.maxContext - contextError.textInput;
+            reader = await makeRequest({ ...request, max_tokens: correctedMaxTokens });
+          } else {
+            throw error;
+          }
+        } else {
+          throw error;
+        }
       }
 
-      if (!response.body) {
-        throw new Error('Response body is null');
-      }
-
-      const reader = response.body.getReader();
       yield* parseSSEStreamWithMetadata(reader);
     },
 

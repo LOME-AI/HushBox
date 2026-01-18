@@ -18,6 +18,8 @@
     "test:coverage": "./scripts/with-env turbo test:coverage",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
+    "e2e:quick": "playwright test --project=chromium --project=iphone-15 --workers=4 --retries=1",
+    "e2e:fast": "playwright test --project=chromium --project=iphone-15 --workers=4 --retries=0",
     "clean": "turbo clean && rm -rf node_modules",
     "prepare": "husky",
     "db:up": "./scripts/with-env docker compose up -d --wait postgres neon-proxy",

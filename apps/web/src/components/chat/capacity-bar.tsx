@@ -40,16 +40,21 @@ export function CapacityBar({
   const targetWidth = Math.min(percentage, 100);
   const fillColor = getFillColor(percentage);
 
-  const [animatedWidth, setAnimatedWidth] = React.useState(0);
+  // Initialize to target value - no animation on mount, only on value changes
+  const [animatedWidth, setAnimatedWidth] = React.useState(targetWidth);
 
   React.useEffect(() => {
-    const frameId = requestAnimationFrame(() => {
-      setAnimatedWidth(targetWidth);
-    });
-    return () => {
-      cancelAnimationFrame(frameId);
-    };
-  }, [targetWidth]);
+    // Only animate when width actually changes after mount
+    if (animatedWidth !== targetWidth) {
+      const frameId = requestAnimationFrame(() => {
+        setAnimatedWidth(targetWidth);
+      });
+      return () => {
+        cancelAnimationFrame(frameId);
+      };
+    }
+    return undefined;
+  }, [targetWidth, animatedWidth]);
 
   return (
     <div data-testid="capacity-bar" className={cn('flex items-center gap-2', className)}>

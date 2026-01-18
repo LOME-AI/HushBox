@@ -14,24 +14,21 @@ import { FEATURE_FLAGS } from '@lome-chat/shared';
 
 import { useUIStore } from '@/stores/ui';
 import { useSession, signOutAndClearCache } from '@/lib/auth';
-import { useBalance } from '@/hooks/billing';
+import { useStableBalance } from '@/hooks/use-stable-balance';
+import { useIsMobile } from '@/hooks/use-is-mobile';
+import { formatBalance } from '@/lib/format';
 import { DevOnly } from '@/components/shared/dev-only';
+import { StableContent } from '@/components/shared/stable-content';
 
 export function SidebarFooter(): React.JSX.Element {
   const navigate = useNavigate();
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
+  const setMobileSidebarOpen = useUIStore((state) => state.setMobileSidebarOpen);
+  const isMobile = useIsMobile();
   const { data: session } = useSession();
-  const { data: balanceData, isLoading: balanceLoading } = useBalance();
+  const { displayBalance, isStable: isBalanceStable } = useStableBalance();
 
   const isAuthenticated = !!session?.user;
-
-  const formatBalance = (): string => {
-    if (balanceLoading) {
-      return '$...';
-    }
-    const balance = balanceData?.balance ?? '0';
-    return `$${parseFloat(balance).toFixed(8)}`;
-  };
 
   const handleLogout = async (): Promise<void> => {
     await signOutAndClearCache();
@@ -63,9 +60,18 @@ export function SidebarFooter(): React.JSX.Element {
                 <span className="truncate" data-testid="user-email">
                   {displayName}
                 </span>
-                <span className="text-muted-foreground text-xs" data-testid="user-credits">
-                  {formatBalance()}
-                </span>
+                <StableContent
+                  isStable={isBalanceStable}
+                  skeleton={
+                    <span className="text-muted-foreground text-xs" data-testid="user-credits">
+                      $...
+                    </span>
+                  }
+                >
+                  <span className="text-muted-foreground text-xs" data-testid="user-credits">
+                    {formatBalance(displayBalance)}
+                  </span>
+                </StableContent>
               </div>
             )}
           </button>
@@ -81,6 +87,9 @@ export function SidebarFooter(): React.JSX.Element {
               )}
               <DropdownMenuItem
                 onClick={() => {
+                  if (isMobile) {
+                    setMobileSidebarOpen(false);
+                  }
                   void navigate({ to: '/billing' });
                 }}
                 data-testid="menu-add-credits"

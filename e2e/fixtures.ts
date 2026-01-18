@@ -10,6 +10,10 @@ interface CustomFixtures {
   unauthenticatedPage: Page;
   testConversation: TestConversation;
   authenticatedRequest: APIRequestContext;
+  // Dedicated billing test users (isolated balance state)
+  billingSuccessPage: Page;
+  billingFailurePage: Page;
+  billingValidationPage: Page;
 }
 
 export const test = base.extend<CustomFixtures>({
@@ -37,6 +41,34 @@ export const test = base.extend<CustomFixtures>({
     });
     await use(context);
     await context.dispose();
+  },
+
+  // Dedicated billing test users (isolated balance state between tests)
+  billingSuccessPage: async ({ browser }, use) => {
+    const context = await browser.newContext({
+      storageState: 'e2e/.auth/test-billing-success.json',
+    });
+    const page = await context.newPage();
+    await use(page);
+    await context.close();
+  },
+
+  billingFailurePage: async ({ browser }, use) => {
+    const context = await browser.newContext({
+      storageState: 'e2e/.auth/test-billing-failure.json',
+    });
+    const page = await context.newPage();
+    await use(page);
+    await context.close();
+  },
+
+  billingValidationPage: async ({ browser }, use) => {
+    const context = await browser.newContext({
+      storageState: 'e2e/.auth/test-billing-validation.json',
+    });
+    const page = await context.newPage();
+    await use(page);
+    await context.close();
   },
 
   testConversation: async ({ authenticatedPage, authenticatedRequest }, use) => {

@@ -4,9 +4,10 @@ import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Mock dependencies using vi.hoisted for values referenced in vi.mock factory
-const { mockUseBalance, mockUseTransactions } = vi.hoisted(() => ({
-  mockUseBalance: vi.fn(),
+const { mockUseStableBalance, mockUseTransactions, mockUseStability } = vi.hoisted(() => ({
+  mockUseStableBalance: vi.fn(),
   mockUseTransactions: vi.fn(),
+  mockUseStability: vi.fn(),
 }));
 
 // Mock tanstack router
@@ -24,10 +25,19 @@ vi.mock('@/lib/auth', () => ({
   requireAuth: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock billing hooks
+// Mock stable balance hook
+vi.mock('@/hooks/use-stable-balance', () => ({
+  useStableBalance: mockUseStableBalance,
+}));
+
+// Mock billing hooks (for useTransactions)
 vi.mock('@/hooks/billing', () => ({
-  useBalance: mockUseBalance,
   useTransactions: mockUseTransactions,
+}));
+
+// Mock stability provider
+vi.mock('@/providers/stability-provider', () => ({
+  useStability: mockUseStability,
 }));
 
 // Import after mocks
@@ -50,13 +60,36 @@ function createWrapper(): React.FC<{ children: React.ReactNode }> {
 describe('BillingPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseStability.mockReturnValue({
+      isAuthStable: true,
+      isBalanceStable: true,
+      isAppStable: true,
+    });
+  });
+
+  describe('balance display', () => {
+    it('displays balance with 4 decimal places', () => {
+      mockUseStableBalance.mockReturnValue({
+        displayBalance: '25.12345678',
+        isStable: true,
+        refetch: vi.fn(),
+      });
+      mockUseTransactions.mockReturnValue({
+        data: { transactions: [], nextCursor: null },
+        isLoading: false,
+      });
+
+      render(<BillingPage />, { wrapper: createWrapper() });
+
+      expect(screen.getByTestId('balance-display')).toHaveTextContent('$25.1235');
+    });
   });
 
   describe('transaction skeleton loading', () => {
     it('renders skeleton rows with matching structure when loading', () => {
-      mockUseBalance.mockReturnValue({
-        data: { balance: '10.00000000' },
-        isLoading: false,
+      mockUseStableBalance.mockReturnValue({
+        displayBalance: '10.00000000',
+        isStable: true,
         refetch: vi.fn(),
       });
       mockUseTransactions.mockReturnValue({
@@ -80,9 +113,9 @@ describe('BillingPage', () => {
     });
 
     it('skeleton rows have fixed height matching data rows', () => {
-      mockUseBalance.mockReturnValue({
-        data: { balance: '10.00000000' },
-        isLoading: false,
+      mockUseStableBalance.mockReturnValue({
+        displayBalance: '10.00000000',
+        isStable: true,
         refetch: vi.fn(),
       });
       mockUseTransactions.mockReturnValue({
@@ -103,9 +136,9 @@ describe('BillingPage', () => {
 
   describe('transaction data rows', () => {
     it('renders transaction data with correct structure', () => {
-      mockUseBalance.mockReturnValue({
-        data: { balance: '25.00000000' },
-        isLoading: false,
+      mockUseStableBalance.mockReturnValue({
+        displayBalance: '25.00000000',
+        isStable: true,
         refetch: vi.fn(),
       });
       mockUseTransactions.mockReturnValue({
@@ -134,9 +167,9 @@ describe('BillingPage', () => {
 
   describe('fixed height container', () => {
     it('has fixed height container for transaction list when loading', () => {
-      mockUseBalance.mockReturnValue({
-        data: { balance: '10.00000000' },
-        isLoading: false,
+      mockUseStableBalance.mockReturnValue({
+        displayBalance: '10.00000000',
+        isStable: true,
         refetch: vi.fn(),
       });
       mockUseTransactions.mockReturnValue({
@@ -151,9 +184,9 @@ describe('BillingPage', () => {
     });
 
     it('has same fixed height container for transaction list when loaded', () => {
-      mockUseBalance.mockReturnValue({
-        data: { balance: '10.00000000' },
-        isLoading: false,
+      mockUseStableBalance.mockReturnValue({
+        displayBalance: '10.00000000',
+        isStable: true,
         refetch: vi.fn(),
       });
       mockUseTransactions.mockReturnValue({
@@ -182,9 +215,9 @@ describe('BillingPage', () => {
 
   describe('pagination', () => {
     it('disables next button when nextCursor is null', () => {
-      mockUseBalance.mockReturnValue({
-        data: { balance: '10.00000000' },
-        isLoading: false,
+      mockUseStableBalance.mockReturnValue({
+        displayBalance: '10.00000000',
+        isStable: true,
         refetch: vi.fn(),
       });
       mockUseTransactions.mockReturnValue({
@@ -210,9 +243,9 @@ describe('BillingPage', () => {
     });
 
     it('enables next button when nextCursor is present', () => {
-      mockUseBalance.mockReturnValue({
-        data: { balance: '10.00000000' },
-        isLoading: false,
+      mockUseStableBalance.mockReturnValue({
+        displayBalance: '10.00000000',
+        isStable: true,
         refetch: vi.fn(),
       });
       mockUseTransactions.mockReturnValue({

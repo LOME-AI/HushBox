@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatContextLength, formatPricePer1k, applyFees } from './format';
+import { formatContextLength, formatPricePer1k, applyFees, formatBalance } from './format';
 
 describe('formatContextLength', () => {
   it('formats thousands as k', () => {
@@ -63,5 +63,33 @@ describe('applyFees', () => {
 
   it('handles very small prices', () => {
     expect(applyFees(0.00001)).toBeCloseTo(0.0000115, 10);
+  });
+});
+
+describe('formatBalance', () => {
+  it('formats balance with 4 decimal places', () => {
+    expect(formatBalance('12.34567890')).toBe('$12.3457');
+    expect(formatBalance('0.12345')).toBe('$0.1235');
+    expect(formatBalance('100.1')).toBe('$100.1000');
+  });
+
+  it('accepts number input', () => {
+    expect(formatBalance(12.3456789)).toBe('$12.3457');
+    expect(formatBalance(0)).toBe('$0.0000');
+  });
+
+  it('handles zero balance', () => {
+    expect(formatBalance('0')).toBe('$0.0000');
+    expect(formatBalance(0)).toBe('$0.0000');
+  });
+
+  it('handles NaN values', () => {
+    expect(formatBalance('invalid')).toBe('$0.0000');
+    expect(formatBalance(NaN)).toBe('$0.0000');
+  });
+
+  it('rounds to 4 decimal places', () => {
+    expect(formatBalance('1.23456')).toBe('$1.2346');
+    expect(formatBalance('1.23454')).toBe('$1.2345');
   });
 });
