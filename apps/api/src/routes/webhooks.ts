@@ -137,6 +137,16 @@ export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
         const maxRetries = 15;
         for (let i = 0; i < maxRetries; i++) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
+
+          const [check] = await db
+            .select({ status: payments.status })
+            .from(payments)
+            .where(eq(payments.helcimTransactionId, event.id));
+
+          if (check?.status === 'confirmed') {
+            return c.json({ received: true }, 200);
+          }
+
           result = await processWebhookCredit(db, { helcimTransactionId: event.id });
           if (result) break;
         }
