@@ -19,7 +19,6 @@ import {
   ERROR_CODE_PAYMENT_REQUIRED,
   ERROR_CODE_UNAUTHORIZED,
   PAYMENT_EXPIRATION_MS,
-  createEnvUtils,
 } from '@lome-chat/shared';
 import { createErrorResponse } from '../lib/error-response.js';
 import {
@@ -316,11 +315,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       ipAddress,
     });
 
-    // Debug logging for CI
-    console.error(
-      `[Billing] processPayment result: status=${result.status}, transactionId=${String(result.transactionId)}, isMock=${String(helcim.isMock)}`
-    );
-
     if (result.status === 'approved') {
       if (helcim.isMock) {
         const creditResult = await creditUserBalance(db, {
@@ -349,7 +343,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
         return c.json(response, 200);
       }
 
-      const { isCI } = createEnvUtils(c.env);
       const transactionId = result.transactionId ?? '';
       const [updated] = await db
         .update(payments)
@@ -368,12 +361,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
         return c.json(
           createErrorResponse(ERROR_PAYMENT_ALREADY_PROCESSED, ERROR_CODE_CONFLICT),
           400
-        );
-      }
-
-      if (isCI) {
-        console.error(
-          `[Billing] Payment stored: id=${payment.id}, helcimTransactionId=${transactionId}`
         );
       }
 

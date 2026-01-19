@@ -24,11 +24,7 @@ interface HelcimEnv extends EnvContext {
  * - CI/Production: Requires real credentials, fails fast if missing
  */
 export function getHelcimClient(env: HelcimEnv): HelcimClient {
-  const { isLocalDev, isCI } = createEnvUtils(env);
-
-  console.error(
-    `[Helcim] env.CI=${String(env.CI)}, isCI=${String(isCI)}, isLocalDev=${String(isLocalDev)}`
-  );
+  const { isLocalDev } = createEnvUtils(env);
 
   if (isLocalDev) {
     return createMockHelcimClient();
