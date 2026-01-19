@@ -316,6 +316,11 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       ipAddress,
     });
 
+    // Debug logging for CI
+    console.error(
+      `[Billing] processPayment result: status=${result.status}, transactionId=${String(result.transactionId)}, isMock=${String(helcim.isMock)}`
+    );
+
     if (result.status === 'approved') {
       if (helcim.isMock) {
         const creditResult = await creditUserBalance(db, {
@@ -367,7 +372,9 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       }
 
       if (isCI) {
-        console.log(`Payment stored: id=${payment.id}, helcimTransactionId=${transactionId}`);
+        console.error(
+          `[Billing] Payment stored: id=${payment.id}, helcimTransactionId=${transactionId}`
+        );
       }
 
       const response = processPaymentResponseSchema.parse({
