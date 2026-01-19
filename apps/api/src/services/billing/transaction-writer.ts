@@ -5,7 +5,6 @@ export interface CreditBalanceParams {
   userId: string;
   amount: string;
   paymentId: string;
-  description: string;
   transactionDetails?: {
     helcimTransactionId?: string;
     cardType?: string;
@@ -80,7 +79,6 @@ export async function processWebhookCredit(
         balanceAfter: updatedUser.balance,
         type: 'deposit',
         paymentId: payment.id,
-        description: `Deposit of $${parseFloat(payment.amount).toFixed(2)}`,
       })
       .returning({ id: balanceTransactions.id });
 
@@ -104,7 +102,7 @@ export async function creditUserBalance(
   db: Database,
   params: CreditBalanceParams
 ): Promise<CreditBalanceResult | null> {
-  const { userId, amount, paymentId, description, transactionDetails, webhookReceivedAt } = params;
+  const { userId, amount, paymentId, transactionDetails, webhookReceivedAt } = params;
 
   return await db.transaction(async (tx) => {
     // Atomic idempotency: only update payment if not already confirmed
@@ -148,7 +146,6 @@ export async function creditUserBalance(
         balanceAfter: updatedUser.balance,
         type: 'deposit',
         paymentId,
-        description,
       })
       .returning({ id: balanceTransactions.id });
 

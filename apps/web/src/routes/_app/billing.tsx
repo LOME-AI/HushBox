@@ -2,6 +2,7 @@ import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } from '@lome-chat/ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import type { BalanceTransactionResponse } from '@lome-chat/shared';
 import { requireAuth } from '@/lib/auth';
 import { useStableBalance } from '@/hooks/use-stable-balance';
 import { useTransactions } from '@/hooks/billing';
@@ -13,6 +14,21 @@ import { FeeBreakdown } from '@/components/billing/fee-breakdown';
 import { CostPieChart } from '@/components/billing/cost-pie-chart';
 
 const TRANSACTIONS_PER_PAGE = 5;
+
+/** Generate display text for a transaction based on its structured data */
+function getTransactionDisplay(tx: BalanceTransactionResponse): string {
+  switch (tx.type) {
+    case 'usage': {
+      const totalChars = (tx.inputCharacters ?? 0) + (tx.outputCharacters ?? 0);
+      const sourceNote = tx.deductionSource === 'freeAllowance' ? ' (free allowance)' : '';
+      return `AI response: ${tx.model ?? 'unknown'} (${String(totalChars)} chars)${sourceNote}`;
+    }
+    case 'deposit':
+      return `Deposit of $${parseFloat(tx.amount).toFixed(2)}`;
+    case 'adjustment':
+      return 'Balance adjustment';
+  }
+}
 
 export const Route = createFileRoute('/_app/billing')({
   beforeLoad: async () => {
@@ -126,7 +142,7 @@ export function BillingPage(): React.JSX.Element {
                       className="flex h-16 items-center justify-between border-b last:border-0"
                     >
                       <div>
-                        <p className="font-medium">{tx.description}</p>
+                        <p className="font-medium">{getTransactionDisplay(tx)}</p>
                         <p className="text-muted-foreground text-sm">
                           {new Date(tx.createdAt).toLocaleDateString('en-US', {
                             year: 'numeric',

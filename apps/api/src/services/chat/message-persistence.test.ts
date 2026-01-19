@@ -140,7 +140,9 @@ describe('saveMessageWithBilling', () => {
       expect(tx.type).toBe('usage');
       expect(parseFloat(tx.amount)).toBeLessThan(0);
       expect(tx.userId).toBe(user.id);
-      expect(tx.description).toContain('anthropic/claude-3-opus');
+      expect(tx.model).toBe('anthropic/claude-3-opus');
+      expect(tx.inputCharacters).toBe(1000);
+      expect(tx.outputCharacters).toBe(500);
     });
 
     it('links message to balance transaction', async () => {
@@ -317,7 +319,7 @@ describe('saveMessageWithBilling', () => {
       expect(updatedUser.freeAllowanceCents).toBe(499); // Reduced by 1 cent
     });
 
-    it('includes free allowance note in transaction description', async () => {
+    it('stores deductionSource in transaction', async () => {
       const user = await createTestUser('10.00000000');
       await db.update(users).set({ freeAllowanceCents: 500 }).where(eq(users.id, user.id));
 
@@ -342,7 +344,7 @@ describe('saveMessageWithBilling', () => {
         .from(balanceTransactions)
         .where(eq(balanceTransactions.id, result.transactionId));
       if (!tx) throw new Error('Transaction not found');
-      expect(tx.description).toContain('(free allowance)');
+      expect(tx.deductionSource).toBe('freeAllowance');
     });
   });
 
@@ -372,7 +374,7 @@ describe('saveMessageWithBilling', () => {
       expect(msg.cost).toBe('0.00000000');
     });
 
-    it('includes character counts in transaction description', async () => {
+    it('stores character counts in transaction', async () => {
       const user = await createTestUser('10.00000000');
       const conversation = await createTestConversation(user.id);
       const messageId = crypto.randomUUID();
@@ -394,7 +396,8 @@ describe('saveMessageWithBilling', () => {
         .from(balanceTransactions)
         .where(eq(balanceTransactions.id, result.transactionId));
       if (!tx) throw new Error('Transaction not found');
-      expect(tx.description).toContain('700 chars');
+      expect(tx.inputCharacters).toBe(500);
+      expect(tx.outputCharacters).toBe(200);
     });
   });
 });

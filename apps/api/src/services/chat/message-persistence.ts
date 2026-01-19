@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import { users, balanceTransactions, messages, type Database } from '@lome-chat/db';
-import type { DeductionSource } from '@lome-chat/shared';
+import type { StoredDeductionSource } from '@lome-chat/shared';
 
 export interface SaveMessageWithBillingParams {
   messageId: string;
@@ -11,7 +11,7 @@ export interface SaveMessageWithBillingParams {
   totalCost: number;
   inputCharacters: number;
   outputCharacters: number;
-  deductionSource?: DeductionSource;
+  deductionSource?: StoredDeductionSource;
 }
 
 export interface SaveMessageWithBillingResult {
@@ -47,7 +47,6 @@ export async function saveMessageWithBilling(
   const chargeAmount = (-totalCost).toFixed(8);
   const chargeCents = Math.round(totalCost * 100);
   const transactionId = crypto.randomUUID();
-  const totalChars = inputCharacters + outputCharacters;
 
   return db.transaction(async (tx) => {
     // 1. Insert message with cost already set
@@ -105,14 +104,16 @@ export async function saveMessageWithBilling(
     }
 
     // 3. Insert balance transaction
-    const sourceNote = deductionSource === 'freeAllowance' ? ' (free allowance)' : '';
     await tx.insert(balanceTransactions).values({
       id: transactionId,
       userId,
       amount: chargeAmount,
       balanceAfter: newBalance,
       type: 'usage',
-      description: `AI response: ${model} (${String(totalChars)} chars)${sourceNote}`,
+      model,
+      inputCharacters,
+      outputCharacters,
+      deductionSource,
     });
 
     // 4. Link message to transaction

@@ -55,7 +55,6 @@ describe('transaction-writer', () => {
         userId: 'user-123',
         amount: '10.00000000',
         paymentId: 'payment-123',
-        description: 'Deposit of $10.00',
         transactionDetails: {
           helcimTransactionId: 'helcim-123',
           cardType: 'Visa',
@@ -82,7 +81,6 @@ describe('transaction-writer', () => {
         userId: 'user-123',
         amount: '10.00000000',
         paymentId: 'payment-123',
-        description: 'Deposit of $10.00',
       });
 
       expect(result).toBeNull();
@@ -112,7 +110,6 @@ describe('transaction-writer', () => {
           userId: 'user-123',
           amount: '10.00000000',
           paymentId: 'payment-123',
-          description: 'Deposit of $10.00',
         })
       ).rejects.toThrow('Failed to update user balance');
     });
@@ -145,7 +142,6 @@ describe('transaction-writer', () => {
           userId: 'user-123',
           amount: '10.00000000',
           paymentId: 'payment-123',
-          description: 'Deposit of $10.00',
         })
       ).rejects.toThrow('Failed to create balance transaction');
     });

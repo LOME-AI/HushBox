@@ -1,4 +1,6 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
+import { eq } from 'drizzle-orm';
+import { payments } from '@lome-chat/db';
 import {
   createEnvUtils,
   errorResponseSchema,
@@ -12,25 +14,22 @@ import {
   ERROR_INVALID_SIGNATURE,
   ERROR_INVALID_JSON,
   ERROR_WEBHOOK_VERIFIER_MISSING,
+  ERROR_PAYMENT_NOT_FOUND,
 } from '../constants/errors.js';
 import { ERROR_CODE_INTERNAL } from '@lome-chat/shared';
 import type { AppEnv } from '../types.js';
 
-// Response schemas for OpenAPI documentation
 const errorSchema = errorResponseSchema;
 
 const webhookResponseSchema = z.object({
   received: z.boolean(),
 });
 
-// Helcim webhook payload schema
 const helcimWebhookPayloadSchema = z.object({
   type: z.string(),
   id: z.string().or(z.number()).transform(String),
-  // Helcim sends more fields but we only need these
 });
 
-// Route definition
 const helcimWebhookRoute = createRoute({
   method: 'post',
   path: '/payment',
@@ -71,7 +70,6 @@ const helcimWebhookRoute = createRoute({
 export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>();
 
-  // POST /webhooks/payment - Handle payment webhook events
   app.openapi(helcimWebhookRoute, async (c) => {
     const db = c.get('db');
 
@@ -84,7 +82,6 @@ export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
     const timestamp = c.req.header('webhook-timestamp');
     const webhookId = c.req.header('webhook-id');
 
-    // Verify webhook signature
     const webhookVerifier = c.env.HELCIM_WEBHOOK_VERIFIER;
     const { isProduction } = createEnvUtils(c.env);
 
@@ -125,7 +122,30 @@ export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
     }
 
     if (event.type === 'cardTransaction') {
-      await processWebhookCredit(db, { helcimTransactionId: event.id });
+      const [existing] = await db
+        .select({ status: payments.status })
+        .from(payments)
+        .where(eq(payments.helcimTransactionId, event.id));
+
+      if (existing?.status === 'confirmed') {
+        return c.json({ received: true }, 200);
+      }
+
+      let result = await processWebhookCredit(db, { helcimTransactionId: event.id });
+
+      if (!result) {
+        const maxRetries = 15;
+        for (let i = 0; i < maxRetries; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          result = await processWebhookCredit(db, { helcimTransactionId: event.id });
+          if (result) break;
+        }
+      }
+
+      if (!result) {
+        console.error(`Webhook failed: payment not found for helcimTransactionId=${event.id}`);
+        return c.json(createErrorResponse(ERROR_PAYMENT_NOT_FOUND, ERROR_CODE_INTERNAL), 500);
+      }
     }
 
     return c.json({ received: true }, 200);

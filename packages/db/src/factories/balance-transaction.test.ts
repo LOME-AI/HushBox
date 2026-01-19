@@ -11,7 +11,11 @@ describe('balanceTransactionFactory', () => {
     expect(transaction.amount).toBeTruthy();
     expect(transaction.balanceAfter).toBeTruthy();
     expect(transaction.type).toBe('deposit');
-    expect(transaction.description).toBeTruthy();
+    // Deposits have null usage fields
+    expect(transaction.model).toBeNull();
+    expect(transaction.inputCharacters).toBeNull();
+    expect(transaction.outputCharacters).toBeNull();
+    expect(transaction.deductionSource).toBeNull();
     expect(transaction.createdAt).toBeInstanceOf(Date);
   });
 
@@ -23,6 +27,11 @@ describe('balanceTransactionFactory', () => {
   it('allows type override to usage', () => {
     const transaction = balanceTransactionFactory.build({ type: 'usage' });
     expect(transaction.type).toBe('usage');
+    // Usage transactions have populated usage fields
+    expect(transaction.model).toBeTruthy();
+    expect(transaction.inputCharacters).toBeGreaterThan(0);
+    expect(transaction.outputCharacters).toBeGreaterThan(0);
+    expect(['balance', 'freeAllowance']).toContain(transaction.deductionSource);
   });
 
   it('allows type override to adjustment', () => {

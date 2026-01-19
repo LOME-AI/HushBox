@@ -226,8 +226,11 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       amount: t.amount,
       balanceAfter: t.balanceAfter,
       type: t.type,
-      description: t.description,
       paymentId: t.paymentId,
+      model: t.model,
+      inputCharacters: t.inputCharacters,
+      outputCharacters: t.outputCharacters,
+      deductionSource: t.deductionSource,
       createdAt: t.createdAt.toISOString(),
     }));
 
@@ -318,7 +321,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
           userId: user.id,
           amount: payment.amount,
           paymentId: payment.id,
-          description: `Deposit of $${parseFloat(payment.amount).toFixed(2)}`,
           transactionDetails: {
             ...(result.transactionId && { helcimTransactionId: result.transactionId }),
             ...(result.cardType && { cardType: result.cardType }),

@@ -9,7 +9,6 @@ import type {
 } from '@lome-chat/shared';
 import { api } from '../lib/api.js';
 
-// Query key factory for billing-related queries
 export const billingKeys = {
   all: ['billing'] as const,
   balance: () => [...billingKeys.all, 'balance'] as const,
@@ -68,15 +67,9 @@ export function useTransactions(
 export function useCreatePayment(): ReturnType<
   typeof useMutation<CreatePaymentResponse, Error, { amount: string }>
 > {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ amount }: { amount: string }) =>
       api.post<CreatePaymentResponse>('billing/payments', { amount }),
-    onSuccess: async () => {
-      // Invalidate balance in case it changed
-      await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
-    },
   });
 }
 

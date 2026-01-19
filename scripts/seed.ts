@@ -306,7 +306,6 @@ export async function generatePersonaData(): Promise<PersonaData> {
             balanceAfter: runningBalance.toFixed(8),
             type: 'deposit',
             paymentId,
-            description: `Credit purchase - $${String(amount)}.00`,
             createdAt: paymentDate,
           })
         );
@@ -454,7 +453,6 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
           balanceAfter: amount.toFixed(8),
           type: 'deposit',
           paymentId,
-          description: `Credit purchase - $${String(amount)}.00`,
           createdAt: now,
         })
       );

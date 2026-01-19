@@ -15,6 +15,11 @@ export const balanceTransactionFactory = Factory.define<BalanceTransaction>(({ p
       faker.number.float({ min: amount, max: 1000, fractionDigits: 8 }).toFixed(8)
   );
 
+  // Usage transaction fields - only populated for usage type
+  const isUsage = type === 'usage';
+  const inputCharacters = isUsage ? faker.number.int({ min: 100, max: 2000 }) : null;
+  const outputCharacters = isUsage ? faker.number.int({ min: 200, max: 4000 }) : null;
+
   return {
     id: crypto.randomUUID(),
     userId: crypto.randomUUID(),
@@ -22,12 +27,14 @@ export const balanceTransactionFactory = Factory.define<BalanceTransaction>(({ p
     balanceAfter: balanceAfter.toFixed(8),
     type,
     paymentId: type === 'deposit' ? crypto.randomUUID() : null,
-    description:
-      type === 'deposit'
-        ? `Credit purchase - $${amount.toFixed(2)}`
-        : type === 'usage'
-          ? `AI model usage`
-          : `Balance adjustment`,
+    model: isUsage
+      ? faker.helpers.arrayElement(['openai/gpt-4o-mini', 'anthropic/claude-3-opus'])
+      : null,
+    inputCharacters,
+    outputCharacters,
+    deductionSource: isUsage
+      ? faker.helpers.arrayElement(['balance', 'freeAllowance'] as const)
+      : null,
     createdAt: faker.date.recent(),
   };
 });

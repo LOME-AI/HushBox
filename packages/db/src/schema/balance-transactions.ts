@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, index, pgEnum, numeric } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, index, pgEnum, numeric, integer } from 'drizzle-orm/pg-core';
 
 import { payments } from './payments';
 import { users } from './users';
@@ -7,6 +7,11 @@ export const balanceTransactionTypeEnum = pgEnum('balance_transaction_type', [
   'deposit', // Money added from confirmed payment
   'usage', // Money spent on AI usage (negative amount)
   'adjustment', // Manual admin adjustment
+]);
+
+export const deductionSourceEnum = pgEnum('deduction_source', [
+  'balance', // Deducted from user's balance
+  'freeAllowance', // Deducted from free allowance
 ]);
 
 export const balanceTransactions = pgTable(
@@ -26,7 +31,12 @@ export const balanceTransactions = pgTable(
 
     // Links to source
     paymentId: text('payment_id').references(() => payments.id, { onDelete: 'set null' }),
-    description: text('description').notNull(),
+
+    // Usage transaction details (nullable for non-usage transactions)
+    model: text('model'),
+    inputCharacters: integer('input_characters'),
+    outputCharacters: integer('output_characters'),
+    deductionSource: deductionSourceEnum('deduction_source'),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },

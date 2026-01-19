@@ -2,13 +2,15 @@ import { z } from 'zod';
 import {
   paymentStatusSchema,
   balanceTransactionTypeSchema,
+  deductionSourceSchema,
   type PaymentStatus,
   type BalanceTransactionType,
+  type StoredDeductionSource,
 } from '../../enums.js';
 
 // Re-export enums for API schema consumers
-export { paymentStatusSchema, balanceTransactionTypeSchema };
-export type { PaymentStatus, BalanceTransactionType };
+export { paymentStatusSchema, balanceTransactionTypeSchema, deductionSourceSchema };
+export type { PaymentStatus, BalanceTransactionType, StoredDeductionSource };
 
 // ============================================================
 // Request Schemas
@@ -85,14 +87,20 @@ export type PaymentResponse = z.infer<typeof paymentResponseSchema>;
 
 /**
  * Schema for a balance transaction entity in API responses.
+ * Usage transactions include model, character counts, and deduction source.
+ * Deposit/adjustment transactions have these fields as null.
  */
 export const balanceTransactionResponseSchema = z.object({
   id: z.string(),
   amount: z.string(), // Signed decimal string
   balanceAfter: z.string(),
   type: balanceTransactionTypeSchema,
-  description: z.string(),
   paymentId: z.string().nullable().optional(),
+  // Usage transaction fields (null for deposit/adjustment)
+  model: z.string().nullable().optional(),
+  inputCharacters: z.number().nullable().optional(),
+  outputCharacters: z.number().nullable().optional(),
+  deductionSource: deductionSourceSchema.nullable().optional(),
   createdAt: z.string(),
 });
 

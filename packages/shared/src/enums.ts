@@ -43,3 +43,16 @@ export const balanceTransactionTypeSchema = z.enum(BALANCE_TRANSACTION_TYPES);
 
 /** TypeScript type for balance transaction type */
 export type BalanceTransactionType = z.infer<typeof balanceTransactionTypeSchema>;
+
+// ============================================================================
+// Deduction Source (for balance transactions)
+// ============================================================================
+
+/** Valid sources for deduction on usage transactions */
+export const DEDUCTION_SOURCES = ['balance', 'freeAllowance'] as const;
+
+/** Zod schema for deduction source validation */
+export const deductionSourceSchema = z.enum(DEDUCTION_SOURCES);
+
+/** TypeScript type for deduction source */
+export type StoredDeductionSource = z.infer<typeof deductionSourceSchema>;

@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        project: [chromium, firefox, webkit, iphone-15, pixel-7]
+        project: [chromium, firefox, webkit, iphone-15, pixel-7, ipad-pro]
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup

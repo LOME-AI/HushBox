@@ -155,8 +155,8 @@ describe('webhooks routes', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type: 'cardTransaction',
-          id: 'unknown-transaction-id',
+          type: 'refund',
+          id: 'some-transaction-id',
         }),
       });
 
@@ -173,22 +173,6 @@ describe('webhooks routes', () => {
       });
 
       expect(res.status).toBe(400);
-    });
-
-    it('ignores webhooks for unknown transaction IDs', async () => {
-      const res = await app.request('/webhooks/payment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'cardTransaction',
-          id: 'completely-unknown-transaction',
-        }),
-      });
-
-      // Should still return 200 (ack the webhook)
-      expect(res.status).toBe(200);
-      const data = (await res.json()) as WebhookResponse;
-      expect(data.received).toBe(true);
     });
 
     it('credits balance when webhook matches awaiting_webhook payment', async () => {
@@ -364,6 +348,77 @@ describe('webhooks routes', () => {
       const newBalance = parseFloat(((await balanceRes2.json()) as { balance: string }).balance);
 
       expect(newBalance).toBeCloseTo(initialBalance, 2);
+    });
+
+    it('returns 500 for truly unknown transaction IDs after retries', async () => {
+      // Current implementation returns 200 immediately
+      // After implementing retry logic, this test should pass
+      const res = await app.request('/webhooks/payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'cardTransaction',
+          id: 'completely-unknown-never-exists',
+        }),
+      });
+
+      // Expects 500 after retries exhausted (new behavior)
+      expect(res.status).toBe(500);
+      const data = (await res.json()) as { error: string };
+      expect(data.error).toContain('Payment not found');
+    }, 60000); // 60 second timeout for retries
+
+    it('returns 200 immediately for already-confirmed payments (duplicate webhook)', async () => {
+      // Create payment
+      const createRes = await app.request('/billing/payments', {
+        method: 'POST',
+        headers: {
+          Cookie: authCookie,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ amount: '15.00000000' }),
+      });
+
+      const createData = (await createRes.json()) as CreatePaymentResponse;
+      createdPaymentIds.push(createData.paymentId);
+
+      // Set payment to CONFIRMED (simulating already-processed webhook)
+      const transactionId = `test-txn-duplicate-${String(Date.now())}`;
+      await db
+        .update(payments)
+        .set({
+          status: 'confirmed',
+          helcimTransactionId: transactionId,
+        })
+        .where(eq(payments.id, createData.paymentId));
+
+      // Get balance before duplicate webhook
+      const balanceRes1 = await app.request('/billing/balance', {
+        headers: { Cookie: authCookie },
+      });
+      const balanceBefore = parseFloat(((await balanceRes1.json()) as { balance: string }).balance);
+
+      // Send duplicate webhook for already-confirmed payment
+      const webhookRes = await app.request('/webhooks/payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'cardTransaction',
+          id: transactionId,
+        }),
+      });
+
+      // Should return 200 immediately (no retry needed for duplicates)
+      expect(webhookRes.status).toBe(200);
+      const data = (await webhookRes.json()) as WebhookResponse;
+      expect(data.received).toBe(true);
+
+      // Balance should NOT change
+      const balanceRes2 = await app.request('/billing/balance', {
+        headers: { Cookie: authCookie },
+      });
+      const balanceAfter = parseFloat(((await balanceRes2.json()) as { balance: string }).balance);
+      expect(balanceAfter).toBeCloseTo(balanceBefore, 2);
     });
 
     it('returns 500 in production when HELCIM_WEBHOOK_VERIFIER is not configured', async () => {

@@ -62,7 +62,12 @@ interface Transaction {
   amount: string;
   balanceAfter: string;
   type: string;
-  description: string;
+  paymentId?: string | null;
+  model?: string | null;
+  inputCharacters?: number | null;
+  outputCharacters?: number | null;
+  deductionSource?: 'balance' | 'freeAllowance' | null;
+  createdAt: string;
 }
 
 interface TransactionsResponse {
@@ -588,7 +593,10 @@ describe('billing routes', () => {
           amount: '-0.50000000',
           balanceAfter: '9.50000000',
           type: 'usage',
-          description: 'AI model usage',
+          model: 'openai/gpt-4o-mini',
+          inputCharacters: 500,
+          outputCharacters: 200,
+          deductionSource: 'balance',
         })
         .returning();
       if (usageTransaction) {
@@ -619,7 +627,10 @@ describe('billing routes', () => {
           amount: '-0.25000000',
           balanceAfter: '9.25000000',
           type: 'usage',
-          description: 'Another AI model usage',
+          model: 'anthropic/claude-3-opus',
+          inputCharacters: 300,
+          outputCharacters: 150,
+          deductionSource: 'balance',
         })
         .returning();
       if (usageTransaction) {
