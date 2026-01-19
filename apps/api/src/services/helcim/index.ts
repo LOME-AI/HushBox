@@ -26,7 +26,7 @@ interface HelcimEnv extends EnvContext {
 export function getHelcimClient(env: HelcimEnv): HelcimClient {
   const { isLocalDev, isCI } = createEnvUtils(env);
 
-  console.log(
+  console.error(
     `[Helcim] env.CI=${String(env.CI)}, isCI=${String(isCI)}, isLocalDev=${String(isLocalDev)}`
   );
 
