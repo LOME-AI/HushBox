@@ -344,7 +344,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       }
 
       const transactionId = result.transactionId ?? '';
-      await db
+      const [updated] = await db
         .update(payments)
         .set({
           status: 'awaiting_webhook',
@@ -353,7 +353,16 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
           cardLastFour: result.cardLastFour,
           updatedAt: new Date(),
         })
-        .where(eq(payments.id, payment.id));
+        .where(and(eq(payments.id, payment.id), eq(payments.status, 'pending')))
+        .returning();
+
+      if (!updated) {
+        console.error(`Payment UPDATE failed: id=${payment.id}, status may have changed`);
+        return c.json(
+          createErrorResponse(ERROR_PAYMENT_ALREADY_PROCESSED, ERROR_CODE_CONFLICT),
+          400
+        );
+      }
 
       const response = processPaymentResponseSchema.parse({
         status: 'processing' as const,
