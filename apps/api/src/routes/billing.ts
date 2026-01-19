@@ -19,6 +19,7 @@ import {
   ERROR_CODE_PAYMENT_REQUIRED,
   ERROR_CODE_UNAUTHORIZED,
   PAYMENT_EXPIRATION_MS,
+  createEnvUtils,
 } from '@lome-chat/shared';
 import { createErrorResponse } from '../lib/error-response.js';
 import {
@@ -343,6 +344,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
         return c.json(response, 200);
       }
 
+      const { isProduction } = createEnvUtils(c.env);
       const transactionId = result.transactionId ?? '';
       const [updated] = await db
         .update(payments)
@@ -362,6 +364,10 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
           createErrorResponse(ERROR_PAYMENT_ALREADY_PROCESSED, ERROR_CODE_CONFLICT),
           400
         );
+      }
+
+      if (!isProduction) {
+        console.log(`Payment stored: id=${payment.id}, helcimTransactionId=${transactionId}`);
       }
 
       const response = processPaymentResponseSchema.parse({
