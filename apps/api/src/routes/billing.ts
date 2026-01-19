@@ -344,7 +344,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
         return c.json(response, 200);
       }
 
-      const { isProduction } = createEnvUtils(c.env);
+      const { isCI } = createEnvUtils(c.env);
       const transactionId = result.transactionId ?? '';
       const [updated] = await db
         .update(payments)
@@ -366,7 +366,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
         );
       }
 
-      if (!isProduction) {
+      if (isCI) {
         console.log(`Payment stored: id=${payment.id}, helcimTransactionId=${transactionId}`);
       }
 
