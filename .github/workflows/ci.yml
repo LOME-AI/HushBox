@@ -77,8 +77,11 @@ jobs:
       - name: Start Hookdeck listener
         if: matrix.project == 'chromium'
         run: |
+          # Use unique path per CI run to isolate from stale webhook retries
+          CI_RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "Using webhook path: /webhooks/payment/$CI_RUN_ID"
           hookdeck ci --api-key $HOOKDECK_API_KEY
-          hookdeck listen 8787 helcim-sandbox --path /webhooks/payment --output compact 2>&1 | tee /tmp/hookdeck.log &
+          hookdeck listen 8787 helcim-sandbox --path /webhooks/payment/$CI_RUN_ID --output compact 2>&1 | tee /tmp/hookdeck.log &
           for i in {1..60}; do
             if grep -q -E "(Listening|Webhook URL|forwarding)" /tmp/hookdeck.log 2>/dev/null; then
               echo "Hookdeck listener ready"
