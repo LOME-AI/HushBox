@@ -1,0 +1,18 @@
+{
+  "name": "@lome-chat/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests"
+  },
+  "devDependencies": {
+    "@lome-chat/config": "workspace:*",
+    "@lome-chat/db": "workspace:*",
+    "@lome-chat/shared": "workspace:*",
+    "typescript": "^5.7.2"
+  }
+}

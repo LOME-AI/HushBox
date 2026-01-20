@@ -11,7 +11,7 @@
     "lint:fix": "turbo lint -- --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "turbo typecheck && tsc --noEmit -p tsconfig.json",
+    "typecheck": "turbo typecheck",
     "test": "./scripts/with-env turbo test",
     "test:watch": "./scripts/with-env vitest",
     "test:ui": "./scripts/with-env vitest --ui",

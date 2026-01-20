@@ -8,7 +8,7 @@ export interface ProcessPaymentRequest {
 
 export interface ProcessPaymentResponse {
   status: 'approved' | 'declined';
-  transactionId?: string | undefined;
+  transactionId?: string | null;
   errorMessage?: string | undefined;
   cardType?: string | undefined;
   cardLastFour?: string | undefined;

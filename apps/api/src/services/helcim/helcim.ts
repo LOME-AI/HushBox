@@ -80,7 +80,7 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
       if (response.ok && data.approvalCode) {
         return {
           status: 'approved',
-          transactionId: String(data.transactionId),
+          transactionId: data.transactionId != null ? String(data.transactionId) : null,
           cardType: data.cardType,
           cardLastFour: data.cardNumber?.slice(-4),
         };

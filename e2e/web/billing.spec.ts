@@ -88,12 +88,15 @@ test.describe('Billing & Payments', () => {
     });
   });
 
-  test.describe('Payment Flow (Helcim Sandbox)', () => {
-    // Only run in CI where real Helcim sandbox credentials are available
-    // Local dev uses simulate buttons instead
-    test.skip(!isCI, 'Helcim sandbox tests only run in CI');
-    // Only run on chromium - webhooks only delivered to one CLI listener
-    test.skip(() => !!process.env.SKIP_WEBHOOK_TESTS, 'Webhook tests only run on chromium runner');
+  test.describe('Payment Flow (Full)', () => {
+    // Full payment flow tests run both locally (with mocks) and in CI (with real Helcim sandbox)
+    // Locally: Mock Helcim.js tokenizes, mock API processes, mock webhook delivers (1 sec)
+    // CI: Real Helcim.js tokenizes, real API processes, real webhook via Hookdeck
+    // Only run on chromium in CI - webhooks only delivered to one Hookdeck listener
+    test.skip(
+      () => !!process.env['SKIP_WEBHOOK_TESTS'],
+      'Webhook tests only run on chromium runner'
+    );
 
     // Increase timeout for real payment tests (webhook may take time)
     test.setTimeout(60000);

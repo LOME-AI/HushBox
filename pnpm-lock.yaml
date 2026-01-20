@@ -233,6 +233,18 @@ importers:
         specifier: ^4.59.2
         version: 4.59.2(@cloudflare/workers-types@4.20260117.0)
 
+  e2e:
+    devDependencies:
+      '@lome-chat/config':
+        specifier: workspace:*
+        version: link:../packages/config
+      '@playwright/test':
+        specifier: ^1.57.0
+        version: 1.57.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/config:
     devDependencies:
       typescript:
@@ -385,6 +397,21 @@ importers:
       react-dom:
         specifier: ^19.2.3
         version: 19.2.3(react@19.2.3)
+
+  scripts:
+    devDependencies:
+      '@lome-chat/config':
+        specifier: workspace:*
+        version: link:../packages/config
+      '@lome-chat/db':
+        specifier: workspace:*
+        version: link:../packages/db
+      '@lome-chat/shared':
+        specifier: workspace:*
+        version: link:../packages/shared
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
 
 packages:
 

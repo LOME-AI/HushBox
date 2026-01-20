@@ -207,8 +207,10 @@ test.describe('Chat Functionality', () => {
             const tag = htmlEl.tagName.toLowerCase();
             const id = htmlEl.id ? `#${htmlEl.id}` : '';
             const cls = htmlEl.className ? `.${htmlEl.className.replace(/\s+/g, '.')}` : '';
-            const testId = htmlEl.dataset.testid ? `[data-testid="${htmlEl.dataset.testid}"]` : '';
-            const slot = htmlEl.dataset.slot ? `[data-slot="${htmlEl.dataset.slot}"]` : '';
+            const testId = htmlEl.dataset['testid']
+              ? `[data-testid="${htmlEl.dataset['testid']}"]`
+              : '';
+            const slot = htmlEl.dataset['slot'] ? `[data-slot="${htmlEl.dataset['slot']}"]` : '';
             results.push(
               `${tag}${id}${testId}${slot} overflow:${String(overflow)} scrollW:${String(htmlEl.scrollWidth)} clientW:${String(htmlEl.clientWidth)}\n  classes: ${cls.substring(0, 200)}`
             );

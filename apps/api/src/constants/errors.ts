@@ -25,6 +25,7 @@ export const ERROR_PAYMENT_ALREADY_PROCESSED = 'Payment already processed';
 export const ERROR_PAYMENT_EXPIRED = 'Payment expired';
 export const ERROR_PAYMENT_DECLINED = 'Payment declined';
 export const ERROR_PAYMENT_CREATE_FAILED = 'Failed to create payment';
+export const ERROR_PAYMENT_MISSING_TRANSACTION_ID = 'Payment approved but missing transaction ID';
 
 // Validation errors (additional)
 export const ERROR_INVALID_SIGNATURE = 'Invalid signature';

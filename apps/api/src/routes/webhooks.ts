@@ -124,17 +124,34 @@ export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
     }
 
     if (event.type === 'cardTransaction') {
-      // Debug: dump all payments to see what's stored vs what webhook has
+      // Debug: targeted queries to see specific payment state
       if (isCI) {
-        const allPayments = await db
+        // Query specifically for the transaction ID we're looking for
+        const [matchingPayment] = await db
+          .select({
+            id: payments.id,
+            status: payments.status,
+            helcimTransactionId: payments.helcimTransactionId,
+            userId: payments.userId,
+          })
+          .from(payments)
+          .where(eq(payments.helcimTransactionId, event.id));
+
+        // Also query for any payments in awaiting_webhook status
+        const awaitingPayments = await db
           .select({
             id: payments.id,
             status: payments.status,
             helcimTransactionId: payments.helcimTransactionId,
           })
-          .from(payments);
-        console.error(`[CI Debug] Webhook received for transactionId=${event.id}`);
-        console.error(`[CI Debug] All payments in DB: ${JSON.stringify(allPayments)}`);
+          .from(payments)
+          .where(eq(payments.status, 'awaiting_webhook'));
+
+        console.error(`[CI Debug] Webhook for transactionId=${event.id}`);
+        console.error(
+          `[CI Debug] Matching payment: ${JSON.stringify(matchingPayment ?? 'NOT FOUND')}`
+        );
+        console.error(`[CI Debug] Payments awaiting webhook: ${JSON.stringify(awaitingPayments)}`);
       }
 
       const [existing] = await db

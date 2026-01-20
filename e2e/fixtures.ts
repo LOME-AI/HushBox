@@ -28,7 +28,7 @@ export const test = base.extend<CustomFixtures>({
 
   unauthenticatedPage: async ({ browser }, use) => {
     // Explicitly clear storage state to override project-level default auth
-    const context = await browser.newContext({ storageState: undefined });
+    const context = await browser.newContext({});
     const page = await context.newPage();
     await use(page);
     await context.close();

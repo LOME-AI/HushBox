@@ -9,12 +9,6 @@
       "@lome-chat/db/*": ["./packages/db/*"]
     }
   },
-  "include": [
-    "*.config.ts",
-    "*.config.js",
-    "*.workspace.ts",
-    ".lintstagedrc.js",
-    "scripts/**/*.ts"
-  ],
+  "include": ["*.config.ts", "*.config.js", "*.workspace.ts", ".lintstagedrc.js"],
   "references": []
 }

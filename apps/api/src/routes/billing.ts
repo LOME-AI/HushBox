@@ -18,6 +18,7 @@ import {
   ERROR_CODE_PAYMENT_REQUIRED,
   ERROR_CODE_UNAUTHORIZED,
   PAYMENT_EXPIRATION_MS,
+  createEnvUtils,
 } from '@lome-chat/shared';
 import { createErrorResponse } from '../lib/error-response.js';
 import {
@@ -26,6 +27,7 @@ import {
   ERROR_PAYMENT_EXPIRED,
   ERROR_PAYMENT_DECLINED,
   ERROR_PAYMENT_CREATE_FAILED,
+  ERROR_PAYMENT_MISSING_TRANSACTION_ID,
   ERROR_UNAUTHORIZED,
 } from '../constants/errors.js';
 import { requireAuth } from '../middleware/require-auth.js';
@@ -130,6 +132,10 @@ const processPaymentRoute = createRoute({
     404: {
       content: { 'application/json': { schema: errorSchema } },
       description: 'Payment not found',
+    },
+    500: {
+      content: { 'application/json': { schema: errorSchema } },
+      description: 'Internal server error',
     },
   },
 });
@@ -314,8 +320,25 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       ipAddress,
     });
 
+    const { isCI } = createEnvUtils(c.env);
+
+    if (isCI) {
+      console.error(
+        `[CI Debug] Helcim result: status=${result.status}, transactionId=${String(result.transactionId)}`
+      );
+    }
+
     if (result.status === 'approved') {
-      const transactionId = result.transactionId ?? '';
+      if (!result.transactionId) {
+        // This should never happen - Helcim approved but gave no transaction ID
+        console.error('[ERROR] Helcim approved payment but returned no transactionId');
+        return c.json(
+          createErrorResponse(ERROR_PAYMENT_MISSING_TRANSACTION_ID, ERROR_CODE_INTERNAL),
+          500
+        );
+      }
+
+      const transactionId = result.transactionId;
       const [updated] = await db
         .update(payments)
         .set({
@@ -327,6 +350,16 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
         })
         .where(and(eq(payments.id, payment.id), eq(payments.status, 'pending')))
         .returning();
+
+      if (isCI) {
+        console.error(
+          `[CI Debug] Payment ${payment.id} updated: ${JSON.stringify({
+            success: !!updated,
+            helcimTransactionId: updated?.helcimTransactionId,
+            status: updated?.status,
+          })}`
+        );
+      }
 
       if (!updated) {
         console.error(`Payment UPDATE failed: id=${payment.id}, status may have changed`);
