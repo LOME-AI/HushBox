@@ -10,10 +10,17 @@ vi.mock('./generate-env.js', () => ({
   generateEnvFiles: vi.fn(),
 }));
 
+// Mock seed to avoid actual database operations in tests
+vi.mock('./seed.js', () => ({
+  seed: vi.fn(),
+}));
+
 import { execa } from 'execa';
+import { seed } from './seed.js';
 import { startDocker, runMigrations, startTurbo, main, loadEnv } from './dev';
 
 const mockExeca = vi.mocked(execa);
+const mockSeed = vi.mocked(seed);
 
 describe('dev script', () => {
   beforeEach(() => {
@@ -94,7 +101,7 @@ describe('dev script', () => {
   });
 
   describe('main', () => {
-    it('executes steps in correct order: docker, migrations, turbo', async () => {
+    it('executes steps in correct order: docker, migrations, seed, turbo', async () => {
       const callOrder: string[] = [];
 
       mockExeca.mockImplementation(((cmd: string | URL) => {
@@ -104,9 +111,14 @@ describe('dev script', () => {
         return Promise.resolve({} as never);
       }) as never);
 
+      mockSeed.mockImplementation(() => {
+        callOrder.push('seed');
+        return Promise.resolve();
+      });
+
       await main();
 
-      expect(callOrder).toEqual(['docker', 'migrations', 'turbo']);
+      expect(callOrder).toEqual(['docker', 'migrations', 'seed', 'turbo']);
     });
 
     it('stops execution if docker fails', async () => {
