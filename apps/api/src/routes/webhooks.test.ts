@@ -59,7 +59,7 @@ describe('webhooks routes', () => {
     db = createDb({ connectionString, neonDev: LOCAL_NEON_DEV_CONFIG });
     helcimClient = createMockHelcimClient({
       webhookUrl: 'http://localhost:8787/webhooks/payment',
-      webhookVerifier: 'test-verifier',
+      webhookVerifier: 'dGVzdC12ZXJpZmllcg==',
     });
 
     const emailClient = createMockEmailClient();
@@ -78,6 +78,14 @@ describe('webhooks routes', () => {
       c.set('db', db);
       c.set('auth', auth);
       c.set('helcim', helcimClient);
+      c.set('envUtils', {
+        isCI: false,
+        isE2E: false,
+        isLocalDev: false,
+        isDev: false,
+        isProduction: false,
+        requiresRealServices: false,
+      });
       // Set env bindings - DATABASE_URL required, HELCIM_WEBHOOK_VERIFIER empty to skip signature verification
       c.env = { DATABASE_URL: connectionString, HELCIM_WEBHOOK_VERIFIER: '' };
       await next();

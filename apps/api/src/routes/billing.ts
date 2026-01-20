@@ -178,6 +178,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
     const db = c.get('db');
+    const { isCI } = c.get('envUtils');
 
     const [userData] = await db
       .select({
@@ -186,6 +187,12 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       })
       .from(users)
       .where(eq(users.id, user.id));
+
+    if (isCI) {
+      console.error(
+        `[CI Debug] GET /billing/balance: userId=${user.id}, balance=${userData?.balance ?? 'NULL'}`
+      );
+    }
 
     const response = getBalanceResponseSchema.parse({
       balance: userData?.balance ?? '0.00000000',

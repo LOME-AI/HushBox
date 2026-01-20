@@ -100,7 +100,7 @@ describe('billing routes', () => {
     db = createDb({ connectionString, neonDev: LOCAL_NEON_DEV_CONFIG });
     helcimClient = createMockHelcimClient({
       webhookUrl: 'http://localhost:8787/webhooks/payment',
-      webhookVerifier: 'test-verifier',
+      webhookVerifier: 'dGVzdC12ZXJpZmllcg==',
     });
 
     const emailClient = createMockEmailClient();

@@ -163,7 +163,13 @@ export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
         return c.json({ received: true }, 200);
       }
 
-      let result = await processWebhookCredit(db, { helcimTransactionId: event.id });
+      let result = await processWebhookCredit(db, { helcimTransactionId: event.id }, isCI);
+
+      if (isCI) {
+        console.error(
+          `[CI Debug] processWebhookCredit result: ${JSON.stringify(result ?? 'NULL')}`
+        );
+      }
 
       if (!result) {
         const maxRetries = 15;
@@ -176,16 +182,40 @@ export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
             .where(eq(payments.helcimTransactionId, event.id));
 
           if (check?.status === 'confirmed') {
+            if (isCI) {
+              console.error(
+                `[CI Debug] Payment confirmed by another process during retry ${String(i + 1)}`
+              );
+            }
             return c.json({ received: true }, 200);
           }
 
-          result = await processWebhookCredit(db, { helcimTransactionId: event.id });
+          result = await processWebhookCredit(db, { helcimTransactionId: event.id }, isCI);
+
+          if (isCI) {
+            console.error(
+              `[CI Debug] processWebhookCredit retry ${String(i + 1)}: ${JSON.stringify(result ?? 'NULL')}`
+            );
+          }
+
           if (result) break;
         }
       }
 
       if (!result) {
         if (isCI) {
+          // Log final payment state before giving up
+          const [finalCheck] = await db
+            .select({
+              id: payments.id,
+              status: payments.status,
+              userId: payments.userId,
+            })
+            .from(payments)
+            .where(eq(payments.helcimTransactionId, event.id));
+          console.error(
+            `[CI Debug] Final payment state: ${JSON.stringify(finalCheck ?? 'NOT FOUND')}`
+          );
           // In CI, stale webhook retries from previous runs are expected.
           // Return 200 to stop Hookdeck from retrying them.
           console.error(`[CI] Ignoring stale webhook for helcimTransactionId=${event.id}`);
@@ -193,6 +223,12 @@ export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
         }
         console.error(`Webhook failed: payment not found for helcimTransactionId=${event.id}`);
         return c.json(createErrorResponse(ERROR_PAYMENT_NOT_FOUND, ERROR_CODE_INTERNAL), 500);
+      }
+
+      if (isCI) {
+        console.error(
+          `[CI Debug] Webhook processing complete for transactionId=${event.id}, newBalance=${result.newBalance}`
+        );
       }
     }
 

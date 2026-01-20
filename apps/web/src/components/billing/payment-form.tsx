@@ -101,7 +101,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
         setErrorMessage(paymentStatus.errorMessage);
       }
     }
-  }, [paymentStatus, isPolling, pollingStartTime, onSuccess]);
+  }, [paymentStatus, isPolling, pollingStartTime, onSuccess, queryClient]);
 
   const handleTokenizationResult = useCallback(
     async (result: HelcimTokenResult): Promise<void> => {
