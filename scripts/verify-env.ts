@@ -18,6 +18,7 @@ export type Mode = 'development' | 'ciVitest' | 'ciE2E' | 'production';
 
 interface FrontendEnvVars {
   VITE_CI?: string | undefined;
+  VITE_E2E?: string | undefined;
 }
 
 interface Mismatch {
@@ -119,7 +120,7 @@ export async function parseEnvDevelopment(filePath: string): Promise<FrontendEnv
 
   const vars: Record<string, string> = {};
   for (const line of lines) {
-    const match = /^(VITE_[A-Z_]+)=(.*)$/.exec(line);
+    const match = /^(VITE_[A-Z0-9_]+)=(.*)$/.exec(line);
     if (match) {
       const key = match[1];
       const value = match[2];
@@ -131,6 +132,7 @@ export async function parseEnvDevelopment(filePath: string): Promise<FrontendEnv
 
   return {
     VITE_CI: vars['VITE_CI'],
+    VITE_E2E: vars['VITE_E2E'],
   };
 }
 
@@ -256,6 +258,7 @@ export async function verifyFrontendEnv(
     envContext = {
       NODE_ENV: 'development',
       ...(frontendVars.VITE_CI !== undefined && { CI: frontendVars.VITE_CI }),
+      ...(frontendVars.VITE_E2E !== undefined && { E2E: frontendVars.VITE_E2E }),
     };
     source = `${paths.envDevelopmentPath} + MODE=development`;
   }

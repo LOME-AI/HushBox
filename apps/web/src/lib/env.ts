@@ -10,8 +10,10 @@ import { createEnvUtils } from '@lome-chat/shared';
  * ```
  */
 const viteCI = import.meta.env['VITE_CI'] as string | undefined;
+const viteE2E = import.meta.env['VITE_E2E'] as string | undefined;
 
 export const env = createEnvUtils({
   NODE_ENV: import.meta.env.MODE,
   ...(viteCI ? { CI: viteCI } : {}),
+  ...(viteE2E ? { E2E: viteE2E } : {}),
 });

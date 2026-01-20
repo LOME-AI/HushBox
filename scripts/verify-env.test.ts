@@ -147,6 +147,7 @@ VITE_CI=true
 
       expect(result).toEqual({
         VITE_CI: 'true',
+        VITE_E2E: undefined,
       });
     });
 
@@ -159,6 +160,22 @@ VITE_CI=true
 
       expect(result).toEqual({
         VITE_CI: undefined,
+        VITE_E2E: undefined,
+      });
+    });
+
+    it('parses VITE_E2E from .env.development file', async () => {
+      const content = `VITE_API_URL=http://localhost:8787
+VITE_CI=true
+VITE_E2E=true
+`;
+      await writeFile(join(TEST_DIR, '.env.development'), content);
+
+      const result = await parseEnvDevelopment(join(TEST_DIR, '.env.development'));
+
+      expect(result).toEqual({
+        VITE_CI: 'true',
+        VITE_E2E: 'true',
       });
     });
   });
@@ -332,6 +349,40 @@ VITE_CI=true
 
       expect(result.success).toBe(true);
       expect(result.actual.isCI).toBe(true);
+    });
+
+    it('returns success when env matches expectations for ciE2E', async () => {
+      const content = `VITE_API_URL=http://localhost:8787
+VITE_CI=true
+VITE_E2E=true
+`;
+      await writeFile(join(TEST_DIR, '.env.development'), content);
+
+      const result = await verifyFrontendEnv('ciE2E', {
+        envDevelopmentPath: join(TEST_DIR, '.env.development'),
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.actual.isCI).toBe(true);
+      expect(result.actual.isE2E).toBe(true);
+    });
+
+    it('returns failure when VITE_E2E is missing for ciE2E mode', async () => {
+      const content = `VITE_API_URL=http://localhost:8787
+VITE_CI=true
+`;
+      await writeFile(join(TEST_DIR, '.env.development'), content);
+
+      const result = await verifyFrontendEnv('ciE2E', {
+        envDevelopmentPath: join(TEST_DIR, '.env.development'),
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.mismatches).toContainEqual({
+        key: 'isE2E',
+        expected: true,
+        actual: false,
+      });
     });
 
     it('returns success for production mode (no file needed)', async () => {

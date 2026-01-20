@@ -127,6 +127,11 @@ export const envConfig = {
     [Mode.CiE2E]: ref(Mode.CiVitest),
   },
 
+  VITE_E2E: {
+    to: [Dest.Frontend],
+    [Mode.CiE2E]: 'true',
+  },
+
   // Scripts only
   MIGRATION_DATABASE_URL: {
     to: [Dest.Scripts],
