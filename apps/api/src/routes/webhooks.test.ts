@@ -57,7 +57,10 @@ describe('webhooks routes', () => {
 
   beforeAll(async () => {
     db = createDb({ connectionString, neonDev: LOCAL_NEON_DEV_CONFIG });
-    helcimClient = createMockHelcimClient();
+    helcimClient = createMockHelcimClient({
+      webhookUrl: 'http://localhost:8787/webhooks/payment',
+      webhookVerifier: 'test-verifier',
+    });
 
     const emailClient = createMockEmailClient();
     const auth = createAuth({

@@ -16,16 +16,16 @@ describe('getTemplateValues', () => {
   it('returns fee percentages derived from constants', () => {
     const values = getTemplateValues();
 
-    expect(values.TOTAL_FEE_PERCENT).toBe(`${String(TOTAL_FEE_RATE * 100)}%`);
-    expect(values.LOME_FEE_PERCENT).toBe(`${String(LOME_FEE_RATE * 100)}%`);
-    expect(values.CC_FEE_PERCENT).toBe(`${String(CREDIT_CARD_FEE_RATE * 100)}%`);
-    expect(values.PROVIDER_FEE_PERCENT).toBe(`${String(PROVIDER_FEE_RATE * 100)}%`);
+    expect(values['TOTAL_FEE_PERCENT']).toBe(`${String(TOTAL_FEE_RATE * 100)}%`);
+    expect(values['LOME_FEE_PERCENT']).toBe(`${String(LOME_FEE_RATE * 100)}%`);
+    expect(values['CC_FEE_PERCENT']).toBe(`${String(CREDIT_CARD_FEE_RATE * 100)}%`);
+    expect(values['PROVIDER_FEE_PERCENT']).toBe(`${String(PROVIDER_FEE_RATE * 100)}%`);
   });
 
   it('returns storage cost from constants', () => {
     const values = getTemplateValues();
 
-    expect(values.STORAGE_COST_PER_1K).toBe(`$${String(STORAGE_COST_PER_1K_CHARS)}`);
+    expect(values['STORAGE_COST_PER_1K']).toBe(`$${String(STORAGE_COST_PER_1K_CHARS)}`);
   });
 
   it('calculates messages per dollar correctly', () => {
@@ -33,7 +33,7 @@ describe('getTemplateValues', () => {
     const averageMessageChars = 200;
     const expectedMessages = Math.floor(1 / (STORAGE_COST_PER_CHARACTER * averageMessageChars));
 
-    expect(values.MESSAGES_PER_DOLLAR).toBe(expectedMessages.toLocaleString('en-US'));
+    expect(values['MESSAGES_PER_DOLLAR']).toBe(expectedMessages.toLocaleString('en-US'));
   });
 
   it('returns 16,666 messages per dollar with current constants', () => {
@@ -41,7 +41,7 @@ describe('getTemplateValues', () => {
 
     // With STORAGE_COST_PER_CHARACTER = 0.0000003 and 200 chars/message:
     // 1 / (0.0000003 * 200) = 1 / 0.00006 = 16666.67 → 16666
-    expect(values.MESSAGES_PER_DOLLAR).toBe('16,666');
+    expect(values['MESSAGES_PER_DOLLAR']).toBe('16,666');
   });
 });
 

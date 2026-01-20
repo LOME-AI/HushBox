@@ -1,25 +1,61 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { getHelcimClient } from './index.js';
+import * as mockModule from './mock.js';
 
 describe('getHelcimClient', () => {
   describe('in local development', () => {
-    it('returns mock client when NODE_ENV is development', () => {
-      const client = getHelcimClient({ NODE_ENV: 'development' });
-      expect(client.isMock).toBe(true);
-    });
-
-    it('returns mock client when NODE_ENV is undefined', () => {
-      const client = getHelcimClient({});
-      expect(client.isMock).toBe(true);
-    });
-
-    it('returns mock client even if credentials are provided in local dev', () => {
+    it('returns mock client with webhook config', () => {
       const client = getHelcimClient({
         NODE_ENV: 'development',
+        BETTER_AUTH_URL: 'http://localhost:8787',
+        HELCIM_WEBHOOK_VERIFIER: 'mock-verifier',
+      });
+      expect(client.isMock).toBe(true);
+    });
+
+    it('throws if BETTER_AUTH_URL is missing', () => {
+      expect(() =>
+        getHelcimClient({
+          NODE_ENV: 'development',
+          HELCIM_WEBHOOK_VERIFIER: 'verifier',
+        })
+      ).toThrow('BETTER_AUTH_URL and HELCIM_WEBHOOK_VERIFIER required for local dev');
+    });
+
+    it('throws if HELCIM_WEBHOOK_VERIFIER is missing', () => {
+      expect(() =>
+        getHelcimClient({
+          NODE_ENV: 'development',
+          BETTER_AUTH_URL: 'http://localhost:8787',
+        })
+      ).toThrow('BETTER_AUTH_URL and HELCIM_WEBHOOK_VERIFIER required for local dev');
+    });
+
+    it('returns mock client even if API credentials are provided in local dev', () => {
+      const client = getHelcimClient({
+        NODE_ENV: 'development',
+        BETTER_AUTH_URL: 'http://localhost:8787',
         HELCIM_API_TOKEN: 'token',
         HELCIM_WEBHOOK_VERIFIER: 'verifier',
       });
       expect(client.isMock).toBe(true);
+    });
+
+    it('passes webhook config to mock client', () => {
+      const createMockSpy = vi.spyOn(mockModule, 'createMockHelcimClient');
+
+      getHelcimClient({
+        NODE_ENV: 'development',
+        BETTER_AUTH_URL: 'http://localhost:8787',
+        HELCIM_WEBHOOK_VERIFIER: 'mock-verifier',
+      });
+
+      expect(createMockSpy).toHaveBeenCalledWith({
+        webhookUrl: 'http://localhost:8787/webhooks/payment',
+        webhookVerifier: 'mock-verifier',
+      });
+
+      createMockSpy.mockRestore();
     });
   });
 

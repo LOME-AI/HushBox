@@ -101,6 +101,7 @@ export const envConfig = {
 
   HELCIM_WEBHOOK_VERIFIER: {
     to: [Dest.Backend],
+    [Mode.Development]: 'bW9jay13ZWJob29rLXZlcmlmaWVyLXNlY3JldC0zMmI=', // Mock verifier for local webhook testing
     [Mode.CiE2E]: secret('HELCIM_WEBHOOK_VERIFIER_SANDBOX'),
     [Mode.Production]: secret('HELCIM_WEBHOOK_VERIFIER_PRODUCTION'),
   },

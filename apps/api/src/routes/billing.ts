@@ -1,7 +1,6 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { eq, and, desc, lt } from 'drizzle-orm';
 import { payments, balanceTransactions, users } from '@lome-chat/db';
-import { creditUserBalance } from '../services/billing/transaction-writer.js';
 import {
   createPaymentRequestSchema,
   processPaymentRequestSchema,
@@ -316,33 +315,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
     });
 
     if (result.status === 'approved') {
-      if (helcim.isMock) {
-        const creditResult = await creditUserBalance(db, {
-          userId: user.id,
-          amount: payment.amount,
-          paymentId: payment.id,
-          transactionDetails: {
-            ...(result.transactionId && { helcimTransactionId: result.transactionId }),
-            ...(result.cardType && { cardType: result.cardType }),
-            ...(result.cardLastFour && { cardLastFour: result.cardLastFour }),
-          },
-        });
-
-        if (!creditResult) {
-          return c.json(
-            createErrorResponse(ERROR_PAYMENT_ALREADY_PROCESSED, ERROR_CODE_CONFLICT),
-            400
-          );
-        }
-
-        const response = processPaymentResponseSchema.parse({
-          status: 'confirmed' as const,
-          newBalance: creditResult.newBalance,
-          helcimTransactionId: result.transactionId,
-        });
-        return c.json(response, 200);
-      }
-
       const transactionId = result.transactionId ?? '';
       const [updated] = await db
         .update(payments)

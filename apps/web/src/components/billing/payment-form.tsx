@@ -11,7 +11,14 @@ import {
   readHelcimResult,
   type HelcimTokenResult,
 } from '../../lib/helcim-loader.js';
-import { useCreatePayment, useProcessPayment, usePaymentStatus } from '../../hooks/billing.js';
+import { MOCK_TEST_CARDS } from '../../lib/helcim-mock.js';
+import {
+  useCreatePayment,
+  useProcessPayment,
+  usePaymentStatus,
+  billingKeys,
+} from '../../hooks/billing.js';
+import { useQueryClient } from '@tanstack/react-query';
 import { usePaymentForm } from '../../hooks/use-payment-form.js';
 import { MIN_DEPOSIT_AMOUNT, MAX_DEPOSIT_AMOUNT } from '../../lib/payment-validation.js';
 
@@ -44,7 +51,10 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
   const [isPolling, setIsPolling] = useState(false);
   const [pollingStartTime, setPollingStartTime] = useState<number | null>(null);
   const observerRef = useRef<MutationObserver | null>(null);
+  const paymentIdRef = useRef<string | null>(null);
+  const expectingTokenizationRef = useRef(false);
 
+  const queryClient = useQueryClient();
   const createPayment = useCreatePayment();
   const processPayment = useProcessPayment();
 
@@ -78,6 +88,8 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
       setIsPolling(false);
       setPollingStartTime(null);
       setPaymentState('success');
+      // Invalidate transactions so purchase history updates
+      void queryClient.invalidateQueries({ queryKey: billingKeys.transactions() });
       if ('newBalance' in paymentStatus) {
         onSuccess?.(paymentStatus.newBalance);
       }
@@ -93,13 +105,17 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
 
   const handleTokenizationResult = useCallback(
     async (result: HelcimTokenResult): Promise<void> => {
+      // Disable further processing until next helcimProcess() call
+      expectingTokenizationRef.current = false;
+
       if (!result.success) {
         setPaymentState('error');
         setErrorMessage(result.errorMessage ?? 'Card tokenization failed');
         return;
       }
 
-      if (!result.cardToken || !result.customerCode || !paymentId) {
+      const currentPaymentId = paymentIdRef.current;
+      if (!result.cardToken || !result.customerCode || !currentPaymentId) {
         setPaymentState('error');
         setErrorMessage('Missing card token, customer code, or payment ID');
         return;
@@ -107,7 +123,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
 
       try {
         const response = await processPayment.mutateAsync({
-          paymentId,
+          paymentId: currentPaymentId,
           cardToken: result.cardToken,
           customerCode: result.customerCode,
         });
@@ -124,19 +140,13 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
         setErrorMessage(err instanceof Error ? err.message : 'Payment failed');
       }
     },
-    [paymentId, processPayment, onSuccess]
+    [processPayment, onSuccess]
   );
 
   useEffect(() => {
-    // In dev mode, mark as loaded immediately (script will fail but we use simulation)
-    if (isDevMode) {
-      setScriptLoaded(true);
-      return;
-    }
-
     let mounted = true;
 
-    loadHelcimScript()
+    loadHelcimScript({ useMock: isDevMode })
       .then(() => {
         if (mounted) {
           setScriptLoaded(true);
@@ -161,6 +171,9 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     if (!resultsDiv) return;
 
     observerRef.current = new MutationObserver(() => {
+      // Only process results when we're actively expecting tokenization
+      if (!expectingTokenizationRef.current) return;
+
       const responseEl = document.getElementById('response') as HTMLInputElement | null;
       if (!responseEl?.value) return;
 
@@ -188,36 +201,50 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     };
   }, [scriptLoaded, handleTokenizationResult]);
 
-  const handleSimulateSuccess = async (): Promise<void> => {
-    try {
-      const simulateAmount = form.amount || '100';
-      const formattedAmount = parseFloat(simulateAmount).toFixed(8);
-
-      const payment = await createPayment.mutateAsync({ amount: formattedAmount });
-
-      const result = await processPayment.mutateAsync({
-        paymentId: payment.paymentId,
-        cardToken: 'mock-dev-token',
-        customerCode: 'mock-dev-customer',
-      });
-
-      if (result.status === 'confirmed') {
-        setPaymentState('success');
-        onSuccess?.(result.newBalance);
-      } else {
-        // Shouldn't happen in mock mode, but handle it
-        setPaymentState('error');
-        setErrorMessage('Simulated payment processing');
+  // Clear stale Helcim results to prevent MutationObserver from reading old values
+  const clearHelcimResults = (): void => {
+    ['response', 'responseMessage', 'cardToken', 'customerCode', 'cardType', 'cardF4L4'].forEach(
+      (id) => {
+        const el = document.getElementById(id) as HTMLInputElement | null;
+        if (el) el.value = '';
       }
-    } catch (error) {
-      setPaymentState('error');
-      setErrorMessage(error instanceof Error ? error.message : 'Simulation failed');
+    );
+  };
+
+  const handleSimulateSuccess = (): void => {
+    clearHelcimResults(); // Clear FIRST, before form updates trigger re-renders
+    if (!form.amount) {
+      form.handleAmountChange('100');
     }
+    form.handleFieldChange('cardNumber', MOCK_TEST_CARDS.SUCCESS.number);
+    form.handleFieldChange('expiry', MOCK_TEST_CARDS.SUCCESS.expiry);
+    form.handleFieldChange('cvv', MOCK_TEST_CARDS.SUCCESS.cvv);
+    form.handleFieldChange('cardHolderName', 'Test User');
+    form.handleFieldChange('billingAddress', '123 Test St');
+    form.handleFieldChange('zipCode', '12345');
+
+    setTimeout(() => {
+      const formEl = document.getElementById('helcimForm') as HTMLFormElement | null;
+      formEl?.requestSubmit();
+    }, 100);
   };
 
   const handleSimulateFailure = (): void => {
-    setPaymentState('error');
-    setErrorMessage('Simulated payment failure');
+    clearHelcimResults(); // Clear FIRST, before form updates trigger re-renders
+    if (!form.amount) {
+      form.handleAmountChange('100');
+    }
+    form.handleFieldChange('cardNumber', MOCK_TEST_CARDS.SUCCESS.number);
+    form.handleFieldChange('expiry', MOCK_TEST_CARDS.SUCCESS.expiry);
+    form.handleFieldChange('cvv', MOCK_TEST_CARDS.DECLINE.cvv);
+    form.handleFieldChange('cardHolderName', 'Test User');
+    form.handleFieldChange('billingAddress', '123 Test St');
+    form.handleFieldChange('zipCode', '12345');
+
+    setTimeout(() => {
+      const formEl = document.getElementById('helcimForm') as HTMLFormElement | null;
+      formEl?.requestSubmit();
+    }, 100);
   };
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
@@ -230,23 +257,22 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     setPaymentState('processing');
 
     try {
-      // Format to 8 decimal places for backend
       const formattedAmount = parseFloat(form.amount).toFixed(8);
       const result = await createPayment.mutateAsync({ amount: formattedAmount });
+      paymentIdRef.current = result.paymentId;
       setPaymentId(result.paymentId);
 
-      // Dev mode: don't call helcimProcess - wait for simulation buttons
-      if (isDevMode) {
-        return;
-      }
+      // Clear stale tokenization results and enable observer before calling helcimProcess
+      clearHelcimResults();
+      expectingTokenizationRef.current = true;
 
       if (window.helcimProcess) {
         window.helcimProcess();
-        // MutationObserver on #helcimResults will handle the response
       } else {
         throw new Error('Helcim payment processor not available');
       }
     } catch (err) {
+      expectingTokenizationRef.current = false;
       setPaymentState('error');
       setErrorMessage(err instanceof Error ? err.message : 'Payment failed');
     }
@@ -255,6 +281,8 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
   const handleReset = (): void => {
     form.reset();
     setPaymentState('idle');
+    paymentIdRef.current = null;
+    expectingTokenizationRef.current = false;
     setPaymentId(null);
     setErrorMessage(null);
     setIsPolling(false);
@@ -529,19 +557,18 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => void handleSimulateSuccess()}
-                disabled={createPayment.isPending || processPayment.isPending}
+                onClick={handleSimulateSuccess}
+                disabled={paymentState === 'processing'}
                 className="flex-1"
                 data-testid="simulate-success-btn"
               >
-                {createPayment.isPending || processPayment.isPending
-                  ? 'Processing...'
-                  : 'Simulate Success'}
+                Simulate Success
               </Button>
               <Button
                 type="button"
                 variant="destructive"
                 onClick={handleSimulateFailure}
+                disabled={paymentState === 'processing'}
                 className="flex-1"
                 data-testid="simulate-failure-btn"
               >

@@ -6,6 +6,7 @@ import {
   errorResponseSchema,
   ERROR_CODE_UNAUTHORIZED,
   ERROR_CODE_VALIDATION,
+  recordServiceCall,
 } from '@lome-chat/shared';
 import { verifyWebhookSignatureAsync } from '../services/helcim/index.js';
 import { processWebhookCredit } from '../services/billing/index.js';
@@ -71,6 +72,7 @@ export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>();
 
   app.openapi(helcimWebhookRoute, async (c) => {
+    recordServiceCall('hookdeck');
     const db = c.get('db');
 
     // Get raw body for signature verification
@@ -122,6 +124,19 @@ export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
     }
 
     if (event.type === 'cardTransaction') {
+      // Debug: dump all payments to see what's stored vs what webhook has
+      if (isCI) {
+        const allPayments = await db
+          .select({
+            id: payments.id,
+            status: payments.status,
+            helcimTransactionId: payments.helcimTransactionId,
+          })
+          .from(payments);
+        console.error(`[CI Debug] Webhook received for transactionId=${event.id}`);
+        console.error(`[CI Debug] All payments in DB: ${JSON.stringify(allPayments)}`);
+      }
+
       const [existing] = await db
         .select({ status: payments.status })
         .from(payments)

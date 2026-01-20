@@ -9,7 +9,7 @@ import type { AppEnv } from '../types.js';
 
 export function dbMiddleware(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const { isDev } = createEnvUtils(c.env);
+    const { isDev } = c.get('envUtils');
     const dbConfig = isDev
       ? { connectionString: c.env.DATABASE_URL, neonDev: LOCAL_NEON_DEV_CONFIG }
       : { connectionString: c.env.DATABASE_URL };
@@ -63,6 +63,15 @@ export function openRouterMiddleware(): MiddlewareHandler<AppEnv> {
 export function helcimMiddleware(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     c.set('helcim', getHelcimClient(c.env));
+    await next();
+  };
+}
+
+export function envMiddleware(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    // c.env may be undefined in tests when app.request() is called without bindings
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    c.set('envUtils', createEnvUtils(c.env ?? {}));
     await next();
   };
 }

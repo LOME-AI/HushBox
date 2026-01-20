@@ -98,7 +98,10 @@ describe('billing routes', () => {
 
   beforeAll(async () => {
     db = createDb({ connectionString, neonDev: LOCAL_NEON_DEV_CONFIG });
-    helcimClient = createMockHelcimClient();
+    helcimClient = createMockHelcimClient({
+      webhookUrl: 'http://localhost:8787/webhooks/payment',
+      webhookVerifier: 'test-verifier',
+    });
 
     const emailClient = createMockEmailClient();
     const auth = createAuth({
@@ -314,11 +317,8 @@ describe('billing routes', () => {
       expect(processRes.status).toBe(200);
       const processData = (await processRes.json()) as ProcessPaymentResponse;
 
-      // Mock client credits immediately, so should be confirmed
-      expect(processData.status).toBe('confirmed');
-      if (processData.status === 'confirmed') {
-        expect(parseFloat(processData.newBalance)).toBeGreaterThanOrEqual(25);
-      }
+      // Mock client goes through webhook flow like real client, so returns processing
+      expect(processData.status).toBe('processing');
     });
 
     it('rejects payment with declined card', async () => {
@@ -564,26 +564,20 @@ describe('billing routes', () => {
     });
 
     it('filters by type=deposit to return only deposits', async () => {
-      // Create a deposit transaction via payment
-      const createRes = await app.request('/billing/payments', {
-        method: 'POST',
-        headers: {
-          Cookie: authCookie,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ amount: '10.00000000' }),
-      });
-      const createData = (await createRes.json()) as CreatePaymentResponse;
-      createdPaymentIds.push(createData.paymentId);
-
-      await app.request(`/billing/payments/${createData.paymentId}/process`, {
-        method: 'POST',
-        headers: {
-          Cookie: authCookie,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
-      });
+      // Create a deposit transaction directly in DB
+      // (Mock payments go through webhook flow, so we create deposit directly for this test)
+      const [depositTransaction] = await db
+        .insert(balanceTransactions)
+        .values({
+          userId: testUserId,
+          amount: '10.00000000',
+          balanceAfter: '20.00000000',
+          type: 'deposit',
+        })
+        .returning();
+      if (depositTransaction) {
+        createdTransactionIds.push(depositTransaction.id);
+      }
 
       // Create a usage transaction directly in DB
       const [usageTransaction] = await db

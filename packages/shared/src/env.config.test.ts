@@ -167,6 +167,13 @@ describe('envConfig', () => {
       expect(envConfig.HELCIM_WEBHOOK_VERIFIER.to).toEqual([Dest.Backend]);
     });
 
+    it('has mock value for development (for local webhook testing)', () => {
+      const dev = resolveRaw(envConfig.HELCIM_WEBHOOK_VERIFIER, Mode.Development);
+      expect(dev).toBeDefined();
+      expect(typeof dev).toBe('string');
+      expect(isSecret(dev)).toBe(false);
+    });
+
     it('uses different secrets for ciE2E and production', () => {
       const ciE2E = resolveRaw(envConfig.HELCIM_WEBHOOK_VERIFIER, Mode.CiE2E);
       const production = resolveRaw(envConfig.HELCIM_WEBHOOK_VERIFIER, Mode.Production);

@@ -1,8 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createMockHelcimClient } from './mock.js';
+import * as mockWebhook from './mock-webhook.js';
 import type { ProcessPaymentRequest, ProcessPaymentResponse } from './types.js';
 
 describe('createMockHelcimClient', () => {
+  const testConfig = {
+    webhookUrl: 'http://localhost:8787/webhooks/payment',
+    webhookVerifier: 'test-verifier',
+  };
+
   const testPayment: ProcessPaymentRequest = {
     cardToken: 'test-token-123',
     customerCode: 'CST1234',
@@ -13,7 +19,7 @@ describe('createMockHelcimClient', () => {
 
   describe('isMock property', () => {
     it('returns true for mock client', () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
 
       expect(client.isMock).toBe(true);
     });
@@ -21,7 +27,7 @@ describe('createMockHelcimClient', () => {
 
   describe('processPayment', () => {
     it('returns approved status by default', async () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
 
       const result = await client.processPayment(testPayment);
 
@@ -29,7 +35,7 @@ describe('createMockHelcimClient', () => {
     });
 
     it('returns transaction ID for approved payments', async () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
 
       const result = await client.processPayment(testPayment);
 
@@ -38,7 +44,7 @@ describe('createMockHelcimClient', () => {
     });
 
     it('returns default card type and last four', async () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
 
       const result = await client.processPayment(testPayment);
 
@@ -47,7 +53,7 @@ describe('createMockHelcimClient', () => {
     });
 
     it('stores processed payments for retrieval', async () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
 
       await client.processPayment(testPayment);
 
@@ -57,7 +63,7 @@ describe('createMockHelcimClient', () => {
     });
 
     it('stores multiple payments in order', async () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
       const payment1 = { ...testPayment, paymentId: 'payment-1' };
       const payment2 = { ...testPayment, paymentId: 'payment-2' };
 
@@ -71,7 +77,7 @@ describe('createMockHelcimClient', () => {
     });
 
     it('generates unique transaction IDs for each payment', async () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
 
       const result1 = await client.processPayment(testPayment);
       const result2 = await client.processPayment(testPayment);
@@ -82,7 +88,7 @@ describe('createMockHelcimClient', () => {
 
   describe('setNextResponse', () => {
     it('allows setting a declined response', async () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
       const declinedResponse: ProcessPaymentResponse = {
         status: 'declined',
         errorMessage: 'Insufficient funds',
@@ -96,7 +102,7 @@ describe('createMockHelcimClient', () => {
     });
 
     it('allows setting a custom approved response with custom card details', async () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
       const customResponse: ProcessPaymentResponse = {
         status: 'approved',
         transactionId: 'custom-txn-123',
@@ -115,7 +121,7 @@ describe('createMockHelcimClient', () => {
     });
 
     it('persists response for multiple payments', async () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
       const declinedResponse: ProcessPaymentResponse = {
         status: 'declined',
         errorMessage: 'Card expired',
@@ -132,13 +138,13 @@ describe('createMockHelcimClient', () => {
 
   describe('getProcessedPayments', () => {
     it('returns empty array when no payments processed', () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
 
       expect(client.getProcessedPayments()).toEqual([]);
     });
 
     it('returns a copy of the payments array', async () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
       await client.processPayment(testPayment);
 
       const payments1 = client.getProcessedPayments();
@@ -151,13 +157,53 @@ describe('createMockHelcimClient', () => {
 
   describe('clearProcessedPayments', () => {
     it('clears all stored payments', async () => {
-      const client = createMockHelcimClient();
+      const client = createMockHelcimClient(testConfig);
       await client.processPayment(testPayment);
       await client.processPayment(testPayment);
 
       client.clearProcessedPayments();
 
       expect(client.getProcessedPayments()).toEqual([]);
+    });
+  });
+
+  describe('webhook scheduling', () => {
+    it('schedules webhook after successful payment when config provided', async () => {
+      const scheduleMockWebhookSpy = vi
+        .spyOn(mockWebhook, 'scheduleMockWebhook')
+        .mockImplementation(() => undefined);
+
+      const client = createMockHelcimClient(testConfig);
+
+      const result = await client.processPayment(testPayment);
+
+      expect(result.status).toBe('approved');
+      expect(scheduleMockWebhookSpy).toHaveBeenCalledTimes(1);
+      expect(scheduleMockWebhookSpy).toHaveBeenCalledWith({
+        webhookUrl: testConfig.webhookUrl,
+        webhookVerifier: testConfig.webhookVerifier,
+        transactionId: result.transactionId,
+      });
+
+      scheduleMockWebhookSpy.mockRestore();
+    });
+
+    it('does not schedule webhook when payment is declined', async () => {
+      const scheduleMockWebhookSpy = vi
+        .spyOn(mockWebhook, 'scheduleMockWebhook')
+        .mockImplementation(() => undefined);
+
+      const client = createMockHelcimClient(testConfig);
+      client.setNextResponse({
+        status: 'declined',
+        errorMessage: 'Insufficient funds',
+      });
+
+      await client.processPayment(testPayment);
+
+      expect(scheduleMockWebhookSpy).not.toHaveBeenCalled();
+
+      scheduleMockWebhookSpy.mockRestore();
     });
   });
 });

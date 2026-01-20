@@ -1,0 +1,73 @@
+/**
+ * Mock Helcim.js for local development.
+ * Simulates card tokenization by populating the same DOM elements
+ * that the real Helcim.js script would populate.
+ */
+
+declare global {
+  interface Window {
+    helcimProcess?: () => void;
+  }
+}
+
+export const MOCK_TEST_CARDS = {
+  SUCCESS: {
+    number: '4111111111111111',
+    cvv: '123',
+    expiry: '12/28',
+    type: 'Visa',
+    lastFour: '1111',
+  },
+  DECLINE: {
+    cvv: '200',
+  },
+} as const;
+
+function setElementValue(id: string, value: string): void {
+  const el = document.getElementById(id) as HTMLInputElement | null;
+  if (el) {
+    el.value = value;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+}
+
+function getElementValue(id: string): string {
+  const el = document.getElementById(id) as HTMLInputElement | null;
+  return el?.value ?? '';
+}
+
+function mockHelcimProcess(): void {
+  const cardNumber = getElementValue('cardNumber');
+  const cvv = getElementValue('cardCVV');
+
+  if (!cardNumber) {
+    setElementValue('response', '0');
+    setElementValue('responseMessage', 'Card number required');
+    return;
+  }
+
+  if (cvv === MOCK_TEST_CARDS.DECLINE.cvv) {
+    setElementValue('response', '0');
+    setElementValue('responseMessage', 'Card declined');
+    return;
+  }
+
+  const token = `mock-token-${crypto.randomUUID()}`;
+  const customerCode = `mock-customer-${crypto.randomUUID()}`;
+  const lastFour = cardNumber.slice(-4);
+
+  setElementValue('response', '1');
+  setElementValue('responseMessage', '');
+  setElementValue('cardToken', token);
+  setElementValue('customerCode', customerCode);
+  setElementValue('cardType', 'Visa');
+  setElementValue('cardF4L4', `****${lastFour}9990`);
+}
+
+export function installMockHelcim(): void {
+  window.helcimProcess = mockHelcimProcess;
+}
+
+export function uninstallMockHelcim(): void {
+  delete window.helcimProcess;
+}

@@ -97,12 +97,12 @@ describe('dev script', () => {
     it('executes steps in correct order: docker, migrations, turbo', async () => {
       const callOrder: string[] = [];
 
-      mockExeca.mockImplementation((cmd) => {
+      mockExeca.mockImplementation(((cmd: string | URL) => {
         if (cmd === 'docker') callOrder.push('docker');
         if (cmd === 'pnpm') callOrder.push('migrations');
         if (cmd === 'turbo') callOrder.push('turbo');
         return Promise.resolve({} as never);
-      });
+      }) as never);
 
       await main();
 
@@ -110,10 +110,10 @@ describe('dev script', () => {
     });
 
     it('stops execution if docker fails', async () => {
-      mockExeca.mockImplementation((cmd) => {
+      mockExeca.mockImplementation(((cmd: string | URL) => {
         if (cmd === 'docker') return Promise.reject(new Error('Docker failed'));
         return Promise.resolve({} as never);
-      });
+      }) as never);
 
       await expect(main()).rejects.toThrow('Docker failed');
 
@@ -123,11 +123,11 @@ describe('dev script', () => {
 
     it('stops execution if migrations fail', async () => {
       let callCount = 0;
-      mockExeca.mockImplementation((cmd) => {
+      mockExeca.mockImplementation(((cmd: string | URL) => {
         callCount++;
         if (cmd === 'pnpm') return Promise.reject(new Error('Migration failed'));
         return Promise.resolve({} as never);
-      });
+      }) as never);
 
       await expect(main()).rejects.toThrow('Migration failed');
 

@@ -123,28 +123,37 @@ type Account = typeof accounts.$inferInsert;
 type Payment = typeof payments.$inferInsert;
 type BalanceTransaction = typeof balanceTransactions.$inferInsert;
 
+// Types with required id for seeding (factories always generate ids)
+type UserWithId = User & { id: string };
+type ConversationWithId = Conversation & { id: string };
+type MessageWithId = Message & { id: string };
+type ProjectWithId = Project & { id: string };
+type AccountWithId = Account & { id: string };
+type PaymentWithId = Payment & { id: string };
+type BalanceTransactionWithId = BalanceTransaction & { id: string };
+
 interface SeedData {
-  users: User[];
-  projects: Project[];
-  conversations: Conversation[];
-  messages: Message[];
+  users: UserWithId[];
+  projects: ProjectWithId[];
+  conversations: ConversationWithId[];
+  messages: MessageWithId[];
 }
 
 interface PersonaData {
-  users: User[];
-  accounts: Account[];
-  projects: Project[];
-  conversations: Conversation[];
-  messages: Message[];
-  payments: Payment[];
-  balanceTransactions: BalanceTransaction[];
+  users: UserWithId[];
+  accounts: AccountWithId[];
+  projects: ProjectWithId[];
+  conversations: ConversationWithId[];
+  messages: MessageWithId[];
+  payments: PaymentWithId[];
+  balanceTransactions: BalanceTransactionWithId[];
 }
 
 export function generateSeedData(): SeedData {
-  const seedUsers: User[] = [];
-  const seedProjects: Project[] = [];
-  const seedConversations: Conversation[] = [];
-  const seedMessages: Message[] = [];
+  const seedUsers: UserWithId[] = [];
+  const seedProjects: ProjectWithId[] = [];
+  const seedConversations: ConversationWithId[] = [];
+  const seedMessages: MessageWithId[] = [];
 
   for (let i = 0; i < SEED_CONFIG.USER_COUNT; i++) {
     const userId = seedUUID(`seed-user-${String(i + 1)}`);
@@ -195,13 +204,13 @@ export function generateSeedData(): SeedData {
 }
 
 export async function generatePersonaData(): Promise<PersonaData> {
-  const personaUsers: User[] = [];
-  const personaAccounts: Account[] = [];
-  const personaProjects: Project[] = [];
-  const personaConversations: Conversation[] = [];
-  const personaMessages: Message[] = [];
-  const personaPayments: Payment[] = [];
-  const personaBalanceTransactions: BalanceTransaction[] = [];
+  const personaUsers: UserWithId[] = [];
+  const personaAccounts: AccountWithId[] = [];
+  const personaProjects: ProjectWithId[] = [];
+  const personaConversations: ConversationWithId[] = [];
+  const personaMessages: MessageWithId[] = [];
+  const personaPayments: PaymentWithId[] = [];
+  const personaBalanceTransactions: BalanceTransactionWithId[] = [];
 
   const hashedPassword = await hashPassword(DEV_PASSWORD);
   const now = new Date();
@@ -351,13 +360,13 @@ export async function generatePersonaData(): Promise<PersonaData> {
 }
 
 export async function generateTestPersonaData(): Promise<PersonaData> {
-  const testUsers: User[] = [];
-  const testAccounts: Account[] = [];
-  const testProjects: Project[] = [];
-  const testConversations: Conversation[] = [];
-  const testMessages: Message[] = [];
-  const testPayments: Payment[] = [];
-  const testBalanceTransactions: BalanceTransaction[] = [];
+  const testUsers: UserWithId[] = [];
+  const testAccounts: AccountWithId[] = [];
+  const testProjects: ProjectWithId[] = [];
+  const testConversations: ConversationWithId[] = [];
+  const testMessages: MessageWithId[] = [];
+  const testPayments: PaymentWithId[] = [];
+  const testBalanceTransactions: BalanceTransactionWithId[] = [];
 
   const hashedPassword = await hashPassword(DEV_PASSWORD);
   const now = new Date();
@@ -506,12 +515,12 @@ export async function updateUserBalance(
 }
 
 export async function seed(): Promise<void> {
-  if (!process.env.DATABASE_URL) {
+  if (!process.env['DATABASE_URL']) {
     const envPath = resolve(process.cwd(), '.env.development');
     config({ path: envPath });
   }
 
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = process.env['DATABASE_URL'];
   if (!databaseUrl) {
     throw new Error('DATABASE_URL is required');
   }

@@ -156,7 +156,7 @@ import {
 describe('seed script', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.DATABASE_URL = 'postgres://test:test@localhost:5432/test';
+    process.env['DATABASE_URL'] = 'postgres://test:test@localhost:5432/test';
   });
 
   afterEach(() => {
@@ -200,10 +200,14 @@ describe('seed script', () => {
 
     it('generates deterministic user IDs as valid UUIDs', () => {
       const data = generateSeedData();
-      expect(data.users[0].id).toBe(seedUUID('seed-user-1'));
-      expect(data.users[4].id).toBe(seedUUID('seed-user-5'));
+      const firstUser = data.users[0];
+      const fifthUser = data.users[4];
+      expect(firstUser).toBeDefined();
+      expect(fifthUser).toBeDefined();
+      expect(firstUser?.id).toBe(seedUUID('seed-user-1'));
+      expect(fifthUser?.id).toBe(seedUUID('seed-user-5'));
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      expect(data.users[0].id).toMatch(uuidRegex);
+      expect(firstUser?.id).toMatch(uuidRegex);
     });
 
     it('generates correct number of projects (2 per user)', () => {
@@ -243,19 +247,21 @@ describe('seed script', () => {
 
     it('links messages to correct conversations', () => {
       const data = generateSeedData();
-      const conv1Id = data.conversations[0].id;
-      const conv1Messages = data.messages.filter((m) => m.conversationId === conv1Id);
+      const firstConv = data.conversations[0];
+      expect(firstConv).toBeDefined();
+      const conv1Messages = data.messages.filter((m) => m.conversationId === firstConv?.id);
       expect(conv1Messages).toHaveLength(SEED_CONFIG.MESSAGES_PER_CONVERSATION);
     });
 
     it('alternates message roles between user and assistant', () => {
       const data = generateSeedData();
-      const conv1Id = data.conversations[0].id;
-      const conv1Messages = data.messages.filter((m) => m.conversationId === conv1Id);
+      const firstConv = data.conversations[0];
+      expect(firstConv).toBeDefined();
+      const conv1Messages = data.messages.filter((m) => m.conversationId === firstConv?.id);
 
-      expect(conv1Messages[0].role).toBe('user');
-      expect(conv1Messages[1].role).toBe('assistant');
-      expect(conv1Messages[2].role).toBe('user');
+      expect(conv1Messages[0]?.role).toBe('user');
+      expect(conv1Messages[1]?.role).toBe('assistant');
+      expect(conv1Messages[2]?.role).toBe('user');
     });
   });
 
@@ -274,10 +280,11 @@ describe('seed script', () => {
         })),
       };
 
-      const result = await upsertEntity(mockDb as never, { id: 'id' } as never, {
-        id: 'test-1',
-        name: 'Test',
-      });
+      const result = await upsertEntity(
+        mockDb as never,
+        { id: 'id' } as never,
+        { id: 'test-1' } as never
+      );
 
       expect(result).toBe('created');
       expect(mockDb.insert).toHaveBeenCalled();
@@ -297,10 +304,11 @@ describe('seed script', () => {
         })),
       };
 
-      const result = await upsertEntity(mockDb as never, { id: 'id' } as never, {
-        id: 'test-1',
-        name: 'Test',
-      });
+      const result = await upsertEntity(
+        mockDb as never,
+        { id: 'id' } as never,
+        { id: 'test-1' } as never
+      );
 
       expect(result).toBe('exists');
       expect(mockDb.insert).not.toHaveBeenCalled();
@@ -309,7 +317,7 @@ describe('seed script', () => {
 
   describe('seed', () => {
     it('throws if DATABASE_URL is not set', async () => {
-      delete process.env.DATABASE_URL;
+      delete process.env['DATABASE_URL'];
 
       await expect(seed()).rejects.toThrow('DATABASE_URL is required');
     });
@@ -395,10 +403,10 @@ describe('seed script', () => {
       expect(charlieMessages).toHaveLength(4);
 
       // Verify alternating roles
-      expect(charlieMessages[0].role).toBe('user');
-      expect(charlieMessages[1].role).toBe('assistant');
-      expect(charlieMessages[2].role).toBe('user');
-      expect(charlieMessages[3].role).toBe('assistant');
+      expect(charlieMessages[0]?.role).toBe('user');
+      expect(charlieMessages[1]?.role).toBe('assistant');
+      expect(charlieMessages[2]?.role).toBe('user');
+      expect(charlieMessages[3]?.role).toBe('assistant');
     });
 
     it('alice has exactly 2 projects', async () => {

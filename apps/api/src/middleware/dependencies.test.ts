@@ -34,6 +34,7 @@ import {
   sessionMiddleware,
   openRouterMiddleware,
   helcimMiddleware,
+  envMiddleware,
 } from './dependencies.js';
 import { createDb, LOCAL_NEON_DEV_CONFIG } from '@lome-chat/db';
 import { createAuth } from '../auth/index.js';
@@ -52,6 +53,7 @@ describe('dbMiddleware', () => {
 
   it('sets db on context', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
     app.get('/', (c) => {
       c.get('db');
@@ -70,6 +72,7 @@ describe('dbMiddleware', () => {
 
   it('uses LOCAL_NEON_DEV_CONFIG in development mode', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
     app.get('/', (c) => c.json({ ok: true }));
 
@@ -83,6 +86,7 @@ describe('dbMiddleware', () => {
 
   it('omits neonDev config in production mode', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
     app.get('/', (c) => c.json({ ok: true }));
 
@@ -96,6 +100,7 @@ describe('dbMiddleware', () => {
   it('calls next() to continue middleware chain', async () => {
     const app = new Hono<AppEnv>();
     const nextCalled = vi.fn();
+    app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
     app.use('*', async (_, next) => {
       nextCalled();
@@ -120,6 +125,7 @@ describe('authMiddleware', () => {
 
   it('sets auth on context', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
     app.use('*', authMiddleware());
     app.get('/', (c) => {
@@ -135,6 +141,7 @@ describe('authMiddleware', () => {
 
   it('passes env to getEmailClient factory', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
     app.use('*', authMiddleware());
     app.get('/', (c) => c.json({ ok: true }));
@@ -151,6 +158,7 @@ describe('authMiddleware', () => {
 
   it('uses default auth URL when BETTER_AUTH_URL not set', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
     app.use('*', authMiddleware());
     app.get('/', (c) => c.json({ ok: true }));
@@ -166,6 +174,7 @@ describe('authMiddleware', () => {
 
   it('uses custom auth URL when BETTER_AUTH_URL is set', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
     app.use('*', authMiddleware());
     app.get('/', (c) => c.json({ ok: true }));
@@ -185,6 +194,7 @@ describe('authMiddleware', () => {
 
   it('uses default secret when BETTER_AUTH_SECRET not set', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
     app.use('*', authMiddleware());
     app.get('/', (c) => c.json({ ok: true }));
@@ -220,6 +230,7 @@ describe('sessionMiddleware', () => {
     } as unknown as ReturnType<typeof createAuth>);
 
     const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
     app.use('*', authMiddleware());
     app.use('*', sessionMiddleware());
@@ -244,6 +255,7 @@ describe('sessionMiddleware', () => {
     } as unknown as ReturnType<typeof createAuth>);
 
     const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
     app.use('*', authMiddleware());
     app.use('*', sessionMiddleware());
@@ -269,6 +281,7 @@ describe('sessionMiddleware', () => {
     } as unknown as ReturnType<typeof createAuth>);
 
     const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
     app.use('*', authMiddleware());
     app.use('*', sessionMiddleware());
@@ -387,6 +400,97 @@ describe('helcimMiddleware', () => {
     app.get('/', (c) => c.json({ ok: true }));
 
     await app.request('/', {}, {});
+
+    expect(nextCalled).toHaveBeenCalled();
+  });
+});
+
+describe('envMiddleware', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('sets envUtils on context', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.get('/', (c) => {
+      c.get('envUtils'); // Verify it's set
+      return c.json({ hasEnvUtils: true });
+    });
+
+    const res = await app.request('/', {}, { NODE_ENV: 'development' });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ hasEnvUtils: true });
+  });
+
+  it('returns correct isDev flag for development', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.get('/', (c) => {
+      const { isDev, isLocalDev, isProduction } = c.get('envUtils');
+      return c.json({ isDev, isLocalDev, isProduction });
+    });
+
+    const res = await app.request('/', {}, { NODE_ENV: 'development' });
+    const body = await res.json();
+    expect(body).toEqual({ isDev: true, isLocalDev: true, isProduction: false });
+  });
+
+  it('returns correct isCI flag when CI is set', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.get('/', (c) => {
+      const { isCI, isLocalDev, requiresRealServices } = c.get('envUtils');
+      return c.json({ isCI, isLocalDev, requiresRealServices });
+    });
+
+    const res = await app.request('/', {}, { NODE_ENV: 'development', CI: 'true' });
+    const body = await res.json();
+    expect(body).toEqual({ isCI: true, isLocalDev: false, requiresRealServices: true });
+  });
+
+  it('returns correct isProduction flag for production', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.get('/', (c) => {
+      const { isDev, isProduction, requiresRealServices } = c.get('envUtils');
+      return c.json({ isDev, isProduction, requiresRealServices });
+    });
+
+    const res = await app.request('/', {}, { NODE_ENV: 'production' });
+    const body = await res.json();
+    expect(body).toEqual({ isDev: false, isProduction: true, requiresRealServices: true });
+  });
+
+  it('returns correct isE2E flag when E2E is set', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.get('/', (c) => {
+      const { isCI, isE2E } = c.get('envUtils');
+      return c.json({ isCI, isE2E });
+    });
+
+    const res = await app.request('/', {}, { NODE_ENV: 'development', CI: 'true', E2E: 'true' });
+    const body = await res.json();
+    expect(body).toEqual({ isCI: true, isE2E: true });
+  });
+
+  it('calls next() to continue middleware chain', async () => {
+    const app = new Hono<AppEnv>();
+    const nextCalled = vi.fn();
+    app.use('*', envMiddleware());
+    app.use('*', async (_, next) => {
+      nextCalled();
+      await next();
+    });
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request('/', {}, { NODE_ENV: 'development' });
 
     expect(nextCalled).toHaveBeenCalled();
   });

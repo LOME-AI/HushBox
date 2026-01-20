@@ -1,5 +1,6 @@
 import type { betterAuth } from 'better-auth';
 import type { Database } from '@lome-chat/db';
+import type { EnvUtils } from '@lome-chat/shared';
 import type { HelcimClient } from './services/helcim/index.js';
 import type { OpenRouterClient } from './services/openrouter/index.js';
 
@@ -22,6 +23,7 @@ export interface Variables {
   auth: ReturnType<typeof betterAuth>;
   helcim: HelcimClient;
   openrouter: OpenRouterClient;
+  envUtils: EnvUtils;
   user: { id: string; email: string; name: string | null } | null;
   session: { id: string; userId: string; expiresAt: Date } | null;
 }

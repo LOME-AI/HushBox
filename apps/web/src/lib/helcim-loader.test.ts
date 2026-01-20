@@ -5,6 +5,7 @@ import {
   isHelcimScriptLoaded,
   readHelcimResult,
 } from './helcim-loader';
+import * as helcimMock from './helcim-mock';
 
 describe('helcim-loader', () => {
   beforeEach(() => {
@@ -222,6 +223,29 @@ describe('helcim-loader', () => {
       const result = readHelcimResult();
 
       expect(result.cardLastFour).toBe('1234');
+    });
+  });
+
+  describe('loadHelcimScript with useMock option', () => {
+    afterEach(() => {
+      helcimMock.uninstallMockHelcim();
+    });
+
+    it('installs mock instead of loading real script when useMock is true', async () => {
+      const installSpy = vi.spyOn(helcimMock, 'installMockHelcim');
+
+      await loadHelcimScript({ useMock: true });
+
+      expect(installSpy).toHaveBeenCalled();
+      expect(isHelcimScriptLoaded()).toBe(true);
+      expect(window.helcimProcess).toBeDefined();
+    });
+
+    it('does not create script element when useMock is true', async () => {
+      await loadHelcimScript({ useMock: true });
+
+      const scripts = document.head.querySelectorAll('script');
+      expect(scripts).toHaveLength(0);
     });
   });
 });

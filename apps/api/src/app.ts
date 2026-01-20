@@ -3,6 +3,7 @@ import {
   cors,
   devOnly,
   errorHandler,
+  envMiddleware,
   dbMiddleware,
   authMiddleware,
   sessionMiddleware,
@@ -27,6 +28,7 @@ export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   app.use('*', cors());
+  app.use('*', envMiddleware());
   app.onError(errorHandler);
 
   app.route('/health', healthRoute);

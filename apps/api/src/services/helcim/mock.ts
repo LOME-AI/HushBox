@@ -1,6 +1,12 @@
+import { scheduleMockWebhook } from './mock-webhook.js';
 import type { MockHelcimClient, ProcessPaymentRequest, ProcessPaymentResponse } from './types.js';
 
-export function createMockHelcimClient(): MockHelcimClient {
+export interface MockHelcimConfig {
+  webhookUrl: string;
+  webhookVerifier: string;
+}
+
+export function createMockHelcimClient(config: MockHelcimConfig): MockHelcimClient {
   const processedPayments: ProcessPaymentRequest[] = [];
   let nextResponse: ProcessPaymentResponse = {
     status: 'approved',
@@ -15,11 +21,14 @@ export function createMockHelcimClient(): MockHelcimClient {
     processPayment(request: ProcessPaymentRequest): Promise<ProcessPaymentResponse> {
       processedPayments.push({ ...request });
 
-      // Return a copy with unique transaction ID for each request
       const response = { ...nextResponse };
       if (response.status === 'approved') {
-        // Always generate a unique transaction ID for approved payments
         response.transactionId = 'mock-txn-' + crypto.randomUUID();
+        scheduleMockWebhook({
+          webhookUrl: config.webhookUrl,
+          webhookVerifier: config.webhookVerifier,
+          transactionId: response.transactionId,
+        });
       }
       return Promise.resolve(response);
     },

@@ -56,6 +56,12 @@ export function validateAmount(value: string): AmountValidation {
     return { isValid: false, error: 'Please enter a valid amount' };
   }
 
+  // Check for more than 2 decimal places
+  const decimalIndex = value.indexOf('.');
+  if (decimalIndex !== -1 && value.length - decimalIndex - 1 > 2) {
+    return { isValid: false, error: 'Amount cannot have more than 2 decimal places' };
+  }
+
   if (numValue < MIN_DEPOSIT_AMOUNT) {
     return { isValid: false, error: `Minimum deposit is $${String(MIN_DEPOSIT_AMOUNT)}` };
   }

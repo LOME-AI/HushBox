@@ -9,4 +9,5 @@ export {
   sessionMiddleware,
   openRouterMiddleware,
   helcimMiddleware,
+  envMiddleware,
 } from './dependencies.js';

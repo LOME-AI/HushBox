@@ -66,39 +66,41 @@ describe('payment-validation', () => {
       expect(result.isValid).toBe(true);
     });
 
-    // Extra decimal places (3+ decimals)
-    it('handles "5.111" with 3 decimal places', () => {
+    // Extra decimal places (3+ decimals) - should be rejected
+    it('rejects "5.111" with 3 decimal places', () => {
       const result = validateAmount('5.111');
-      expect(result.isValid).toBe(true);
-      expect(parseFloat('5.111').toFixed(2)).toBe('5.11');
+      expect(result.isValid).toBe(false);
+      expect(result.error).toBe('Amount cannot have more than 2 decimal places');
     });
 
-    it('handles "5.119" with 3 decimal places (rounds to 5.12)', () => {
+    it('rejects "5.119" with 3 decimal places', () => {
       const result = validateAmount('5.119');
-      expect(result.isValid).toBe(true);
-      expect(parseFloat('5.119').toFixed(2)).toBe('5.12');
+      expect(result.isValid).toBe(false);
+      expect(result.error).toBe('Amount cannot have more than 2 decimal places');
     });
 
-    it('handles "5.1111" with 4 decimal places', () => {
+    it('rejects "5.1111" with 4 decimal places', () => {
       const result = validateAmount('5.1111');
-      expect(result.isValid).toBe(true);
+      expect(result.isValid).toBe(false);
+      expect(result.error).toBe('Amount cannot have more than 2 decimal places');
     });
 
-    it('handles "99.999" rounding to 100.00', () => {
+    it('rejects "99.999" with 3 decimal places', () => {
       const result = validateAmount('99.999');
-      expect(result.isValid).toBe(true);
-      expect(parseFloat('99.999').toFixed(2)).toBe('100.00');
+      expect(result.isValid).toBe(false);
+      expect(result.error).toBe('Amount cannot have more than 2 decimal places');
     });
 
-    it('handles "999.999" rounding to 1000.00 (at max)', () => {
+    it('rejects "999.999" with 3 decimal places', () => {
       const result = validateAmount('999.999');
-      expect(result.isValid).toBe(true);
-      expect(parseFloat('999.999').toFixed(2)).toBe('1000.00');
+      expect(result.isValid).toBe(false);
+      expect(result.error).toBe('Amount cannot have more than 2 decimal places');
     });
 
-    it('rejects "1000.001" as above maximum', () => {
+    it('rejects "1000.001" with 3 decimal places', () => {
       const result = validateAmount('1000.001');
       expect(result.isValid).toBe(false);
+      expect(result.error).toBe('Amount cannot have more than 2 decimal places');
     });
 
     // Leading zeros
@@ -113,9 +115,10 @@ describe('payment-validation', () => {
     });
 
     // Boundary values with decimals
-    it('rejects "4.999" as below minimum', () => {
+    it('rejects "4.999" with 3 decimal places', () => {
       const result = validateAmount('4.999');
       expect(result.isValid).toBe(false);
+      expect(result.error).toBe('Amount cannot have more than 2 decimal places');
     });
 
     it('accepts "5.00" at exact minimum', () => {
@@ -123,9 +126,10 @@ describe('payment-validation', () => {
       expect(result.isValid).toBe(true);
     });
 
-    it('accepts "5.001" just above minimum', () => {
+    it('rejects "5.001" with 3 decimal places', () => {
       const result = validateAmount('5.001');
-      expect(result.isValid).toBe(true);
+      expect(result.isValid).toBe(false);
+      expect(result.error).toBe('Amount cannot have more than 2 decimal places');
     });
 
     it('accepts "1000.00" at exact maximum', () => {

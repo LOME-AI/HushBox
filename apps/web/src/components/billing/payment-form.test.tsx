@@ -684,54 +684,9 @@ describe('PaymentForm', () => {
       expect(screen.getByTestId('simulate-failure-btn')).toBeInTheDocument();
     });
 
-    it('triggers success state when simulate success clicked', async () => {
-      const user = userEvent.setup();
-      const onSuccess = vi.fn();
-
-      // Mock env as local dev mode
-      vi.mocked(envModule).env = {
-        isDev: true,
-        isLocalDev: true,
-        isProduction: false,
-        isCI: false,
-        isE2E: false,
-        requiresRealServices: false,
-      };
-
-      // Mock API calls for simulate success
-      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
-      mockProcessPayment.mutateAsync.mockResolvedValue({
-        status: 'confirmed' as const,
-        newBalance: '100.00000000',
-      });
-
-      renderWithProviders(<PaymentForm onSuccess={onSuccess} />);
-
-      // Wait for form to load
-      await waitFor(() => {
-        expect(screen.getByTestId('simulate-success-btn')).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByTestId('simulate-success-btn'));
-
-      await waitFor(() => {
-        expect(screen.getByText(/payment successful/i)).toBeInTheDocument();
-        expect(onSuccess).toHaveBeenCalledWith('100.00000000');
-      });
-
-      // Verify API calls were made
-      expect(mockCreatePayment.mutateAsync).toHaveBeenCalledWith({ amount: '100.00000000' });
-      expect(mockProcessPayment.mutateAsync).toHaveBeenCalledWith({
-        paymentId: 'pay_123',
-        cardToken: 'mock-dev-token',
-        customerCode: 'mock-dev-customer',
-      });
-    });
-
-    it('triggers error state when simulate failure clicked', async () => {
+    it('pre-fills form fields when pre-fill success clicked', async () => {
       const user = userEvent.setup();
 
-      // Mock env as local dev mode
       vi.mocked(envModule).env = {
         isDev: true,
         isLocalDev: true,
@@ -743,18 +698,67 @@ describe('PaymentForm', () => {
 
       renderWithProviders(<PaymentForm />);
 
-      // Wait for form to load
+      await waitFor(() => {
+        expect(screen.getByTestId('simulate-success-btn')).toBeInTheDocument();
+      });
+
+      // Mock requestSubmit to prevent auto-submit
+      const mockSubmit = vi.fn();
+      const formEl = document.getElementById('helcimForm') as HTMLFormElement | null;
+      if (formEl) {
+        formEl.requestSubmit = mockSubmit;
+      }
+
+      await user.click(screen.getByTestId('simulate-success-btn'));
+
+      // Wait for form fields to be populated
+      await waitFor(() => {
+        const cardNumberInput = screen.getByLabelText<HTMLInputElement>(/card number/i);
+        expect(cardNumberInput.value).toBe('4111 1111 1111 1111');
+      });
+
+      const cvvInput = screen.getByLabelText<HTMLInputElement>(/cvv/i);
+      const amountInput = screen.getByLabelText<HTMLInputElement>(/amount/i);
+
+      expect(cvvInput.value).toBe('123');
+      expect(amountInput.value).toBe('100');
+    });
+
+    it('pre-fills form fields with decline CVV when pre-fill decline clicked', async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(envModule).env = {
+        isDev: true,
+        isLocalDev: true,
+        isProduction: false,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: false,
+      };
+
+      renderWithProviders(<PaymentForm />);
+
       await waitFor(() => {
         expect(screen.getByTestId('simulate-failure-btn')).toBeInTheDocument();
       });
 
+      // Mock requestSubmit to prevent auto-submit
+      const mockSubmit = vi.fn();
+      const formEl = document.getElementById('helcimForm') as HTMLFormElement | null;
+      if (formEl) {
+        formEl.requestSubmit = mockSubmit;
+      }
+
       await user.click(screen.getByTestId('simulate-failure-btn'));
 
+      // Wait for form fields to be populated
       await waitFor(() => {
-        expect(screen.getByText(/payment failed/i)).toBeInTheDocument();
-        expect(screen.getByText(/simulated payment failure/i)).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+        const cardNumberInput = screen.getByLabelText<HTMLInputElement>(/card number/i);
+        expect(cardNumberInput.value).toBe('4111 1111 1111 1111');
       });
+
+      const cvvInput = screen.getByLabelText<HTMLInputElement>(/cvv/i);
+      expect(cvvInput.value).toBe('200');
     });
   });
 });

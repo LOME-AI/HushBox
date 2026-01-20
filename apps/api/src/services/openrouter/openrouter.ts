@@ -1,3 +1,4 @@
+import { recordServiceCall } from '@lome-chat/shared';
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -33,6 +34,7 @@ export async function fetchModels(): Promise<ModelInfo[]> {
   }
 
   const response = await fetch(`${OPENROUTER_API_URL}/models`);
+  recordServiceCall('openrouter');
 
   if (!response.ok) {
     throw new Error('Failed to fetch models');
@@ -178,6 +180,7 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
         headers,
         body: JSON.stringify(request),
       });
+      recordServiceCall('openrouter');
 
       if (!response.ok) {
         const error: OpenRouterErrorResponse = await response.json();
@@ -193,6 +196,7 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
         headers,
         body: JSON.stringify({ ...request, stream: true }),
       });
+      recordServiceCall('openrouter');
 
       if (!response.ok) {
         const error: OpenRouterErrorResponse = await response.json();
@@ -218,6 +222,7 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
           headers,
           body: JSON.stringify({ ...req, stream: true }),
         });
+        recordServiceCall('openrouter');
 
         if (!response.ok) {
           const error: OpenRouterErrorResponse = await response.json();
@@ -258,6 +263,7 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
       }
 
       const response = await fetch(`${OPENROUTER_API_URL}/models`, { headers });
+      recordServiceCall('openrouter');
 
       if (!response.ok) {
         throw new Error('Failed to fetch models');
@@ -284,6 +290,7 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
         method: 'GET',
         headers,
       });
+      recordServiceCall('openrouter');
 
       if (!response.ok) {
         const error: OpenRouterErrorResponse = await response.json();

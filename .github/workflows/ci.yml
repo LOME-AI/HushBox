@@ -31,8 +31,14 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         # END GENERATED: vitest-env
 
+      - name: Verify environment configuration
+        run: pnpm verify:env --mode=ciVitest
+
       - name: Run tests
         run: pnpm test
+
+      - name: Verify OpenRouter was called
+        run: pnpm verify:evidence --require=openrouter
 
       - name: Stop database
         if: always()
@@ -56,6 +62,9 @@ jobs:
           HELCIM_WEBHOOK_VERIFIER_SANDBOX: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
           VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
         # END GENERATED: e2e-env
+
+      - name: Verify environment configuration
+        run: pnpm verify:env --mode=ciE2E
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps
@@ -107,6 +116,10 @@ jobs:
           CI: true
           SKIP_WEBHOOK_TESTS: ${{ matrix.project != 'chromium' && 'true' || '' }}
 
+      - name: Verify Hookdeck was called
+        if: matrix.project == 'chromium'
+        run: pnpm verify:evidence --require=hookdeck
+
       - name: Upload Playwright report
         uses: actions/upload-artifact@v6
         if: always()
@@ -125,6 +138,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
+
+      - name: Verify production environment
+        run: pnpm verify:env --mode=production
 
       - name: Build
         run: pnpm build

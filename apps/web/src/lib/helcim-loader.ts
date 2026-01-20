@@ -1,16 +1,29 @@
+import { installMockHelcim } from './helcim-mock.js';
+
 const HELCIM_SCRIPT_URL = 'https://secure.myhelcim.com/js/version2.js';
 
 let loadPromise: Promise<void> | null = null;
 let isLoaded = false;
 
+export interface LoadHelcimScriptOptions {
+  useMock?: boolean;
+}
+
 /**
  * Loads the Helcim.js script for client-side card tokenization.
  * Uses singleton pattern to avoid loading the script multiple times.
  *
+ * @param options.useMock - If true, installs mock instead of loading real script
  * @returns Promise that resolves when the script is loaded
  */
-export function loadHelcimScript(): Promise<void> {
+export function loadHelcimScript(options?: LoadHelcimScriptOptions): Promise<void> {
   if (isLoaded) {
+    return Promise.resolve();
+  }
+
+  if (options?.useMock) {
+    installMockHelcim();
+    isLoaded = true;
     return Promise.resolve();
   }
 
