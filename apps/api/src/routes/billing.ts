@@ -18,7 +18,6 @@ import {
   ERROR_CODE_PAYMENT_REQUIRED,
   ERROR_CODE_UNAUTHORIZED,
   PAYMENT_EXPIRATION_MS,
-  createEnvUtils,
 } from '@lome-chat/shared';
 import { createErrorResponse } from '../lib/error-response.js';
 import {
@@ -320,7 +319,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       ipAddress,
     });
 
-    const { isCI } = createEnvUtils(c.env);
+    const { isCI } = c.get('envUtils');
 
     if (isCI) {
       console.error(

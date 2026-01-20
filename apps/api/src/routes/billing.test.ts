@@ -114,11 +114,19 @@ describe('billing routes', () => {
 
     // Create the app with auth and billing routes
     app = new Hono<AppEnv>();
-    // Set db, auth, and helcim on context for all routes
+    // Set db, auth, helcim, and envUtils on context for all routes
     app.use('*', async (c, next) => {
       c.set('db', db);
       c.set('auth', auth);
       c.set('helcim', helcimClient);
+      c.set('envUtils', {
+        isCI: false,
+        isE2E: false,
+        isLocalDev: false,
+        isDev: false,
+        isProduction: false,
+        requiresRealServices: false,
+      });
       await next();
     });
     app.use('*', sessionMiddleware());
