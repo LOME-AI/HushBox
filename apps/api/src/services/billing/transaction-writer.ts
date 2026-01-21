@@ -35,16 +35,9 @@ export interface WebhookCreditResult {
  */
 export async function processWebhookCredit(
   db: Database,
-  params: WebhookCreditParams,
-  isCI = false
+  params: WebhookCreditParams
 ): Promise<WebhookCreditResult | null> {
   return await db.transaction(async (tx) => {
-    if (isCI) {
-      console.error(
-        `[CI Debug] processWebhookCredit: attempting to claim helcimTransactionId=${params.helcimTransactionId}`
-      );
-    }
-
     // Atomic idempotency: only claim payment if status is awaiting_webhook
     const [payment] = await tx
       .update(payments)
@@ -62,18 +55,7 @@ export async function processWebhookCredit(
       .returning();
 
     if (!payment) {
-      if (isCI) {
-        console.error(
-          `[CI Debug] processWebhookCredit: no payment claimed (already processed or not found)`
-        );
-      }
       return null; // Already processed or not found
-    }
-
-    if (isCI) {
-      console.error(
-        `[CI Debug] processWebhookCredit: claimed payment ${payment.id}, amount=${payment.amount}, userId=${payment.userId}`
-      );
     }
 
     const [updatedUser] = await tx
@@ -86,18 +68,7 @@ export async function processWebhookCredit(
       .returning({ balance: users.balance });
 
     if (!updatedUser) {
-      if (isCI) {
-        console.error(
-          `[CI Debug] processWebhookCredit: FAILED to update user balance for userId=${payment.userId}`
-        );
-      }
       throw new Error('Failed to update user balance');
-    }
-
-    if (isCI) {
-      console.error(
-        `[CI Debug] processWebhookCredit: updated user balance to ${updatedUser.balance}`
-      );
     }
 
     const [transaction] = await tx
@@ -112,16 +83,7 @@ export async function processWebhookCredit(
       .returning({ id: balanceTransactions.id });
 
     if (!transaction) {
-      if (isCI) {
-        console.error(`[CI Debug] processWebhookCredit: FAILED to create balance transaction`);
-      }
       throw new Error('Failed to create balance transaction');
-    }
-
-    if (isCI) {
-      console.error(
-        `[CI Debug] processWebhookCredit: SUCCESS - newBalance=${updatedUser.balance}, transactionId=${transaction.id}`
-      );
     }
 
     return {
