@@ -102,7 +102,7 @@ test.describe('Billing & Payments', () => {
     test.setTimeout(60000);
 
     test('completes full payment flow: card → API → webhook → balance', async ({
-      authenticatedPage,
+      billingSuccessPage,
     }) => {
       // This test verifies the COMPLETE payment flow including:
       // 1. Card tokenization via Helcim.js
@@ -111,7 +111,7 @@ test.describe('Billing & Payments', () => {
       // 4. Webhook signature verification
       // 5. Balance update in database
 
-      const billingPage = new BillingPage(authenticatedPage);
+      const billingPage = new BillingPage(billingSuccessPage);
       billingPage.enableDiagnostics();
       await billingPage.goto();
 
@@ -191,7 +191,7 @@ test.describe('Billing & Payments', () => {
     });
 
     test('verifies webhook signature is validated (real Helcim signature)', async ({
-      authenticatedPage,
+      billingSuccessPage,
     }) => {
       // This test ensures that:
       // 1. Real Helcim sends a properly signed webhook
@@ -200,7 +200,7 @@ test.describe('Billing & Payments', () => {
       //
       // The fact that balance updates proves signature verification passed.
 
-      const billingPage = new BillingPage(authenticatedPage);
+      const billingPage = new BillingPage(billingSuccessPage);
       billingPage.enableDiagnostics();
       await billingPage.goto();
 
