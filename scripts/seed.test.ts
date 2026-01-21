@@ -484,9 +484,9 @@ describe('seed script', () => {
   });
 
   describe('generateTestPersonaData', () => {
-    it('generates all six test personas', async () => {
+    it('generates all seven test personas', async () => {
       const data = await generateTestPersonaData();
-      expect(data.users).toHaveLength(6);
+      expect(data.users).toHaveLength(7);
     });
 
     it('includes test-alice, test-bob, and test-charlie users with test domain', async () => {
@@ -505,7 +505,7 @@ describe('seed script', () => {
 
     it('generates accounts for each test persona', async () => {
       const data = await generateTestPersonaData();
-      expect(data.accounts).toHaveLength(6);
+      expect(data.accounts).toHaveLength(7);
     });
 
     it('links accounts to correct test users', async () => {
