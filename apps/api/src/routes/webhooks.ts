@@ -172,9 +172,10 @@ export function createWebhooksRoutes(): OpenAPIHono<AppEnv> {
       }
 
       if (!result) {
-        const maxRetries = 15;
+        const maxRetries = isCI ? 3 : 15;
+        const retryDelay = isCI ? 500 : 1000;
         for (let i = 0; i < maxRetries; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
 
           const [check] = await db
             .select({ status: payments.status })
