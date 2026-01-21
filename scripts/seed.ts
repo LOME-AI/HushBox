@@ -86,6 +86,12 @@ const TEST_PERSONAS = [
     emailVerified: true,
     hasSampleData: false,
   },
+  {
+    name: 'test-billing-success-2',
+    displayName: 'Test Billing Success 2',
+    emailVerified: true,
+    hasSampleData: false,
+  },
 ] as const;
 
 function devEmail(name: string): string {

@@ -178,7 +178,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
     const db = c.get('db');
-    const { isCI } = c.get('envUtils');
 
     const [userData] = await db
       .select({
@@ -187,12 +186,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       })
       .from(users)
       .where(eq(users.id, user.id));
-
-    if (isCI) {
-      console.error(
-        `[CI Debug] GET /billing/balance: userId=${user.id}, balance=${userData?.balance ?? 'NULL'}`
-      );
-    }
 
     const response = getBalanceResponseSchema.parse({
       balance: userData?.balance ?? '0.00000000',
@@ -326,14 +319,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       ipAddress,
     });
 
-    const { isCI } = c.get('envUtils');
-
-    if (isCI) {
-      console.error(
-        `[CI Debug] Helcim result: status=${result.status}, transactionId=${String(result.transactionId)}`
-      );
-    }
-
     if (result.status === 'approved') {
       if (!result.transactionId) {
         // This should never happen - Helcim approved but gave no transaction ID
@@ -356,16 +341,6 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
         })
         .where(and(eq(payments.id, payment.id), eq(payments.status, 'pending')))
         .returning();
-
-      if (isCI) {
-        console.error(
-          `[CI Debug] Payment ${payment.id} updated: ${JSON.stringify({
-            success: !!updated,
-            helcimTransactionId: updated?.helcimTransactionId,
-            status: updated?.status,
-          })}`
-        );
-      }
 
       if (!updated) {
         console.error(`Payment UPDATE failed: id=${payment.id}, status may have changed`);

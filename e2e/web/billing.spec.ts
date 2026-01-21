@@ -191,7 +191,7 @@ test.describe('Billing & Payments', () => {
     });
 
     test('verifies webhook signature is validated (real Helcim signature)', async ({
-      billingSuccessPage,
+      billingSuccessPage2,
     }) => {
       // This test ensures that:
       // 1. Real Helcim sends a properly signed webhook
@@ -200,7 +200,7 @@ test.describe('Billing & Payments', () => {
       //
       // The fact that balance updates proves signature verification passed.
 
-      const billingPage = new BillingPage(billingSuccessPage);
+      const billingPage = new BillingPage(billingSuccessPage2);
       billingPage.enableDiagnostics();
       await billingPage.goto();
 
