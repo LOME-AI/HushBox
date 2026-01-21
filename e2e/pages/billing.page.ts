@@ -69,6 +69,20 @@ export class BillingPage {
     return match ? parseFloat(match[1] ?? '0') : 0;
   }
 
+  async waitForBalanceLoaded(): Promise<number> {
+    await this.balanceDisplay.waitFor({ state: 'visible', timeout: 10000 });
+    await this.page.waitForFunction(
+      (testId: string) => {
+        const el = document.querySelector(`[data-testid="${testId}"]`);
+        const text = el?.textContent ?? '';
+        return /\$\d+\.\d+/.test(text);
+      },
+      'balance-display',
+      { timeout: 10000 }
+    );
+    return this.getBalance();
+  }
+
   async openPaymentModal(): Promise<void> {
     await this.addCreditsButton.click();
     await expect(this.paymentModal).toBeVisible();
@@ -146,10 +160,11 @@ export class BillingPage {
     const pollInterval = 2000;
 
     while (Date.now() - startTime < timeout) {
-      await this.page.reload();
+      await this.page.reload({ waitUntil: 'networkidle' });
+      await this.balanceDisplay.waitFor({ state: 'visible', timeout: 5000 });
       const currentBalance = await this.getBalance();
 
-      if (currentBalance >= initialBalance + expectedIncrease - 0.01) {
+      if (currentBalance >= initialBalance + expectedIncrease) {
         return;
       }
 

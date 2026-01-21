@@ -28,11 +28,11 @@ test.describe('Billing & Payments', () => {
     // In CI, VITE_CI=true makes isLocalDev=false, so simulate buttons are hidden
     test.skip(isCI, 'Dev mode tests only run locally (simulate buttons hidden in CI)');
 
-    test('simulates successful payment and updates balance', async ({ billingSuccessPage }) => {
-      const billingPage = new BillingPage(billingSuccessPage);
+    test('simulates successful payment and updates balance', async ({ billingDevModePage }) => {
+      const billingPage = new BillingPage(billingDevModePage);
       await billingPage.goto();
 
-      const initialBalance = await billingPage.getBalance();
+      const initialBalance = await billingPage.waitForBalanceLoaded();
 
       await billingPage.openPaymentModal();
       await billingPage.enterAmount('25');
@@ -49,13 +49,8 @@ test.describe('Billing & Payments', () => {
       // Wait for balance to update (cache invalidation and refetch)
       await billingPage.page.waitForTimeout(1000);
 
-      // Check the updated balance
       const newBalance = await billingPage.getBalance();
-
-      // Balance should have increased by $25
-      // Note: initialBalance might be 0 if display was cached, or higher if test ran before
-      // The key assertion is that balance increased by the payment amount
-      expect(newBalance).toBeGreaterThanOrEqual(initialBalance + 25);
+      expect(newBalance).toBe(initialBalance + 25);
     });
 
     test('simulates failed payment and shows error', async ({ billingFailurePage }) => {
@@ -114,8 +109,7 @@ test.describe('Billing & Payments', () => {
       const billingPage = new BillingPage(billingSuccessPage);
       billingPage.enableDiagnostics();
       await billingPage.goto();
-
-      const initialBalance = await billingPage.getBalance();
+      const initialBalance = await billingPage.waitForBalanceLoaded();
 
       await billingPage.openPaymentModal();
       await billingPage.enterAmount('5');
@@ -155,7 +149,7 @@ test.describe('Billing & Payments', () => {
       await billingPage.waitForWebhookConfirmation(initialBalance, 5, 30000);
 
       const newBalance = await billingPage.getBalance();
-      expect(newBalance).toBeCloseTo(initialBalance + 5, 1);
+      expect(newBalance).toBe(initialBalance + 5);
     });
 
     test('handles declined card', async ({ authenticatedPage }) => {
@@ -203,8 +197,7 @@ test.describe('Billing & Payments', () => {
       const billingPage = new BillingPage(billingSuccessPage2);
       billingPage.enableDiagnostics();
       await billingPage.goto();
-
-      const initialBalance = await billingPage.getBalance();
+      const initialBalance = await billingPage.waitForBalanceLoaded();
 
       await billingPage.openPaymentModal();
       await billingPage.enterAmount('5');

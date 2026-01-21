@@ -92,6 +92,12 @@ const TEST_PERSONAS = [
     emailVerified: true,
     hasSampleData: false,
   },
+  {
+    name: 'test-billing-devmode',
+    displayName: 'Test Billing Dev Mode',
+    emailVerified: true,
+    hasSampleData: false,
+  },
 ] as const;
 
 function devEmail(name: string): string {

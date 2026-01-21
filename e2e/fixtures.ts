@@ -15,6 +15,7 @@ interface CustomFixtures {
   billingSuccessPage2: Page;
   billingFailurePage: Page;
   billingValidationPage: Page;
+  billingDevModePage: Page;
 }
 
 export const test = base.extend<CustomFixtures>({
@@ -77,6 +78,15 @@ export const test = base.extend<CustomFixtures>({
   billingValidationPage: async ({ browser }, use) => {
     const context = await browser.newContext({
       storageState: 'e2e/.auth/test-billing-validation.json',
+    });
+    const page = await context.newPage();
+    await use(page);
+    await context.close();
+  },
+
+  billingDevModePage: async ({ browser }, use) => {
+    const context = await browser.newContext({
+      storageState: 'e2e/.auth/test-billing-devmode.json',
     });
     const page = await context.newPage();
     await use(page);
