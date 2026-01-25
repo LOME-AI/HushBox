@@ -165,26 +165,6 @@ export class ChatPage {
     }));
   }
 
-  async getLastUserMessagePosition(): Promise<{
-    top: number;
-    viewportTop: number;
-    viewportHeight: number;
-  }> {
-    const lastUserMessage = this.messageList.locator('[data-role="user"]').last();
-    const messageRect = await lastUserMessage.boundingBox();
-    const viewportRect = await this.viewport.boundingBox();
-
-    if (!messageRect || !viewportRect) {
-      throw new Error('Could not get bounding boxes');
-    }
-
-    return {
-      top: messageRect.y - viewportRect.y,
-      viewportTop: viewportRect.y,
-      viewportHeight: viewportRect.height,
-    };
-  }
-
   async scrollToBottom(): Promise<void> {
     await this.viewport.evaluate((el) => {
       el.scrollTop = el.scrollHeight;

@@ -43,11 +43,9 @@ test.describe('Auto-scroll During Streaming', () => {
     const chatPage = new ChatPage(authenticatedPage);
 
     const setupMessages = [
-      'Building scrollable content - message one with enough text to add height',
-      'Building scrollable content - message two with enough text to add height',
-      'Building scrollable content - message three with enough text to add height',
-      'Building scrollable content - message four with enough text to add height',
-      'Building scrollable content - message five with enough text to add height',
+      'Building scrollable content - message one with enough text to add some height to the chat',
+      'Building scrollable content - message two with enough text to add more height to the chat',
+      'Building scrollable content - message three with enough text to build up scrollable content',
     ];
 
     for (const msg of setupMessages) {
@@ -58,54 +56,31 @@ test.describe('Auto-scroll During Streaming', () => {
     const initialPos = await chatPage.getScrollPosition();
     expect(initialPos.scrollHeight).toBeGreaterThan(initialPos.clientHeight);
 
-    // Long message for slow streaming (~5 seconds)
-    const testMessage = 'Testing scroll behavior during streaming. '.repeat(12);
+    // ~5 seconds at 10ms/char
+    const testMessage = 'Testing scroll behavior during streaming. '.repeat(10);
 
     await chatPage.sendFollowUpMessage(testMessage);
-    await chatPage.waitForAIResponse(testMessage);
 
-    await chatPage.scrollUp(150);
-    await authenticatedPage.waitForTimeout(100);
+    await expect(
+      chatPage.messageList
+        .locator('[data-role="assistant"]')
+        .getByText('Testing scroll', { exact: false })
+    ).toBeVisible({ timeout: 10_000 });
+
+    await chatPage.scrollUp(300);
+
+    await authenticatedPage.waitForTimeout(1000);
+
+    const midStreamPos = await chatPage.getScrollPosition();
+    const midStreamDistance =
+      midStreamPos.scrollHeight - midStreamPos.scrollTop - midStreamPos.clientHeight;
+    expect(midStreamDistance).toBeGreaterThan(100);
+
+    await authenticatedPage.waitForTimeout(2000);
 
     const finalPos = await chatPage.getScrollPosition();
     const distanceFromBottom = finalPos.scrollHeight - finalPos.scrollTop - finalPos.clientHeight;
     expect(distanceFromBottom).toBeGreaterThan(50);
-  });
-});
-
-test.describe('Scroll On Send Behavior', () => {
-  test('scroll-on-send positions user message near top of viewport', async ({
-    authenticatedPage,
-    testConversation: _testConversation,
-  }) => {
-    const chatPage = new ChatPage(authenticatedPage);
-
-    const historyMessages = [
-      'First message to add history',
-      'Second message to add more history',
-      'Third message to build up scrollable content',
-    ];
-
-    for (const msg of historyMessages) {
-      await chatPage.sendFollowUpMessage(msg);
-      await chatPage.waitForAIResponse(msg);
-    }
-
-    await chatPage.scrollToTop();
-    await authenticatedPage.waitForTimeout(100);
-
-    const newMessage = 'New message that should scroll to top';
-    await chatPage.sendFollowUpMessage(newMessage);
-    await authenticatedPage.waitForTimeout(200);
-
-    const { top } = await chatPage.getLastUserMessagePosition();
-    expect(top).toBeLessThan(400);
-
-    await chatPage.waitForAIResponse(newMessage);
-    const finalPos = await chatPage.getScrollPosition();
-    expect(finalPos.scrollHeight - finalPos.scrollTop - finalPos.clientHeight).toBeLessThanOrEqual(
-      100
-    );
   });
 });
 
@@ -124,7 +99,6 @@ test.describe('Dynamic Over-scroll Space', () => {
 
     const { scrollTop, scrollHeight, clientHeight } = await chatPage.getScrollPosition();
 
-    // Scrolled to near bottom (within threshold)
     expect(scrollHeight - scrollTop - clientHeight).toBeLessThanOrEqual(100);
   });
 });
@@ -211,7 +185,7 @@ test.describe('Input Ready After Streaming', () => {
   }) => {
     const chatPage = new ChatPage(authenticatedPage);
 
-    // Long message for slow streaming (~5 seconds)
+    // ~5 seconds at 10ms/char
     const message = 'Testing user interaction during streaming response. '.repeat(10);
     const echoCountBefore = await chatPage.messageList.getByText('Echo:').count();
 

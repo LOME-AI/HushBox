@@ -13,8 +13,7 @@ export default {
     `pnpm --filter @lome-chat/config exec eslint --fix ${files.join(' ')}`,
   'scripts/**/*.ts': (files) =>
     `pnpm --filter @lome-chat/scripts exec eslint --fix ${files.join(' ')}`,
-  'e2e/**/*.ts': (files) =>
-    `pnpm --filter @lome-chat/e2e exec eslint --fix ${files.join(' ')}`,
+  'e2e/**/*.ts': (files) => `pnpm --filter @lome-chat/e2e exec eslint --fix ${files.join(' ')}`,
   '*.{json,md,yaml,yml,css}': ['prettier --write'],
   'package.json': ['prettier --write'],
 };

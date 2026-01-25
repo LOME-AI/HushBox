@@ -85,31 +85,18 @@ export function ChatLayout({
   const handlePremiumClick = usePremiumModelClick(models, isAuthenticated);
   const queryClient = useQueryClient();
 
-  const virtuosoRef = React.useRef<VirtuosoHandle>(null);
   const internalPromptInputRef = React.useRef<PromptInputRef>(null);
   const promptInputRef = externalPromptInputRef ?? internalPromptInputRef;
   const previousInputDisabledRef = React.useRef(inputDisabled);
+  const virtuosoRef = React.useRef<VirtuosoHandle>(null);
 
-  const lastUserMessageId = React.useMemo(() => {
-    const userMessages = messages.filter((m) => m.role === 'user');
-    return userMessages.at(-1)?.id;
-  }, [messages]);
-
-  React.useEffect(() => {
-    if (!lastUserMessageId) return;
-    const userMessageIndex = messages.findIndex((m) => m.id === lastUserMessageId);
-    if (userMessageIndex === -1) return;
-
+  const handleSubmit = React.useCallback((): void => {
+    onSubmit();
     requestAnimationFrame(() => {
-      virtuosoRef.current?.scrollToIndex({
-        index: userMessageIndex,
-        align: 'start',
-        behavior: 'smooth',
-      });
+      virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
     });
-  }, [lastUserMessageId, messages]);
+  }, [onSubmit]);
 
-  // Auto-focus when input becomes enabled (disabled → enabled transition)
   React.useEffect(() => {
     const wasDisabled = previousInputDisabledRef.current;
     previousInputDisabledRef.current = inputDisabled;
@@ -179,7 +166,7 @@ export function ChatLayout({
           ref={promptInputRef}
           value={inputValue}
           onChange={onInputChange}
-          onSubmit={onSubmit}
+          onSubmit={handleSubmit}
           placeholder="Type a message..."
           historyCharacters={historyCharacters}
           rows={2}

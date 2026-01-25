@@ -35,7 +35,7 @@
     "db:seed": "./scripts/with-env tsx scripts/seed.ts",
     "generate:env": "tsx scripts/generate-env.ts",
     "verify:env": "tsx scripts/verify-env.ts",
-    "verify:evidence": "tsx scripts/verify-evidence.ts",
+    "verify:evidence": "./scripts/with-env tsx scripts/verify-evidence.ts",
     "generate:readme": "tsx scripts/generate-readme.ts",
     "lint:duplication": "jscpd --threshold 3 --silent .",
     "lint:unused": "./scripts/with-env knip --no-progress",
