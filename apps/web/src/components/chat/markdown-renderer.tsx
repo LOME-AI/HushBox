@@ -29,7 +29,7 @@ function extractTextFromChildren(children: React.ReactNode): string {
     return String(children);
   }
   if (Array.isArray(children)) {
-    return children.map(extractTextFromChildren).join('');
+    return children.map((child: React.ReactNode) => extractTextFromChildren(child)).join('');
   }
   if (React.isValidElement(children)) {
     const props = children.props as { children?: React.ReactNode };
@@ -48,10 +48,10 @@ function shouldRenderAsDocument(language: string | undefined, lineCount: number)
 }
 
 /** Generate a stable ID for a document based on content */
-function generateDocId(content: string): string {
+function generateDocumentId(content: string): string {
   let hash = 0;
-  for (let i = 0; i < content.length; i++) {
-    const char = content.charCodeAt(i);
+  for (let index = 0; index < content.length; index++) {
+    const char = content.codePointAt(index) ?? 0;
     hash = (hash << 5) - hash + char;
     hash = hash & hash;
   }
@@ -59,7 +59,7 @@ function generateDocId(content: string): string {
 }
 
 /** Get document type from language */
-function getDocType(language: string): Document['type'] {
+function getDocumentType(language: string): Document['type'] {
   const lang = language.toLowerCase();
   if (lang === 'mermaid') return 'mermaid';
   if (lang === 'html') return 'html';
@@ -71,19 +71,19 @@ export function MarkdownRenderer({
   content,
   className,
   onDocumentsExtracted,
-}: MarkdownRendererProps): React.JSX.Element {
+}: Readonly<MarkdownRendererProps>): React.JSX.Element {
   // Track documents found during this render pass
-  const currentDocsRef = React.useRef<Document[]>([]);
-  const prevContentRef = React.useRef<string>('');
+  const currentDocumentsRef = React.useRef<Document[]>([]);
+  const previousContentRef = React.useRef<string>('');
 
   // Reset document tracking on each render if content changed
-  if (prevContentRef.current !== content) {
-    currentDocsRef.current = [];
-    prevContentRef.current = content;
+  if (previousContentRef.current !== content) {
+    currentDocumentsRef.current = [];
+    previousContentRef.current = content;
   }
 
   // Preserve consecutive empty lines by inserting non-breaking space
-  const processedContent = content.replace(/\n\n/g, '\n\n&nbsp;\n\n');
+  const processedContent = content.replaceAll('\n\n', '\n\n&nbsp;\n\n');
 
   const components: Partial<Components> = React.useMemo(
     () => ({
@@ -107,18 +107,18 @@ export function MarkdownRenderer({
 
         // Check if this should be a document
         if (language && shouldRenderAsDocument(language, lineCount)) {
-          const doc: Document = {
-            id: generateDocId(codeContent),
-            type: getDocType(language),
+          const document_: Document = {
+            id: generateDocumentId(codeContent),
+            type: getDocumentType(language),
             language,
             title: language.charAt(0).toUpperCase() + language.slice(1) + ' Code',
             content: codeContent,
             lineCount,
           };
 
-          currentDocsRef.current.push(doc);
+          currentDocumentsRef.current.push(document_);
 
-          return <DocumentCard document={doc} />;
+          return <DocumentCard document={document_} />;
         }
 
         // Handle mermaid diagrams inline (this shouldn't happen since mermaid always becomes a doc)
@@ -142,8 +142,8 @@ export function MarkdownRenderer({
 
   // Notify parent of extracted documents after render
   React.useEffect(() => {
-    if (onDocumentsExtracted && currentDocsRef.current.length > 0) {
-      onDocumentsExtracted([...currentDocsRef.current]);
+    if (onDocumentsExtracted && currentDocumentsRef.current.length > 0) {
+      onDocumentsExtracted([...currentDocumentsRef.current]);
     }
   }, [content, onDocumentsExtracted]);
 

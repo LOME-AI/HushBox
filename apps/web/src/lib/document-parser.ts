@@ -17,89 +17,84 @@ const MIN_LINES_FOR_DOCUMENT = 15;
 /** Simple hash function for generating stable document IDs */
 function hashContent(content: string): string {
   let hash = 0;
-  for (let i = 0; i < content.length; i++) {
-    const char = content.charCodeAt(i);
+  for (let index = 0; index < content.length; index++) {
+    const char = content.codePointAt(index) ?? 0;
     hash = (hash << 5) - hash + char;
     hash = hash & hash; // Convert to 32-bit integer
   }
   return Math.abs(hash).toString(36);
 }
 
-/** Determine document type from language */
 function getDocumentType(language: string): Document['type'] {
   const lang = language.toLowerCase();
-  if (lang === 'mermaid') {
-    return 'mermaid';
-  }
-  if (lang === 'html') {
-    return 'html';
-  }
-  if (lang === 'jsx' || lang === 'tsx') {
-    return 'react';
-  }
+  if (lang === 'mermaid') return 'mermaid';
+  if (lang === 'html') return 'html';
+  if (lang === 'jsx' || lang === 'tsx') return 'react';
   return 'code';
 }
 
-/** Extract a meaningful title from code content */
+const MERMAID_TITLES: Record<string, string> = {
+  flowchart: 'Flowchart Diagram',
+  sequenceDiagram: 'Sequence Diagram',
+  classDiagram: 'Class Diagram',
+  stateDiagram: 'State Diagram',
+  erDiagram: 'ER Diagram',
+  gantt: 'Gantt Chart',
+  pie: 'Pie Chart',
+  graph: 'Graph Diagram',
+};
+
+function getMermaidTitle(firstLine: string): string {
+  for (const [prefix, title] of Object.entries(MERMAID_TITLES)) {
+    if (firstLine.startsWith(prefix)) return title;
+  }
+  return 'Mermaid Diagram';
+}
+
+const CODE_PATTERNS: { regex: RegExp; group: number }[] = [
+  {
+    regex: /(?:function|const|let|var|export\s+(?:default\s+)?(?:function|const))\s+(\w+)/,
+    group: 1,
+  },
+  { regex: /(?:class|interface|type|enum)\s+(\w+)/, group: 1 },
+  { regex: /(?:def|class)\s+(\w+)/, group: 1 },
+];
+
+function isCommentLine(line: string): boolean {
+  return (
+    line.startsWith('//') ||
+    line.startsWith('#') ||
+    line.startsWith('/*') ||
+    line.startsWith('*') ||
+    line.startsWith('*/')
+  );
+}
+
+function extractCodeTitle(lines: string[]): string | null {
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || isCommentLine(trimmed)) continue;
+
+    for (const { regex, group } of CODE_PATTERNS) {
+      const match = regex.exec(trimmed);
+      if (match?.[group]) return match[group];
+    }
+    break;
+  }
+  return null;
+}
+
 function extractTitle(content: string, language: string, type: Document['type']): string {
   const lines = content.split('\n');
 
-  // For mermaid, use diagram type
   if (type === 'mermaid') {
-    const firstLine = lines[0]?.trim() ?? '';
-    if (firstLine.startsWith('flowchart')) return 'Flowchart Diagram';
-    if (firstLine.startsWith('sequenceDiagram')) return 'Sequence Diagram';
-    if (firstLine.startsWith('classDiagram')) return 'Class Diagram';
-    if (firstLine.startsWith('stateDiagram')) return 'State Diagram';
-    if (firstLine.startsWith('erDiagram')) return 'ER Diagram';
-    if (firstLine.startsWith('gantt')) return 'Gantt Chart';
-    if (firstLine.startsWith('pie')) return 'Pie Chart';
-    if (firstLine.startsWith('graph')) return 'Graph Diagram';
-    return 'Mermaid Diagram';
+    return getMermaidTitle(lines[0]?.trim() ?? '');
   }
 
-  // For code, try to find function/class/component name
-  for (const line of lines) {
-    const trimmed = line.trim();
+  const codeTitle = extractCodeTitle(lines);
+  if (codeTitle) return codeTitle;
 
-    // Skip empty lines and comments (including multiline comment lines)
-    if (
-      !trimmed ||
-      trimmed.startsWith('//') ||
-      trimmed.startsWith('#') ||
-      trimmed.startsWith('/*') ||
-      trimmed.startsWith('*') ||
-      trimmed.startsWith('*/')
-    ) {
-      continue;
-    }
-
-    // Function patterns
-    const functionMatch =
-      /(?:function|const|let|var|export\s+(?:default\s+)?(?:function|const))\s+(\w+)/.exec(trimmed);
-    if (functionMatch?.[1]) {
-      return functionMatch[1];
-    }
-
-    // Class patterns
-    const classMatch = /(?:class|interface|type|enum)\s+(\w+)/.exec(trimmed);
-    if (classMatch?.[1]) {
-      return classMatch[1];
-    }
-
-    // Python function/class
-    const pythonMatch = /(?:def|class)\s+(\w+)/.exec(trimmed);
-    if (pythonMatch?.[1]) {
-      return pythonMatch[1];
-    }
-
-    // If we found a non-comment line but couldn't extract a name, stop looking
-    break;
-  }
-
-  // Fallback to language name
-  const langDisplay = language.charAt(0).toUpperCase() + language.slice(1);
-  return `${langDisplay} Code`;
+  return `${language.charAt(0).toUpperCase() + language.slice(1)} Code`;
 }
 
 /** Check if a code block should become a document */
@@ -144,7 +139,7 @@ export function extractDocuments(content: string): ParseResult {
       const title = extractTitle(trimmedContent, language, type);
       const id = `doc-${hashContent(trimmedContent)}`;
 
-      const doc: Document = {
+      const document: Document = {
         id,
         type,
         title,
@@ -152,9 +147,9 @@ export function extractDocuments(content: string): ParseResult {
         lineCount,
       };
       if (language) {
-        doc.language = language;
+        document.language = language;
       }
-      documents.push(doc);
+      documents.push(document);
 
       replacements.push({
         original: fullMatch,
@@ -164,7 +159,7 @@ export function extractDocuments(content: string): ParseResult {
   }
 
   // Apply replacements in reverse order to preserve positions
-  for (const { original, replacement } of replacements.reverse()) {
+  for (const { original, replacement } of replacements.toReversed()) {
     inlineContent = inlineContent.replace(original, replacement);
   }
 

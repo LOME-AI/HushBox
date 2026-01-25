@@ -11,7 +11,11 @@
  * @param errorContext - Description of the operation for error logging
  */
 export function fireAndForget<T>(promise: Promise<T>, errorContext: string): void {
-  void promise.catch((err: unknown) => {
-    console.error(`Failed to ${errorContext}:`, err);
-  });
+  void (async () => {
+    try {
+      await promise;
+    } catch (error: unknown) {
+      console.error(`Failed to ${errorContext}:`, error);
+    }
+  })();
 }

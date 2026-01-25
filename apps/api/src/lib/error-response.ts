@@ -43,7 +43,7 @@ export function errorJson(
   status = 400
 ): Response {
   const body = createErrorResponse(message, code, details);
-  return new Response(JSON.stringify(body), {
+  return Response.json(body, {
     status,
     headers: { 'Content-Type': 'application/json' },
   });

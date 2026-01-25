@@ -8,7 +8,7 @@ import './app.css';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark.css';
 
-const rootElement = document.getElementById('root');
+const rootElement = document.querySelector('#root');
 if (!rootElement) {
   throw new Error('Root element not found');
 }

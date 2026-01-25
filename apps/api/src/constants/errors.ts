@@ -35,10 +35,6 @@ export const ERROR_INVALID_JSON = 'Invalid JSON';
 export const ERROR_WEBHOOK_VERIFIER_MISSING =
   'Webhook verifier not configured - payment webhooks cannot be processed';
 
-// Internal errors
-export const ERROR_UPDATE_FAILED = 'Failed to update conversation';
-export const ERROR_CREATE_MESSAGE_FAILED = 'Failed to create message';
-
 // Premium/Balance errors
 export const ERROR_PREMIUM_REQUIRES_BALANCE = 'Premium models require a positive balance';
 export const ERROR_PREMIUM_REQUIRES_ACCOUNT = 'Premium models require a free account';

@@ -23,9 +23,9 @@ describe('modelSchema', () => {
       id: 'gpt-4-turbo',
       name: 'GPT-4 Turbo',
       provider: 'OpenAI',
-      contextLength: 128000,
-      pricePerInputToken: 0.00001,
-      pricePerOutputToken: 0.00003,
+      contextLength: 128_000,
+      pricePerInputToken: 0.000_01,
+      pricePerOutputToken: 0.000_03,
       capabilities: ['vision', 'functions', 'json-mode', 'streaming'],
       description: 'A powerful language model from OpenAI.',
     };
@@ -120,13 +120,13 @@ describe('modelSchema', () => {
       pricePerOutputToken: 0.002,
       capabilities: [],
       description: 'Test description.',
-      created: 1704067200, // 2024-01-01
+      created: 1_704_067_200, // 2024-01-01
     };
 
     const result = modelSchema.safeParse(modelWithCreated);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.created).toBe(1704067200);
+      expect(result.data.created).toBe(1_704_067_200);
     }
   });
 

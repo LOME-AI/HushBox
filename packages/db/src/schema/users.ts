@@ -1,6 +1,6 @@
 import { pgTable, text, timestamp, boolean, numeric, integer } from 'drizzle-orm/pg-core';
 
-import { FREE_ALLOWANCE_CENTS, WELCOME_CREDIT_BALANCE } from '../constants.js';
+import { FREE_ALLOWANCE_CENTS, WELCOME_CREDIT_BALANCE } from '../constants';
 
 export const users = pgTable('users', {
   id: text('id')

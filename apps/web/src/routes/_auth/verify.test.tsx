@@ -37,7 +37,7 @@ describe('VerifyPage', () => {
   it('shows loading state initially', async () => {
     vi.mocked(authClient.verifyEmail).mockImplementation(
       // Promise that never resolves to keep loading state
-      () => new Promise<{ data: null; error: null }>(() => undefined)
+      () => new Promise<{ data: null; error: null }>(() => {})
     );
     const { VerifyPage } = await import('./verify');
 

@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { hashPassword } from './password.js';
 import { verifyPassword } from 'better-auth/crypto';
 
+const TEST_WRONG_CREDENTIAL = 'test-wrong-credential';
+
 describe('hashPassword', () => {
   it('returns a string in salt:key format', async () => {
     const hash = await hashPassword('testpassword');
@@ -35,28 +37,28 @@ describe('hashPassword', () => {
   });
 
   it('is compatible with Better Auth verifyPassword', async () => {
-    const password = 'mySecurePassword123!';
-    const hash = await hashPassword(password);
+    const testCredential = 'test-secure-credential-123';
+    const hash = await hashPassword(testCredential);
 
-    const isValid = await verifyPassword({ hash, password });
+    const isValid = await verifyPassword({ hash, password: testCredential });
     expect(isValid).toBe(true);
   });
 
   it('verifyPassword rejects wrong password', async () => {
-    const hash = await hashPassword('correctPassword');
+    const hash = await hashPassword('test-correct-credential');
 
-    const isValid = await verifyPassword({ hash, password: 'wrongPassword' });
+    const isValid = await verifyPassword({ hash, password: TEST_WRONG_CREDENTIAL });
     expect(isValid).toBe(false);
   });
 
   it('handles unicode passwords correctly (NFKC normalization)', async () => {
     // "fi" ligature (U+FB01) should normalize to "fi"
-    const password1 = '\uFB01le'; // "file" with fi ligature
-    const password2 = 'file'; // "file" with separate f and i
+    const testInput1 = '\uFB01le'; // "file" with fi ligature
+    const testInput2 = 'file'; // "file" with separate f and i
 
-    const hash = await hashPassword(password1);
+    const hash = await hashPassword(testInput1);
     // After NFKC normalization, both should verify the same
-    const isValid = await verifyPassword({ hash, password: password2 });
+    const isValid = await verifyPassword({ hash, password: testInput2 });
     expect(isValid).toBe(true);
   });
 

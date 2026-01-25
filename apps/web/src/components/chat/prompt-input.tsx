@@ -3,19 +3,41 @@ import { cn } from '@lome-chat/ui';
 import { Send, Square } from 'lucide-react';
 import { Button } from '@lome-chat/ui';
 import { Textarea } from '@lome-chat/ui';
-import { buildSystemPrompt, applyFees, type CapabilityId } from '@lome-chat/shared';
+import type { CapabilityId } from '@lome-chat/shared';
 import { CapacityBar } from './capacity-bar';
 import { BudgetMessages } from './budget-messages';
-import { useBudgetCalculation } from '@/hooks/use-budget-calculation';
-import { useModelStore } from '@/stores/model';
-import { useModels } from '@/hooks/models';
-import { useSession } from '@/lib/auth';
+import { usePromptBudget } from '@/hooks/use-prompt-budget';
 import { useStability } from '@/providers/stability-provider';
 import { StableContent } from '@/components/shared/stable-content';
 
 export interface PromptInputRef {
   focus: () => void;
 }
+
+interface SubmitState {
+  hasContent: boolean;
+  isOverCapacity: boolean;
+  canAfford: boolean;
+  hasBlockingError: boolean;
+  disabled: boolean;
+  isProcessing: boolean;
+}
+
+function canSubmitMessage(state: SubmitState): boolean {
+  if (!state.hasContent) return false;
+  if (state.isOverCapacity) return false;
+  if (!state.canAfford) return false;
+  if (state.hasBlockingError) return false;
+  if (state.disabled) return false;
+  if (state.isProcessing) return false;
+  return true;
+}
+
+function isSubmitKeyEvent(e: React.KeyboardEvent): boolean {
+  return e.key === 'Enter' && !e.shiftKey;
+}
+
+const BUTTON_ARIA_LABELS = { true: 'Send', false: 'Cannot send' } as const;
 
 interface PromptInputProps {
   value: string;
@@ -60,59 +82,27 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
 ) {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
-  React.useImperativeHandle(ref, () => ({
-    focus: () => {
-      textareaRef.current?.focus();
-    },
-  }));
+  React.useImperativeHandle(ref, () => ({ focus: () => textareaRef.current?.focus() }), []);
 
-  const { selectedModelId } = useModelStore();
-  const { data: modelsData, isLoading: isModelsLoading } = useModels();
-  const { data: session, isPending: isSessionPending } = useSession();
   const { isAppStable } = useStability();
-  const isAuthenticated = !isSessionPending && Boolean(session?.user);
+  const budget = usePromptBudget({ value, historyCharacters, capabilities });
 
-  const selectedModel = modelsData?.models.find((m) => m.id === selectedModelId);
-  const modelContextLength = selectedModel?.contextLength;
-
-  const systemPrompt = React.useMemo(() => buildSystemPrompt(capabilities), [capabilities]);
-  const promptCharacterCount = systemPrompt.length + historyCharacters + value.length;
-
-  const budgetResult = useBudgetCalculation({
-    promptCharacterCount,
-    modelInputPricePerToken: applyFees(selectedModel?.pricePerInputToken ?? 0),
-    modelOutputPricePerToken: applyFees(selectedModel?.pricePerOutputToken ?? 0),
-    modelContextLength: modelContextLength ?? 0,
-    isAuthenticated,
-    isModelsLoading,
+  const canSubmit = canSubmitMessage({
+    hasContent: budget.hasContent,
+    isOverCapacity: budget.isOverCapacity,
+    canAfford: budget.budgetResult.canAfford,
+    hasBlockingError: budget.hasBlockingError,
+    disabled,
+    isProcessing,
   });
-
-  const isOverCapacity = budgetResult.capacityPercent > 100;
-  const hasBlockingError = budgetResult.errors.some((e) => e.type === 'error');
-
-  const canSubmit =
-    value.trim().length > 0 &&
-    !isOverCapacity &&
-    budgetResult.canAfford &&
-    !hasBlockingError &&
-    !disabled &&
-    !isProcessing;
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
     onChange(e.target.value);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (isSubmitKeyEvent(e) && canSubmit) {
       e.preventDefault();
-      if (canSubmit) {
-        onSubmit();
-      }
-    }
-  };
-
-  const handleSubmitClick = (): void => {
-    if (canSubmit) {
       onSubmit();
     }
   };
@@ -134,8 +124,8 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
 
         <div className="border-border flex items-center justify-between gap-4 border-t px-3 py-2">
           <CapacityBar
-            currentUsage={modelContextLength ? budgetResult.currentUsage : 0}
-            maxCapacity={modelContextLength ?? 1}
+            currentUsage={budget.capacityCurrentUsage}
+            maxCapacity={budget.capacityMaxCapacity}
             className="flex-1"
             data-testid="capacity-bar"
           />
@@ -143,9 +133,9 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
           <Button
             type="button"
             size="icon"
-            onClick={handleSubmitClick}
+            onClick={onSubmit}
             disabled={!canSubmit}
-            aria-label={canSubmit ? 'Send' : 'Cannot send'}
+            aria-label={BUTTON_ARIA_LABELS[String(canSubmit) as 'true' | 'false']}
           >
             {isProcessing ? (
               <Square className="h-4 w-4" aria-hidden="true" />
@@ -157,7 +147,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(fu
       </div>
 
       <StableContent isStable={isAppStable}>
-        <BudgetMessages errors={budgetResult.errors} className="mt-2" />
+        <BudgetMessages errors={budget.budgetResult.errors} className="mt-2" />
       </StableContent>
     </div>
   );

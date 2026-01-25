@@ -27,31 +27,31 @@ describe('applyFees', () => {
   });
 
   it('handles very small prices', () => {
-    expect(applyFees(0.00001)).toBeCloseTo(0.0000115, 10);
+    expect(applyFees(0.000_01)).toBeCloseTo(0.000_011_5, 10);
   });
 });
 
 describe('calculateTokenCostWithFees', () => {
   it('calculates token cost and applies fees', () => {
-    const result = calculateTokenCostWithFees(100, 200, 0.00001, 0.00003);
-    const baseCost = 100 * 0.00001 + 200 * 0.00003;
+    const result = calculateTokenCostWithFees(100, 200, 0.000_01, 0.000_03);
+    const baseCost = 100 * 0.000_01 + 200 * 0.000_03;
     expect(result).toBeCloseTo(applyFees(baseCost), 10);
   });
 
   it('handles zero tokens', () => {
-    const result = calculateTokenCostWithFees(0, 0, 0.00001, 0.00003);
+    const result = calculateTokenCostWithFees(0, 0, 0.000_01, 0.000_03);
     expect(result).toBe(0);
   });
 
   it('handles input tokens only', () => {
-    const result = calculateTokenCostWithFees(100, 0, 0.00001, 0.00003);
-    const baseCost = 100 * 0.00001;
+    const result = calculateTokenCostWithFees(100, 0, 0.000_01, 0.000_03);
+    const baseCost = 100 * 0.000_01;
     expect(result).toBeCloseTo(applyFees(baseCost), 10);
   });
 
   it('handles output tokens only', () => {
-    const result = calculateTokenCostWithFees(0, 200, 0.00001, 0.00003);
-    const baseCost = 200 * 0.00003;
+    const result = calculateTokenCostWithFees(0, 200, 0.000_01, 0.000_03);
+    const baseCost = 200 * 0.000_03;
     expect(result).toBeCloseTo(applyFees(baseCost), 10);
   });
 });
@@ -90,14 +90,14 @@ describe('estimateMessageCostDevelopment', () => {
     outputTokens: 200,
     inputCharacters: 400,
     outputCharacters: 800,
-    pricePerInputToken: 0.00001,
-    pricePerOutputToken: 0.00003,
+    pricePerInputToken: 0.000_01,
+    pricePerOutputToken: 0.000_03,
   };
 
   describe('model cost calculation', () => {
     it('calculates model cost from tokens and prices', () => {
       const result = estimateMessageCostDevelopment(baseParams);
-      const expectedModelCost = 100 * 0.00001 + 200 * 0.00003; // 0.007
+      const expectedModelCost = 100 * 0.000_01 + 200 * 0.000_03; // 0.007
       const expectedLomeFee = expectedModelCost * TOTAL_FEE_RATE;
       const expectedStorageFee = (400 + 800) * STORAGE_COST_PER_CHARACTER;
 
@@ -135,7 +135,7 @@ describe('estimateMessageCostDevelopment', () => {
         outputCharacters: 0,
       };
       const result = estimateMessageCostDevelopment(paramsNoStorage);
-      const modelCost = 100 * 0.00001 + 200 * 0.00003;
+      const modelCost = 100 * 0.000_01 + 200 * 0.000_03;
 
       expect(result).toBeCloseTo(modelCost * (1 + TOTAL_FEE_RATE), 10);
     });
@@ -198,7 +198,7 @@ describe('estimateMessageCostDevelopment', () => {
         inputCharacters: 0,
         outputCharacters: 0,
       });
-      const modelCost = 100 * 0.00001 + 200 * 0.00003;
+      const modelCost = 100 * 0.000_01 + 200 * 0.000_03;
 
       expect(result).toBeCloseTo(modelCost * (1 + TOTAL_FEE_RATE), 10);
     });
@@ -208,7 +208,7 @@ describe('estimateMessageCostDevelopment', () => {
     it('sums model cost, LOME fee, and storage fee', () => {
       const result = estimateMessageCostDevelopment(baseParams);
 
-      const modelCost = 100 * 0.00001 + 200 * 0.00003;
+      const modelCost = 100 * 0.000_01 + 200 * 0.000_03;
       const lomeFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = (400 + 800) * STORAGE_COST_PER_CHARACTER;
 
@@ -222,12 +222,12 @@ describe('estimateMessageCostDevelopment', () => {
         outputTokens: 500,
         inputCharacters: 4000,
         outputCharacters: 2000,
-        pricePerInputToken: 0.00003,
-        pricePerOutputToken: 0.00006,
+        pricePerInputToken: 0.000_03,
+        pricePerOutputToken: 0.000_06,
       };
       const result = estimateMessageCostDevelopment(gpt4Params);
 
-      const modelCost = 1000 * 0.00003 + 500 * 0.00006; // 0.03 + 0.03 = 0.06
+      const modelCost = 1000 * 0.000_03 + 500 * 0.000_06; // 0.03 + 0.03 = 0.06
       const lomeFee = modelCost * TOTAL_FEE_RATE; // 0.06 * 0.15 = 0.009
       const storageFee = (4000 + 2000) * STORAGE_COST_PER_CHARACTER;
 
@@ -236,12 +236,12 @@ describe('estimateMessageCostDevelopment', () => {
 
     it('handles very large messages', () => {
       const largeParams: MessageCostParams = {
-        inputTokens: 100000,
-        outputTokens: 100000,
-        inputCharacters: 400000,
-        outputCharacters: 400000,
-        pricePerInputToken: 0.00001,
-        pricePerOutputToken: 0.00003,
+        inputTokens: 100_000,
+        outputTokens: 100_000,
+        inputCharacters: 400_000,
+        outputCharacters: 400_000,
+        pricePerInputToken: 0.000_01,
+        pricePerOutputToken: 0.000_03,
       };
       const result = estimateMessageCostDevelopment(largeParams);
 
@@ -255,8 +255,8 @@ describe('estimateMessageCostDevelopment', () => {
         outputTokens: 1,
         inputCharacters: 1,
         outputCharacters: 1,
-        pricePerInputToken: 0.0000001,
-        pricePerOutputToken: 0.0000001,
+        pricePerInputToken: 0.000_000_1,
+        pricePerOutputToken: 0.000_000_1,
       };
       const result = estimateMessageCostDevelopment(smallParams);
 
@@ -286,12 +286,12 @@ describe('estimateMessageCostDevelopment', () => {
         outputTokens: 0,
         inputCharacters: 400,
         outputCharacters: 0,
-        pricePerInputToken: 0.00001,
-        pricePerOutputToken: 0.00003,
+        pricePerInputToken: 0.000_01,
+        pricePerOutputToken: 0.000_03,
       };
       const result = estimateMessageCostDevelopment(inputOnlyParams);
 
-      const modelCost = 100 * 0.00001;
+      const modelCost = 100 * 0.000_01;
       const lomeFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = 400 * STORAGE_COST_PER_CHARACTER;
 
@@ -304,12 +304,12 @@ describe('estimateMessageCostDevelopment', () => {
         outputTokens: 200,
         inputCharacters: 0,
         outputCharacters: 800,
-        pricePerInputToken: 0.00001,
-        pricePerOutputToken: 0.00003,
+        pricePerInputToken: 0.000_01,
+        pricePerOutputToken: 0.000_03,
       };
       const result = estimateMessageCostDevelopment(outputOnlyParams);
 
-      const modelCost = 200 * 0.00003;
+      const modelCost = 200 * 0.000_03;
       const lomeFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = 800 * STORAGE_COST_PER_CHARACTER;
 
@@ -359,7 +359,7 @@ describe('calculateMessageCostFromOpenRouter', () => {
 
     it('handles very small OpenRouter costs', () => {
       const smallCostParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.0000001,
+        openRouterCost: 0.000_000_1,
         inputCharacters: 10,
         outputCharacters: 10,
       };
@@ -435,8 +435,8 @@ describe('calculateMessageCostFromOpenRouter', () => {
     it('handles large OpenRouter costs', () => {
       const largeCostParams: MessageCostFromOpenRouterParams = {
         openRouterCost: 10, // $10 for expensive operation
-        inputCharacters: 100000,
-        outputCharacters: 100000,
+        inputCharacters: 100_000,
+        outputCharacters: 100_000,
       };
       const result = calculateMessageCostFromOpenRouter(largeCostParams);
 
@@ -490,8 +490,8 @@ describe('calculateMessageCostFromOpenRouter', () => {
 describe('getModelCostPer1k', () => {
   it('calculates combined cost per 1k tokens with fees applied', () => {
     // input: $0.01/1k, output: $0.03/1k → combined base: $0.04/1k → with 15% fee: $0.046/1k
-    const result = getModelCostPer1k(0.00001, 0.00003);
-    const baseCostPer1k = (0.00001 + 0.00003) * 1000; // 0.04
+    const result = getModelCostPer1k(0.000_01, 0.000_03);
+    const baseCostPer1k = (0.000_01 + 0.000_03) * 1000; // 0.04
     expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
   });
 
@@ -500,28 +500,28 @@ describe('getModelCostPer1k', () => {
   });
 
   it('handles input price only', () => {
-    const result = getModelCostPer1k(0.00001, 0);
-    const baseCostPer1k = 0.00001 * 1000; // 0.01
+    const result = getModelCostPer1k(0.000_01, 0);
+    const baseCostPer1k = 0.000_01 * 1000; // 0.01
     expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
   });
 
   it('handles output price only', () => {
-    const result = getModelCostPer1k(0, 0.00003);
-    const baseCostPer1k = 0.00003 * 1000; // 0.03
+    const result = getModelCostPer1k(0, 0.000_03);
+    const baseCostPer1k = 0.000_03 * 1000; // 0.03
     expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
   });
 
   it('handles very small prices', () => {
     // Llama-style cheap pricing
-    const result = getModelCostPer1k(0.00000059, 0.00000079);
-    const baseCostPer1k = (0.00000059 + 0.00000079) * 1000;
+    const result = getModelCostPer1k(0.000_000_59, 0.000_000_79);
+    const baseCostPer1k = (0.000_000_59 + 0.000_000_79) * 1000;
     expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
   });
 
   it('handles expensive model pricing', () => {
     // Claude Opus-style expensive pricing: $15/1M input, $75/1M output
-    const result = getModelCostPer1k(0.000015, 0.000075);
-    const baseCostPer1k = (0.000015 + 0.000075) * 1000; // 0.09
+    const result = getModelCostPer1k(0.000_015, 0.000_075);
+    const baseCostPer1k = (0.000_015 + 0.000_075) * 1000; // 0.09
     expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
   });
 });
@@ -529,12 +529,12 @@ describe('getModelCostPer1k', () => {
 describe('isExpensiveModel', () => {
   it('returns false for cheap models (well below threshold)', () => {
     // Llama 3.1 70B: $0.00159/1k with fees - way below $0.10
-    expect(isExpensiveModel(0.00000059, 0.00000079)).toBe(false);
+    expect(isExpensiveModel(0.000_000_59, 0.000_000_79)).toBe(false);
   });
 
   it('returns false for mid-range models (below threshold)', () => {
     // GPT-4 Turbo: $0.046/1k with fees - below $0.10
-    expect(isExpensiveModel(0.00001, 0.00003)).toBe(false);
+    expect(isExpensiveModel(0.000_01, 0.000_03)).toBe(false);
   });
 
   it('returns true when exactly at threshold', () => {
@@ -554,7 +554,7 @@ describe('isExpensiveModel', () => {
 
   it('returns true for expensive models (above threshold)', () => {
     // High-end model: input $0.05/1k, output $0.05/1k → $0.115/1k with fees
-    expect(isExpensiveModel(0.00005, 0.00005)).toBe(true);
+    expect(isExpensiveModel(0.000_05, 0.000_05)).toBe(true);
   });
 
   it('uses EXPENSIVE_MODEL_THRESHOLD_PER_1K constant', () => {

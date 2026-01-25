@@ -1,31 +1,4 @@
-import {
-  frontendEnvSchema,
-  type ConversationResponse,
-  type MessageResponse,
-  type ListConversationsResponse,
-  type GetConversationResponse,
-  type CreateConversationRequest,
-  type CreateConversationResponse,
-  type UpdateConversationRequest,
-  type UpdateConversationResponse,
-  type DeleteConversationResponse,
-  type CreateMessageRequest,
-  type CreateMessageResponse,
-} from '@lome-chat/shared';
-
-export type {
-  ConversationResponse as Conversation,
-  MessageResponse as Message,
-  ListConversationsResponse as ConversationsResponse,
-  GetConversationResponse as ConversationResponse,
-  CreateConversationRequest,
-  CreateConversationResponse,
-  UpdateConversationRequest,
-  UpdateConversationResponse,
-  DeleteConversationResponse,
-  CreateMessageRequest,
-  CreateMessageResponse,
-};
+import { frontendEnvSchema } from '@lome-chat/shared';
 
 const env = frontendEnvSchema.parse({
   VITE_API_URL: import.meta.env['VITE_API_URL'] as unknown,
@@ -50,6 +23,18 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown;
 }
 
+type HeadersInit = Headers | string[][] | Record<string, string>;
+
+function normalizeHeaders(headers: HeadersInit): Record<string, string> {
+  if (headers instanceof Headers) {
+    return Object.fromEntries(headers.entries());
+  }
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers) as Record<string, string>;
+  }
+  return headers;
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, ...init } = options;
 
@@ -58,12 +43,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   };
 
   if (init.headers) {
-    const additionalHeaders =
-      init.headers instanceof Headers
-        ? Object.fromEntries(init.headers.entries())
-        : Array.isArray(init.headers)
-          ? Object.fromEntries(init.headers)
-          : init.headers;
+    const additionalHeaders = normalizeHeaders(init.headers as HeadersInit);
     Object.assign(headers, additionalHeaders);
   }
 
@@ -110,3 +90,17 @@ export const api = {
     return request<T>(path, { method: 'DELETE' });
   },
 };
+
+export {
+  type ConversationResponse as Conversation,
+  type ListConversationsResponse as ConversationsResponse,
+  type MessageResponse as Message,
+  type CreateConversationRequest,
+  type GetConversationResponse as ConversationResponse,
+  type UpdateConversationRequest,
+  type CreateConversationResponse,
+  type DeleteConversationResponse,
+  type UpdateConversationResponse,
+  type CreateMessageResponse,
+  type CreateMessageRequest,
+} from '@lome-chat/shared';

@@ -75,7 +75,7 @@ describe('createFastMockOpenRouterClient', () => {
         context_length: 4096,
         pricing: { prompt: '0.001', completion: '0.002' },
         supported_parameters: ['temperature'],
-        created: 1234567890,
+        created: 1_234_567_890,
       },
     ];
 

@@ -238,7 +238,7 @@ describe('helcim-loader', () => {
 
       expect(installSpy).toHaveBeenCalled();
       expect(isHelcimScriptLoaded()).toBe(true);
-      expect(window.helcimProcess).toBeDefined();
+      expect(globalThis.helcimProcess).toBeDefined();
     });
 
     it('does not create script element when useMock is true', async () => {
@@ -273,6 +273,6 @@ function createMockResultElements(values: {
     input.type = 'hidden';
     input.id = id;
     input.value = value;
-    document.body.appendChild(input);
+    document.body.append(input);
   }
 }

@@ -2,11 +2,15 @@ import * as React from 'react';
 import {
   calculateBudget,
   getUserTier,
-  type BudgetCalculationResult,
   type UserBalanceState,
+  type BudgetCalculationResult,
 } from '@lome-chat/shared';
+
 import { useBalance } from './billing.js';
 import { useStability } from '@/providers/stability-provider';
+
+// eslint-disable-next-line unicorn/prefer-export-from -- avoids type resolution issues
+export type { BudgetCalculationResult };
 
 const DEBOUNCE_MS = 150;
 
@@ -53,7 +57,7 @@ export function useBudgetCalculation(
       return null;
     }
     return {
-      balanceCents: Math.round(parseFloat(balanceData.balance) * 100),
+      balanceCents: Math.round(Number.parseFloat(balanceData.balance) * 100),
       freeAllowanceCents: balanceData.freeAllowanceCents,
     };
   }, [input.isAuthenticated, balanceData]);

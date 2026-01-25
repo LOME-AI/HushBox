@@ -27,16 +27,308 @@ declare global {
   interface Window {
     helcimProcess?: () => void;
   }
+  var helcimProcess: (() => void) | undefined;
 }
 
 type PaymentState = 'idle' | 'processing' | 'success' | 'error';
+
+interface PaymentStatusCallbacks {
+  onConfirmed: (newBalance: string) => void;
+  onFailed: (errorMessage?: string | null) => void;
+}
+
+interface PaymentStatusResult {
+  status: string;
+  newBalance?: string;
+  errorMessage?: string | null | undefined;
+}
+
+function handlePaymentStatusUpdate(
+  status: PaymentStatusResult,
+  callbacks: PaymentStatusCallbacks
+): boolean {
+  if (status.status === 'confirmed') {
+    if (status.newBalance) {
+      callbacks.onConfirmed(status.newBalance);
+    }
+    return true;
+  }
+  if (status.status === 'failed') {
+    callbacks.onFailed(status.errorMessage);
+    return true;
+  }
+  return false;
+}
+
+interface PaymentSuccessCardProps {
+  amount: string;
+  onClose?: (() => void) | undefined;
+}
+
+function PaymentSuccessCard({
+  amount,
+  onClose,
+}: Readonly<PaymentSuccessCardProps>): React.JSX.Element {
+  return (
+    <Card className="w-[90vw] max-w-md">
+      <CardHeader>
+        <CardTitle>Payment Successful</CardTitle>
+        <CardDescription>Your deposit has been processed</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="py-4 text-center">
+          <p className="text-primary text-2xl font-semibold">
+            +${Number.parseFloat(amount || '0').toFixed(2)}
+          </p>
+          <p className="text-muted-foreground mt-2">Added to your balance</p>
+        </div>
+        <Button onClick={onClose} className="w-full">
+          Close
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface PaymentErrorCardProps {
+  errorMessage: string | null;
+  onCancel?: (() => void) | undefined;
+  onRetry: () => void;
+}
+
+function PaymentErrorCard({
+  errorMessage,
+  onCancel,
+  onRetry,
+}: Readonly<PaymentErrorCardProps>): React.JSX.Element {
+  return (
+    <Card className="w-[90vw] max-w-md">
+      <CardHeader>
+        <CardTitle>Payment Failed</CardTitle>
+        <CardDescription>We couldn&apos;t process your payment</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="py-4 text-center">
+          <p className="text-destructive">
+            Something went wrong. Please try again or contact support.
+          </p>
+        </div>
+        <DevOnly>
+          <p className="text-muted-foreground text-center text-sm">
+            {errorMessage ?? 'An unexpected error occurred'}
+          </p>
+        </DevOnly>
+        <div className="flex gap-3">
+          {onCancel && (
+            <Button variant="outline" onClick={onCancel} className="flex-1">
+              Cancel
+            </Button>
+          )}
+          <Button onClick={onRetry} className="flex-1">
+            Try Again
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface CardFormSectionProps {
+  scriptError: string | null;
+  scriptLoaded: boolean;
+  form: ReturnType<typeof usePaymentForm>;
+}
+
+function CardFormSection({
+  scriptError,
+  scriptLoaded,
+  form,
+}: Readonly<CardFormSectionProps>): React.JSX.Element {
+  if (scriptError) {
+    return (
+      <div className="py-4 text-center">
+        <p className="text-destructive mb-4">Failed to load payment form</p>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            globalThis.location.reload();
+          }}
+        >
+          Reload Page
+        </Button>
+      </div>
+    );
+  }
+
+  if (scriptLoaded) {
+    return (
+      <>
+        <FormInput
+          id="cardNumber"
+          label="Card Number"
+          type="text"
+          inputMode="numeric"
+          autoComplete="cc-number"
+          icon={<CreditCard className="h-5 w-5" />}
+          value={form.cardFields.cardNumber}
+          onChange={(e) => {
+            form.handleFieldChange('cardNumber', e.target.value);
+          }}
+          maxLength={19}
+          aria-invalid={!!form.cardValidation.cardNumber.error}
+          error={form.cardValidation.cardNumber.error ?? undefined}
+          success={form.cardValidation.cardNumber.success}
+        />
+
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <FormInput
+              id="cardExpiryDate"
+              label="Expiry (MM/YY)"
+              type="text"
+              inputMode="numeric"
+              autoComplete="cc-exp"
+              value={form.cardFields.expiry}
+              onChange={(e) => {
+                form.handleFieldChange('expiry', e.target.value);
+              }}
+              maxLength={7}
+              aria-invalid={!!form.cardValidation.expiry.error}
+              error={form.cardValidation.expiry.error ?? undefined}
+              success={form.cardValidation.expiry.success}
+            />
+          </div>
+          {/* Hidden fields for Helcim - it needs month and year separately */}
+          <input type="hidden" id="cardExpiryMonth" value={form.expiryParts.month} />
+          <input type="hidden" id="cardExpiryYear" value={form.expiryParts.year} />
+
+          <div className="flex-1">
+            <FormInput
+              id="cardCVV"
+              label="CVV"
+              type="text"
+              inputMode="numeric"
+              autoComplete="cc-csc"
+              icon={<Lock className="h-5 w-5" />}
+              value={form.cardFields.cvv}
+              onChange={(e) => {
+                form.handleFieldChange('cvv', e.target.value);
+              }}
+              maxLength={4}
+              aria-invalid={!!form.cardValidation.cvv.error}
+              error={form.cardValidation.cvv.error ?? undefined}
+              success={form.cardValidation.cvv.success}
+            />
+          </div>
+        </div>
+
+        {/* Name on Card - Required by Helcim */}
+        <FormInput
+          id="cardHolderName"
+          label="Name on Card"
+          type="text"
+          autoComplete="cc-name"
+          icon={<User className="h-5 w-5" />}
+          value={form.cardFields.cardHolderName}
+          onChange={(e) => {
+            form.handleFieldChange('cardHolderName', e.target.value);
+          }}
+          aria-invalid={!!form.cardValidation.cardHolderName.error}
+          error={form.cardValidation.cardHolderName.error ?? undefined}
+          success={form.cardValidation.cardHolderName.success}
+        />
+
+        {/* Billing Address - Required by Helcim */}
+        <FormInput
+          id="cardHolderAddress"
+          label="Billing Address"
+          type="text"
+          autoComplete="address-line1"
+          icon={<Home className="h-5 w-5" />}
+          value={form.cardFields.billingAddress}
+          onChange={(e) => {
+            form.handleFieldChange('billingAddress', e.target.value);
+          }}
+          aria-invalid={!!form.cardValidation.billingAddress.error}
+          error={form.cardValidation.billingAddress.error ?? undefined}
+          success={form.cardValidation.billingAddress.success}
+        />
+
+        <FormInput
+          id="cardHolderPostalCode"
+          label="ZIP Code"
+          type="text"
+          autoComplete="postal-code"
+          icon={<MapPin className="h-5 w-5" />}
+          value={form.cardFields.zipCode}
+          onChange={(e) => {
+            form.handleFieldChange('zipCode', e.target.value);
+          }}
+          maxLength={10}
+          aria-invalid={!!form.cardValidation.zipCode.error}
+          error={form.cardValidation.zipCode.error ?? undefined}
+          success={form.cardValidation.zipCode.success}
+        />
+
+        {/* Hidden results container for Helcim response */}
+        <div id="helcimResults" className="hidden">
+          <input type="hidden" id="response" />
+          <input type="hidden" id="responseMessage" />
+          <input type="hidden" id="cardToken" />
+          <input type="hidden" id="cardType" />
+          <input type="hidden" id="cardF4L4" />
+          <input type="hidden" id="customerCode" />
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className="py-8 text-center" data-testid="helcim-loading">
+      <p className="text-muted-foreground">Loading payment form...</p>
+    </div>
+  );
+}
+
+interface PaymentFormActionsProps {
+  onCancel?: (() => void) | undefined;
+  scriptLoaded: boolean;
+  paymentState: PaymentState;
+  isPaymentPending: boolean;
+}
+
+function PaymentFormActions({
+  onCancel,
+  scriptLoaded,
+  paymentState,
+  isPaymentPending,
+}: Readonly<PaymentFormActionsProps>): React.JSX.Element {
+  const isProcessing = paymentState === 'processing' || isPaymentPending;
+
+  return (
+    <div className="flex gap-3">
+      {onCancel && (
+        <Button type="button" variant="outline" onClick={onCancel} className="flex-1">
+          Cancel
+        </Button>
+      )}
+      <Button type="submit" disabled={!scriptLoaded || isProcessing} className="flex-1">
+        {isProcessing ? 'Processing...' : 'Purchase'}
+      </Button>
+    </div>
+  );
+}
 
 interface PaymentFormProps {
   onSuccess?: (newBalance: string) => void;
   onCancel?: () => void;
 }
 
-export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JSX.Element {
+export function PaymentForm({
+  onSuccess,
+  onCancel,
+}: Readonly<PaymentFormProps>): React.JSX.Element {
   const jsToken = import.meta.env['VITE_HELCIM_JS_TOKEN'] as string | undefined;
   // Use shared env utility for mock mode detection
   const isDevMode = env.isLocalDev;
@@ -64,44 +356,49 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     refetchInterval: isPolling ? 2000 : false,
   });
 
-  const POLLING_TIMEOUT_MS = 60000;
+  const POLLING_TIMEOUT_MS = 60_000;
+
+  const stopPolling = useCallback((errorMsg?: string): void => {
+    setIsPolling(false);
+    setPollingStartTime(null);
+    if (errorMsg) {
+      setPaymentState('error');
+      setErrorMessage(errorMsg);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isPolling) return;
 
     if (!pollingStartTime) {
       setPollingStartTime(Date.now());
-      return;
     }
 
-    if (Date.now() - pollingStartTime > POLLING_TIMEOUT_MS) {
-      setIsPolling(false);
-      setPollingStartTime(null);
-      setPaymentState('error');
-      setErrorMessage('Payment confirmation timed out. Please check your balance.');
+    const startTime = pollingStartTime ?? Date.now();
+    if (Date.now() - startTime > POLLING_TIMEOUT_MS) {
+      stopPolling('Payment confirmation timed out. Please check your balance.');
       return;
     }
 
     if (!paymentStatus) return;
 
-    if (paymentStatus.status === 'confirmed') {
-      setIsPolling(false);
-      setPollingStartTime(null);
-      setPaymentState('success');
-      // Invalidate transactions so purchase history updates
+    const handled = handlePaymentStatusUpdate(paymentStatus, {
+      onConfirmed: (newBalance) => {
+        stopPolling();
+        setPaymentState('success');
+        onSuccess?.(newBalance);
+      },
+      onFailed: (errorMsg) => {
+        stopPolling();
+        setPaymentState('error');
+        setErrorMessage(errorMsg ?? null);
+      },
+    });
+
+    if (handled) {
       void queryClient.invalidateQueries({ queryKey: billingKeys.transactions() });
-      if ('newBalance' in paymentStatus) {
-        onSuccess?.(paymentStatus.newBalance);
-      }
-    } else if (paymentStatus.status === 'failed') {
-      setIsPolling(false);
-      setPollingStartTime(null);
-      setPaymentState('error');
-      if ('errorMessage' in paymentStatus && paymentStatus.errorMessage) {
-        setErrorMessage(paymentStatus.errorMessage);
-      }
     }
-  }, [paymentStatus, isPolling, pollingStartTime, onSuccess, queryClient]);
+  }, [paymentStatus, isPolling, pollingStartTime, onSuccess, queryClient, stopPolling]);
 
   const handleTokenizationResult = useCallback(
     async (result: HelcimTokenResult): Promise<void> => {
@@ -135,9 +432,9 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
           // response.status === 'processing' - Start polling for webhook confirmation
           setIsPolling(true);
         }
-      } catch (err) {
+      } catch (error) {
         setPaymentState('error');
-        setErrorMessage(err instanceof Error ? err.message : 'Payment failed');
+        setErrorMessage(error instanceof Error ? error.message : 'Payment failed');
       }
     },
     [processPayment, onSuccess]
@@ -146,17 +443,20 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
   useEffect(() => {
     let mounted = true;
 
-    loadHelcimScript({ useMock: isDevMode })
-      .then(() => {
+    const loadScript = async (): Promise<void> => {
+      try {
+        await loadHelcimScript({ useMock: isDevMode });
         if (mounted) {
           setScriptLoaded(true);
         }
-      })
-      .catch((err: unknown) => {
+      } catch (error: unknown) {
         if (mounted) {
-          setScriptError(err instanceof Error ? err.message : 'Failed to load payment form');
+          setScriptError(error instanceof Error ? error.message : 'Failed to load payment form');
         }
-      });
+      }
+    };
+
+    void loadScript();
 
     return () => {
       mounted = false;
@@ -167,14 +467,14 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
   useEffect(() => {
     if (!scriptLoaded) return;
 
-    const resultsDiv = document.getElementById('helcimResults');
+    const resultsDiv = document.querySelector('#helcimResults');
     if (!resultsDiv) return;
 
     observerRef.current = new MutationObserver(() => {
       // Only process results when we're actively expecting tokenization
       if (!expectingTokenizationRef.current) return;
 
-      const responseEl = document.getElementById('response') as HTMLInputElement | null;
+      const responseEl = document.querySelector<HTMLInputElement>('#response');
       if (!responseEl?.value) return;
 
       // For successful tokenization (response=1), also wait for customerCode
@@ -182,7 +482,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
       // customerCode is set before processing. For failures (response=0),
       // customerCode won't be present, so process immediately.
       if (responseEl.value === '1') {
-        const customerCodeEl = document.getElementById('customerCode') as HTMLInputElement | null;
+        const customerCodeEl = document.querySelector<HTMLInputElement>('#customerCode');
         if (!customerCodeEl?.value) return;
       }
 
@@ -202,13 +502,19 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
   }, [scriptLoaded, handleTokenizationResult]);
 
   // Clear stale Helcim results to prevent MutationObserver from reading old values
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- React handler
   const clearHelcimResults = (): void => {
-    ['response', 'responseMessage', 'cardToken', 'customerCode', 'cardType', 'cardF4L4'].forEach(
-      (id) => {
-        const el = document.getElementById(id) as HTMLInputElement | null;
-        if (el) el.value = '';
-      }
-    );
+    for (const id of [
+      'response',
+      'responseMessage',
+      'cardToken',
+      'customerCode',
+      'cardType',
+      'cardF4L4',
+    ]) {
+      const el = document.querySelector<HTMLInputElement>(`#${id}`);
+      if (el) el.value = '';
+    }
   };
 
   const handleSimulateSuccess = (): void => {
@@ -224,7 +530,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     form.handleFieldChange('zipCode', '12345');
 
     setTimeout(() => {
-      const formEl = document.getElementById('helcimForm') as HTMLFormElement | null;
+      const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
       formEl?.requestSubmit();
     }, 100);
   };
@@ -242,7 +548,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     form.handleFieldChange('zipCode', '12345');
 
     setTimeout(() => {
-      const formEl = document.getElementById('helcimForm') as HTMLFormElement | null;
+      const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
       formEl?.requestSubmit();
     }, 100);
   };
@@ -257,7 +563,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
     setPaymentState('processing');
 
     try {
-      const formattedAmount = parseFloat(form.amount).toFixed(8);
+      const formattedAmount = Number.parseFloat(form.amount).toFixed(8);
       const result = await createPayment.mutateAsync({ amount: formattedAmount });
       paymentIdRef.current = result.paymentId;
       setPaymentId(result.paymentId);
@@ -266,15 +572,15 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
       clearHelcimResults();
       expectingTokenizationRef.current = true;
 
-      if (window.helcimProcess) {
-        window.helcimProcess();
+      if (globalThis.helcimProcess) {
+        globalThis.helcimProcess();
       } else {
         throw new Error('Helcim payment processor not available');
       }
-    } catch (err) {
+    } catch (error) {
       expectingTokenizationRef.current = false;
       setPaymentState('error');
-      setErrorMessage(err instanceof Error ? err.message : 'Payment failed');
+      setErrorMessage(error instanceof Error ? error.message : 'Payment failed');
     }
   };
 
@@ -290,57 +596,12 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
   };
 
   if (paymentState === 'success') {
-    return (
-      <Card className="w-[90vw] max-w-md">
-        <CardHeader>
-          <CardTitle>Payment Successful</CardTitle>
-          <CardDescription>Your deposit has been processed</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="py-4 text-center">
-            <p className="text-primary text-2xl font-semibold">
-              +${parseFloat(form.amount || '0').toFixed(2)}
-            </p>
-            <p className="text-muted-foreground mt-2">Added to your balance</p>
-          </div>
-          <Button onClick={onCancel} className="w-full">
-            Close
-          </Button>
-        </CardContent>
-      </Card>
-    );
+    return <PaymentSuccessCard amount={form.amount} onClose={onCancel} />;
   }
 
   if (paymentState === 'error') {
     return (
-      <Card className="w-[90vw] max-w-md">
-        <CardHeader>
-          <CardTitle>Payment Failed</CardTitle>
-          <CardDescription>We couldn&apos;t process your payment</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="py-4 text-center">
-            <p className="text-destructive">
-              Something went wrong. Please try again or contact support.
-            </p>
-          </div>
-          <DevOnly>
-            <p className="text-muted-foreground text-center text-sm">
-              {errorMessage ?? 'An unexpected error occurred'}
-            </p>
-          </DevOnly>
-          <div className="flex gap-3">
-            {onCancel && (
-              <Button variant="outline" onClick={onCancel} className="flex-1">
-                Cancel
-              </Button>
-            )}
-            <Button onClick={handleReset} className="flex-1">
-              Try Again
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <PaymentErrorCard errorMessage={errorMessage} onCancel={onCancel} onRetry={handleReset} />
     );
   }
 
@@ -387,143 +648,7 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
             className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
 
-          {scriptError ? (
-            <div className="py-4 text-center">
-              <p className="text-destructive mb-4">Failed to load payment form</p>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  window.location.reload();
-                }}
-              >
-                Reload Page
-              </Button>
-            </div>
-          ) : !scriptLoaded ? (
-            <div className="py-8 text-center" data-testid="helcim-loading">
-              <p className="text-muted-foreground">Loading payment form...</p>
-            </div>
-          ) : (
-            <>
-              <FormInput
-                id="cardNumber"
-                label="Card Number"
-                type="text"
-                inputMode="numeric"
-                autoComplete="cc-number"
-                icon={<CreditCard className="h-5 w-5" />}
-                value={form.cardFields.cardNumber}
-                onChange={(e) => {
-                  form.handleFieldChange('cardNumber', e.target.value);
-                }}
-                maxLength={19}
-                aria-invalid={!!form.cardValidation.cardNumber.error}
-                error={form.cardValidation.cardNumber.error ?? undefined}
-                success={form.cardValidation.cardNumber.success}
-              />
-
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <FormInput
-                    id="cardExpiryDate"
-                    label="Expiry (MM/YY)"
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="cc-exp"
-                    value={form.cardFields.expiry}
-                    onChange={(e) => {
-                      form.handleFieldChange('expiry', e.target.value);
-                    }}
-                    maxLength={7}
-                    aria-invalid={!!form.cardValidation.expiry.error}
-                    error={form.cardValidation.expiry.error ?? undefined}
-                    success={form.cardValidation.expiry.success}
-                  />
-                </div>
-                {/* Hidden fields for Helcim - it needs month and year separately */}
-                <input type="hidden" id="cardExpiryMonth" value={form.expiryParts.month} />
-                <input type="hidden" id="cardExpiryYear" value={form.expiryParts.year} />
-
-                <div className="flex-1">
-                  <FormInput
-                    id="cardCVV"
-                    label="CVV"
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="cc-csc"
-                    icon={<Lock className="h-5 w-5" />}
-                    value={form.cardFields.cvv}
-                    onChange={(e) => {
-                      form.handleFieldChange('cvv', e.target.value);
-                    }}
-                    maxLength={4}
-                    aria-invalid={!!form.cardValidation.cvv.error}
-                    error={form.cardValidation.cvv.error ?? undefined}
-                    success={form.cardValidation.cvv.success}
-                  />
-                </div>
-              </div>
-
-              {/* Name on Card - Required by Helcim */}
-              <FormInput
-                id="cardHolderName"
-                label="Name on Card"
-                type="text"
-                autoComplete="cc-name"
-                icon={<User className="h-5 w-5" />}
-                value={form.cardFields.cardHolderName}
-                onChange={(e) => {
-                  form.handleFieldChange('cardHolderName', e.target.value);
-                }}
-                aria-invalid={!!form.cardValidation.cardHolderName.error}
-                error={form.cardValidation.cardHolderName.error ?? undefined}
-                success={form.cardValidation.cardHolderName.success}
-              />
-
-              {/* Billing Address - Required by Helcim */}
-              <FormInput
-                id="cardHolderAddress"
-                label="Billing Address"
-                type="text"
-                autoComplete="address-line1"
-                icon={<Home className="h-5 w-5" />}
-                value={form.cardFields.billingAddress}
-                onChange={(e) => {
-                  form.handleFieldChange('billingAddress', e.target.value);
-                }}
-                aria-invalid={!!form.cardValidation.billingAddress.error}
-                error={form.cardValidation.billingAddress.error ?? undefined}
-                success={form.cardValidation.billingAddress.success}
-              />
-
-              <FormInput
-                id="cardHolderPostalCode"
-                label="ZIP Code"
-                type="text"
-                autoComplete="postal-code"
-                icon={<MapPin className="h-5 w-5" />}
-                value={form.cardFields.zipCode}
-                onChange={(e) => {
-                  form.handleFieldChange('zipCode', e.target.value);
-                }}
-                maxLength={10}
-                aria-invalid={!!form.cardValidation.zipCode.error}
-                error={form.cardValidation.zipCode.error ?? undefined}
-                success={form.cardValidation.zipCode.success}
-              />
-
-              {/* Hidden results container for Helcim response */}
-              <div id="helcimResults" className="hidden">
-                <input type="hidden" id="response" />
-                <input type="hidden" id="responseMessage" />
-                <input type="hidden" id="cardToken" />
-                <input type="hidden" id="cardType" />
-                <input type="hidden" id="cardF4L4" />
-                <input type="hidden" id="customerCode" />
-              </div>
-            </>
-          )}
+          <CardFormSection scriptError={scriptError} scriptLoaded={scriptLoaded} form={form} />
 
           {paymentState === 'processing' && (
             <div className="py-4 text-center">
@@ -531,22 +656,12 @@ export function PaymentForm({ onSuccess, onCancel }: PaymentFormProps): React.JS
             </div>
           )}
 
-          <div className="flex gap-3">
-            {onCancel && (
-              <Button type="button" variant="outline" onClick={onCancel} className="flex-1">
-                Cancel
-              </Button>
-            )}
-            <Button
-              type="submit"
-              disabled={!scriptLoaded || paymentState === 'processing' || createPayment.isPending}
-              className="flex-1"
-            >
-              {paymentState === 'processing' || createPayment.isPending
-                ? 'Processing...'
-                : 'Purchase'}
-            </Button>
-          </div>
+          <PaymentFormActions
+            onCancel={onCancel}
+            scriptLoaded={scriptLoaded}
+            paymentState={paymentState}
+            isPaymentPending={createPayment.isPending}
+          />
 
           <div data-testid="helcim-security-badge" className="flex justify-center pt-4">
             <HelcimLogo />

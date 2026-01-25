@@ -16,16 +16,16 @@ interface MessageItemProps {
 export function MessageItem({
   message,
   onDocumentsExtracted,
-}: MessageItemProps): React.JSX.Element {
+}: Readonly<MessageItemProps>): React.JSX.Element {
   const isUser = message.role === 'user';
   const [copied, setCopied] = React.useState(false);
 
   const contentToRender = message.content;
 
   const handleDocumentsExtracted = React.useCallback(
-    (docs: Document[]) => {
-      if (onDocumentsExtracted && docs.length > 0) {
-        onDocumentsExtracted(message.id, docs);
+    (documents: Document[]) => {
+      if (onDocumentsExtracted && documents.length > 0) {
+        onDocumentsExtracted(message.id, documents);
       }
     },
     [onDocumentsExtracted, message.id]

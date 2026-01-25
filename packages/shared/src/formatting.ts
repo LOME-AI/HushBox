@@ -9,8 +9,8 @@
  * @param num - The number to format
  * @returns Formatted string (e.g., "1,234,567")
  */
-export function formatNumber(num: number): string {
-  return num.toLocaleString();
+export function formatNumber(number_: number): string {
+  return number_.toLocaleString();
 }
 
 /**
@@ -21,8 +21,8 @@ export function formatNumber(num: number): string {
  * @returns Formatted string (e.g., "128k", "1M")
  */
 export function formatContextLength(length: number): string {
-  if (length >= 1000000) {
-    return `${String(Math.round(length / 1000000))}M`;
+  if (length >= 1_000_000) {
+    return `${String(Math.round(length / 1_000_000))}M`;
   }
   return `${String(Math.round(length / 1000))}k`;
 }
@@ -50,9 +50,9 @@ export function formatPricePer1k(pricePerToken: number): string {
  * @returns Formatted string (e.g., "$0.00136")
  */
 export function formatCost(cost: string | number): string {
-  const numericCost = typeof cost === 'string' ? parseFloat(cost) : cost;
+  const numericCost = typeof cost === 'string' ? Number.parseFloat(cost) : cost;
 
-  if (isNaN(numericCost) || numericCost === 0) {
+  if (Number.isNaN(numericCost) || numericCost === 0) {
     return '$0.00';
   }
 

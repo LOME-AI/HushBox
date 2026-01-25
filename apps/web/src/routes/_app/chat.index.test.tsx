@@ -47,7 +47,7 @@ vi.mock('@/lib/api', () => ({
         id: 'openai/gpt-4-turbo',
         name: 'GPT-4 Turbo',
         description: 'Test model',
-        context_length: 128000,
+        context_length: 128_000,
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: ['temperature'],
       },
@@ -73,9 +73,9 @@ vi.mock('@/hooks/models', async (importOriginal) => {
           {
             id: 'test-model',
             name: 'Test Model',
-            contextLength: 50000,
-            pricePerInputToken: 0.000001,
-            pricePerOutputToken: 0.000002,
+            contextLength: 50_000,
+            pricePerInputToken: 0.000_001,
+            pricePerOutputToken: 0.000_002,
             capabilities: [],
             provider: { name: 'Test Provider' },
             description: 'A test model',
@@ -96,7 +96,7 @@ vi.mock('@/hooks/use-budget-calculation', () => ({
     estimatedInputTokens: 100,
     estimatedInputCost: 0.0001,
     estimatedMinimumCost: 0.001,
-    effectiveBalance: 1.0,
+    effectiveBalance: 1,
     currentUsage: 1100,
     capacityPercent: 5,
     errors: [],
@@ -147,6 +147,12 @@ function createWrapper(): React.FC<{ children: React.ReactNode }> {
   };
 }
 
+// Mock crypto.randomUUID for consistent test behavior
+const mockUUID = '12345678-1234-1234-1234-123456789abc';
+vi.stubGlobal('crypto', {
+  randomUUID: () => mockUUID,
+});
+
 describe('ChatIndex', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -170,7 +176,7 @@ describe('ChatIndex', () => {
     render(<ChatIndex />, { wrapper: createWrapper() });
 
     // Should show loading state, not the greeting
-    expect(screen.getByTestId('new-chat-page')).toHaveAttribute('data-loading', 'true');
+    expect(screen.getByTestId('chat-welcome')).toHaveAttribute('data-loading', 'true');
   });
 
   it('shows authenticated greeting after session becomes stable', async () => {
@@ -187,7 +193,7 @@ describe('ChatIndex', () => {
     render(<ChatIndex />, { wrapper: createWrapper() });
 
     await waitFor(() => {
-      expect(screen.getByTestId('new-chat-page')).toHaveAttribute('data-loading', 'false');
+      expect(screen.getByTestId('chat-welcome')).toHaveAttribute('data-loading', 'false');
     });
   });
 
@@ -217,7 +223,41 @@ describe('ChatIndex', () => {
 
     // Greeting should be stable (computed only after session loaded)
     await waitFor(() => {
-      expect(screen.getByTestId('new-chat-page')).toHaveAttribute('data-loading', 'false');
+      expect(screen.getByTestId('chat-welcome')).toHaveAttribute('data-loading', 'false');
+    });
+  });
+
+  describe('authenticated user navigation', () => {
+    it('navigates to /chat/new and stores pending message', async () => {
+      const { usePendingChatStore } = await import('@/stores/pending-chat');
+
+      mockUseStableSession.mockReturnValue({
+        session: {
+          user: { email: 'test@example.com' },
+          session: { id: 'session-123' },
+        },
+        isAuthenticated: true,
+        isStable: true,
+        isPending: false,
+      });
+
+      render(<ChatIndex />, { wrapper: createWrapper() });
+
+      // Find the input and type a message
+      const textarea = screen.getByRole('textbox');
+      const userEventModule = await import('@testing-library/user-event');
+      const user = userEventModule.default;
+      await user.setup().type(textarea, 'Hello AI!{enter}');
+
+      // Verify the pending message was stored
+      const state = usePendingChatStore.getState();
+      expect(state.pendingMessage).toBe('Hello AI!');
+
+      // Verify navigation to /chat/new
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: '/chat/$id',
+        params: { id: 'new' },
+      });
     });
   });
 

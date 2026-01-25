@@ -22,7 +22,7 @@ vi.mock('@tanstack/react-router', async () => {
 
 // Mock auth
 vi.mock('@/lib/auth', () => ({
-  requireAuth: vi.fn().mockResolvedValue(undefined),
+  requireAuth: vi.fn().mockImplementation(() => Promise.resolve()),
 }));
 
 // Mock stable balance hook
@@ -106,10 +106,10 @@ describe('BillingPage', () => {
       // Each skeleton row should have two-column structure
       // Left side: two skeleton blocks (description + date)
       // Right side: two skeleton blocks (amount + balance)
-      skeletonRows.forEach((row) => {
+      for (const row of skeletonRows) {
         const skeletonBlocks = within(row).getAllByTestId('skeleton-block');
         expect(skeletonBlocks.length).toBe(4); // 2 left + 2 right
-      });
+      }
     });
 
     it('skeleton rows have fixed height matching data rows', () => {
@@ -128,9 +128,9 @@ describe('BillingPage', () => {
       const skeletonRows = screen.getAllByTestId('transaction-skeleton-row');
 
       // Each skeleton row should have h-16 class for consistent height
-      skeletonRows.forEach((row) => {
+      for (const row of skeletonRows) {
         expect(row.className).toContain('h-16');
-      });
+      }
     });
   });
 
@@ -222,12 +222,12 @@ describe('BillingPage', () => {
       });
       mockUseTransactions.mockReturnValue({
         data: {
-          transactions: Array.from({ length: 5 }, (_, i) => ({
-            id: `tx-${String(i)}`,
+          transactions: Array.from({ length: 5 }, (_, index) => ({
+            id: `tx-${String(index)}`,
             amount: '10.00000000',
             balanceAfter: '10.00000000',
             type: 'deposit',
-            description: `Deposit ${String(i)}`,
+            description: `Deposit ${String(index)}`,
             createdAt: '2024-01-01T12:00:00Z',
           })),
           nextCursor: null, // No more pages
@@ -250,12 +250,12 @@ describe('BillingPage', () => {
       });
       mockUseTransactions.mockReturnValue({
         data: {
-          transactions: Array.from({ length: 5 }, (_, i) => ({
-            id: `tx-${String(i)}`,
+          transactions: Array.from({ length: 5 }, (_, index) => ({
+            id: `tx-${String(index)}`,
             amount: '10.00000000',
             balanceAfter: '10.00000000',
             type: 'deposit',
-            description: `Deposit ${String(i)}`,
+            description: `Deposit ${String(index)}`,
             createdAt: '2024-01-01T12:00:00Z',
           })),
           nextCursor: '2024-01-01T00:00:00Z', // More pages available

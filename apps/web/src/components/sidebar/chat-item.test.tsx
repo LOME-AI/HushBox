@@ -15,12 +15,12 @@ vi.mock('@tanstack/react-router', () => ({
   }: {
     children: React.ReactNode;
     to: string;
-    params?: { conversationId: string };
+    params?: { id: string };
     className?: string;
     onClick?: () => void;
   }) => (
     <a
-      href={params ? to.replace('$conversationId', params.conversationId) : to}
+      href={params ? to.replace('$id', params.id) : to}
       className={className}
       data-testid="chat-link"
       onClick={onClick}

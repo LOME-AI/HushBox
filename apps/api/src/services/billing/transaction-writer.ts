@@ -94,10 +94,22 @@ export async function processWebhookCredit(
   });
 }
 
-/**
- * Credits user balance atomically with idempotency.
- * Returns null if payment already confirmed (prevents double-credit).
- */
+function buildPaymentUpdate(
+  transactionDetails?: CreditBalanceParams['transactionDetails'],
+  webhookReceivedAt?: Date
+): Record<string, unknown> {
+  return {
+    status: 'confirmed' as const,
+    ...(transactionDetails?.helcimTransactionId && {
+      helcimTransactionId: transactionDetails.helcimTransactionId,
+    }),
+    ...(transactionDetails?.cardType && { cardType: transactionDetails.cardType }),
+    ...(transactionDetails?.cardLastFour && { cardLastFour: transactionDetails.cardLastFour }),
+    ...(webhookReceivedAt && { webhookReceivedAt }),
+    updatedAt: new Date(),
+  };
+}
+
 export async function creditUserBalance(
   db: Database,
   params: CreditBalanceParams
@@ -105,19 +117,9 @@ export async function creditUserBalance(
   const { userId, amount, paymentId, transactionDetails, webhookReceivedAt } = params;
 
   return await db.transaction(async (tx) => {
-    // Atomic idempotency: only update payment if not already confirmed
     const [claimedPayment] = await tx
       .update(payments)
-      .set({
-        status: 'confirmed',
-        ...(transactionDetails?.helcimTransactionId && {
-          helcimTransactionId: transactionDetails.helcimTransactionId,
-        }),
-        ...(transactionDetails?.cardType && { cardType: transactionDetails.cardType }),
-        ...(transactionDetails?.cardLastFour && { cardLastFour: transactionDetails.cardLastFour }),
-        ...(webhookReceivedAt && { webhookReceivedAt }),
-        updatedAt: new Date(),
-      })
+      .set(buildPaymentUpdate(transactionDetails, webhookReceivedAt))
       .where(and(eq(payments.id, paymentId), ne(payments.status, 'confirmed')))
       .returning({ id: payments.id });
 

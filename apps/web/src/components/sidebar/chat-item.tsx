@@ -32,7 +32,110 @@ interface ChatItemProps {
   isActive?: boolean;
 }
 
-export function ChatItem({ conversation, isActive }: ChatItemProps): React.JSX.Element {
+interface DeleteConversationDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  isPending: boolean;
+  onConfirm: () => void;
+}
+
+function DeleteConversationDialog({
+  open,
+  onOpenChange,
+  title,
+  isPending,
+  onConfirm,
+}: Readonly<DeleteConversationDialogProps>): React.JSX.Element {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete conversation?</DialogTitle>
+          <DialogDescription>
+            This will permanently delete &quot;{title}&quot;. This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => {
+              onOpenChange(false);
+            }}
+            data-testid="cancel-delete-button"
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={onConfirm}
+            disabled={isPending}
+            data-testid="confirm-delete-button"
+          >
+            {isPending ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface RenameConversationDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  value: string;
+  onValueChange: (value: string) => void;
+  isPending: boolean;
+  onConfirm: () => void;
+}
+
+function RenameConversationDialog({
+  open,
+  onOpenChange,
+  value,
+  onValueChange,
+  isPending,
+  onConfirm,
+}: Readonly<RenameConversationDialogProps>): React.JSX.Element {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Rename conversation</DialogTitle>
+          <DialogDescription>Enter a new name for this conversation.</DialogDescription>
+        </DialogHeader>
+        <Input
+          value={value}
+          onChange={(e) => {
+            onValueChange(e.target.value);
+          }}
+          placeholder="Conversation title"
+          autoFocus
+        />
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => {
+              onOpenChange(false);
+            }}
+            data-testid="cancel-rename-button"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={onConfirm}
+            disabled={!value.trim() || isPending}
+            data-testid="save-rename-button"
+          >
+            {isPending ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): React.JSX.Element {
   const navigate = useNavigate();
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
   const setMobileSidebarOpen = useUIStore((state) => state.setMobileSidebarOpen);
@@ -92,8 +195,8 @@ export function ChatItem({ conversation, isActive }: ChatItemProps): React.JSX.E
         )}
       >
         <Link
-          to={ROUTES.CHAT_CONVERSATION}
-          params={{ conversationId: conversation.id }}
+          to={ROUTES.CHAT_ID}
+          params={{ id: conversation.id }}
           data-testid="chat-link"
           onClick={handleLinkClick}
           className={cn(
@@ -142,71 +245,22 @@ export function ChatItem({ conversation, isActive }: ChatItemProps): React.JSX.E
         )}
       </div>
 
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete conversation?</DialogTitle>
-            <DialogDescription>
-              This will permanently delete &quot;{conversation.title}&quot;. This action cannot be
-              undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowDeleteDialog(false);
-              }}
-              data-testid="cancel-delete-button"
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleConfirmDelete}
-              disabled={deleteConversation.isPending}
-              data-testid="confirm-delete-button"
-            >
-              {deleteConversation.isPending ? 'Deleting...' : 'Delete'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteConversationDialog
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        title={conversation.title}
+        isPending={deleteConversation.isPending}
+        onConfirm={handleConfirmDelete}
+      />
 
-      <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename conversation</DialogTitle>
-            <DialogDescription>Enter a new name for this conversation.</DialogDescription>
-          </DialogHeader>
-          <Input
-            value={renameValue}
-            onChange={(e) => {
-              setRenameValue(e.target.value);
-            }}
-            placeholder="Conversation title"
-            autoFocus
-          />
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowRenameDialog(false);
-              }}
-              data-testid="cancel-rename-button"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleConfirmRename}
-              disabled={!renameValue.trim() || updateConversation.isPending}
-              data-testid="save-rename-button"
-            >
-              {updateConversation.isPending ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RenameConversationDialog
+        open={showRenameDialog}
+        onOpenChange={setShowRenameDialog}
+        value={renameValue}
+        onValueChange={setRenameValue}
+        isPending={updateConversation.isPending}
+        onConfirm={handleConfirmRename}
+      />
     </>
   );
 }

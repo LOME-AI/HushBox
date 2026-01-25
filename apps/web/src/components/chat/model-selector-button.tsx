@@ -35,7 +35,7 @@ export function ModelSelectorButton({
   canAccessPremium = true,
   isAuthenticated = true,
   onPremiumClick,
-}: ModelSelectorButtonProps): React.JSX.Element {
+}: Readonly<ModelSelectorButtonProps>): React.JSX.Element {
   const [isOpen, setIsOpen] = React.useState(false);
 
   const selectedModel = models.find((m) => m.id === selectedId);

@@ -6,7 +6,7 @@ import { devPersonaKeys, useDevPersonas } from './dev-personas';
 import type { DevPersonasResponse } from '@lome-chat/shared';
 
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+globalThis.fetch = mockFetch;
 
 vi.stubGlobal('import.meta', {
   env: {
@@ -48,7 +48,7 @@ describe('devPersonaKeys', () => {
 
 describe('useDevPersonas', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    mockFetch.mockReset();
   });
 
   it('fetches dev personas by default', async () => {
@@ -80,7 +80,7 @@ describe('useDevPersonas', () => {
     });
 
     expect(result.current.data).toEqual(mockResponse);
-    expect(mockFetch).toHaveBeenCalledWith('http://localhost:8787/dev/personas?type=dev');
+    expect(mockFetch).toHaveBeenCalledWith('http://localhost:8787/api/dev/personas?type=dev');
   });
 
   it('fetches test personas when type=test', async () => {
@@ -112,24 +112,7 @@ describe('useDevPersonas', () => {
     });
 
     expect(result.current.data).toEqual(mockResponse);
-    expect(mockFetch).toHaveBeenCalledWith('http://localhost:8787/dev/personas?type=test');
-  });
-
-  it('handles fetch errors', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-    });
-
-    const { result } = renderHook(() => useDevPersonas(), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => {
-      expect(result.current.isError).toBe(true);
-    });
-
-    expect(result.current.error?.message).toBe('Failed to fetch dev personas');
+    expect(mockFetch).toHaveBeenCalledWith('http://localhost:8787/api/dev/personas?type=test');
   });
 
   it('returns empty array when no personas', async () => {

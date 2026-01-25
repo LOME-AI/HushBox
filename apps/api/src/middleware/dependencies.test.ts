@@ -312,32 +312,47 @@ describe('openRouterMiddleware', () => {
 
   it('sets openrouter on context', async () => {
     const app = new Hono<AppEnv>();
+    // openRouterMiddleware requires envUtils and db from previous middleware
+    app.use('*', envMiddleware());
+    app.use('*', dbMiddleware());
     app.use('*', openRouterMiddleware());
     app.get('/', (c) => {
       c.get('openrouter');
       return c.json({ hasOpenRouter: true });
     });
 
-    const res = await app.request('/', {}, {});
+    const res = await app.request(
+      '/',
+      {},
+      { DATABASE_URL: process.env['DATABASE_URL'] ?? 'postgres://test' }
+    );
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ hasOpenRouter: true });
   });
 
-  it('passes env to getOpenRouterClient factory', async () => {
+  it('passes env and evidence config to getOpenRouterClient factory', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.use('*', dbMiddleware());
     app.use('*', openRouterMiddleware());
     app.get('/', (c) => c.json({ ok: true }));
 
-    const env = { OPENROUTER_API_KEY: 'test-key', NODE_ENV: 'production' };
+    const env = {
+      OPENROUTER_API_KEY: 'test-key',
+      NODE_ENV: 'production',
+      DATABASE_URL: process.env['DATABASE_URL'] ?? 'postgres://test',
+    };
     await app.request('/', {}, env);
 
-    expect(getOpenRouterClient).toHaveBeenCalledWith(env);
+    expect(getOpenRouterClient).toHaveBeenCalledWith(env, expect.any(Object));
   });
 
   it('calls next() to continue middleware chain', async () => {
     const app = new Hono<AppEnv>();
     const nextCalled = vi.fn();
+    app.use('*', envMiddleware());
+    app.use('*', dbMiddleware());
     app.use('*', openRouterMiddleware());
     app.use('*', async (_, next) => {
       nextCalled();
@@ -345,7 +360,7 @@ describe('openRouterMiddleware', () => {
     });
     app.get('/', (c) => c.json({ ok: true }));
 
-    await app.request('/', {}, {});
+    await app.request('/', {}, { DATABASE_URL: process.env['DATABASE_URL'] ?? 'postgres://test' });
 
     expect(nextCalled).toHaveBeenCalled();
   });

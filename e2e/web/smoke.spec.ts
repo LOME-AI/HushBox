@@ -1,39 +1,24 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Web App Smoke Tests', () => {
-  test('redirects from / to /chat', async ({ page }) => {
+  test('core pages load correctly', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveURL('/chat');
-  });
 
-  test('/chat renders new chat page', async ({ page }) => {
-    await page.goto('/chat');
-    // New chat page should show the greeting and prompt input (specific to main chat textarea)
     await expect(page.getByRole('textbox', { name: 'Ask me anything...' })).toBeVisible();
-  });
 
-  // Note: /chat/:id conversation view is tested in chat.spec.ts with authenticated sessions
-  // and real conversation IDs. Testing with fake IDs provides no value.
-
-  test('/projects renders', async ({ page }) => {
     await page.goto('/projects');
     await expect(page.locator('body')).toContainText('Projects');
   });
 });
 
 test.describe('Persona Login', () => {
-  // Use unauthenticated context for this test
   test.use({ storageState: { cookies: [], origins: [] } });
 
-  test('/dev/personas page is accessible in dev mode', async ({ page }) => {
+  test('/dev/personas page loads with all persona cards', async ({ page }) => {
     await page.goto('/dev/personas');
     await expect(page.getByRole('heading', { name: /developer personas/i })).toBeVisible();
-  });
 
-  test('clicking persona card initiates login', async ({ page }) => {
-    await page.goto('/dev/personas');
-
-    // All persona cards should be visible
     await expect(page.getByTestId('persona-card-alice')).toBeVisible();
     await expect(page.getByTestId('persona-card-bob')).toBeVisible();
     await expect(page.getByTestId('persona-card-charlie')).toBeVisible();

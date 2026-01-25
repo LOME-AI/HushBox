@@ -15,10 +15,13 @@ describe('createResendEmailClient', () => {
   beforeEach(() => {
     fetchMock = vi.fn(() =>
       Promise.resolve(
-        new Response(JSON.stringify({ id: 'email_123' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
+        Response.json(
+          { id: 'email_123' },
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
       )
     ) as Mock<typeof fetch>;
     globalThis.fetch = fetchMock;
@@ -98,10 +101,13 @@ describe('createResendEmailClient', () => {
 
   it('throws on API error response', async () => {
     fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ message: 'Invalid API key' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      })
+      Response.json(
+        { message: 'Invalid API key' },
+        {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
     );
 
     const client = createResendEmailClient('invalid_key');

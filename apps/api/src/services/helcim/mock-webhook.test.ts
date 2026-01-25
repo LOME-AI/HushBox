@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { generateWebhookSignature, scheduleMockWebhook } from './mock-webhook.js';
 import { verifyWebhookSignatureAsync } from './helcim.js';
@@ -22,13 +21,13 @@ describe('mock-webhook', () => {
       expect(signature).toMatch(/^v1,.+$/);
 
       // Signature should be verifiable
-      const isValid = await verifyWebhookSignatureAsync(
+      const isValid = await verifyWebhookSignatureAsync({
         webhookVerifier,
         payload,
-        signature,
+        signatureHeader: signature,
         timestamp,
-        webhookId
-      );
+        webhookId,
+      });
       expect(isValid).toBe(true);
     });
 
@@ -58,7 +57,7 @@ describe('mock-webhook', () => {
     beforeEach(() => {
       vi.useFakeTimers();
       vi.clearAllMocks();
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({ received: true }),
       });

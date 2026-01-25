@@ -2,9 +2,11 @@ import { z } from 'zod';
 
 /**
  * Request schema for creating a conversation.
+ * Client MUST provide the conversation ID (UUID) for idempotency.
  * Optionally includes a first message to create atomically.
  */
 export const createConversationRequestSchema = z.object({
+  id: z.uuid(), // REQUIRED: client-generated UUID for idempotency
   title: z.string().optional(),
   firstMessage: z
     .object({
@@ -90,10 +92,15 @@ export type GetConversationResponse = z.infer<typeof getConversationResponseSche
 
 /**
  * Response schema for POST /conversations
+ * Returns either:
+ * - 201 Created: new conversation with optional first message (isNew: true)
+ * - 200 OK: existing conversation with all messages (isNew: false, idempotent)
  */
 export const createConversationResponseSchema = z.object({
   conversation: conversationResponseSchema,
-  message: messageResponseSchema.optional(),
+  message: messageResponseSchema.optional(), // First message when newly created
+  messages: z.array(messageResponseSchema).optional(), // All messages when returning existing
+  isNew: z.boolean(), // true = 201 Created, false = 200 OK (idempotent return)
 });
 
 export type CreateConversationResponse = z.infer<typeof createConversationResponseSchema>;

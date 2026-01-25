@@ -26,6 +26,10 @@ out/
 coverage/
 .nyc_output/
 
+# Quality reports
+/reports/
+.stryker-cache/
+
 # Playwright
 playwright-report/
 test-results/

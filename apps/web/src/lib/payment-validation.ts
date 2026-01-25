@@ -1,4 +1,4 @@
-import { validateCardNumber, validateExpiry, validateCvv, validateZip } from './card-utils.js';
+import { validateCardNumber, validateExpiry, validateCvv, validateZip } from './card-utilities.js';
 
 export const MIN_DEPOSIT_AMOUNT = 5;
 export const MAX_DEPOSIT_AMOUNT = 1000;
@@ -51,8 +51,8 @@ export function validateAmount(value: string): AmountValidation {
     return { isValid: false, error: 'Please enter an amount' };
   }
 
-  const numValue = parseFloat(value);
-  if (isNaN(numValue)) {
+  const numberValue = Number.parseFloat(value);
+  if (Number.isNaN(numberValue)) {
     return { isValid: false, error: 'Please enter a valid amount' };
   }
 
@@ -62,11 +62,11 @@ export function validateAmount(value: string): AmountValidation {
     return { isValid: false, error: 'Amount cannot have more than 2 decimal places' };
   }
 
-  if (numValue < MIN_DEPOSIT_AMOUNT) {
+  if (numberValue < MIN_DEPOSIT_AMOUNT) {
     return { isValid: false, error: `Minimum deposit is $${String(MIN_DEPOSIT_AMOUNT)}` };
   }
 
-  if (numValue > MAX_DEPOSIT_AMOUNT) {
+  if (numberValue > MAX_DEPOSIT_AMOUNT) {
     return { isValid: false, error: `Maximum deposit is $${String(MAX_DEPOSIT_AMOUNT)}` };
   }
 
@@ -92,69 +92,48 @@ export function validateBillingAddress(address: string): string | null {
   return null;
 }
 
-/**
- * Gets validation state for all card fields based on touched state.
- * Only returns errors/success for touched fields.
- */
+function getFieldValidation(
+  value: string,
+  touched: boolean,
+  validate: (v: string) => string | null,
+  successMessage: string
+): FieldValidationState {
+  if (!touched) {
+    return { error: null, success: undefined };
+  }
+  const error = validate(value);
+  return {
+    error,
+    success: error === null && value.length > 0 ? successMessage : undefined,
+  };
+}
+
 export function getCardValidationState(
   fields: CardFields,
   touched: CardTouchedState
 ): CardValidationState {
   return {
-    cardNumber: touched.cardNumber
-      ? {
-          error: validateCardNumber(fields.cardNumber),
-          success:
-            validateCardNumber(fields.cardNumber) === null && fields.cardNumber.length > 0
-              ? 'Valid card'
-              : undefined,
-        }
-      : { error: null, success: undefined },
-    expiry: touched.expiry
-      ? {
-          error: validateExpiry(fields.expiry),
-          success:
-            validateExpiry(fields.expiry) === null && fields.expiry.length > 0
-              ? 'Valid expiry'
-              : undefined,
-        }
-      : { error: null, success: undefined },
-    cvv: touched.cvv
-      ? {
-          error: validateCvv(fields.cvv),
-          success:
-            validateCvv(fields.cvv) === null && fields.cvv.length > 0 ? 'Valid CVV' : undefined,
-        }
-      : { error: null, success: undefined },
-    cardHolderName: touched.cardHolderName
-      ? {
-          error: validateCardHolderName(fields.cardHolderName),
-          success:
-            validateCardHolderName(fields.cardHolderName) === null &&
-            fields.cardHolderName.length > 0
-              ? 'Valid name'
-              : undefined,
-        }
-      : { error: null, success: undefined },
-    billingAddress: touched.billingAddress
-      ? {
-          error: validateBillingAddress(fields.billingAddress),
-          success:
-            validateBillingAddress(fields.billingAddress) === null &&
-            fields.billingAddress.length > 0
-              ? 'Valid address'
-              : undefined,
-        }
-      : { error: null, success: undefined },
-    zipCode: touched.zipCode
-      ? {
-          error: validateZip(fields.zipCode),
-          success:
-            validateZip(fields.zipCode) === null && fields.zipCode.length > 0
-              ? 'Valid ZIP'
-              : undefined,
-        }
-      : { error: null, success: undefined },
+    cardNumber: getFieldValidation(
+      fields.cardNumber,
+      touched.cardNumber,
+      validateCardNumber,
+      'Valid card'
+    ),
+    expiry: getFieldValidation(fields.expiry, touched.expiry, validateExpiry, 'Valid expiry'),
+    cvv: getFieldValidation(fields.cvv, touched.cvv, validateCvv, 'Valid CVV'),
+    cardHolderName: getFieldValidation(
+      fields.cardHolderName,
+      touched.cardHolderName,
+      validateCardHolderName,
+      'Valid name'
+    ),
+    billingAddress: getFieldValidation(
+      fields.billingAddress,
+      touched.billingAddress,
+      validateBillingAddress,
+      'Valid address'
+    ),
+    zipCode: getFieldValidation(fields.zipCode, touched.zipCode, validateZip, 'Valid ZIP'),
   };
 }
 

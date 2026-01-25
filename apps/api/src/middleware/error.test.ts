@@ -5,7 +5,7 @@ import { errorHandler } from './error.js';
 
 describe('errorHandler middleware', () => {
   it('returns 500 for unknown errors', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const app = new Hono();
     app.onError(errorHandler);
@@ -24,7 +24,7 @@ describe('errorHandler middleware', () => {
   });
 
   it('returns HTTPException response for HTTPException errors', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const app = new Hono();
     app.onError(errorHandler);
@@ -41,7 +41,7 @@ describe('errorHandler middleware', () => {
   });
 
   it('returns HTTPException with custom message', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const app = new Hono();
     app.onError(errorHandler);

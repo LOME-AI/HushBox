@@ -4,7 +4,7 @@ import type { OpenRouterClient } from './types.js';
 const FALLBACK_PAID_MODEL = 'openai/gpt-4o-mini';
 
 /** Maximum price per token (prompt or completion) for test models */
-const MAX_TEST_MODEL_PRICE = 0.00001;
+const MAX_TEST_MODEL_PRICE = 0.000_01;
 
 let cachedPaidModel: string | null = null;
 
@@ -30,8 +30,8 @@ export async function getPaidTestModel(client: OpenRouterClient): Promise<string
 
   // Find cheapest paid model within price threshold
   const cheapPaidModels = models.filter((model) => {
-    const promptPrice = parseFloat(model.pricing.prompt);
-    const completionPrice = parseFloat(model.pricing.completion);
+    const promptPrice = Number.parseFloat(model.pricing.prompt);
+    const completionPrice = Number.parseFloat(model.pricing.completion);
 
     // Exclude free models (price = 0)
     // Exclude invalid models (price < 0, used for "no prompt" models)
@@ -51,8 +51,8 @@ export async function getPaidTestModel(client: OpenRouterClient): Promise<string
 
   // Sort by total price (prompt + completion)
   cheapPaidModels.sort((a, b) => {
-    const totalA = parseFloat(a.pricing.prompt) + parseFloat(a.pricing.completion);
-    const totalB = parseFloat(b.pricing.prompt) + parseFloat(b.pricing.completion);
+    const totalA = Number.parseFloat(a.pricing.prompt) + Number.parseFloat(a.pricing.completion);
+    const totalB = Number.parseFloat(b.pricing.prompt) + Number.parseFloat(b.pricing.completion);
     return totalA - totalB;
   });
 

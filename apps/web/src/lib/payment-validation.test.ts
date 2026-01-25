@@ -58,7 +58,7 @@ describe('payment-validation', () => {
     it('validates "5.11" as $5.11 (not $511)', () => {
       const result = validateAmount('5.11');
       expect(result.isValid).toBe(true);
-      expect(parseFloat('5.11').toFixed(2)).toBe('5.11');
+      expect(Number.parseFloat('5.11').toFixed(2)).toBe('5.11');
     });
 
     it('validates "10.99" correctly', () => {

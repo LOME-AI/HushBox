@@ -222,7 +222,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
       .limit(limit + 1);
 
     const results =
-      query.offset !== undefined ? await baseQuery.offset(query.offset) : await baseQuery;
+      query.offset === undefined ? await baseQuery : await baseQuery.offset(query.offset);
 
     const hasMore = results.length > limit;
     const transactions = results.slice(0, limit).map((t) => ({

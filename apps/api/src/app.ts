@@ -31,7 +31,7 @@ export function createApp(): Hono<AppEnv> {
   app.use('*', envMiddleware());
   app.onError(errorHandler);
 
-  app.route('/health', healthRoute);
+  app.route('/api/health', healthRoute);
 
   app.use('/api/auth/*', dbMiddleware());
   app.use('/api/auth/*', authMiddleware());
@@ -40,35 +40,35 @@ export function createApp(): Hono<AppEnv> {
     return auth.handler(c.req.raw);
   });
 
-  app.use('/conversations/*', dbMiddleware());
-  app.use('/conversations/*', authMiddleware());
-  app.use('/conversations/*', sessionMiddleware());
-  app.route('/conversations', createConversationsRoutes());
+  app.use('/api/conversations/*', dbMiddleware());
+  app.use('/api/conversations/*', authMiddleware());
+  app.use('/api/conversations/*', sessionMiddleware());
+  app.route('/api/conversations', createConversationsRoutes());
 
-  app.use('/chat/*', dbMiddleware());
-  app.use('/chat/*', authMiddleware());
-  app.use('/chat/*', sessionMiddleware());
-  app.use('/chat/*', openRouterMiddleware());
-  app.route('/chat', chatRoute);
+  app.use('/api/chat/*', dbMiddleware());
+  app.use('/api/chat/*', authMiddleware());
+  app.use('/api/chat/*', sessionMiddleware());
+  app.use('/api/chat/*', openRouterMiddleware());
+  app.route('/api/chat', chatRoute);
 
-  app.use('/guest/*', dbMiddleware());
-  app.use('/guest/*', openRouterMiddleware());
-  app.route('/guest', createGuestChatRoutes());
+  app.use('/api/guest/*', dbMiddleware());
+  app.use('/api/guest/*', openRouterMiddleware());
+  app.route('/api/guest', createGuestChatRoutes());
 
-  app.route('/models', createModelsRoutes());
+  app.route('/api/models', createModelsRoutes());
 
-  app.use('/billing/*', dbMiddleware());
-  app.use('/billing/*', authMiddleware());
-  app.use('/billing/*', sessionMiddleware());
-  app.use('/billing/*', helcimMiddleware());
-  app.route('/billing', createBillingRoutes());
+  app.use('/api/billing/*', dbMiddleware());
+  app.use('/api/billing/*', authMiddleware());
+  app.use('/api/billing/*', sessionMiddleware());
+  app.use('/api/billing/*', helcimMiddleware());
+  app.route('/api/billing', createBillingRoutes());
 
-  app.use('/webhooks/*', dbMiddleware());
-  app.route('/webhooks', createWebhooksRoutes());
+  app.use('/api/webhooks/*', dbMiddleware());
+  app.route('/api/webhooks', createWebhooksRoutes());
 
-  app.use('/dev/*', devOnly());
-  app.use('/dev/*', dbMiddleware());
-  app.route('/dev', createDevRoute());
+  app.use('/api/dev/*', devOnly());
+  app.use('/api/dev/*', dbMiddleware());
+  app.route('/api/dev', createDevRoute());
 
   return app;
 }

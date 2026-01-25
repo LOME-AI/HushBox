@@ -3,15 +3,21 @@
  * Service Evidence Verification Script
  *
  * Verifies that required external services were actually called during CI.
- * Works with recordServiceCall() from @lome-chat/shared.
+ * Works with recordServiceEvidence() from @lome-chat/db.
  *
  * Usage:
  *   pnpm verify:evidence --require=openrouter
  *   pnpm verify:evidence --require=openrouter,hookdeck
  */
-import { verifyEvidence, type ServiceName } from '@lome-chat/shared';
+import {
+  createDb,
+  LOCAL_NEON_DEV_CONFIG,
+  verifyServiceEvidence,
+  SERVICE_NAMES,
+  type ServiceName,
+} from '@lome-chat/db';
 
-const VALID_SERVICES: ServiceName[] = ['openrouter', 'hookdeck'];
+const VALID_SERVICES = Object.values(SERVICE_NAMES);
 
 export interface ParsedArgs {
   require: ServiceName[];
@@ -21,13 +27,13 @@ export interface ParsedArgs {
  * Parse CLI arguments
  */
 export function parseCliArgs(args: string[]): ParsedArgs | { error: string } {
-  const requireArg = args.find((arg) => arg.startsWith('--require='));
+  const requireArgument = args.find((argument) => argument.startsWith('--require='));
 
-  if (!requireArg) {
+  if (!requireArgument) {
     return { error: 'Usage: pnpm verify:evidence --require=openrouter,hookdeck' };
   }
 
-  const servicesRaw = requireArg.replace('--require=', '');
+  const servicesRaw = requireArgument.replace('--require=', '');
   const services = servicesRaw.split(',').map((s) => s.trim()) as ServiceName[];
 
   for (const service of services) {
@@ -60,7 +66,7 @@ export function formatResult(
 /**
  * Main CLI entry point
  */
-function main(): void {
+async function main(): Promise<void> {
   const parsed = parseCliArgs(process.argv.slice(2));
 
   if ('error' in parsed) {
@@ -68,7 +74,18 @@ function main(): void {
     process.exit(1);
   }
 
-  const result = verifyEvidence(parsed.require);
+  const databaseUrl = process.env['DATABASE_URL'];
+  if (!databaseUrl) {
+    console.error('DATABASE_URL environment variable is required');
+    process.exit(1);
+  }
+
+  const db = createDb({
+    connectionString: databaseUrl,
+    neonDev: LOCAL_NEON_DEV_CONFIG,
+  });
+
+  const result = await verifyServiceEvidence(db, parsed.require);
   const output = formatResult(result, parsed.require);
 
   if (result.success) {
@@ -81,6 +98,6 @@ function main(): void {
 
 // Only run main when executed directly
 if (import.meta.url === `file://${process.argv[1] ?? ''}`) {
-  main();
+  void main();
 }
 /* v8 ignore stop */

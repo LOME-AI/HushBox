@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { installMockHelcim, uninstallMockHelcim, MOCK_TEST_CARDS } from './helcim-mock.js';
 
+function getElement(selector: string): Element {
+  const el = document.querySelector(selector);
+  if (!el) {
+    throw new Error(`Element not found: ${selector}`);
+  }
+  return el;
+}
+
 describe('helcim-mock', () => {
   beforeEach(() => {
     document.body.innerHTML = `
@@ -25,19 +33,19 @@ describe('helcim-mock', () => {
   });
 
   describe('installMockHelcim', () => {
-    it('sets window.helcimProcess', () => {
-      expect(window.helcimProcess).toBeUndefined();
+    it('sets globalThis.helcimProcess', () => {
+      expect(globalThis.helcimProcess).toBeUndefined();
       installMockHelcim();
-      expect(window.helcimProcess).toBeDefined();
+      expect(globalThis.helcimProcess).toBeDefined();
     });
   });
 
   describe('uninstallMockHelcim', () => {
-    it('removes window.helcimProcess', () => {
+    it('removes globalThis.helcimProcess', () => {
       installMockHelcim();
-      expect(window.helcimProcess).toBeDefined();
+      expect(globalThis.helcimProcess).toBeDefined();
       uninstallMockHelcim();
-      expect(window.helcimProcess).toBeUndefined();
+      expect(globalThis.helcimProcess).toBeUndefined();
     });
   });
 
@@ -45,19 +53,19 @@ describe('helcim-mock', () => {
     it('populates success response for valid test card', () => {
       installMockHelcim();
 
-      const cardNumberEl = document.getElementById('cardNumber') as HTMLInputElement;
-      const cardCvvEl = document.getElementById('cardCVV') as HTMLInputElement;
+      const cardNumberEl = getElement('#cardNumber') as HTMLInputElement;
+      const cardCvvEl = getElement('#cardCVV') as HTMLInputElement;
       cardNumberEl.value = MOCK_TEST_CARDS.SUCCESS.number;
       cardCvvEl.value = MOCK_TEST_CARDS.SUCCESS.cvv;
 
-      expect(window.helcimProcess).toBeDefined();
-      window.helcimProcess?.();
+      expect(globalThis.helcimProcess).toBeDefined();
+      globalThis.helcimProcess?.();
 
-      const responseEl = document.getElementById('response') as HTMLInputElement;
-      const cardTokenEl = document.getElementById('cardToken') as HTMLInputElement;
-      const customerCodeEl = document.getElementById('customerCode') as HTMLInputElement;
-      const cardTypeEl = document.getElementById('cardType') as HTMLInputElement;
-      const cardF4L4El = document.getElementById('cardF4L4') as HTMLInputElement;
+      const responseEl = getElement('#response') as HTMLInputElement;
+      const cardTokenEl = getElement('#cardToken') as HTMLInputElement;
+      const customerCodeEl = getElement('#customerCode') as HTMLInputElement;
+      const cardTypeEl = getElement('#cardType') as HTMLInputElement;
+      const cardF4L4El = getElement('#cardF4L4') as HTMLInputElement;
 
       expect(responseEl.value).toBe('1');
       expect(cardTokenEl.value).toMatch(/^mock-token-/);
@@ -69,16 +77,16 @@ describe('helcim-mock', () => {
     it('populates failure response for decline CVV', () => {
       installMockHelcim();
 
-      const cardNumberEl = document.getElementById('cardNumber') as HTMLInputElement;
-      const cardCvvEl = document.getElementById('cardCVV') as HTMLInputElement;
+      const cardNumberEl = getElement('#cardNumber') as HTMLInputElement;
+      const cardCvvEl = getElement('#cardCVV') as HTMLInputElement;
       cardNumberEl.value = MOCK_TEST_CARDS.SUCCESS.number;
       cardCvvEl.value = MOCK_TEST_CARDS.DECLINE.cvv;
 
-      expect(window.helcimProcess).toBeDefined();
-      window.helcimProcess?.();
+      expect(globalThis.helcimProcess).toBeDefined();
+      globalThis.helcimProcess?.();
 
-      const responseEl = document.getElementById('response') as HTMLInputElement;
-      const responseMessageEl = document.getElementById('responseMessage') as HTMLInputElement;
+      const responseEl = getElement('#response') as HTMLInputElement;
+      const responseMessageEl = getElement('#responseMessage') as HTMLInputElement;
 
       expect(responseEl.value).toBe('0');
       expect(responseMessageEl.value).toBe('Card declined');
@@ -87,11 +95,11 @@ describe('helcim-mock', () => {
     it('populates failure response for missing card number', () => {
       installMockHelcim();
 
-      expect(window.helcimProcess).toBeDefined();
-      window.helcimProcess?.();
+      expect(globalThis.helcimProcess).toBeDefined();
+      globalThis.helcimProcess?.();
 
-      const responseEl = document.getElementById('response') as HTMLInputElement;
-      const responseMessageEl = document.getElementById('responseMessage') as HTMLInputElement;
+      const responseEl = getElement('#response') as HTMLInputElement;
+      const responseMessageEl = getElement('#responseMessage') as HTMLInputElement;
 
       expect(responseEl.value).toBe('0');
       expect(responseMessageEl.value).toBe('Card number required');

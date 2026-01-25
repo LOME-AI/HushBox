@@ -18,6 +18,17 @@ jobs:
       - name: Type check
         run: pnpm typecheck
 
+      - name: Check code duplication
+        run: pnpm lint:duplication
+
+      - name: Check unused code
+        run: pnpm lint:unused
+
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Start database
         run: pnpm db:up
 
@@ -87,7 +98,7 @@ jobs:
         if: matrix.project == 'chromium'
         run: |
           hookdeck ci --api-key $HOOKDECK_API_KEY
-          hookdeck listen 8787 helcim-sandbox --path /webhooks/payment --output compact 2>&1 | tee /tmp/hookdeck.log &
+          hookdeck listen 8787 helcim-sandbox --path /api/webhooks/payment --output compact 2>&1 | tee /tmp/hookdeck.log &
           for i in {1..60}; do
             if grep -q -E "(Listening|Webhook URL|forwarding)" /tmp/hookdeck.log 2>/dev/null; then
               echo "Hookdeck listener ready"

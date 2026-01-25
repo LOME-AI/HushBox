@@ -20,7 +20,7 @@ const guestChatModels = [
     id: 'meta-llama/llama-3.1-70b',
     name: 'Llama 3.1 70B',
     description: 'Basic model',
-    context_length: 128000,
+    context_length: 128_000,
     pricing: { prompt: '0.0000005', completion: '0.0000005' },
     supported_parameters: ['temperature'],
     created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60, // Old model
@@ -29,7 +29,7 @@ const guestChatModels = [
     id: 'openai/gpt-4-turbo',
     name: 'GPT-4 Turbo',
     description: 'Premium model',
-    context_length: 128000,
+    context_length: 128_000,
     pricing: { prompt: '0.00001', completion: '0.00003' },
     supported_parameters: ['temperature'],
     created: Math.floor(Date.now() / 1000), // Recent model (premium)
@@ -52,7 +52,7 @@ function createMockDb(options: { guestUsage?: MockGuestUsage[] } = {}) {
   const { guestUsage = [] } = options;
 
   // Sort by messageCount descending to simulate SQL ORDER BY DESC
-  const sortedUsage = [...guestUsage].sort((a, b) => b.messageCount - a.messageCount);
+  const sortedUsage = [...guestUsage].toSorted((a, b) => b.messageCount - a.messageCount);
 
   return {
     select: () => ({
@@ -355,7 +355,7 @@ describe('guest chat routes', () => {
           id: 'budget-test/model',
           name: 'Budget Test Model',
           description: 'Model for budget testing',
-          context_length: 128000,
+          context_length: 128_000,
           // Moderately expensive: With fees, a 50k char message = ~25k tokens at conservative rate
           // 25000 * 0.001 = $25 input + $25 output minimum = $50+ >> $0.01 guest limit
           pricing: { prompt: '0.001', completion: '0.001' },
@@ -367,7 +367,7 @@ describe('guest chat routes', () => {
           id: 'super-expensive/model-1',
           name: 'Super Expensive 1',
           description: 'Very expensive',
-          context_length: 128000,
+          context_length: 128_000,
           pricing: { prompt: '0.1', completion: '0.1' }, // Much more expensive
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,
@@ -376,7 +376,7 @@ describe('guest chat routes', () => {
           id: 'super-expensive/model-2',
           name: 'Super Expensive 2',
           description: 'Very expensive',
-          context_length: 128000,
+          context_length: 128_000,
           pricing: { prompt: '0.1', completion: '0.1' },
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,
@@ -385,7 +385,7 @@ describe('guest chat routes', () => {
           id: 'super-expensive/model-3',
           name: 'Super Expensive 3',
           description: 'Very expensive',
-          context_length: 128000,
+          context_length: 128_000,
           pricing: { prompt: '0.1', completion: '0.1' },
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,
@@ -403,7 +403,7 @@ describe('guest chat routes', () => {
       });
 
       // Very long message that would exceed $0.01 limit
-      const longMessage = 'x'.repeat(50000);
+      const longMessage = 'x'.repeat(50_000);
 
       const res = await app.request('/stream', {
         method: 'POST',
@@ -433,7 +433,7 @@ describe('guest chat routes', () => {
           id: 'cheap/model',
           name: 'Cheap Model',
           description: 'Inexpensive model',
-          context_length: 128000,
+          context_length: 128_000,
           pricing: { prompt: '0.0000001', completion: '0.0000001' }, // Very cheap
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds, // Old model (non-premium by recency)
@@ -443,7 +443,7 @@ describe('guest chat routes', () => {
           id: 'expensive/model-1',
           name: 'Expensive 1',
           description: 'Expensive',
-          context_length: 128000,
+          context_length: 128_000,
           pricing: { prompt: '0.001', completion: '0.001' },
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,
@@ -452,7 +452,7 @@ describe('guest chat routes', () => {
           id: 'expensive/model-2',
           name: 'Expensive 2',
           description: 'Expensive',
-          context_length: 128000,
+          context_length: 128_000,
           pricing: { prompt: '0.001', completion: '0.001' },
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,
@@ -461,7 +461,7 @@ describe('guest chat routes', () => {
           id: 'expensive/model-3',
           name: 'Expensive 3',
           description: 'Expensive',
-          context_length: 128000,
+          context_length: 128_000,
           pricing: { prompt: '0.001', completion: '0.001' },
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,

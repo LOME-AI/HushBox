@@ -27,13 +27,16 @@ const COLORS = {
   PLATFORM_FEE: '#ec4755', // LOME red
 };
 
-function describeArc(
-  cx: number,
-  cy: number,
-  radius: number,
-  startAngle: number,
-  endAngle: number
-): string {
+interface ArcParams {
+  cx: number;
+  cy: number;
+  radius: number;
+  startAngle: number;
+  endAngle: number;
+}
+
+function describeArc(params: ArcParams): string {
+  const { cx, cy, radius, startAngle, endAngle } = params;
   const start = polarToCartesian(cx, cy, radius, endAngle);
   const end = polarToCartesian(cx, cy, radius, startAngle);
   const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
@@ -63,7 +66,7 @@ function polarToCartesian(
   radius: number,
   angleInDegrees: number
 ): { x: number; y: number } {
-  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0;
+  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180;
   return {
     x: centerX + radius * Math.cos(angleInRadians),
     y: centerY + radius * Math.sin(angleInRadians),
@@ -72,8 +75,8 @@ function polarToCartesian(
 
 export function CostPieChart({
   depositAmount,
-  estimatedCharacters = 1000000,
-}: CostPieChartProps): React.JSX.Element {
+  estimatedCharacters = 1_000_000,
+}: Readonly<CostPieChartProps>): React.JSX.Element {
   const lomeFee = depositAmount * LOME_FEE_RATE;
   const ccFee = depositAmount * CREDIT_CARD_FEE_RATE;
   const providerFee = depositAmount * PROVIDER_FEE_RATE;
@@ -130,7 +133,7 @@ export function CostPieChart({
             <path
               key={slice.testId}
               data-testid={slice.testId}
-              d={describeArc(cx, cy, radius, startAngle, endAngle)}
+              d={describeArc({ cx, cy, radius, startAngle, endAngle })}
               fill={slice.color}
               stroke="hsl(var(--background))"
               strokeWidth="2"

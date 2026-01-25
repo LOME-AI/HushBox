@@ -1,4 +1,4 @@
-import { eq, and, desc, asc } from 'drizzle-orm';
+import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import {
   conversations,
   messages,
@@ -31,6 +31,19 @@ export interface CreateMessageParams {
   role: 'user' | 'assistant' | 'system';
   content: string;
   model?: string | undefined;
+}
+
+export interface CreateOrGetConversationParams {
+  id: string; // REQUIRED - client must provide UUID
+  title?: string | undefined;
+  firstMessage?: { content: string } | undefined;
+}
+
+export interface CreateOrGetConversationResult {
+  conversation: Conversation;
+  message?: Message | undefined; // First message when newly created
+  messages?: Message[] | undefined; // All messages when returning existing
+  isNew: boolean; // true = created, false = existing
 }
 
 /**
@@ -112,6 +125,90 @@ export async function createConversation(
     }
 
     return { conversation };
+  });
+}
+
+/**
+ * Creates a conversation or returns existing if ID already exists for this user.
+ * Returns null if ID exists but belongs to different user (caller should return 404).
+ *
+ * IMPORTANT: Entire operation wrapped in transaction so that:
+ * - If message insert fails, conversation creation is rolled back
+ * - On retry, CTE will create fresh (not return empty existing)
+ */
+export async function createOrGetConversation(
+  db: Database,
+  userId: string,
+  params: CreateOrGetConversationParams
+): Promise<CreateOrGetConversationResult | null> {
+  const conversationId = params.id; // Required - no fallback
+  const title =
+    params.title ??
+    (params.firstMessage ? generateChatTitle(params.firstMessage.content) : DEFAULT_CHAT_TITLE);
+
+  return db.transaction(async (tx) => {
+    // Single atomic query with row-level locking for concurrent requests.
+    // ON CONFLICT DO UPDATE with no-op (id = EXCLUDED.id) ensures:
+    // 1. If row doesn't exist: INSERT succeeds, xmax = 0
+    // 2. If row exists AND same user: waits for lock, returns row with xmax != 0
+    // 3. If row exists AND different user: WHERE fails, returns 0 rows
+    // The WHERE clause ensures we never touch or return another user's data.
+    const result = await tx.execute<{
+      id: string;
+      user_id: string;
+      title: string;
+      created_at: Date;
+      updated_at: Date;
+      is_new: boolean;
+    }>(sql`
+      INSERT INTO ${conversations} (id, user_id, title)
+      VALUES (${conversationId}, ${userId}, ${title})
+      ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
+        WHERE ${conversations}.user_id = EXCLUDED.user_id
+      RETURNING *, (xmax = 0) AS is_new
+    `);
+
+    const row = result.rows[0];
+    if (!row) {
+      // Either insert failed OR ownership mismatch (WHERE clause failed)
+      return null;
+    }
+
+    const conversation: Conversation = {
+      id: row.id,
+      userId: row.user_id,
+      title: row.title,
+      createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+    const isNew = row.is_new;
+
+    if (isNew && params.firstMessage) {
+      // New conversation - create first message (in same transaction)
+      const [message] = await tx
+        .insert(messages)
+        .values({
+          conversationId: conversation.id,
+          role: 'user',
+          content: params.firstMessage.content,
+        })
+        .returning();
+
+      return { conversation, message, isNew: true };
+    }
+
+    if (!isNew) {
+      // Existing conversation - fetch all messages
+      const existingMessages = await tx
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, conversation.id))
+        .orderBy(asc(messages.createdAt));
+
+      return { conversation, messages: existingMessages, isNew: false };
+    }
+
+    return { conversation, isNew: true };
   });
 }
 

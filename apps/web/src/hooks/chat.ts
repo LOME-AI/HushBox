@@ -26,7 +26,7 @@ export function useConversations(): ReturnType<typeof useQuery<Conversation[], E
   return useQuery({
     queryKey: chatKeys.conversations(),
     queryFn: async (): Promise<Conversation[]> => {
-      const response = await api.get<ConversationsResponse>('/conversations');
+      const response = await api.get<ConversationsResponse>('/api/conversations');
       return response.conversations;
     },
   });
@@ -36,7 +36,7 @@ export function useConversation(id: string): ReturnType<typeof useQuery<Conversa
   return useQuery({
     queryKey: chatKeys.conversation(id),
     queryFn: async (): Promise<Conversation> => {
-      const response = await api.get<ConversationResponse>(`/conversations/${id}`);
+      const response = await api.get<ConversationResponse>(`/api/conversations/${id}`);
       return response.conversation;
     },
     enabled: !!id,
@@ -47,7 +47,7 @@ export function useMessages(conversationId: string): ReturnType<typeof useQuery<
   return useQuery({
     queryKey: chatKeys.messages(conversationId),
     queryFn: async (): Promise<Message[]> => {
-      const response = await api.get<ConversationResponse>(`/conversations/${conversationId}`);
+      const response = await api.get<ConversationResponse>(`/api/conversations/${conversationId}`);
       return response.messages;
     },
     enabled: !!conversationId,
@@ -60,7 +60,7 @@ export function useCreateConversation(): ReturnType<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: CreateConversationRequest): Promise<CreateConversationResponse> => {
-      return api.post<CreateConversationResponse>('/conversations', data);
+      return api.post<CreateConversationResponse>('/api/conversations', data);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: chatKeys.conversations() });
@@ -84,7 +84,10 @@ export function useSendMessage(): ReturnType<
       conversationId: string;
       message: CreateMessageRequest;
     }): Promise<CreateMessageResponse> => {
-      return api.post<CreateMessageResponse>(`/conversations/${conversationId}/messages`, message);
+      return api.post<CreateMessageResponse>(
+        `/api/conversations/${conversationId}/messages`,
+        message
+      );
     },
     onSuccess: (data, variables) => {
       queryClient.setQueryData(
@@ -102,7 +105,7 @@ export function useDeleteConversation(): ReturnType<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (conversationId: string): Promise<DeleteConversationResponse> => {
-      return api.delete<DeleteConversationResponse>(`/conversations/${conversationId}`);
+      return api.delete<DeleteConversationResponse>(`/api/conversations/${conversationId}`);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: chatKeys.conversations() });
@@ -126,7 +129,7 @@ export function useUpdateConversation(): ReturnType<
       conversationId: string;
       data: UpdateConversationRequest;
     }): Promise<UpdateConversationResponse> => {
-      return api.patch<UpdateConversationResponse>(`/conversations/${conversationId}`, data);
+      return api.patch<UpdateConversationResponse>(`/api/conversations/${conversationId}`, data);
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({

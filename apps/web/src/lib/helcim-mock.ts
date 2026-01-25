@@ -8,6 +8,7 @@ declare global {
   interface Window {
     helcimProcess?: () => void;
   }
+  var helcimProcess: (() => void) | undefined;
 }
 
 export const MOCK_TEST_CARDS = {
@@ -24,7 +25,7 @@ export const MOCK_TEST_CARDS = {
 } as const;
 
 function setElementValue(id: string, value: string): void {
-  const el = document.getElementById(id) as HTMLInputElement | null;
+  const el = document.querySelector<HTMLInputElement>(`#${id}`);
   if (el) {
     el.value = value;
     el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -32,7 +33,7 @@ function setElementValue(id: string, value: string): void {
 }
 
 function getElementValue(id: string): string {
-  const el = document.getElementById(id) as HTMLInputElement | null;
+  const el = document.querySelector<HTMLInputElement>(`#${id}`);
   return el?.value ?? '';
 }
 
@@ -65,9 +66,9 @@ function mockHelcimProcess(): void {
 }
 
 export function installMockHelcim(): void {
-  window.helcimProcess = mockHelcimProcess;
+  globalThis.helcimProcess = mockHelcimProcess;
 }
 
 export function uninstallMockHelcim(): void {
-  delete window.helcimProcess;
+  globalThis.helcimProcess = undefined;
 }

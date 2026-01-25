@@ -3,7 +3,7 @@ import {
   envConfig,
   backendEnvSchema,
   frontendEnvSchema,
-  Dest,
+  Destination,
   Mode,
   isSecret,
   getDestinations,
@@ -14,18 +14,20 @@ describe('envConfig', () => {
   describe('DATABASE_URL', () => {
     it('has development value going to Backend + Scripts', () => {
       expect(getDestinations(envConfig.DATABASE_URL, Mode.Development)).toEqual([
-        Dest.Backend,
-        Dest.Scripts,
+        Destination.Backend,
+        Destination.Scripts,
       ]);
     });
 
     it('has ciVitest/ciE2E value going to Backend only (via ref)', () => {
-      expect(getDestinations(envConfig.DATABASE_URL, Mode.CiVitest)).toEqual([Dest.Backend]);
-      expect(getDestinations(envConfig.DATABASE_URL, Mode.CiE2E)).toEqual([Dest.Backend]);
+      expect(getDestinations(envConfig.DATABASE_URL, Mode.CiVitest)).toEqual([Destination.Backend]);
+      expect(getDestinations(envConfig.DATABASE_URL, Mode.CiE2E)).toEqual([Destination.Backend]);
     });
 
     it('has production secret going to Backend only', () => {
-      expect(getDestinations(envConfig.DATABASE_URL, Mode.Production)).toEqual([Dest.Backend]);
+      expect(getDestinations(envConfig.DATABASE_URL, Mode.Production)).toEqual([
+        Destination.Backend,
+      ]);
       const raw = resolveRaw(envConfig.DATABASE_URL, Mode.Production);
       expect(isSecret(raw)).toBe(true);
     });
@@ -33,7 +35,7 @@ describe('envConfig', () => {
 
   describe('NODE_ENV', () => {
     it('goes to Backend only', () => {
-      expect(envConfig.NODE_ENV.to).toEqual([Dest.Backend]);
+      expect(envConfig.NODE_ENV.to).toEqual([Destination.Backend]);
     });
 
     it('has development value', () => {
@@ -52,7 +54,7 @@ describe('envConfig', () => {
 
   describe('BETTER_AUTH_URL', () => {
     it('goes to Backend only', () => {
-      expect(envConfig.BETTER_AUTH_URL.to).toEqual([Dest.Backend]);
+      expect(envConfig.BETTER_AUTH_URL.to).toEqual([Destination.Backend]);
     });
 
     it('has dev and prod values', () => {
@@ -65,7 +67,7 @@ describe('envConfig', () => {
 
   describe('FRONTEND_URL', () => {
     it('goes to Backend only', () => {
-      expect(envConfig.FRONTEND_URL.to).toEqual([Dest.Backend]);
+      expect(envConfig.FRONTEND_URL.to).toEqual([Destination.Backend]);
     });
 
     it('has dev and prod values', () => {
@@ -76,7 +78,7 @@ describe('envConfig', () => {
 
   describe('CI flag', () => {
     it('goes to Backend only', () => {
-      expect(envConfig.CI.to).toEqual([Dest.Backend]);
+      expect(envConfig.CI.to).toEqual([Destination.Backend]);
     });
 
     it('is only set in CI environments', () => {
@@ -89,7 +91,7 @@ describe('envConfig', () => {
 
   describe('E2E flag', () => {
     it('goes to Backend only', () => {
-      expect(envConfig.E2E.to).toEqual([Dest.Backend]);
+      expect(envConfig.E2E.to).toEqual([Destination.Backend]);
     });
 
     it('is only set in ciE2E environment', () => {
@@ -102,7 +104,7 @@ describe('envConfig', () => {
 
   describe('BETTER_AUTH_SECRET', () => {
     it('goes to Backend only', () => {
-      expect(envConfig.BETTER_AUTH_SECRET.to).toEqual([Dest.Backend]);
+      expect(envConfig.BETTER_AUTH_SECRET.to).toEqual([Destination.Backend]);
     });
 
     it('has dev value and production secret', () => {
@@ -116,7 +118,7 @@ describe('envConfig', () => {
 
   describe('RESEND_API_KEY', () => {
     it('goes to Backend only', () => {
-      expect(envConfig.RESEND_API_KEY.to).toEqual([Dest.Backend]);
+      expect(envConfig.RESEND_API_KEY.to).toEqual([Destination.Backend]);
     });
 
     it('is only set in production (not in dev or CI)', () => {
@@ -130,7 +132,7 @@ describe('envConfig', () => {
 
   describe('OPENROUTER_API_KEY', () => {
     it('goes to Backend only', () => {
-      expect(envConfig.OPENROUTER_API_KEY.to).toEqual([Dest.Backend]);
+      expect(envConfig.OPENROUTER_API_KEY.to).toEqual([Destination.Backend]);
     });
 
     it('is only in ciVitest and production (NOT ciE2E)', () => {
@@ -143,7 +145,7 @@ describe('envConfig', () => {
 
   describe('HELCIM_API_TOKEN', () => {
     it('goes to Backend only', () => {
-      expect(envConfig.HELCIM_API_TOKEN.to).toEqual([Dest.Backend]);
+      expect(envConfig.HELCIM_API_TOKEN.to).toEqual([Destination.Backend]);
     });
 
     it('is only in ciE2E and production (NOT ciVitest)', () => {
@@ -164,7 +166,7 @@ describe('envConfig', () => {
 
   describe('HELCIM_WEBHOOK_VERIFIER', () => {
     it('goes to Backend only', () => {
-      expect(envConfig.HELCIM_WEBHOOK_VERIFIER.to).toEqual([Dest.Backend]);
+      expect(envConfig.HELCIM_WEBHOOK_VERIFIER.to).toEqual([Destination.Backend]);
     });
 
     it('has mock value for development (for local webhook testing)', () => {
@@ -185,7 +187,7 @@ describe('envConfig', () => {
 
   describe('VITE_API_URL', () => {
     it('goes to Frontend only', () => {
-      expect(envConfig.VITE_API_URL.to).toEqual([Dest.Frontend]);
+      expect(envConfig.VITE_API_URL.to).toEqual([Destination.Frontend]);
     });
 
     it('has dev and prod values', () => {
@@ -196,7 +198,7 @@ describe('envConfig', () => {
 
   describe('VITE_HELCIM_JS_TOKEN', () => {
     it('goes to Frontend only', () => {
-      expect(envConfig.VITE_HELCIM_JS_TOKEN.to).toEqual([Dest.Frontend]);
+      expect(envConfig.VITE_HELCIM_JS_TOKEN.to).toEqual([Destination.Frontend]);
     });
 
     it('is only in ciE2E and production', () => {
@@ -209,7 +211,7 @@ describe('envConfig', () => {
 
   describe('VITE_CI', () => {
     it('goes to Frontend only', () => {
-      expect(envConfig.VITE_CI.to).toEqual([Dest.Frontend]);
+      expect(envConfig.VITE_CI.to).toEqual([Destination.Frontend]);
     });
 
     it('is only set in CI environments', () => {
@@ -222,7 +224,7 @@ describe('envConfig', () => {
 
   describe('MIGRATION_DATABASE_URL', () => {
     it('goes to Scripts only', () => {
-      expect(envConfig.MIGRATION_DATABASE_URL.to).toEqual([Dest.Scripts]);
+      expect(envConfig.MIGRATION_DATABASE_URL.to).toEqual([Destination.Scripts]);
     });
 
     it('has development value', () => {

@@ -22,6 +22,7 @@ interface StableContentProps {
  *
  * Does NOT add any animation - components choose their own animation strategy.
  */
+// eslint-disable-next-line sonarjs/function-return-type -- returns children/skeleton (ReactNode) or null or JSX
 export function StableContent({
   isStable,
   children,
@@ -29,7 +30,7 @@ export function StableContent({
   preserveLayout = false,
   className,
   'data-testid': testId,
-}: StableContentProps): React.ReactNode {
+}: Readonly<StableContentProps>): React.ReactNode {
   // Show skeleton while loading (if provided)
   if (!isStable && skeleton) {
     return skeleton;

@@ -8,9 +8,9 @@ export default defineConfig({
   forbidOnly: isCI,
   retries: isCI ? 2 : 1,
   workers: isCI ? 2 : 4,
-  timeout: 45_000,
+  timeout: 30_000,
   expect: {
-    timeout: 15_000,
+    timeout: 10_000,
   },
   reporter: isCI ? [['github'], ['html', { open: 'never' }]] : [['html', { open: 'on-failure' }]],
   use: {
@@ -27,7 +27,7 @@ export default defineConfig({
     },
     {
       command: 'pnpm --filter @lome-chat/api dev',
-      url: 'http://localhost:8787/health',
+      url: 'http://localhost:8787/api/health',
       reuseExistingServer: !process.env['CI'],
     },
   ],

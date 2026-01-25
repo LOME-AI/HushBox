@@ -47,7 +47,7 @@ export class ChatPage {
     await expect(this.messageInput).toHaveValue('');
   }
 
-  async waitForConversation(timeout = 15000): Promise<string> {
+  async waitForConversation(timeout = 10_000): Promise<string> {
     await expect(this.page).toHaveURL(/\/chat\/[a-f0-9-]+(\?.*)?$/, { timeout });
     const url = new URL(this.page.url());
     return url.pathname.split('/').pop() ?? '';
@@ -69,7 +69,7 @@ export class ChatPage {
     await expect(this.suggestionChips).toBeVisible();
   }
 
-  async waitForAIResponse(expectedContent?: string, timeout = 15000): Promise<void> {
+  async waitForAIResponse(expectedContent?: string, timeout = 10_000): Promise<void> {
     const assistantMessages = this.messageList.locator('[data-role="assistant"]');
 
     if (expectedContent) {
@@ -130,5 +130,64 @@ export class ChatPage {
     await nonPremiumModel.dblclick();
 
     await expect(modal).not.toBeVisible();
+  }
+
+  async findOverflowingElements(): Promise<string[]> {
+    return this.page.evaluate(() => {
+      const skipPattern = /sr-only|truncate|overflow-hidden/;
+      return [...document.querySelectorAll('*')]
+        .map((element) => {
+          const el = element as HTMLElement;
+          const overflow = el.scrollWidth - el.clientWidth;
+          return { el, overflow };
+        })
+        .filter(({ el, overflow }) => overflow > 100 && el.clientWidth > 0)
+        .filter(({ el }) => !skipPattern.test(el.className))
+        .map(({ el, overflow }) => {
+          const tag = el.tagName.toLowerCase();
+          const id = el.id ? `#${el.id}` : '';
+          const cls = el.className ? `.${el.className.replaceAll(/\s+/g, '.')}` : '';
+          const testId = el.dataset['testid'] ? `[data-testid="${el.dataset['testid']}"]` : '';
+          const slot = el.dataset['slot'] ? `[data-slot="${el.dataset['slot']}"]` : '';
+          return `${tag}${id}${testId}${slot} overflow:${String(overflow)} scrollW:${String(el.scrollWidth)} clientW:${String(el.clientWidth)}\n  classes: ${cls.slice(0, 200)}`;
+        });
+    });
+  }
+
+  async getViewportWidth(): Promise<number> {
+    return this.page.evaluate(() => window.innerWidth);
+  }
+
+  async getDocumentDimensions(): Promise<{ scrollWidth: number; clientWidth: number }> {
+    return this.page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+  }
+
+  async getLastUserMessagePosition(): Promise<{
+    top: number;
+    viewportTop: number;
+    viewportHeight: number;
+  }> {
+    const lastUserMessage = this.messageList.locator('[data-role="user"]').last();
+    const messageRect = await lastUserMessage.boundingBox();
+    const viewportRect = await this.viewport.boundingBox();
+
+    if (!messageRect || !viewportRect) {
+      throw new Error('Could not get bounding boxes');
+    }
+
+    return {
+      top: messageRect.y - viewportRect.y,
+      viewportTop: viewportRect.y,
+      viewportHeight: viewportRect.height,
+    };
+  }
+
+  async scrollToBottom(): Promise<void> {
+    await this.viewport.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
   }
 }

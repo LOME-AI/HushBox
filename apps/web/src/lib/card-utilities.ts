@@ -11,16 +11,16 @@
  * @returns true if the card number passes Luhn validation
  */
 export function isValidLuhn(cardNumber: string): boolean {
-  const digits = cardNumber.replace(/\D/g, '');
+  const digits = cardNumber.replaceAll(/\D/g, '');
   if (digits.length === 0) return false;
 
   let sum = 0;
   let isEven = false;
 
-  for (let i = digits.length - 1; i >= 0; i--) {
-    const char = digits[i];
+  for (let index = digits.length - 1; index >= 0; index--) {
+    const char = digits[index];
     if (char === undefined) continue;
-    let digit = parseInt(char, 10);
+    let digit = Number.parseInt(char, 10);
 
     if (isEven) {
       digit *= 2;
@@ -43,9 +43,9 @@ export function isValidLuhn(cardNumber: string): boolean {
  * @returns Formatted card number (max 19 characters)
  */
 export function formatCardNumber(value: string): string {
-  const cleaned = value.replace(/\D/g, '');
+  const cleaned = value.replaceAll(/\D/g, '');
   const groups = cleaned.match(/.{1,4}/g);
-  return groups ? groups.join(' ').substring(0, 19) : '';
+  return groups ? groups.join(' ').slice(0, 19) : '';
 }
 
 /**
@@ -55,7 +55,7 @@ export function formatCardNumber(value: string): string {
  * @returns Formatted expiry date
  */
 export function formatExpiry(value: string): string {
-  const cleaned = value.replace(/\D/g, '');
+  const cleaned = value.replaceAll(/\D/g, '');
   if (cleaned.length >= 3) {
     return `${cleaned.slice(0, 2)} / ${cleaned.slice(2, 4)}`;
   }
@@ -69,7 +69,7 @@ export function formatExpiry(value: string): string {
  * @returns Formatted CVV (max 4 digits)
  */
 export function formatCvv(value: string): string {
-  return value.replace(/\D/g, '').slice(0, 4);
+  return value.replaceAll(/\D/g, '').slice(0, 4);
 }
 
 /**
@@ -80,7 +80,7 @@ export function formatCvv(value: string): string {
  * @returns Formatted ZIP code
  */
 export function formatZip(value: string): string {
-  return value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10);
+  return value.replaceAll(/[^a-zA-Z0-9]/g, '').slice(0, 10);
 }
 
 /**
@@ -90,7 +90,7 @@ export function formatZip(value: string): string {
  * @returns Error message or null if valid
  */
 export function validateCardNumber(cardNumber: string): string | null {
-  const cleaned = cardNumber.replace(/\s/g, '');
+  const cleaned = cardNumber.replaceAll(/\s/g, '');
   if (cleaned.length === 0) return 'Card number is required';
   if (cleaned.length < 13) return 'Card number must be at least 13 digits';
   if (cleaned.length > 19) return 'Card number is too long';
@@ -107,13 +107,13 @@ export function validateCardNumber(cardNumber: string): string | null {
  */
 export function validateExpiry(expiry: string): string | null {
   if (expiry.length === 0) return 'Expiry date is required';
-  if (!/^\d{2}\s\/\s\d{2}$/.exec(expiry)) return 'Format: MM / YY';
+  if (!/^\d{2}\s\/\s\d{2}$/.test(expiry)) return 'Format: MM / YY';
 
   const parts = expiry.split(' / ');
-  const monthStr = parts[0] ?? '';
-  const yearStr = parts[1] ?? '';
-  const month = parseInt(monthStr, 10);
-  const year = parseInt(yearStr, 10);
+  const monthString = parts[0] ?? '';
+  const yearString = parts[1] ?? '';
+  const month = Number.parseInt(monthString, 10);
+  const year = Number.parseInt(yearString, 10);
 
   if (month < 1 || month > 12) return 'Invalid month';
 

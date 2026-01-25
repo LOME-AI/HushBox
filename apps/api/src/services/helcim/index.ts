@@ -1,4 +1,4 @@
-import { createEnvUtils, type EnvContext } from '@lome-chat/shared';
+import { createEnvUtilities, type EnvContext } from '@lome-chat/shared';
 import type { HelcimClient } from './types.js';
 import { createMockHelcimClient } from './mock.js';
 import { createHelcimClient } from './helcim.js';
@@ -26,7 +26,7 @@ interface HelcimEnv extends EnvContext {
  * - CI/Production: Requires real credentials, fails fast if missing
  */
 export function getHelcimClient(env: HelcimEnv): HelcimClient {
-  const { isLocalDev } = createEnvUtils(env);
+  const { isLocalDev } = createEnvUtilities(env);
 
   if (isLocalDev) {
     if (!env.BETTER_AUTH_URL || !env.HELCIM_WEBHOOK_VERIFIER) {

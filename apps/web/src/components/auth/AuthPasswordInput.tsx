@@ -11,11 +11,11 @@ export function AuthPasswordInput({
   label,
   className,
   ...props
-}: AuthPasswordInputProps): React.JSX.Element {
+}: Readonly<AuthPasswordInputProps>): React.JSX.Element {
   const [showPassword, setShowPassword] = useState(false);
 
   function toggleVisibility(): void {
-    setShowPassword((prev) => !prev);
+    setShowPassword((previous) => !previous);
   }
 
   const visibilityToggle = (

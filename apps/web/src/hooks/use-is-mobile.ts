@@ -8,12 +8,12 @@ const MOBILE_BREAKPOINT = 768; // Tailwind md: breakpoint
  */
 export function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = React.useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.matchMedia(`(max-width: ${String(MOBILE_BREAKPOINT - 1)}px)`).matches;
+    if (!('window' in globalThis)) return false;
+    return globalThis.matchMedia(`(max-width: ${String(MOBILE_BREAKPOINT - 1)}px)`).matches;
   });
 
   React.useEffect(() => {
-    const mediaQuery = window.matchMedia(`(max-width: ${String(MOBILE_BREAKPOINT - 1)}px)`);
+    const mediaQuery = globalThis.matchMedia(`(max-width: ${String(MOBILE_BREAKPOINT - 1)}px)`);
     const handler = (e: MediaQueryListEvent): void => {
       setIsMobile(e.matches);
     };

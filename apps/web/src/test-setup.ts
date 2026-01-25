@@ -1,4 +1,15 @@
 import '@testing-library/jest-dom/vitest';
+import { webcrypto } from 'node:crypto';
+
+// Polyfill crypto.getRandomValues for Node.js test environment
+// jsdom provides crypto but without getRandomValues - must override before each test
+beforeAll(() => {
+  Object.defineProperty(globalThis, 'crypto', {
+    value: webcrypto,
+    writable: true,
+    configurable: true,
+  });
+});
 
 // Global mock for stability provider - provides a stable state by default
 // Individual tests can override this via vi.mock() if they need different behavior
@@ -23,7 +34,7 @@ class ResizeObserverMock {
     /* noop */
   }
 }
-window.ResizeObserver = ResizeObserverMock;
+globalThis.ResizeObserver = ResizeObserverMock;
 
 // Polyfills for Radix UI components (Select, etc.)
 if (typeof Element.prototype.hasPointerCapture !== 'function') {
@@ -56,13 +67,13 @@ const localStorageMock: Storage = {
   length: 0,
   key: vi.fn(() => null),
 };
-Object.defineProperty(window, 'localStorage', {
+Object.defineProperty(globalThis, 'localStorage', {
   value: localStorageMock,
   writable: true,
 });
 
 // Polyfill for matchMedia
-Object.defineProperty(window, 'matchMedia', {
+Object.defineProperty(globalThis, 'matchMedia', {
   writable: true,
   value: (query: string): MediaQueryList => ({
     matches: false,

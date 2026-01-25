@@ -1,5 +1,5 @@
 /** Destinations for environment variables */
-export enum Dest {
+export enum Destination {
   Backend = 'backend', // → .dev.vars (local) / wrangler.toml + secrets (prod)
   Frontend = 'frontend', // → .env.development (Vite, VITE_* vars only)
   Scripts = 'scripts', // → .env.scripts (migrations, seed, etc.)
@@ -32,11 +32,11 @@ export interface Secret {
 export type EnvValue = string | Ref | Secret;
 
 /** Mode value: just a value (uses default `to`) or value with destination override */
-export type ModeValue = EnvValue | { value: EnvValue; to: Dest[] };
+export type ModeValue = EnvValue | { value: EnvValue; to: Destination[] };
 
 /** Configuration for a single environment variable */
-export interface VarConfig {
-  readonly to: Dest[]; // default destinations
+export interface VariableConfig {
+  readonly to: Destination[]; // default destinations
   readonly [Mode.Development]?: ModeValue;
   readonly [Mode.CiVitest]?: ModeValue;
   readonly [Mode.CiE2E]?: ModeValue;
@@ -55,11 +55,11 @@ export const isSecret = (v: unknown): v is Secret =>
   v !== null &&
   '_type' in v &&
   (v as { _type: unknown })._type === 'secret';
-export const isModeOverride = (v: unknown): v is { value: EnvValue; to: Dest[] } =>
+export const isModeOverride = (v: unknown): v is { value: EnvValue; to: Destination[] } =>
   typeof v === 'object' && v !== null && 'value' in v && 'to' in v;
 
 /** Get destinations for a specific mode (uses override or default) */
-export function getDestinations(config: VarConfig, mode: EnvMode): Dest[] {
+export function getDestinations(config: VariableConfig, mode: EnvMode): Destination[] {
   const modeValue = config[mode];
   if (modeValue === undefined) return [];
   if (isModeOverride(modeValue)) return modeValue.to;
@@ -67,7 +67,8 @@ export function getDestinations(config: VarConfig, mode: EnvMode): Dest[] {
 }
 
 /** Get the raw EnvValue for a mode (unwraps override object) */
-export function getModeValue(config: VarConfig, mode: EnvMode): EnvValue | undefined {
+// eslint-disable-next-line sonarjs/function-return-type -- intentional optional return
+export function getModeValue(config: VariableConfig, mode: EnvMode): EnvValue | undefined {
   const modeValue = config[mode];
   if (modeValue === undefined) return undefined;
   if (isModeOverride(modeValue)) return modeValue.value;
@@ -75,7 +76,8 @@ export function getModeValue(config: VarConfig, mode: EnvMode): EnvValue | undef
 }
 
 /** Resolve a value, following refs (returns string or Secret, never Ref) */
-export function resolveRaw(config: VarConfig, mode: EnvMode): string | Secret | undefined {
+// eslint-disable-next-line sonarjs/function-return-type -- intentional optional return
+export function resolveRaw(config: VariableConfig, mode: EnvMode): string | Secret | undefined {
   const raw = getModeValue(config, mode);
   if (raw === undefined) return undefined;
   if (isRef(raw)) return resolveRaw(config, raw.env);
@@ -84,7 +86,7 @@ export function resolveRaw(config: VarConfig, mode: EnvMode): string | Secret | 
 
 /** Resolve to final string value */
 export function resolveValue(
-  config: VarConfig,
+  config: VariableConfig,
   mode: EnvMode,
   getSecret: (name: string) => string
 ): string | null {
@@ -96,7 +98,7 @@ export function resolveValue(
 }
 
 /** Check if production value resolves to a secret */
-export function isProductionSecret(config: VarConfig): boolean {
+export function isProductionSecret(config: VariableConfig): boolean {
   const raw = resolveRaw(config, Mode.Production);
   return raw !== undefined && isSecret(raw);
 }

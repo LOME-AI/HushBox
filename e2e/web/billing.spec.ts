@@ -6,17 +6,12 @@ const isCI = Boolean(process.env['CI']);
 
 test.describe('Billing & Payments', () => {
   test.describe('Billing Page', () => {
-    test('displays balance and add credits button', async ({ authenticatedPage }) => {
+    test('displays balance and opens payment modal', async ({ authenticatedPage }) => {
       const billingPage = new BillingPage(authenticatedPage);
       await billingPage.goto();
 
       await billingPage.expectBalanceVisible();
       await expect(billingPage.addCreditsButton).toBeVisible();
-    });
-
-    test('opens payment modal when clicking Add Credits', async ({ authenticatedPage }) => {
-      const billingPage = new BillingPage(authenticatedPage);
-      await billingPage.goto();
 
       await billingPage.openPaymentModal();
       await expect(billingPage.amountInput).toBeVisible();
@@ -94,11 +89,11 @@ test.describe('Billing & Payments', () => {
     );
 
     // Increase timeout for real payment tests (webhook may take time)
-    test.setTimeout(60000);
+    test.setTimeout(60_000);
 
     test('completes full payment flow: card → API → webhook → balance', async ({
       billingSuccessPage,
-    }) => {
+    }, testInfo) => {
       // This test verifies the COMPLETE payment flow including:
       // 1. Card tokenization via Helcim.js
       // 2. Payment processing via Helcim API
@@ -115,14 +110,14 @@ test.describe('Billing & Payments', () => {
       await billingPage.enterAmount('5');
 
       // devdocs.helcim.com/docs/test-credit-card-numbers
-      await billingPage.fillCardDetails(
-        '4124939999999990',
-        '01/28',
-        '100',
-        'Test User',
-        '123 Test Street',
-        '12345'
-      );
+      await billingPage.fillCardDetails({
+        cardNumber: '4124939999999990',
+        expiry: '01/28',
+        cvv: '100',
+        cardHolderName: 'Test User',
+        billingAddress: '123 Test Street',
+        zip: '12345',
+      });
 
       await billingPage.submitPayment();
 
@@ -134,11 +129,18 @@ test.describe('Billing & Payments', () => {
       try {
         await billingPage.expectPaymentSuccess();
       } catch (error) {
-        console.log('\n=== E2E DIAGNOSTIC REPORT (full payment flow) ===');
-        console.log('\nUI State:');
-        console.log(JSON.stringify(await billingPage.captureCurrentState(), null, 2));
-        console.log('\nAPI Responses & Console Logs:');
-        console.log(billingPage.getDiagnosticReport());
+        await testInfo.attach('diagnostic-report-full-payment', {
+          body: JSON.stringify(
+            {
+              context: 'full payment flow',
+              uiState: await billingPage.captureCurrentState(),
+              apiResponses: billingPage.getDiagnosticReport(),
+            },
+            null,
+            2
+          ),
+          contentType: 'application/json',
+        });
         throw error;
       }
 
@@ -146,13 +148,13 @@ test.describe('Billing & Payments', () => {
       await billingPage.goto();
 
       // Poll for balance update (webhook may take a few seconds)
-      await billingPage.waitForWebhookConfirmation(initialBalance, 5, 30000);
+      await billingPage.waitForWebhookConfirmation(initialBalance, 5, 30_000);
 
       const newBalance = await billingPage.getBalance();
       expect(newBalance).toBe(initialBalance + 5);
     });
 
-    test('handles declined card', async ({ authenticatedPage }) => {
+    test('handles declined card', async ({ authenticatedPage }, testInfo) => {
       const billingPage = new BillingPage(authenticatedPage);
       billingPage.enableDiagnostics();
       await billingPage.goto();
@@ -161,35 +163,40 @@ test.describe('Billing & Payments', () => {
       await billingPage.enterAmount('5');
 
       // CVV 200 = decline (devdocs.helcim.com/docs/testing-declines-and-avs)
-      await billingPage.fillCardDetails(
-        '4124939999999990',
-        '01/28',
-        '200',
-        'Test User',
-        '123 Test Street',
-        '12345'
-      );
+      await billingPage.fillCardDetails({
+        cardNumber: '4124939999999990',
+        expiry: '01/28',
+        cvv: '200',
+        cardHolderName: 'Test User',
+        billingAddress: '123 Test Street',
+        zip: '12345',
+      });
 
       await billingPage.submitPayment();
 
       try {
         await billingPage.expectPaymentError();
       } catch (error) {
-        console.log('\n=== E2E DIAGNOSTIC REPORT (declined card) ===');
-        console.log('\nUI State:');
-        console.log(JSON.stringify(await billingPage.captureCurrentState(), null, 2));
-        console.log('\nAPI Responses & Console Logs:');
-        console.log(billingPage.getDiagnosticReport());
+        await testInfo.attach('diagnostic-report-declined-card', {
+          body: JSON.stringify(
+            {
+              context: 'declined card',
+              uiState: await billingPage.captureCurrentState(),
+              apiResponses: billingPage.getDiagnosticReport(),
+            },
+            null,
+            2
+          ),
+          contentType: 'application/json',
+        });
         throw error;
       }
     });
 
-    test('verifies webhook signature is validated (real Helcim signature)', async ({
-      billingSuccessPage2,
-    }) => {
+    test('validates real Helcim webhook signature', async ({ billingSuccessPage2 }, testInfo) => {
       // This test ensures that:
       // 1. Real Helcim sends a properly signed webhook
-      // 2. Our verifyWebhookSignatureAsync correctly validates it
+      // 2. Our webhook signature validation correctly checks it
       // 3. If signature verification failed, balance would NOT update
       //
       // The fact that balance updates proves signature verification passed.
@@ -201,32 +208,39 @@ test.describe('Billing & Payments', () => {
 
       await billingPage.openPaymentModal();
       await billingPage.enterAmount('5');
-      await billingPage.fillCardDetails(
-        '4124939999999990',
-        '01/28',
-        '100',
-        'Test User',
-        '123 Test Street',
-        '12345'
-      );
+      await billingPage.fillCardDetails({
+        cardNumber: '4124939999999990',
+        expiry: '01/28',
+        cvv: '100',
+        cardHolderName: 'Test User',
+        billingAddress: '123 Test Street',
+        zip: '12345',
+      });
       await billingPage.submitPayment();
 
       try {
         await billingPage.expectPaymentSuccess();
       } catch (error) {
-        console.log('\n=== E2E DIAGNOSTIC REPORT (webhook signature) ===');
-        console.log('\nUI State:');
-        console.log(JSON.stringify(await billingPage.captureCurrentState(), null, 2));
-        console.log('\nAPI Responses & Console Logs:');
-        console.log(billingPage.getDiagnosticReport());
+        await testInfo.attach('diagnostic-report-webhook-signature', {
+          body: JSON.stringify(
+            {
+              context: 'webhook signature validation',
+              uiState: await billingPage.captureCurrentState(),
+              apiResponses: billingPage.getDiagnosticReport(),
+            },
+            null,
+            2
+          ),
+          contentType: 'application/json',
+        });
         throw error;
       }
 
       await billingPage.goto();
 
       // If webhook signature verification failed, this would timeout
-      // because processWebhookCredit would never be called
-      await billingPage.waitForWebhookConfirmation(initialBalance, 5, 30000);
+      // because the webhook credit processing would never be called
+      await billingPage.waitForWebhookConfirmation(initialBalance, 5, 30_000);
 
       // Balance updated = webhook was received AND signature was valid
       const newBalance = await billingPage.getBalance();

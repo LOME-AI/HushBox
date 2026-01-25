@@ -4,7 +4,7 @@
  * to test the full payment flow without real Helcim.
  */
 
-const WEBHOOK_PAYMENT_PATH = '/webhooks/payment';
+const WEBHOOK_PAYMENT_PATH = '/api/webhooks/payment';
 const MOCK_WEBHOOK_DELAY_MS = 1000;
 
 export interface MockWebhookConfig {
@@ -19,6 +19,7 @@ interface MockWebhookPayload {
   id: string;
 }
 
+// eslint-disable-next-line no-secrets/no-secrets -- Function name reference, not a secret
 /**
  * Generate HMAC-SHA256 signature matching Helcim's webhook format.
  * Uses the same algorithm as verifyWebhookSignatureAsync in helcim.ts.
@@ -32,7 +33,7 @@ export async function generateWebhookSignature(
   const encoder = new TextEncoder();
   const message = `${webhookId}.${timestamp}.${payload}`;
 
-  const secretBytes = Uint8Array.from(atob(webhookVerifier), (c) => c.charCodeAt(0));
+  const secretBytes = Uint8Array.from(atob(webhookVerifier), (c) => c.codePointAt(0) ?? 0);
 
   const key = await crypto.subtle.importKey(
     'raw',
@@ -43,7 +44,7 @@ export async function generateWebhookSignature(
   );
 
   const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+  const signature = btoa(String.fromCodePoint(...new Uint8Array(signatureBuffer)));
 
   return `v1,${signature}`;
 }
@@ -92,10 +93,10 @@ async function sendMockWebhook(
       body: payloadString,
     });
 
-    if (!response.ok) {
-      console.error(`[MockWebhook] Failed: ${String(response.status)} ${response.statusText}`);
-    } else {
+    if (response.ok) {
       console.log(`[MockWebhook] Delivered for transactionId=${transactionId}`);
+    } else {
+      console.error(`[MockWebhook] Failed: ${String(response.status)} ${response.statusText}`);
     }
   } catch (error) {
     console.error('[MockWebhook] Error:', error);

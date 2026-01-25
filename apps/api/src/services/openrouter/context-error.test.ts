@@ -10,9 +10,9 @@ describe('parseContextLengthError', () => {
       const result = parseContextLengthError(message);
 
       expect(result).toEqual({
-        maxContext: 204800,
+        maxContext: 204_800,
         textInput: 65,
-        requestedOutput: 4262408,
+        requestedOutput: 4_262_408,
       });
     });
 
@@ -23,9 +23,9 @@ describe('parseContextLengthError', () => {
       const result = parseContextLengthError(message);
 
       expect(result).toEqual({
-        maxContext: 128000,
-        textInput: 10000,
-        requestedOutput: 140000,
+        maxContext: 128_000,
+        textInput: 10_000,
+        requestedOutput: 140_000,
       });
     });
   });
@@ -39,8 +39,8 @@ describe('parseContextLengthError', () => {
 
       // We extract text input and output, image input is ignored (included in total)
       expect(result).toEqual({
-        maxContext: 200000,
-        textInput: 223654,
+        maxContext: 200_000,
+        textInput: 223_654,
         requestedOutput: 8192,
       });
     });
@@ -54,9 +54,9 @@ describe('parseContextLengthError', () => {
       const result = parseContextLengthError(message);
 
       expect(result).toEqual({
-        maxContext: 200000,
-        textInput: 4945291,
-        requestedOutput: 80000,
+        maxContext: 200_000,
+        textInput: 4_945_291,
+        requestedOutput: 80_000,
       });
     });
   });
@@ -103,9 +103,9 @@ Please reduce the length of either one.`;
       const result = parseContextLengthError(message);
 
       expect(result).toEqual({
-        maxContext: 204800,
+        maxContext: 204_800,
         textInput: 65,
-        requestedOutput: 4262408,
+        requestedOutput: 4_262_408,
       });
     });
 
@@ -116,9 +116,9 @@ Please reduce the length of either one.`;
       const result = parseContextLengthError(message);
 
       expect(result).toEqual({
-        maxContext: 204800,
+        maxContext: 204_800,
         textInput: 65,
-        requestedOutput: 4262408,
+        requestedOutput: 4_262_408,
       });
     });
   });

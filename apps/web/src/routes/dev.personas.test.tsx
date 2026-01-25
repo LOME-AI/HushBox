@@ -21,8 +21,8 @@ const mockUseSearch = vi.fn<() => { type?: string }>();
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: vi.fn(() => vi.fn()),
   useNavigate: vi.fn(() => mockNavigate),
-  redirect: vi.fn((opts: { to: string }) => {
-    throw new RedirectError(opts.to);
+  redirect: vi.fn((options: { to: string }) => {
+    throw new RedirectError(options.to);
   }),
   useSearch: (): { type?: string } => mockUseSearch(),
 }));
@@ -299,7 +299,7 @@ describe('PersonasPage', () => {
     });
 
     it('shows generic error toast when signIn throws network error', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(signIn.email).mockRejectedValue(new Error('Network error'));
       const user = userEvent.setup();
       const { PersonasPage } = await import('./dev.personas');
@@ -317,7 +317,7 @@ describe('PersonasPage', () => {
     });
 
     it('clears loading state after network error', async () => {
-      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(signIn.email).mockRejectedValue(new Error('Network error'));
       const user = userEvent.setup();
       const { PersonasPage } = await import('./dev.personas');
@@ -332,8 +332,8 @@ describe('PersonasPage', () => {
     });
 
     it('shows loading state while authenticating', async () => {
-      type ResolveFunc = (value: unknown) => void;
-      let resolveSignIn: ResolveFunc | undefined;
+      type ResolveFunction = (value: unknown) => void;
+      let resolveSignIn: ResolveFunction | undefined;
       const signInPromise = new Promise((resolve) => {
         resolveSignIn = resolve;
       });
@@ -356,8 +356,8 @@ describe('PersonasPage', () => {
     });
 
     it('disables all cards while one is loading', async () => {
-      type ResolveFunc = (value: unknown) => void;
-      let resolveSignIn: ResolveFunc | undefined;
+      type ResolveFunction = (value: unknown) => void;
+      let resolveSignIn: ResolveFunction | undefined;
       const signInPromise = new Promise((resolve) => {
         resolveSignIn = resolve;
       });

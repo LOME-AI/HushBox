@@ -13,7 +13,7 @@ export function PaymentModal({
   open,
   onOpenChange,
   onSuccess,
-}: PaymentModalProps): React.JSX.Element | null {
+}: Readonly<PaymentModalProps>): React.JSX.Element | null {
   const isMobile = useIsMobile();
 
   const handleSuccess = (newBalance: string): void => {

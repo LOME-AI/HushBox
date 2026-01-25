@@ -24,8 +24,9 @@ import { useBalance } from '@/hooks/billing';
 const mockedUseSession = vi.mocked(useSession);
 const mockedUseBalance = vi.mocked(useBalance);
 
-function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
-  function Wrapper({ children }: { children: ReactNode }): ReactNode {
+function createWrapper(): ({ children }: Readonly<{ children: ReactNode }>) => ReactNode {
+  // eslint-disable-next-line sonarjs/function-return-type -- test wrapper returns children
+  function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
     return <StabilityProvider>{children}</StabilityProvider>;
   }
   return Wrapper;

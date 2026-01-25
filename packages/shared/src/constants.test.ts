@@ -139,7 +139,7 @@ describe('Storage Fee Constants', () => {
     });
 
     it('defines KILOBYTES_PER_GIGABYTE as 1000000', () => {
-      expect(KILOBYTES_PER_GIGABYTE).toBe(1000000);
+      expect(KILOBYTES_PER_GIGABYTE).toBe(1_000_000);
     });
 
     it('defines MONTHLY_COST_PER_GB as 0.5', () => {
@@ -165,7 +165,7 @@ describe('Storage Fee Constants', () => {
     });
 
     it('equals $0.0000003 per character', () => {
-      expect(STORAGE_COST_PER_CHARACTER).toBeCloseTo(0.0000003, 10);
+      expect(STORAGE_COST_PER_CHARACTER).toBeCloseTo(0.000_000_3, 10);
     });
 
     it('calculates to $0.0003 per 1k characters', () => {
@@ -179,7 +179,7 @@ describe('Storage Fee Constants', () => {
       const totalChars = dollarsAvailable / STORAGE_COST_PER_CHARACTER;
       const messageCount = totalChars / charsPerMessage;
 
-      expect(messageCount).toBeGreaterThan(16000);
+      expect(messageCount).toBeGreaterThan(16_000);
     });
   });
 

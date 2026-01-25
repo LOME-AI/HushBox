@@ -1,4 +1,4 @@
-import { createEnvUtils, type EnvContext } from '@lome-chat/shared';
+import { createEnvUtilities, type EnvContext } from '@lome-chat/shared';
 import type { EmailClient } from './types.js';
 import { createConsoleEmailClient } from './console.js';
 import { createResendEmailClient } from './resend.js';
@@ -20,7 +20,7 @@ interface EmailEnv extends EnvContext {
  * - Production: Requires real Resend credentials, fails fast if missing
  */
 export function getEmailClient(env: EmailEnv): EmailClient {
-  const { isLocalDev, isCI } = createEnvUtils(env);
+  const { isLocalDev, isCI } = createEnvUtilities(env);
 
   // Local dev uses console for dev UX (shows verification links)
   // CI uses console to avoid real email sending during tests

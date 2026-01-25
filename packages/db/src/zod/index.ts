@@ -6,6 +6,7 @@ import {
   conversations,
   messages,
   projects,
+  serviceEvidence,
   sessions,
   users,
   verifications,
@@ -19,6 +20,7 @@ export const selectVerificationSchema = createSelectSchema(verifications);
 export const selectConversationSchema = createSelectSchema(conversations);
 export const selectMessageSchema = createSelectSchema(messages);
 export const selectProjectSchema = createSelectSchema(projects);
+export const selectServiceEvidenceSchema = createSelectSchema(serviceEvidence);
 
 // Insert schemas (writing to DB)
 export const insertUserSchema = createInsertSchema(users);
@@ -28,6 +30,7 @@ export const insertVerificationSchema = createInsertSchema(verifications);
 export const insertConversationSchema = createInsertSchema(conversations);
 export const insertMessageSchema = createInsertSchema(messages);
 export const insertProjectSchema = createInsertSchema(projects);
+export const insertServiceEvidenceSchema = createInsertSchema(serviceEvidence);
 
 // Type exports (using orthodox z.infer pattern)
 export type User = z.infer<typeof selectUserSchema>;
@@ -44,3 +47,5 @@ export type Message = z.infer<typeof selectMessageSchema>;
 export type NewMessage = z.infer<typeof insertMessageSchema>;
 export type Project = z.infer<typeof selectProjectSchema>;
 export type NewProject = z.infer<typeof insertProjectSchema>;
+export type ServiceEvidence = z.infer<typeof selectServiceEvidenceSchema>;
+export type NewServiceEvidence = z.infer<typeof insertServiceEvidenceSchema>;

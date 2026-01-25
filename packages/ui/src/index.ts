@@ -75,4 +75,4 @@ export { Checkbox } from './components/checkbox';
 export { ModalOverlay, type ModalOverlayProps } from './components/modal-overlay';
 
 // Utilities
-export { cn } from './lib/utils';
+export { cn } from './lib/utilities';

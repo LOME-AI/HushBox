@@ -66,7 +66,7 @@ vi.mock('@/lib/auth', () => ({
       session: { id: 'session-123' },
     },
   }),
-  signOutAndClearCache: vi.fn().mockResolvedValue(undefined),
+  signOutAndClearCache: vi.fn().mockImplementation(() => Promise.resolve()),
 }));
 
 describe('MobileSidebar', () => {

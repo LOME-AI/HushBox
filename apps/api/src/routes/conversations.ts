@@ -14,7 +14,7 @@ import { requireAuth } from '../middleware/require-auth.js';
 import {
   listConversations,
   getConversation,
-  createConversation,
+  createOrGetConversation,
   updateConversation,
   deleteConversation,
   createMessage,
@@ -34,7 +34,9 @@ const conversationDetailResponseSchema = z.object({
 
 const createConversationResponseSchema = z.object({
   conversation: selectConversationSchema,
-  message: selectMessageSchema.optional(),
+  message: selectMessageSchema.optional(), // First message when newly created
+  messages: z.array(selectMessageSchema).optional(), // All messages when returning existing
+  isNew: z.boolean(), // true = 201 Created, false = 200 OK (idempotent return)
 });
 
 const updateConversationResponseSchema = z.object({
@@ -101,6 +103,10 @@ const createConversationRoute = createRoute({
     },
   },
   responses: {
+    200: {
+      content: { 'application/json': { schema: createConversationResponseSchema } },
+      description: 'Existing conversation returned (idempotent)',
+    },
     201: {
       content: { 'application/json': { schema: createConversationResponseSchema } },
       description: 'Conversation created',
@@ -108,6 +114,10 @@ const createConversationRoute = createRoute({
     401: {
       content: { 'application/json': { schema: errorSchema } },
       description: 'Unauthorized',
+    },
+    404: {
+      content: { 'application/json': { schema: errorSchema } },
+      description: 'Conversation ID exists but belongs to another user',
     },
   },
 });
@@ -256,13 +266,21 @@ export function createConversationsRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
     const body = c.req.valid('json');
 
-    const result = await createConversation(db, user.id, {
+    const result = await createOrGetConversation(db, user.id, {
+      id: body.id,
       title: body.title,
       firstMessage: body.firstMessage,
     });
 
+    // Service returns null = ID exists but belongs to different user
+    if (!result) {
+      return c.json(createErrorResponse(ERROR_CONVERSATION_NOT_FOUND, ERROR_CODE_NOT_FOUND), 404);
+    }
+
     const response = createConversationResponseSchema.parse(result);
-    return c.json(response, 201);
+    // HTTP status based on whether new or existing
+    const status = result.isNew ? 201 : 200;
+    return c.json(response, status);
   });
 
   app.openapi(updateConversationRoute, async (c) => {

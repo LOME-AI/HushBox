@@ -32,8 +32,8 @@ interface FeeCategory {
 
 export function FeeBreakdown({
   depositAmount,
-  estimatedCharacters = 1000000, // Default 1M characters
-}: FeeBreakdownProps): React.JSX.Element {
+  estimatedCharacters = 1_000_000, // Default 1M characters
+}: Readonly<FeeBreakdownProps>): React.JSX.Element {
   const lomeFee = depositAmount * LOME_FEE_RATE;
   const ccFee = depositAmount * CREDIT_CARD_FEE_RATE;
   const providerFee = depositAmount * PROVIDER_FEE_RATE;

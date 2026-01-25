@@ -1,0 +1,37 @@
+name: Mutation Testing
+
+on:
+  schedule:
+    - cron: '0 2 * * 1' # Monday 2am UTC
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup
+
+      - name: Start database
+        run: pnpm db:up
+
+      - name: Run migrations
+        run: pnpm db:migrate
+
+      - name: Run Stryker mutation testing
+        run: pnpm mutation
+        env:
+          STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
+
+      - name: Upload mutation report
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          retention-days: 30
+
+      - name: Stop database
+        if: always()
+        run: pnpm db:down

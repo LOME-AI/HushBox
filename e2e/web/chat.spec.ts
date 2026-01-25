@@ -3,68 +3,53 @@ import { ChatPage, SidebarPage } from '../pages';
 
 test.describe('Chat Functionality', () => {
   test.describe('New Chat', () => {
-    test('displays new chat page with greeting and input', async ({ authenticatedPage }) => {
+    test('displays UI, creates conversation, receives response, appears once in sidebar', async ({
+      authenticatedPage,
+    }) => {
       const chatPage = new ChatPage(authenticatedPage);
+      const sidebar = new SidebarPage(authenticatedPage);
       await chatPage.goto();
 
       await chatPage.expectNewChatPageVisible();
       await chatPage.expectPromptInputVisible();
       await chatPage.expectSuggestionChipsVisible();
-    });
 
-    test('creates conversation when sending first message', async ({ authenticatedPage }) => {
-      const chatPage = new ChatPage(authenticatedPage);
-      await chatPage.goto();
-
-      const testMessage = `New chat test ${String(Date.now())}`;
+      const uniqueId = `combined-new-${String(Date.now())}`;
+      const testMessage = `Test ${uniqueId}`;
       await chatPage.sendNewChatMessage(testMessage);
 
       await chatPage.waitForConversation();
       await chatPage.expectMessageVisible(testMessage);
-    });
-
-    test('receives AI response after creating new conversation', async ({ authenticatedPage }) => {
-      const chatPage = new ChatPage(authenticatedPage);
-      await chatPage.goto();
-
-      const testMessage = `New chat echo test ${String(Date.now())}`;
-      await chatPage.sendNewChatMessage(testMessage);
-
-      await chatPage.waitForConversation();
 
       await chatPage.waitForAIResponse();
-
       await chatPage.expectAssistantMessageContains('Echo:');
+
+      await authenticatedPage.waitForTimeout(1000);
+
+      const matchingCount = await sidebar.countConversationsWithText(uniqueId);
+      expect(matchingCount).toBe(1);
     });
   });
 
   test.describe('Existing Conversation', () => {
-    test('displays existing conversation with messages', async ({
+    test('displays messages and accepts followup', async ({
       authenticatedPage,
-      testConversation,
+      testConversation: _testConversation,
     }) => {
       const chatPage = new ChatPage(authenticatedPage);
-      void testConversation;
       await expect(chatPage.messageInput).toBeVisible();
-
-      // The fixture creates a message starting with "Fixture setup"
       await expect(chatPage.messageList).toBeVisible();
-    });
 
-    test('can send additional messages', async ({ authenticatedPage, testConversation }) => {
-      const chatPage = new ChatPage(authenticatedPage);
-      void testConversation;
       const followupMessage = `Follow-up ${String(Date.now())}`;
-
       await chatPage.sendFollowUpMessage(followupMessage);
       await chatPage.expectMessageVisible(followupMessage);
     });
+
     test('send button re-enables after streaming completes', async ({
       authenticatedPage,
-      testConversation,
+      testConversation: _testConversation,
     }) => {
       const chatPage = new ChatPage(authenticatedPage);
-      void testConversation;
 
       // Send first message
       const firstMessage = `First followup ${String(Date.now())}`;
@@ -133,10 +118,9 @@ test.describe('Chat Functionality', () => {
   test.describe('AI Response Streaming', () => {
     test('displays streaming AI response after sending message', async ({
       authenticatedPage,
-      testConversation,
+      testConversation: _testConversation,
     }) => {
       const chatPage = new ChatPage(authenticatedPage);
-      void testConversation;
 
       const testMessage = `Echo test ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(testMessage);
@@ -150,10 +134,9 @@ test.describe('Chat Functionality', () => {
   test.describe('Message Layout', () => {
     test('long unbroken strings do not push previous messages off screen', async ({
       authenticatedPage,
-      testConversation,
+      testConversation: _testConversation,
     }) => {
       const chatPage = new ChatPage(authenticatedPage);
-      void testConversation;
 
       const firstMessage = chatPage.messageList.locator('[data-testid="message-item"]').first();
       const initialBoundingBox = await firstMessage.boundingBox();
@@ -164,12 +147,7 @@ test.describe('Chat Functionality', () => {
 
       await chatPage.waitForAIResponse(longString);
 
-      const scrollWidth = await authenticatedPage.evaluate(
-        () => document.documentElement.scrollWidth
-      );
-      const clientWidth = await authenticatedPage.evaluate(
-        () => document.documentElement.clientWidth
-      );
+      const { scrollWidth, clientWidth } = await chatPage.getDocumentDimensions();
       expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
 
       await expect(firstMessage).toBeAttached();
@@ -180,50 +158,20 @@ test.describe('Chat Functionality', () => {
 
     test('long messages wrap properly without horizontal overflow', async ({
       authenticatedPage,
-      testConversation,
-    }) => {
+      testConversation: _testConversation,
+    }, testInfo) => {
       const chatPage = new ChatPage(authenticatedPage);
-      void testConversation;
 
       const longString = 'a'.repeat(500);
       await chatPage.sendFollowUpMessage(longString);
       await chatPage.waitForAIResponse(longString);
 
-      const overflowingElements = await authenticatedPage.evaluate(() => {
-        const elements = document.querySelectorAll('*');
-        const results: string[] = [];
-        elements.forEach((el) => {
-          const htmlEl = el as HTMLElement;
-          const overflow = htmlEl.scrollWidth - htmlEl.clientWidth;
-          // Only show elements with significant overflow (>100px) and meaningful dimensions
-          // Skip: sr-only, truncate, overflow-hidden, or elements with zero width (invisible)
-          if (
-            overflow > 100 &&
-            htmlEl.clientWidth > 0 &&
-            !htmlEl.className.includes('sr-only') &&
-            !htmlEl.className.includes('truncate') &&
-            !htmlEl.className.includes('overflow-hidden')
-          ) {
-            const tag = htmlEl.tagName.toLowerCase();
-            const id = htmlEl.id ? `#${htmlEl.id}` : '';
-            const cls = htmlEl.className ? `.${htmlEl.className.replace(/\s+/g, '.')}` : '';
-            const testId = htmlEl.dataset['testid']
-              ? `[data-testid="${htmlEl.dataset['testid']}"]`
-              : '';
-            const slot = htmlEl.dataset['slot'] ? `[data-slot="${htmlEl.dataset['slot']}"]` : '';
-            results.push(
-              `${tag}${id}${testId}${slot} overflow:${String(overflow)} scrollW:${String(htmlEl.scrollWidth)} clientW:${String(htmlEl.clientWidth)}\n  classes: ${cls.substring(0, 200)}`
-            );
-          }
-        });
-        return results;
-      });
+      const overflowingElements = await chatPage.findOverflowingElements();
       if (overflowingElements.length > 0) {
-        console.log('\n=== OVERFLOWING ELEMENTS (>100px overflow) ===');
-        overflowingElements.forEach((el) => {
-          console.log(el);
+        await testInfo.attach('overflowing-elements', {
+          body: JSON.stringify(overflowingElements, null, 2),
+          contentType: 'application/json',
         });
-        console.log('=== END OVERFLOWING ELEMENTS ===\n');
       }
 
       expect(
@@ -233,9 +181,10 @@ test.describe('Chat Functionality', () => {
 
       const messageItem = chatPage.messageList.locator('[data-testid="message-item"]').last();
       await expect(messageItem).toBeVisible();
-      const messageBox = await messageItem.boundingBox();
-
-      const viewportWidth = await authenticatedPage.evaluate(() => window.innerWidth);
+      const [messageBox, viewportWidth] = await Promise.all([
+        messageItem.boundingBox(),
+        chatPage.getViewportWidth(),
+      ]);
 
       if (messageBox) {
         expect(messageBox.width).toBeLessThanOrEqual(viewportWidth);

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ref, secret, Dest, Mode, type VarConfig } from './env-types.js';
+import { ref, secret, Destination, Mode, type VariableConfig } from './env-types.js';
 
 // Re-export everything from env-types for convenience
 export * from './env-types.js';
@@ -18,17 +18,17 @@ export * from './env-types.js';
  * - `{ value: ..., to: [...] }`    - Override destinations for this mode
  *
  * Destinations:
- * - `Dest.Backend`  → .dev.vars (local) / wrangler.toml + secrets (prod)
- * - `Dest.Frontend` → .env.development (Vite, VITE_* vars only)
- * - `Dest.Scripts`  → .env.scripts (migrations, seed, etc.)
+ * - `Destination.Backend`  → .dev.vars (local) / wrangler.toml + secrets (prod)
+ * - `Destination.Frontend` → .env.development (Vite, VITE_* vars only)
+ * - `Destination.Scripts`  → .env.scripts (migrations, seed, etc.)
  */
 export const envConfig = {
   // Backend + Scripts in dev (seed.ts needs it), Backend only in CI/prod
   DATABASE_URL: {
-    to: [Dest.Backend],
+    to: [Destination.Backend],
     [Mode.Development]: {
       value: 'postgres://postgres:postgres@localhost:4444/lome_chat',
-      to: [Dest.Backend, Dest.Scripts],
+      to: [Destination.Backend, Destination.Scripts],
     },
     [Mode.CiVitest]: ref(Mode.Development), // Backend only (uses default `to`)
     [Mode.CiE2E]: ref(Mode.Development), // Backend only (uses default `to`)
@@ -37,7 +37,7 @@ export const envConfig = {
 
   // Backend only
   NODE_ENV: {
-    to: [Dest.Backend],
+    to: [Destination.Backend],
     [Mode.Development]: 'development',
     [Mode.CiVitest]: ref(Mode.Development),
     [Mode.CiE2E]: ref(Mode.Development),
@@ -45,7 +45,7 @@ export const envConfig = {
   },
 
   BETTER_AUTH_URL: {
-    to: [Dest.Backend],
+    to: [Destination.Backend],
     [Mode.Development]: 'http://localhost:8787',
     [Mode.CiVitest]: ref(Mode.Development),
     [Mode.CiE2E]: ref(Mode.Development),
@@ -53,7 +53,7 @@ export const envConfig = {
   },
 
   FRONTEND_URL: {
-    to: [Dest.Backend],
+    to: [Destination.Backend],
     [Mode.Development]: 'http://localhost:5173',
     [Mode.CiVitest]: ref(Mode.Development),
     [Mode.CiE2E]: ref(Mode.Development),
@@ -61,18 +61,18 @@ export const envConfig = {
   },
 
   CI: {
-    to: [Dest.Backend],
+    to: [Destination.Backend],
     [Mode.CiVitest]: 'true',
     [Mode.CiE2E]: ref(Mode.CiVitest),
   },
 
   E2E: {
-    to: [Dest.Backend],
+    to: [Destination.Backend],
     [Mode.CiE2E]: 'true',
   },
 
   BETTER_AUTH_SECRET: {
-    to: [Dest.Backend],
+    to: [Destination.Backend],
     [Mode.Development]: 'dev-secret-minimum-32-characters-long',
     [Mode.CiVitest]: ref(Mode.Development),
     [Mode.CiE2E]: ref(Mode.Development),
@@ -80,27 +80,27 @@ export const envConfig = {
   },
 
   RESEND_API_KEY: {
-    to: [Dest.Backend],
+    to: [Destination.Backend],
     [Mode.Production]: secret('RESEND_API_KEY'),
     // NOT in CI - email service uses console client when CI=true
   },
 
   OPENROUTER_API_KEY: {
-    to: [Dest.Backend],
+    to: [Destination.Backend],
     [Mode.CiVitest]: secret('OPENROUTER_API_KEY'),
     [Mode.Production]: ref(Mode.CiVitest),
     // NOT in ciE2E - E2E tests don't need OpenRouter
   },
 
   HELCIM_API_TOKEN: {
-    to: [Dest.Backend],
+    to: [Destination.Backend],
     [Mode.CiE2E]: secret('HELCIM_API_TOKEN_SANDBOX'),
     [Mode.Production]: secret('HELCIM_API_TOKEN_PRODUCTION'),
     // NOT in ciVitest - unit tests don't need Helcim
   },
 
   HELCIM_WEBHOOK_VERIFIER: {
-    to: [Dest.Backend],
+    to: [Destination.Backend],
     [Mode.Development]: 'bW9jay13ZWJob29rLXZlcmlmaWVyLXNlY3JldC0zMmI=', // Mock verifier for local webhook testing
     [Mode.CiE2E]: secret('HELCIM_WEBHOOK_VERIFIER_SANDBOX'),
     [Mode.Production]: secret('HELCIM_WEBHOOK_VERIFIER_PRODUCTION'),
@@ -108,7 +108,7 @@ export const envConfig = {
 
   // Frontend only
   VITE_API_URL: {
-    to: [Dest.Frontend],
+    to: [Destination.Frontend],
     [Mode.Development]: 'http://localhost:8787',
     [Mode.CiVitest]: ref(Mode.Development),
     [Mode.CiE2E]: ref(Mode.Development),
@@ -116,30 +116,30 @@ export const envConfig = {
   },
 
   VITE_HELCIM_JS_TOKEN: {
-    to: [Dest.Frontend],
+    to: [Destination.Frontend],
     [Mode.CiE2E]: secret('VITE_HELCIM_JS_TOKEN_SANDBOX'),
     [Mode.Production]: secret('VITE_HELCIM_JS_TOKEN_PRODUCTION'),
   },
 
   VITE_CI: {
-    to: [Dest.Frontend],
+    to: [Destination.Frontend],
     [Mode.CiVitest]: 'true',
     [Mode.CiE2E]: ref(Mode.CiVitest),
   },
 
   VITE_E2E: {
-    to: [Dest.Frontend],
+    to: [Destination.Frontend],
     [Mode.CiE2E]: 'true',
   },
 
   // Scripts only
   MIGRATION_DATABASE_URL: {
-    to: [Dest.Scripts],
+    to: [Destination.Scripts],
     [Mode.Development]: 'postgresql://postgres:postgres@localhost:5432/lome_chat',
     [Mode.CiVitest]: ref(Mode.Development),
     [Mode.CiE2E]: ref(Mode.Development),
   },
-} as const satisfies Record<string, VarConfig>;
+} as const satisfies Record<string, VariableConfig>;
 
 export type EnvConfig = typeof envConfig;
 export type EnvKey = keyof EnvConfig;

@@ -9,7 +9,7 @@ interface MessageCostProps {
 /**
  * Displays the cost of an AI message in the bottom-left corner.
  */
-export function MessageCost({ cost }: MessageCostProps): React.JSX.Element {
+export function MessageCost({ cost }: Readonly<MessageCostProps>): React.JSX.Element {
   const formattedCost = formatCost(cost);
 
   return (

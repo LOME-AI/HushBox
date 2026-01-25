@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:17-alpine
+    command: postgres -c max_connections=300
     ports:
       - '5432:5432'
     environment:

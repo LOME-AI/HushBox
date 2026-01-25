@@ -37,7 +37,8 @@ function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
       },
     },
   });
-  function Wrapper({ children }: { children: ReactNode }): ReactNode {
+  // eslint-disable-next-line sonarjs/function-return-type -- test wrapper returns children
+  function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   }
   Wrapper.displayName = 'TestWrapper';
@@ -102,7 +103,7 @@ describe('useConversations', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.get).toHaveBeenCalledWith('/conversations');
+    expect(mockApi.get).toHaveBeenCalledWith('/api/conversations');
     expect(result.current.data).toEqual(mockConversations);
   });
 
@@ -153,7 +154,7 @@ describe('useConversation', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.get).toHaveBeenCalledWith('/conversations/conv-1');
+    expect(mockApi.get).toHaveBeenCalledWith('/api/conversations/conv-1');
     expect(result.current.data).toEqual(mockConversation);
   });
 
@@ -206,7 +207,7 @@ describe('useMessages', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.get).toHaveBeenCalledWith('/conversations/conv-1');
+    expect(mockApi.get).toHaveBeenCalledWith('/api/conversations/conv-1');
     expect(result.current.data).toEqual(mockMessages);
   });
 
@@ -253,13 +254,16 @@ describe('useCreateConversation', () => {
 
     const { result } = renderHook(() => useCreateConversation(), { wrapper: createWrapper() });
 
-    result.current.mutate({ title: 'New Chat' });
+    result.current.mutate({ id: 'conv-1', title: 'New Chat' });
 
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.post).toHaveBeenCalledWith('/conversations', { title: 'New Chat' });
+    expect(mockApi.post).toHaveBeenCalledWith('/api/conversations', {
+      id: 'conv-1',
+      title: 'New Chat',
+    });
     expect(result.current.data).toEqual(mockResponse);
   });
 
@@ -284,13 +288,14 @@ describe('useCreateConversation', () => {
 
     const { result } = renderHook(() => useCreateConversation(), { wrapper: createWrapper() });
 
-    result.current.mutate({ firstMessage: { content: 'Hello!' } });
+    result.current.mutate({ id: 'conv-1', firstMessage: { content: 'Hello!' } });
 
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.post).toHaveBeenCalledWith('/conversations', {
+    expect(mockApi.post).toHaveBeenCalledWith('/api/conversations', {
+      id: 'conv-1',
       firstMessage: { content: 'Hello!' },
     });
     expect(result.current.data?.message?.content).toBe('Hello!');
@@ -301,7 +306,7 @@ describe('useCreateConversation', () => {
 
     const { result } = renderHook(() => useCreateConversation(), { wrapper: createWrapper() });
 
-    result.current.mutate({ title: 'Test' });
+    result.current.mutate({ id: 'conv-error', title: 'Test' });
 
     await waitFor(() => {
       expect(result.current.isError).toBe(true);
@@ -343,7 +348,7 @@ describe('useSendMessage', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.post).toHaveBeenCalledWith('/conversations/conv-1/messages', {
+    expect(mockApi.post).toHaveBeenCalledWith('/api/conversations/conv-1/messages', {
       role: 'user',
       content: 'Hello AI!',
     });
@@ -374,7 +379,7 @@ describe('useSendMessage', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.post).toHaveBeenCalledWith('/conversations/conv-1/messages', {
+    expect(mockApi.post).toHaveBeenCalledWith('/api/conversations/conv-1/messages', {
       role: 'assistant',
       content: 'Response',
       model: 'gpt-4',
@@ -437,7 +442,7 @@ describe('useDeleteConversation', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.delete).toHaveBeenCalledWith('/conversations/conv-1');
+    expect(mockApi.delete).toHaveBeenCalledWith('/api/conversations/conv-1');
     expect(result.current.data).toEqual(mockResponse);
   });
 
@@ -502,7 +507,9 @@ describe('useUpdateConversation', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.patch).toHaveBeenCalledWith('/conversations/conv-1', { title: 'Updated Title' });
+    expect(mockApi.patch).toHaveBeenCalledWith('/api/conversations/conv-1', {
+      title: 'Updated Title',
+    });
     expect(result.current.data?.conversation.title).toBe('Updated Title');
   });
 

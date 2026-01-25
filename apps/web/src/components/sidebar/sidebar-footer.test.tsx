@@ -14,7 +14,7 @@ const {
   mockEnv,
   mockUseIsMobile,
 } = vi.hoisted(() => ({
-  mockSignOutAndClearCache: vi.fn().mockResolvedValue(undefined),
+  mockSignOutAndClearCache: vi.fn().mockImplementation(() => Promise.resolve()),
   mockUseSession: vi.fn(),
   mockNavigate: vi.fn(),
   mockUseStableBalance: vi.fn(),

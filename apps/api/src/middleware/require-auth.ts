@@ -10,12 +10,12 @@ import { ERROR_UNAUTHORIZED } from '../constants/errors.js';
  * Use this instead of inline auth checks in route handlers.
  */
 export function requireAuth(): MiddlewareHandler<AppEnv> {
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
     const user = c.get('user');
     if (!user) {
       return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
     }
-    await next();
-    return;
+    return next();
   };
 }

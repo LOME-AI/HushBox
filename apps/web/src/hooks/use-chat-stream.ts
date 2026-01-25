@@ -56,19 +56,125 @@ interface ChatStreamHook {
   startStream: (request: StreamRequest, options?: StreamOptions) => Promise<StreamResult>;
 }
 
-// ============================================================================
-// Hook
-// ============================================================================
+interface StreamRequestConfig {
+  url: string;
+  options: RequestInit;
+}
 
-/**
- * Unified chat stream hook that handles both authenticated and guest modes.
- *
- * @param mode - 'authenticated' for logged-in users, 'guest' for anonymous users
- *
- * Differences between modes:
- * - authenticated: Uses `/chat/stream`, credentials: 'include'
- * - guest: Uses `/guest/stream`, X-Guest-Token header, handles rate limiting
- */
+function buildStreamRequest(
+  mode: StreamMode,
+  request: StreamRequest,
+  signal?: AbortSignal
+): StreamRequestConfig {
+  const endpoint = mode === 'guest' ? '/api/guest/stream' : '/api/chat/stream';
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+
+  if (mode === 'guest') {
+    headers['X-Guest-Token'] = getGuestToken();
+  }
+
+  const fetchOptions: RequestInit = {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(request),
+    signal: signal ?? null,
+  };
+
+  if (mode === 'authenticated') {
+    fetchOptions.credentials = 'include';
+  }
+
+  return { url: `${getApiUrl()}${endpoint}`, options: fetchOptions };
+}
+
+function extractErrorMessage(data: unknown): string {
+  if (
+    typeof data === 'object' &&
+    data !== null &&
+    'error' in data &&
+    typeof data.error === 'string'
+  ) {
+    return data.error;
+  }
+  return 'Stream request failed';
+}
+
+function handleStreamError(mode: StreamMode, status: number, data: unknown): never {
+  if (mode === 'guest' && status === 429) {
+    const errorData = data as { error?: string; limit?: number; remaining?: number };
+    throw new GuestRateLimitError(
+      errorData.error ?? 'Daily limit exceeded',
+      errorData.limit ?? 5,
+      errorData.remaining ?? 0
+    );
+  }
+  throw new Error(extractErrorMessage(data));
+}
+
+async function validateSSEResponse(
+  response: Response
+): Promise<ReadableStreamDefaultReader<Uint8Array>> {
+  const contentType = response.headers.get('Content-Type');
+  if (!contentType?.includes('text/event-stream')) {
+    const errorData: unknown = await response.json().catch(() => ({}));
+    throw new Error(
+      extractErrorMessage(errorData) || 'Expected SSE stream but received different content type'
+    );
+  }
+
+  if (!response.body) {
+    throw new Error('Response body is null');
+  }
+
+  return response.body.getReader();
+}
+
+interface StreamState {
+  error: Error | null;
+  done: boolean;
+}
+
+type SSEParser = ReturnType<typeof createSSEParser>;
+
+async function consumeSSEStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  parser: SSEParser,
+  state: StreamState
+): Promise<StreamResult> {
+  const decoder = new TextDecoder();
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- standard pattern for async iterator
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      parser.processChunk(decoder.decode(value, { stream: true }));
+
+      if (state.error) {
+        throw state.error;
+      }
+      if (state.done) {
+        break;
+      }
+    }
+
+    return {
+      userMessageId: parser.getUserMessageId(),
+      assistantMessageId: parser.getAssistantMessageId(),
+      content: parser.getContent(),
+    };
+  } finally {
+    void (async () => {
+      try {
+        await reader.cancel();
+      } catch {
+        // Reader cleanup errors can be ignored
+      }
+    })();
+  }
+}
+
 export function useChatStream(mode: StreamMode): ChatStreamHook {
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -77,116 +183,29 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
       setIsStreaming(true);
 
       try {
-        const endpoint = mode === 'guest' ? '/guest/stream' : '/chat/stream';
-        const headers: HeadersInit = { 'Content-Type': 'application/json' };
-
-        if (mode === 'guest') {
-          headers['X-Guest-Token'] = getGuestToken();
-        }
-
-        const fetchOptions: RequestInit = {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(request),
-          signal: options?.signal ?? null,
-        };
-
-        if (mode === 'authenticated') {
-          fetchOptions.credentials = 'include';
-        }
-
-        const response = await fetch(`${getApiUrl()}${endpoint}`, fetchOptions);
+        const { url, options: fetchOptions } = buildStreamRequest(mode, request, options?.signal);
+        const response = await fetch(url, fetchOptions);
 
         if (!response.ok) {
           const data: unknown = await response.json();
-
-          // Guest-specific: Handle rate limit error
-          if (mode === 'guest' && response.status === 429) {
-            const errorData = data as { error?: string; limit?: number; remaining?: number };
-            throw new GuestRateLimitError(
-              errorData.error ?? 'Daily limit exceeded',
-              errorData.limit ?? 5,
-              errorData.remaining ?? 0
-            );
-          }
-
-          const errorMessage =
-            typeof data === 'object' &&
-            data !== null &&
-            'error' in data &&
-            typeof data.error === 'string'
-              ? data.error
-              : 'Stream request failed';
-          throw new Error(errorMessage);
+          handleStreamError(mode, response.status, data);
         }
 
-        // Verify content-type before attempting to parse SSE
-        const contentType = response.headers.get('Content-Type');
-        if (!contentType?.includes('text/event-stream')) {
-          const errorData: unknown = await response.json().catch(() => ({}));
-          throw new Error(
-            typeof errorData === 'object' &&
-              errorData !== null &&
-              'error' in errorData &&
-              typeof errorData.error === 'string'
-              ? errorData.error
-              : 'Expected SSE stream but received different content type'
-          );
-        }
-
-        if (!response.body) {
-          throw new Error('Response body is null');
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let streamError: Error | null = null;
-        let streamDone = false;
+        const reader = await validateSSEResponse(response);
+        const streamState: StreamState = { error: null, done: false };
 
         const parser = createSSEParser({
-          onStart: (data) => {
-            options?.onStart?.(data);
-          },
-          onToken: (tokenContent) => {
-            options?.onToken?.(tokenContent);
-          },
+          onStart: (data) => options?.onStart?.(data),
+          onToken: (tokenContent) => options?.onToken?.(tokenContent),
           onError: (errorData) => {
-            streamError = new Error(errorData.message);
+            streamState.error = new Error(errorData.message);
           },
           onDone: () => {
-            streamDone = true;
+            streamState.done = true;
           },
         });
 
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- standard pattern for async iterator
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            parser.processChunk(decoder.decode(value, { stream: true }));
-
-            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- streamError mutated in onError callback
-            if (streamError) {
-              // eslint-disable-next-line @typescript-eslint/only-throw-error -- streamError is Error when truthy
-              throw streamError;
-            }
-            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- streamDone mutated in onDone callback
-            if (streamDone) {
-              break;
-            }
-          }
-
-          return {
-            userMessageId: parser.getUserMessageId(),
-            assistantMessageId: parser.getAssistantMessageId(),
-            content: parser.getContent(),
-          };
-        } finally {
-          reader.cancel().catch(() => {
-            // Reader cleanup errors can be ignored
-          });
-        }
+        return await consumeSSEStream(reader, parser, streamState);
       } finally {
         setIsStreaming(false);
       }

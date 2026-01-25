@@ -7,6 +7,52 @@ interface FormInputProps extends Omit<InputProps, 'placeholder'> {
   success?: string | undefined;
 }
 
+interface FeedbackProps {
+  error?: string | undefined;
+  success?: string | undefined;
+  showFeedback: boolean;
+  feedbackId: string;
+}
+
+function FormInputFeedback({
+  error,
+  success,
+  showFeedback,
+  feedbackId,
+}: Readonly<FeedbackProps>): React.JSX.Element {
+  const opacityClass = showFeedback ? 'opacity-100 delay-150' : 'opacity-0';
+
+  const feedbackContent = error ? (
+    <p
+      role="alert"
+      className={cn('text-destructive text-xs transition-opacity duration-200', opacityClass)}
+    >
+      {error}
+    </p>
+  ) : null;
+
+  const successContent =
+    !error && success ? (
+      <p className={cn('text-success text-xs transition-opacity duration-200', opacityClass)}>
+        {success}
+      </p>
+    ) : null;
+
+  return (
+    <div
+      id={feedbackId}
+      data-testid="form-input-feedback"
+      className={cn(
+        'mt-1 overflow-hidden transition-[height] duration-150 ease-out',
+        showFeedback ? 'h-5' : 'h-0'
+      )}
+    >
+      {feedbackContent}
+      {successContent}
+    </div>
+  );
+}
+
 export function FormInput({
   error,
   success,
@@ -16,13 +62,12 @@ export function FormInput({
   onFocus,
   onBlur,
   ...props
-}: FormInputProps): React.JSX.Element {
+}: Readonly<FormInputProps>): React.JSX.Element {
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const feedbackId = `${inputId}-feedback`;
   const [isFocused, setIsFocused] = useState(false);
   const hasFeedback = Boolean(error ?? success);
-
   const showFeedback = hasFeedback && (isFocused || Boolean(error));
 
   const handleFocus = (e: React.FocusEvent<HTMLInputElement>): void => {
@@ -47,37 +92,12 @@ export function FormInput({
         onBlur={handleBlur}
         {...props}
       />
-
-      <div
-        id={feedbackId}
-        data-testid="form-input-feedback"
-        className={cn(
-          'mt-1 overflow-hidden transition-[height] duration-150 ease-out',
-          showFeedback ? 'h-5' : 'h-0'
-        )}
-      >
-        {error && (
-          <p
-            role="alert"
-            className={cn(
-              'text-destructive text-xs transition-opacity duration-200',
-              showFeedback ? 'opacity-100 delay-150' : 'opacity-0'
-            )}
-          >
-            {error}
-          </p>
-        )}
-        {!error && success && (
-          <p
-            className={cn(
-              'text-success text-xs transition-opacity duration-200',
-              showFeedback ? 'opacity-100 delay-150' : 'opacity-0'
-            )}
-          >
-            {success}
-          </p>
-        )}
-      </div>
+      <FormInputFeedback
+        error={error}
+        success={success}
+        showFeedback={showFeedback}
+        feedbackId={feedbackId}
+      />
     </div>
   );
 }

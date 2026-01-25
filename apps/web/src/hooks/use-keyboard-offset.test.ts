@@ -16,7 +16,7 @@ describe('useKeyboardOffset', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
 
     // Mock window.innerHeight
-    Object.defineProperty(window, 'innerHeight', {
+    Object.defineProperty(globalThis, 'innerHeight', {
       value: 844,
       writable: true,
       configurable: true,
@@ -34,7 +34,7 @@ describe('useKeyboardOffset', () => {
       removeEventListener: vi.fn(),
     };
 
-    Object.defineProperty(window, 'visualViewport', {
+    Object.defineProperty(globalThis, 'visualViewport', {
       value: mockVisualViewport,
       writable: true,
       configurable: true,
@@ -43,12 +43,12 @@ describe('useKeyboardOffset', () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    Object.defineProperty(window, 'innerHeight', {
+    Object.defineProperty(globalThis, 'innerHeight', {
       value: originalInnerHeight,
       writable: true,
       configurable: true,
     });
-    Object.defineProperty(window, 'visualViewport', {
+    Object.defineProperty(globalThis, 'visualViewport', {
       value: undefined,
       writable: true,
       configurable: true,
@@ -99,7 +99,7 @@ describe('useKeyboardOffset', () => {
   });
 
   it('returns zero offset when visualViewport is not available', async () => {
-    Object.defineProperty(window, 'visualViewport', {
+    Object.defineProperty(globalThis, 'visualViewport', {
       value: null,
       writable: true,
       configurable: true,
@@ -192,7 +192,7 @@ describe('useKeyboardOffset', () => {
   });
 
   it('returns window.innerHeight when visualViewport not available', async () => {
-    Object.defineProperty(window, 'visualViewport', {
+    Object.defineProperty(globalThis, 'visualViewport', {
       value: null,
       writable: true,
       configurable: true,

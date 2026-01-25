@@ -90,4 +90,11 @@ export class SidebarPage {
     await link.scrollIntoViewIfNeeded();
     await expect(link.getByText(title)).toBeVisible();
   }
+
+  async countConversationsWithText(text: string): Promise<number> {
+    await this.openMobileSidebarIfNeeded();
+    const container = this.getSidebarContainer();
+    const matchingLinks = container.locator('a[href^="/chat/"]').filter({ hasText: text });
+    return matchingLinks.count();
+  }
 }

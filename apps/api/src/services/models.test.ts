@@ -14,7 +14,7 @@ function createModel(overrides: Partial<Parameters<typeof processModels>[0][0]> 
     id: 'test/model',
     name: 'Test Model',
     description: 'A test model',
-    context_length: 100000,
+    context_length: 100_000,
     pricing: { prompt: '0.001', completion: '0.002' },
     supported_parameters: ['temperature'],
     created: Math.floor(now / 1000),
@@ -93,10 +93,10 @@ describe('processModels', () => {
 
   describe('filtering - standard criteria (bypassable)', () => {
     it('excludes models older than 2 years', () => {
-      const models = Array.from({ length: 20 }, (_, i) =>
+      const models = Array.from({ length: 20 }, (_, index) =>
         createModel({
-          id: `recent/model-${String(i)}`,
-          context_length: 200000,
+          id: `recent/model-${String(index)}`,
+          context_length: 200_000,
           created: Math.floor(now / 1000),
         })
       );
@@ -104,7 +104,7 @@ describe('processModels', () => {
       models.push(
         createModel({
           id: 'old/model',
-          context_length: 50000,
+          context_length: 50_000,
           created: Math.floor(threeYearsAgo / 1000),
         })
       );
@@ -125,17 +125,17 @@ describe('processModels', () => {
     });
 
     it('excludes models cheaper than $0.001 per 1K tokens combined', () => {
-      const models = Array.from({ length: 20 }, (_, i) =>
+      const models = Array.from({ length: 20 }, (_, index) =>
         createModel({
-          id: `expensive/model-${String(i)}`,
-          context_length: 200000,
+          id: `expensive/model-${String(index)}`,
+          context_length: 200_000,
           pricing: { prompt: '0.001', completion: '0.001' },
         })
       );
       models.push(
         createModel({
           id: 'cheap/model',
-          context_length: 50000,
+          context_length: 50_000,
           pricing: { prompt: '0.0000001', completion: '0.0000001' },
         })
       );
@@ -148,17 +148,17 @@ describe('processModels', () => {
 
   describe('filtering - top 5% context bypass', () => {
     it('includes old models if in top 5% context size', () => {
-      const models = Array.from({ length: 99 }, (_, i) =>
+      const models = Array.from({ length: 99 }, (_, index) =>
         createModel({
-          id: `normal/model-${String(i)}`,
-          context_length: 100000,
+          id: `normal/model-${String(index)}`,
+          context_length: 100_000,
           created: Math.floor(now / 1000),
         })
       );
       models.push(
         createModel({
           id: 'old-but-large-context/model',
-          context_length: 2000000, // Much larger than others
+          context_length: 2_000_000, // Much larger than others
           created: Math.floor(threeYearsAgo / 1000),
         })
       );
@@ -169,17 +169,17 @@ describe('processModels', () => {
     });
 
     it('includes cheap models if in top 5% context size', () => {
-      const models = Array.from({ length: 99 }, (_, i) =>
+      const models = Array.from({ length: 99 }, (_, index) =>
         createModel({
-          id: `normal/model-${String(i)}`,
-          context_length: 100000,
+          id: `normal/model-${String(index)}`,
+          context_length: 100_000,
           pricing: { prompt: '0.001', completion: '0.001' },
         })
       );
       models.push(
         createModel({
           id: 'cheap-but-large-context/model',
-          context_length: 2000000,
+          context_length: 2_000_000,
           pricing: { prompt: '0.0000001', completion: '0.0000001' },
         })
       );
@@ -190,16 +190,16 @@ describe('processModels', () => {
     });
 
     it('still excludes top context models if always-excluded (free)', () => {
-      const models = Array.from({ length: 99 }, (_, i) =>
+      const models = Array.from({ length: 99 }, (_, index) =>
         createModel({
-          id: `normal/model-${String(i)}`,
-          context_length: 100000,
+          id: `normal/model-${String(index)}`,
+          context_length: 100_000,
         })
       );
       models.push(
         createModel({
           id: 'free-large-context/model',
-          context_length: 2000000,
+          context_length: 2_000_000,
           pricing: { prompt: '0', completion: '0' },
         })
       );
@@ -210,16 +210,16 @@ describe('processModels', () => {
     });
 
     it('still excludes top context models if always-excluded (name pattern)', () => {
-      const models = Array.from({ length: 99 }, (_, i) =>
+      const models = Array.from({ length: 99 }, (_, index) =>
         createModel({
-          id: `normal/model-${String(i)}`,
-          context_length: 100000,
+          id: `normal/model-${String(index)}`,
+          context_length: 100_000,
         })
       );
       models.push(
         createModel({
           id: 'utility-large-context/model',
-          context_length: 2000000,
+          context_length: 2_000_000,
           name: 'Body Builder Large',
         })
       );
@@ -232,12 +232,12 @@ describe('processModels', () => {
 
   describe('premium classification', () => {
     it('marks models in top 25% price as premium', () => {
-      const models = Array.from({ length: 10 }, (_, i) =>
+      const models = Array.from({ length: 10 }, (_, index) =>
         createModel({
-          id: `model-${String(i)}`,
+          id: `model-${String(index)}`,
           pricing: {
-            prompt: String(0.001 * (i + 1)),
-            completion: String(0.001 * (i + 1)),
+            prompt: String(0.001 * (index + 1)),
+            completion: String(0.001 * (index + 1)),
           },
           created: Math.floor(twoYearsAgo / 1000), // Old, so recency doesn't make them premium
         })
@@ -270,17 +270,17 @@ describe('processModels', () => {
     });
 
     it('calculates price percentile on filtered models only', () => {
-      const models = Array.from({ length: 20 }, (_, i) =>
+      const models = Array.from({ length: 20 }, (_, index) =>
         createModel({
-          id: `normal/model-${String(i)}`,
-          context_length: 200000,
+          id: `normal/model-${String(index)}`,
+          context_length: 200_000,
           pricing: { prompt: '0.001', completion: '0.001' },
         })
       );
       models.push(
         createModel({
           id: 'old-expensive/model',
-          context_length: 50000,
+          context_length: 50_000,
           pricing: { prompt: '1.0', completion: '1.0' },
           created: Math.floor(threeYearsAgo / 1000),
         })
@@ -300,10 +300,10 @@ describe('processModels', () => {
           id: 'openai/gpt-4-turbo',
           name: 'GPT-4 Turbo',
           description: 'Most capable GPT-4',
-          context_length: 128000,
+          context_length: 128_000,
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: ['temperature', 'tools', 'tool_choice'],
-          created: 1704067200,
+          created: 1_704_067_200,
         }),
       ];
 
@@ -315,10 +315,10 @@ describe('processModels', () => {
         name: 'GPT-4 Turbo',
         description: 'Most capable GPT-4',
         provider: 'OpenAI',
-        contextLength: 128000,
-        pricePerInputToken: 0.00001,
-        pricePerOutputToken: 0.00003,
-        created: 1704067200,
+        contextLength: 128_000,
+        pricePerInputToken: 0.000_01,
+        pricePerOutputToken: 0.000_03,
+        created: 1_704_067_200,
       });
     });
 

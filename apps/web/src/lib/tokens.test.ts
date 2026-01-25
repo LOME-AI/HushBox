@@ -39,25 +39,25 @@ describe('formatTokenCount', () => {
   });
 
   it('formats large numbers with locale separators', () => {
-    expect(formatTokenCount(10000)).toBe('10,000');
-    expect(formatTokenCount(128000)).toBe('128,000');
+    expect(formatTokenCount(10_000)).toBe('10,000');
+    expect(formatTokenCount(128_000)).toBe('128,000');
   });
 
   it('formats very large numbers with locale separators', () => {
-    expect(formatTokenCount(1000000)).toBe('1,000,000');
-    expect(formatTokenCount(2500000)).toBe('2,500,000');
+    expect(formatTokenCount(1_000_000)).toBe('1,000,000');
+    expect(formatTokenCount(2_500_000)).toBe('2,500,000');
   });
 });
 
 describe('formatContextLength', () => {
   it('formats context length in k', () => {
-    expect(formatContextLength(128000)).toBe('128k');
-    expect(formatContextLength(200000)).toBe('200k');
+    expect(formatContextLength(128_000)).toBe('128k');
+    expect(formatContextLength(200_000)).toBe('200k');
   });
 
   it('formats context length in M for million+', () => {
-    expect(formatContextLength(1000000)).toBe('1M');
-    expect(formatContextLength(2000000)).toBe('2M');
+    expect(formatContextLength(1_000_000)).toBe('1M');
+    expect(formatContextLength(2_000_000)).toBe('2M');
   });
 
   it('handles small context lengths', () => {

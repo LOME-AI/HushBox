@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { cn } from '@lome-chat/ui';
 import { Button } from '@lome-chat/ui';
+import { getSecureRandomIndex } from '@lome-chat/shared';
 import { Dices } from 'lucide-react';
 import { promptSuggestions } from '@/lib/prompt-suggestions';
 
@@ -18,12 +19,12 @@ export function SuggestionChips({
   onSelect,
   showSurpriseMe = false,
   className,
-}: SuggestionChipsProps): React.JSX.Element {
+}: Readonly<SuggestionChipsProps>): React.JSX.Element {
   const handleSurpriseMe = (): void => {
-    const randomCategoryIndex = Math.floor(Math.random() * promptSuggestions.length);
+    const randomCategoryIndex = getSecureRandomIndex(promptSuggestions.length);
     const category = promptSuggestions[randomCategoryIndex];
     if (category && category.prompts.length > 0) {
-      const randomPromptIndex = Math.floor(Math.random() * category.prompts.length);
+      const randomPromptIndex = getSecureRandomIndex(category.prompts.length);
       const prompt = category.prompts[randomPromptIndex];
       if (prompt) {
         onSelect(prompt);
@@ -44,7 +45,7 @@ export function SuggestionChips({
             variant="outline"
             size="sm"
             onClick={() => {
-              const randomIndex = Math.floor(Math.random() * suggestion.prompts.length);
+              const randomIndex = getSecureRandomIndex(suggestion.prompts.length);
               const prompt = suggestion.prompts[randomIndex];
               if (prompt) {
                 onSelect(prompt);

@@ -9,7 +9,7 @@ export function buildSystemPrompt(capabilities: CapabilityId[]): string {
 
   // Base module (always included)
   const isoDate = new Date().toISOString();
-  const currentDate = isoDate.substring(0, isoDate.indexOf('T'));
+  const currentDate = isoDate.slice(0, Math.max(0, isoDate.indexOf('T')));
   sections.push(`You are a helpful AI assistant powered by LOME-CHAT.
 You provide accurate, helpful responses while being concise and clear.
 Current date: ${currentDate}`);

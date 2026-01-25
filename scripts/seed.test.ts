@@ -9,25 +9,33 @@ vi.mock('dotenv', () => ({
   config: vi.fn(),
 }));
 
-vi.mock('@lome-chat/db', () => {
+function createMockSelectChain(result: unknown[] = []) {
   return {
-    createDb: vi.fn(() => ({
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn(() => Promise.resolve([])),
-          })),
-        })),
-      })),
-      insert: vi.fn(() => ({
-        values: vi.fn(() => Promise.resolve()),
-      })),
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({
-          where: vi.fn(() => Promise.resolve()),
-        })),
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({
+        limit: vi.fn(() => Promise.resolve(result)),
       })),
     })),
+  };
+}
+
+function createMockDb() {
+  return {
+    select: vi.fn(() => createMockSelectChain()),
+    insert: vi.fn(() => ({
+      values: vi.fn(() => Promise.resolve()),
+    })),
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => Promise.resolve()),
+      })),
+    })),
+  };
+}
+
+vi.mock('@lome-chat/db', () => {
+  return {
+    createDb: vi.fn(() => createMockDb()),
     LOCAL_NEON_DEV_CONFIG: {},
     users: { id: 'id' },
     conversations: { id: 'id' },
@@ -60,22 +68,15 @@ vi.mock('@lome-chat/db/factories', () => ({
     })),
   },
   messageFactory: {
-    build: vi.fn(
-      (overrides?: {
-        id?: string;
-        conversationId?: string;
-        role?: string;
-        content?: string;
-        model?: string | null;
-      }) => ({
-        id: overrides?.id ?? 'test-msg-id',
-        conversationId: overrides?.conversationId ?? 'test-conv-id',
-        role: overrides?.role ?? 'user',
-        content: overrides?.content ?? 'Test message',
-        model: overrides?.model ?? null,
-        createdAt: new Date(),
-      })
-    ),
+    build: vi.fn((overrides: Record<string, unknown> = {}) => ({
+      id: 'test-msg-id',
+      conversationId: 'test-conv-id',
+      role: 'user',
+      content: 'Test message',
+      model: null,
+      ...overrides,
+      createdAt: new Date(),
+    })),
   },
   projectFactory: {
     build: vi.fn(
@@ -95,51 +96,33 @@ vi.mock('@lome-chat/db/factories', () => ({
     ),
   },
   paymentFactory: {
-    build: vi.fn(
-      (overrides?: {
-        id?: string;
-        userId?: string;
-        amount?: string;
-        status?: string;
-        helcimTransactionId?: string | null;
-        cardType?: string | null;
-        cardLastFour?: string | null;
-      }) => ({
-        id: overrides?.id ?? 'test-payment-id',
-        userId: overrides?.userId ?? 'test-user-id',
-        amount: overrides?.amount ?? '50.00000000',
-        status: overrides?.status ?? 'confirmed',
-        helcimTransactionId: overrides?.helcimTransactionId ?? 'txn-123',
-        cardType: overrides?.cardType ?? 'Visa',
-        cardLastFour: overrides?.cardLastFour ?? '4242',
-        errorMessage: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        webhookReceivedAt: new Date(),
-      })
-    ),
+    build: vi.fn((overrides: Record<string, unknown> = {}) => ({
+      id: 'test-payment-id',
+      userId: 'test-user-id',
+      amount: '50.00000000',
+      status: 'confirmed',
+      helcimTransactionId: 'txn-123',
+      cardType: 'Visa',
+      cardLastFour: '4242',
+      errorMessage: null,
+      ...overrides,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      webhookReceivedAt: new Date(),
+    })),
   },
   balanceTransactionFactory: {
-    build: vi.fn(
-      (overrides?: {
-        id?: string;
-        userId?: string;
-        amount?: string;
-        balanceAfter?: string;
-        type?: string;
-        paymentId?: string | null;
-        description?: string;
-      }) => ({
-        id: overrides?.id ?? 'test-tx-id',
-        userId: overrides?.userId ?? 'test-user-id',
-        amount: overrides?.amount ?? '50.00000000',
-        balanceAfter: overrides?.balanceAfter ?? '50.00000000',
-        type: overrides?.type ?? 'deposit',
-        paymentId: overrides?.paymentId ?? 'test-payment-id',
-        description: overrides?.description ?? 'Credit purchase - $50.00',
-        createdAt: new Date(),
-      })
-    ),
+    build: vi.fn((overrides: Record<string, unknown> = {}) => ({
+      id: 'test-tx-id',
+      userId: 'test-user-id',
+      amount: '50.00000000',
+      balanceAfter: '50.00000000',
+      type: 'deposit',
+      paymentId: 'test-payment-id',
+      description: 'Credit purchase - $50.00',
+      ...overrides,
+      createdAt: new Date(),
+    })),
   },
 }));
 
@@ -266,19 +249,17 @@ describe('seed script', () => {
   });
 
   describe('upsertEntity', () => {
-    it('returns "created" when entity does not exist', async () => {
-      const mockDb = {
-        select: vi.fn(() => ({
-          from: vi.fn(() => ({
-            where: vi.fn(() => ({
-              limit: vi.fn(() => Promise.resolve([])),
-            })),
-          })),
-        })),
+    function createTestMockDb(existingRecords: unknown[] = []) {
+      return {
+        select: vi.fn(() => createMockSelectChain(existingRecords)),
         insert: vi.fn(() => ({
           values: vi.fn(() => Promise.resolve()),
         })),
       };
+    }
+
+    it('returns "created" when entity does not exist', async () => {
+      const mockDb = createTestMockDb([]);
 
       const result = await upsertEntity(
         mockDb as never,
@@ -291,18 +272,7 @@ describe('seed script', () => {
     });
 
     it('returns "exists" when entity already exists', async () => {
-      const mockDb = {
-        select: vi.fn(() => ({
-          from: vi.fn(() => ({
-            where: vi.fn(() => ({
-              limit: vi.fn(() => Promise.resolve([{ id: 'test-1' }])),
-            })),
-          })),
-        })),
-        insert: vi.fn(() => ({
-          values: vi.fn(() => Promise.resolve()),
-        })),
-      };
+      const mockDb = createTestMockDb([{ id: 'test-1' }]);
 
       const result = await upsertEntity(
         mockDb as never,

@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 
 // Polyfill for ResizeObserver (required by Radix UI Tooltip/Popover)
-global.ResizeObserver = class ResizeObserver {
+globalThis.ResizeObserver = class ResizeObserver {
   observe(): void {
     /* noop */
   }
@@ -30,7 +30,7 @@ Element.prototype.releasePointerCapture = function (): void {
 };
 
 // Polyfill for matchMedia (required by Sonner toast library)
-Object.defineProperty(window, 'matchMedia', {
+Object.defineProperty(globalThis, 'matchMedia', {
   writable: true,
   value: (query: string) => ({
     matches: false,

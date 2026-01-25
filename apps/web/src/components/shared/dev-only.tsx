@@ -6,7 +6,8 @@ interface DevOnlyProps {
   showBorder?: boolean;
 }
 
-export function DevOnly({ children, showBorder = true }: DevOnlyProps): React.ReactNode {
+// eslint-disable-next-line sonarjs/function-return-type -- returns children (ReactNode) or null or JSX
+export function DevOnly({ children, showBorder = true }: Readonly<DevOnlyProps>): React.ReactNode {
   // Use isLocalDev instead of isDev to hide dev-only content in CI
   if (!env.isLocalDev) {
     return null;

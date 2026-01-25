@@ -3,7 +3,6 @@ import { ChatPage } from '../pages';
 
 // All guest chat tests share localhost IP for rate limiting - run only on chromium, serially
 test.describe('Guest Chat', () => {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Playwright requires destructuring pattern
   test.beforeEach(({ page: _page }, testInfo) => {
     if (testInfo.project.name !== 'chromium') {
       test.skip(
@@ -16,30 +15,27 @@ test.describe('Guest Chat', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async ({ request }) => {
-    const response = await request.delete('http://localhost:8787/dev/guest-usage');
+    const response = await request.delete('http://localhost:8787/api/dev/guest-usage');
     expect(response.ok()).toBe(true);
   });
   test.describe('New Chat Page', () => {
-    test('displays same new chat UI as authenticated users', async ({ unauthenticatedPage }) => {
+    test('displays new chat UI with focused prompt input', async ({ unauthenticatedPage }) => {
       const chatPage = new ChatPage(unauthenticatedPage);
       await chatPage.goto();
 
       await chatPage.expectNewChatPageVisible();
       await chatPage.expectPromptInputVisible();
       await chatPage.expectSuggestionChipsVisible();
-    });
 
-    test('prompt input is focused after page loads', async ({ unauthenticatedPage }) => {
-      const chatPage = new ChatPage(unauthenticatedPage);
-      await chatPage.goto();
-
-      await expect(chatPage.promptInput).toBeEnabled({ timeout: 5000 });
+      await expect(chatPage.promptInput).toBeEnabled({ timeout: 3000 });
       await expect(chatPage.promptInput).toBeFocused({ timeout: 1000 });
     });
   });
 
   test.describe('Chat Streaming', () => {
-    test('guest can send message and receive AI response', async ({ unauthenticatedPage }) => {
+    test('guest can send message, receive response, and input refocuses', async ({
+      unauthenticatedPage,
+    }) => {
       const chatPage = new ChatPage(unauthenticatedPage);
       await chatPage.goto();
       await chatPage.selectNonPremiumModel();
@@ -48,27 +44,13 @@ test.describe('Guest Chat', () => {
       await chatPage.sendNewChatMessage(testMessage);
 
       await expect(unauthenticatedPage).toHaveURL('/chat/guest');
-      await expect(chatPage.messageList).toBeVisible({ timeout: 10000 });
+      await expect(chatPage.messageList).toBeVisible({ timeout: 5000 });
       await chatPage.expectMessageVisible(testMessage);
       await chatPage.waitForAIResponse();
       await chatPage.expectAssistantMessageContains('Echo:');
-    });
 
-    test('focuses input after streaming completes', async ({ unauthenticatedPage }) => {
-      const chatPage = new ChatPage(unauthenticatedPage);
-      await chatPage.goto();
-      await chatPage.selectNonPremiumModel();
-
-      const testMessage = `Guest focus test ${String(Date.now())}`;
-      await chatPage.sendNewChatMessage(testMessage);
-
-      await expect(chatPage.messageList).toBeVisible({ timeout: 10000 });
-      await chatPage.waitForAIResponse();
-
-      // Allow focus effect to complete
       await unauthenticatedPage.waitForTimeout(200);
 
-      // Verify input is focused (desktop only)
       const viewport = unauthenticatedPage.viewportSize();
       if (viewport && viewport.width >= 768) {
         await expect(chatPage.messageInput).toBeFocused();
@@ -85,7 +67,7 @@ test.describe('Guest Chat', () => {
 
       const firstMessage = `Guest first ${String(Date.now())}`;
       await chatPage.sendNewChatMessage(firstMessage);
-      await expect(chatPage.messageList).toBeVisible({ timeout: 10000 });
+      await expect(chatPage.messageList).toBeVisible({ timeout: 5000 });
       await chatPage.waitForAIResponse();
 
       const secondMessage = `Guest second ${String(Date.now())}`;
@@ -96,7 +78,7 @@ test.describe('Guest Chat', () => {
 
   test.describe('Rate Limiting', () => {
     test.beforeEach(async ({ request }) => {
-      const response = await request.delete('http://localhost:8787/dev/guest-usage');
+      const response = await request.delete('http://localhost:8787/api/dev/guest-usage');
       expect(response.ok()).toBe(true);
     });
 
@@ -107,15 +89,15 @@ test.describe('Guest Chat', () => {
       await chatPage.goto();
       await chatPage.selectNonPremiumModel();
 
-      for (let i = 1; i <= 5; i++) {
-        const message = `Rate limit test ${String(i)} ${String(Date.now())}`;
-        if (i === 1) {
+      for (let index = 1; index <= 5; index++) {
+        const message = `Rate limit test ${String(index)} ${String(Date.now())}`;
+        if (index === 1) {
           await chatPage.sendNewChatMessage(message);
-          await expect(chatPage.messageList).toBeVisible({ timeout: 10000 });
+          await expect(chatPage.messageList).toBeVisible({ timeout: 5000 });
         } else {
           await chatPage.sendFollowUpMessage(message);
         }
-        await chatPage.waitForAIResponse(message, 30000);
+        await chatPage.waitForAIResponse(message, 30_000);
       }
 
       // Don't use sendFollowUpMessage - rate limiting prevents input from clearing
@@ -123,7 +105,7 @@ test.describe('Guest Chat', () => {
       await chatPage.messageInput.fill(rateLimitMessage);
       await chatPage.messageInput.press('Enter');
 
-      await expect(signupModal).toBeVisible({ timeout: 15000 });
+      await expect(signupModal).toBeVisible({ timeout: 10_000 });
       const heading = signupModal.getByRole('heading');
       await expect(heading).toContainText(/continue chatting/i);
       await expect(signupModal.getByText(/5 free messages/i)).toBeVisible();
@@ -135,15 +117,15 @@ test.describe('Guest Chat', () => {
       await chatPage.goto();
       await chatPage.selectNonPremiumModel();
 
-      for (let i = 1; i <= 5; i++) {
-        const message = `Disable test ${String(i)} ${String(Date.now())}`;
-        if (i === 1) {
+      for (let index = 1; index <= 5; index++) {
+        const message = `Disable test ${String(index)} ${String(Date.now())}`;
+        if (index === 1) {
           await chatPage.sendNewChatMessage(message);
-          await expect(chatPage.messageList).toBeVisible({ timeout: 10000 });
+          await expect(chatPage.messageList).toBeVisible({ timeout: 5000 });
         } else {
           await chatPage.sendFollowUpMessage(message);
         }
-        await chatPage.waitForAIResponse(message, 30000);
+        await chatPage.waitForAIResponse(message, 30_000);
       }
 
       // Don't use sendFollowUpMessage - rate limiting prevents input from clearing
@@ -152,7 +134,7 @@ test.describe('Guest Chat', () => {
       await chatPage.messageInput.press('Enter');
 
       const signupModal = unauthenticatedPage.getByTestId('signup-modal');
-      await expect(signupModal).toBeVisible({ timeout: 15000 });
+      await expect(signupModal).toBeVisible({ timeout: 10_000 });
       await unauthenticatedPage.keyboard.press('Escape');
 
       await expect(chatPage.messageInput).toBeDisabled();
@@ -176,7 +158,7 @@ test.describe('Guest Chat', () => {
         .first();
       await premiumModel.dblclick();
 
-      await expect(signupModal).toBeVisible({ timeout: 5000 });
+      await expect(signupModal).toBeVisible({ timeout: 3000 });
       const heading = signupModal.getByRole('heading');
       await expect(heading).toContainText(/premium/i);
     });

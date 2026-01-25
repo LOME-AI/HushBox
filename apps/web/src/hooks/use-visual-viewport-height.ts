@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 export function useVisualViewportHeight(): number {
   const [height, setHeight] = useState<number>(() => {
-    if (typeof window === 'undefined') return 0;
+    if (!('window' in globalThis)) return 0;
     return window.visualViewport?.height ?? window.innerHeight;
   });
   const rafRef = useRef<number | undefined>(undefined);
@@ -11,13 +11,13 @@ export function useVisualViewportHeight(): number {
     if (rafRef.current !== undefined) return;
     rafRef.current = requestAnimationFrame(() => {
       const newHeight = window.visualViewport?.height ?? window.innerHeight;
-      setHeight((prev) => (prev === newHeight ? prev : newHeight));
+      setHeight((previous) => (previous === newHeight ? previous : newHeight));
       rafRef.current = undefined;
     });
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (!('window' in globalThis)) {
       return;
     }
 

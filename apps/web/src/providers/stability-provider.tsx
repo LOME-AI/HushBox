@@ -17,7 +17,9 @@ interface StabilityProviderProps {
   children: React.ReactNode;
 }
 
-export function StabilityProvider({ children }: StabilityProviderProps): React.JSX.Element {
+export function StabilityProvider({
+  children,
+}: Readonly<StabilityProviderProps>): React.JSX.Element {
   const { data: session, isPending: isSessionPending } = useSession();
   const { data: balanceData } = useBalance();
 

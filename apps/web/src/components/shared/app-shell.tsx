@@ -7,7 +7,7 @@ interface AppShellProps {
   children: React.ReactNode;
 }
 
-export function AppShell({ children }: AppShellProps): React.JSX.Element {
+export function AppShell({ children }: Readonly<AppShellProps>): React.JSX.Element {
   // Validate cached model selection on mount and when user tier changes
   useModelValidation();
 

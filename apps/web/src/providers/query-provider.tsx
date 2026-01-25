@@ -1,6 +1,6 @@
+import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-import type { ReactNode } from 'react';
 import { env } from '@/lib/env';
 
 export const queryClient = new QueryClient({
@@ -15,10 +15,10 @@ export const queryClient = new QueryClient({
 });
 
 interface QueryProviderProps {
-  children: ReactNode;
+  children: React.ReactNode;
 }
 
-export function QueryProvider({ children }: QueryProviderProps): ReactNode {
+export function QueryProvider({ children }: Readonly<QueryProviderProps>): React.JSX.Element {
   return (
     <QueryClientProvider client={queryClient}>
       {children}

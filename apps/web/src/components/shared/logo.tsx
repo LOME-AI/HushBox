@@ -8,7 +8,11 @@ interface LogoProps {
   className?: string;
 }
 
-export function Logo({ asLink = false, to = '/chat', className }: LogoProps): React.JSX.Element {
+export function Logo({
+  asLink = false,
+  to = '/chat',
+  className,
+}: Readonly<LogoProps>): React.JSX.Element {
   const content = (
     <div data-testid="logo" className={cn('flex items-center gap-2', className)}>
       <img

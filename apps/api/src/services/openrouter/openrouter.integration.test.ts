@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { createOpenRouterClient, clearModelCache } from './openrouter.js';
+import { createDb, LOCAL_NEON_DEV_CONFIG, type Database } from '@lome-chat/db';
+import { createOpenRouterClient, clearModelCache, type EvidenceConfig } from './openrouter.js';
 import type { OpenRouterClient } from './types.js';
 
 /**
@@ -15,6 +16,7 @@ const FALLBACK_MODEL = 'meta-llama/llama-3.1-8b-instruct';
 
 const hasApiKey = Boolean(process.env['OPENROUTER_API_KEY']);
 const isCI = Boolean(process.env['CI']);
+const DATABASE_URL = process.env['DATABASE_URL'];
 
 if (isCI && !hasApiKey) {
   throw new Error(
@@ -22,9 +24,15 @@ if (isCI && !hasApiKey) {
   );
 }
 
+if (isCI && !DATABASE_URL) {
+  throw new Error('DATABASE_URL is required in CI for evidence recording.');
+}
+
 describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
   let client: OpenRouterClient;
   let testModel: string = FALLBACK_MODEL;
+  let db: Database | null = null;
+  let evidenceConfig: EvidenceConfig | undefined;
 
   beforeAll(async () => {
     // Clear cache to ensure fresh model list
@@ -33,7 +41,17 @@ describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
     if (!apiKey) {
       throw new Error('OPENROUTER_API_KEY is required - this should not happen due to skipIf');
     }
-    client = createOpenRouterClient(apiKey);
+
+    // Set up database connection for evidence recording in CI
+    if (DATABASE_URL) {
+      db = createDb({
+        connectionString: DATABASE_URL,
+        neonDev: LOCAL_NEON_DEV_CONFIG,
+      });
+      evidenceConfig = { db, isCI };
+    }
+
+    client = createOpenRouterClient(apiKey, evidenceConfig);
 
     // Dynamically select a cheap model that's currently available
     try {
@@ -42,10 +60,12 @@ describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
       // Find a cheap, available model (prompt pricing < $0.001 per 1k tokens)
       const cheapModels = models
         .filter((m) => {
-          const promptPrice = parseFloat(m.pricing.prompt);
-          return !isNaN(promptPrice) && promptPrice < 0.001;
+          const promptPrice = Number.parseFloat(m.pricing.prompt);
+          return !Number.isNaN(promptPrice) && promptPrice < 0.001;
         })
-        .sort((a, b) => parseFloat(a.pricing.prompt) - parseFloat(b.pricing.prompt));
+        .toSorted(
+          (a, b) => Number.parseFloat(a.pricing.prompt) - Number.parseFloat(b.pricing.prompt)
+        );
 
       if (cheapModels.length > 0 && cheapModels[0]) {
         testModel = cheapModels[0].id;
@@ -72,7 +92,7 @@ describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
         expect(firstModel).toHaveProperty('context_length');
         expect(firstModel).toHaveProperty('pricing');
       }
-    }, 30000);
+    }, 30_000);
 
     it('includes popular models', async () => {
       const models = await client.listModels();
@@ -81,7 +101,7 @@ describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
       const modelIds = models.map((m) => m.id);
       expect(modelIds.some((id) => id.includes('gpt'))).toBe(true);
       expect(modelIds.some((id) => id.includes('claude'))).toBe(true);
-    }, 30000);
+    }, 30_000);
   });
 
   describe('getModel', () => {
@@ -91,13 +111,13 @@ describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
       expect(model.id).toBe(testModel);
       expect(model.name).toBeDefined();
       expect(model.context_length).toBeGreaterThan(0);
-    }, 30000);
+    }, 30_000);
 
     it('throws for unknown model', async () => {
       await expect(client.getModel('nonexistent/model-that-does-not-exist')).rejects.toThrow(
         'Model not found'
       );
-    }, 30000);
+    }, 30_000);
   });
 
   describe('chatCompletion', () => {
@@ -123,7 +143,7 @@ describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
 
       expect(response.usage).toBeDefined();
       expect(response.usage.total_tokens).toBeGreaterThan(0);
-    }, 30000);
+    }, 30_000);
 
     it('handles system messages', async () => {
       const response = await client.chatCompletion({
@@ -140,7 +160,7 @@ describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
       if (firstChoice) {
         expect(firstChoice.message.content.length).toBeGreaterThan(0);
       }
-    }, 30000);
+    }, 30_000);
   });
 
   describe('chatCompletionStream', () => {
@@ -161,12 +181,12 @@ describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
       // Combined tokens should form a coherent response
       const fullResponse = tokens.join('');
       expect(fullResponse.length).toBeGreaterThan(0);
-    }, 30000);
+    }, 30_000);
 
     it('streams tokens incrementally', async () => {
       const tokenTimestamps: number[] = [];
 
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- only timing matters, not token content
+      // eslint-disable-next-line sonarjs/no-unused-vars -- measuring timing, not content
       for await (const _ of client.chatCompletionStream({
         model: testModel,
         messages: [{ role: 'user', content: 'Write a short sentence' }],
@@ -177,6 +197,6 @@ describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
 
       // Should receive multiple tokens over time (not all at once)
       expect(tokenTimestamps.length).toBeGreaterThan(1);
-    }, 30000);
+    }, 30_000);
   });
 });

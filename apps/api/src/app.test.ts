@@ -2,19 +2,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createApp } from './app.js';
 
 // Mock the database module for dev routes testing
+const mockDbFrom = {
+  where: vi.fn(() => Promise.resolve([])),
+  innerJoin: vi.fn(() => ({
+    where: vi.fn(() => Promise.resolve([{ count: 0 }])),
+  })),
+};
+
 vi.mock('@lome-chat/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@lome-chat/db')>();
   return {
     ...actual,
     createDb: vi.fn(() => ({
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => Promise.resolve([])),
-          innerJoin: vi.fn(() => ({
-            where: vi.fn(() => Promise.resolve([{ count: 0 }])),
-          })),
-        })),
-      })),
+      select: vi.fn(() => ({ from: vi.fn(() => mockDbFrom) })),
     })),
     LOCAL_NEON_DEV_CONFIG: {},
   };
@@ -36,9 +36,9 @@ describe('createApp', () => {
   });
 
   describe('health route', () => {
-    it('responds to GET /health', async () => {
+    it('responds to GET /api/health', async () => {
       const app = createApp();
-      const res = await app.request('/health');
+      const res = await app.request('/api/health');
 
       expect(res.status).toBe(200);
       const body: { status: string; timestamp: string } = await res.json();
@@ -60,10 +60,10 @@ describe('createApp', () => {
   });
 
   describe('conversations routes', () => {
-    it('returns 401 for GET /conversations without auth', async () => {
+    it('returns 401 for GET /api/conversations without auth', async () => {
       const app = createApp();
       const res = await app.request(
-        '/conversations',
+        '/api/conversations',
         {},
         {
           DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
@@ -77,10 +77,10 @@ describe('createApp', () => {
       expect(body.code).toBe('UNAUTHORIZED');
     });
 
-    it('returns 401 for GET /conversations/:id without auth', async () => {
+    it('returns 401 for GET /api/conversations/:id without auth', async () => {
       const app = createApp();
       const res = await app.request(
-        '/conversations/123',
+        '/api/conversations/123',
         {},
         {
           DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
@@ -94,10 +94,10 @@ describe('createApp', () => {
       expect(body.code).toBe('UNAUTHORIZED');
     });
 
-    it('returns 401 for POST /conversations without auth', async () => {
+    it('returns 401 for POST /api/conversations without auth', async () => {
       const app = createApp();
       const res = await app.request(
-        '/conversations',
+        '/api/conversations',
         { method: 'POST' },
         {
           DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
@@ -111,10 +111,10 @@ describe('createApp', () => {
       expect(body.code).toBe('UNAUTHORIZED');
     });
 
-    it('returns 401 for DELETE /conversations/:id without auth', async () => {
+    it('returns 401 for DELETE /api/conversations/:id without auth', async () => {
       const app = createApp();
       const res = await app.request(
-        '/conversations/123',
+        '/api/conversations/123',
         { method: 'DELETE' },
         {
           DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
@@ -128,10 +128,10 @@ describe('createApp', () => {
       expect(body.code).toBe('UNAUTHORIZED');
     });
 
-    it('returns 401 for PATCH /conversations/:id without auth', async () => {
+    it('returns 401 for PATCH /api/conversations/:id without auth', async () => {
       const app = createApp();
       const res = await app.request(
-        '/conversations/123',
+        '/api/conversations/123',
         { method: 'PATCH' },
         {
           DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
@@ -147,10 +147,10 @@ describe('createApp', () => {
   });
 
   describe('chat routes', () => {
-    it('returns 401 for POST /chat/stream without auth', async () => {
+    it('returns 401 for POST /api/chat/stream without auth', async () => {
       const app = createApp();
       const res = await app.request(
-        '/chat/stream',
+        '/api/chat/stream',
         { method: 'POST' },
         {
           DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
@@ -168,7 +168,7 @@ describe('createApp', () => {
   describe('CORS', () => {
     it('includes CORS headers for allowed origin', async () => {
       const app = createApp();
-      const res = await app.request('/health', {
+      const res = await app.request('/api/health', {
         headers: { Origin: 'http://localhost:5173' },
       });
 
@@ -186,10 +186,10 @@ describe('createApp', () => {
   });
 
   describe('dev routes', () => {
-    it('responds to GET /dev/personas in development', async () => {
+    it('responds to GET /api/dev/personas in development', async () => {
       const app = createApp();
       const res = await app.request(
-        '/dev/personas',
+        '/api/dev/personas',
         {},
         {
           DATABASE_URL: 'postgresql://test:test@localhost:5432/test',

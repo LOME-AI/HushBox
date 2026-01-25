@@ -21,7 +21,7 @@ export function ChatList({
   conversations,
   activeId,
   isAuthenticated = true,
-}: ChatListProps): React.JSX.Element {
+}: Readonly<ChatListProps>): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
 
   if (conversations.length === 0) {

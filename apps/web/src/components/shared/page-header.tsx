@@ -26,7 +26,7 @@ export function PageHeader({
   testId = 'page-header',
   titleTestId = 'page-header-title',
   brandTitle = true,
-}: PageHeaderProps): React.JSX.Element {
+}: Readonly<PageHeaderProps>): React.JSX.Element {
   return (
     <header
       data-testid={testId}

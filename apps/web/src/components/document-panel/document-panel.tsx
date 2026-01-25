@@ -12,13 +12,108 @@ interface DocumentPanelProps {
   className?: string;
 }
 
+interface ResizeHandleProps {
+  isResizing: boolean;
+  onResizeStart: (e: React.MouseEvent) => void;
+}
+
+function ResizeHandle({
+  isResizing,
+  onResizeStart,
+}: Readonly<ResizeHandleProps>): React.JSX.Element {
+  return (
+    <div
+      data-testid="resize-handle"
+      onMouseDown={onResizeStart}
+      className={cn(
+        'group absolute top-0 left-0 z-10 flex h-full w-2 cursor-ew-resize items-center justify-center',
+        'hover:bg-primary/10 transition-colors',
+        isResizing && 'bg-primary/20'
+      )}
+    >
+      <div
+        data-testid="resize-indicator"
+        className={cn(
+          'bg-border group-hover:bg-primary/50 h-8 w-0.5 rounded-full transition-colors',
+          isResizing && 'bg-primary/50'
+        )}
+      />
+    </div>
+  );
+}
+
+interface PanelHeaderProps {
+  title: string;
+  copied: boolean;
+  showRaw: boolean;
+  supportsRawToggle: boolean;
+  onCopy: () => void;
+  onToggleRaw: () => void;
+  onClose: () => void;
+}
+
+function PanelHeader({
+  title,
+  copied,
+  showRaw,
+  supportsRawToggle,
+  onCopy,
+  onToggleRaw,
+  onClose,
+}: Readonly<PanelHeaderProps>): React.JSX.Element {
+  return (
+    <div className="border-border flex items-center justify-between gap-2 border-b px-4 py-3">
+      <h2 className="text-primary min-w-0 flex-1 truncate text-sm font-medium">{title}</h2>
+      <div className="flex shrink-0 items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          onClick={onCopy}
+          aria-label={copied ? 'Copied' : 'Copy code'}
+        >
+          {copied ? (
+            <Check className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <Copy className="h-4 w-4" aria-hidden="true" />
+          )}
+        </Button>
+        {supportsRawToggle && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={onToggleRaw}
+            aria-label={showRaw ? 'Show rendered' : 'Show raw'}
+          >
+            {showRaw ? (
+              <Eye className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Code className="h-4 w-4" aria-hidden="true" />
+            )}
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          onClick={onClose}
+          aria-label="Close panel"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 interface DocumentContentProps {
   document: Document;
   showRaw: boolean;
 }
 
 /** Renders the document content based on type */
-function DocumentContent({ document, showRaw }: DocumentContentProps): React.JSX.Element {
+function DocumentContent({ document, showRaw }: Readonly<DocumentContentProps>): React.JSX.Element {
   // For mermaid, show raw or rendered based on toggle
   if (document.type === 'mermaid') {
     if (showRaw) {
@@ -42,7 +137,7 @@ function DocumentContent({ document, showRaw }: DocumentContentProps): React.JSX
 export function DocumentPanel({
   documents,
   className,
-}: DocumentPanelProps): React.JSX.Element | null {
+}: Readonly<DocumentPanelProps>): React.JSX.Element | null {
   const { isPanelOpen, panelWidth, activeDocumentId, closePanel, setPanelWidth } =
     useDocumentStore();
   const [isResizing, setIsResizing] = React.useState(false);
@@ -51,7 +146,7 @@ export function DocumentPanel({
   const panelRef = React.useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
-  const activeDocument = documents.find((doc) => doc.id === activeDocumentId);
+  const activeDocument = documents.find((document_) => document_.id === activeDocumentId);
 
   // Reset showRaw when active document changes
   React.useEffect(() => {
@@ -114,76 +209,20 @@ export function DocumentPanel({
       )}
       style={{ width: isMobile ? '100%' : `${String(panelWidth)}px` }}
     >
-      {/* Resize handle (desktop only) */}
-      {!isMobile && (
-        <div
-          data-testid="resize-handle"
-          onMouseDown={handleResizeStart}
-          className={cn(
-            'group absolute top-0 left-0 z-10 flex h-full w-2 cursor-ew-resize items-center justify-center',
-            'hover:bg-primary/10 transition-colors',
-            isResizing && 'bg-primary/20'
-          )}
-        >
-          <div
-            data-testid="resize-indicator"
-            className={cn(
-              'bg-border group-hover:bg-primary/50 h-8 w-0.5 rounded-full transition-colors',
-              isResizing && 'bg-primary/50'
-            )}
-          />
-        </div>
-      )}
+      {!isMobile && <ResizeHandle isResizing={isResizing} onResizeStart={handleResizeStart} />}
 
-      {/* Header */}
-      <div className="border-border flex items-center justify-between gap-2 border-b px-4 py-3">
-        <h2 className="text-primary min-w-0 flex-1 truncate text-sm font-medium">
-          {activeDocument.title}
-        </h2>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => void handleCopy()}
-            aria-label={copied ? 'Copied' : 'Copy code'}
-          >
-            {copied ? (
-              <Check className="h-4 w-4" aria-hidden="true" />
-            ) : (
-              <Copy className="h-4 w-4" aria-hidden="true" />
-            )}
-          </Button>
-          {supportsRawToggle && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={() => {
-                setShowRaw(!showRaw);
-              }}
-              aria-label={showRaw ? 'Show rendered' : 'Show raw'}
-            >
-              {showRaw ? (
-                <Eye className="h-4 w-4" aria-hidden="true" />
-              ) : (
-                <Code className="h-4 w-4" aria-hidden="true" />
-              )}
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={closePanel}
-            aria-label="Close panel"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        </div>
-      </div>
+      <PanelHeader
+        title={activeDocument.title}
+        copied={copied}
+        showRaw={showRaw}
+        supportsRawToggle={supportsRawToggle}
+        onCopy={() => void handleCopy()}
+        onToggleRaw={() => {
+          setShowRaw(!showRaw);
+        }}
+        onClose={closePanel}
+      />
 
-      {/* Content */}
       <div data-testid="document-panel-scroll" className="flex-1 overflow-auto">
         <div className="p-4">
           <DocumentContent document={activeDocument} showRaw={showRaw} />

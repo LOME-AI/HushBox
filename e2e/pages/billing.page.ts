@@ -66,11 +66,11 @@ export class BillingPage {
   async getBalance(): Promise<number> {
     const balanceText = await this.balanceDisplay.textContent();
     const match = /\$?([\d.]+)/.exec(balanceText ?? '');
-    return match ? parseFloat(match[1] ?? '0') : 0;
+    return match ? Number.parseFloat(match[1] ?? '0') : 0;
   }
 
   async waitForBalanceLoaded(): Promise<number> {
-    await this.balanceDisplay.waitFor({ state: 'visible', timeout: 10000 });
+    await this.balanceDisplay.waitFor({ state: 'visible', timeout: 5000 });
     await this.page.waitForFunction(
       (testId: string) => {
         const el = document.querySelector(`[data-testid="${testId}"]`);
@@ -78,7 +78,7 @@ export class BillingPage {
         return /\$\d+\.\d+/.test(text);
       },
       'balance-display',
-      { timeout: 10000 }
+      { timeout: 5000 }
     );
     return this.getBalance();
   }
@@ -103,23 +103,23 @@ export class BillingPage {
     await this.openPaymentModal();
     await this.enterAmount(amount);
     await this.simulateFailureButton.click();
-    await expect(this.paymentErrorCard).toBeVisible({ timeout: 15000 });
+    await expect(this.paymentErrorCard).toBeVisible({ timeout: 15_000 });
   }
 
-  async fillCardDetails(
-    cardNumber: string,
-    expiry: string,
-    cvv: string,
-    cardHolderName: string,
-    billingAddress: string,
-    zip: string
-  ): Promise<void> {
-    await this.cardNumberInput.fill(cardNumber);
-    await this.expiryInput.fill(expiry);
-    await this.cvvInput.fill(cvv);
-    await this.cardHolderNameInput.fill(cardHolderName);
-    await this.billingAddressInput.fill(billingAddress);
-    await this.zipInput.fill(zip);
+  async fillCardDetails(details: {
+    cardNumber: string;
+    expiry: string;
+    cvv: string;
+    cardHolderName: string;
+    billingAddress: string;
+    zip: string;
+  }): Promise<void> {
+    await this.cardNumberInput.fill(details.cardNumber);
+    await this.expiryInput.fill(details.expiry);
+    await this.cvvInput.fill(details.cvv);
+    await this.cardHolderNameInput.fill(details.cardHolderName);
+    await this.billingAddressInput.fill(details.billingAddress);
+    await this.zipInput.fill(details.zip);
   }
 
   async submitPayment(): Promise<void> {
@@ -128,17 +128,17 @@ export class BillingPage {
 
   async expectPaymentSuccess(): Promise<void> {
     // Wait for "Payment Successful" text (CardTitle renders as div, not heading)
-    await expect(this.paymentSuccessCard).toBeVisible({ timeout: 30000 });
+    await expect(this.paymentSuccessCard).toBeVisible({ timeout: 15_000 });
   }
 
   async expectPaymentError(): Promise<void> {
     // Wait for "Payment Failed" text (CardTitle renders as div, not heading)
-    await expect(this.paymentErrorCard).toBeVisible({ timeout: 15000 });
+    await expect(this.paymentErrorCard).toBeVisible({ timeout: 15_000 });
   }
 
   async closeSuccessAndReset(): Promise<void> {
     await this.closeButton.click();
-    await expect(this.paymentModal).not.toBeVisible({ timeout: 5000 });
+    await expect(this.paymentModal).not.toBeVisible({ timeout: 3000 });
   }
 
   async closeErrorAndRetry(): Promise<void> {
@@ -154,7 +154,7 @@ export class BillingPage {
   async waitForWebhookConfirmation(
     initialBalance: number,
     expectedIncrease: number,
-    timeout = 30000
+    timeout = 30_000
   ): Promise<void> {
     const startTime = Date.now();
     const pollInterval = 2000;
@@ -191,7 +191,7 @@ export class BillingPage {
           this.diagnostics.apiResponses.push({
             url,
             status: response.status(),
-            body: body.substring(0, 1000),
+            body: body.slice(0, 1000),
           });
         } catch {
           this.diagnostics.apiResponses.push({
@@ -236,7 +236,7 @@ export class BillingPage {
           .catch(() => false),
       ]);
 
-    const visibleText = await this.paymentModal.innerText().catch(() => '[modal not found]');
+    const visibleText = await this.paymentModal.textContent().catch(() => '[modal not found]');
 
     return {
       processingVisible,
@@ -244,7 +244,7 @@ export class BillingPage {
       errorVisible,
       formVisible,
       scriptLoadingVisible,
-      visibleText: visibleText.substring(0, 500),
+      visibleText: (visibleText ?? '[no text content]').slice(0, 500),
     };
   }
 

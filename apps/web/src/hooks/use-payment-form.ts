@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { formatCardNumber, formatExpiry, formatCvv, formatZip } from '../lib/card-utils.js';
+import { formatCardNumber, formatExpiry, formatCvv, formatZip } from '../lib/card-utilities.js';
 import {
   validateAmount,
   getCardValidationState,
@@ -106,8 +106,8 @@ export function usePaymentForm(): UsePaymentFormReturn {
     const formatter = FIELD_FORMATTERS[field];
     const formattedValue = formatter ? formatter(value) : value;
 
-    setCardFields((prev) => ({ ...prev, [field]: formattedValue }));
-    setCardTouched((prev) => ({ ...prev, [field]: true }));
+    setCardFields((previous) => ({ ...previous, [field]: formattedValue }));
+    setCardTouched((previous) => ({ ...previous, [field]: true }));
   }, []);
 
   // Touch all fields (for form submission)

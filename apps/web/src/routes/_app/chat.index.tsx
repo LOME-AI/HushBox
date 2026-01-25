@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { NewChatPage } from '@/components/chat/new-chat-page';
+import { ChatWelcome } from '@/components/chat/chat-welcome';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
@@ -12,6 +12,7 @@ import { useUIModalsStore } from '@/stores/ui-modals';
 import { useModels } from '@/hooks/models';
 import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
 import { billingKeys, useBalance } from '@/hooks/billing';
+import { ROUTES } from '@/lib/routes';
 
 export const Route = createFileRoute('/_app/chat/')({
   component: ChatIndexWithErrorBoundary,
@@ -45,36 +46,30 @@ export function ChatIndex(): React.JSX.Element {
 
   const handlePremiumClick = usePremiumModelClick(models, isAuthenticated);
 
-  // Ref to get latest session at call time - avoids stale closure in handleSend
   const sessionRef = React.useRef(session);
   React.useEffect(() => {
     sessionRef.current = session;
   }, [session]);
 
-  // Routes to /chat/new for authenticated users, /chat/guest for guests
   const handleSend = React.useCallback(
     (content: string): void => {
       const currentSession = sessionRef.current;
       const isUserAuthenticated = Boolean(currentSession?.user);
       if (isUserAuthenticated) {
         usePendingChatStore.getState().setPendingMessage(content);
-        void navigate({ to: '/chat/$conversationId', params: { conversationId: 'new' } });
+        void navigate({ to: ROUTES.CHAT_ID, params: { id: 'new' } });
       } else {
-        // Reset any previous guest session and start fresh
         useGuestChatStore.getState().reset();
         useGuestChatStore.getState().setPendingMessage(content);
-        void navigate({ to: '/chat/$conversationId', params: { conversationId: 'guest' } });
+        void navigate({ to: ROUTES.CHAT_GUEST });
       }
     },
     [navigate]
   );
 
-  // Initial view - same UI for guests and authenticated users
-  // Auth status is checked at send time, not render time
-  // Input is disabled while not stable, preventing race conditions
   return (
-    <div className="flex h-full flex-col">
-      <NewChatPage
+    <div data-testid="new-chat-page" className="flex h-full flex-col">
+      <ChatWelcome
         onSend={handleSend}
         isAuthenticated={isAuthenticated}
         isLoading={!isStable}
@@ -91,7 +86,13 @@ export function ChatIndex(): React.JSX.Element {
           open={paymentModalOpen}
           onOpenChange={setPaymentModalOpen}
           onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: billingKeys.balance() }).catch(console.error);
+            void (async () => {
+              try {
+                await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+              } catch (error: unknown) {
+                console.error(error);
+              }
+            })();
           }}
         />
       )}

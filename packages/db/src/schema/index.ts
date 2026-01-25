@@ -12,3 +12,4 @@ export {
   deductionSourceEnum,
 } from './balance-transactions';
 export { guestUsage } from './guest-usage';
+export { serviceEvidence } from './service-evidence';

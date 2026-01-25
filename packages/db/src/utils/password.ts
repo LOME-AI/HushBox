@@ -6,7 +6,7 @@ import { bytesToHex } from '@noble/hashes/utils.js';
  * @see https://github.com/better-auth/better-auth/blob/main/packages/better-auth/src/crypto/password.ts
  */
 const SCRYPT_CONFIG = {
-  N: 16384,
+  N: 16_384,
   r: 16,
   p: 1,
   dkLen: 64,

@@ -2,6 +2,7 @@
 export { MESSAGE_ROLES, type MessageRole } from './enums.js';
 
 /** Shared password for all dev personas. Only for local development. */
+// eslint-disable-next-line sonarjs/no-hardcoded-passwords -- intentional dev-only password
 export const DEV_PASSWORD = 'password123';
 
 /** Email domain for development personas */
@@ -43,7 +44,7 @@ export const EXPENSIVE_MODEL_THRESHOLD_PER_1K = 0.1;
 export const CHARACTERS_PER_KILOBYTE = 1000;
 
 /** Kilobytes in one gigabyte */
-export const KILOBYTES_PER_GIGABYTE = 1000000;
+export const KILOBYTES_PER_GIGABYTE = 1_000_000;
 
 /** Monthly cost to store one gigabyte in USD */
 export const MONTHLY_COST_PER_GB = 0.5;
@@ -100,7 +101,7 @@ export const MINIMUM_OUTPUT_TOKENS = 1000;
  * Threshold for low balance warning.
  * When calculated maxOutputTokens < this value, show warning to paid users.
  */
-export const LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD = 10000;
+export const LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD = 10_000;
 
 // ============================================================================
 // Token Estimation Constants
@@ -138,9 +139,9 @@ export const CAPACITY_YELLOW_THRESHOLD = 0.33;
 
 /** Feature flags for conditional feature rendering */
 interface FeatureFlags {
-  /** Enable projects feature in sidebar. TODO: Enable when projects feature is ready */
+  /** Enable projects feature in sidebar. Currently disabled pending feature completion */
   PROJECTS_ENABLED: boolean;
-  /** Enable settings feature in user menu. TODO: Enable when settings feature is ready */
+  /** Enable settings feature in user menu. Currently disabled pending feature completion */
   SETTINGS_ENABLED: boolean;
 }
 

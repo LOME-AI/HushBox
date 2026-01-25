@@ -41,7 +41,7 @@ describe('balanceTransactionFactory', () => {
 
   it('builds deposit with positive amount by default', () => {
     const transaction = balanceTransactionFactory.build();
-    expect(parseFloat(transaction.amount)).toBeGreaterThan(0);
+    expect(Number.parseFloat(transaction.amount)).toBeGreaterThan(0);
   });
 
   it('builds a list with unique IDs', () => {

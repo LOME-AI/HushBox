@@ -62,8 +62,8 @@ describe('estimateTokensForTier', () => {
     });
 
     it('handles large character counts', () => {
-      expect(estimateTokensForTier('paid', 1000000)).toBe(250000);
-      expect(estimateTokensForTier('free', 1000000)).toBe(500000);
+      expect(estimateTokensForTier('paid', 1_000_000)).toBe(250_000);
+      expect(estimateTokensForTier('free', 1_000_000)).toBe(500_000);
     });
   });
 });
@@ -76,7 +76,7 @@ describe('getEffectiveBalance', () => {
     });
 
     it('ignores balance and allowance values', () => {
-      const result = getEffectiveBalance('guest', 10000, 500);
+      const result = getEffectiveBalance('guest', 10_000, 500);
       expect(result).toBe(MAX_GUEST_MESSAGE_COST_CENTS / 100);
     });
   });
@@ -88,7 +88,7 @@ describe('getEffectiveBalance', () => {
     });
 
     it('ignores primary balance', () => {
-      const result = getEffectiveBalance('free', 10000, 500);
+      const result = getEffectiveBalance('free', 10_000, 500);
       expect(result).toBe(5); // Still just free allowance
     });
 
@@ -125,9 +125,9 @@ describe('calculateBudget', () => {
     balanceCents: 1000, // $10
     freeAllowanceCents: 0,
     promptCharacterCount: 4000, // ~1000 tokens at 4 chars/token
-    modelInputPricePerToken: 0.00003, // $0.03 per 1k input
-    modelOutputPricePerToken: 0.00006, // $0.06 per 1k output
-    modelContextLength: 128000,
+    modelInputPricePerToken: 0.000_03, // $0.03 per 1k input
+    modelOutputPricePerToken: 0.000_06, // $0.06 per 1k output
+    modelContextLength: 128_000,
   };
 
   describe('token estimation', () => {
@@ -201,7 +201,7 @@ describe('calculateBudget', () => {
         tier: 'free',
         balanceCents: 0,
         freeAllowanceCents: 1, // $0.01 - very low
-        promptCharacterCount: 100000, // Very long prompt
+        promptCharacterCount: 100_000, // Very long prompt
         modelInputPricePerToken: 0.0001, // Expensive model
         modelOutputPricePerToken: 0.0002,
       });
@@ -214,7 +214,7 @@ describe('calculateBudget', () => {
         tier: 'guest',
         balanceCents: 0,
         freeAllowanceCents: 0,
-        promptCharacterCount: 10000, // Long prompt
+        promptCharacterCount: 10_000, // Long prompt
         modelInputPricePerToken: 0.0001, // Expensive
         modelOutputPricePerToken: 0.0002,
       });
@@ -228,8 +228,8 @@ describe('calculateBudget', () => {
         balanceCents: 0,
         freeAllowanceCents: 0,
         promptCharacterCount: 100, // Very short
-        modelInputPricePerToken: 0.0000001, // Very cheap
-        modelOutputPricePerToken: 0.0000001,
+        modelInputPricePerToken: 0.000_000_1, // Very cheap
+        modelOutputPricePerToken: 0.000_000_1,
       });
       expect(result.canAfford).toBe(true);
     });
@@ -242,7 +242,7 @@ describe('calculateBudget', () => {
       // Input cost: $0.03
       // Remaining: $10.47
       // Max output tokens: $10.47 / $0.00006 = 174500
-      expect(result.maxOutputTokens).toBe(Math.floor(10.47 / 0.00006));
+      expect(result.maxOutputTokens).toBe(Math.floor(10.47 / 0.000_06));
     });
 
     it('returns 0 max output tokens when cannot afford', () => {
@@ -264,8 +264,8 @@ describe('calculateBudget', () => {
         balanceCents: 10, // $0.10
         freeAllowanceCents: 0,
         promptCharacterCount: 400, // Small prompt
-        modelInputPricePerToken: 0.00001, // Cheap input
-        modelOutputPricePerToken: 0.00005, // Moderate output cost
+        modelInputPricePerToken: 0.000_01, // Cheap input
+        modelOutputPricePerToken: 0.000_05, // Moderate output cost
       });
       expect(result.canAfford).toBe(true);
       expect(result.maxOutputTokens).toBeGreaterThanOrEqual(MINIMUM_OUTPUT_TOKENS);
@@ -282,7 +282,7 @@ describe('calculateBudget', () => {
       const result = calculateBudget({
         ...baseInput,
         promptCharacterCount: 4000, // 1000 tokens
-        modelContextLength: 10000, // Small context for easy math
+        modelContextLength: 10_000, // Small context for easy math
       });
       // Current usage: 1000 + 1000 = 2000
       // Capacity: 2000 / 10000 = 20%
@@ -292,8 +292,8 @@ describe('calculateBudget', () => {
     it('handles high capacity usage', () => {
       const result = calculateBudget({
         ...baseInput,
-        promptCharacterCount: 40000, // 10000 tokens
-        modelContextLength: 12000, // Small context
+        promptCharacterCount: 40_000, // 10000 tokens
+        modelContextLength: 12_000, // Small context
       });
       // Current usage: 10000 + 1000 = 11000
       // Capacity: 11000 / 12000 = 91.67%
@@ -303,8 +303,8 @@ describe('calculateBudget', () => {
     it('can exceed 100% when over context limit', () => {
       const result = calculateBudget({
         ...baseInput,
-        promptCharacterCount: 50000, // 12500 tokens
-        modelContextLength: 10000,
+        promptCharacterCount: 50_000, // 12500 tokens
+        modelContextLength: 10_000,
       });
       // Current usage: 12500 + 1000 = 13500
       // Capacity: 13500 / 10000 = 135%
@@ -316,7 +316,7 @@ describe('calculateBudget', () => {
 describe('generateBudgetErrors', () => {
   const baseResult: Omit<BudgetCalculationResult, 'errors'> = {
     canAfford: true,
-    maxOutputTokens: 50000,
+    maxOutputTokens: 50_000,
     estimatedInputTokens: 1000,
     estimatedInputCost: 0.03,
     estimatedMinimumCost: 0.09,
@@ -653,9 +653,9 @@ describe('calculateBudget integration', () => {
       balanceCents: 0,
       freeAllowanceCents: 500,
       promptCharacterCount: 4000,
-      modelInputPricePerToken: 0.00003,
-      modelOutputPricePerToken: 0.00006,
-      modelContextLength: 128000,
+      modelInputPricePerToken: 0.000_03,
+      modelOutputPricePerToken: 0.000_06,
+      modelContextLength: 128_000,
     });
 
     expect(result).toHaveProperty('canAfford');
@@ -676,9 +676,9 @@ describe('calculateBudget integration', () => {
       balanceCents: 0,
       freeAllowanceCents: 0,
       promptCharacterCount: 100,
-      modelInputPricePerToken: 0.0000001,
-      modelOutputPricePerToken: 0.0000001,
-      modelContextLength: 10000,
+      modelInputPricePerToken: 0.000_000_1,
+      modelOutputPricePerToken: 0.000_000_1,
+      modelContextLength: 10_000,
     });
 
     // Should have guest_notice info
@@ -701,6 +701,6 @@ describe('constants verification', () => {
     expect(MAX_ALLOWED_NEGATIVE_BALANCE_CENTS).toBe(50);
     expect(MAX_GUEST_MESSAGE_COST_CENTS).toBe(1);
     expect(MINIMUM_OUTPUT_TOKENS).toBe(1000);
-    expect(LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD).toBe(10000);
+    expect(LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD).toBe(10_000);
   });
 });

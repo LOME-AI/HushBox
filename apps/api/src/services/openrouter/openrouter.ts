@@ -1,4 +1,4 @@
-import { recordServiceCall } from '@lome-chat/shared';
+import { recordServiceEvidence, SERVICE_NAMES, type Database } from '@lome-chat/db';
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -10,11 +10,16 @@ import type {
 } from './types.js';
 import { parseContextLengthError } from './context-error.js';
 
+export interface EvidenceConfig {
+  db: Database;
+  isCI: boolean;
+}
+
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1';
 
 // Model cache (shared across all clients since models are the same regardless of API key)
 let modelCache: { models: ModelInfo[]; fetchedAt: number } | null = null;
-const MODEL_CACHE_TTL = 3600000; // 1 hour in milliseconds
+const MODEL_CACHE_TTL = 3_600_000; // 1 hour in milliseconds
 
 /**
  * Clear the model cache. Exposed for testing purposes.
@@ -34,7 +39,6 @@ export async function fetchModels(): Promise<ModelInfo[]> {
   }
 
   const response = await fetch(`${OPENROUTER_API_URL}/models`);
-  recordServiceCall('openrouter');
 
   if (!response.ok) {
     throw new Error('Failed to fetch models');
@@ -66,10 +70,47 @@ interface OpenRouterErrorResponse {
   };
 }
 
-/**
- * Parse SSE stream from OpenRouter API.
- * Yields content delta strings from each chunk.
- */
+type SSEDataLineResult = { done: true } | { done: false; content: string | null };
+
+function processSSEDataLine(line: string): SSEDataLineResult {
+  if (!line.startsWith('data: ')) {
+    return { done: false, content: null };
+  }
+
+  const data = line.slice(6).trim();
+  if (data === '[DONE]') {
+    return { done: true };
+  }
+
+  try {
+    const chunk = JSON.parse(data) as ChatCompletionChunk;
+    const content = chunk.choices[0]?.delta.content ?? null;
+    return { done: false, content };
+  } catch (error) {
+    console.warn('Failed to parse SSE chunk:', { data, error });
+    return { done: false, content: null };
+  }
+}
+
+interface SSELinesResult {
+  contents: string[];
+  streamDone: boolean;
+}
+
+function processSSELines(lines: string[]): SSELinesResult {
+  const contents: string[] = [];
+  for (const line of lines) {
+    const result = processSSEDataLine(line);
+    if (result.done) {
+      return { contents, streamDone: true };
+    }
+    if (result.content) {
+      contents.push(result.content);
+    }
+  }
+  return { contents, streamDone: false };
+}
+
 async function* parseSSEStream(
   reader: ReadableStreamDefaultReader<Uint8Array>
 ): AsyncIterable<string> {
@@ -85,39 +126,94 @@ async function* parseSSEStream(
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
 
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') return;
-
-      try {
-        const chunk = JSON.parse(data) as ChatCompletionChunk;
-        const firstChoice = chunk.choices[0];
-        const content = firstChoice?.delta.content;
-        if (content) {
-          yield content;
-        }
-      } catch (error) {
-        console.warn('Failed to parse SSE chunk:', { data, error });
-        // Continue streaming - don't fail completely
-      }
+    const { contents, streamDone } = processSSELines(lines);
+    for (const content of contents) {
+      yield content;
     }
+    if (streamDone) return;
   }
 }
 
-/**
- * Parse SSE stream from OpenRouter API with metadata extraction.
- * Yields StreamToken objects containing content and generation ID.
- * The generation ID is extracted from the first chunk and included with the first token.
- */
+interface SSELineState {
+  generationId: string | undefined;
+  isFirstTokenWithId: boolean;
+}
+
+interface SSELineResult {
+  done: boolean;
+  token?: StreamToken;
+  state: SSELineState;
+}
+
+function processSSELine(line: string, state: SSELineState): SSELineResult {
+  if (!line.startsWith('data: ')) {
+    return { done: false, state };
+  }
+
+  const data = line.slice(6).trim();
+  if (data === '[DONE]') {
+    return { done: true, state };
+  }
+
+  try {
+    const chunk = JSON.parse(data) as ChatCompletionChunk;
+    const newGenerationId = state.generationId ?? chunk.id;
+    const content = chunk.choices[0]?.delta.content;
+
+    if (!content) {
+      return { done: false, state: { ...state, generationId: newGenerationId } };
+    }
+
+    const token: StreamToken = { content };
+    let newIsFirstTokenWithId = state.isFirstTokenWithId;
+
+    if (state.isFirstTokenWithId && newGenerationId) {
+      token.generationId = newGenerationId;
+      newIsFirstTokenWithId = false;
+    }
+
+    return {
+      done: false,
+      token,
+      state: { generationId: newGenerationId, isFirstTokenWithId: newIsFirstTokenWithId },
+    };
+  } catch (error) {
+    console.warn('Failed to parse SSE chunk:', { data, error });
+    return { done: false, state };
+  }
+}
+
+interface SSELinesWithStateResult {
+  tokens: StreamToken[];
+  streamDone: boolean;
+  state: SSELineState;
+}
+
+function processSSELinesWithState(lines: string[], state: SSELineState): SSELinesWithStateResult {
+  const tokens: StreamToken[] = [];
+  let currentState = state;
+
+  for (const line of lines) {
+    const result = processSSELine(line, currentState);
+    currentState = result.state;
+
+    if (result.done) {
+      return { tokens, streamDone: true, state: currentState };
+    }
+    if (result.token) {
+      tokens.push(result.token);
+    }
+  }
+
+  return { tokens, streamDone: false, state: currentState };
+}
+
 async function* parseSSEStreamWithMetadata(
   reader: ReadableStreamDefaultReader<Uint8Array>
 ): AsyncIterable<StreamToken> {
   const decoder = new TextDecoder();
   let buffer = '';
-  let generationId: string | undefined;
-  let isFirstTokenWithId = true;
+  let state: SSELineState = { generationId: undefined, isFirstTokenWithId: true };
 
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- standard SSE parsing loop
   while (true) {
@@ -128,38 +224,44 @@ async function* parseSSEStreamWithMetadata(
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
 
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') return;
-
-      try {
-        const chunk = JSON.parse(data) as ChatCompletionChunk;
-
-        // Capture generation ID from first chunk (it's in the 'id' field)
-        generationId ??= chunk.id;
-
-        const firstChoice = chunk.choices[0];
-        const content = firstChoice?.delta.content;
-        if (content) {
-          // Include generation ID only with the first token that has content
-          const token: StreamToken = { content };
-          if (isFirstTokenWithId && generationId) {
-            token.generationId = generationId;
-            isFirstTokenWithId = false;
-          }
-          yield token;
-        }
-      } catch (error) {
-        console.warn('Failed to parse SSE chunk:', { data, error });
-        // Continue streaming - don't fail completely
-      }
-    }
+    const result = processSSELinesWithState(lines, state);
+    state = result.state;
+    for (const token of result.tokens) yield token;
+    if (result.streamDone) return;
   }
 }
 
-export function createOpenRouterClient(apiKey: string): OpenRouterClient {
+type RequestWithRetryResult =
+  | { success: true; reader: ReadableStreamDefaultReader<Uint8Array> }
+  | { success: false; error: Error };
+
+async function makeRequestWithContextRetry(
+  makeRequest: (req: ChatCompletionRequest) => Promise<ReadableStreamDefaultReader<Uint8Array>>,
+  request: ChatCompletionRequest
+): Promise<RequestWithRetryResult> {
+  try {
+    const reader = await makeRequest(request);
+    return { success: true, reader };
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('OpenRouter error:')) {
+      return { success: false, error: error instanceof Error ? error : new Error('Unknown error') };
+    }
+
+    const contextError = parseContextLengthError(error.message);
+    if (!contextError) {
+      return { success: false, error };
+    }
+
+    const correctedMaxTokens = contextError.maxContext - contextError.textInput;
+    const reader = await makeRequest({ ...request, max_tokens: correctedMaxTokens });
+    return { success: true, reader };
+  }
+}
+
+export function createOpenRouterClient(
+  apiKey: string,
+  evidenceConfig?: EvidenceConfig
+): OpenRouterClient {
   if (apiKey.trim() === '') {
     throw new Error('OPENROUTER_API_KEY is required and cannot be empty');
   }
@@ -171,6 +273,12 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
     'X-Title': 'LOME-CHAT',
   };
 
+  const recordEvidence = async (): Promise<void> => {
+    if (evidenceConfig) {
+      await recordServiceEvidence(evidenceConfig.db, evidenceConfig.isCI, SERVICE_NAMES.OPENROUTER);
+    }
+  };
+
   return {
     isMock: false,
 
@@ -180,7 +288,7 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
         headers,
         body: JSON.stringify(request),
       });
-      recordServiceCall('openrouter');
+      await recordEvidence();
 
       if (!response.ok) {
         const error: OpenRouterErrorResponse = await response.json();
@@ -196,7 +304,7 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
         headers,
         body: JSON.stringify({ ...request, stream: true }),
       });
-      recordServiceCall('openrouter');
+      await recordEvidence();
 
       if (!response.ok) {
         const error: OpenRouterErrorResponse = await response.json();
@@ -207,7 +315,7 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
         throw new Error('Response body is null');
       }
 
-      const reader = response.body.getReader();
+      const reader = response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
       yield* parseSSEStream(reader);
     },
 
@@ -222,7 +330,7 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
           headers,
           body: JSON.stringify({ ...req, stream: true }),
         });
-        recordServiceCall('openrouter');
+        await recordEvidence();
 
         if (!response.ok) {
           const error: OpenRouterErrorResponse = await response.json();
@@ -237,24 +345,12 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
         return response.body.getReader();
       };
 
-      let reader: ReadableStreamDefaultReader<Uint8Array>;
-      try {
-        reader = await makeRequest(request);
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('OpenRouter error:')) {
-          const contextError = parseContextLengthError(error.message);
-          if (contextError) {
-            const correctedMaxTokens = contextError.maxContext - contextError.textInput;
-            reader = await makeRequest({ ...request, max_tokens: correctedMaxTokens });
-          } else {
-            throw error;
-          }
-        } else {
-          throw error;
-        }
+      const result = await makeRequestWithContextRetry(makeRequest, request);
+      if (!result.success) {
+        throw result.error;
       }
 
-      yield* parseSSEStreamWithMetadata(reader);
+      yield* parseSSEStreamWithMetadata(result.reader);
     },
 
     async listModels(): Promise<ModelInfo[]> {
@@ -263,7 +359,7 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
       }
 
       const response = await fetch(`${OPENROUTER_API_URL}/models`, { headers });
-      recordServiceCall('openrouter');
+      await recordEvidence();
 
       if (!response.ok) {
         throw new Error('Failed to fetch models');
@@ -290,7 +386,7 @@ export function createOpenRouterClient(apiKey: string): OpenRouterClient {
         method: 'GET',
         headers,
       });
-      recordServiceCall('openrouter');
+      await recordEvidence();
 
       if (!response.ok) {
         const error: OpenRouterErrorResponse = await response.json();

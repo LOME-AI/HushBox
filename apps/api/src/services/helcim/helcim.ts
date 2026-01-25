@@ -55,7 +55,7 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
 
     async processPayment(request: ProcessPaymentRequest): Promise<ProcessPaymentResponse> {
       const requestBody = {
-        amount: parseFloat(request.amount),
+        amount: Number.parseFloat(request.amount),
         currency: 'USD',
         ipAddress: request.ipAddress,
         customerCode: request.customerCode,
@@ -80,7 +80,7 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
       if (response.ok && data.approvalCode) {
         return {
           status: 'approved',
-          transactionId: data.transactionId != null ? String(data.transactionId) : null,
+          transactionId: data.transactionId == null ? null : String(data.transactionId),
           cardType: data.cardType,
           cardLastFour: data.cardNumber?.slice(-4),
         };
@@ -103,6 +103,7 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
   };
 }
 
+// eslint-disable-next-line no-secrets/no-secrets -- Documentation example format, not a real key
 /**
  * Parse versioned signature header from Helcim.
  * Helcim sends signatures in formats like:
@@ -131,20 +132,25 @@ function parseSignatures(signatureHeader: string): string[] {
   return signatures;
 }
 
+export interface WebhookVerificationParams {
+  webhookVerifier: string;
+  payload: string;
+  signatureHeader: string;
+  timestamp: string;
+  webhookId: string;
+}
+
 // Async version for proper webhook verification
 export async function verifyWebhookSignatureAsync(
-  webhookVerifier: string,
-  payload: string,
-  signatureHeader: string,
-  timestamp: string,
-  webhookId: string
+  params: WebhookVerificationParams
 ): Promise<boolean> {
+  const { webhookVerifier, payload, signatureHeader, timestamp, webhookId } = params;
   try {
     const encoder = new TextEncoder();
     const message = `${webhookId}.${timestamp}.${payload}`;
 
     // Decode the base64 verifier
-    const secretBytes = Uint8Array.from(atob(webhookVerifier), (c) => c.charCodeAt(0));
+    const secretBytes = Uint8Array.from(atob(webhookVerifier), (c) => c.codePointAt(0) ?? 0);
 
     // Import the key for HMAC-SHA256
     const key = await crypto.subtle.importKey(
@@ -157,7 +163,7 @@ export async function verifyWebhookSignatureAsync(
 
     // Compute the signature
     const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-    const computedSignature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+    const computedSignature = btoa(String.fromCodePoint(...new Uint8Array(signatureBuffer)));
 
     // Parse potentially versioned signature header
     const signatures = parseSignatures(signatureHeader);
@@ -181,8 +187,8 @@ function timingSafeEqual(a: string, b: string): boolean {
   }
 
   let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  for (let index = 0; index < a.length; index++) {
+    result |= (a.codePointAt(index) ?? 0) ^ (b.codePointAt(index) ?? 0);
   }
   return result === 0;
 }

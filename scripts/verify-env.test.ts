@@ -1,23 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  parseDevVars,
+  parseDevVariables,
   parseWranglerToml,
   parseEnvDevelopment,
-  getExpectedEnvUtils,
+  getExpectedEnvUtilities,
   verifyBackendEnv,
   verifyFrontendEnv,
-  formatEnvUtils,
+  formatEnvUtilities,
   formatEnvContext,
   parseCliArgs,
   verifyAll,
   printVerificationResult,
 } from './verify-env.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEST_DIR = join(__dirname, '__test-fixtures__');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TEST_DIR = path.join(__dirname, '__test-fixtures__');
 
 describe('verify-env', () => {
   beforeEach(async () => {
@@ -28,16 +28,16 @@ describe('verify-env', () => {
     await rm(TEST_DIR, { recursive: true, force: true });
   });
 
-  describe('parseDevVars', () => {
+  describe('parseDevVariables', () => {
     it('parses NODE_ENV, CI, and E2E from .dev.vars file', async () => {
       const content = `NODE_ENV=development
 CI=true
 E2E=true
 DATABASE_URL=postgres://localhost
 `;
-      await writeFile(join(TEST_DIR, '.dev.vars'), content);
+      await writeFile(path.join(TEST_DIR, '.dev.vars'), content);
 
-      const result = await parseDevVars(join(TEST_DIR, '.dev.vars'));
+      const result = await parseDevVariables(path.join(TEST_DIR, '.dev.vars'));
 
       expect(result).toEqual({
         NODE_ENV: 'development',
@@ -51,9 +51,9 @@ DATABASE_URL=postgres://localhost
 CI="true"
 DATABASE_URL="postgres://localhost"
 `;
-      await writeFile(join(TEST_DIR, '.dev.vars'), content);
+      await writeFile(path.join(TEST_DIR, '.dev.vars'), content);
 
-      const result = await parseDevVars(join(TEST_DIR, '.dev.vars'));
+      const result = await parseDevVariables(path.join(TEST_DIR, '.dev.vars'));
 
       expect(result).toEqual({
         NODE_ENV: 'development',
@@ -65,9 +65,9 @@ DATABASE_URL="postgres://localhost"
     it('strips single quotes from values', async () => {
       const content = `NODE_ENV='production'
 `;
-      await writeFile(join(TEST_DIR, '.dev.vars'), content);
+      await writeFile(path.join(TEST_DIR, '.dev.vars'), content);
 
-      const result = await parseDevVars(join(TEST_DIR, '.dev.vars'));
+      const result = await parseDevVariables(path.join(TEST_DIR, '.dev.vars'));
 
       expect(result).toEqual({
         NODE_ENV: 'production',
@@ -80,9 +80,9 @@ DATABASE_URL="postgres://localhost"
       const content = `NODE_ENV=production
 DATABASE_URL=postgres://localhost
 `;
-      await writeFile(join(TEST_DIR, '.dev.vars'), content);
+      await writeFile(path.join(TEST_DIR, '.dev.vars'), content);
 
-      const result = await parseDevVars(join(TEST_DIR, '.dev.vars'));
+      const result = await parseDevVariables(path.join(TEST_DIR, '.dev.vars'));
 
       expect(result).toEqual({
         NODE_ENV: 'production',
@@ -92,7 +92,7 @@ DATABASE_URL=postgres://localhost
     });
 
     it('throws if file does not exist', async () => {
-      await expect(parseDevVars(join(TEST_DIR, 'nonexistent.vars'))).rejects.toThrow();
+      await expect(parseDevVariables(path.join(TEST_DIR, 'nonexistent.vars'))).rejects.toThrow();
     });
   });
 
@@ -105,9 +105,9 @@ main = "src/index.ts"
 NODE_ENV = "production"
 BETTER_AUTH_URL = "https://api.lome-chat.com"
 `;
-      await writeFile(join(TEST_DIR, 'wrangler.toml'), content);
+      await writeFile(path.join(TEST_DIR, 'wrangler.toml'), content);
 
-      const result = await parseWranglerToml(join(TEST_DIR, 'wrangler.toml'));
+      const result = await parseWranglerToml(path.join(TEST_DIR, 'wrangler.toml'));
 
       expect(result).toEqual({
         NODE_ENV: 'production',
@@ -117,16 +117,16 @@ BETTER_AUTH_URL = "https://api.lome-chat.com"
     });
 
     it('throws if file does not exist', async () => {
-      await expect(parseWranglerToml(join(TEST_DIR, 'nonexistent.toml'))).rejects.toThrow();
+      await expect(parseWranglerToml(path.join(TEST_DIR, 'nonexistent.toml'))).rejects.toThrow();
     });
 
     it('returns undefined values when no [vars] section exists', async () => {
       const content = `name = "lome-chat-api"
 main = "src/index.ts"
 `;
-      await writeFile(join(TEST_DIR, 'wrangler.toml'), content);
+      await writeFile(path.join(TEST_DIR, 'wrangler.toml'), content);
 
-      const result = await parseWranglerToml(join(TEST_DIR, 'wrangler.toml'));
+      const result = await parseWranglerToml(path.join(TEST_DIR, 'wrangler.toml'));
 
       expect(result).toEqual({
         NODE_ENV: undefined,
@@ -141,9 +141,9 @@ main = "src/index.ts"
       const content = `VITE_API_URL=http://localhost:8787
 VITE_CI=true
 `;
-      await writeFile(join(TEST_DIR, '.env.development'), content);
+      await writeFile(path.join(TEST_DIR, '.env.development'), content);
 
-      const result = await parseEnvDevelopment(join(TEST_DIR, '.env.development'));
+      const result = await parseEnvDevelopment(path.join(TEST_DIR, '.env.development'));
 
       expect(result).toEqual({
         VITE_CI: 'true',
@@ -154,9 +154,9 @@ VITE_CI=true
     it('returns undefined for missing VITE_CI', async () => {
       const content = `VITE_API_URL=http://localhost:8787
 `;
-      await writeFile(join(TEST_DIR, '.env.development'), content);
+      await writeFile(path.join(TEST_DIR, '.env.development'), content);
 
-      const result = await parseEnvDevelopment(join(TEST_DIR, '.env.development'));
+      const result = await parseEnvDevelopment(path.join(TEST_DIR, '.env.development'));
 
       expect(result).toEqual({
         VITE_CI: undefined,
@@ -169,9 +169,9 @@ VITE_CI=true
 VITE_CI=true
 VITE_E2E=true
 `;
-      await writeFile(join(TEST_DIR, '.env.development'), content);
+      await writeFile(path.join(TEST_DIR, '.env.development'), content);
 
-      const result = await parseEnvDevelopment(join(TEST_DIR, '.env.development'));
+      const result = await parseEnvDevelopment(path.join(TEST_DIR, '.env.development'));
 
       expect(result).toEqual({
         VITE_CI: 'true',
@@ -180,9 +180,9 @@ VITE_E2E=true
     });
   });
 
-  describe('getExpectedEnvUtils', () => {
+  describe('getExpectedEnvUtilities', () => {
     it('returns correct expectations for development mode', () => {
-      const expected = getExpectedEnvUtils('development');
+      const expected = getExpectedEnvUtilities('development');
 
       expect(expected).toEqual({
         isDev: true,
@@ -195,7 +195,7 @@ VITE_E2E=true
     });
 
     it('returns correct expectations for ciVitest mode', () => {
-      const expected = getExpectedEnvUtils('ciVitest');
+      const expected = getExpectedEnvUtilities('ciVitest');
 
       expect(expected).toEqual({
         isDev: true,
@@ -208,7 +208,7 @@ VITE_E2E=true
     });
 
     it('returns correct expectations for ciE2E mode', () => {
-      const expected = getExpectedEnvUtils('ciE2E');
+      const expected = getExpectedEnvUtilities('ciE2E');
 
       expect(expected).toEqual({
         isDev: true,
@@ -221,7 +221,7 @@ VITE_E2E=true
     });
 
     it('returns correct expectations for production mode', () => {
-      const expected = getExpectedEnvUtils('production');
+      const expected = getExpectedEnvUtilities('production');
 
       expect(expected).toEqual({
         isDev: false,
@@ -239,11 +239,11 @@ VITE_E2E=true
       const content = `NODE_ENV=development
 DATABASE_URL=postgres://localhost
 `;
-      await writeFile(join(TEST_DIR, '.dev.vars'), content);
+      await writeFile(path.join(TEST_DIR, '.dev.vars'), content);
 
       const result = await verifyBackendEnv('development', {
-        devVarsPath: join(TEST_DIR, '.dev.vars'),
-        wranglerTomlPath: join(TEST_DIR, 'wrangler.toml'),
+        devVarsPath: path.join(TEST_DIR, '.dev.vars'),
+        wranglerTomlPath: path.join(TEST_DIR, 'wrangler.toml'),
       });
 
       expect(result.success).toBe(true);
@@ -256,11 +256,11 @@ DATABASE_URL=postgres://localhost
 CI=true
 DATABASE_URL=postgres://localhost
 `;
-      await writeFile(join(TEST_DIR, '.dev.vars'), content);
+      await writeFile(path.join(TEST_DIR, '.dev.vars'), content);
 
       const result = await verifyBackendEnv('ciVitest', {
-        devVarsPath: join(TEST_DIR, '.dev.vars'),
-        wranglerTomlPath: join(TEST_DIR, 'wrangler.toml'),
+        devVarsPath: path.join(TEST_DIR, '.dev.vars'),
+        wranglerTomlPath: path.join(TEST_DIR, 'wrangler.toml'),
       });
 
       expect(result.success).toBe(true);
@@ -274,11 +274,11 @@ CI=true
 E2E=true
 DATABASE_URL=postgres://localhost
 `;
-      await writeFile(join(TEST_DIR, '.dev.vars'), content);
+      await writeFile(path.join(TEST_DIR, '.dev.vars'), content);
 
       const result = await verifyBackendEnv('ciE2E', {
-        devVarsPath: join(TEST_DIR, '.dev.vars'),
-        wranglerTomlPath: join(TEST_DIR, 'wrangler.toml'),
+        devVarsPath: path.join(TEST_DIR, '.dev.vars'),
+        wranglerTomlPath: path.join(TEST_DIR, 'wrangler.toml'),
       });
 
       expect(result.success).toBe(true);
@@ -291,11 +291,11 @@ DATABASE_URL=postgres://localhost
 [vars]
 NODE_ENV = "production"
 `;
-      await writeFile(join(TEST_DIR, 'wrangler.toml'), content);
+      await writeFile(path.join(TEST_DIR, 'wrangler.toml'), content);
 
       const result = await verifyBackendEnv('production', {
-        devVarsPath: join(TEST_DIR, '.dev.vars'),
-        wranglerTomlPath: join(TEST_DIR, 'wrangler.toml'),
+        devVarsPath: path.join(TEST_DIR, '.dev.vars'),
+        wranglerTomlPath: path.join(TEST_DIR, 'wrangler.toml'),
       });
 
       expect(result.success).toBe(true);
@@ -307,11 +307,11 @@ NODE_ENV = "production"
       const content = `NODE_ENV=development
 DATABASE_URL=postgres://localhost
 `;
-      await writeFile(join(TEST_DIR, '.dev.vars'), content);
+      await writeFile(path.join(TEST_DIR, '.dev.vars'), content);
 
       const result = await verifyBackendEnv('ciVitest', {
-        devVarsPath: join(TEST_DIR, '.dev.vars'),
-        wranglerTomlPath: join(TEST_DIR, 'wrangler.toml'),
+        devVarsPath: path.join(TEST_DIR, '.dev.vars'),
+        wranglerTomlPath: path.join(TEST_DIR, 'wrangler.toml'),
       });
 
       expect(result.success).toBe(false);
@@ -327,10 +327,10 @@ DATABASE_URL=postgres://localhost
     it('returns success when env matches expectations for development', async () => {
       const content = `VITE_API_URL=http://localhost:8787
 `;
-      await writeFile(join(TEST_DIR, '.env.development'), content);
+      await writeFile(path.join(TEST_DIR, '.env.development'), content);
 
       const result = await verifyFrontendEnv('development', {
-        envDevelopmentPath: join(TEST_DIR, '.env.development'),
+        envDevelopmentPath: path.join(TEST_DIR, '.env.development'),
       });
 
       expect(result.success).toBe(true);
@@ -341,10 +341,10 @@ DATABASE_URL=postgres://localhost
       const content = `VITE_API_URL=http://localhost:8787
 VITE_CI=true
 `;
-      await writeFile(join(TEST_DIR, '.env.development'), content);
+      await writeFile(path.join(TEST_DIR, '.env.development'), content);
 
       const result = await verifyFrontendEnv('ciVitest', {
-        envDevelopmentPath: join(TEST_DIR, '.env.development'),
+        envDevelopmentPath: path.join(TEST_DIR, '.env.development'),
       });
 
       expect(result.success).toBe(true);
@@ -356,10 +356,10 @@ VITE_CI=true
 VITE_CI=true
 VITE_E2E=true
 `;
-      await writeFile(join(TEST_DIR, '.env.development'), content);
+      await writeFile(path.join(TEST_DIR, '.env.development'), content);
 
       const result = await verifyFrontendEnv('ciE2E', {
-        envDevelopmentPath: join(TEST_DIR, '.env.development'),
+        envDevelopmentPath: path.join(TEST_DIR, '.env.development'),
       });
 
       expect(result.success).toBe(true);
@@ -371,10 +371,10 @@ VITE_E2E=true
       const content = `VITE_API_URL=http://localhost:8787
 VITE_CI=true
 `;
-      await writeFile(join(TEST_DIR, '.env.development'), content);
+      await writeFile(path.join(TEST_DIR, '.env.development'), content);
 
       const result = await verifyFrontendEnv('ciE2E', {
-        envDevelopmentPath: join(TEST_DIR, '.env.development'),
+        envDevelopmentPath: path.join(TEST_DIR, '.env.development'),
       });
 
       expect(result.success).toBe(false);
@@ -388,7 +388,7 @@ VITE_CI=true
     it('returns success for production mode (no file needed)', async () => {
       // Production frontend doesn't read .env.development - just uses Vite MODE=production
       const result = await verifyFrontendEnv('production', {
-        envDevelopmentPath: join(TEST_DIR, '.env.development'),
+        envDevelopmentPath: path.join(TEST_DIR, '.env.development'),
       });
 
       expect(result.success).toBe(true);
@@ -398,10 +398,10 @@ VITE_CI=true
     it('returns failure when VITE_CI is missing for CI mode', async () => {
       const content = `VITE_API_URL=http://localhost:8787
 `;
-      await writeFile(join(TEST_DIR, '.env.development'), content);
+      await writeFile(path.join(TEST_DIR, '.env.development'), content);
 
       const result = await verifyFrontendEnv('ciVitest', {
-        envDevelopmentPath: join(TEST_DIR, '.env.development'),
+        envDevelopmentPath: path.join(TEST_DIR, '.env.development'),
       });
 
       expect(result.success).toBe(false);
@@ -413,8 +413,8 @@ VITE_CI=true
     });
   });
 
-  describe('formatEnvUtils', () => {
-    it('formats EnvUtils object as a string', () => {
+  describe('formatEnvUtilities', () => {
+    it('formats EnvUtilities object as a string', () => {
       const env = {
         isDev: true,
         isLocalDev: false,
@@ -424,7 +424,7 @@ VITE_CI=true
         requiresRealServices: true,
       };
 
-      const result = formatEnvUtils(env);
+      const result = formatEnvUtilities(env);
 
       expect(result).toBe(
         'isDev=true, isLocalDev=false, isProduction=false, isCI=true, isE2E=false, requiresRealServices=true'
@@ -500,17 +500,17 @@ VITE_CI=true
 
   describe('verifyAll', () => {
     it('returns success when both backend and frontend pass', async () => {
-      const devVarsContent = `NODE_ENV=development
+      const devVariablesContent = `NODE_ENV=development
 `;
       const envDevContent = `VITE_API_URL=http://localhost:8787
 `;
-      await writeFile(join(TEST_DIR, '.dev.vars'), devVarsContent);
-      await writeFile(join(TEST_DIR, '.env.development'), envDevContent);
+      await writeFile(path.join(TEST_DIR, '.dev.vars'), devVariablesContent);
+      await writeFile(path.join(TEST_DIR, '.env.development'), envDevContent);
 
       const result = await verifyAll('development', {
-        devVarsPath: join(TEST_DIR, '.dev.vars'),
-        wranglerTomlPath: join(TEST_DIR, 'wrangler.toml'),
-        envDevelopmentPath: join(TEST_DIR, '.env.development'),
+        devVarsPath: path.join(TEST_DIR, '.dev.vars'),
+        wranglerTomlPath: path.join(TEST_DIR, 'wrangler.toml'),
+        envDevelopmentPath: path.join(TEST_DIR, '.env.development'),
       });
 
       expect(result.success).toBe(true);
@@ -520,18 +520,18 @@ VITE_CI=true
 
     it('returns failure when backend fails', async () => {
       // Missing CI=true for ciVitest
-      const devVarsContent = `NODE_ENV=development
+      const devVariablesContent = `NODE_ENV=development
 `;
       const envDevContent = `VITE_API_URL=http://localhost:8787
 VITE_CI=true
 `;
-      await writeFile(join(TEST_DIR, '.dev.vars'), devVarsContent);
-      await writeFile(join(TEST_DIR, '.env.development'), envDevContent);
+      await writeFile(path.join(TEST_DIR, '.dev.vars'), devVariablesContent);
+      await writeFile(path.join(TEST_DIR, '.env.development'), envDevContent);
 
       const result = await verifyAll('ciVitest', {
-        devVarsPath: join(TEST_DIR, '.dev.vars'),
-        wranglerTomlPath: join(TEST_DIR, 'wrangler.toml'),
-        envDevelopmentPath: join(TEST_DIR, '.env.development'),
+        devVarsPath: path.join(TEST_DIR, '.dev.vars'),
+        wranglerTomlPath: path.join(TEST_DIR, 'wrangler.toml'),
+        envDevelopmentPath: path.join(TEST_DIR, '.env.development'),
       });
 
       expect(result.success).toBe(false);
@@ -540,12 +540,12 @@ VITE_CI=true
     it('returns error object when backend file is missing', async () => {
       const envDevContent = `VITE_API_URL=http://localhost:8787
 `;
-      await writeFile(join(TEST_DIR, '.env.development'), envDevContent);
+      await writeFile(path.join(TEST_DIR, '.env.development'), envDevContent);
 
       const result = await verifyAll('development', {
-        devVarsPath: join(TEST_DIR, 'nonexistent.vars'),
-        wranglerTomlPath: join(TEST_DIR, 'wrangler.toml'),
-        envDevelopmentPath: join(TEST_DIR, '.env.development'),
+        devVarsPath: path.join(TEST_DIR, 'nonexistent.vars'),
+        wranglerTomlPath: path.join(TEST_DIR, 'wrangler.toml'),
+        envDevelopmentPath: path.join(TEST_DIR, '.env.development'),
       });
 
       expect(result.success).toBe(false);
@@ -553,14 +553,14 @@ VITE_CI=true
     });
 
     it('returns error object when frontend file is missing', async () => {
-      const devVarsContent = `NODE_ENV=development
+      const devVariablesContent = `NODE_ENV=development
 `;
-      await writeFile(join(TEST_DIR, '.dev.vars'), devVarsContent);
+      await writeFile(path.join(TEST_DIR, '.dev.vars'), devVariablesContent);
 
       const result = await verifyAll('ciVitest', {
-        devVarsPath: join(TEST_DIR, '.dev.vars'),
-        wranglerTomlPath: join(TEST_DIR, 'wrangler.toml'),
-        envDevelopmentPath: join(TEST_DIR, 'nonexistent.env'),
+        devVarsPath: path.join(TEST_DIR, '.dev.vars'),
+        wranglerTomlPath: path.join(TEST_DIR, 'wrangler.toml'),
+        envDevelopmentPath: path.join(TEST_DIR, 'nonexistent.env'),
       });
 
       expect(result.success).toBe(false);
@@ -570,8 +570,8 @@ VITE_CI=true
 
   describe('printVerificationResult', () => {
     beforeEach(() => {
-      vi.spyOn(console, 'log').mockImplementation(() => undefined);
-      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
     });
 
     afterEach(() => {

@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from 'hono';
 import { createDb, LOCAL_NEON_DEV_CONFIG } from '@lome-chat/db';
-import { createEnvUtils } from '@lome-chat/shared';
+import { createEnvUtilities } from '@lome-chat/shared';
 import { createAuth } from '../auth/index.js';
 import { getEmailClient } from '../services/email/index.js';
 import { getHelcimClient } from '../services/helcim/index.js';
@@ -8,6 +8,7 @@ import { getOpenRouterClient } from '../services/openrouter/index.js';
 import type { AppEnv } from '../types.js';
 
 export function dbMiddleware(): MiddlewareHandler<AppEnv> {
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
     const { isDev } = c.get('envUtils');
     const dbConfig = isDev
@@ -19,6 +20,7 @@ export function dbMiddleware(): MiddlewareHandler<AppEnv> {
 }
 
 export function authMiddleware(): MiddlewareHandler<AppEnv> {
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
     const db = c.get('db');
     const emailClient = getEmailClient(c.env);
@@ -54,13 +56,17 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
 }
 
 export function openRouterMiddleware(): MiddlewareHandler<AppEnv> {
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
-    c.set('openrouter', getOpenRouterClient(c.env));
+    const db = c.get('db');
+    const { isCI } = c.get('envUtils');
+    c.set('openrouter', getOpenRouterClient(c.env, { db, isCI }));
     await next();
   };
 }
 
 export function helcimMiddleware(): MiddlewareHandler<AppEnv> {
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
     c.set('helcim', getHelcimClient(c.env));
     await next();
@@ -68,10 +74,11 @@ export function helcimMiddleware(): MiddlewareHandler<AppEnv> {
 }
 
 export function envMiddleware(): MiddlewareHandler<AppEnv> {
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
     // c.env may be undefined in tests when app.request() is called without bindings
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    c.set('envUtils', createEnvUtils(c.env ?? {}));
+    c.set('envUtils', createEnvUtilities(c.env ?? {}));
     await next();
   };
 }

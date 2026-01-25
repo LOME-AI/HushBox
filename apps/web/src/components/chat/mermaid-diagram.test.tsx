@@ -91,7 +91,7 @@ describe('MermaidDiagram', () => {
 
   it('shows loading state while rendering', () => {
     // Make render hang indefinitely to test loading state
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
+
     vi.mocked(mermaid.render).mockImplementation(() => new Promise(() => {}));
 
     const chart = `graph TD

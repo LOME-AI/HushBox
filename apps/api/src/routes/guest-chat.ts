@@ -28,8 +28,187 @@ import {
   ERROR_AUTHENTICATED_USER_ON_GUEST_ENDPOINT,
   ERROR_GUEST_MESSAGE_TOO_EXPENSIVE,
 } from '../constants/errors.js';
+import type { Context } from 'hono';
 
 const errorSchema = errorResponseSchema;
+
+interface GuestMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+interface GuestValidationSuccess {
+  success: true;
+  usageCheck: Awaited<ReturnType<typeof checkGuestUsage>>;
+  safeMaxTokens: number | undefined;
+  budgetResult: ReturnType<typeof calculateBudget>;
+}
+
+interface GuestValidationFailure {
+  success: false;
+  response: Response;
+}
+
+type GuestQuotaResult =
+  | { allowed: true; usageCheck: Awaited<ReturnType<typeof checkGuestUsage>> }
+  | { allowed: false; errorResponse: Response };
+
+async function checkGuestQuota(
+  c: Context<AppEnv>,
+  guestToken: string | null,
+  ipHash: string
+): Promise<GuestQuotaResult> {
+  const db = c.get('db');
+  const usageCheck = await checkGuestUsage(db, guestToken, ipHash);
+
+  if (!usageCheck.canSend) {
+    return {
+      allowed: false,
+      errorResponse: c.json(
+        createErrorResponse(ERROR_DAILY_LIMIT_EXCEEDED, ERROR_CODE_RATE_LIMITED, {
+          limit: usageCheck.limit,
+          remaining: 0,
+        }),
+        429
+      ),
+    };
+  }
+
+  return { allowed: true, usageCheck };
+}
+
+function checkGuestModelAccess(
+  c: Context<AppEnv>,
+  model: string,
+  premiumIds: string[]
+): Response | null {
+  if (premiumIds.includes(model)) {
+    return c.json(createErrorResponse(ERROR_PREMIUM_REQUIRES_ACCOUNT, ERROR_CODE_FORBIDDEN), 403);
+  }
+  return null;
+}
+
+interface ModelPricing {
+  inputPricePerToken: number;
+  outputPricePerToken: number;
+  contextLength: number;
+}
+
+function getModelPricing(
+  models: Awaited<ReturnType<typeof fetchModels>>,
+  modelId: string
+): ModelPricing {
+  const modelInfo = models.find((m) => m.id === modelId);
+  const inputPricePerToken = applyFees(modelInfo ? Number.parseFloat(modelInfo.pricing.prompt) : 0);
+  const outputPricePerToken = applyFees(
+    modelInfo ? Number.parseFloat(modelInfo.pricing.completion) : 0
+  );
+  const contextLength = modelInfo?.context_length ?? 128_000;
+
+  return { inputPricePerToken, outputPricePerToken, contextLength };
+}
+
+type GuestBudgetResult =
+  | {
+      canAfford: true;
+      budgetResult: ReturnType<typeof calculateBudget>;
+      safeMaxTokens: number | undefined;
+    }
+  | { canAfford: false; errorResponse: Response };
+
+function calculateGuestBudget(
+  c: Context<AppEnv>,
+  messages: GuestMessage[],
+  pricing: ModelPricing
+): GuestBudgetResult {
+  const systemPromptForBudget = buildSystemPrompt([]);
+  const historyCharacters = messages.reduce((sum, m) => sum + m.content.length, 0);
+  const promptCharacterCount = systemPromptForBudget.length + historyCharacters;
+
+  const budgetResult = calculateBudget({
+    tier: 'guest',
+    balanceCents: 0,
+    freeAllowanceCents: 0,
+    promptCharacterCount,
+    modelInputPricePerToken: pricing.inputPricePerToken,
+    modelOutputPricePerToken: pricing.outputPricePerToken,
+    modelContextLength: pricing.contextLength,
+  });
+
+  if (!budgetResult.canAfford) {
+    return {
+      canAfford: false,
+      errorResponse: c.json(
+        createErrorResponse(ERROR_GUEST_MESSAGE_TOO_EXPENSIVE, ERROR_CODE_PAYMENT_REQUIRED),
+        402
+      ),
+    };
+  }
+
+  const safeMaxTokens = computeSafeMaxTokens({
+    budgetMaxTokens: budgetResult.maxOutputTokens,
+    modelContextLength: pricing.contextLength,
+    estimatedInputTokens: budgetResult.estimatedInputTokens,
+  });
+
+  return { canAfford: true, budgetResult, safeMaxTokens };
+}
+
+async function validateGuestRequest(
+  c: Context<AppEnv>,
+  messages: GuestMessage[],
+  model: string
+): Promise<GuestValidationSuccess | GuestValidationFailure> {
+  const session = c.get('session');
+  if (session) {
+    return {
+      success: false,
+      response: c.json(
+        createErrorResponse(ERROR_AUTHENTICATED_USER_ON_GUEST_ENDPOINT, ERROR_CODE_VALIDATION),
+        400
+      ),
+    };
+  }
+
+  if (!validateLastMessageIsFromUser(messages)) {
+    return {
+      success: false,
+      response: c.json(
+        createErrorResponse(ERROR_LAST_MESSAGE_NOT_USER, ERROR_CODE_VALIDATION),
+        400
+      ),
+    };
+  }
+
+  const guestToken = c.req.header('x-guest-token') ?? null;
+  const ipHash = hashIp(getClientIp(c));
+
+  const quotaResult = await checkGuestQuota(c, guestToken, ipHash);
+  if (!quotaResult.allowed) {
+    return { success: false, response: quotaResult.errorResponse };
+  }
+
+  const allModels = await fetchModels();
+  const { premiumIds } = processModels(allModels);
+
+  const modelError = checkGuestModelAccess(c, model, premiumIds);
+  if (modelError) {
+    return { success: false, response: modelError };
+  }
+
+  const pricing = getModelPricing(allModels, model);
+  const budgetCheck = calculateGuestBudget(c, messages, pricing);
+  if (!budgetCheck.canAfford) {
+    return { success: false, response: budgetCheck.errorResponse };
+  }
+
+  return {
+    success: true,
+    usageCheck: quotaResult.usageCheck,
+    safeMaxTokens: budgetCheck.safeMaxTokens,
+    budgetResult: budgetCheck.budgetResult,
+  };
+}
 
 const rateLimitSchema = z.object({
   error: z.string(),
@@ -90,75 +269,15 @@ export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
     const db = c.get('db');
     const openrouter = c.get('openrouter');
 
-    // Reject authenticated users - they should use /chat/stream
-    const session = c.get('session');
-    if (session) {
-      return c.json(
-        createErrorResponse(ERROR_AUTHENTICATED_USER_ON_GUEST_ENDPOINT, ERROR_CODE_VALIDATION),
-        400
-      );
+    const validation = await validateGuestRequest(c, messages, model);
+    if (!validation.success) {
+      return validation.response;
     }
-
-    if (!validateLastMessageIsFromUser(messages)) {
-      return c.json(createErrorResponse(ERROR_LAST_MESSAGE_NOT_USER, ERROR_CODE_VALIDATION), 400);
-    }
+    const { usageCheck, safeMaxTokens } = validation;
 
     const guestToken = c.req.header('x-guest-token') ?? null;
     const clientIp = getClientIp(c);
     const ipHash = hashIp(clientIp);
-
-    const usageCheck = await checkGuestUsage(db, guestToken, ipHash);
-    if (!usageCheck.canSend) {
-      return c.json(
-        createErrorResponse(ERROR_DAILY_LIMIT_EXCEEDED, ERROR_CODE_RATE_LIMITED, {
-          limit: usageCheck.limit,
-          remaining: 0,
-        }),
-        429
-      );
-    }
-
-    const allModels = await fetchModels();
-    const { premiumIds } = processModels(allModels);
-
-    if (premiumIds.includes(model)) {
-      return c.json(createErrorResponse(ERROR_PREMIUM_REQUIRES_ACCOUNT, ERROR_CODE_FORBIDDEN), 403);
-    }
-
-    // Get model info for budget calculation
-    const modelInfo = allModels.find((m) => m.id === model);
-    const inputPricePerToken = applyFees(modelInfo ? parseFloat(modelInfo.pricing.prompt) : 0);
-    const outputPricePerToken = applyFees(modelInfo ? parseFloat(modelInfo.pricing.completion) : 0);
-    const modelContextLength = modelInfo?.context_length ?? 128000;
-
-    // Calculate prompt character count for budget validation
-    const systemPromptForBudget = buildSystemPrompt([]);
-    const historyCharacters = messages.reduce((sum, m) => sum + m.content.length, 0);
-    const promptCharacterCount = systemPromptForBudget.length + historyCharacters;
-
-    // Validate budget for guest tier
-    const budgetResult = calculateBudget({
-      tier: 'guest',
-      balanceCents: 0,
-      freeAllowanceCents: 0,
-      promptCharacterCount,
-      modelInputPricePerToken: inputPricePerToken,
-      modelOutputPricePerToken: outputPricePerToken,
-      modelContextLength,
-    });
-
-    if (!budgetResult.canAfford) {
-      return c.json(
-        createErrorResponse(ERROR_GUEST_MESSAGE_TOO_EXPENSIVE, ERROR_CODE_PAYMENT_REQUIRED),
-        402
-      );
-    }
-
-    const safeMaxTokens = computeSafeMaxTokens({
-      budgetMaxTokens: budgetResult.maxOutputTokens,
-      modelContextLength,
-      estimatedInputTokens: budgetResult.estimatedInputTokens,
-    });
 
     const assistantMessageId = crypto.randomUUID();
 
@@ -212,5 +331,3 @@ export function createGuestChatRoutes(): OpenAPIHono<AppEnv> {
 
   return app;
 }
-
-export const guestChatRoute = createGuestChatRoutes();

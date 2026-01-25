@@ -35,15 +35,15 @@ export function loadHelcimScript(options?: LoadHelcimScriptOptions): Promise<voi
     const script = document.createElement('script');
     script.src = HELCIM_SCRIPT_URL;
     script.async = true;
-    script.onload = (): void => {
+    script.addEventListener('load', (): void => {
       isLoaded = true;
       resolve();
-    };
-    script.onerror = (): void => {
+    });
+    script.addEventListener('error', (): void => {
       loadPromise = null;
       reject(new Error('Failed to load Helcim script'));
-    };
-    document.head.appendChild(script);
+    });
+    document.head.append(script);
   });
 
   return loadPromise;
@@ -81,12 +81,12 @@ export interface HelcimTokenResult {
  * Helcim.js populates hidden input fields in a div with id="helcimResults".
  */
 export function readHelcimResult(): HelcimTokenResult {
-  const responseEl = document.getElementById('response') as HTMLInputElement | null;
-  const responseMessageEl = document.getElementById('responseMessage') as HTMLInputElement | null;
-  const cardTokenEl = document.getElementById('cardToken') as HTMLInputElement | null;
-  const cardTypeEl = document.getElementById('cardType') as HTMLInputElement | null;
-  const cardF4L4El = document.getElementById('cardF4L4') as HTMLInputElement | null;
-  const customerCodeEl = document.getElementById('customerCode') as HTMLInputElement | null;
+  const responseEl = document.querySelector<HTMLInputElement>('#response');
+  const responseMessageEl = document.querySelector<HTMLInputElement>('#responseMessage');
+  const cardTokenEl = document.querySelector<HTMLInputElement>('#cardToken');
+  const cardTypeEl = document.querySelector<HTMLInputElement>('#cardType');
+  const cardF4L4El = document.querySelector<HTMLInputElement>('#cardF4L4');
+  const customerCodeEl = document.querySelector<HTMLInputElement>('#customerCode');
 
   const response = responseEl?.value;
   const responseMessage = responseMessageEl?.value;

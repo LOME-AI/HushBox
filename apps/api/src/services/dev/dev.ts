@@ -47,8 +47,8 @@ export async function listDevPersonas(db: Database, type: 'dev' | 'test'): Promi
         .from(projects)
         .where(eq(projects.userId, user.id));
 
-      const balanceNum = parseFloat(user.balance);
-      const formattedCredits = `$${balanceNum.toFixed(2)}`;
+      const balanceNumber = Number.parseFloat(user.balance);
+      const formattedCredits = `$${balanceNumber.toFixed(2)}`;
 
       return {
         id: user.id,

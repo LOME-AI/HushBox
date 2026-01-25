@@ -1,3 +1,5 @@
+import { getSecureRandomElement } from '@lome-chat/shared';
+
 export interface Greeting {
   title: string;
   subtitle: string;
@@ -44,12 +46,10 @@ const NIGHT_GREETINGS: Greeting[] = [
 ];
 
 function getRandomGreeting(greetings: Greeting[]): Greeting {
-  const index = Math.floor(Math.random() * greetings.length);
-  const greeting = greetings[index];
-  if (!greeting) {
+  if (greetings.length === 0) {
     return { title: 'LOME Chat', subtitle: 'What do you need?' };
   }
-  return greeting;
+  return getSecureRandomElement(greetings);
 }
 
 export function getGreeting(isAuthenticated: boolean): Greeting {

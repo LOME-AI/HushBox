@@ -51,7 +51,7 @@ describe('getHelcimClient', () => {
       });
 
       expect(createMockSpy).toHaveBeenCalledWith({
-        webhookUrl: 'http://localhost:8787/webhooks/payment',
+        webhookUrl: 'http://localhost:8787/api/webhooks/payment',
         webhookVerifier: 'mock-verifier',
       });
 

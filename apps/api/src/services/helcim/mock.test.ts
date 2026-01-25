@@ -171,7 +171,7 @@ describe('createMockHelcimClient', () => {
     it('schedules webhook after successful payment when config provided', async () => {
       const scheduleMockWebhookSpy = vi
         .spyOn(mockWebhook, 'scheduleMockWebhook')
-        .mockImplementation(() => undefined);
+        .mockImplementation(() => {});
 
       const client = createMockHelcimClient(testConfig);
 
@@ -191,7 +191,7 @@ describe('createMockHelcimClient', () => {
     it('does not schedule webhook when payment is declined', async () => {
       const scheduleMockWebhookSpy = vi
         .spyOn(mockWebhook, 'scheduleMockWebhook')
-        .mockImplementation(() => undefined);
+        .mockImplementation(() => {});
 
       const client = createMockHelcimClient(testConfig);
       client.setNextResponse({

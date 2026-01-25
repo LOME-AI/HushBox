@@ -43,33 +43,42 @@ export async function calculateMessageCost(params: CalculateMessageCostParams): 
       });
     } catch {
       // Fall back to estimation if stats fetch fails
-      return estimateCost(
+      return estimateCost({
         modelInfo,
         inputContent,
         outputContent,
         inputCharacters,
-        outputCharacters
-      );
+        outputCharacters,
+      });
     }
   }
 
   // Mock client path: estimate from character count
-  return estimateCost(modelInfo, inputContent, outputContent, inputCharacters, outputCharacters);
+  return estimateCost({
+    modelInfo,
+    inputContent,
+    outputContent,
+    inputCharacters,
+    outputCharacters,
+  });
 }
 
-function estimateCost(
-  modelInfo: CalculateMessageCostParams['modelInfo'],
-  inputContent: string,
-  outputContent: string,
-  inputCharacters: number,
-  outputCharacters: number
-): number {
+interface EstimateCostParams {
+  modelInfo: CalculateMessageCostParams['modelInfo'];
+  inputContent: string;
+  outputContent: string;
+  inputCharacters: number;
+  outputCharacters: number;
+}
+
+function estimateCost(params: EstimateCostParams): number {
+  const { modelInfo, inputContent, outputContent, inputCharacters, outputCharacters } = params;
   if (!modelInfo) {
     return 0;
   }
 
-  const pricePerInputToken = parseFloat(modelInfo.pricing.prompt);
-  const pricePerOutputToken = parseFloat(modelInfo.pricing.completion);
+  const pricePerInputToken = Number.parseFloat(modelInfo.pricing.prompt);
+  const pricePerOutputToken = Number.parseFloat(modelInfo.pricing.completion);
 
   return estimateMessageCostDevelopment({
     inputTokens: estimateTokenCount(inputContent),

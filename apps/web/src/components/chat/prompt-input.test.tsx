@@ -24,9 +24,9 @@ vi.mock('@/hooks/models', async (importOriginal) => {
           {
             id: 'test-model',
             name: 'Test Model',
-            contextLength: 50000,
-            pricePerInputToken: 0.000001,
-            pricePerOutputToken: 0.000002,
+            contextLength: 50_000,
+            pricePerInputToken: 0.000_001,
+            pricePerOutputToken: 0.000_002,
           },
         ],
       },
@@ -56,7 +56,7 @@ const defaultBudgetResult: BudgetCalculationResult & { isBalanceLoading: boolean
   estimatedInputTokens: 100,
   estimatedInputCost: 0.0001,
   estimatedMinimumCost: 0.001,
-  effectiveBalance: 1.0,
+  effectiveBalance: 1,
   currentUsage: 1100,
   capacityPercent: 5,
   errors: [],
@@ -198,7 +198,7 @@ describe('PromptInput', () => {
       mockBudgetResult.mockReturnValue({
         ...defaultBudgetResult,
         capacityPercent: 25,
-        currentUsage: 12500,
+        currentUsage: 12_500,
       });
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />

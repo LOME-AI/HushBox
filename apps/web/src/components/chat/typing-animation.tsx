@@ -16,7 +16,7 @@ export function TypingAnimation({
   className,
   loop = true,
   onComplete,
-}: TypingAnimationProps): React.JSX.Element {
+}: Readonly<TypingAnimationProps>): React.JSX.Element {
   const [displayText, setDisplayText] = React.useState('');
   const [isComplete, setIsComplete] = React.useState(false);
 
@@ -27,23 +27,21 @@ export function TypingAnimation({
   }, [text]);
 
   React.useEffect(() => {
-    if (isComplete) {
-      return undefined;
+    if (isComplete || displayText.length >= text.length) {
+      // Typing complete - set state if we just finished
+      if (!isComplete && displayText.length >= text.length) {
+        setIsComplete(true);
+        onComplete?.();
+      }
+      return;
     }
 
-    if (displayText.length < text.length) {
-      const timeout = setTimeout(() => {
-        setDisplayText(text.substring(0, displayText.length + 1));
-      }, typingSpeed);
-      return (): void => {
-        clearTimeout(timeout);
-      };
-    }
-
-    // Typing complete
-    setIsComplete(true);
-    onComplete?.();
-    return undefined;
+    const timeout = setTimeout(() => {
+      setDisplayText(text.slice(0, Math.max(0, displayText.length + 1)));
+    }, typingSpeed);
+    return (): void => {
+      clearTimeout(timeout);
+    };
   }, [displayText, text, typingSpeed, isComplete, onComplete]);
 
   const showCursor = loop || !isComplete;

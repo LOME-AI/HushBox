@@ -12,7 +12,7 @@ describe('createConsoleEmailClient', () => {
   let consoleSpy: Mock<(message?: unknown, ...optionalParams: unknown[]) => void>;
 
   beforeEach(() => {
-    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined) as Mock<
+    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {}) as Mock<
       (message?: unknown, ...optionalParams: unknown[]) => void
     >;
   });

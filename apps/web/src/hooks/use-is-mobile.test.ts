@@ -3,7 +3,7 @@ import { describe, expect, it, afterEach, vi } from 'vitest';
 import { useIsMobile } from './use-is-mobile';
 
 describe('useIsMobile', () => {
-  const originalMatchMedia = window.matchMedia;
+  const originalMatchMedia = globalThis.matchMedia;
   let mockMatchMedia: ReturnType<typeof vi.fn>;
   let mediaQueryListeners: Map<string, (e: MediaQueryListEvent) => void>;
 
@@ -23,14 +23,14 @@ describe('useIsMobile', () => {
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
     }));
-    Object.defineProperty(window, 'matchMedia', {
+    Object.defineProperty(globalThis, 'matchMedia', {
       writable: true,
       value: mockMatchMedia,
     });
   };
 
   afterEach(() => {
-    Object.defineProperty(window, 'matchMedia', {
+    Object.defineProperty(globalThis, 'matchMedia', {
       writable: true,
       value: originalMatchMedia,
     });

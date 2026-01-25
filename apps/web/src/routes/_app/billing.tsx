@@ -23,10 +23,12 @@ function getTransactionDisplay(tx: BalanceTransactionResponse): string {
       const sourceNote = tx.deductionSource === 'freeAllowance' ? ' (free allowance)' : '';
       return `AI response: ${tx.model ?? 'unknown'} (${String(totalChars)} chars)${sourceNote}`;
     }
-    case 'deposit':
-      return `Deposit of $${parseFloat(tx.amount).toFixed(2)}`;
-    case 'adjustment':
+    case 'deposit': {
+      return `Deposit of $${Number.parseFloat(tx.amount).toFixed(2)}`;
+    }
+    case 'adjustment': {
       return 'Balance adjustment';
+    }
   }
 }
 
@@ -54,7 +56,82 @@ export function BillingPage(): React.JSX.Element {
   // Filter to only deposits and calculate pagination
   const deposits = transactionsData?.transactions ?? [];
   const hasNextPage = Boolean(transactionsData?.nextCursor);
-  const hasPrevPage = page > 0;
+  const hasPreviousPage = page > 0;
+
+  function renderTransactionContent(): React.JSX.Element {
+    if (transactionsLoading) {
+      return (
+        <div className="flex h-full flex-col">
+          {Array.from({ length: TRANSACTIONS_PER_PAGE }).map((_, index) => (
+            <div
+              key={index}
+              data-testid="transaction-skeleton-row"
+              className="flex h-16 items-center justify-between"
+            >
+              <div className="space-y-2">
+                <div
+                  data-testid="skeleton-block"
+                  className="bg-muted h-5 w-40 animate-pulse rounded"
+                />
+                <div
+                  data-testid="skeleton-block"
+                  className="bg-muted h-4 w-32 animate-pulse rounded"
+                />
+              </div>
+              <div className="space-y-2 text-right">
+                <div
+                  data-testid="skeleton-block"
+                  className="bg-muted ml-auto h-5 w-16 animate-pulse rounded"
+                />
+                <div
+                  data-testid="skeleton-block"
+                  className="bg-muted ml-auto h-4 w-28 animate-pulse rounded"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    if (deposits.length === 0 && page === 0) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <p className="text-muted-foreground">No purchases yet</p>
+        </div>
+      );
+    }
+    return (
+      <div className="flex h-full flex-col">
+        {deposits.map((tx) => (
+          <div
+            key={tx.id}
+            className="flex h-16 items-center justify-between border-b last:border-0"
+          >
+            <div>
+              <p className="font-medium">{getTransactionDisplay(tx)}</p>
+              <p className="text-muted-foreground text-sm">
+                {new Date(tx.createdAt).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="font-medium text-green-600">
+                +${Number.parseFloat(tx.amount).toFixed(2)}
+              </p>
+              <p className="text-muted-foreground text-sm">
+                Balance: {formatBalance(tx.balanceAfter)}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -70,12 +147,12 @@ export function BillingPage(): React.JSX.Element {
           <CardContent>
             <div className="flex items-center justify-between">
               <div>
-                {!isBalanceStable ? (
-                  <div className="bg-muted h-10 w-48 animate-pulse rounded" />
-                ) : (
+                {isBalanceStable ? (
                   <p data-testid="balance-display" className="text-4xl font-bold">
                     {formatBalance(displayBalance)}
                   </p>
+                ) : (
+                  <div className="bg-muted h-10 w-48 animate-pulse rounded" />
                 )}
               </div>
               <Button
@@ -99,72 +176,7 @@ export function BillingPage(): React.JSX.Element {
           <CardContent>
             {/* Fixed height container for transaction list */}
             <div data-testid="transaction-list-container" className="h-[320px]">
-              {transactionsLoading ? (
-                <div className="flex h-full flex-col">
-                  {Array.from({ length: TRANSACTIONS_PER_PAGE }).map((_, i) => (
-                    <div
-                      key={i}
-                      data-testid="transaction-skeleton-row"
-                      className="flex h-16 items-center justify-between"
-                    >
-                      <div className="space-y-2">
-                        <div
-                          data-testid="skeleton-block"
-                          className="bg-muted h-5 w-40 animate-pulse rounded"
-                        />
-                        <div
-                          data-testid="skeleton-block"
-                          className="bg-muted h-4 w-32 animate-pulse rounded"
-                        />
-                      </div>
-                      <div className="space-y-2 text-right">
-                        <div
-                          data-testid="skeleton-block"
-                          className="bg-muted ml-auto h-5 w-16 animate-pulse rounded"
-                        />
-                        <div
-                          data-testid="skeleton-block"
-                          className="bg-muted ml-auto h-4 w-28 animate-pulse rounded"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : deposits.length === 0 && page === 0 ? (
-                <div className="flex h-full items-center justify-center">
-                  <p className="text-muted-foreground">No purchases yet</p>
-                </div>
-              ) : (
-                <div className="flex h-full flex-col">
-                  {deposits.map((tx) => (
-                    <div
-                      key={tx.id}
-                      className="flex h-16 items-center justify-between border-b last:border-0"
-                    >
-                      <div>
-                        <p className="font-medium">{getTransactionDisplay(tx)}</p>
-                        <p className="text-muted-foreground text-sm">
-                          {new Date(tx.createdAt).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-medium text-green-600">
-                          +${parseFloat(tx.amount).toFixed(2)}
-                        </p>
-                        <p className="text-muted-foreground text-sm">
-                          Balance: {formatBalance(tx.balanceAfter)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {renderTransactionContent()}
             </div>
             {/* Pagination - always visible when we have transactions */}
             {(deposits.length > 0 || page > 0) && (
@@ -176,7 +188,7 @@ export function BillingPage(): React.JSX.Element {
                   onClick={() => {
                     setPage((p) => Math.max(0, p - 1));
                   }}
-                  disabled={!hasPrevPage}
+                  disabled={!hasPreviousPage}
                 >
                   <ChevronLeft className="mr-1 h-4 w-4" />
                   Previous

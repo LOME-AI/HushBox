@@ -14,19 +14,31 @@ import {
 } from './conversations.js';
 
 describe('createConversationRequestSchema', () => {
-  it('accepts empty object with optional fields', () => {
-    const result = createConversationRequestSchema.parse({});
+  const validId = '550e8400-e29b-41d4-a716-446655440000';
+
+  it('requires id field', () => {
+    expect(() => createConversationRequestSchema.parse({})).toThrow();
+  });
+
+  it('accepts valid UUID id', () => {
+    const result = createConversationRequestSchema.parse({ id: validId });
+    expect(result.id).toBe(validId);
     expect(result.title).toBeUndefined();
     expect(result.firstMessage).toBeUndefined();
   });
 
+  it('rejects invalid UUID', () => {
+    expect(() => createConversationRequestSchema.parse({ id: 'not-a-uuid' })).toThrow();
+  });
+
   it('accepts custom title', () => {
-    const result = createConversationRequestSchema.parse({ title: 'My Chat' });
+    const result = createConversationRequestSchema.parse({ id: validId, title: 'My Chat' });
     expect(result.title).toBe('My Chat');
   });
 
   it('accepts firstMessage with content', () => {
     const result = createConversationRequestSchema.parse({
+      id: validId,
       firstMessage: { content: 'Hello world' },
     });
     expect(result.firstMessage?.content).toBe('Hello world');
@@ -34,6 +46,7 @@ describe('createConversationRequestSchema', () => {
 
   it('accepts title and firstMessage together', () => {
     const result = createConversationRequestSchema.parse({
+      id: validId,
       title: 'My Chat',
       firstMessage: { content: 'Hello' },
     });
@@ -44,6 +57,7 @@ describe('createConversationRequestSchema', () => {
   it('rejects firstMessage with empty content', () => {
     expect(() =>
       createConversationRequestSchema.parse({
+        id: validId,
         firstMessage: { content: '' },
       })
     ).toThrow();
@@ -284,9 +298,11 @@ describe('createConversationResponseSchema', () => {
         createdAt: '2024-01-01T00:00:00Z',
         updatedAt: '2024-01-01T00:00:00Z',
       },
+      isNew: true,
     });
     expect(result.conversation.id).toBe('conv-123');
     expect(result.message).toBeUndefined();
+    expect(result.isNew).toBe(true);
   });
 
   it('accepts conversation with message', () => {
@@ -305,8 +321,34 @@ describe('createConversationResponseSchema', () => {
         content: 'First message',
         createdAt: '2024-01-01T00:00:00Z',
       },
+      isNew: true,
     });
     expect(result.message?.content).toBe('First message');
+    expect(result.isNew).toBe(true);
+  });
+
+  it('accepts idempotent return with existing messages', () => {
+    const result = createConversationResponseSchema.parse({
+      conversation: {
+        id: 'conv-123',
+        userId: 'user-456',
+        title: 'Existing Chat',
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+      },
+      messages: [
+        {
+          id: 'msg-1',
+          conversationId: 'conv-123',
+          role: 'user',
+          content: 'First message',
+          createdAt: '2024-01-01T00:00:00Z',
+        },
+      ],
+      isNew: false,
+    });
+    expect(result.isNew).toBe(false);
+    expect(result.messages).toHaveLength(1);
   });
 });
 

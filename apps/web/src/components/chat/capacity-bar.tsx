@@ -35,7 +35,7 @@ export function CapacityBar({
   currentUsage,
   maxCapacity,
   className,
-}: CapacityBarProps): React.JSX.Element {
+}: Readonly<CapacityBarProps>): React.JSX.Element {
   const percentage = Math.round((currentUsage / maxCapacity) * 100);
   const targetWidth = Math.min(percentage, 100);
   const fillColor = getFillColor(percentage);
@@ -45,15 +45,15 @@ export function CapacityBar({
 
   React.useEffect(() => {
     // Only animate when width actually changes after mount
-    if (animatedWidth !== targetWidth) {
-      const frameId = requestAnimationFrame(() => {
-        setAnimatedWidth(targetWidth);
-      });
-      return () => {
-        cancelAnimationFrame(frameId);
-      };
+    if (animatedWidth === targetWidth) {
+      return;
     }
-    return undefined;
+    const frameId = requestAnimationFrame(() => {
+      setAnimatedWidth(targetWidth);
+    });
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
   }, [targetWidth, animatedWidth]);
 
   return (

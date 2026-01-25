@@ -3,7 +3,6 @@ import { fireAndForget } from './fire-and-forget.js';
 
 describe('fireAndForget', () => {
   beforeEach(() => {
-    // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentionally suppress console.error in tests
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -54,7 +53,8 @@ describe('fireAndForget', () => {
 
   it('returns void (no return value)', () => {
     const promise = Promise.resolve('value');
-    fireAndForget(promise, 'test');
-    // fireAndForget returns void, verified by TypeScript
+    // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- testing return type
+    const result = fireAndForget(promise, 'test');
+    expect(result).toBeUndefined();
   });
 });

@@ -3,14 +3,14 @@ import { formatContextLength, formatPricePer1k, applyFees, formatBalance } from 
 
 describe('formatContextLength', () => {
   it('formats thousands as k', () => {
-    expect(formatContextLength(128000)).toBe('128k');
-    expect(formatContextLength(200000)).toBe('200k');
-    expect(formatContextLength(131072)).toBe('131k');
+    expect(formatContextLength(128_000)).toBe('128k');
+    expect(formatContextLength(200_000)).toBe('200k');
+    expect(formatContextLength(131_072)).toBe('131k');
   });
 
   it('formats millions as M', () => {
-    expect(formatContextLength(1000000)).toBe('1M');
-    expect(formatContextLength(2000000)).toBe('2M');
+    expect(formatContextLength(1_000_000)).toBe('1M');
+    expect(formatContextLength(2_000_000)).toBe('2M');
   });
 
   it('rounds to nearest k', () => {
@@ -19,8 +19,8 @@ describe('formatContextLength', () => {
   });
 
   it('handles exactly 1M boundary', () => {
-    expect(formatContextLength(999999)).toBe('1000k');
-    expect(formatContextLength(1000000)).toBe('1M');
+    expect(formatContextLength(999_999)).toBe('1000k');
+    expect(formatContextLength(1_000_000)).toBe('1M');
   });
 });
 
@@ -31,18 +31,18 @@ describe('formatPricePer1k', () => {
   });
 
   it('formats prices less than $1 without trailing zeros', () => {
-    expect(formatPricePer1k(0.00001)).toBe('$0.01');
-    expect(formatPricePer1k(0.00003)).toBe('$0.03');
+    expect(formatPricePer1k(0.000_01)).toBe('$0.01');
+    expect(formatPricePer1k(0.000_03)).toBe('$0.03');
   });
 
   it('formats prices less than $0.01 without trailing zeros', () => {
-    expect(formatPricePer1k(0.000003)).toBe('$0.003');
-    expect(formatPricePer1k(0.000005)).toBe('$0.005');
+    expect(formatPricePer1k(0.000_003)).toBe('$0.003');
+    expect(formatPricePer1k(0.000_005)).toBe('$0.005');
   });
 
   it('formats very small prices without trailing zeros', () => {
-    expect(formatPricePer1k(0.0000005)).toBe('$0.0005');
-    expect(formatPricePer1k(0.00000059)).toBe('$0.00059');
+    expect(formatPricePer1k(0.000_000_5)).toBe('$0.0005');
+    expect(formatPricePer1k(0.000_000_59)).toBe('$0.00059');
   });
 
   it('handles zero price', () => {
@@ -62,7 +62,7 @@ describe('applyFees', () => {
   });
 
   it('handles very small prices', () => {
-    expect(applyFees(0.00001)).toBeCloseTo(0.0000115, 10);
+    expect(applyFees(0.000_01)).toBeCloseTo(0.000_011_5, 10);
   });
 });
 
@@ -74,7 +74,7 @@ describe('formatBalance', () => {
   });
 
   it('accepts number input', () => {
-    expect(formatBalance(12.3456789)).toBe('$12.3457');
+    expect(formatBalance(12.345_678_9)).toBe('$12.3457');
     expect(formatBalance(0)).toBe('$0.0000');
   });
 
@@ -85,7 +85,7 @@ describe('formatBalance', () => {
 
   it('handles NaN values', () => {
     expect(formatBalance('invalid')).toBe('$0.0000');
-    expect(formatBalance(NaN)).toBe('$0.0000');
+    expect(formatBalance(Number.NaN)).toBe('$0.0000');
   });
 
   it('rounds to 4 decimal places', () => {

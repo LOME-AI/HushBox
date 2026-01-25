@@ -113,18 +113,81 @@ export function getEffectiveBalance(
   freeAllowanceCents: number
 ): number {
   switch (tier) {
-    case 'guest':
+    case 'guest': {
       return MAX_GUEST_MESSAGE_COST_CENTS / 100;
-    case 'free':
+    }
+    case 'free': {
       return freeAllowanceCents / 100;
-    case 'paid':
+    }
+    case 'paid': {
       return (balanceCents + MAX_ALLOWED_NEGATIVE_BALANCE_CENTS) / 100;
+    }
   }
 }
 
 // ============================================================================
 // Error Generation
 // ============================================================================
+
+const INSUFFICIENT_BALANCE_ERRORS: Record<UserTier, BudgetError> = {
+  paid: {
+    id: 'insufficient_paid',
+    type: 'error',
+    message: 'Insufficient balance. Top up or try a more affordable model.',
+    segments: [
+      { text: 'Insufficient balance. ' },
+      { text: 'Top up', link: '/billing' },
+      { text: ' or try a more affordable model.' },
+    ],
+  },
+  free: {
+    id: 'insufficient_free',
+    type: 'error',
+    message:
+      "Your free daily usage can't cover this message. Try a shorter conversation or more affordable model.",
+  },
+  guest: {
+    id: 'insufficient_guest',
+    type: 'error',
+    message: 'This message exceeds guest limits. Sign up for more capacity.',
+    segments: [
+      { text: 'This message exceeds guest limits. ' },
+      { text: 'Sign up', link: '/signup' },
+      { text: ' for more capacity.' },
+    ],
+  },
+};
+
+const TIER_INFO_NOTICES: Partial<Record<UserTier, BudgetError>> = {
+  free: {
+    id: 'free_tier_notice',
+    type: 'info',
+    message: 'Using free allowance. Top up for longer conversations.',
+    segments: [
+      { text: 'Using free allowance. ' },
+      { text: 'Top up', link: '/billing' },
+      { text: ' for longer conversations.' },
+    ],
+  },
+  guest: {
+    id: 'guest_notice',
+    type: 'info',
+    message: 'Free preview. Sign up for full access.',
+    segments: [
+      { text: 'Free preview. ' },
+      { text: 'Sign up', link: '/signup' },
+      { text: ' for full access.' },
+    ],
+  },
+};
+
+function shouldShowLowBalanceWarning(
+  tier: UserTier,
+  canAfford: boolean,
+  maxOutputTokens: number
+): boolean {
+  return tier === 'paid' && canAfford && maxOutputTokens < LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD;
+}
 
 /**
  * Generate appropriate error/warning/info messages based on budget result.
@@ -134,9 +197,9 @@ export function generateBudgetErrors(
   result: Omit<BudgetCalculationResult, 'errors'>
 ): BudgetError[] {
   const errors: BudgetError[] = [];
-
-  // Capacity exceeded error (blocks sending)
   const isOverCapacity = result.capacityPercent > 100;
+  const hasBlockingError = isOverCapacity || !result.canAfford;
+
   if (isOverCapacity) {
     errors.push({
       id: 'capacity_exceeded',
@@ -145,46 +208,10 @@ export function generateBudgetErrors(
     });
   }
 
-  // Insufficient balance errors (tier-specific, blocks sending)
   if (!result.canAfford) {
-    switch (tier) {
-      case 'paid':
-        errors.push({
-          id: 'insufficient_paid',
-          type: 'error',
-          message: 'Insufficient balance. Top up or try a more affordable model.',
-          segments: [
-            { text: 'Insufficient balance. ' },
-            { text: 'Top up', link: '/billing' },
-            { text: ' or try a more affordable model.' },
-          ],
-        });
-        break;
-      case 'free':
-        errors.push({
-          id: 'insufficient_free',
-          type: 'error',
-          message:
-            "Your free daily usage can't cover this message. Try a shorter conversation or more affordable model.",
-        });
-        break;
-      case 'guest':
-        errors.push({
-          id: 'insufficient_guest',
-          type: 'error',
-          message: 'This message exceeds guest limits. Sign up for more capacity.',
-          segments: [
-            { text: 'This message exceeds guest limits. ' },
-            { text: 'Sign up', link: '/signup' },
-            { text: ' for more capacity.' },
-          ],
-        });
-        break;
-    }
+    errors.push(INSUFFICIENT_BALANCE_ERRORS[tier]);
   }
 
-  // Capacity warning (only when no blocking errors exist)
-  const hasBlockingError = isOverCapacity || !result.canAfford;
   if (!hasBlockingError && result.capacityPercent >= CAPACITY_RED_THRESHOLD * 100) {
     errors.push({
       id: 'capacity_warning',
@@ -193,12 +220,7 @@ export function generateBudgetErrors(
     });
   }
 
-  // Low balance warning (paid only, when can afford but limited)
-  if (
-    tier === 'paid' &&
-    result.canAfford &&
-    result.maxOutputTokens < LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD
-  ) {
+  if (shouldShowLowBalanceWarning(tier, result.canAfford, result.maxOutputTokens)) {
     errors.push({
       id: 'low_balance',
       type: 'warning',
@@ -206,29 +228,9 @@ export function generateBudgetErrors(
     });
   }
 
-  // Tier info notices (always shown for free/guest, positive framing)
-  if (tier === 'free') {
-    errors.push({
-      id: 'free_tier_notice',
-      type: 'info',
-      message: 'Using free allowance. Top up for longer conversations.',
-      segments: [
-        { text: 'Using free allowance. ' },
-        { text: 'Top up', link: '/billing' },
-        { text: ' for longer conversations.' },
-      ],
-    });
-  } else if (tier === 'guest') {
-    errors.push({
-      id: 'guest_notice',
-      type: 'info',
-      message: 'Free preview. Sign up for full access.',
-      segments: [
-        { text: 'Free preview. ' },
-        { text: 'Sign up', link: '/signup' },
-        { text: ' for full access.' },
-      ],
-    });
+  const tierNotice = TIER_INFO_NOTICES[tier];
+  if (tierNotice) {
+    errors.push(tierNotice);
   }
 
   return errors;

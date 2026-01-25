@@ -1,5 +1,5 @@
-import * as React from 'react';
-import { ScrollArea } from '@lome-chat/ui';
+import { forwardRef } from 'react';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { MessageItem } from './message-item';
 import type { Message } from '@/lib/api';
 import type { Document } from '@/lib/document-parser';
@@ -8,20 +8,25 @@ interface MessageListProps {
   messages: Message[];
   streamingMessageId?: string | null;
   onDocumentsExtracted?: (messageId: string, documents: Document[]) => void;
-  viewportRef?: React.Ref<HTMLDivElement>;
-  onScroll?: (event: React.UIEvent<HTMLDivElement>) => void;
-  /** Bottom padding in pixels to account for fixed input on mobile */
-  bottomPadding?: number | undefined;
 }
 
-export function MessageList({
-  messages,
-  streamingMessageId,
-  onDocumentsExtracted,
-  viewportRef,
-  onScroll,
-  bottomPadding,
-}: MessageListProps): React.JSX.Element {
+const FOOTER_HEIGHT = '10dvh';
+
+const Scroller = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  function Scroller(props, ref) {
+    return <div {...props} ref={ref} data-slot="scroll-area-viewport" />;
+  }
+);
+
+const components = {
+  Footer: (): React.JSX.Element => <div style={{ height: FOOTER_HEIGHT }} aria-hidden="true" />,
+  Scroller,
+};
+
+export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function MessageList(
+  { messages, streamingMessageId, onDocumentsExtracted },
+  ref
+) {
   if (messages.length === 0) {
     return (
       <div data-testid="message-list-empty" className="flex flex-1 items-center justify-center">
@@ -30,30 +35,28 @@ export function MessageList({
     );
   }
 
-  // Build optional scroll props to avoid TypeScript exactOptionalPropertyTypes issues
-  const scrollProps = {
-    ...(viewportRef !== undefined && { viewportRef }),
-    ...(onScroll !== undefined && { onScroll }),
-  };
-
   return (
-    <ScrollArea data-testid="message-list" className="h-full flex-1" {...scrollProps}>
-      <div
-        role="log"
-        aria-live="polite"
-        aria-label="Chat messages"
-        className="flex w-full flex-col py-4"
-        style={bottomPadding ? { paddingBottom: `${String(bottomPadding)}px` } : undefined}
-      >
-        {messages.map((message) => (
+    <div
+      role="log"
+      aria-label="Chat messages"
+      data-testid="message-list"
+      className="h-full min-h-0 flex-1"
+    >
+      <Virtuoso
+        ref={ref}
+        data={messages}
+        followOutput="smooth"
+        atBottomThreshold={50}
+        itemContent={(_index, message) => (
           <MessageItem
             key={message.id}
             message={message}
             isStreaming={message.id === streamingMessageId}
             onDocumentsExtracted={onDocumentsExtracted}
           />
-        ))}
-      </div>
-    </ScrollArea>
+        )}
+        components={components}
+      />
+    </div>
   );
-}
+});

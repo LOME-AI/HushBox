@@ -14,54 +14,69 @@ interface BudgetMessagesProps {
 
 function getBorderColor(type: BudgetError['type']): string {
   switch (type) {
-    case 'error':
+    case 'error': {
       return 'border-l-destructive';
-    case 'warning':
+    }
+    case 'warning': {
       return 'border-l-yellow-500';
-    case 'info':
+    }
+    case 'info': {
       return 'border-l-blue-500';
+    }
   }
 }
 
 function getIconColor(type: BudgetError['type']): string {
   switch (type) {
-    case 'error':
+    case 'error': {
       return 'text-destructive';
-    case 'warning':
+    }
+    case 'warning': {
       return 'text-yellow-500';
-    case 'info':
+    }
+    case 'info': {
       return 'text-blue-500';
+    }
   }
 }
 
 function getIcon(type: BudgetError['type']): React.ComponentType<{ className?: string }> {
   switch (type) {
     case 'error':
-    case 'warning':
+    case 'warning': {
       return AlertTriangle;
-    case 'info':
-      return Info;
-  }
-}
-
-function renderMessageContent(error: BudgetError): React.ReactNode {
-  if (!error.segments || error.segments.length === 0) {
-    return error.message;
-  }
-
-  return error.segments.map((segment: MessageSegment, index: number) => {
-    if (segment.link) {
-      return (
-        <Link key={index} to={segment.link} className="text-primary hover:underline">
-          {segment.text}
-        </Link>
-      );
     }
-    return <React.Fragment key={index}>{segment.text}</React.Fragment>;
-  });
+    case 'info': {
+      return Info;
+    }
+  }
 }
 
-export function BudgetMessages({ errors, className }: BudgetMessagesProps): React.JSX.Element {
+function renderMessageContent(error: BudgetError): React.JSX.Element {
+  if (!error.segments || error.segments.length === 0) {
+    return <>{error.message}</>;
+  }
+
+  return (
+    <>
+      {error.segments.map((segment: MessageSegment, index: number) => {
+        if (segment.link) {
+          return (
+            <Link key={index} to={segment.link} className="text-primary hover:underline">
+              {segment.text}
+            </Link>
+          );
+        }
+        return <React.Fragment key={index}>{segment.text}</React.Fragment>;
+      })}
+    </>
+  );
+}
+
+export function BudgetMessages({
+  errors,
+  className,
+}: Readonly<BudgetMessagesProps>): React.JSX.Element {
   if (errors.length === 0) {
     return <></>;
   }

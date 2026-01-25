@@ -9,7 +9,7 @@ import {
   validateExpiry,
   validateCvv,
   validateZip,
-} from './card-utils.js';
+} from './card-utilities.js';
 
 describe('isValidLuhn', () => {
   it('returns true for valid Visa card number', () => {

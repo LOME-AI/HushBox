@@ -65,7 +65,7 @@ export interface ProcessedModels {
  * Get the combined price of a model (prompt + completion per token).
  */
 function getCombinedPrice(model: OpenRouterModel): number {
-  return parseFloat(model.pricing.prompt) + parseFloat(model.pricing.completion);
+  return Number.parseFloat(model.pricing.prompt) + Number.parseFloat(model.pricing.completion);
 }
 
 /**
@@ -76,7 +76,7 @@ function calculatePercentileThreshold(values: number[], percentile: number): num
     return 0;
   }
 
-  const sorted = [...values].sort((a, b) => a - b);
+  const sorted = [...values].toSorted((a, b) => a - b);
   const index = Math.floor(sorted.length * percentile);
   return sorted[Math.min(index, sorted.length - 1)] ?? 0;
 }
@@ -154,8 +154,8 @@ function transform(model: OpenRouterModel): Model {
     description: model.description,
     provider,
     contextLength: model.context_length,
-    pricePerInputToken: parseFloat(model.pricing.prompt),
-    pricePerOutputToken: parseFloat(model.pricing.completion),
+    pricePerInputToken: Number.parseFloat(model.pricing.prompt),
+    pricePerOutputToken: Number.parseFloat(model.pricing.completion),
     capabilities: deriveCapabilities(model.supported_parameters),
     supportedParameters: model.supported_parameters,
     created: model.created,
@@ -201,7 +201,7 @@ export function processModels(rawModels: OpenRouterModel[]): ProcessedModels {
   });
 
   // Calculate price threshold from filtered list (reflects available models)
-  const prices = filtered.map(getCombinedPrice);
+  const prices = filtered.map((model) => getCombinedPrice(model));
   const priceThreshold = calculatePercentileThreshold(prices, PREMIUM_PRICE_PERCENTILE);
 
   // Classify and transform

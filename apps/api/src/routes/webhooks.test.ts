@@ -214,7 +214,7 @@ describe('webhooks routes', () => {
       const balanceRes1 = await app.request('/billing/balance', {
         headers: { Cookie: authCookie },
       });
-      const initialBalance = parseFloat(
+      const initialBalance = Number.parseFloat(
         ((await balanceRes1.json()) as { balance: string }).balance
       );
 
@@ -234,7 +234,9 @@ describe('webhooks routes', () => {
       const balanceRes2 = await app.request('/billing/balance', {
         headers: { Cookie: authCookie },
       });
-      const newBalance = parseFloat(((await balanceRes2.json()) as { balance: string }).balance);
+      const newBalance = Number.parseFloat(
+        ((await balanceRes2.json()) as { balance: string }).balance
+      );
 
       expect(newBalance).toBeCloseTo(initialBalance + 50, 2);
 
@@ -276,7 +278,7 @@ describe('webhooks routes', () => {
       const balanceRes1 = await app.request('/billing/balance', {
         headers: { Cookie: authCookie },
       });
-      const initialBalance = parseFloat(
+      const initialBalance = Number.parseFloat(
         ((await balanceRes1.json()) as { balance: string }).balance
       );
 
@@ -303,7 +305,9 @@ describe('webhooks routes', () => {
       const balanceRes2 = await app.request('/billing/balance', {
         headers: { Cookie: authCookie },
       });
-      const newBalance = parseFloat(((await balanceRes2.json()) as { balance: string }).balance);
+      const newBalance = Number.parseFloat(
+        ((await balanceRes2.json()) as { balance: string }).balance
+      );
 
       // Should be exactly +25, not +50
       expect(newBalance).toBeCloseTo(initialBalance + 25, 2);
@@ -336,7 +340,7 @@ describe('webhooks routes', () => {
       const balanceRes1 = await app.request('/billing/balance', {
         headers: { Cookie: authCookie },
       });
-      const initialBalance = parseFloat(
+      const initialBalance = Number.parseFloat(
         ((await balanceRes1.json()) as { balance: string }).balance
       );
 
@@ -356,7 +360,9 @@ describe('webhooks routes', () => {
       const balanceRes2 = await app.request('/billing/balance', {
         headers: { Cookie: authCookie },
       });
-      const newBalance = parseFloat(((await balanceRes2.json()) as { balance: string }).balance);
+      const newBalance = Number.parseFloat(
+        ((await balanceRes2.json()) as { balance: string }).balance
+      );
 
       expect(newBalance).toBeCloseTo(initialBalance, 2);
     });
@@ -377,7 +383,7 @@ describe('webhooks routes', () => {
       expect(res.status).toBe(500);
       const data = (await res.json()) as { error: string };
       expect(data.error).toContain('Payment not found');
-    }, 60000); // 60 second timeout for retries
+    }, 60_000); // 60 second timeout for retries
 
     it('returns 200 immediately for already-confirmed payments (duplicate webhook)', async () => {
       // Create payment
@@ -407,7 +413,9 @@ describe('webhooks routes', () => {
       const balanceRes1 = await app.request('/billing/balance', {
         headers: { Cookie: authCookie },
       });
-      const balanceBefore = parseFloat(((await balanceRes1.json()) as { balance: string }).balance);
+      const balanceBefore = Number.parseFloat(
+        ((await balanceRes1.json()) as { balance: string }).balance
+      );
 
       // Send duplicate webhook for already-confirmed payment
       const webhookRes = await app.request('/webhooks/payment', {
@@ -428,7 +436,9 @@ describe('webhooks routes', () => {
       const balanceRes2 = await app.request('/billing/balance', {
         headers: { Cookie: authCookie },
       });
-      const balanceAfter = parseFloat(((await balanceRes2.json()) as { balance: string }).balance);
+      const balanceAfter = Number.parseFloat(
+        ((await balanceRes2.json()) as { balance: string }).balance
+      );
       expect(balanceAfter).toBeCloseTo(balanceBefore, 2);
     });
 

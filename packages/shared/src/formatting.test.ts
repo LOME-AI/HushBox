@@ -18,7 +18,7 @@ describe('formatting utilities', () => {
 
     it('formats large numbers with thousand separators', () => {
       // Note: exact format depends on locale, but should include separator
-      const result = formatNumber(1234567);
+      const result = formatNumber(1_234_567);
       expect(result).toMatch(/1.*234.*567/);
     });
 
@@ -35,26 +35,26 @@ describe('formatting utilities', () => {
 
   describe('formatContextLength', () => {
     it('formats values under 1M with k suffix', () => {
-      expect(formatContextLength(128000)).toBe('128k');
+      expect(formatContextLength(128_000)).toBe('128k');
       expect(formatContextLength(4000)).toBe('4k');
-      expect(formatContextLength(32000)).toBe('32k');
+      expect(formatContextLength(32_000)).toBe('32k');
     });
 
     it('formats values at or above 1M with M suffix', () => {
-      expect(formatContextLength(1000000)).toBe('1M');
-      expect(formatContextLength(2000000)).toBe('2M');
+      expect(formatContextLength(1_000_000)).toBe('1M');
+      expect(formatContextLength(2_000_000)).toBe('2M');
     });
 
     it('rounds to nearest unit', () => {
-      expect(formatContextLength(128500)).toBe('129k');
-      expect(formatContextLength(1500000)).toBe('2M');
+      expect(formatContextLength(128_500)).toBe('129k');
+      expect(formatContextLength(1_500_000)).toBe('2M');
     });
   });
 
   describe('formatPricePer1k', () => {
     it('formats typical token prices', () => {
-      expect(formatPricePer1k(0.00001)).toBe('$0.01');
-      expect(formatPricePer1k(0.000015)).toBe('$0.015');
+      expect(formatPricePer1k(0.000_01)).toBe('$0.01');
+      expect(formatPricePer1k(0.000_015)).toBe('$0.015');
     });
 
     it('strips trailing zeros', () => {
@@ -63,7 +63,7 @@ describe('formatting utilities', () => {
     });
 
     it('handles very small prices', () => {
-      expect(formatPricePer1k(0.000001)).toBe('$0.001');
+      expect(formatPricePer1k(0.000_001)).toBe('$0.001');
     });
   });
 
@@ -77,23 +77,23 @@ describe('formatting utilities', () => {
     it('formats costs with full precision, stripping trailing zeros', () => {
       expect(formatCost(0.0234)).toBe('$0.0234');
       expect(formatCost('0.12345678')).toBe('$0.12345678');
-      expect(formatCost(0.00136)).toBe('$0.00136');
+      expect(formatCost(0.001_36)).toBe('$0.00136');
     });
 
     it('formats very small costs with full precision', () => {
-      expect(formatCost(0.00001)).toBe('$0.00001');
+      expect(formatCost(0.000_01)).toBe('$0.00001');
       expect(formatCost('0.000005')).toBe('$0.000005');
     });
 
     it('handles NaN as $0.00', () => {
       expect(formatCost('invalid')).toBe('$0.00');
-      expect(formatCost(NaN)).toBe('$0.00');
+      expect(formatCost(Number.NaN)).toBe('$0.00');
     });
 
     it('strips trailing zeros from costs', () => {
       expect(formatCost(1.5)).toBe('$1.5');
       expect(formatCost('1.5')).toBe('$1.5');
-      expect(formatCost(1.0)).toBe('$1');
+      expect(formatCost(1)).toBe('$1');
       expect(formatCost('2.00000000')).toBe('$2');
     });
   });
@@ -136,7 +136,7 @@ describe('formatting utilities', () => {
   describe('generateChatTitle', () => {
     it('returns default title when no content provided', () => {
       expect(generateChatTitle()).toBe(DEFAULT_CHAT_TITLE);
-      expect(generateChatTitle(undefined)).toBe(DEFAULT_CHAT_TITLE);
+      expect(generateChatTitle()).toBe(DEFAULT_CHAT_TITLE);
       expect(generateChatTitle('')).toBe(DEFAULT_CHAT_TITLE);
     });
 

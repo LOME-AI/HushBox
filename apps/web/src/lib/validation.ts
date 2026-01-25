@@ -22,7 +22,11 @@ export function createValidator<T>(
   successMessage = 'Valid'
 ): (value: T) => ValidationResult {
   return (value: T): ValidationResult => {
-    if (value === '' || value === null || value === undefined) {
+    if (
+      (value as unknown) === '' ||
+      (value as unknown) === null ||
+      (value as unknown) === undefined
+    ) {
       return { isValid: false };
     }
     const result = schema.safeParse(value);

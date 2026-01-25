@@ -32,7 +32,9 @@ function supportsViewTransitions(): boolean {
   return typeof document !== 'undefined' && 'startViewTransition' in document;
 }
 
-export function ThemeProvider({ children }: ThemeProviderProps): React.JSX.Element | null {
+export function ThemeProvider({
+  children,
+}: Readonly<ThemeProviderProps>): React.JSX.Element | null {
   const [mode, setModeInternal] = React.useState<ThemeMode>('light');
   const [mounted, setMounted] = React.useState(false);
   const isTransitioning = React.useRef(false);
@@ -44,7 +46,7 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.JSX.Eleme
       const savedMode = localStorage.getItem('themeMode');
       if (savedMode === 'light' || savedMode === 'dark') {
         initialMode = savedMode;
-      } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      } else if (globalThis.matchMedia('(prefers-color-scheme: dark)').matches) {
         initialMode = 'dark';
       }
     } catch (error) {
@@ -62,14 +64,10 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.JSX.Eleme
       console.error('Error saving themeMode to localStorage:', error);
     }
     setModeInternal(newMode);
-    document.documentElement.setAttribute('data-theme', newMode);
+    document.documentElement.dataset['theme'] = newMode;
 
     // Update the class on document for Tailwind dark mode
-    if (newMode === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    document.documentElement.classList.toggle('dark', newMode === 'dark');
   }, []);
 
   /**
@@ -112,19 +110,18 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.JSX.Eleme
       });
 
       // Clean up after transition
-      transition.finished
-        .then(() => {
+      void (async () => {
+        try {
+          await transition.finished;
+        } catch {
+          // Transition may be skipped or aborted
+        } finally {
           isTransitioning.current = false;
           document.documentElement.style.removeProperty('--transition-x');
           document.documentElement.style.removeProperty('--transition-y');
           document.documentElement.style.removeProperty('--transition-radius');
-        })
-        .catch(() => {
-          isTransitioning.current = false;
-          document.documentElement.style.removeProperty('--transition-x');
-          document.documentElement.style.removeProperty('--transition-y');
-          document.documentElement.style.removeProperty('--transition-radius');
-        });
+        }
+      })();
     },
     [mode, applyTheme]
   );
@@ -132,12 +129,8 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.JSX.Eleme
   // Set data-theme attribute on HTML element
   React.useEffect(() => {
     if (mounted) {
-      document.documentElement.setAttribute('data-theme', mode);
-      if (mode === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
+      document.documentElement.dataset['theme'] = mode;
+      document.documentElement.classList.toggle('dark', mode === 'dark');
     }
   }, [mode, mounted]);
 

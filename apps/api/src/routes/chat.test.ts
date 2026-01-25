@@ -53,7 +53,7 @@ const mockModels = [
     id: 'openai/gpt-4-turbo',
     name: 'GPT-4 Turbo',
     description: 'Premium model',
-    context_length: 128000,
+    context_length: 128_000,
     pricing: { prompt: '0.00001', completion: '0.00003' },
     supported_parameters: ['temperature'],
     created: Math.floor(Date.now() / 1000),
@@ -74,6 +74,7 @@ function createMockDb(options: {
   // Track user balance for transaction updates
   let currentUserBalance = users[0]?.balance ?? '0.00000000';
 
+  /* eslint-disable unicorn/no-thenable -- test mock for Drizzle query builder which uses .then() */
   function createThenable<T>(value: T) {
     return {
       then: (resolve: (v: T) => unknown) => Promise.resolve(resolve(value)),
@@ -86,6 +87,7 @@ function createMockDb(options: {
       orderBy: () => Promise.resolve(value),
     };
   }
+  /* eslint-enable unicorn/no-thenable */
 
   function createDbOperations() {
     return {
@@ -141,6 +143,7 @@ function createMockDb(options: {
               currentUserBalance = '9.99000000'; // Simulated after deduction
             }
             // Return a thenable that also supports .returning()
+            /* eslint-disable unicorn/no-thenable -- mock Drizzle query result */
             const result = {
               returning: () => {
                 if (table === usersTable) {
@@ -148,8 +151,9 @@ function createMockDb(options: {
                 }
                 return Promise.resolve([{}]);
               },
-              then: (resolve: (v: unknown) => unknown) => Promise.resolve(resolve(undefined)),
+              then: (resolve: (v?: unknown) => unknown) => Promise.resolve(resolve()),
             };
+            /* eslint-enable unicorn/no-thenable */
             return result;
           },
         }),
@@ -179,7 +183,7 @@ function createTestApp(dbOptions?: Parameters<typeof createMockDb>[0]) {
   const mockSession = {
     id: 'session-123',
     userId: 'user-123',
-    expiresAt: new Date(Date.now() + 86400000),
+    expiresAt: new Date(Date.now() + 86_400_000),
   };
 
   const defaultDbOptions = {
@@ -385,11 +389,11 @@ describe('chat routes', () => {
         chatCompletion() {
           return Promise.reject(new Error('API Error'));
         },
-        // eslint-disable-next-line @typescript-eslint/require-await, require-yield -- intentionally throws for error test
+        // eslint-disable-next-line @typescript-eslint/require-await, require-yield, sonarjs/generator-without-yield -- intentionally throws for error test
         async *chatCompletionStream() {
           throw new Error('Stream failed');
         },
-        // eslint-disable-next-line @typescript-eslint/require-await, require-yield -- intentionally throws for error test
+        // eslint-disable-next-line @typescript-eslint/require-await, require-yield, sonarjs/generator-without-yield -- intentionally throws for error test
         async *chatCompletionStreamWithMetadata() {
           throw new Error('Stream failed');
         },

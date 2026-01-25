@@ -31,7 +31,7 @@ export function ChatHeader({
   canAccessPremium,
   isAuthenticated,
   onPremiumClick,
-}: ChatHeaderProps): React.JSX.Element {
+}: Readonly<ChatHeaderProps>): React.JSX.Element {
   return (
     <PageHeader
       testId="chat-header"

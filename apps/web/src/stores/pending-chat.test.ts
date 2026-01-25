@@ -16,32 +16,43 @@ describe('usePendingChatStore', () => {
   describe('setPendingMessage', () => {
     it('sets the pending message', () => {
       usePendingChatStore.getState().setPendingMessage('Hello, world!');
-      expect(usePendingChatStore.getState().pendingMessage).toBe('Hello, world!');
-    });
 
-    it('can set message to null', () => {
-      usePendingChatStore.setState({ pendingMessage: 'Some message' });
-      usePendingChatStore.getState().setPendingMessage(null);
-      expect(usePendingChatStore.getState().pendingMessage).toBeNull();
+      const { pendingMessage } = usePendingChatStore.getState();
+      expect(pendingMessage).toBe('Hello, world!');
     });
 
     it('overwrites existing message', () => {
       usePendingChatStore.getState().setPendingMessage('First message');
       usePendingChatStore.getState().setPendingMessage('Second message');
-      expect(usePendingChatStore.getState().pendingMessage).toBe('Second message');
+
+      const { pendingMessage } = usePendingChatStore.getState();
+      expect(pendingMessage).toBe('Second message');
+    });
+
+    it('can set message to null', () => {
+      usePendingChatStore.getState().setPendingMessage('Test');
+      usePendingChatStore.getState().setPendingMessage(null);
+
+      const { pendingMessage } = usePendingChatStore.getState();
+      expect(pendingMessage).toBeNull();
     });
   });
 
   describe('clearPendingMessage', () => {
     it('clears the pending message', () => {
       usePendingChatStore.setState({ pendingMessage: 'Message to clear' });
+
       usePendingChatStore.getState().clearPendingMessage();
-      expect(usePendingChatStore.getState().pendingMessage).toBeNull();
+
+      const { pendingMessage } = usePendingChatStore.getState();
+      expect(pendingMessage).toBeNull();
     });
 
     it('is idempotent when already null', () => {
       usePendingChatStore.getState().clearPendingMessage();
-      expect(usePendingChatStore.getState().pendingMessage).toBeNull();
+
+      const { pendingMessage } = usePendingChatStore.getState();
+      expect(pendingMessage).toBeNull();
     });
   });
 });

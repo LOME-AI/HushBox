@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
-import { NewChatPage } from './new-chat-page';
+import { ChatWelcome } from './chat-welcome';
 import type { BudgetCalculationResult } from '@lome-chat/shared';
 
 // Mock the api module
@@ -14,7 +14,7 @@ vi.mock('@/lib/api', () => ({
         id: 'openai/gpt-4-turbo',
         name: 'GPT-4 Turbo',
         description: 'Test model',
-        context_length: 128000,
+        context_length: 128_000,
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: ['temperature'],
       },
@@ -22,7 +22,7 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-// Mock hooks used by PromptInput (which is rendered inside NewChatPage)
+// Mock hooks used by PromptInput (which is rendered inside ChatWelcome)
 vi.mock('@/stores/model', () => ({
   useModelStore: vi.fn(() => ({
     selectedModelId: 'test-model',
@@ -40,9 +40,9 @@ vi.mock('@/hooks/models', async (importOriginal) => {
           {
             id: 'test-model',
             name: 'Test Model',
-            contextLength: 50000,
-            pricePerInputToken: 0.000001,
-            pricePerOutputToken: 0.000002,
+            contextLength: 50_000,
+            pricePerInputToken: 0.000_001,
+            pricePerOutputToken: 0.000_002,
             capabilities: [],
             provider: { name: 'Test Provider' },
             description: 'A test model',
@@ -77,7 +77,7 @@ const defaultBudgetResult: BudgetCalculationResult = {
   estimatedInputTokens: 100,
   estimatedInputCost: 0.0001,
   estimatedMinimumCost: 0.001,
-  effectiveBalance: 1.0,
+  effectiveBalance: 1,
   currentUsage: 1100,
   capacityPercent: 5,
   errors: [],
@@ -128,43 +128,43 @@ function createWrapper(): React.FC<{ children: React.ReactNode }> {
   };
 }
 
-describe('NewChatPage', () => {
+describe('ChatWelcome', () => {
   const mockOnSend = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('renders the new chat page container', () => {
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+  it('renders the chat welcome container', () => {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
-    expect(screen.getByTestId('new-chat-page')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-welcome')).toBeInTheDocument();
   });
 
   it('renders a greeting heading', () => {
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
   });
 
   it('renders the prompt input', () => {
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
     expect(screen.getByRole('textbox')).toBeInTheDocument();
   });
 
   it('renders suggestion chips', () => {
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
     expect(screen.getByTestId('suggestion-chips')).toBeInTheDocument();
   });
 
   it('renders Surprise Me button', () => {
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
     expect(screen.getByRole('button', { name: /surprise me/i })).toBeInTheDocument();
@@ -172,7 +172,7 @@ describe('NewChatPage', () => {
 
   it('calls onSend when submitting prompt', async () => {
     const user = userEvent.setup();
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
 
@@ -187,7 +187,7 @@ describe('NewChatPage', () => {
 
   it('fills prompt input when suggestion chip is clicked', async () => {
     const user = userEvent.setup();
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
 
@@ -202,49 +202,49 @@ describe('NewChatPage', () => {
   });
 
   it('has flex column layout for header and content', () => {
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
-    const container = screen.getByTestId('new-chat-page');
+    const container = screen.getByTestId('chat-welcome');
     expect(container).toHaveClass('flex');
     expect(container).toHaveClass('flex-col');
   });
 
   it('has dynamic viewport height and overflow-hidden to prevent scroll bar', () => {
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
-    const container = screen.getByTestId('new-chat-page');
+    const container = screen.getByTestId('chat-welcome');
     // Uses visual viewport height for mobile keyboard handling
     expect(container.style.height).toMatch(/\d+px/);
     expect(container).toHaveClass('overflow-hidden');
   });
 
   it('shows subtitle text', () => {
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
     // Subtitle should exist somewhere in the page
-    const page = screen.getByTestId('new-chat-page');
+    const page = screen.getByTestId('chat-welcome');
     expect(page.textContent).toBeTruthy();
   });
 
   it('renders theme toggle', () => {
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
     expect(screen.getByTestId('theme-toggle')).toBeInTheDocument();
   });
 
   it('renders model selector button', () => {
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
     expect(screen.getByTestId('model-selector-button')).toBeInTheDocument();
   });
 
   it('renders ChatHeader at the top', () => {
-    render(<NewChatPage onSend={mockOnSend} isAuthenticated={false} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
     expect(screen.getByTestId('chat-header')).toBeInTheDocument();

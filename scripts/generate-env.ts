@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
+import path from 'node:path';
 import {
   envConfig,
-  Dest,
+  Destination,
   Mode,
   isSecret,
   isProductionSecret,
@@ -10,7 +10,7 @@ import {
   resolveValue,
   resolveRaw,
   type EnvMode,
-  type VarConfig,
+  type VariableConfig,
 } from '../packages/shared/src/env.config.js';
 
 /**
@@ -19,7 +19,7 @@ import {
  */
 export function escapeEnvValue(value: string): string {
   // Escape backslashes first, then double quotes
-  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const escaped = value.replaceAll('\\', '\\\\').replaceAll('"', String.raw`\"`);
   return `"${escaped}"`;
 }
 
@@ -50,11 +50,11 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
   };
 
   // Helper to generate lines for a destination
-  const generateLines = (dest: Dest): string[] =>
+  const generateLines = (destination: Destination): string[] =>
     Object.entries(envConfig)
-      .filter(([, config]) => getDestinations(config as VarConfig, mode).includes(dest))
+      .filter(([, config]) => getDestinations(config as VariableConfig, mode).includes(destination))
       .map(([key, config]) => {
-        const val = resolveValue(config as VarConfig, mode, getSecret);
+        const val = resolveValue(config as VariableConfig, mode, getSecret);
         // Return null if val is null (defensive, filtered out by subsequent .filter())
         /* istanbul ignore next -- @preserve defensive check */
         if (val === null) return null;
@@ -63,9 +63,9 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
       .filter((line): line is string => line !== null);
 
   // Generate lines for each destination
-  const backendLines = generateLines(Dest.Backend);
-  const frontendLines = generateLines(Dest.Frontend);
-  const scriptsLines = generateLines(Dest.Scripts);
+  const backendLines = generateLines(Destination.Backend);
+  const frontendLines = generateLines(Destination.Frontend);
+  const scriptsLines = generateLines(Destination.Scripts);
 
   // Check for missing secrets
   if (missing.length > 0) {
@@ -73,8 +73,9 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
   }
 
   // Write .dev.vars (Backend)
-  const devVarsContent = ['# Auto-generated - do not edit', '', ...backendLines].join('\n') + '\n';
-  writeFileSync(resolvePath(rootDir, 'apps/api/.dev.vars'), devVarsContent);
+  const devVariablesContent =
+    ['# Auto-generated - do not edit', '', ...backendLines].join('\n') + '\n';
+  writeFileSync(path.resolve(rootDir, 'apps/api/.dev.vars'), devVariablesContent);
   console.log('  Generated apps/api/.dev.vars');
 
   // Write .env.development (Frontend)
@@ -85,13 +86,13 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
       '',
       ...frontendLines,
     ].join('\n') + '\n';
-  writeFileSync(resolvePath(rootDir, '.env.development'), envDevContent);
+  writeFileSync(path.resolve(rootDir, '.env.development'), envDevContent);
   console.log('  Generated .env.development');
 
   // Write .env.scripts (Scripts)
   const envScriptsContent =
     ['# Auto-generated - do not edit', '', ...scriptsLines].join('\n') + '\n';
-  writeFileSync(resolvePath(rootDir, '.env.scripts'), envScriptsContent);
+  writeFileSync(path.resolve(rootDir, '.env.scripts'), envScriptsContent);
   console.log('  Generated .env.scripts');
 
   // Update wrangler.toml [vars] with production values
@@ -107,22 +108,22 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
  * Update wrangler.toml with [vars] section containing production non-secret values.
  */
 function updateWranglerToml(rootDir: string): void {
-  const tomlPath = resolvePath(rootDir, 'apps/api/wrangler.toml');
-  let content = readFileSync(tomlPath, 'utf-8');
+  const tomlPath = path.resolve(rootDir, 'apps/api/wrangler.toml');
+  let content = readFileSync(tomlPath, 'utf8');
 
   // Remove existing [vars] section if present
   content = content.replace(/\n?\[vars\][\s\S]*?(?=\n\[[^\]]+\]|$)/, '');
 
   // Build new [vars] section with production non-secret values from backend
-  const varsLines: string[] = ['', '[vars]'];
+  const variablesLines: string[] = ['', '[vars]'];
   for (const [key, config] of Object.entries(envConfig)) {
-    const destinations = getDestinations(config as VarConfig, Mode.Production);
-    if (!destinations.includes(Dest.Backend)) continue;
+    const destinations = getDestinations(config as VariableConfig, Mode.Production);
+    if (!destinations.includes(Destination.Backend)) continue;
 
-    const raw = resolveRaw(config as VarConfig, Mode.Production);
+    const raw = resolveRaw(config as VariableConfig, Mode.Production);
     // Only include literal production values (not secrets)
     if (raw && typeof raw === 'string') {
-      varsLines.push(`${key} = "${raw}"`);
+      variablesLines.push(`${key} = "${raw}"`);
     }
   }
 
@@ -130,14 +131,13 @@ function updateWranglerToml(rootDir: string): void {
   const secretKeys = getBackendSecretKeys();
   /* istanbul ignore next -- @preserve always true with current config */
   if (secretKeys.length > 0) {
-    varsLines.push('');
-    varsLines.push('# Secrets deployed via CI (GitHub Secrets → wrangler secret put):');
+    variablesLines.push('', '# Secrets deployed via CI (GitHub Secrets → wrangler secret put):');
     for (const key of secretKeys) {
-      varsLines.push(`# - ${key}`);
+      variablesLines.push(`# - ${key}`);
     }
   }
 
-  writeFileSync(tomlPath, content.trimEnd() + varsLines.join('\n') + '\n');
+  writeFileSync(tomlPath, content.trimEnd() + variablesLines.join('\n') + '\n');
   console.log('  Updated apps/api/wrangler.toml [vars]');
 }
 
@@ -147,8 +147,10 @@ function updateWranglerToml(rootDir: string): void {
 function getBackendSecretKeys(): string[] {
   return Object.entries(envConfig)
     .filter(([, config]) => {
-      const destinations = getDestinations(config as VarConfig, Mode.Production);
-      return destinations.includes(Dest.Backend) && isProductionSecret(config as VarConfig);
+      const destinations = getDestinations(config as VariableConfig, Mode.Production);
+      return (
+        destinations.includes(Destination.Backend) && isProductionSecret(config as VariableConfig)
+      );
     })
     .map(([key]) => key);
 }
@@ -159,7 +161,7 @@ function getBackendSecretKeys(): string[] {
  */
 function replaceSection(content: string, marker: string, newContent: string): string {
   const regex = new RegExp(
-    `([ ]*)# BEGIN GENERATED: ${marker}\\n[\\s\\S]*?# END GENERATED: ${marker}`,
+    String.raw`([ ]*)# BEGIN GENERATED: ${marker}\n[\s\S]*?# END GENERATED: ${marker}`,
     'g'
   );
 
@@ -180,7 +182,7 @@ function generateSecretsEnv(mode: EnvMode): string {
   const lines: string[] = ['env:'];
 
   for (const [, config] of Object.entries(envConfig)) {
-    const raw = resolveRaw(config as VarConfig, mode);
+    const raw = resolveRaw(config as VariableConfig, mode);
     if (raw && isSecret(raw)) {
       lines.push(`  ${raw.name}: \${{ secrets.${raw.name} }}`);
     }
@@ -196,10 +198,10 @@ function generateBuildEnv(): string {
   const lines: string[] = ['env:'];
 
   for (const [key, config] of Object.entries(envConfig)) {
-    const destinations = getDestinations(config as VarConfig, Mode.Production);
-    if (!destinations.includes(Dest.Frontend)) continue;
+    const destinations = getDestinations(config as VariableConfig, Mode.Production);
+    if (!destinations.includes(Destination.Frontend)) continue;
 
-    const raw = resolveRaw(config as VarConfig, Mode.Production);
+    const raw = resolveRaw(config as VariableConfig, Mode.Production);
     // All frontend vars have production values
     /* istanbul ignore next -- @preserve defensive check */
     if (!raw) continue;
@@ -222,10 +224,10 @@ function generateDeploySecrets(): string {
   const lines: string[] = [];
 
   for (const [key, config] of Object.entries(envConfig)) {
-    const destinations = getDestinations(config as VarConfig, Mode.Production);
-    if (!destinations.includes(Dest.Backend)) continue;
+    const destinations = getDestinations(config as VariableConfig, Mode.Production);
+    if (!destinations.includes(Destination.Backend)) continue;
 
-    const raw = resolveRaw(config as VarConfig, Mode.Production);
+    const raw = resolveRaw(config as VariableConfig, Mode.Production);
     if (raw && isSecret(raw)) {
       lines.push(`echo "\${{ secrets.${raw.name} }}" | pnpm exec wrangler secret put ${key}`);
     }
@@ -247,13 +249,13 @@ function generateVerifySecrets(): string {
  * Skips if ci.yml doesn't exist (e.g., in test fixtures).
  */
 export function updateCiWorkflow(rootDir: string): void {
-  const ciPath = resolvePath(rootDir, '.github/workflows/ci.yml');
+  const ciPath = path.resolve(rootDir, '.github/workflows/ci.yml');
 
   if (!existsSync(ciPath)) {
     return;
   }
 
-  let content = readFileSync(ciPath, 'utf-8');
+  let content = readFileSync(ciPath, 'utf8');
 
   // Generate and replace each section
   content = replaceSection(content, 'vitest-env', generateSecretsEnv(Mode.CiVitest));
@@ -267,9 +269,9 @@ export function updateCiWorkflow(rootDir: string): void {
 }
 
 export function parseArgs(args: string[]): EnvMode {
-  const modeArg = args.find((arg) => arg.startsWith('--mode='));
-  if (modeArg) {
-    const parts = modeArg.split('=');
+  const modeArgument = args.find((argument) => argument.startsWith('--mode='));
+  if (modeArgument) {
+    const parts = modeArgument.split('=');
     const mode = parts[1] ?? '';
     const validModes = Object.values(Mode);
     if (validModes.includes(mode as Mode)) {

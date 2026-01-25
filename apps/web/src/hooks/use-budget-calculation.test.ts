@@ -25,9 +25,9 @@ const mockUseBalance = vi.mocked(billingHooks.useBalance);
 describe('useBudgetCalculation', () => {
   const defaultInput = {
     promptCharacterCount: 1000,
-    modelInputPricePerToken: 0.00001,
-    modelOutputPricePerToken: 0.00003,
-    modelContextLength: 128000,
+    modelInputPricePerToken: 0.000_01,
+    modelOutputPricePerToken: 0.000_03,
+    modelContextLength: 128_000,
     isAuthenticated: true,
   };
 
@@ -313,7 +313,7 @@ describe('useBudgetCalculation', () => {
       const { result } = renderHook(() =>
         useBudgetCalculation({
           ...defaultInput,
-          promptCharacterCount: 100000, // Large message
+          promptCharacterCount: 100_000, // Large message
           modelInputPricePerToken: 0.001, // Expensive model
         })
       );
@@ -336,7 +336,7 @@ describe('useBudgetCalculation', () => {
         useBudgetCalculation({
           ...defaultInput,
           promptCharacterCount: 4000,
-          modelContextLength: 10000, // Small context for test
+          modelContextLength: 10_000, // Small context for test
         })
       );
 
@@ -361,8 +361,8 @@ describe('useBudgetCalculation', () => {
       const { result } = renderHook(() =>
         useBudgetCalculation({
           ...defaultInput,
-          promptCharacterCount: 40000, // 10000 tokens at 4 chars/token
-          modelContextLength: 15000, // capacity = (10000+1000)/15000 = 73%
+          promptCharacterCount: 40_000, // 10000 tokens at 4 chars/token
+          modelContextLength: 15_000, // capacity = (10000+1000)/15000 = 73%
         })
       );
 
@@ -386,7 +386,7 @@ describe('useBudgetCalculation', () => {
         useBudgetCalculation({
           ...defaultInput,
           promptCharacterCount: 400,
-          modelInputPricePerToken: 0.00001,
+          modelInputPricePerToken: 0.000_01,
           // High output price: $0.51 / $0.0001 per token = ~5100 tokens (< 10000)
           modelOutputPricePerToken: 0.0001,
         })

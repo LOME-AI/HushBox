@@ -23,7 +23,7 @@ export function useTierInfo(): UserTierInfo {
       return null; // Treat as guest while loading
     }
     return {
-      balanceCents: Math.round(parseFloat(balanceData.balance) * 100),
+      balanceCents: Math.round(Number.parseFloat(balanceData.balance) * 100),
       freeAllowanceCents: balanceData.freeAllowanceCents,
     };
   }, [session?.user, balanceData]);

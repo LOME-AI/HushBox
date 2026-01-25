@@ -24,7 +24,7 @@ export const billingKeys = {
 export function useBalance(): ReturnType<typeof useQuery<GetBalanceResponse, Error>> {
   return useQuery({
     queryKey: billingKeys.balance(),
-    queryFn: () => api.get<GetBalanceResponse>('billing/balance'),
+    queryFn: () => api.get<GetBalanceResponse>('/api/billing/balance'),
   });
 }
 
@@ -53,7 +53,9 @@ export function useTransactions(
       if (offset !== undefined) params.set('offset', String(offset));
       if (type) params.set('type', type);
 
-      const url = `billing/transactions${params.toString() ? `?${params.toString()}` : ''}`;
+      const queryString = params.toString();
+      const suffix = queryString ? `?${queryString}` : '';
+      const url = `/api/billing/transactions${suffix}`;
       return api.get<ListTransactionsResponse>(url);
     },
     enabled,
@@ -69,7 +71,7 @@ export function useCreatePayment(): ReturnType<
 > {
   return useMutation({
     mutationFn: ({ amount }: { amount: string }) =>
-      api.post<CreatePaymentResponse>('billing/payments', { amount }),
+      api.post<CreatePaymentResponse>('/api/billing/payments', { amount }),
   });
 }
 
@@ -96,7 +98,7 @@ export function useProcessPayment(): ReturnType<
       cardToken: string;
       customerCode: string;
     }) =>
-      api.post<ProcessPaymentResponse>(`billing/payments/${paymentId}/process`, {
+      api.post<ProcessPaymentResponse>(`/api/billing/payments/${paymentId}/process`, {
         cardToken,
         customerCode,
       }),
@@ -126,20 +128,9 @@ export function usePaymentStatus(
       if (!paymentId) {
         throw new Error('Payment ID is required');
       }
-      return api.get<GetPaymentStatusResponse>(`billing/payments/${paymentId}`);
+      return api.get<GetPaymentStatusResponse>(`/api/billing/payments/${paymentId}`);
     },
     enabled: enabled && !!paymentId,
     refetchInterval,
   });
-}
-
-/**
- * Hook to invalidate billing data after external changes.
- */
-export function useInvalidateBilling(): () => Promise<void> {
-  const queryClient = useQueryClient();
-
-  return async () => {
-    await queryClient.invalidateQueries({ queryKey: billingKeys.all });
-  };
 }

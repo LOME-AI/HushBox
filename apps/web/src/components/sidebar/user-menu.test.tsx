@@ -6,7 +6,7 @@ import { useUIStore } from '@/stores/ui';
 
 // Mock signOutAndClearCache - use vi.hoisted for mock values referenced in vi.mock factory
 const { mockSignOutAndClearCache } = vi.hoisted(() => ({
-  mockSignOutAndClearCache: vi.fn().mockResolvedValue(undefined),
+  mockSignOutAndClearCache: vi.fn().mockImplementation(() => Promise.resolve()),
 }));
 
 vi.mock('@/lib/auth', () => ({

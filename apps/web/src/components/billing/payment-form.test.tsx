@@ -68,6 +68,15 @@ function renderWithProviders(ui: React.ReactElement): ReturnType<typeof render> 
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
+async function fillValidCardDetails(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.type(screen.getByLabelText(/card number/i), '4111111111111111');
+  await user.type(screen.getByLabelText(/expiry/i), '1230');
+  await user.type(screen.getByLabelText(/cvv/i), '123');
+  await user.type(screen.getByLabelText(/name on card/i), 'Test User');
+  await user.type(screen.getByLabelText(/billing address/i), '123 Test Street');
+  await user.type(screen.getByLabelText(/zip/i), '12345');
+}
+
 describe('PaymentForm', () => {
   const mockCreatePayment = {
     mutateAsync: vi.fn(),
@@ -135,7 +144,7 @@ describe('PaymentForm', () => {
     });
 
     // Mock window function
-    window.helcimProcess = vi.fn();
+    globalThis.helcimProcess = vi.fn();
   });
 
   describe('single-page layout', () => {
@@ -401,16 +410,6 @@ describe('PaymentForm', () => {
   });
 
   describe('payment flow', () => {
-    // Helper to fill in valid card details
-    async function fillValidCardDetails(user: ReturnType<typeof userEvent.setup>): Promise<void> {
-      await user.type(screen.getByLabelText(/card number/i), '4111111111111111');
-      await user.type(screen.getByLabelText(/expiry/i), '1230');
-      await user.type(screen.getByLabelText(/cvv/i), '123');
-      await user.type(screen.getByLabelText(/name on card/i), 'Test User');
-      await user.type(screen.getByLabelText(/billing address/i), '123 Test Street');
-      await user.type(screen.getByLabelText(/zip/i), '12345');
-    }
-
     it('creates payment and processes on submit with valid amount', async () => {
       const user = userEvent.setup();
       mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
@@ -500,16 +499,6 @@ describe('PaymentForm', () => {
   });
 
   describe('try again functionality', () => {
-    // Helper to fill in valid card details
-    async function fillValidCardDetails(user: ReturnType<typeof userEvent.setup>): Promise<void> {
-      await user.type(screen.getByLabelText(/card number/i), '4111111111111111');
-      await user.type(screen.getByLabelText(/expiry/i), '1230');
-      await user.type(screen.getByLabelText(/cvv/i), '123');
-      await user.type(screen.getByLabelText(/name on card/i), 'Test User');
-      await user.type(screen.getByLabelText(/billing address/i), '123 Test Street');
-      await user.type(screen.getByLabelText(/zip/i), '12345');
-    }
-
     it('shows try again button on error', async () => {
       const user = userEvent.setup();
       mockCreatePayment.mutateAsync.mockRejectedValue(new Error('Payment failed'));
@@ -704,7 +693,7 @@ describe('PaymentForm', () => {
 
       // Mock requestSubmit to prevent auto-submit
       const mockSubmit = vi.fn();
-      const formEl = document.getElementById('helcimForm') as HTMLFormElement | null;
+      const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
       if (formEl) {
         formEl.requestSubmit = mockSubmit;
       }
@@ -744,7 +733,7 @@ describe('PaymentForm', () => {
 
       // Mock requestSubmit to prevent auto-submit
       const mockSubmit = vi.fn();
-      const formEl = document.getElementById('helcimForm') as HTMLFormElement | null;
+      const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
       if (formEl) {
         formEl.requestSubmit = mockSubmit;
       }

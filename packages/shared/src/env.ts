@@ -13,19 +13,19 @@ export interface EnvContext {
  *
  * @example Backend (Hono)
  * ```typescript
- * const env = createEnvUtils(c.env);
+ * const env = createEnvUtilities(c.env);
  * if (env.isLocalDev) { return createMockClient(); }
  * ```
  *
  * @example Frontend (Vite) - initialize once
  * ```typescript
- * export const env = createEnvUtils({
+ * export const env = createEnvUtilities({
  *   NODE_ENV: import.meta.env.MODE,
  *   CI: import.meta.env.VITE_CI,
  * });
  * ```
  */
-export function createEnvUtils(env: EnvContext): EnvUtils {
+export function createEnvUtilities(env: EnvContext): EnvUtilities {
   const nodeEnv = env.NODE_ENV ?? 'development';
   const isCI = Boolean(env.CI);
   const isE2E = Boolean(env.E2E);
@@ -43,9 +43,9 @@ export function createEnvUtils(env: EnvContext): EnvUtils {
 }
 
 /**
- * Environment utilities returned by createEnvUtils.
+ * Environment utilities returned by createEnvUtilities.
  */
-export interface EnvUtils {
+export interface EnvUtilities {
   /** Development mode (local OR CI in dev mode) - for UI visibility */
   isDev: boolean;
   /** Local development only (not CI, not production) - for using mocks */

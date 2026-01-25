@@ -1,6 +1,7 @@
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
+  ChatMessage,
   GenerationStats,
   MockOpenRouterClient,
   StreamToken,
@@ -33,7 +34,9 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
     chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
       history.push({ ...request });
 
-      const lastUserMessage = [...request.messages].reverse().find((m) => m.role === 'user');
+      const lastUserMessage: ChatMessage | undefined = request.messages.findLast(
+        (m: ChatMessage) => m.role === 'user'
+      );
 
       return Promise.resolve({
         id: `mock-${String(Date.now())}`,
@@ -59,7 +62,9 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
     async *chatCompletionStream(request: ChatCompletionRequest): AsyncIterable<string> {
       history.push({ ...request });
 
-      const lastUserMessage = [...request.messages].reverse().find((m) => m.role === 'user');
+      const lastUserMessage: ChatMessage | undefined = request.messages.findLast(
+        (m: ChatMessage) => m.role === 'user'
+      );
       const response = `Echo:\n\n${lastUserMessage?.content ?? 'No message'}`;
 
       for (const char of response) {
@@ -73,7 +78,9 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
     ): AsyncIterable<StreamToken> {
       history.push({ ...request });
 
-      const lastUserMessage = [...request.messages].reverse().find((m) => m.role === 'user');
+      const lastUserMessage: ChatMessage | undefined = request.messages.findLast(
+        (m: ChatMessage) => m.role === 'user'
+      );
       const response = `Echo:\n\n${lastUserMessage?.content ?? 'No message'}`;
       const generationId = `mock-gen-${String(Date.now())}`;
 
@@ -115,8 +122,8 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
 
       // Get REAL model pricing (public OpenRouter API, 1hr cache)
       const model = await getModel(data.modelId);
-      const pricePerInputToken = parseFloat(model.pricing.prompt);
-      const pricePerOutputToken = parseFloat(model.pricing.completion);
+      const pricePerInputToken = Number.parseFloat(model.pricing.prompt);
+      const pricePerOutputToken = Number.parseFloat(model.pricing.completion);
 
       // Estimate tokens: characters / 4
       const promptTokens = Math.ceil(data.promptCharacters / CHARS_PER_TOKEN);

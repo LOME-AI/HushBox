@@ -24,7 +24,7 @@ export function useKeyboardOffset(): KeyboardPosition {
   const [position, setPosition] = useState<KeyboardPosition>({
     bottom: 0,
     isKeyboardVisible: false,
-    viewportHeight: typeof window !== 'undefined' ? window.innerHeight : 0,
+    viewportHeight: 'window' in globalThis ? window.innerHeight : 0,
   });
 
   const rafId = useRef<number | undefined>(undefined);

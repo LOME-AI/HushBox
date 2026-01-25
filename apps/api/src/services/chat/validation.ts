@@ -16,7 +16,7 @@ export function validateLastMessageIsFromUser(messages: MessageWithRole[]): bool
   if (messages.length === 0) {
     return false;
   }
-  const lastMessage = messages[messages.length - 1];
+  const lastMessage = messages.at(-1);
   return lastMessage?.role === 'user';
 }
 

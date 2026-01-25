@@ -206,7 +206,7 @@ describe('FormInput', () => {
       const input = screen.getByRole('textbox');
       const feedbackId = input.getAttribute('aria-describedby');
       expect(feedbackId).toBe('email-input-feedback');
-      expect(document.getElementById(feedbackId ?? '')).toHaveTextContent('Invalid email');
+      expect(document.querySelector(`#${feedbackId ?? ''}`)).toHaveTextContent('Invalid email');
     });
 
     it('links input to feedback via aria-describedby when success present', () => {
@@ -214,7 +214,7 @@ describe('FormInput', () => {
       const input = screen.getByRole('textbox');
       const feedbackId = input.getAttribute('aria-describedby');
       expect(feedbackId).toBe('email-input-feedback');
-      expect(document.getElementById(feedbackId ?? '')).toHaveTextContent('Valid email');
+      expect(document.querySelector(`#${feedbackId ?? ''}`)).toHaveTextContent('Valid email');
     });
 
     it('does not set aria-describedby when no feedback', () => {

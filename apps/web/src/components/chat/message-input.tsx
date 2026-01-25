@@ -14,7 +14,7 @@ export function MessageInput({
   disabled,
   isStreaming = false,
   onStop,
-}: MessageInputProps): React.JSX.Element {
+}: Readonly<MessageInputProps>): React.JSX.Element {
   const [value, setValue] = React.useState('');
 
   const handleSend = (): void => {

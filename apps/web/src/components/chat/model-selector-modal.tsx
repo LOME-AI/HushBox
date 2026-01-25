@@ -17,6 +17,278 @@ import { useIsMobile } from '../../hooks/use-is-mobile';
 type SortField = 'price' | 'context' | null;
 type SortDirection = 'asc' | 'desc';
 
+function filterBySearch(models: Model[], query: string): Model[] {
+  if (!query.trim()) {
+    return models;
+  }
+  const lowerQuery = query.toLowerCase();
+  return models.filter(
+    (model) =>
+      model.name.toLowerCase().includes(lowerQuery) ||
+      model.provider.toLowerCase().includes(lowerQuery)
+  );
+}
+
+function sortModels(models: Model[], sortField: SortField, sortDirection: SortDirection): Model[] {
+  if (!sortField) {
+    return models;
+  }
+  return [...models].toSorted((a, b) => {
+    let comparison = 0;
+    if (sortField === 'price') {
+      const priceA = getModelCostPer1k(a.pricePerInputToken, a.pricePerOutputToken);
+      const priceB = getModelCostPer1k(b.pricePerInputToken, b.pricePerOutputToken);
+      comparison = priceA - priceB;
+    } else {
+      comparison = a.contextLength - b.contextLength;
+    }
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+}
+
+function interlaceModels(
+  models: Model[],
+  premiumIds: Set<string>,
+  canAccessPremium: boolean
+): Model[] {
+  if (canAccessPremium || premiumIds.size === 0) {
+    return models;
+  }
+  const basic = models.filter((m) => !premiumIds.has(m.id));
+  const premium = models.filter((m) => premiumIds.has(m.id));
+  const interlaced: Model[] = [];
+  const maxLength = Math.max(basic.length, premium.length);
+  for (let index = 0; index < maxLength; index++) {
+    const basicModel = basic[index];
+    const premiumModel = premium[index];
+    if (basicModel) interlaced.push(basicModel);
+    if (premiumModel) interlaced.push(premiumModel);
+  }
+  return interlaced;
+}
+
+interface SortButtonProps {
+  field: 'price' | 'context';
+  label: string;
+  activeField: SortField;
+  direction: SortDirection;
+  onClick: (field: 'price' | 'context') => void;
+}
+
+function SortButton({
+  field,
+  label,
+  activeField,
+  direction,
+  onClick,
+}: Readonly<SortButtonProps>): React.JSX.Element {
+  const isActive = activeField === field;
+  return (
+    <Button
+      variant={isActive ? 'default' : 'outline'}
+      size="sm"
+      onClick={() => {
+        onClick(field);
+      }}
+      className="gap-1"
+      data-active={isActive}
+      data-direction={isActive ? direction : undefined}
+    >
+      {label}
+      {isActive &&
+        (direction === 'asc' ? (
+          <ChevronUp className="h-4 w-4" />
+        ) : (
+          <ChevronDown className="h-4 w-4" />
+        ))}
+    </Button>
+  );
+}
+
+interface ModelListItemProps {
+  model: Model;
+  isFocused: boolean;
+  isPremium: boolean;
+  canAccessPremium: boolean;
+  isAuthenticated: boolean;
+  onClick: () => void;
+  onDoubleClick: () => void;
+}
+
+function ModelListItem({
+  model,
+  isFocused,
+  isPremium,
+  canAccessPremium,
+  isAuthenticated,
+  onClick,
+  onDoubleClick,
+}: Readonly<ModelListItemProps>): React.JSX.Element {
+  const showOverlay = isPremium && !canAccessPremium;
+
+  return (
+    <div
+      data-testid={`model-item-${model.id}`}
+      data-selected={isFocused}
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      className={`relative cursor-pointer rounded-md p-3 transition-colors ${
+        isFocused ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'
+      }`}
+      role="option"
+      aria-selected={isFocused}
+    >
+      {showOverlay && (
+        <div
+          data-testid="premium-overlay"
+          className="bg-background/60 pointer-events-none absolute inset-0 rounded-md"
+        />
+      )}
+
+      <div className="relative flex items-center justify-between gap-2">
+        <span className="truncate font-medium">{shortenModelName(model.name)}</span>
+        {showOverlay && (
+          <Lock data-testid="lock-icon" className="text-muted-foreground h-4 w-4 shrink-0" />
+        )}
+      </div>
+      <div className="text-muted-foreground relative flex items-center justify-between text-xs">
+        <span className="truncate">
+          {model.provider} • {formatContextLength(model.contextLength)}
+        </span>
+        {showOverlay && (
+          <span className="shrink-0 text-xs">
+            {isAuthenticated ? (
+              <>
+                <Link
+                  to={ROUTES.BILLING}
+                  className="text-primary hover:underline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                >
+                  Top up
+                </Link>
+                <span className="text-muted-foreground"> to unlock</span>
+              </>
+            ) : (
+              <>
+                <Link
+                  to={ROUTES.SIGNUP}
+                  className="text-primary hover:underline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                >
+                  Sign up
+                </Link>
+                <span className="text-muted-foreground"> to access</span>
+              </>
+            )}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface SearchAndSortSectionProps {
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
+  sortField: SortField;
+  sortDirection: SortDirection;
+  onSortClick: (field: 'price' | 'context') => void;
+  strongestId: string;
+  valueId: string;
+  onQuickSelect: (modelId: string) => void;
+  isMobile?: boolean;
+}
+
+function SearchAndSortSection({
+  searchQuery,
+  onSearchChange,
+  sortField,
+  sortDirection,
+  onSortClick,
+  strongestId,
+  valueId,
+  onQuickSelect,
+  isMobile = false,
+}: Readonly<SearchAndSortSectionProps>): React.JSX.Element {
+  const padding = isMobile ? 'px-4 py-2' : 'p-4';
+  const marginBottom = isMobile ? 'mb-1' : 'mb-2';
+
+  return (
+    <>
+      <div className={`border-border-strong border-b p-4`}>
+        <div className="relative">
+          <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+          <Input
+            type="text"
+            placeholder="Search models"
+            value={searchQuery}
+            onChange={(e) => {
+              onSearchChange(e.target.value);
+            }}
+            className="pl-9"
+          />
+        </div>
+      </div>
+
+      <div className={`border-border-strong border-b ${padding}`}>
+        <div className={`text-muted-foreground ${marginBottom} text-xs font-medium uppercase`}>
+          Quick Select Model
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              onQuickSelect(strongestId);
+            }}
+            className="flex-1"
+            data-testid={isMobile ? 'quick-select-strongest' : 'quick-select-strongest-desktop'}
+          >
+            Strongest
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              onQuickSelect(valueId);
+            }}
+            className="flex-1"
+            data-testid={isMobile ? 'quick-select-value' : 'quick-select-value-desktop'}
+          >
+            Value
+          </Button>
+        </div>
+      </div>
+
+      <div className={`border-border-strong border-b ${padding}`}>
+        <div className={`text-muted-foreground ${marginBottom} text-xs font-medium uppercase`}>
+          Sort By
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <SortButton
+            field="price"
+            label="Price"
+            activeField={sortField}
+            direction={sortDirection}
+            onClick={onSortClick}
+          />
+          <SortButton
+            field="context"
+            label="Capacity"
+            activeField={sortField}
+            direction={sortDirection}
+            onClick={onSortClick}
+          />
+        </div>
+      </div>
+    </>
+  );
+}
+
 interface ModelSelectorModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -46,7 +318,7 @@ export function ModelSelectorModal({
   canAccessPremium = true,
   isAuthenticated = true,
   onPremiumClick,
-}: ModelSelectorModalProps): React.JSX.Element {
+}: Readonly<ModelSelectorModalProps>): React.JSX.Element {
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = React.useState('');
   const [focusedModelId, setFocusedModelId] = React.useState(selectedId);
@@ -63,56 +335,16 @@ export function ModelSelectorModal({
 
   // Filter and sort models
   const filteredModels = React.useMemo(() => {
-    let result = models;
-
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(
-        (model) =>
-          model.name.toLowerCase().includes(query) || model.provider.toLowerCase().includes(query)
-      );
-    }
-
-    // Sort if a sort field is active
-    if (sortField) {
-      result = [...result].sort((a, b) => {
-        let comparison = 0;
-        if (sortField === 'price') {
-          const priceA = getModelCostPer1k(a.pricePerInputToken, a.pricePerOutputToken);
-          const priceB = getModelCostPer1k(b.pricePerInputToken, b.pricePerOutputToken);
-          comparison = priceA - priceB;
-        } else {
-          comparison = a.contextLength - b.contextLength;
-        }
-        return sortDirection === 'asc' ? comparison : -comparison;
-      });
-    }
-
-    // Interlace basic and premium models for non-paid users (always, including during sorting)
-    // Paid users see no interlacing and no visual distinction
-    if (!canAccessPremium && premiumIds && premiumIds.size > 0) {
-      const basic = result.filter((m) => !premiumIds.has(m.id));
-      const premium = result.filter((m) => premiumIds.has(m.id));
-      const interlaced: Model[] = [];
-      const maxLen = Math.max(basic.length, premium.length);
-      for (let i = 0; i < maxLen; i++) {
-        const basicModel = basic[i];
-        const premiumModel = premium[i];
-        if (basicModel) interlaced.push(basicModel);
-        if (premiumModel) interlaced.push(premiumModel);
-      }
-      result = interlaced;
-    }
-
-    return result;
+    const searched = filterBySearch(models, searchQuery);
+    const sorted = sortModels(searched, sortField, sortDirection);
+    return interlaceModels(sorted, premiumIds ?? new Set(), canAccessPremium);
   }, [models, searchQuery, sortField, sortDirection, premiumIds, canAccessPremium]);
 
   const handleSortClick = React.useCallback(
     (field: 'price' | 'context'): void => {
       if (sortField === field) {
         // Toggle direction if same field
-        setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+        setSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'));
       } else {
         // Activate new field with ascending
         setSortField(field);
@@ -195,288 +427,57 @@ export function ModelSelectorModal({
         className="bg-background flex h-[85vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg sm:h-[80vh]"
         data-testid="model-selector-modal"
       >
-        {/* Main content area */}
         <div className="flex min-h-0 flex-1 flex-col">
-          {/* Fixed sections - MOBILE ONLY (outside flex competition) */}
           <div className="flex-shrink-0 sm:hidden">
-            {/* Search input */}
-            <div className="border-border-strong border-b p-4">
-              <div className="relative">
-                <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-                <Input
-                  type="text"
-                  placeholder="Search models"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                  }}
-                  className="pl-9"
-                />
-              </div>
-            </div>
-
-            {/* Quick select buttons */}
-            <div className="border-border-strong border-b px-4 py-2">
-              <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                Quick Select Model
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    handleQuickSelect(strongestId);
-                  }}
-                  className="flex-1"
-                  data-testid="quick-select-strongest"
-                >
-                  Strongest
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    handleQuickSelect(valueId);
-                  }}
-                  className="flex-1"
-                  data-testid="quick-select-value"
-                >
-                  Value
-                </Button>
-              </div>
-            </div>
-
-            {/* Sort by section */}
-            <div className="border-border-strong border-b px-4 py-2">
-              <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                Sort By
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant={sortField === 'price' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => {
-                    handleSortClick('price');
-                  }}
-                  className="gap-1"
-                  data-active={sortField === 'price'}
-                  data-direction={sortField === 'price' ? sortDirection : undefined}
-                >
-                  Price
-                  {sortField === 'price' &&
-                    (sortDirection === 'asc' ? (
-                      <ChevronUp className="h-4 w-4" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4" />
-                    ))}
-                </Button>
-                <Button
-                  variant={sortField === 'context' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => {
-                    handleSortClick('context');
-                  }}
-                  className="gap-1"
-                  data-active={sortField === 'context'}
-                  data-direction={sortField === 'context' ? sortDirection : undefined}
-                >
-                  Capacity
-                  {sortField === 'context' &&
-                    (sortDirection === 'asc' ? (
-                      <ChevronUp className="h-4 w-4" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4" />
-                    ))}
-                </Button>
-              </div>
-            </div>
+            <SearchAndSortSection
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSortClick={handleSortClick}
+              strongestId={strongestId}
+              valueId={valueId}
+              onQuickSelect={handleQuickSelect}
+              isMobile
+            />
           </div>
 
-          {/* Split area - model list and info compete here */}
           <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-            {/* Left panel: Model list (with fixed sections on desktop) */}
             <div
               data-testid="model-list-panel"
               className="border-border-strong flex min-h-0 flex-[9] flex-col border-b sm:flex-1 sm:border-r sm:border-b-0"
             >
-              {/* Fixed sections - DESKTOP ONLY */}
               <div className="hidden flex-shrink-0 sm:block">
-                {/* Search input */}
-                <div className="border-border-strong border-b p-4">
-                  <div className="relative">
-                    <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-                    <Input
-                      type="text"
-                      placeholder="Search models"
-                      value={searchQuery}
-                      onChange={(e) => {
-                        setSearchQuery(e.target.value);
-                      }}
-                      className="pl-9"
-                    />
-                  </div>
-                </div>
-
-                {/* Quick select buttons */}
-                <div className="border-border-strong border-b p-4">
-                  <div className="text-muted-foreground mb-2 text-xs font-medium uppercase">
-                    Quick Select Model
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        handleQuickSelect(strongestId);
-                      }}
-                      className="flex-1"
-                      data-testid="quick-select-strongest-desktop"
-                    >
-                      Strongest
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        handleQuickSelect(valueId);
-                      }}
-                      className="flex-1"
-                      data-testid="quick-select-value-desktop"
-                    >
-                      Value
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Sort by section */}
-                <div className="border-border-strong border-b p-4">
-                  <div className="text-muted-foreground mb-2 text-xs font-medium uppercase">
-                    Sort By
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      variant={sortField === 'price' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => {
-                        handleSortClick('price');
-                      }}
-                      className="gap-1"
-                      data-active={sortField === 'price'}
-                      data-direction={sortField === 'price' ? sortDirection : undefined}
-                    >
-                      Price
-                      {sortField === 'price' &&
-                        (sortDirection === 'asc' ? (
-                          <ChevronUp className="h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4" />
-                        ))}
-                    </Button>
-                    <Button
-                      variant={sortField === 'context' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => {
-                        handleSortClick('context');
-                      }}
-                      className="gap-1"
-                      data-active={sortField === 'context'}
-                      data-direction={sortField === 'context' ? sortDirection : undefined}
-                    >
-                      Capacity
-                      {sortField === 'context' &&
-                        (sortDirection === 'asc' ? (
-                          <ChevronUp className="h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4" />
-                        ))}
-                    </Button>
-                  </div>
-                </div>
+                <SearchAndSortSection
+                  searchQuery={searchQuery}
+                  onSearchChange={setSearchQuery}
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSortClick={handleSortClick}
+                  strongestId={strongestId}
+                  valueId={valueId}
+                  onQuickSelect={handleQuickSelect}
+                />
               </div>
 
-              {/* Model list */}
               <ScrollArea data-testid="model-list-scroll" className="min-h-0 flex-1">
                 <div className="p-2">
-                  {filteredModels.map((model) => {
-                    const modelIsPremium = isPremium(model.id);
-                    const showOverlay = modelIsPremium && !canAccessPremium;
-
-                    return (
-                      <div
-                        key={model.id}
-                        data-testid={`model-item-${model.id}`}
-                        data-selected={model.id === focusedModelId}
-                        onClick={() => {
-                          handleModelClick(model.id);
-                        }}
-                        onDoubleClick={() => {
-                          handleModelDoubleClick(model.id);
-                        }}
-                        className={`relative cursor-pointer rounded-md p-3 transition-colors ${
-                          model.id === focusedModelId
-                            ? 'bg-accent text-accent-foreground'
-                            : 'hover:bg-muted'
-                        }`}
-                        role="option"
-                        aria-selected={model.id === focusedModelId}
-                      >
-                        {showOverlay && (
-                          <div
-                            data-testid="premium-overlay"
-                            className="bg-background/60 pointer-events-none absolute inset-0 rounded-md"
-                          />
-                        )}
-
-                        <div className="relative flex items-center justify-between gap-2">
-                          <span className="truncate font-medium">
-                            {shortenModelName(model.name)}
-                          </span>
-                          {showOverlay && (
-                            <Lock
-                              data-testid="lock-icon"
-                              className="text-muted-foreground h-4 w-4 shrink-0"
-                            />
-                          )}
-                        </div>
-                        <div className="text-muted-foreground relative flex items-center justify-between text-xs">
-                          <span className="truncate">
-                            {model.provider} • {formatContextLength(model.contextLength)}
-                          </span>
-                          {showOverlay && (
-                            <span className="shrink-0 text-xs">
-                              {!isAuthenticated ? (
-                                <>
-                                  <Link
-                                    to={ROUTES.SIGNUP}
-                                    className="text-primary hover:underline"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                    }}
-                                  >
-                                    Sign up
-                                  </Link>
-                                  <span className="text-muted-foreground"> to access</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Link
-                                    to={ROUTES.BILLING}
-                                    className="text-primary hover:underline"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                    }}
-                                  >
-                                    Top up
-                                  </Link>
-                                  <span className="text-muted-foreground"> to unlock</span>
-                                </>
-                              )}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {filteredModels.map((model) => (
+                    <ModelListItem
+                      key={model.id}
+                      model={model}
+                      isFocused={model.id === focusedModelId}
+                      isPremium={isPremium(model.id)}
+                      canAccessPremium={canAccessPremium}
+                      isAuthenticated={isAuthenticated}
+                      onClick={() => {
+                        handleModelClick(model.id);
+                      }}
+                      onDoubleClick={() => {
+                        handleModelDoubleClick(model.id);
+                      }}
+                    />
+                  ))}
                   {filteredModels.length === 0 && (
                     <div className="text-muted-foreground p-4 text-center text-sm">
                       No models found

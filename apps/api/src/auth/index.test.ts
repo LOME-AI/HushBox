@@ -135,6 +135,7 @@ describe('auth configuration options', () => {
 describe('auth config structure', () => {
   it('sendVerificationEmail callback is invoked during email verification flow', () => {
     // Create a spy to track if sendEmail is called
+    // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
     const sendEmailSpy = vi.fn().mockResolvedValue(undefined);
     const mockEmailClient: EmailClient = {
       sendEmail: sendEmailSpy,
@@ -174,6 +175,7 @@ describe('auth config structure', () => {
 
   it('emailAndPassword is configured with requireEmailVerification', () => {
     const mockEmailClient: EmailClient = {
+      // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
       sendEmail: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -198,6 +200,7 @@ describe('auth config structure', () => {
 
   it('emailVerification is configured with autoSignInAfterVerification', () => {
     const mockEmailClient: EmailClient = {
+      // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
       sendEmail: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -222,6 +225,7 @@ describe('auth config structure', () => {
 
 describe('sendVerificationEmail callbackURL rewrite', () => {
   it('rewrites relative callbackURL to absolute frontend URL', async () => {
+    // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
     const sendEmailSpy = vi.fn().mockResolvedValue(undefined);
     const mockEmailClient: EmailClient = {
       sendEmail: sendEmailSpy,
@@ -269,6 +273,7 @@ describe('sendVerificationEmail callbackURL rewrite', () => {
   });
 
   it('preserves absolute callbackURL unchanged', async () => {
+    // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
     const sendEmailSpy = vi.fn().mockResolvedValue(undefined);
     const mockEmailClient: EmailClient = {
       sendEmail: sendEmailSpy,

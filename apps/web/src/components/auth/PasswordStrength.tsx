@@ -7,48 +7,54 @@ interface PasswordStrengthProps {
 
 function calculateStrength(password: string): number {
   if (!password) return 0;
+  if (password.length < 8) return 1;
 
-  let criteriaCount = 0;
+  const criteriaCount = [
+    /[a-z]/.test(password) && /[A-Z]/.test(password),
+    /\d/.test(password),
+    /[!@#$%^&*(),.?":{}|<>]/.test(password),
+  ].filter(Boolean).length;
 
-  // Character variety criteria
-  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) criteriaCount++;
-  if (/\d/.test(password)) criteriaCount++;
-  if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) criteriaCount++;
-
-  // Determine strength
-  if (password.length < 8) return 1; // Weak: too short
-  if (password.length >= 10 && criteriaCount >= 2) return 3; // Strong: 10+ chars + 2 criteria
-  if (password.length >= 8 && criteriaCount >= 1) return 2; // Medium: 8+ chars + 1 criteria
-  return 1; // Weak: 8+ chars but no criteria
+  if (password.length >= 10 && criteriaCount >= 2) return 3;
+  if (criteriaCount >= 1) return 2;
+  return 1;
 }
 
 function getStrengthLabel(strength: number): string {
   switch (strength) {
-    case 1:
+    case 1: {
       return 'Weak';
-    case 2:
+    }
+    case 2: {
       return 'Medium';
-    case 3:
+    }
+    case 3: {
       return 'Strong';
-    default:
+    }
+    default: {
       return '';
+    }
   }
 }
 
 function getStrengthColor(strength: number): string {
   switch (strength) {
-    case 1:
+    case 1: {
       return 'bg-error';
-    case 2:
+    }
+    case 2: {
       return 'bg-warning';
-    case 3:
+    }
+    case 3: {
       return 'bg-success';
-    default:
+    }
+    default: {
       return 'bg-border';
+    }
   }
 }
 
-export function PasswordStrength({ password }: PasswordStrengthProps): React.JSX.Element {
+export function PasswordStrength({ password }: Readonly<PasswordStrengthProps>): React.JSX.Element {
   const strength = calculateStrength(password);
   const hasPassword = password.length > 0;
 

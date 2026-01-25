@@ -18,7 +18,7 @@ export function useModels(): ReturnType<typeof useQuery<ModelsData, Error>> {
   return useQuery({
     queryKey: modelKeys.list(),
     queryFn: async (): Promise<ModelsData> => {
-      const response = await api.get<ModelsListResponse>('/models');
+      const response = await api.get<ModelsListResponse>('/api/models');
       return {
         models: response.models,
         premiumIds: new Set(response.premiumModelIds),
@@ -28,17 +28,28 @@ export function useModels(): ReturnType<typeof useQuery<ModelsData, Error>> {
   });
 }
 
-/**
- * Get the strongest and value model IDs based on user tier.
- *
- * For paid users (canAccessPremium=true): returns hardcoded premium model IDs.
- * For free/guest users: returns the most expensive and cheapest basic (non-premium) models.
- *
- * @param models - Array of available models
- * @param premiumIds - Set of premium model IDs
- * @param canAccessPremium - Whether user can access premium models
- * @returns Object with strongestId and valueId
- */
+function findStrongestAndValueBasicModels(
+  models: Model[],
+  premiumIds: Set<string>
+): { strongestId: string; valueId: string } {
+  const basicModels = models.filter((m) => !premiumIds.has(m.id));
+  if (basicModels.length === 0) {
+    const fallback = models[0]?.id ?? '';
+    return { strongestId: fallback, valueId: fallback };
+  }
+
+  const sorted = [...basicModels].toSorted((a, b) => {
+    const priceA = getModelCostPer1k(a.pricePerInputToken, a.pricePerOutputToken);
+    const priceB = getModelCostPer1k(b.pricePerInputToken, b.pricePerOutputToken);
+    return priceB - priceA;
+  });
+
+  return {
+    strongestId: sorted[0]?.id ?? '',
+    valueId: sorted.at(-1)?.id ?? '',
+  };
+}
+
 export function getAccessibleModelIds(
   models: Model[],
   premiumIds: Set<string>,
@@ -47,20 +58,5 @@ export function getAccessibleModelIds(
   if (canAccessPremium) {
     return { strongestId: STRONGEST_MODEL_ID, valueId: VALUE_MODEL_ID };
   }
-
-  const basicModels = models.filter((m) => !premiumIds.has(m.id));
-  if (basicModels.length === 0) {
-    return { strongestId: models[0]?.id ?? '', valueId: models[0]?.id ?? '' };
-  }
-
-  const sorted = [...basicModels].sort((a, b) => {
-    const priceA = getModelCostPer1k(a.pricePerInputToken, a.pricePerOutputToken);
-    const priceB = getModelCostPer1k(b.pricePerInputToken, b.pricePerOutputToken);
-    return priceB - priceA;
-  });
-
-  return {
-    strongestId: sorted[0]?.id ?? '',
-    valueId: sorted[sorted.length - 1]?.id ?? '',
-  };
+  return findStrongestAndValueBasicModels(models, premiumIds);
 }

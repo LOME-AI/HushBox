@@ -26,10 +26,9 @@ interface GuestUsageResetResponse {
   deleted: number;
 }
 
-function createMockDb(
-  devUsers: MockUser[],
-  counts: { conv: number; msg: number; proj: number } = { conv: 0, msg: 0, proj: 0 }
-) {
+function createMockDb(devUsers: MockUser[], counts?: { conv: number; msg: number; proj: number }) {
+  const actualCounts = counts ?? { conv: 0, msg: 0, proj: 0 };
+
   const mockSelect = vi.fn();
   const mockFrom = vi.fn();
   const mockWhere = vi.fn();
@@ -49,18 +48,18 @@ function createMockDb(
       return Promise.resolve(devUsers);
     }
     const countType = (callCount - 2) % 3;
-    if (countType === 0) return Promise.resolve([{ count: counts.conv }]);
-    if (countType === 1) return Promise.resolve([{ count: counts.msg }]);
-    return Promise.resolve([{ count: counts.proj }]);
+    if (countType === 0) return Promise.resolve([{ count: actualCounts.conv }]);
+    if (countType === 1) return Promise.resolve([{ count: actualCounts.msg }]);
+    return Promise.resolve([{ count: actualCounts.proj }]);
   });
 
   return { select: mockSelect };
 }
 
-function createTestApp(mockDb: ReturnType<typeof createMockDb>): Hono<AppEnv> {
+function createTestAppWithMockDb(mockDb: unknown): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use('*', async (c, next) => {
-    c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
+    c.set('db', mockDb as AppEnv['Variables']['db']);
     await next();
   });
   app.route('/dev', createDevRoute());
@@ -87,7 +86,7 @@ describe('createDevRoute', () => {
         },
       ]);
 
-      const app = createTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/personas');
       expect(res.status).toBe(200);
 
@@ -98,7 +97,7 @@ describe('createDevRoute', () => {
 
     it('returns empty array when no dev users exist', async () => {
       const mockDb = createMockDb([]);
-      const app = createTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
 
       const res = await app.request('/dev/personas');
       const body: DevPersonasResponse = await res.json();
@@ -120,7 +119,7 @@ describe('createDevRoute', () => {
         },
       ]);
 
-      const app = createTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/personas');
       const body: DevPersonasResponse = await res.json();
 
@@ -147,7 +146,7 @@ describe('createDevRoute', () => {
         },
       ]);
 
-      const app = createTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/personas');
       const body: DevPersonasResponse = await res.json();
 
@@ -168,7 +167,7 @@ describe('createDevRoute', () => {
         },
       ]);
 
-      const app = createTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/personas');
       const body: DevPersonasResponse = await res.json();
 
@@ -189,7 +188,7 @@ describe('createDevRoute', () => {
         },
       ]);
 
-      const app = createTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/personas');
       const body: DevPersonasResponse = await res.json();
 
@@ -213,7 +212,7 @@ describe('createDevRoute', () => {
         { conv: 3, msg: 12, proj: 2 }
       );
 
-      const app = createTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/personas');
       const body: DevPersonasResponse = await res.json();
 
@@ -248,7 +247,7 @@ describe('createDevRoute', () => {
         },
       ]);
 
-      const app = createTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/personas');
       const body: DevPersonasResponse = await res.json();
 
@@ -269,7 +268,7 @@ describe('createDevRoute', () => {
         },
       ]);
 
-      const app = createTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/personas?type=dev');
       const body: DevPersonasResponse = await res.json();
 
@@ -292,7 +291,7 @@ describe('createDevRoute', () => {
         },
       ]);
 
-      const app = createTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/personas?type=test');
       const body: DevPersonasResponse = await res.json();
 
@@ -315,7 +314,7 @@ describe('createDevRoute', () => {
         },
       ]);
 
-      const app = createTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/personas');
 
       expect(res.status).toBe(200);
@@ -361,23 +360,13 @@ describe('createDevRoute', () => {
       return { select: mockSelect, delete: mockDelete };
     }
 
-    function createDeleteTestApp(mockDb: ReturnType<typeof createDeleteMockDb>): Hono<AppEnv> {
-      const app = new Hono<AppEnv>();
-      app.use('*', async (c, next) => {
-        c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
-        await next();
-      });
-      app.route('/dev', createDevRoute());
-      return app;
-    }
-
     it('returns success with zero counts when no test users exist', async () => {
       const mockDb = createDeleteMockDb({
         testUsers: [],
         conversations: [],
       });
 
-      const app = createDeleteTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/test-data', { method: 'DELETE' });
 
       expect(res.status).toBe(200);
@@ -393,7 +382,7 @@ describe('createDevRoute', () => {
         conversations: [],
       });
 
-      const app = createDeleteTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/test-data', { method: 'DELETE' });
 
       expect(res.status).toBe(200);
@@ -411,7 +400,7 @@ describe('createDevRoute', () => {
         deleteConversationsRowCount: 2,
       });
 
-      const app = createDeleteTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/test-data', { method: 'DELETE' });
 
       expect(res.status).toBe(200);
@@ -463,6 +452,7 @@ describe('createDevRoute', () => {
 
       // Delete should be called twice - messages first, then conversations
       expect(mockDelete).toHaveBeenCalledTimes(2);
+      expect(deleteCalls).toEqual(['messages', 'conversations']);
     });
   });
 
@@ -477,22 +467,10 @@ describe('createDevRoute', () => {
       return { delete: mockDelete };
     }
 
-    function createGuestUsageTestApp(
-      mockDb: ReturnType<typeof createGuestUsageMockDb>
-    ): Hono<AppEnv> {
-      const app = new Hono<AppEnv>();
-      app.use('*', async (c, next) => {
-        c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
-        await next();
-      });
-      app.route('/dev', createDevRoute());
-      return app;
-    }
-
     it('returns success with count of deleted records', async () => {
       const mockDb = createGuestUsageMockDb([{ id: 'record-1' }, { id: 'record-2' }]);
 
-      const app = createGuestUsageTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/guest-usage', { method: 'DELETE' });
 
       expect(res.status).toBe(200);
@@ -504,7 +482,7 @@ describe('createDevRoute', () => {
     it('returns success with zero when no records exist', async () => {
       const mockDb = createGuestUsageMockDb([]);
 
-      const app = createGuestUsageTestApp(mockDb);
+      const app = createTestAppWithMockDb(mockDb);
       const res = await app.request('/dev/guest-usage', { method: 'DELETE' });
 
       expect(res.status).toBe(200);

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createOpenRouterClient, clearModelCache } from './openrouter.js';
-import { getPaidTestModel, clearTestModelCache } from './test-utils.js';
+import { getPaidTestModel, clearTestModelCache } from './test-utilities.js';
 import type { OpenRouterClient } from './types.js';
 import { applyFees, TOTAL_FEE_RATE } from '@lome-chat/shared';
 
@@ -86,7 +86,7 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
       expect(stats.native_tokens_prompt).toBeGreaterThan(0);
       expect(stats.native_tokens_completion).toBeGreaterThan(0);
       expect(stats.total_cost).toBeGreaterThan(0);
-    }, 60000);
+    }, 60_000);
 
     it('calculates our charge as exactly 15% higher than OpenRouter cost', async () => {
       // Make a real API call
@@ -117,7 +117,7 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
       console.log(`OpenRouter cost: $${openRouterCost.toFixed(10)}`);
       console.log(`Our charge: $${ourCharge.toFixed(10)}`);
       console.log(`Fee ratio: ${ratio.toFixed(4)}x (expected 1.15x)`);
-    }, 60000);
+    }, 60_000);
 
     it('returns native token counts (not normalized)', async () => {
       // Make a real API call
@@ -143,6 +143,6 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
       console.log(
         `Native tokens (generation): prompt=${String(stats.native_tokens_prompt)}, completion=${String(stats.native_tokens_completion)}`
       );
-    }, 60000);
+    }, 60_000);
   });
 });

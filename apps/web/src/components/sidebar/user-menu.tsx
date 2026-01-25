@@ -40,9 +40,10 @@ export function UserMenu({
   user,
   onProfileClick,
   onSettingsClick,
-}: UserMenuProps): React.JSX.Element {
+}: Readonly<UserMenuProps>): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
 
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- React handler
   const handleSignOut = async (): Promise<void> => {
     await signOutAndClearCache();
   };

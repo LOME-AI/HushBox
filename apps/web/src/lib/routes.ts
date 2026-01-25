@@ -5,7 +5,9 @@
 export const ROUTES = {
   // Main app routes
   CHAT: '/chat',
-  CHAT_CONVERSATION: '/chat/$conversationId',
+  CHAT_NEW: '/chat/new',
+  CHAT_ID: '/chat/$id',
+  CHAT_GUEST: '/chat/guest',
   PROJECTS: '/projects',
   BILLING: '/billing',
 
@@ -17,9 +19,6 @@ export const ROUTES = {
   // Dev routes
   DEV_PERSONAS: '/dev/personas',
 } as const;
-
-export type RouteKey = keyof typeof ROUTES;
-export type RoutePath = (typeof ROUTES)[RouteKey];
 
 /**
  * Helper for conversation route with ID substitution.

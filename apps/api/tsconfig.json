@@ -2,8 +2,9 @@
   "extends": "../../packages/config/tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "types": ["@cloudflare/workers-types"]
+    "types": ["@cloudflare/workers-types"],
+    "lib": ["ES2023"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "*.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

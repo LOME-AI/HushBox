@@ -10,7 +10,11 @@ interface IconProps {
 /**
  * LightMode icon - sun with rays (matches MUI LightMode)
  */
-function LightModeIcon({ className, style, 'data-testid': testId }: IconProps): React.JSX.Element {
+function LightModeIcon({
+  className,
+  style,
+  'data-testid': testId,
+}: Readonly<IconProps>): React.JSX.Element {
   return (
     <svg
       data-testid={testId}
@@ -100,7 +104,11 @@ function LightModeIcon({ className, style, 'data-testid': testId }: IconProps): 
 /**
  * DarkMode icon - crescent moon (matches MUI DarkMode)
  */
-function DarkModeIcon({ className, style, 'data-testid': testId }: IconProps): React.JSX.Element {
+function DarkModeIcon({
+  className,
+  style,
+  'data-testid': testId,
+}: Readonly<IconProps>): React.JSX.Element {
   return (
     <svg
       data-testid={testId}

@@ -7,7 +7,7 @@ describe('computeSafeMaxTokens', () => {
       const result = computeSafeMaxTokens({
         budgetMaxTokens: 1_000_000,
         modelContextLength: 128_000,
-        estimatedInputTokens: 1_000,
+        estimatedInputTokens: 1000,
       });
 
       expect(result).toBeUndefined();
@@ -17,7 +17,7 @@ describe('computeSafeMaxTokens', () => {
       const result = computeSafeMaxTokens({
         budgetMaxTokens: 127_000,
         modelContextLength: 128_000,
-        estimatedInputTokens: 1_000,
+        estimatedInputTokens: 1000,
       });
 
       // 127_000 === 128_000 - 1_000, so budget is not less than remaining
@@ -31,29 +31,29 @@ describe('computeSafeMaxTokens', () => {
       const result = computeSafeMaxTokens({
         budgetMaxTokens: 10_000,
         modelContextLength: 128_000,
-        estimatedInputTokens: 1_000,
+        estimatedInputTokens: 1000,
       });
 
       // 10_000 * 0.95 = 9_500
-      expect(result).toBe(9_500);
+      expect(result).toBe(9500);
     });
 
     it('floors the result to avoid fractional tokens', () => {
       const result = computeSafeMaxTokens({
         budgetMaxTokens: 10_001,
         modelContextLength: 128_000,
-        estimatedInputTokens: 1_000,
+        estimatedInputTokens: 1000,
       });
 
       // 10_001 * 0.95 = 9_500.95 → floor to 9_500
-      expect(result).toBe(9_500);
+      expect(result).toBe(9500);
     });
 
     it('handles small budget values', () => {
       const result = computeSafeMaxTokens({
         budgetMaxTokens: 100,
         modelContextLength: 128_000,
-        estimatedInputTokens: 1_000,
+        estimatedInputTokens: 1000,
       });
 
       // 100 * 0.95 = 95
@@ -66,7 +66,7 @@ describe('computeSafeMaxTokens', () => {
       const result = computeSafeMaxTokens({
         budgetMaxTokens: 0,
         modelContextLength: 128_000,
-        estimatedInputTokens: 1_000,
+        estimatedInputTokens: 1000,
       });
 
       // 0 * 0.95 = 0
@@ -75,7 +75,7 @@ describe('computeSafeMaxTokens', () => {
 
     it('handles input tokens exceeding context length', () => {
       const result = computeSafeMaxTokens({
-        budgetMaxTokens: 1_000,
+        budgetMaxTokens: 1000,
         modelContextLength: 128_000,
         estimatedInputTokens: 200_000,
       });

@@ -73,9 +73,9 @@ describe('MarkdownRenderer', () => {
   });
 
   it('renders large code blocks (15+ lines) as document cards', () => {
-    const largeCode = Array(15)
+    const largeCode = Array.from({ length: 15 })
       .fill(null)
-      .map((_, i) => `const line${String(i)} = ${String(i)};`)
+      .map((_, index) => `const line${String(index)} = ${String(index)};`)
       .join('\n');
     const content = `\`\`\`typescript\n${largeCode}\n\`\`\``;
     render(<MarkdownRenderer content={content} />);
@@ -144,26 +144,28 @@ describe('MarkdownRenderer', () => {
   describe('document ID stability', () => {
     it('document card ID matches ID in callback after re-render', () => {
       const mermaidCode = '```mermaid\ngraph TD\n  A[Start] --> B[End]\n```';
-      let callbackDocId: string | undefined;
+      let callbackDocumentId: string | undefined;
 
-      const onDocsExtracted = vi.fn((docs: { id: string }[]) => {
+      const onDocumentsExtracted = vi.fn((documents: { id: string }[]) => {
         // Only capture the first call's ID
-        if (!callbackDocId && docs[0]) {
-          callbackDocId = docs[0].id;
+        if (!callbackDocumentId && documents[0]) {
+          callbackDocumentId = documents[0].id;
         }
       });
 
       // First render - effect runs, notifies parent
       const { rerender } = render(
-        <MarkdownRenderer content={mermaidCode} onDocumentsExtracted={onDocsExtracted} />
+        <MarkdownRenderer content={mermaidCode} onDocumentsExtracted={onDocumentsExtracted} />
       );
 
-      expect(onDocsExtracted).toHaveBeenCalled();
-      expect(callbackDocId).toBeDefined();
+      expect(onDocumentsExtracted).toHaveBeenCalled();
+      expect(callbackDocumentId).toBeDefined();
 
       // Simulate parent state update triggering a re-render (this is what happens
       // when the callback updates parent state, which then re-renders this component)
-      rerender(<MarkdownRenderer content={mermaidCode} onDocumentsExtracted={onDocsExtracted} />);
+      rerender(
+        <MarkdownRenderer content={mermaidCode} onDocumentsExtracted={onDocumentsExtracted} />
+      );
 
       // Get the card that's currently rendered - click it to see what ID it uses
       const card = screen.getByTestId('document-card');
@@ -177,7 +179,7 @@ describe('MarkdownRenderer', () => {
       // Since we can't directly access the document prop, we verify the
       // callback was called with a stable ID by checking it starts with 'doc-'
       // and doesn't contain an incrementing suffix that changes per render
-      expect(callbackDocId).toMatch(/^doc-[a-z0-9]+$/);
+      expect(callbackDocumentId).toMatch(/^doc-[a-z0-9]+$/);
     });
   });
 });

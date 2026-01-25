@@ -3,7 +3,7 @@
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 
-import { cn } from '../lib/utils';
+import { cn } from '../lib/utilities';
 
 interface ModalOverlayProps {
   open: boolean;
@@ -27,7 +27,7 @@ function ModalOverlay({
   className,
   ariaLabel,
   onOpenAutoFocus,
-}: ModalOverlayProps): React.JSX.Element {
+}: Readonly<ModalOverlayProps>): React.JSX.Element {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>

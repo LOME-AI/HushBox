@@ -7,8 +7,12 @@ describe('routes', () => {
       expect(ROUTES.CHAT).toBe('/chat');
     });
 
-    it('defines CHAT_CONVERSATION route with parameter placeholder', () => {
-      expect(ROUTES.CHAT_CONVERSATION).toBe('/chat/$conversationId');
+    it('defines CHAT_ID route with parameter placeholder', () => {
+      expect(ROUTES.CHAT_ID).toBe('/chat/$id');
+    });
+
+    it('defines CHAT_GUEST route', () => {
+      expect(ROUTES.CHAT_GUEST).toBe('/chat/guest');
     });
 
     it('defines PROJECTS route', () => {

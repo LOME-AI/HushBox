@@ -16,12 +16,14 @@ export function useDevPersonas(
   return useQuery({
     queryKey: devPersonaKeys.list(type),
     queryFn: async (): Promise<DevPersonasResponse> => {
-      const response = await fetch(`${API_URL}/dev/personas?type=${type}`);
+      const response = await fetch(`${API_URL}/api/dev/personas?type=${type}`);
       if (!response.ok) {
         throw new Error('Failed to fetch dev personas');
       }
       return response.json() as Promise<DevPersonasResponse>;
     },
     enabled: import.meta.env.DEV,
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
 }

@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import path from 'node:path';
 import {
   TOTAL_FEE_RATE,
   LOME_FEE_RATE,
@@ -34,22 +34,22 @@ export function getTemplateValues(): Record<string, string> {
  * Exits with code 1 if any template variables are unmatched (blocks commit).
  */
 export function generateReadme(rootDir: string): void {
-  const templatePath = resolve(rootDir, 'README.template.md');
-  const outputPath = resolve(rootDir, 'README.md');
+  const templatePath = path.resolve(rootDir, 'README.template.md');
+  const outputPath = path.resolve(rootDir, 'README.md');
 
-  let content = readFileSync(templatePath, 'utf-8');
+  let content = readFileSync(templatePath, 'utf8');
   const values = getTemplateValues();
 
   // Replace all known placeholders
   for (const [key, value] of Object.entries(values)) {
-    content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+    content = content.replaceAll(new RegExp(String.raw`\{\{${key}\}\}`, 'g'), value);
   }
 
   // Check for any remaining unmatched placeholders - BLOCK COMMIT if found
-  const unmatchedVars = content.match(/\{\{[A-Z_]+\}\}/g);
-  if (unmatchedVars) {
+  const unmatchedVariables = content.match(/\{\{[A-Z_]+\}\}/g);
+  if (unmatchedVariables) {
     console.error('ERROR: Unmatched template variables found:');
-    for (const v of [...new Set(unmatchedVars)]) {
+    for (const v of new Set(unmatchedVariables)) {
       console.error(`  - ${v}`);
     }
     console.error('Add these to getTemplateValues() in scripts/generate-readme.ts');

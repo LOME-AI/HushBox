@@ -145,9 +145,9 @@ describe('MessageItem', () => {
 
   describe('document extraction', () => {
     it('calls onDocumentsExtracted when assistant message has large code blocks', () => {
-      const largeCode = Array(15)
+      const largeCode = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `const line${String(i)} = ${String(i)};`)
+        .map((_, index) => `const line${String(index)} = ${String(index)};`)
         .join('\n');
       const messageWithCode = {
         id: 'msg-code',
@@ -167,9 +167,9 @@ describe('MessageItem', () => {
 
       expect(onDocumentsExtracted).toHaveBeenCalled();
 
-      const [messageId, docs] = onDocumentsExtracted.mock.calls[0] as [string, unknown[]];
+      const [messageId, documents] = onDocumentsExtracted.mock.calls[0] as [string, unknown[]];
       expect(messageId).toBe('msg-code');
-      expect(docs).toHaveLength(1);
+      expect(documents).toHaveLength(1);
     });
 
     it('does not call onDocumentsExtracted for user messages', () => {

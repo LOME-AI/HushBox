@@ -1,4 +1,4 @@
-import { createEnvUtils } from '@lome-chat/shared';
+import { createEnvUtilities } from '@lome-chat/shared';
 
 /**
  * Frontend environment utilities - initialized once with Vite's env.
@@ -12,7 +12,7 @@ import { createEnvUtils } from '@lome-chat/shared';
 const viteCI = import.meta.env['VITE_CI'] as string | undefined;
 const viteE2E = import.meta.env['VITE_E2E'] as string | undefined;
 
-export const env = createEnvUtils({
+export const env = createEnvUtilities({
   NODE_ENV: import.meta.env.MODE,
   ...(viteCI ? { CI: viteCI } : {}),
   ...(viteE2E ? { E2E: viteE2E } : {}),

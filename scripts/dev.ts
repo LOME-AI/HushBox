@@ -1,13 +1,13 @@
 import { execa } from 'execa';
 import { config } from 'dotenv';
-import { resolve } from 'path';
+import path from 'node:path';
 import { generateEnvFiles } from './generate-env.js';
 import { seed } from './seed.js';
 
 const DOCKER_SERVICES = ['postgres', 'neon-proxy'];
 
 export function loadEnv(): NodeJS.ProcessEnv {
-  const envPath = resolve(process.cwd(), '.env.development');
+  const envPath = path.resolve(process.cwd(), '.env.development');
   config({ path: envPath });
   return process.env;
 }
@@ -55,8 +55,12 @@ export async function main(): Promise<void> {
 // Only run main if this is the entry point
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;
 if (isMain) {
-  main().catch((error: unknown) => {
-    console.error('Dev startup failed:', error);
-    process.exit(1);
-  });
+  void (async () => {
+    try {
+      await main();
+    } catch (error: unknown) {
+      console.error('Dev startup failed:', error);
+      process.exit(1);
+    }
+  })();
 }

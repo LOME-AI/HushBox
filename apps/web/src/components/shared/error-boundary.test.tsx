@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ErrorBoundary } from './error-boundary';
 
-function ThrowingComponent({ shouldThrow }: { shouldThrow: boolean }): React.JSX.Element {
+function ThrowingComponent({ shouldThrow }: Readonly<{ shouldThrow: boolean }>): React.JSX.Element {
   if (shouldThrow) {
     throw new Error('Test error');
   }
@@ -12,7 +12,7 @@ function ThrowingComponent({ shouldThrow }: { shouldThrow: boolean }): React.JSX
 describe('ErrorBoundary', () => {
   beforeEach(() => {
     // Suppress console.error for expected errors
-    // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentionally suppress console.error in tests
+
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 

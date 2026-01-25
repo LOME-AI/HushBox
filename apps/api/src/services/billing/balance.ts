@@ -34,7 +34,7 @@ export async function checkUserBalance(db: Database, userId: string): Promise<Ba
     .where(eq(users.id, userId));
 
   const balance = user?.balance ?? '0';
-  const balanceValue = parseFloat(balance);
+  const balanceValue = Number.parseFloat(balance);
 
   // Check if free allowance needs reset
   let freeAllowanceCents = user?.freeAllowanceCents ?? 0;
@@ -98,7 +98,7 @@ export async function getUserTierInfo(db: Database, userId: string | null): Prom
   }
 
   // Convert balance from dollars to cents
-  const balanceCents = Math.round(parseFloat(user.balance) * 100);
+  const balanceCents = Math.round(Number.parseFloat(user.balance) * 100);
 
   return getUserTier({
     balanceCents,

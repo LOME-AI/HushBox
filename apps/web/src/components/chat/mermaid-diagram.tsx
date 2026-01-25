@@ -21,12 +21,15 @@ function initializeMermaid(): void {
   }
 }
 
-export function MermaidDiagram({ chart, className }: MermaidDiagramProps): React.JSX.Element {
+export function MermaidDiagram({
+  chart,
+  className,
+}: Readonly<MermaidDiagramProps>): React.JSX.Element {
   const [svg, setSvg] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const reactId = React.useId();
-  const id = `mermaid-${reactId.replace(/:/g, '')}`;
+  const id = `mermaid-${reactId.replaceAll(':', '')}`;
 
   React.useEffect(() => {
     let mounted = true;
@@ -41,9 +44,9 @@ export function MermaidDiagram({ chart, className }: MermaidDiagramProps): React
           setError(null);
           setLoading(false);
         }
-      } catch (err) {
+      } catch (error_) {
         if (mounted) {
-          setError(err instanceof Error ? err.message : 'Failed to render diagram');
+          setError(error_ instanceof Error ? error_.message : 'Failed to render diagram');
           setSvg(null);
           setLoading(false);
         }

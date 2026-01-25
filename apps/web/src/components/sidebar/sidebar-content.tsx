@@ -24,7 +24,7 @@ export function SidebarContent({
   conversations,
   activeConversationId,
   isAuthenticated = true,
-}: SidebarContentProps): React.JSX.Element {
+}: Readonly<SidebarContentProps>): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
   const [searchQuery, setSearchQuery] = React.useState('');
 

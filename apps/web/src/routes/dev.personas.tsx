@@ -29,8 +29,8 @@ function pluralize(count: number, singular: string, plural: string): string {
   return count === 1 ? `${String(count)} ${singular}` : `${String(count)} ${plural}`;
 }
 
-function getPersonaType(typeParam: string | undefined): PersonaType {
-  if (typeParam === 'test') {
+function getPersonaType(typeParameter: string | undefined): PersonaType {
+  if (typeParameter === 'test') {
     return 'test';
   }
   return 'dev';
@@ -38,8 +38,8 @@ function getPersonaType(typeParam: string | undefined): PersonaType {
 
 export function PersonasPage(): React.JSX.Element {
   const navigate = useNavigate();
-  const { type: typeParam } = useSearch({ from: '/dev/personas' });
-  const personaType = getPersonaType(typeParam);
+  const { type: typeParameter } = useSearch({ from: '/dev/personas' });
+  const personaType = getPersonaType(typeParameter);
   const [loadingPersonaId, setLoadingPersonaId] = useState<string | null>(null);
   const { data, isLoading, isError } = useDevPersonas(personaType);
 

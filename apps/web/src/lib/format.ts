@@ -1,9 +1,9 @@
 export { applyFees, formatContextLength, formatPricePer1k } from '@lome-chat/shared';
 
 export function formatBalance(balance: string | number): string {
-  const numericBalance = typeof balance === 'string' ? parseFloat(balance) : balance;
+  const numericBalance = typeof balance === 'string' ? Number.parseFloat(balance) : balance;
 
-  if (isNaN(numericBalance)) {
+  if (Number.isNaN(numericBalance)) {
     return '$0.0000';
   }
 

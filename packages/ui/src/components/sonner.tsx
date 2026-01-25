@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { Toaster as Sonner, type ToasterProps } from 'sonner';
 
-function Toaster({ theme = 'system', ...props }: ToasterProps) {
+function Toaster({ theme = 'system', ...props }: Readonly<ToasterProps>) {
   return (
     <Sonner
       data-slot="toaster"

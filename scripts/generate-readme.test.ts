@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CREDIT_CARD_FEE_RATE,
@@ -46,14 +46,14 @@ describe('getTemplateValues', () => {
 });
 
 describe('generateReadme', () => {
-  let tempDir: string;
+  let temporaryDir: string;
 
   beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'generate-readme-test-'));
+    temporaryDir = mkdtempSync(path.join(tmpdir(), 'generate-readme-test-'));
   });
 
   afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(temporaryDir, { recursive: true, force: true });
   });
 
   it('replaces template variables with values', () => {
@@ -61,38 +61,38 @@ describe('generateReadme', () => {
 Fee: {{TOTAL_FEE_PERCENT}}
 Storage: {{STORAGE_COST_PER_1K}} per 1k chars
 `;
-    writeFileSync(join(tempDir, 'README.template.md'), template);
+    writeFileSync(path.join(temporaryDir, 'README.template.md'), template);
 
-    generateReadme(tempDir);
+    generateReadme(temporaryDir);
 
-    const output = readFileSync(join(tempDir, 'README.md'), 'utf-8');
+    const output = readFileSync(path.join(temporaryDir, 'README.md'), 'utf8');
     expect(output).toContain('Fee: 15%');
     expect(output).toContain('Storage: $0.0003 per 1k chars');
   });
 
   it('adds auto-generated notice at top', () => {
     const template = '# Hello';
-    writeFileSync(join(tempDir, 'README.template.md'), template);
+    writeFileSync(path.join(temporaryDir, 'README.template.md'), template);
 
-    generateReadme(tempDir);
+    generateReadme(temporaryDir);
 
-    const output = readFileSync(join(tempDir, 'README.md'), 'utf-8');
+    const output = readFileSync(path.join(temporaryDir, 'README.md'), 'utf8');
     expect(output.startsWith('<!-- AUTO-GENERATED from README.template.md')).toBe(true);
   });
 
   it('replaces all occurrences of same variable', () => {
     const template = `{{TOTAL_FEE_PERCENT}} here and {{TOTAL_FEE_PERCENT}} there`;
-    writeFileSync(join(tempDir, 'README.template.md'), template);
+    writeFileSync(path.join(temporaryDir, 'README.template.md'), template);
 
-    generateReadme(tempDir);
+    generateReadme(temporaryDir);
 
-    const output = readFileSync(join(tempDir, 'README.md'), 'utf-8');
+    const output = readFileSync(path.join(temporaryDir, 'README.md'), 'utf8');
     expect(output).toContain('15% here and 15% there');
   });
 
   it('exits with code 1 when unmatched variables found', () => {
     const template = `Valid: {{TOTAL_FEE_PERCENT}}, Invalid: {{UNKNOWN_VAR}}`;
-    writeFileSync(join(tempDir, 'README.template.md'), template);
+    writeFileSync(path.join(temporaryDir, 'README.template.md'), template);
 
     const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
       throw new Error('process.exit called');
@@ -100,7 +100,7 @@ Storage: {{STORAGE_COST_PER_1K}} per 1k chars
     const mockError = vi.spyOn(console, 'error').mockImplementation(vi.fn());
 
     expect(() => {
-      generateReadme(tempDir);
+      generateReadme(temporaryDir);
     }).toThrow('process.exit called');
     expect(mockExit).toHaveBeenCalledWith(1);
     expect(mockError).toHaveBeenCalledWith('ERROR: Unmatched template variables found:');
@@ -112,7 +112,7 @@ Storage: {{STORAGE_COST_PER_1K}} per 1k chars
 
   it('lists all unique unmatched variables', () => {
     const template = `{{UNKNOWN_A}} {{UNKNOWN_B}} {{UNKNOWN_A}}`;
-    writeFileSync(join(tempDir, 'README.template.md'), template);
+    writeFileSync(path.join(temporaryDir, 'README.template.md'), template);
 
     const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
       throw new Error('process.exit called');
@@ -123,14 +123,14 @@ Storage: {{STORAGE_COST_PER_1K}} per 1k chars
     });
 
     expect(() => {
-      generateReadme(tempDir);
+      generateReadme(temporaryDir);
     }).toThrow('process.exit called');
 
     // Should list each unique variable once
-    const varLines = errorCalls.filter((c) => c.startsWith('  - '));
-    expect(varLines).toHaveLength(2);
-    expect(varLines).toContain('  - {{UNKNOWN_A}}');
-    expect(varLines).toContain('  - {{UNKNOWN_B}}');
+    const variableLines = errorCalls.filter((c) => c.startsWith('  - '));
+    expect(variableLines).toHaveLength(2);
+    expect(variableLines).toContain('  - {{UNKNOWN_A}}');
+    expect(variableLines).toContain('  - {{UNKNOWN_B}}');
 
     mockExit.mockRestore();
     mockError.mockRestore();
@@ -138,12 +138,12 @@ Storage: {{STORAGE_COST_PER_1K}} per 1k chars
 
   it('succeeds when all variables are matched', () => {
     const template = `{{TOTAL_FEE_PERCENT}} {{LOME_FEE_PERCENT}} {{CC_FEE_PERCENT}} {{PROVIDER_FEE_PERCENT}} {{STORAGE_COST_PER_1K}} {{MESSAGES_PER_DOLLAR}}`;
-    writeFileSync(join(tempDir, 'README.template.md'), template);
+    writeFileSync(path.join(temporaryDir, 'README.template.md'), template);
 
     const mockExit = vi.spyOn(process, 'exit');
     const mockLog = vi.spyOn(console, 'log').mockImplementation(vi.fn());
 
-    generateReadme(tempDir);
+    generateReadme(temporaryDir);
 
     expect(mockExit).not.toHaveBeenCalled();
     expect(mockLog).toHaveBeenCalledWith('✓ Generated README.md from template');

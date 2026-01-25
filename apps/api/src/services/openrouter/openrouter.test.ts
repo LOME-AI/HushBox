@@ -101,7 +101,6 @@ describe('createOpenRouterClient', () => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- vitest asymmetric matcher
           headers: expect.objectContaining({
             Authorization: `Bearer ${TEST_API_KEY}`,
           }),
@@ -123,7 +122,6 @@ describe('createOpenRouterClient', () => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- vitest asymmetric matcher
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             'HTTP-Referer': 'https://lome-chat.com',
@@ -274,7 +272,6 @@ describe('createOpenRouterClient', () => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- vitest asymmetric matcher
           headers: expect.objectContaining({
             Authorization: `Bearer ${TEST_API_KEY}`,
           }),
@@ -291,16 +288,16 @@ describe('createOpenRouterClient', () => {
           context_length: 8192,
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: [],
-          created: 1704067200,
+          created: 1_704_067_200,
         },
         {
           id: 'anthropic/claude-3',
           name: 'Claude 3',
           description: 'Test',
-          context_length: 200000,
+          context_length: 200_000,
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: [],
-          created: 1704067200,
+          created: 1_704_067_200,
         },
       ];
 
@@ -335,16 +332,16 @@ describe('createOpenRouterClient', () => {
           context_length: 8192,
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: ['tools'],
-          created: 1704067200,
+          created: 1_704_067_200,
         },
         {
           id: 'anthropic/claude-3',
           name: 'Claude 3',
           description: 'Test',
-          context_length: 200000,
+          context_length: 200_000,
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: [],
-          created: 1704067200,
+          created: 1_704_067_200,
         },
       ];
 
@@ -368,7 +365,7 @@ describe('createOpenRouterClient', () => {
           context_length: 8192,
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: [],
-          created: 1704067200,
+          created: 1_704_067_200,
         },
       ];
 
@@ -426,7 +423,7 @@ describe('fetchModels (public, no auth required)', () => {
         context_length: 8192,
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: [],
-        created: 1704067200,
+        created: 1_704_067_200,
       },
     ];
 
@@ -530,7 +527,7 @@ describe('chatCompletionStreamWithMetadata retry logic', () => {
     for await (const token of client.chatCompletionStreamWithMetadata({
       model: 'test/model',
       messages: [{ role: 'user', content: 'Hi' }],
-      max_tokens: 4262408, // Original request with too many tokens
+      max_tokens: 4_262_408, // Original request with too many tokens
     })) {
       tokens.push(token.content);
     }
@@ -547,7 +544,7 @@ describe('chatCompletionStreamWithMetadata retry logic', () => {
       max_tokens?: number;
     };
     // maxContext (204800) - textInput (65) = 204735
-    expect(retryBody.max_tokens).toBe(204735);
+    expect(retryBody.max_tokens).toBe(204_735);
   });
 
   it('throws original error if retry also fails', async () => {
@@ -573,7 +570,7 @@ describe('chatCompletionStreamWithMetadata retry logic', () => {
     });
 
     await expect(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      // eslint-disable-next-line sonarjs/no-unused-vars -- consuming stream to trigger error
       for await (const _ of client.chatCompletionStreamWithMetadata({
         model: 'test/model',
         messages: [{ role: 'user', content: 'Hi' }],
@@ -591,7 +588,7 @@ describe('chatCompletionStreamWithMetadata retry logic', () => {
     });
 
     await expect(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      // eslint-disable-next-line sonarjs/no-unused-vars -- consuming stream to trigger error
       for await (const _ of client.chatCompletionStreamWithMetadata({
         model: 'test/model',
         messages: [{ role: 'user', content: 'Hi' }],
@@ -617,7 +614,7 @@ describe('chatCompletionStreamWithMetadata retry logic', () => {
     });
 
     await expect(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      // eslint-disable-next-line sonarjs/no-unused-vars -- consuming stream to trigger error
       for await (const _ of client.chatCompletionStreamWithMetadata({
         model: 'test/model',
         messages: [{ role: 'user', content: 'Hi' }],
@@ -652,16 +649,16 @@ describe('getModel (public, no auth required)', () => {
         context_length: 8192,
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: [],
-        created: 1704067200,
+        created: 1_704_067_200,
       },
       {
         id: 'anthropic/claude-3',
         name: 'Claude 3',
         description: 'Test',
-        context_length: 200000,
+        context_length: 200_000,
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: [],
-        created: 1704067200,
+        created: 1_704_067_200,
       },
     ];
 
@@ -685,7 +682,7 @@ describe('getModel (public, no auth required)', () => {
         context_length: 8192,
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: [],
-        created: 1704067200,
+        created: 1_704_067_200,
       },
     ];
 

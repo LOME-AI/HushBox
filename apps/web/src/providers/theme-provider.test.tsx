@@ -21,7 +21,7 @@ const localStorageMock = (() => {
   };
 })();
 
-Object.defineProperty(window, 'localStorage', { value: localStorageMock });
+Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 
 // Test component that uses the theme context
 function TestConsumer(): React.JSX.Element {
@@ -45,7 +45,7 @@ describe('ThemeProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorageMock.clear();
-    document.documentElement.removeAttribute('data-theme');
+    delete document.documentElement.dataset['theme'];
     document.documentElement.classList.remove('dark');
     document.documentElement.style.removeProperty('--transition-x');
     document.documentElement.style.removeProperty('--transition-y');
@@ -81,7 +81,7 @@ describe('ThemeProvider', () => {
         <TestConsumer />
       </ThemeProvider>
     );
-    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(document.documentElement.dataset['theme']).toBe('light');
   });
 
   it('provides triggerTransition function', () => {
@@ -131,7 +131,7 @@ describe('ThemeProvider', () => {
     // Since View Transitions API is not available in jsdom, it should toggle instantly
     expect(screen.getByTestId('mode')).toHaveTextContent('dark');
     expect(localStorageMock.getItem('themeMode')).toBe('dark');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.dataset['theme']).toBe('dark');
     expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
 

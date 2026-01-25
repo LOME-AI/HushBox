@@ -24,7 +24,8 @@ export const PREMIUM_RECENCY_MS = 365 * 24 * 60 * 60 * 1000;
  * @returns true if the model is premium
  */
 export function isPremiumModel(model: OpenRouterModel, priceThreshold: number): boolean {
-  const price = parseFloat(model.pricing.prompt) + parseFloat(model.pricing.completion);
+  const price =
+    Number.parseFloat(model.pricing.prompt) + Number.parseFloat(model.pricing.completion);
   const recencyThreshold = Date.now() - PREMIUM_RECENCY_MS;
   return price >= priceThreshold || model.created * 1000 > recencyThreshold;
 }

@@ -77,7 +77,7 @@ describe('saveMessageWithBilling', () => {
         content: 'Hello from AI!',
         model: 'openai/gpt-4o-mini',
         userId: user.id,
-        totalCost: 0.00136, // Pre-calculated cost
+        totalCost: 0.001_36, // Pre-calculated cost
         inputCharacters: 500,
         outputCharacters: 200,
       });
@@ -88,8 +88,8 @@ describe('saveMessageWithBilling', () => {
       expect(msg.content).toBe('Hello from AI!');
       expect(msg.cost).toBeDefined();
       if (!msg.cost) throw new Error('Cost not found');
-      expect(parseFloat(msg.cost)).toBeCloseTo(0.00136, 5);
-      expect(result.totalCharge).toBeCloseTo(0.00136, 5);
+      expect(Number.parseFloat(msg.cost)).toBeCloseTo(0.001_36, 5);
+      expect(result.totalCharge).toBeCloseTo(0.001_36, 5);
     });
 
     it('deducts cost from user balance', async () => {
@@ -111,8 +111,8 @@ describe('saveMessageWithBilling', () => {
 
       const [updatedUser] = await db.select().from(users).where(eq(users.id, user.id));
       if (!updatedUser) throw new Error('User not found');
-      expect(parseFloat(updatedUser.balance)).toBeCloseTo(10 - 0.001, 5);
-      expect(parseFloat(result.newBalance)).toBeCloseTo(10 - 0.001, 5);
+      expect(Number.parseFloat(updatedUser.balance)).toBeCloseTo(10 - 0.001, 5);
+      expect(Number.parseFloat(result.newBalance)).toBeCloseTo(10 - 0.001, 5);
     });
 
     it('creates balance transaction', async () => {
@@ -138,7 +138,7 @@ describe('saveMessageWithBilling', () => {
         .where(eq(balanceTransactions.id, result.transactionId));
       if (!tx) throw new Error('Transaction not found');
       expect(tx.type).toBe('usage');
-      expect(parseFloat(tx.amount)).toBeLessThan(0);
+      expect(Number.parseFloat(tx.amount)).toBeLessThan(0);
       expect(tx.userId).toBe(user.id);
       expect(tx.model).toBe('anthropic/claude-3-opus');
       expect(tx.inputCharacters).toBe(1000);
@@ -250,7 +250,7 @@ describe('saveMessageWithBilling', () => {
         outputCharacters: 500,
       });
 
-      expect(parseFloat(result.newBalance)).toBeLessThan(0);
+      expect(Number.parseFloat(result.newBalance)).toBeLessThan(0);
 
       // Message still saved
       const [msg] = await db.select().from(messages).where(eq(messages.id, messageId));
@@ -285,7 +285,7 @@ describe('saveMessageWithBilling', () => {
 
       const [updatedUser] = await db.select().from(users).where(eq(users.id, user.id));
       if (!updatedUser) throw new Error('User not found');
-      expect(parseFloat(updatedUser.balance)).toBeCloseTo(10 - 0.01, 5);
+      expect(Number.parseFloat(updatedUser.balance)).toBeCloseTo(10 - 0.01, 5);
       expect(updatedUser.freeAllowanceCents).toBe(500); // Unchanged
     });
 
@@ -315,7 +315,7 @@ describe('saveMessageWithBilling', () => {
 
       const [updatedUser] = await db.select().from(users).where(eq(users.id, user.id));
       if (!updatedUser) throw new Error('User not found');
-      expect(parseFloat(updatedUser.balance)).toBe(10); // Unchanged
+      expect(Number.parseFloat(updatedUser.balance)).toBe(10); // Unchanged
       expect(updatedUser.freeAllowanceCents).toBe(499); // Reduced by 1 cent
     });
 

@@ -8,7 +8,7 @@ import type { Document } from '../../lib/document-parser';
 // Mock matchMedia for viewport simulation
 // isMobile: true = mobile (<768px), false = desktop (>=768px)
 const mockMatchMedia = (isMobile: boolean): void => {
-  Object.defineProperty(window, 'matchMedia', {
+  Object.defineProperty(globalThis, 'matchMedia', {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
       // useIsMobile uses max-width: 767px query

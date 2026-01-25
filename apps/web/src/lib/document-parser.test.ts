@@ -51,7 +51,7 @@ That's it!`;
     });
 
     it('keeps code blocks without language inline regardless of length', () => {
-      const longCode = Array(20).fill('line').join('\n');
+      const longCode = Array.from({ length: 20 }).fill('line').join('\n');
       const content = `\`\`\`
 ${longCode}
 \`\`\``;
@@ -64,9 +64,9 @@ ${longCode}
 
   describe('extracts code blocks with language ≥15 lines', () => {
     it('extracts a 15-line TypeScript code block', () => {
-      const codeContent = Array(15)
+      const codeContent = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `const line${String(i)} = ${String(i)};`)
+        .map((_, index) => `const line${String(index)} = ${String(index)};`)
         .join('\n');
       const content = `Here's the code:
 
@@ -78,20 +78,20 @@ Done!`;
       const result = extractDocuments(content);
 
       expect(result.documents).toHaveLength(1);
-      const doc = result.documents[0];
-      expect(doc).toBeDefined();
-      if (doc) {
-        expect(doc.type).toBe('code');
-        expect(doc.language).toBe('typescript');
-        expect(doc.content).toBe(codeContent);
-        expect(doc.lineCount).toBe(15);
+      const document = result.documents[0];
+      expect(document).toBeDefined();
+      if (document) {
+        expect(document.type).toBe('code');
+        expect(document.language).toBe('typescript');
+        expect(document.content).toBe(codeContent);
+        expect(document.lineCount).toBe(15);
       }
     });
 
     it('extracts a 20-line Python code block', () => {
-      const codeContent = Array(20)
+      const codeContent = Array.from({ length: 20 })
         .fill(null)
-        .map((_, i) => `x${String(i)} = ${String(i)}`)
+        .map((_, index) => `x${String(index)} = ${String(index)}`)
         .join('\n');
       const content = `\`\`\`python
 ${codeContent}
@@ -99,19 +99,19 @@ ${codeContent}
       const result = extractDocuments(content);
 
       expect(result.documents).toHaveLength(1);
-      const doc = result.documents[0];
-      expect(doc).toBeDefined();
-      if (doc) {
-        expect(doc.type).toBe('code');
-        expect(doc.language).toBe('python');
-        expect(doc.lineCount).toBe(20);
+      const document = result.documents[0];
+      expect(document).toBeDefined();
+      if (document) {
+        expect(document.type).toBe('code');
+        expect(document.language).toBe('python');
+        expect(document.lineCount).toBe(20);
       }
     });
 
     it('replaces extracted code with placeholder in inline content', () => {
-      const codeContent = Array(15)
+      const codeContent = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `line ${String(i)}`)
+        .map((_, index) => `line ${String(index)}`)
         .join('\n');
       const content = `Before
 
@@ -123,10 +123,10 @@ After`;
       const result = extractDocuments(content);
 
       expect(result.documents).toHaveLength(1);
-      const doc = result.documents[0];
-      expect(doc).toBeDefined();
-      if (doc) {
-        expect(result.inlineContent).toContain(`<!--doc:${doc.id}-->`);
+      const document = result.documents[0];
+      expect(document).toBeDefined();
+      if (document) {
+        expect(result.inlineContent).toContain(`<!--doc:${document.id}-->`);
         expect(result.inlineContent).not.toContain(codeContent);
       }
     });
@@ -141,19 +141,19 @@ flowchart TD
       const result = extractDocuments(content);
 
       expect(result.documents).toHaveLength(1);
-      const doc = result.documents[0];
-      expect(doc).toBeDefined();
-      if (doc) {
-        expect(doc.type).toBe('mermaid');
-        expect(doc.content).toBe('flowchart TD\n    A --> B');
+      const document = result.documents[0];
+      expect(document).toBeDefined();
+      if (document) {
+        expect(document.type).toBe('mermaid');
+        expect(document.content).toBe('flowchart TD\n    A --> B');
       }
     });
 
     it('extracts a large mermaid diagram', () => {
       const diagram = `flowchart TD
-${Array(20)
+${Array.from({ length: 20 })
   .fill(null)
-  .map((_, i) => `    N${String(i)} --> N${String(i + 1)}`)
+  .map((_, index) => `    N${String(index)} --> N${String(index + 1)}`)
   .join('\n')}`;
       const content = `\`\`\`mermaid
 ${diagram}
@@ -161,19 +161,19 @@ ${diagram}
       const result = extractDocuments(content);
 
       expect(result.documents).toHaveLength(1);
-      const doc = result.documents[0];
-      expect(doc).toBeDefined();
-      if (doc) {
-        expect(doc.type).toBe('mermaid');
+      const document = result.documents[0];
+      expect(document).toBeDefined();
+      if (document) {
+        expect(document.type).toBe('mermaid');
       }
     });
   });
 
   describe('extracts HTML/JSX/TSX blocks ≥15 lines', () => {
     it('extracts a 15-line HTML block', () => {
-      const htmlContent = Array(15)
+      const htmlContent = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `<div>Line ${String(i)}</div>`)
+        .map((_, index) => `<div>Line ${String(index)}</div>`)
         .join('\n');
       const content = `\`\`\`html
 ${htmlContent}
@@ -181,18 +181,18 @@ ${htmlContent}
       const result = extractDocuments(content);
 
       expect(result.documents).toHaveLength(1);
-      const doc = result.documents[0];
-      expect(doc).toBeDefined();
-      if (doc) {
-        expect(doc.type).toBe('html');
-        expect(doc.language).toBe('html');
+      const document = result.documents[0];
+      expect(document).toBeDefined();
+      if (document) {
+        expect(document.type).toBe('html');
+        expect(document.language).toBe('html');
       }
     });
 
     it('extracts a 15-line JSX block as react type', () => {
-      const jsxContent = Array(15)
+      const jsxContent = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `  <div key={${String(i)}}>{${String(i)}}</div>`)
+        .map((_, index) => `  <div key={${String(index)}}>{${String(index)}}</div>`)
         .join('\n');
       const content = `\`\`\`jsx
 function Component() {
@@ -204,18 +204,18 @@ ${jsxContent}
       const result = extractDocuments(content);
 
       expect(result.documents).toHaveLength(1);
-      const doc = result.documents[0];
-      expect(doc).toBeDefined();
-      if (doc) {
-        expect(doc.type).toBe('react');
-        expect(doc.language).toBe('jsx');
+      const document = result.documents[0];
+      expect(document).toBeDefined();
+      if (document) {
+        expect(document.type).toBe('react');
+        expect(document.language).toBe('jsx');
       }
     });
 
     it('extracts a 15-line TSX block as react type', () => {
-      const tsxContent = Array(15)
+      const tsxContent = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `  <span>{${String(i)}}</span>`)
+        .map((_, index) => `  <span>{${String(index)}}</span>`)
         .join('\n');
       const content = `\`\`\`tsx
 export function Component(): JSX.Element {
@@ -227,11 +227,11 @@ ${tsxContent}
       const result = extractDocuments(content);
 
       expect(result.documents).toHaveLength(1);
-      const doc = result.documents[0];
-      expect(doc).toBeDefined();
-      if (doc) {
-        expect(doc.type).toBe('react');
-        expect(doc.language).toBe('tsx');
+      const document = result.documents[0];
+      expect(document).toBeDefined();
+      if (document) {
+        expect(document.type).toBe('react');
+        expect(document.language).toBe('tsx');
       }
     });
 
@@ -250,13 +250,13 @@ ${tsxContent}
 
   describe('handles multiple documents in one message', () => {
     it('extracts multiple code blocks', () => {
-      const code1 = Array(15)
+      const code1 = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `// Line ${String(i)}`)
+        .map((_, index) => `// Line ${String(index)}`)
         .join('\n');
-      const code2 = Array(15)
+      const code2 = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `# Line ${String(i)}`)
+        .map((_, index) => `# Line ${String(index)}`)
         .join('\n');
       const content = `First file:
 
@@ -277,9 +277,9 @@ ${code2}
     });
 
     it('extracts mixed document types', () => {
-      const code = Array(15)
+      const code = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `x = ${String(i)}`)
+        .map((_, index) => `x = ${String(index)}`)
         .join('\n');
       const content = `Code:
 
@@ -303,9 +303,9 @@ flowchart TD
 
   describe('document ID generation', () => {
     it('generates stable IDs based on content hash', () => {
-      const code = Array(15)
+      const code = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `line ${String(i)}`)
+        .map((_, index) => `line ${String(index)}`)
         .join('\n');
       const content = `\`\`\`javascript
 ${code}
@@ -318,13 +318,13 @@ ${code}
     });
 
     it('generates different IDs for different content', () => {
-      const code1 = Array(15)
+      const code1 = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `a${String(i)}`)
+        .map((_, index) => `a${String(index)}`)
         .join('\n');
-      const code2 = Array(15)
+      const code2 = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `b${String(i)}`)
+        .map((_, index) => `b${String(index)}`)
         .join('\n');
 
       const result1 = extractDocuments(`\`\`\`javascript\n${code1}\n\`\`\``);
@@ -334,9 +334,9 @@ ${code}
     });
 
     it('identical content blocks share the same ID (content-based hashing)', () => {
-      const code = Array(15)
+      const code = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `x = ${String(i)}`)
+        .map((_, index) => `x = ${String(index)}`)
         .join('\n');
       const content = `\`\`\`python
 ${code}
@@ -356,7 +356,7 @@ ${code}
   describe('title generation', () => {
     it('generates title from first meaningful line of code', () => {
       const code = `function calculateTotal(items) {
-${Array(14)
+${Array.from({ length: 14 })
   .fill(null)
   .map(() => '  // implementation')
   .join('\n')}
@@ -366,10 +366,10 @@ ${code}
 \`\`\``;
       const result = extractDocuments(content);
 
-      const doc = result.documents[0];
-      expect(doc).toBeDefined();
-      if (doc) {
-        expect(doc.title).toContain('calculateTotal');
+      const document = result.documents[0];
+      expect(document).toBeDefined();
+      if (document) {
+        expect(document.title).toContain('calculateTotal');
       }
     });
 
@@ -380,10 +380,10 @@ sequenceDiagram
 \`\`\``;
       const result = extractDocuments(content);
 
-      const doc = result.documents[0];
-      expect(doc).toBeDefined();
-      if (doc) {
-        expect(doc.title.toLowerCase()).toContain('sequence');
+      const document = result.documents[0];
+      expect(document).toBeDefined();
+      if (document) {
+        expect(document.title.toLowerCase()).toContain('sequence');
       }
     });
 
@@ -451,25 +451,25 @@ unknownDiagram
     });
 
     it('falls back to language name when no meaningful title found', () => {
-      const code = Array(15)
+      const code = Array.from({ length: 15 })
         .fill(null)
-        .map((_, i) => `// comment ${String(i)}`)
+        .map((_, index) => `// comment ${String(index)}`)
         .join('\n');
       const content = `\`\`\`typescript
 ${code}
 \`\`\``;
       const result = extractDocuments(content);
 
-      const doc = result.documents[0];
-      expect(doc).toBeDefined();
-      if (doc) {
-        expect(doc.title.toLowerCase()).toContain('typescript');
+      const document = result.documents[0];
+      expect(document).toBeDefined();
+      if (document) {
+        expect(document.title.toLowerCase()).toContain('typescript');
       }
     });
 
     it('extracts title from class definition', () => {
       const code = `class UserService {
-${Array(14)
+${Array.from({ length: 14 })
   .fill(null)
   .map(() => '  // implementation')
   .join('\n')}
@@ -483,7 +483,7 @@ ${code}
 
     it('extracts title from interface definition', () => {
       const code = `interface ApiResponse {
-${Array(14)
+${Array.from({ length: 14 })
   .fill(null)
   .map(() => '  field: string;')
   .join('\n')}
@@ -497,7 +497,7 @@ ${code}
 
     it('extracts title from type definition', () => {
       const code = `type ConfigOptions = {
-${Array(14)
+${Array.from({ length: 14 })
   .fill(null)
   .map(() => '  option: boolean;')
   .join('\n')}
@@ -511,9 +511,9 @@ ${code}
 
     it('extracts title from enum definition', () => {
       const code = `enum Status {
-${Array(14)
+${Array.from({ length: 14 })
   .fill(null)
-  .map((_, i) => `  Value${String(i)},`)
+  .map((_, index) => `  Value${String(index)},`)
   .join('\n')}
 }`;
       const content = `\`\`\`typescript
@@ -525,7 +525,7 @@ ${code}
 
     it('extracts title from Python def', () => {
       const code = `def process_data(items):
-${Array(14)
+${Array.from({ length: 14 })
   .fill(null)
   .map(() => '    pass')
   .join('\n')}`;
@@ -538,7 +538,7 @@ ${code}
 
     it('extracts title from Python class', () => {
       const code = `class DataProcessor:
-${Array(14)
+${Array.from({ length: 14 })
   .fill(null)
   .map(() => '    pass')
   .join('\n')}`;
@@ -552,7 +552,7 @@ ${code}
     it('skips Python comments when finding title', () => {
       const code = `# This is a comment
 def helper_function():
-${Array(13)
+${Array.from({ length: 13 })
   .fill(null)
   .map(() => '    pass')
   .join('\n')}`;
@@ -568,7 +568,7 @@ ${code}
  * multiline comment
  */
 function realFunction() {
-${Array(11)
+${Array.from({ length: 11 })
   .fill(null)
   .map(() => '  // impl')
   .join('\n')}

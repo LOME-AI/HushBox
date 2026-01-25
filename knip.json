@@ -1,0 +1,36 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    "apps/api": {
+      "project": ["src/**/*.ts"]
+    },
+    "apps/web": {
+      "entry": ["src/main.tsx"],
+      "project": ["src/**/*.{ts,tsx}"]
+    },
+    "packages/shared": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/db": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/ui": {
+      "project": ["src/**/*.{ts,tsx}"]
+    },
+    "packages/config": {
+      "project": ["**/*.{js,ts}"],
+      "ignore": ["tailwind/**"]
+    },
+    "scripts": {
+      "entry": ["*.ts", "!*.test.ts"],
+      "project": ["**/*.ts"]
+    },
+    "e2e": {
+      "entry": ["fixtures.ts", "auth.setup.ts", "**/*.spec.ts"],
+      "project": ["**/*.ts"]
+    }
+  },
+  "ignoreDependencies": ["eslint-formatter-summary", "tailwindcss", "tw-animate-css", "vite"],
+  "ignoreBinaries": ["lsof"],
+  "ignoreExportsUsedInFile": true
+}

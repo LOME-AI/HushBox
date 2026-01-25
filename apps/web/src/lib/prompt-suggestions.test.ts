@@ -11,44 +11,44 @@ describe('promptSuggestions', () => {
   });
 
   it('each suggestion has an id property', () => {
-    promptSuggestions.forEach((suggestion) => {
+    for (const suggestion of promptSuggestions) {
       expect(suggestion).toHaveProperty('id');
       expect(typeof suggestion.id).toBe('string');
-    });
+    }
   });
 
   it('each suggestion has a label property', () => {
-    promptSuggestions.forEach((suggestion) => {
+    for (const suggestion of promptSuggestions) {
       expect(suggestion).toHaveProperty('label');
       expect(typeof suggestion.label).toBe('string');
-    });
+    }
   });
 
   it('each suggestion has a prompts array property', () => {
-    promptSuggestions.forEach((suggestion) => {
+    for (const suggestion of promptSuggestions) {
       expect(suggestion).toHaveProperty('prompts');
       expect(Array.isArray(suggestion.prompts)).toBe(true);
       expect(suggestion.prompts.length).toBeGreaterThan(0);
-      suggestion.prompts.forEach((prompt) => {
+      for (const prompt of suggestion.prompts) {
         expect(typeof prompt).toBe('string');
         expect(prompt.length).toBeGreaterThan(0);
-      });
-    });
+      }
+    }
   });
 
   it('each category has at least 10 prompts', () => {
-    promptSuggestions.forEach((suggestion) => {
+    for (const suggestion of promptSuggestions) {
       expect(suggestion.prompts.length).toBeGreaterThanOrEqual(10);
-    });
+    }
   });
 
   it('each suggestion has an icon property', () => {
-    promptSuggestions.forEach((suggestion) => {
+    for (const suggestion of promptSuggestions) {
       expect(suggestion).toHaveProperty('icon');
       // LucideIcon is a forwardRef component which is an object
       expect(suggestion.icon).toBeDefined();
       expect(suggestion.icon.$$typeof).toBeDefined();
-    });
+    }
   });
 
   it('all suggestion ids are unique', () => {

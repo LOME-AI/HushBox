@@ -24,9 +24,9 @@ const MOCK_MODELS: Model[] = [
     name: 'GPT-4 Turbo',
     description: 'Most capable GPT-4 model',
     provider: 'OpenAI',
-    contextLength: 128000,
-    pricePerInputToken: 0.00001,
-    pricePerOutputToken: 0.00003,
+    contextLength: 128_000,
+    pricePerInputToken: 0.000_01,
+    pricePerOutputToken: 0.000_03,
     capabilities: ['streaming', 'functions'],
     supportedParameters: ['temperature', 'tools', 'tool_choice'],
     created: Math.floor(Date.now() / 1000),
@@ -36,9 +36,9 @@ const MOCK_MODELS: Model[] = [
     name: 'Claude 3.5 Sonnet',
     description: 'Balanced Claude model',
     provider: 'Anthropic',
-    contextLength: 200000,
-    pricePerInputToken: 0.000003,
-    pricePerOutputToken: 0.000015,
+    contextLength: 200_000,
+    pricePerInputToken: 0.000_003,
+    pricePerOutputToken: 0.000_015,
     capabilities: ['streaming'],
     supportedParameters: ['temperature', 'max_tokens'],
     created: Math.floor(Date.now() / 1000),
@@ -86,7 +86,7 @@ describe('useModels', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/unbound-method -- mock method doesn't rely on this
-    expect(mockedApi.get).toHaveBeenCalledWith('/models');
+    expect(mockedApi.get).toHaveBeenCalledWith('/api/models');
     expect(result.current.data?.models).toHaveLength(2);
   });
 
@@ -105,9 +105,9 @@ describe('useModels', () => {
       id: 'openai/gpt-4-turbo',
       name: 'GPT-4 Turbo',
       provider: 'OpenAI',
-      contextLength: 128000,
-      pricePerInputToken: 0.00001,
-      pricePerOutputToken: 0.00003,
+      contextLength: 128_000,
+      pricePerInputToken: 0.000_01,
+      pricePerOutputToken: 0.000_03,
     });
   });
 
@@ -165,9 +165,9 @@ describe('getAccessibleModelIds', () => {
       name: 'Expensive Basic',
       description: 'A pricey basic model',
       provider: 'TestProvider',
-      contextLength: 100000,
-      pricePerInputToken: 0.00005, // Highest price
-      pricePerOutputToken: 0.00015,
+      contextLength: 100_000,
+      pricePerInputToken: 0.000_05, // Highest price
+      pricePerOutputToken: 0.000_15,
       capabilities: [],
       supportedParameters: [],
       created: Math.floor(Date.now() / 1000),
@@ -177,9 +177,9 @@ describe('getAccessibleModelIds', () => {
       name: 'Cheap Basic',
       description: 'An affordable basic model',
       provider: 'TestProvider',
-      contextLength: 50000,
-      pricePerInputToken: 0.000001, // Lowest price
-      pricePerOutputToken: 0.000003,
+      contextLength: 50_000,
+      pricePerInputToken: 0.000_001, // Lowest price
+      pricePerOutputToken: 0.000_003,
       capabilities: [],
       supportedParameters: [],
       created: Math.floor(Date.now() / 1000),
@@ -189,9 +189,9 @@ describe('getAccessibleModelIds', () => {
       name: 'Mid Basic',
       description: 'A mid-priced basic model',
       provider: 'TestProvider',
-      contextLength: 75000,
-      pricePerInputToken: 0.00001, // Mid price
-      pricePerOutputToken: 0.00003,
+      contextLength: 75_000,
+      pricePerInputToken: 0.000_01, // Mid price
+      pricePerOutputToken: 0.000_03,
       capabilities: [],
       supportedParameters: [],
       created: Math.floor(Date.now() / 1000),
@@ -201,7 +201,7 @@ describe('getAccessibleModelIds', () => {
       name: 'Premium Model',
       description: 'A premium model',
       provider: 'TestProvider',
-      contextLength: 200000,
+      contextLength: 200_000,
       pricePerInputToken: 0.0001,
       pricePerOutputToken: 0.0003,
       capabilities: [],
@@ -265,9 +265,9 @@ describe('getAccessibleModelIds', () => {
         name: 'High Input Low Output',
         description: 'Test model',
         provider: 'TestProvider',
-        contextLength: 100000,
+        contextLength: 100_000,
         pricePerInputToken: 0.0001, // High input
-        pricePerOutputToken: 0.00001, // Low output
+        pricePerOutputToken: 0.000_01, // Low output
         capabilities: [],
         supportedParameters: [],
         created: Math.floor(Date.now() / 1000),
@@ -277,8 +277,8 @@ describe('getAccessibleModelIds', () => {
         name: 'Low Input High Output',
         description: 'Test model',
         provider: 'TestProvider',
-        contextLength: 100000,
-        pricePerInputToken: 0.00001, // Low input
+        contextLength: 100_000,
+        pricePerInputToken: 0.000_01, // Low input
         pricePerOutputToken: 0.0001, // High output
         capabilities: [],
         supportedParameters: [],

@@ -1,7 +1,6 @@
-import { formatContextLength, formatNumber, estimateTokenCount } from '@lome-chat/shared';
+import { formatNumber } from '@lome-chat/shared';
 
 // Re-export from shared - single source of truth
-export { formatContextLength, estimateTokenCount };
 
 /**
  * Format token count for display.
@@ -10,3 +9,5 @@ export { formatContextLength, estimateTokenCount };
 export function formatTokenCount(tokens: number): string {
   return formatNumber(tokens);
 }
+
+export { formatContextLength, estimateTokenCount } from '@lome-chat/shared';

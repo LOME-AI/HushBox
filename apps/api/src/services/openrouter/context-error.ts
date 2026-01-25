@@ -37,15 +37,15 @@ export function parseContextLengthError(message: string): ContextLengthError | n
   const match = CONTEXT_ERROR_REGEX.exec(message);
   if (!match) return null;
 
-  const maxContextStr = match[1];
-  const textInputStr = match[2];
-  const requestedOutputStr = match[3];
+  const maxContextString = match[1];
+  const textInputString = match[2];
+  const requestedOutputString = match[3];
 
-  if (!maxContextStr || !textInputStr || !requestedOutputStr) return null;
+  if (!maxContextString || !textInputString || !requestedOutputString) return null;
 
   return {
-    maxContext: parseInt(maxContextStr, 10),
-    textInput: parseInt(textInputStr, 10),
-    requestedOutput: parseInt(requestedOutputStr, 10),
+    maxContext: Number.parseInt(maxContextString, 10),
+    textInput: Number.parseInt(textInputString, 10),
+    requestedOutput: Number.parseInt(requestedOutputString, 10),
   };
 }

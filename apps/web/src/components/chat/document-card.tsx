@@ -9,16 +9,20 @@ interface DocumentCardProps {
   className?: string;
 }
 
-function getDocumentIcon(type: Document['type']): React.ReactNode {
+function getDocumentIcon(type: Document['type']): React.JSX.Element {
   switch (type) {
-    case 'code':
+    case 'code': {
       return <FileCode className="h-4 w-4" data-testid="code-icon" aria-hidden="true" />;
-    case 'mermaid':
+    }
+    case 'mermaid': {
       return <GitBranch className="h-4 w-4" data-testid="diagram-icon" aria-hidden="true" />;
-    case 'html':
+    }
+    case 'html': {
       return <Globe className="h-4 w-4" data-testid="html-icon" aria-hidden="true" />;
-    case 'react':
+    }
+    case 'react': {
       return <Atom className="h-4 w-4" data-testid="react-icon" aria-hidden="true" />;
+    }
   }
 }
 
@@ -27,18 +31,25 @@ function getTypeLabel(document: Document): string {
     return document.language;
   }
   switch (document.type) {
-    case 'mermaid':
+    case 'mermaid': {
       return 'Mermaid';
-    case 'html':
+    }
+    case 'html': {
       return 'HTML';
-    case 'react':
+    }
+    case 'react': {
       return 'React';
-    default:
+    }
+    default: {
       return 'Code';
+    }
   }
 }
 
-export function DocumentCard({ document, className }: DocumentCardProps): React.JSX.Element {
+export function DocumentCard({
+  document,
+  className,
+}: Readonly<DocumentCardProps>): React.JSX.Element {
   const { activeDocumentId, setActiveDocument } = useDocumentStore();
   const isActive = activeDocumentId === document.id;
 

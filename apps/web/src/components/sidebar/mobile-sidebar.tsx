@@ -29,7 +29,7 @@ export function MobileSidebar(): React.JSX.Element {
       document.body.style.overflow = '';
       document.body.style.pointerEvents = '';
       document.body.style.paddingRight = '';
-      document.body.removeAttribute('data-scroll-locked');
+      delete document.body.dataset['scrollLocked'];
     };
   }, []);
 

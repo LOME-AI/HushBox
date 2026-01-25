@@ -16,7 +16,7 @@ export function CodeBlock({
   className,
   variant = 'default',
   hideHeader = false,
-}: CodeBlockProps): React.JSX.Element {
+}: Readonly<CodeBlockProps>): React.JSX.Element {
   const [copied, setCopied] = React.useState(false);
 
   const handleCopy = async (): Promise<void> => {

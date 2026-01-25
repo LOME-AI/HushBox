@@ -46,6 +46,68 @@ if (!DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is required for tests');
 }
 
+function createTestAppWithAuth(db: ReturnType<typeof createDb>): Hono<AppEnv> {
+  const emailClient = createMockEmailClient();
+  const auth = createAuth({
+    db,
+    emailClient,
+    baseUrl: 'http://localhost:8787',
+    secret: 'test-secret-key-at-least-32-characters-long',
+    frontendUrl: 'http://localhost:5173',
+  });
+
+  const app = new Hono<AppEnv>();
+  app.use('*', async (c, next) => {
+    c.set('db', db);
+    c.set('auth', auth);
+    await next();
+  });
+  app.use('*', sessionMiddleware());
+  app.route('/api/auth', createAuthRoutes(auth));
+  app.route('/conversations', createConversationsRoutes());
+
+  return app;
+}
+
+interface SignUpAndSignInOptions {
+  app: Hono<AppEnv>;
+  db: ReturnType<typeof createDb>;
+  email: string;
+  password: string;
+  name: string;
+}
+
+async function signUpAndSignIn(
+  options: SignUpAndSignInOptions
+): Promise<{ userId: string; authCookie: string }> {
+  const { app, db, email, password, name } = options;
+
+  const signupRes = await app.request('/api/auth/sign-up/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, name }),
+  });
+  if (!signupRes.ok) throw new Error(`Signup failed: ${await signupRes.text()}`);
+
+  const signupData = (await signupRes.json()) as SignupResponse;
+  const userId = signupData.user?.id ?? '';
+  if (!userId) throw new Error('Signup failed - no user ID returned');
+
+  await db.update(users).set({ emailVerified: true }).where(eq(users.id, userId));
+
+  const signinRes = await app.request('/api/auth/sign-in/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!signinRes.ok) throw new Error(`Signin failed: ${await signinRes.text()}`);
+
+  const setCookie = signinRes.headers.get('set-cookie');
+  if (!setCookie) throw new Error('Signin succeeded but no session cookie returned');
+
+  return { userId, authCookie: setCookie.split(';')[0] ?? '' };
+}
+
 describe('conversations routes', () => {
   const connectionString = DATABASE_URL;
   let db: ReturnType<typeof createDb>;
@@ -63,72 +125,17 @@ describe('conversations routes', () => {
 
   beforeAll(async () => {
     db = createDb({ connectionString, neonDev: LOCAL_NEON_DEV_CONFIG });
+    app = createTestAppWithAuth(db);
 
-    const emailClient = createMockEmailClient();
-    const auth = createAuth({
+    const credentials = await signUpAndSignIn({
+      app,
       db,
-      emailClient,
-      baseUrl: 'http://localhost:8787',
-      secret: 'test-secret-key-at-least-32-characters-long',
-      frontendUrl: 'http://localhost:5173',
+      email: TEST_EMAIL,
+      password: TEST_PASSWORD,
+      name: TEST_NAME,
     });
-
-    // Create the app with auth and conversation routes
-    app = new Hono<AppEnv>();
-    // Set db and auth on context for all routes
-    app.use('*', async (c, next) => {
-      c.set('db', db);
-      c.set('auth', auth);
-      await next();
-    });
-    app.use('*', sessionMiddleware());
-    app.route('/api/auth', createAuthRoutes(auth));
-    app.route('/conversations', createConversationsRoutes());
-
-    // Create user via HTTP request to auth endpoint
-    const signupRes = await app.request('/api/auth/sign-up/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: TEST_EMAIL,
-        password: TEST_PASSWORD,
-        name: TEST_NAME,
-      }),
-    });
-
-    if (!signupRes.ok) {
-      throw new Error(`Signup failed: ${await signupRes.text()}`);
-    }
-
-    const signupData = (await signupRes.json()) as SignupResponse;
-    testUserId = signupData.user?.id ?? '';
-    if (!testUserId) {
-      throw new Error('Signup failed - no user ID returned');
-    }
-
-    // Mark email as verified (bypass email verification for testing)
-    await db.update(users).set({ emailVerified: true }).where(eq(users.id, testUserId));
-
-    // Now sign in to get a session cookie
-    const signinRes = await app.request('/api/auth/sign-in/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: TEST_EMAIL,
-        password: TEST_PASSWORD,
-      }),
-    });
-
-    if (!signinRes.ok) {
-      throw new Error(`Signin failed: ${await signinRes.text()}`);
-    }
-
-    const setCookie = signinRes.headers.get('set-cookie');
-    if (setCookie) {
-      authCookie = setCookie.split(';')[0] ?? '';
-    } else {
-      throw new Error('Signin succeeded but no session cookie returned');
-    }
+    testUserId = credentials.userId;
+    authCookie = credentials.authCookie;
 
     // Create test conversations
     const [conv1] = await db
@@ -300,45 +307,51 @@ describe('conversations routes', () => {
     });
 
     it('creates conversation with "New Conversation" title by default', async () => {
+      const conversationId = crypto.randomUUID();
       const res = await app.request('/conversations', {
         method: 'POST',
         headers: {
           Cookie: authCookie,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ id: conversationId }),
       });
 
       expect(res.status).toBe(201);
       const json = (await res.json()) as CreateConversationResponse;
       expect(json.conversation).toBeDefined();
+      expect(json.conversation.id).toBe(conversationId);
       expect(json.conversation.title).toBe('New Conversation');
       expect(json.conversation.userId).toBe(testUserId);
       expect(json.message).toBeUndefined();
+      expect(json.isNew).toBe(true);
 
       // Track for cleanup
       createdConversationIds.push(json.conversation.id);
     });
 
     it('creates conversation with provided title', async () => {
+      const conversationId = crypto.randomUUID();
       const res = await app.request('/conversations', {
         method: 'POST',
         headers: {
           Cookie: authCookie,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ title: 'My Chat' }),
+        body: JSON.stringify({ id: conversationId, title: 'My Chat' }),
       });
 
       expect(res.status).toBe(201);
       const json = (await res.json()) as CreateConversationResponse;
       expect(json.conversation.title).toBe('My Chat');
+      expect(json.isNew).toBe(true);
 
       // Track for cleanup
       createdConversationIds.push(json.conversation.id);
     });
 
     it('creates conversation with first message and explicit title', async () => {
+      const conversationId = crypto.randomUUID();
       const res = await app.request('/conversations', {
         method: 'POST',
         headers: {
@@ -346,6 +359,7 @@ describe('conversations routes', () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          id: conversationId,
           title: 'Chat with message',
           firstMessage: { content: 'Hello AI!' },
         }),
@@ -357,6 +371,7 @@ describe('conversations routes', () => {
       expect(json.message).toBeDefined();
       expect(json.message?.content).toBe('Hello AI!');
       expect(json.message?.role).toBe('user');
+      expect(json.isNew).toBe(true);
 
       // Track for cleanup
       createdConversationIds.push(json.conversation.id);
@@ -364,6 +379,7 @@ describe('conversations routes', () => {
     });
 
     it('auto-generates title from first message content when no title provided', async () => {
+      const conversationId = crypto.randomUUID();
       const res = await app.request('/conversations', {
         method: 'POST',
         headers: {
@@ -371,6 +387,7 @@ describe('conversations routes', () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          id: conversationId,
           firstMessage: { content: 'What is the capital of France?' },
         }),
       });
@@ -380,6 +397,7 @@ describe('conversations routes', () => {
       expect(json.conversation.title).toBe('What is the capital of France?');
       expect(json.message).toBeDefined();
       expect(json.message?.content).toBe('What is the capital of France?');
+      expect(json.isNew).toBe(true);
 
       // Track for cleanup
       createdConversationIds.push(json.conversation.id);
@@ -387,6 +405,7 @@ describe('conversations routes', () => {
     });
 
     it('truncates auto-generated title to 50 characters without adding ellipsis', async () => {
+      const conversationId = crypto.randomUUID();
       const longMessage =
         'This is a very long message that should be truncated when used as the conversation title because it exceeds 50 characters';
       const res = await app.request('/conversations', {
@@ -396,6 +415,7 @@ describe('conversations routes', () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          id: conversationId,
           firstMessage: { content: longMessage },
         }),
       });
@@ -405,6 +425,7 @@ describe('conversations routes', () => {
       // Title should be truncated to 50 chars without "..." - UI handles ellipsis display
       expect(json.conversation.title).toBe('This is a very long message that should be truncat');
       expect(json.conversation.title.length).toBeLessThanOrEqual(50);
+      expect(json.isNew).toBe(true);
 
       // Track for cleanup
       createdConversationIds.push(json.conversation.id);
@@ -440,13 +461,14 @@ describe('conversations routes', () => {
 
     it('deletes conversation and returns success', async () => {
       // Create a conversation to delete
+      const conversationId = crypto.randomUUID();
       const createRes = await app.request('/conversations', {
         method: 'POST',
         headers: {
           Cookie: authCookie,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ title: 'To be deleted' }),
+        body: JSON.stringify({ id: conversationId, title: 'To be deleted' }),
       });
       const createJson = (await createRes.json()) as CreateConversationResponse;
       const convId = createJson.conversation.id;

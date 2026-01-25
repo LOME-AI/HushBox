@@ -1,2 +1,4 @@
 #!/bin/sh
+pnpm lint:duplication
+pnpm lint:unused
 pnpm test

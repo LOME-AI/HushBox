@@ -18,9 +18,9 @@ describe('SuggestionChips', () => {
 
   it('renders all suggestion chips by default', () => {
     render(<SuggestionChips onSelect={mockOnSelect} />);
-    promptSuggestions.forEach((suggestion) => {
+    for (const suggestion of promptSuggestions) {
       expect(screen.getByText(suggestion.label)).toBeInTheDocument();
-    });
+    }
   });
 
   it('calls onSelect with a prompt from the category when a chip is clicked', async () => {

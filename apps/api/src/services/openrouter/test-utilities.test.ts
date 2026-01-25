@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getPaidTestModel, clearTestModelCache } from './test-utils.js';
+import { getPaidTestModel, clearTestModelCache } from './test-utilities.js';
 import type { OpenRouterClient, ModelInfo } from './types.js';
 
 function createMockClientWithModels(models: ModelInfo[]): OpenRouterClient {

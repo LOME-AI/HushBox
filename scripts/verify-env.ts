@@ -2,7 +2,7 @@
 /**
  * Environment Verification Script
  *
- * Validates that generated env files produce correct createEnvUtils() output.
+ * Validates that generated env files produce correct createEnvUtilities() output.
  * Mirrors the real code paths used by backend (Cloudflare Workers) and frontend (Vite).
  *
  * Usage:
@@ -12,25 +12,25 @@
  *   pnpm verify:env --mode=production
  */
 import { readFile } from 'node:fs/promises';
-import { createEnvUtils, type EnvContext, type EnvUtils } from '@lome-chat/shared';
+import { createEnvUtilities, type EnvContext, type EnvUtilities } from '@lome-chat/shared';
 
 export type Mode = 'development' | 'ciVitest' | 'ciE2E' | 'production';
 
-interface FrontendEnvVars {
+interface FrontendEnvVariables {
   VITE_CI?: string | undefined;
   VITE_E2E?: string | undefined;
 }
 
 interface Mismatch {
-  key: keyof EnvUtils;
+  key: keyof EnvUtilities;
   expected: boolean;
   actual: boolean;
 }
 
 interface VerificationResult {
   success: boolean;
-  actual: EnvUtils;
-  expected: EnvUtils;
+  actual: EnvUtilities;
+  expected: EnvUtilities;
   mismatches: Mismatch[];
   source: string;
   input: EnvContext;
@@ -45,37 +45,31 @@ interface FrontendPaths {
   envDevelopmentPath: string;
 }
 
+function stripQuotes(value: string): string {
+  const isDoubleQuoted = value.startsWith('"') && value.endsWith('"');
+  const isSingleQuoted = value.startsWith("'") && value.endsWith("'");
+  return isDoubleQuoted || isSingleQuoted ? value.slice(1, -1) : value;
+}
+
 /**
  * Parse .dev.vars file to extract NODE_ENV, CI, E2E
  * Handles both quoted and unquoted values (e.g., NODE_ENV="development" or NODE_ENV=development)
  */
-export async function parseDevVars(filePath: string): Promise<EnvContext> {
-  const content = await readFile(filePath, 'utf-8');
+export async function parseDevVariables(filePath: string): Promise<EnvContext> {
+  const content = await readFile(filePath, 'utf8');
   const lines = content.split('\n');
+  const variables: Record<string, string> = {};
 
-  const vars: Record<string, string> = {};
   for (const line of lines) {
-    const trimmed = line.trim();
-    const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(trimmed);
-    if (match) {
-      const key = match[1];
-      let value = match[2];
-      if (key === undefined || value === undefined) continue;
-      // Strip surrounding quotes if present
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
-      vars[key] = value;
-    }
+    const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line.trim());
+    if (!match?.[1] || match[2] === undefined) continue;
+    variables[match[1]] = stripQuotes(match[2]);
   }
 
   return {
-    ...(vars['NODE_ENV'] !== undefined && { NODE_ENV: vars['NODE_ENV'] }),
-    ...(vars['CI'] !== undefined && { CI: vars['CI'] }),
-    ...(vars['E2E'] !== undefined && { E2E: vars['E2E'] }),
+    ...(variables['NODE_ENV'] !== undefined && { NODE_ENV: variables['NODE_ENV'] }),
+    ...(variables['CI'] !== undefined && { CI: variables['CI'] }),
+    ...(variables['E2E'] !== undefined && { E2E: variables['E2E'] }),
   };
 }
 
@@ -83,64 +77,64 @@ export async function parseDevVars(filePath: string): Promise<EnvContext> {
  * Parse wrangler.toml [vars] section to extract NODE_ENV
  */
 export async function parseWranglerToml(filePath: string): Promise<EnvContext> {
-  const content = await readFile(filePath, 'utf-8');
+  const content = await readFile(filePath, 'utf8');
 
   // Simple TOML parsing for [vars] section
-  const varsMatch = /\[vars\]([\s\S]*?)(?:\[|$)/.exec(content);
-  if (!varsMatch?.[1]) {
+  const variablesMatch = /\[vars\]([\s\S]*?)(?:\[|$)/.exec(content);
+  if (!variablesMatch?.[1]) {
     return {};
   }
 
-  const varsSection = varsMatch[1];
-  const vars: Record<string, string> = {};
+  const variablesSection = variablesMatch[1];
+  const variables: Record<string, string> = {};
 
   const lineRegex = /^([A-Z_]+)\s*=\s*"([^"]*)"$/gm;
   let match;
-  while ((match = lineRegex.exec(varsSection)) !== null) {
+  while ((match = lineRegex.exec(variablesSection)) !== null) {
     const key = match[1];
     const value = match[2];
     if (key !== undefined && value !== undefined) {
-      vars[key] = value;
+      variables[key] = value;
     }
   }
 
   return {
-    ...(vars['NODE_ENV'] !== undefined && { NODE_ENV: vars['NODE_ENV'] }),
-    ...(vars['CI'] !== undefined && { CI: vars['CI'] }),
-    ...(vars['E2E'] !== undefined && { E2E: vars['E2E'] }),
+    ...(variables['NODE_ENV'] !== undefined && { NODE_ENV: variables['NODE_ENV'] }),
+    ...(variables['CI'] !== undefined && { CI: variables['CI'] }),
+    ...(variables['E2E'] !== undefined && { E2E: variables['E2E'] }),
   };
 }
 
 /**
  * Parse .env.development file to extract VITE_CI
  */
-export async function parseEnvDevelopment(filePath: string): Promise<FrontendEnvVars> {
-  const content = await readFile(filePath, 'utf-8');
+export async function parseEnvDevelopment(filePath: string): Promise<FrontendEnvVariables> {
+  const content = await readFile(filePath, 'utf8');
   const lines = content.split('\n');
 
-  const vars: Record<string, string> = {};
+  const variables: Record<string, string> = {};
   for (const line of lines) {
     const match = /^(VITE_[A-Z0-9_]+)=(.*)$/.exec(line);
     if (match) {
       const key = match[1];
       const value = match[2];
       if (key !== undefined && value !== undefined) {
-        vars[key] = value;
+        variables[key] = value;
       }
     }
   }
 
   return {
-    VITE_CI: vars['VITE_CI'],
-    VITE_E2E: vars['VITE_E2E'],
+    VITE_CI: variables['VITE_CI'],
+    VITE_E2E: variables['VITE_E2E'],
   };
 }
 
 /**
- * Get expected EnvUtils output for a given mode
+ * Get expected EnvUtilities output for a given mode
  */
-export function getExpectedEnvUtils(mode: Mode): EnvUtils {
-  const expectations: Record<Mode, EnvUtils> = {
+export function getExpectedEnvUtilities(mode: Mode): EnvUtilities {
+  const expectations: Record<Mode, EnvUtilities> = {
     development: {
       isDev: true,
       isLocalDev: true,
@@ -181,9 +175,9 @@ export function getExpectedEnvUtils(mode: Mode): EnvUtils {
 /**
  * Compare actual vs expected EnvUtils and return mismatches
  */
-function compareEnvUtils(actual: EnvUtils, expected: EnvUtils): Mismatch[] {
+function compareEnvUtilities(actual: EnvUtilities, expected: EnvUtilities): Mismatch[] {
   const mismatches: Mismatch[] = [];
-  const keys: (keyof EnvUtils)[] = [
+  const keys: (keyof EnvUtilities)[] = [
     'isDev',
     'isLocalDev',
     'isProduction',
@@ -219,13 +213,13 @@ export async function verifyBackendEnv(
     envContext = await parseWranglerToml(paths.wranglerTomlPath);
     source = paths.wranglerTomlPath;
   } else {
-    envContext = await parseDevVars(paths.devVarsPath);
+    envContext = await parseDevVariables(paths.devVarsPath);
     source = paths.devVarsPath;
   }
 
-  const actual = createEnvUtils(envContext);
-  const expected = getExpectedEnvUtils(mode);
-  const mismatches = compareEnvUtils(actual, expected);
+  const actual = createEnvUtilities(envContext);
+  const expected = getExpectedEnvUtilities(mode);
+  const mismatches = compareEnvUtilities(actual, expected);
 
   return {
     success: mismatches.length === 0,
@@ -253,19 +247,19 @@ export async function verifyFrontendEnv(
     source = 'Vite MODE=production (no file)';
   } else {
     // Dev/CI modes use .env.development for VITE_CI
-    const frontendVars = await parseEnvDevelopment(paths.envDevelopmentPath);
+    const frontendVariables = await parseEnvDevelopment(paths.envDevelopmentPath);
     // Frontend uses import.meta.env.MODE which is 'development' in dev/CI builds
     envContext = {
       NODE_ENV: 'development',
-      ...(frontendVars.VITE_CI !== undefined && { CI: frontendVars.VITE_CI }),
-      ...(frontendVars.VITE_E2E !== undefined && { E2E: frontendVars.VITE_E2E }),
+      ...(frontendVariables.VITE_CI !== undefined && { CI: frontendVariables.VITE_CI }),
+      ...(frontendVariables.VITE_E2E !== undefined && { E2E: frontendVariables.VITE_E2E }),
     };
     source = `${paths.envDevelopmentPath} + MODE=development`;
   }
 
-  const actual = createEnvUtils(envContext);
-  const expected = getExpectedEnvUtils(mode);
-  const mismatches = compareEnvUtils(actual, expected);
+  const actual = createEnvUtilities(envContext);
+  const expected = getExpectedEnvUtilities(mode);
+  const mismatches = compareEnvUtilities(actual, expected);
 
   return {
     success: mismatches.length === 0,
@@ -278,9 +272,9 @@ export async function verifyFrontendEnv(
 }
 
 /**
- * Format EnvUtils as a string for display
+ * Format EnvUtilities as a string for display
  */
-export function formatEnvUtils(env: EnvUtils): string {
+export function formatEnvUtilities(env: EnvUtilities): string {
   return `isDev=${String(env.isDev)}, isLocalDev=${String(env.isLocalDev)}, isProduction=${String(env.isProduction)}, isCI=${String(env.isCI)}, isE2E=${String(env.isE2E)}, requiresRealServices=${String(env.requiresRealServices)}`;
 }
 
@@ -295,13 +289,13 @@ export function formatEnvContext(ctx: EnvContext): string {
  * Parse CLI arguments and return the mode
  */
 export function parseCliArgs(args: string[]): { mode: Mode } | { error: string } {
-  const modeArg = args.find((arg) => arg.startsWith('--mode='));
+  const modeArgument = args.find((argument) => argument.startsWith('--mode='));
 
-  if (!modeArg) {
+  if (!modeArgument) {
     return { error: 'Usage: pnpm verify:env --mode=<development|ciVitest|ciE2E|production>' };
   }
 
-  const mode = modeArg.replace('--mode=', '');
+  const mode = modeArgument.replace('--mode=', '');
   const validModes: Mode[] = ['development', 'ciVitest', 'ciE2E', 'production'];
 
   if (!validModes.includes(mode as Mode)) {
@@ -365,7 +359,7 @@ export function printVerificationResult(
     console.log(`  ✓ ${target} environment verification passed`);
     console.log(`    Source: ${result.source}`);
     console.log(`    Input: ${formatEnvContext(result.input)}`);
-    console.log(`    Output: ${formatEnvUtils(result.actual)}`);
+    console.log(`    Output: ${formatEnvUtilities(result.actual)}`);
   } else {
     console.error(`  ✗ ${target} environment verification FAILED`);
     console.error(`    Source: ${result.source}`);
@@ -417,9 +411,13 @@ async function main(): Promise<void> {
 
 // Only run main when executed directly (not when imported for testing)
 if (import.meta.url === `file://${process.argv[1] ?? ''}`) {
-  main().catch((error: unknown) => {
-    console.error('Unexpected error:', error);
-    process.exit(1);
-  });
+  void (async () => {
+    try {
+      await main();
+    } catch (error: unknown) {
+      console.error('Unexpected error:', error);
+      process.exit(1);
+    }
+  })();
 }
 /* v8 ignore stop */

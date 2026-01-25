@@ -14,7 +14,7 @@ vi.mock('../lib/guest-token', () => ({
 
 // Mock fetch
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+globalThis.fetch = mockFetch;
 
 function createSSEStream(events: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -23,11 +23,11 @@ function createSSEStream(events: string[]): ReadableStream<Uint8Array> {
   return new ReadableStream({
     pull(controller) {
       const event = events[index];
-      if (event !== undefined) {
+      if (event === undefined) {
+        controller.close();
+      } else {
         controller.enqueue(encoder.encode(event + '\n'));
         index++;
-      } else {
-        controller.close();
       }
     },
   });
@@ -43,7 +43,7 @@ describe('useChatStream', () => {
   });
 
   describe('authenticated mode', () => {
-    it('calls POST /chat/stream with conversationId and model', async () => {
+    it('calls POST /api/chat/stream with conversationId and model', async () => {
       const sseEvents = [
         'event: start',
         'data: {"userMessageId":"user-123","assistantMessageId":"msg-123"}',
@@ -67,11 +67,11 @@ describe('useChatStream', () => {
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8787/chat/stream',
+        'http://localhost:8787/api/chat/stream',
         expect.objectContaining({
           method: 'POST',
           credentials: 'include',
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- vitest expect returns any
+
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
           }),
@@ -237,7 +237,7 @@ describe('useChatStream', () => {
   });
 
   describe('guest mode', () => {
-    it('calls POST /guest/stream with messages and model', async () => {
+    it('calls POST /api/guest/stream with messages and model', async () => {
       const sseEvents = [
         'event: start',
         'data: {"userMessageId":"","assistantMessageId":"msg-123"}',
@@ -261,10 +261,10 @@ describe('useChatStream', () => {
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8787/guest/stream',
+        'http://localhost:8787/api/guest/stream',
         expect.objectContaining({
           method: 'POST',
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- vitest expect returns any
+
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             'X-Guest-Token': 'test-guest-token',
@@ -307,7 +307,6 @@ describe('useChatStream', () => {
       expect(mockFetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- vitest expect returns any
           headers: expect.objectContaining({
             'X-Guest-Token': 'my-unique-token',
           }),

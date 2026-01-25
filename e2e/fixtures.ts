@@ -106,11 +106,11 @@ export const test = base.extend<CustomFixtures>({
     await sendButton.click();
 
     // Wait for navigation to conversation page first (happens on successful message send)
-    await expect(page).toHaveURL(/\/chat\/[a-f0-9-]+(\?.*)?$/, { timeout: 15000 });
+    await expect(page).toHaveURL(/\/chat\/[a-f0-9-]+(\?.*)?$/, { timeout: 10_000 });
 
     // Then wait for the Echo response to appear
     const echoMessage = page.getByRole('log', { name: 'Chat messages' }).getByText('Echo:');
-    await expect(echoMessage).toBeVisible({ timeout: 30000 });
+    await expect(echoMessage).toBeVisible({ timeout: 15_000 });
 
     const url = new URL(page.url());
     const id = url.pathname.split('/').pop() ?? '';
@@ -118,11 +118,11 @@ export const test = base.extend<CustomFixtures>({
     await use({ id, url: page.url() });
 
     try {
-      await authenticatedRequest.delete(`/conversations/${id}`);
+      await authenticatedRequest.delete(`/api/conversations/${id}`);
     } catch {
       // Cleanup failures are acceptable - test may have already cleaned up
     }
   },
 });
 
-export { expect };
+export { expect } from '@playwright/test';

@@ -226,7 +226,7 @@ describe('billing routes', () => {
       expect(res.status).toBe(200);
       const data = (await res.json()) as BalanceResponse;
       // Balance is returned with 8 decimal precision
-      expect(parseFloat(data.balance)).toBeGreaterThanOrEqual(0);
+      expect(Number.parseFloat(data.balance)).toBeGreaterThanOrEqual(0);
       expect(data.balance).toMatch(/^\d+(\.\d+)?$/);
     });
   });
@@ -399,7 +399,7 @@ describe('billing routes', () => {
 
       const processedPayments = helcimClient.getProcessedPayments();
       expect(processedPayments.length).toBeGreaterThan(0);
-      expect(processedPayments[processedPayments.length - 1]?.ipAddress).toBe('203.0.113.42');
+      expect(processedPayments.at(-1)?.ipAddress).toBe('203.0.113.42');
     });
 
     it('passes client IP from x-forwarded-for header when cf-connecting-ip is absent', async () => {
@@ -429,7 +429,7 @@ describe('billing routes', () => {
 
       const processedPayments = helcimClient.getProcessedPayments();
       expect(processedPayments.length).toBeGreaterThan(0);
-      expect(processedPayments[processedPayments.length - 1]?.ipAddress).toBe('198.51.100.178');
+      expect(processedPayments.at(-1)?.ipAddress).toBe('198.51.100.178');
     });
 
     it('uses fallback IP when no IP headers present', async () => {
@@ -458,7 +458,7 @@ describe('billing routes', () => {
 
       const processedPayments = helcimClient.getProcessedPayments();
       expect(processedPayments.length).toBeGreaterThan(0);
-      expect(processedPayments[processedPayments.length - 1]?.ipAddress).toBe('0.0.0.0');
+      expect(processedPayments.at(-1)?.ipAddress).toBe('0.0.0.0');
     });
 
     it('rejects processing already processed payment', async () => {
@@ -615,9 +615,9 @@ describe('billing routes', () => {
 
       // All returned transactions should be deposits
       expect(data.transactions.length).toBeGreaterThan(0);
-      data.transactions.forEach((tx) => {
+      for (const tx of data.transactions) {
         expect(tx.type).toBe('deposit');
-      });
+      }
     });
 
     it('filters by type=usage to return only usage charges', async () => {
@@ -649,9 +649,9 @@ describe('billing routes', () => {
 
       // All returned transactions should be usage
       expect(data.transactions.length).toBeGreaterThan(0);
-      data.transactions.forEach((tx) => {
+      for (const tx of data.transactions) {
         expect(tx.type).toBe('usage');
-      });
+      }
     });
 
     it('returns all transaction types when no type filter is provided', async () => {
@@ -694,8 +694,8 @@ describe('billing routes', () => {
       // If there are transactions on both pages, they should be different
       if (firstPage.transactions.length > 0 && secondPage.transactions.length > 0) {
         const firstIds = firstPage.transactions.map((tx) => tx.id);
-        const secondIds = secondPage.transactions.map((tx) => tx.id);
-        const overlap = firstIds.filter((id) => secondIds.includes(id));
+        const secondIds = new Set(secondPage.transactions.map((tx) => tx.id));
+        const overlap = firstIds.filter((id) => secondIds.has(id));
         expect(overlap.length).toBe(0);
       }
     });

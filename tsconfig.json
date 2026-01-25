@@ -10,5 +10,11 @@
     }
   },
   "include": ["*.config.ts", "*.config.js", "*.workspace.ts", ".lintstagedrc.js"],
-  "references": []
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/db" },
+    { "path": "./packages/ui" },
+    { "path": "./apps/web" },
+    { "path": "./apps/api" }
+  ]
 }

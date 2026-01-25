@@ -43,6 +43,13 @@
       "when": 1768776719546,
       "tag": "0005_normalize_balance_transactions",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1768966377326,
+      "tag": "0006_supreme_stranger",
+      "breakpoints": true
     }
   ]
 }

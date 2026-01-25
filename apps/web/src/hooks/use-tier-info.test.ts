@@ -134,7 +134,7 @@ describe('useTierInfo', () => {
 
     const { result } = renderHook(() => useTierInfo());
 
-    expect(result.current.balanceCents).toBe(12345);
+    expect(result.current.balanceCents).toBe(12_345);
     expect(result.current.freeAllowanceCents).toBe(50);
   });
 });

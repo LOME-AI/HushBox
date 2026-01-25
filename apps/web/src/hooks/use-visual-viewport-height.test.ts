@@ -7,8 +7,8 @@ describe('useVisualViewportHeight', () => {
   let originalInnerHeight: number;
   let resizeHandler: (() => void) | null = null;
   let windowResizeHandler: (() => void) | null = null;
-  const originalAddEventListener = window.addEventListener.bind(window);
-  const originalRemoveEventListener = window.removeEventListener.bind(window);
+  const originalAddEventListener = window.addEventListener.bind(globalThis);
+  const originalRemoveEventListener = window.removeEventListener.bind(globalThis);
 
   const mockVisualViewport = {
     height: 800,
@@ -44,19 +44,19 @@ describe('useVisualViewportHeight', () => {
         windowResizeHandler = handler as () => void;
       }
       originalAddEventListener(event, handler);
-    }) as typeof window.addEventListener;
+    }) as typeof globalThis.addEventListener;
 
     window.removeEventListener = vi.fn((event: string, handler: EventListener) => {
       originalRemoveEventListener(event, handler);
-    }) as typeof window.removeEventListener;
+    }) as typeof globalThis.removeEventListener;
 
-    Object.defineProperty(window, 'visualViewport', {
+    Object.defineProperty(globalThis, 'visualViewport', {
       value: mockVisualViewport,
       writable: true,
       configurable: true,
     });
 
-    Object.defineProperty(window, 'innerHeight', {
+    Object.defineProperty(globalThis, 'innerHeight', {
       value: 800,
       writable: true,
       configurable: true,
@@ -66,13 +66,13 @@ describe('useVisualViewportHeight', () => {
   });
 
   afterEach(() => {
-    Object.defineProperty(window, 'visualViewport', {
+    Object.defineProperty(globalThis, 'visualViewport', {
       value: originalVisualViewport,
       writable: true,
       configurable: true,
     });
 
-    Object.defineProperty(window, 'innerHeight', {
+    Object.defineProperty(globalThis, 'innerHeight', {
       value: originalInnerHeight,
       writable: true,
       configurable: true,
@@ -169,13 +169,13 @@ describe('useVisualViewportHeight', () => {
   });
 
   it('falls back to innerHeight when visualViewport is unavailable', () => {
-    Object.defineProperty(window, 'visualViewport', {
+    Object.defineProperty(globalThis, 'visualViewport', {
       value: null,
       writable: true,
       configurable: true,
     });
 
-    Object.defineProperty(window, 'innerHeight', {
+    Object.defineProperty(globalThis, 'innerHeight', {
       value: 700,
       writable: true,
       configurable: true,
@@ -187,7 +187,7 @@ describe('useVisualViewportHeight', () => {
   });
 
   it('cleans up requestAnimationFrame on unmount', () => {
-    const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame');
+    const cancelSpy = vi.spyOn(globalThis, 'cancelAnimationFrame');
 
     const { unmount } = renderHook(() => useVisualViewportHeight());
 
@@ -223,7 +223,7 @@ describe('useVisualViewportHeight', () => {
 
     // Simulate viewport shrinking (like Playwright setViewportSize)
     mockVisualViewport.height = 450;
-    Object.defineProperty(window, 'innerHeight', {
+    Object.defineProperty(globalThis, 'innerHeight', {
       value: 450,
       writable: true,
       configurable: true,
@@ -238,13 +238,13 @@ describe('useVisualViewportHeight', () => {
   });
 
   it('updates height via window.resize when visualViewport is unavailable', () => {
-    Object.defineProperty(window, 'visualViewport', {
+    Object.defineProperty(globalThis, 'visualViewport', {
       value: null,
       writable: true,
       configurable: true,
     });
 
-    Object.defineProperty(window, 'innerHeight', {
+    Object.defineProperty(globalThis, 'innerHeight', {
       value: 800,
       writable: true,
       configurable: true,
@@ -255,7 +255,7 @@ describe('useVisualViewportHeight', () => {
     expect(result.current).toBe(800);
 
     // Simulate window resize
-    Object.defineProperty(window, 'innerHeight', {
+    Object.defineProperty(globalThis, 'innerHeight', {
       value: 500,
       writable: true,
       configurable: true,

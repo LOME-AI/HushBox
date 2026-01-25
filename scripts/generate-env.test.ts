@@ -1,23 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve, join } from 'node:path';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateEnvFiles, updateCiWorkflow, parseArgs, escapeEnvValue } from './generate-env.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEST_DIR_ENV = resolve(__dirname, '__test-fixtures-env__');
-const TEST_DIR_CI = resolve(__dirname, '__test-fixtures-ci__');
-const TEST_DIR_EDGE = resolve(__dirname, '__test-fixtures-edge__');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TEST_DIR_ENV = path.resolve(__dirname, '__test-fixtures-env__');
+const TEST_DIR_CI = path.resolve(__dirname, '__test-fixtures-ci__');
+const TEST_DIR_EDGE = path.resolve(__dirname, '__test-fixtures-edge__');
 
 describe('generateEnvFiles', () => {
   beforeEach(() => {
     // Create test directory structure
     mkdirSync(TEST_DIR_ENV, { recursive: true });
-    mkdirSync(join(TEST_DIR_ENV, 'apps/api'), { recursive: true });
+    mkdirSync(path.join(TEST_DIR_ENV, 'apps/api'), { recursive: true });
 
     // Create minimal wrangler.toml
     writeFileSync(
-      join(TEST_DIR_ENV, 'apps/api/wrangler.toml'),
+      path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'),
       `# Wrangler configuration
 name = "test-api"
 main = "src/index.ts"
@@ -28,7 +28,7 @@ port = 8787
     );
 
     // Suppress console output during tests
-    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -41,20 +41,20 @@ port = 8787
     it('creates the file', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      expect(existsSync(join(TEST_DIR_ENV, 'apps/api/.dev.vars'))).toBe(true);
+      expect(existsSync(path.join(TEST_DIR_ENV, 'apps/api/.dev.vars'))).toBe(true);
     });
 
     it('includes header comment', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf8');
       expect(content).toContain('Auto-generated');
     });
 
     it('includes backend vars with development values', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf8');
       expect(content).toContain('NODE_ENV="development"');
       expect(content).toContain('BETTER_AUTH_URL="http://localhost:8787"');
       expect(content).toContain('FRONTEND_URL="http://localhost:5173"');
@@ -65,7 +65,7 @@ port = 8787
     it('does not include CI/prod secrets in development mode', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf8');
       expect(content).not.toContain('RESEND_API_KEY');
       expect(content).not.toContain('OPENROUTER_API_KEY');
       expect(content).not.toContain('HELCIM_API_TOKEN');
@@ -74,14 +74,14 @@ port = 8787
     it('does not include VITE_ vars (frontend only)', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf8');
       expect(content).not.toContain('VITE_');
     });
 
     it('does not include scripts vars (scripts only)', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf8');
       expect(content).not.toContain('MIGRATION_DATABASE_URL');
     });
   });
@@ -90,13 +90,13 @@ port = 8787
     it('creates the file', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      expect(existsSync(join(TEST_DIR_ENV, '.env.development'))).toBe(true);
+      expect(existsSync(path.join(TEST_DIR_ENV, '.env.development'))).toBe(true);
     });
 
     it('includes header comment', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, '.env.development'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.development'), 'utf8');
       expect(content).toContain('Auto-generated');
       expect(content).toContain('pnpm generate:env');
     });
@@ -104,14 +104,14 @@ port = 8787
     it('includes frontend vars with development values', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, '.env.development'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.development'), 'utf8');
       expect(content).toContain('VITE_API_URL="http://localhost:8787"');
     });
 
     it('does NOT include backend vars', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, '.env.development'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.development'), 'utf8');
       expect(content).not.toContain('NODE_ENV=');
       expect(content).not.toContain('BETTER_AUTH_URL=');
       expect(content).not.toContain('FRONTEND_URL=');
@@ -123,7 +123,7 @@ port = 8787
     it('does not include CI/prod secrets', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, '.env.development'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.development'), 'utf8');
       expect(content).not.toContain('RESEND_API_KEY');
       expect(content).not.toContain('OPENROUTER_API_KEY');
       expect(content).not.toContain('HELCIM_API_TOKEN');
@@ -133,7 +133,7 @@ port = 8787
     it('does not include scripts vars', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, '.env.development'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.development'), 'utf8');
       expect(content).not.toContain('MIGRATION_DATABASE_URL');
     });
   });
@@ -142,20 +142,20 @@ port = 8787
     it('creates the file', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      expect(existsSync(join(TEST_DIR_ENV, '.env.scripts'))).toBe(true);
+      expect(existsSync(path.join(TEST_DIR_ENV, '.env.scripts'))).toBe(true);
     });
 
     it('includes header comment', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, '.env.scripts'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
       expect(content).toContain('Auto-generated');
     });
 
     it('includes scripts vars', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, '.env.scripts'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
       expect(content).toContain(
         'MIGRATION_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/lome_chat"'
       );
@@ -164,14 +164,14 @@ port = 8787
     it('includes DATABASE_URL in development (goes to Backend + Scripts)', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, '.env.scripts'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
       expect(content).toContain('DATABASE_URL="postgres://');
     });
 
     it('does not include frontend vars', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, '.env.scripts'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
       expect(content).not.toContain('VITE_');
     });
   });
@@ -180,14 +180,14 @@ port = 8787
     it('adds [vars] section', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf8');
       expect(content).toContain('[vars]');
     });
 
     it('includes production values for backend non-secret vars', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf8');
       expect(content).toContain('NODE_ENV = "production"');
       expect(content).toContain('BETTER_AUTH_URL = "https://api.lome-chat.com"');
       expect(content).toContain('FRONTEND_URL = "https://lome-chat.com"');
@@ -196,7 +196,7 @@ port = 8787
     it('includes comments about backend secrets', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf8');
       expect(content).toContain('Secrets deployed via CI');
       expect(content).toContain('DATABASE_URL');
       expect(content).toContain('BETTER_AUTH_SECRET');
@@ -209,14 +209,14 @@ port = 8787
     it('does not include scripts vars in secrets comment', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf8');
       expect(content).not.toContain('MIGRATION_DATABASE_URL');
     });
 
     it('preserves existing wrangler.toml content', () => {
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf8');
       expect(content).toContain('name = "test-api"');
       expect(content).toContain('[dev]');
       expect(content).toContain('port = 8787');
@@ -224,7 +224,7 @@ port = 8787
 
     it('replaces existing [vars] section if present', () => {
       writeFileSync(
-        join(TEST_DIR_ENV, 'apps/api/wrangler.toml'),
+        path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'),
         `name = "test-api"
 
 [vars]
@@ -237,7 +237,7 @@ port = 8787
 
       generateEnvFiles(TEST_DIR_ENV);
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf8');
       expect(content).not.toContain('OLD_VAR');
       expect(content).toContain('NODE_ENV = "production"');
     });
@@ -262,7 +262,7 @@ port = 8787
     it('adds CI=true and E2E=true flags to .dev.vars', () => {
       generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf8');
       expect(content).toContain('CI="true"');
       expect(content).toContain('E2E="true"');
     });
@@ -270,7 +270,7 @@ port = 8787
     it('includes ciE2E secrets from process.env in .dev.vars', () => {
       generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
 
-      const content = readFileSync(join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf8');
       expect(content).toContain('HELCIM_API_TOKEN="test-helcim-token"');
       expect(content).toContain('HELCIM_WEBHOOK_VERIFIER="test-helcim-verifier"');
       // RESEND and OPENROUTER should NOT be present (not in ciE2E)
@@ -281,7 +281,7 @@ port = 8787
     it('includes frontend CI secrets in .env.development', () => {
       generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
 
-      const content = readFileSync(join(TEST_DIR_ENV, '.env.development'), 'utf-8');
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.development'), 'utf8');
       expect(content).toContain('VITE_HELCIM_JS_TOKEN="test-vite-helcim-token"');
       expect(content).toContain('VITE_CI="true"');
     });
@@ -310,7 +310,7 @@ port = 8787
 describe('updateCiWorkflow', () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR_CI, { recursive: true });
-    mkdirSync(join(TEST_DIR_CI, '.github/workflows'), { recursive: true });
+    mkdirSync(path.join(TEST_DIR_CI, '.github/workflows'), { recursive: true });
   });
 
   afterEach(() => {
@@ -318,11 +318,11 @@ describe('updateCiWorkflow', () => {
   });
 
   const createCiYml = (content: string): void => {
-    writeFileSync(join(TEST_DIR_CI, '.github/workflows/ci.yml'), content);
+    writeFileSync(path.join(TEST_DIR_CI, '.github/workflows/ci.yml'), content);
   };
 
   const readCiYml = (): string => {
-    return readFileSync(join(TEST_DIR_CI, '.github/workflows/ci.yml'), 'utf-8');
+    return readFileSync(path.join(TEST_DIR_CI, '.github/workflows/ci.yml'), 'utf8');
   };
 
   describe('e2e-env section', () => {
@@ -494,7 +494,7 @@ old verify
 describe('updateCiWorkflow edge cases', () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR_EDGE, { recursive: true });
-    mkdirSync(join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true });
+    mkdirSync(path.join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true });
   });
 
   afterEach(() => {
@@ -502,18 +502,18 @@ describe('updateCiWorkflow edge cases', () => {
   });
 
   it('handles file with no markers gracefully', () => {
-    writeFileSync(join(TEST_DIR_EDGE, '.github/workflows/ci.yml'), 'name: CI\njobs: {}');
+    writeFileSync(path.join(TEST_DIR_EDGE, '.github/workflows/ci.yml'), 'name: CI\njobs: {}');
 
     // Should not throw
     updateCiWorkflow(TEST_DIR_EDGE);
 
-    const content = readFileSync(join(TEST_DIR_EDGE, '.github/workflows/ci.yml'), 'utf-8');
+    const content = readFileSync(path.join(TEST_DIR_EDGE, '.github/workflows/ci.yml'), 'utf8');
     expect(content).toBe('name: CI\njobs: {}');
   });
 
   it('does nothing if ci.yml does not exist', () => {
-    rmSync(join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true, force: true });
-    mkdirSync(join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true });
+    rmSync(path.join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true, force: true });
+    mkdirSync(path.join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true });
     // ci.yml doesn't exist
 
     // Should not throw
@@ -581,15 +581,15 @@ describe('escapeEnvValue', () => {
   });
 
   it('escapes internal double quotes', () => {
-    expect(escapeEnvValue('say "hello"')).toBe('"say \\"hello\\""');
+    expect(escapeEnvValue('say "hello"')).toBe(String.raw`"say \"hello\""`);
   });
 
   it('escapes backslashes', () => {
-    expect(escapeEnvValue('path\\to\\file')).toBe('"path\\\\to\\\\file"');
+    expect(escapeEnvValue(String.raw`path\to\file`)).toBe(String.raw`"path\\to\\file"`);
   });
 
   it('escapes backslashes before double quotes', () => {
-    expect(escapeEnvValue('value\\"quoted')).toBe('"value\\\\\\"quoted"');
+    expect(escapeEnvValue(String.raw`value\"quoted`)).toBe(String.raw`"value\\\"quoted"`);
   });
 
   it('handles empty values', () => {

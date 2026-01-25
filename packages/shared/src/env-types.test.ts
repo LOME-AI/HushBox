@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  Dest,
+  Destination,
   Mode,
   ref,
   secret,
@@ -12,15 +12,15 @@ import {
   resolveRaw,
   resolveValue,
   isProductionSecret,
-  type VarConfig,
+  type VariableConfig,
 } from './env-types.js';
 
 describe('env-types', () => {
   describe('Dest enum', () => {
     it('has three destinations', () => {
-      expect(Dest.Backend).toBe('backend');
-      expect(Dest.Frontend).toBe('frontend');
-      expect(Dest.Scripts).toBe('scripts');
+      expect(Destination.Backend).toBe('backend');
+      expect(Destination.Frontend).toBe('frontend');
+      expect(Destination.Scripts).toBe('scripts');
     });
   });
 
@@ -83,7 +83,7 @@ describe('env-types', () => {
 
   describe('isModeOverride type guard', () => {
     it('returns true for override objects', () => {
-      expect(isModeOverride({ value: 'test', to: [Dest.Backend] })).toBe(true);
+      expect(isModeOverride({ value: 'test', to: [Destination.Backend] })).toBe(true);
     });
 
     it('returns false for strings', () => {
@@ -101,24 +101,27 @@ describe('env-types', () => {
 
   describe('getDestinations', () => {
     it('returns default destinations when mode has simple value', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'value',
       };
-      expect(getDestinations(config, Mode.Development)).toEqual([Dest.Backend]);
+      expect(getDestinations(config, Mode.Development)).toEqual([Destination.Backend]);
     });
 
     it('returns override destinations when mode has override', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
-        [Mode.Development]: { value: 'value', to: [Dest.Backend, Dest.Scripts] },
+      const config: VariableConfig = {
+        to: [Destination.Backend],
+        [Mode.Development]: { value: 'value', to: [Destination.Backend, Destination.Scripts] },
       };
-      expect(getDestinations(config, Mode.Development)).toEqual([Dest.Backend, Dest.Scripts]);
+      expect(getDestinations(config, Mode.Development)).toEqual([
+        Destination.Backend,
+        Destination.Scripts,
+      ]);
     });
 
     it('returns empty array when mode is not set', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'value',
       };
       expect(getDestinations(config, Mode.Production)).toEqual([]);
@@ -127,40 +130,43 @@ describe('env-types', () => {
 
   describe('getModeValue', () => {
     it('returns string value directly', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'literal-value',
       };
       expect(getModeValue(config, Mode.Development)).toBe('literal-value');
     });
 
     it('returns ref object directly', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.CiVitest]: ref(Mode.Development),
       };
       expect(getModeValue(config, Mode.CiVitest)).toEqual(ref(Mode.Development));
     });
 
     it('returns secret object directly', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Production]: secret('DATABASE_URL'),
       };
       expect(getModeValue(config, Mode.Production)).toEqual(secret('DATABASE_URL'));
     });
 
     it('unwraps override object to get value', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
-        [Mode.Development]: { value: 'wrapped-value', to: [Dest.Backend, Dest.Scripts] },
+      const config: VariableConfig = {
+        to: [Destination.Backend],
+        [Mode.Development]: {
+          value: 'wrapped-value',
+          to: [Destination.Backend, Destination.Scripts],
+        },
       };
       expect(getModeValue(config, Mode.Development)).toBe('wrapped-value');
     });
 
     it('returns undefined when mode is not set', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'value',
       };
       expect(getModeValue(config, Mode.Production)).toBeUndefined();
@@ -169,16 +175,16 @@ describe('env-types', () => {
 
   describe('resolveRaw', () => {
     it('returns literal value directly', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'literal-value',
       };
       expect(resolveRaw(config, Mode.Development)).toBe('literal-value');
     });
 
     it('follows ref to get value', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'dev-value',
         [Mode.CiVitest]: ref(Mode.Development),
       };
@@ -186,8 +192,8 @@ describe('env-types', () => {
     });
 
     it('follows chained refs', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'dev-value',
         [Mode.CiVitest]: ref(Mode.Development),
         [Mode.CiE2E]: ref(Mode.CiVitest),
@@ -196,8 +202,8 @@ describe('env-types', () => {
     });
 
     it('returns secret object when resolved', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.CiVitest]: secret('API_KEY'),
         [Mode.Production]: ref(Mode.CiVitest),
       };
@@ -205,17 +211,17 @@ describe('env-types', () => {
     });
 
     it('unwraps override before following ref', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'dev-value',
-        [Mode.CiVitest]: { value: ref(Mode.Development), to: [Dest.Backend] },
+        [Mode.CiVitest]: { value: ref(Mode.Development), to: [Destination.Backend] },
       };
       expect(resolveRaw(config, Mode.CiVitest)).toBe('dev-value');
     });
 
     it('returns undefined for unset mode', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'dev-value',
       };
       expect(resolveRaw(config, Mode.Production)).toBeUndefined();
@@ -234,16 +240,16 @@ describe('env-types', () => {
     };
 
     it('returns literal value directly', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'literal-value',
       };
       expect(resolveValue(config, Mode.Development, mockGetSecret)).toBe('literal-value');
     });
 
     it('follows ref and returns value', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'dev-value',
         [Mode.CiVitest]: ref(Mode.Development),
       };
@@ -251,16 +257,16 @@ describe('env-types', () => {
     });
 
     it('resolves secret using getSecret callback', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Production]: secret('DATABASE_URL'),
       };
       expect(resolveValue(config, Mode.Production, mockGetSecret)).toBe('postgres://prod');
     });
 
     it('follows ref to secret and resolves', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.CiVitest]: secret('API_KEY'),
         [Mode.Production]: ref(Mode.CiVitest),
       };
@@ -268,16 +274,16 @@ describe('env-types', () => {
     });
 
     it('returns null for unset mode', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'dev-value',
       };
       expect(resolveValue(config, Mode.Production, mockGetSecret)).toBeNull();
     });
 
     it('throws when secret is missing', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Production]: secret('MISSING_SECRET'),
       };
       expect(() => resolveValue(config, Mode.Production, mockGetSecret)).toThrow(
@@ -288,8 +294,8 @@ describe('env-types', () => {
 
   describe('isProductionSecret', () => {
     it('returns true when production value is a secret', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'dev-value',
         [Mode.Production]: secret('DATABASE_URL'),
       };
@@ -297,8 +303,8 @@ describe('env-types', () => {
     });
 
     it('returns true when production refs to a secret', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.CiVitest]: secret('API_KEY'),
         [Mode.Production]: ref(Mode.CiVitest),
       };
@@ -306,8 +312,8 @@ describe('env-types', () => {
     });
 
     it('returns false when production value is literal', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'dev-value',
         [Mode.Production]: 'prod-value',
       };
@@ -315,16 +321,16 @@ describe('env-types', () => {
     });
 
     it('returns false when production is not set', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'dev-value',
       };
       expect(isProductionSecret(config)).toBe(false);
     });
 
     it('returns false when production refs to a literal', () => {
-      const config: VarConfig = {
-        to: [Dest.Backend],
+      const config: VariableConfig = {
+        to: [Destination.Backend],
         [Mode.Development]: 'dev-value',
         [Mode.Production]: ref(Mode.Development),
       };

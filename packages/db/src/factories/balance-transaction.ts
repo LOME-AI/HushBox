@@ -7,10 +7,10 @@ type BalanceTransaction = typeof balanceTransactions.$inferSelect;
 
 export const balanceTransactionFactory = Factory.define<BalanceTransaction>(({ params }) => {
   const type = params.type ?? 'deposit';
-  const amount = parseFloat(
+  const amount = Number.parseFloat(
     params.amount ?? faker.number.float({ min: 10, max: 100, fractionDigits: 8 }).toFixed(8)
   );
-  const balanceAfter = parseFloat(
+  const balanceAfter = Number.parseFloat(
     params.balanceAfter ??
       faker.number.float({ min: amount, max: 1000, fractionDigits: 8 }).toFixed(8)
   );

@@ -25,9 +25,9 @@ async function findGuestRecord(
   ipHash: string
 ): Promise<{ id: string; messageCount: number; resetAt: Date | null } | null> {
   const conditions =
-    guestToken !== null
-      ? or(eq(guestUsage.guestToken, guestToken), eq(guestUsage.ipHash, ipHash))
-      : eq(guestUsage.ipHash, ipHash);
+    guestToken === null
+      ? eq(guestUsage.ipHash, ipHash)
+      : or(eq(guestUsage.guestToken, guestToken), eq(guestUsage.ipHash, ipHash));
 
   const [highest] = await db
     .select()

@@ -12,6 +12,31 @@ interface SignupModalProps {
   variant?: 'premium' | 'rate-limit' | undefined;
 }
 
+function getSignupMessage(isRateLimit: boolean, modelName?: string): React.JSX.Element {
+  if (isRateLimit) {
+    return (
+      <>
+        You&apos;ve used your 5 free messages today. Sign up for a free account to get more messages
+        and save your conversation history.
+      </>
+    );
+  }
+  if (modelName) {
+    return (
+      <>
+        <span className="text-foreground font-medium">{modelName}</span> is a premium model. Sign up
+        for free to access the most powerful AI models available.
+      </>
+    );
+  }
+  return (
+    <>
+      Sign up for free to access premium models including the latest and most powerful AI models
+      available.
+    </>
+  );
+}
+
 /**
  * Modal prompting users to sign up for premium model access.
  * Shown when a guest or free user clicks on a premium model.
@@ -21,7 +46,7 @@ export function SignupModal({
   onOpenChange,
   modelName,
   variant = 'premium',
-}: SignupModalProps): React.JSX.Element | null {
+}: Readonly<SignupModalProps>): React.JSX.Element | null {
   const navigate = useNavigate();
 
   const handleSignUp = (): void => {
@@ -47,24 +72,7 @@ export function SignupModal({
         <h2 className="mb-4 text-xl font-semibold">
           {isRateLimit ? 'Continue Chatting for Free' : 'Unlock Premium Models'}
         </h2>
-        <p className="text-muted-foreground mb-6">
-          {isRateLimit ? (
-            <>
-              You&apos;ve used your 5 free messages today. Sign up for a free account to get more
-              messages and save your conversation history.
-            </>
-          ) : modelName ? (
-            <>
-              <span className="text-foreground font-medium">{modelName}</span> is a premium model.
-              Sign up for free to access the most powerful AI models available.
-            </>
-          ) : (
-            <>
-              Sign up for free to access premium models including the latest and most powerful AI
-              models available.
-            </>
-          )}
-        </p>
+        <p className="text-muted-foreground mb-6">{getSignupMessage(isRateLimit, modelName)}</p>
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
           <Button variant="outline" onClick={handleMaybeLater}>
             Maybe Later

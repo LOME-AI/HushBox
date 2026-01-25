@@ -31,7 +31,7 @@ const MOCK_MODELS: MockOpenRouterModel[] = [
     id: 'openai/gpt-4-turbo',
     name: 'GPT-4 Turbo',
     description: 'Most capable GPT-4 model',
-    context_length: 128000,
+    context_length: 128_000,
     pricing: { prompt: '0.00001', completion: '0.00003' },
     supported_parameters: ['temperature', 'max_tokens', 'tools'],
     created: sixMonthsAgo, // Recent
@@ -40,7 +40,7 @@ const MOCK_MODELS: MockOpenRouterModel[] = [
     id: 'anthropic/claude-3.5-sonnet',
     name: 'Claude 3.5 Sonnet',
     description: 'Balanced Claude model',
-    context_length: 200000,
+    context_length: 200_000,
     pricing: { prompt: '0.000003', completion: '0.000015' },
     supported_parameters: ['temperature', 'max_tokens'],
     created: sixMonthsAgo, // Recent
@@ -88,9 +88,9 @@ describe('Models Routes', () => {
         id: 'openai/gpt-4-turbo',
         name: 'GPT-4 Turbo',
         provider: 'OpenAI',
-        contextLength: 128000,
-        pricePerInputToken: 0.00001,
-        pricePerOutputToken: 0.00003,
+        contextLength: 128_000,
+        pricePerInputToken: 0.000_01,
+        pricePerOutputToken: 0.000_03,
       });
     });
 
@@ -154,11 +154,11 @@ describe('Models Routes', () => {
     it('filters out old models (older than 2 years)', async () => {
       const threeYearsAgo = Math.floor((now - 3 * 365 * 24 * 60 * 60 * 1000) / 1000);
       // Need many recent models with high context so old model isn't in top 5%
-      const mockModels: MockOpenRouterModel[] = Array.from({ length: 20 }, (_, i) => ({
-        id: `recent/model-${String(i)}`,
-        name: `Recent Model ${String(i)}`,
+      const mockModels: MockOpenRouterModel[] = Array.from({ length: 20 }, (_, index) => ({
+        id: `recent/model-${String(index)}`,
+        name: `Recent Model ${String(index)}`,
         description: 'Recent model',
-        context_length: 200000,
+        context_length: 200_000,
         pricing: { prompt: '0.001', completion: '0.001' },
         supported_parameters: ['temperature'],
         created: sixMonthsAgo,
@@ -167,7 +167,7 @@ describe('Models Routes', () => {
         id: 'old/model',
         name: 'Old Model',
         description: 'Very old model',
-        context_length: 50000, // Lower context, won't be in top 5%
+        context_length: 50_000, // Lower context, won't be in top 5%
         pricing: { prompt: '0.001', completion: '0.001' },
         supported_parameters: ['temperature'],
         created: threeYearsAgo,
@@ -188,14 +188,14 @@ describe('Models Routes', () => {
     it('returns premiumModelIds for expensive models', async () => {
       // Create 10 models with varying prices, all at same age (within 2 years)
       const oneYearAgo = Math.floor((now - 365 * 24 * 60 * 60 * 1000) / 1000);
-      const mockModels: MockOpenRouterModel[] = Array.from({ length: 10 }, (_, i) => ({
-        id: `model-${String(i)}`,
-        name: `Model ${String(i)}`,
+      const mockModels: MockOpenRouterModel[] = Array.from({ length: 10 }, (_, index) => ({
+        id: `model-${String(index)}`,
+        name: `Model ${String(index)}`,
         description: 'Test model',
-        context_length: 100000,
+        context_length: 100_000,
         pricing: {
-          prompt: String(0.00001 * (i + 1)),
-          completion: String(0.00001 * (i + 1)),
+          prompt: String(0.000_01 * (index + 1)),
+          completion: String(0.000_01 * (index + 1)),
         },
         supported_parameters: ['temperature'],
         created: oneYearAgo, // Within 2 years, so NOT filtered by age
@@ -230,7 +230,7 @@ describe('Models Routes', () => {
           id: 'old/cheap-model',
           name: 'Old Cheap Model',
           description: 'Old budget model',
-          context_length: 100000,
+          context_length: 100_000,
           pricing: { prompt: '0.000001', completion: '0.000001' },
           supported_parameters: ['temperature'],
           created: eighteenMonthsAgo, // 18 months ago, beyond 1 year recency
@@ -240,7 +240,7 @@ describe('Models Routes', () => {
           id: 'new/cheap-model',
           name: 'New Cheap Model',
           description: 'New budget model',
-          context_length: 100000,
+          context_length: 100_000,
           pricing: { prompt: '0.000001', completion: '0.000001' },
           supported_parameters: ['temperature'],
           created: oneMonthAgo, // Recent
@@ -250,7 +250,7 @@ describe('Models Routes', () => {
           id: 'expensive/model-1',
           name: 'Expensive Model 1',
           description: 'Premium model',
-          context_length: 100000,
+          context_length: 100_000,
           pricing: { prompt: '0.0001', completion: '0.0001' },
           supported_parameters: ['temperature'],
           created: eighteenMonthsAgo,
@@ -259,7 +259,7 @@ describe('Models Routes', () => {
           id: 'expensive/model-2',
           name: 'Expensive Model 2',
           description: 'Premium model',
-          context_length: 100000,
+          context_length: 100_000,
           pricing: { prompt: '0.0001', completion: '0.0001' },
           supported_parameters: ['temperature'],
           created: eighteenMonthsAgo,
@@ -300,9 +300,9 @@ describe('Models Routes', () => {
         id: 'openai/gpt-4-turbo',
         name: 'GPT-4 Turbo',
         provider: 'OpenAI',
-        contextLength: 128000,
-        pricePerInputToken: 0.00001,
-        pricePerOutputToken: 0.00003,
+        contextLength: 128_000,
+        pricePerInputToken: 0.000_01,
+        pricePerOutputToken: 0.000_03,
       });
     });
 

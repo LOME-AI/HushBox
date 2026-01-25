@@ -75,5 +75,3 @@ export function createModelsRoutes(): OpenAPIHono<AppEnv> {
 
   return app;
 }
-
-export const modelsRoute = createModelsRoutes();

@@ -3,7 +3,7 @@ import { createHelcimClient, verifyWebhookSignatureAsync } from './helcim.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+globalThis.fetch = mockFetch;
 
 describe('createHelcimClient', () => {
   const config = {
@@ -66,7 +66,7 @@ describe('createHelcimClient', () => {
         ok: true,
         json: () =>
           Promise.resolve({
-            transactionId: 12345,
+            transactionId: 12_345,
             approvalCode: 'ABC123',
             cardNumber: '************1234',
             cardType: 'Visa',
@@ -110,7 +110,7 @@ describe('createHelcimClient', () => {
         ok: true,
         json: () =>
           Promise.resolve({
-            transactionId: 12345,
+            transactionId: 12_345,
             approvalCode: 'ABC123',
             cardNumber: '************1234',
             cardType: 'Visa',
@@ -206,7 +206,7 @@ describe('createHelcimClient', () => {
         ok: true,
         json: () =>
           Promise.resolve({
-            transactionId: 12345,
+            transactionId: 12_345,
             approvalCode: 'ABC123',
           }),
       });
@@ -237,7 +237,7 @@ describe('verifyWebhookSignatureAsync', () => {
     // Compute expected signature
     const encoder = new TextEncoder();
     const message = `${webhookId}.${timestamp}.${payload}`;
-    const secretBytes = Uint8Array.from(atob(verifier), (c) => c.charCodeAt(0));
+    const secretBytes = Uint8Array.from(atob(verifier), (c) => c.codePointAt(0) ?? 0);
     const key = await crypto.subtle.importKey(
       'raw',
       secretBytes,
@@ -246,15 +246,15 @@ describe('verifyWebhookSignatureAsync', () => {
       ['sign']
     );
     const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-    const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+    const signature = btoa(String.fromCodePoint(...new Uint8Array(signatureBuffer)));
 
-    const result = await verifyWebhookSignatureAsync(
-      verifier,
+    const result = await verifyWebhookSignatureAsync({
+      webhookVerifier: verifier,
       payload,
-      signature,
+      signatureHeader: signature,
       timestamp,
-      webhookId
-    );
+      webhookId,
+    });
 
     expect(result).toBe(true);
   });
@@ -268,7 +268,7 @@ describe('verifyWebhookSignatureAsync', () => {
     // Compute expected signature
     const encoder = new TextEncoder();
     const message = `${webhookId}.${timestamp}.${payload}`;
-    const secretBytes = Uint8Array.from(atob(verifier), (c) => c.charCodeAt(0));
+    const secretBytes = Uint8Array.from(atob(verifier), (c) => c.codePointAt(0) ?? 0);
     const key = await crypto.subtle.importKey(
       'raw',
       secretBytes,
@@ -277,18 +277,18 @@ describe('verifyWebhookSignatureAsync', () => {
       ['sign']
     );
     const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-    const rawSignature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+    const rawSignature = btoa(String.fromCodePoint(...new Uint8Array(signatureBuffer)));
 
     // Helcim sends versioned signatures like "v1,signature"
     const versionedSignature = `v1,${rawSignature}`;
 
-    const result = await verifyWebhookSignatureAsync(
-      verifier,
+    const result = await verifyWebhookSignatureAsync({
+      webhookVerifier: verifier,
       payload,
-      versionedSignature,
+      signatureHeader: versionedSignature,
       timestamp,
-      webhookId
-    );
+      webhookId,
+    });
 
     expect(result).toBe(true);
   });
@@ -302,7 +302,7 @@ describe('verifyWebhookSignatureAsync', () => {
     // Compute expected signature
     const encoder = new TextEncoder();
     const message = `${webhookId}.${timestamp}.${payload}`;
-    const secretBytes = Uint8Array.from(atob(verifier), (c) => c.charCodeAt(0));
+    const secretBytes = Uint8Array.from(atob(verifier), (c) => c.codePointAt(0) ?? 0);
     const key = await crypto.subtle.importKey(
       'raw',
       secretBytes,
@@ -311,18 +311,18 @@ describe('verifyWebhookSignatureAsync', () => {
       ['sign']
     );
     const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-    const rawSignature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+    const rawSignature = btoa(String.fromCodePoint(...new Uint8Array(signatureBuffer)));
 
     // Helcim can send multiple signatures: "v1,sig1 v2,sig2"
     const multiSignature = `v0,invalidSignature v1,${rawSignature}`;
 
-    const result = await verifyWebhookSignatureAsync(
-      verifier,
+    const result = await verifyWebhookSignatureAsync({
+      webhookVerifier: verifier,
       payload,
-      multiSignature,
+      signatureHeader: multiSignature,
       timestamp,
-      webhookId
-    );
+      webhookId,
+    });
 
     expect(result).toBe(true);
   });
@@ -330,15 +330,15 @@ describe('verifyWebhookSignatureAsync', () => {
   it('returns false for non-matching signature', async () => {
     const verifier = btoa('test-secret');
     const payload = '{"event":"test"}';
-    const wrongSignature = btoa(String.fromCharCode(...Array.from({ length: 32 }, () => 65)));
+    const wrongSignature = btoa(String.fromCodePoint(...Array.from({ length: 32 }, () => 65)));
 
-    const result = await verifyWebhookSignatureAsync(
-      verifier,
+    const result = await verifyWebhookSignatureAsync({
+      webhookVerifier: verifier,
       payload,
-      wrongSignature,
-      '1234567890',
-      'webhook-123'
-    );
+      signatureHeader: wrongSignature,
+      timestamp: '1234567890',
+      webhookId: 'webhook-123',
+    });
 
     expect(result).toBe(false);
   });
@@ -346,25 +346,25 @@ describe('verifyWebhookSignatureAsync', () => {
   it('returns false for invalid base64 signature', async () => {
     const verifier = btoa('test-secret');
 
-    const result = await verifyWebhookSignatureAsync(
-      verifier,
-      'payload',
-      '!!!invalid!!!',
-      'timestamp',
-      'webhookId'
-    );
+    const result = await verifyWebhookSignatureAsync({
+      webhookVerifier: verifier,
+      payload: 'payload',
+      signatureHeader: '!!!invalid!!!',
+      timestamp: 'timestamp',
+      webhookId: 'webhookId',
+    });
 
     expect(result).toBe(false);
   });
 
   it('returns false for invalid verifier', async () => {
-    const result = await verifyWebhookSignatureAsync(
-      '!!!invalid!!!',
-      'payload',
-      btoa('signature'),
-      'timestamp',
-      'webhookId'
-    );
+    const result = await verifyWebhookSignatureAsync({
+      webhookVerifier: '!!!invalid!!!',
+      payload: 'payload',
+      signatureHeader: btoa('signature'),
+      timestamp: 'timestamp',
+      webhookId: 'webhookId',
+    });
 
     expect(result).toBe(false);
   });

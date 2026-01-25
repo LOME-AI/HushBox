@@ -1,7 +1,7 @@
-import { createEnvUtils, type EnvContext } from '@lome-chat/shared';
+import { createEnvUtilities, type EnvContext } from '@lome-chat/shared';
 import type { OpenRouterClient } from './types.js';
 import { createMockOpenRouterClient } from './mock.js';
-import { createOpenRouterClient } from './openrouter.js';
+import { createOpenRouterClient, type EvidenceConfig } from './openrouter.js';
 
 export type {
   ChatMessage,
@@ -14,6 +14,8 @@ export type {
   ToolCall,
   ToolDefinition,
 } from './types.js';
+
+export type { EvidenceConfig } from './openrouter.js';
 
 export { createMockOpenRouterClient } from './mock.js';
 export { createOpenRouterClient, clearModelCache, fetchModels, getModel } from './openrouter.js';
@@ -29,8 +31,11 @@ interface OpenRouterEnv extends EnvContext {
  * - CI E2E: Returns mock client (E2E tests UI flows, not OpenRouter integration)
  * - CI Integration/Production: Requires real credentials, fails fast if missing
  */
-export function getOpenRouterClient(env: OpenRouterEnv): OpenRouterClient {
-  const { isLocalDev, isE2E } = createEnvUtils(env);
+export function getOpenRouterClient(
+  env: OpenRouterEnv,
+  evidenceConfig?: EvidenceConfig
+): OpenRouterClient {
+  const { isLocalDev, isE2E } = createEnvUtilities(env);
 
   // E2E tests use mocks - they test UI flows, not OpenRouter integration
   if (isLocalDev || isE2E) {
@@ -41,5 +46,5 @@ export function getOpenRouterClient(env: OpenRouterEnv): OpenRouterClient {
     throw new Error('OPENROUTER_API_KEY required in CI/production');
   }
 
-  return createOpenRouterClient(env.OPENROUTER_API_KEY);
+  return createOpenRouterClient(env.OPENROUTER_API_KEY, evidenceConfig);
 }

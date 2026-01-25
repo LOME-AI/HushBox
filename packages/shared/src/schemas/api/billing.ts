@@ -3,14 +3,9 @@ import {
   paymentStatusSchema,
   balanceTransactionTypeSchema,
   deductionSourceSchema,
-  type PaymentStatus,
-  type BalanceTransactionType,
-  type StoredDeductionSource,
 } from '../../enums.js';
 
 // Re-export enums for API schema consumers
-export { paymentStatusSchema, balanceTransactionTypeSchema, deductionSourceSchema };
-export type { PaymentStatus, BalanceTransactionType, StoredDeductionSource };
 
 // ============================================================
 // Request Schemas
@@ -24,7 +19,7 @@ export const createPaymentRequestSchema = z.object({
   amount: z
     .string()
     .regex(/^\d+\.\d{8}$/, 'Amount must be a decimal with 8 decimal places (e.g., "10.00000000")')
-    .refine((val) => parseFloat(val) >= 5, 'Minimum deposit is $5.00'),
+    .refine((val) => Number.parseFloat(val) >= 5, 'Minimum deposit is $5.00'),
 });
 
 export type CreatePaymentRequest = z.infer<typeof createPaymentRequestSchema>;
@@ -166,3 +161,12 @@ export const listTransactionsResponseSchema = z.object({
 export type ListTransactionsResponse = z.infer<typeof listTransactionsResponseSchema>;
 
 // Note: errorResponseSchema is exported from ./error.ts
+
+export {
+  type PaymentStatus,
+  type StoredDeductionSource,
+  type BalanceTransactionType,
+  paymentStatusSchema,
+  balanceTransactionTypeSchema,
+  deductionSourceSchema,
+} from '../../enums.js';
