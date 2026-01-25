@@ -52,7 +52,7 @@ function createTestAppWithAuth(db: ReturnType<typeof createDb>): Hono<AppEnv> {
     db,
     emailClient,
     baseUrl: 'http://localhost:8787',
-    secret: 'test-secret-key-at-least-32-characters-long',
+    secret: 'test-secret-key-at-least-32-characters-long', // gitleaks:allow
     frontendUrl: 'http://localhost:5173',
   });
 

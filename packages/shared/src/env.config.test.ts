@@ -250,7 +250,7 @@ describe('backendEnvSchema', () => {
       NODE_ENV: 'development',
       DATABASE_URL: 'postgres://localhost:5432/test',
       BETTER_AUTH_URL: 'http://localhost:8787',
-      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long',
+      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long', // gitleaks:allow
       FRONTEND_URL: 'http://localhost:5173',
     };
 
@@ -263,7 +263,7 @@ describe('backendEnvSchema', () => {
       NODE_ENV: 'production',
       DATABASE_URL: 'postgres://neon.tech:5432/prod',
       BETTER_AUTH_URL: 'https://api.lome-chat.com',
-      BETTER_AUTH_SECRET: 'a-production-secret-at-least-32-chars-long!!',
+      BETTER_AUTH_SECRET: 'a-production-secret-at-least-32-chars-long!!', // gitleaks:allow
       FRONTEND_URL: 'https://lome-chat.com',
       RESEND_API_KEY: 're_123456789',
       OPENROUTER_API_KEY: 'sk-or-123',
@@ -280,7 +280,7 @@ describe('backendEnvSchema', () => {
       NODE_ENV: 'invalid',
       DATABASE_URL: 'postgres://localhost:5432/test',
       BETTER_AUTH_URL: 'http://localhost:8787',
-      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long',
+      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long', // gitleaks:allow
       FRONTEND_URL: 'http://localhost:5173',
     };
 
@@ -292,7 +292,7 @@ describe('backendEnvSchema', () => {
     const invalidEnv = {
       NODE_ENV: 'development',
       BETTER_AUTH_URL: 'http://localhost:8787',
-      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long',
+      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long', // gitleaks:allow
       FRONTEND_URL: 'http://localhost:5173',
     };
 
@@ -318,7 +318,7 @@ describe('backendEnvSchema', () => {
       NODE_ENV: 'development',
       DATABASE_URL: 'postgres://localhost:5432/test',
       BETTER_AUTH_URL: 'not-a-url',
-      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long',
+      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long', // gitleaks:allow
       FRONTEND_URL: 'http://localhost:5173',
     };
 
@@ -331,7 +331,7 @@ describe('backendEnvSchema', () => {
       NODE_ENV: 'development',
       DATABASE_URL: 'postgres://localhost:5432/test',
       BETTER_AUTH_URL: 'http://localhost:8787',
-      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long',
+      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long', // gitleaks:allow
       FRONTEND_URL: 'http://localhost:5173',
     };
 

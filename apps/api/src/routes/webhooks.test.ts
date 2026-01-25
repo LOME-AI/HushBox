@@ -58,8 +58,8 @@ describe('webhooks routes', () => {
   beforeAll(async () => {
     db = createDb({ connectionString, neonDev: LOCAL_NEON_DEV_CONFIG });
     helcimClient = createMockHelcimClient({
-      webhookUrl: 'http://localhost:8787/webhooks/payment',
-      webhookVerifier: 'dGVzdC12ZXJpZmllcg==',
+      webhookUrl: 'http://localhost:8787/api/webhooks/payment',
+      webhookVerifier: 'dGVzdC12ZXJpZmllcg==', // gitleaks:allow
     });
 
     const emailClient = createMockEmailClient();
@@ -67,7 +67,7 @@ describe('webhooks routes', () => {
       db,
       emailClient,
       baseUrl: 'http://localhost:8787',
-      secret: 'test-secret-key-at-least-32-characters-long',
+      secret: 'test-secret-key-at-least-32-characters-long', // gitleaks:allow
       frontendUrl: 'http://localhost:5173',
     });
 

@@ -17,7 +17,7 @@ type FetchMock = Mock<(url: string, init?: RequestInit) => Promise<MockFetchResp
 
 describe('createOpenRouterClient', () => {
   let client: OpenRouterClient;
-  const TEST_API_KEY = 'test-api-key-12345';
+  const TEST_API_KEY = 'test-api-key-12345'; // gitleaks:allow
   let fetchMock: FetchMock;
 
   beforeEach(() => {
@@ -464,7 +464,7 @@ describe('fetchModels (public, no auth required)', () => {
 
 describe('chatCompletionStreamWithMetadata retry logic', () => {
   let client: OpenRouterClient;
-  const TEST_API_KEY = 'test-api-key-12345';
+  const TEST_API_KEY = 'test-api-key-12345'; // gitleaks:allow
   let fetchMock: FetchMock;
 
   beforeEach(() => {
