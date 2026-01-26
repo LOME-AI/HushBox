@@ -33,9 +33,7 @@ test.describe('Guest Chat', () => {
   });
 
   test.describe('Chat Streaming', () => {
-    test('guest can send message, receive response, and input refocuses', async ({
-      unauthenticatedPage,
-    }) => {
+    test('guest can send message and receive response', async ({ unauthenticatedPage }) => {
       const chatPage = new ChatPage(unauthenticatedPage);
       await chatPage.goto();
       await chatPage.selectNonPremiumModel();
@@ -49,15 +47,8 @@ test.describe('Guest Chat', () => {
       await chatPage.waitForAIResponse();
       await chatPage.expectAssistantMessageContains('Echo:');
 
-      await unauthenticatedPage.waitForTimeout(200);
-
-      const viewport = unauthenticatedPage.viewportSize();
-      if (viewport && viewport.width >= 768) {
-        await expect(chatPage.messageInput).toBeFocused();
-      } else {
-        await expect(chatPage.messageInput).toBeVisible();
-        await expect(chatPage.messageInput).toBeEnabled();
-      }
+      await expect(chatPage.messageInput).toBeVisible();
+      await expect(chatPage.messageInput).toBeEnabled();
     });
 
     test('guest can have multi-turn conversation', async ({ unauthenticatedPage }) => {

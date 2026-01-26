@@ -67,6 +67,9 @@ function createMockDb(options: { guestUsage?: MockGuestUsage[] } = {}) {
     insert: () => ({
       values: () => ({
         returning: () => Promise.resolve([{ id: 'new-record', messageCount: 1 }]),
+        onConflictDoUpdate: () => ({
+          returning: () => Promise.resolve([{ id: 'new-record', messageCount: 1 }]),
+        }),
       }),
     }),
     update: () => ({

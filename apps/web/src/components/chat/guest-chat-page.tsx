@@ -17,6 +17,7 @@ export function GuestChatPage(): React.JSX.Element {
   const state = useChatPageState();
   const isMobile = useIsMobile();
   const promptInputRef = React.useRef<PromptInputRef>(null);
+  const creationStartedRef = React.useRef(false);
   const [creationStarted, setCreationStarted] = React.useState(false);
 
   const { data: session, isPending: isSessionPending } = useSession();
@@ -98,11 +99,12 @@ export function GuestChatPage(): React.JSX.Element {
   );
 
   React.useEffect(() => {
-    if (guestPendingMessage && !creationStarted && !isStreaming) {
+    if (guestPendingMessage && !creationStartedRef.current && !isStreaming) {
+      creationStartedRef.current = true;
       setCreationStarted(true);
       void handleGuestFirstMessage(guestPendingMessage);
     }
-  }, [guestPendingMessage, creationStarted, isStreaming, handleGuestFirstMessage]);
+  }, [guestPendingMessage, isStreaming, handleGuestFirstMessage]);
 
   const handleGuestSubmit = React.useCallback(async () => {
     const content = state.inputValue.trim();

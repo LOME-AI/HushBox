@@ -1,4 +1,4 @@
-import { eq, or, desc } from 'drizzle-orm';
+import { eq, or, desc, sql } from 'drizzle-orm';
 import { guestUsage, type Database } from '@lome-chat/db';
 import { GUEST_MESSAGE_LIMIT, getUtcMidnight, needsResetBeforeMidnight } from '@lome-chat/shared';
 import { fireAndForget } from '../../lib/fire-and-forget.js';
@@ -99,8 +99,69 @@ export async function checkGuestUsage(
   };
 }
 
+function isDuplicateKeyError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error as { code: string }).code === '23505';
+}
+
+async function updateRecord(
+  db: Database,
+  record: { id: string; messageCount: number; resetAt: Date | null }
+): Promise<GuestUsageRecord> {
+  const shouldReset = needsResetBeforeMidnight(record.resetAt);
+  const newCount = shouldReset ? 1 : record.messageCount + 1;
+
+  await db
+    .update(guestUsage)
+    .set({
+      messageCount: newCount,
+      resetAt: shouldReset ? getUtcMidnight() : undefined,
+    })
+    .where(eq(guestUsage.id, record.id));
+
+  return { id: record.id, messageCount: newCount };
+}
+
+async function insertWithToken(
+  db: Database,
+  guestToken: string,
+  ipHash: string
+): Promise<GuestUsageRecord> {
+  const [result] = await db
+    .insert(guestUsage)
+    .values({ guestToken, ipHash, messageCount: 1, resetAt: getUtcMidnight() })
+    .onConflictDoUpdate({
+      target: guestUsage.guestToken,
+      set: { messageCount: sql`${guestUsage.messageCount} + 1` },
+    })
+    .returning();
+
+  if (!result) throw new Error('Failed to create guest usage record');
+  return { id: result.id, messageCount: result.messageCount };
+}
+
+async function insertWithoutToken(db: Database, ipHash: string): Promise<GuestUsageRecord> {
+  try {
+    const [newRecord] = await db
+      .insert(guestUsage)
+      .values({ guestToken: null, ipHash, messageCount: 1, resetAt: getUtcMidnight() })
+      .returning();
+
+    if (!newRecord) throw new Error('Failed to create guest usage record');
+    return { id: newRecord.id, messageCount: 1 };
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      const retryRecord = await findGuestRecord(db, null, ipHash);
+      if (retryRecord) {
+        return updateRecord(db, retryRecord);
+      }
+    }
+    throw error;
+  }
+}
+
 /**
  * Increment guest message count after successful message.
+ * Uses atomic upsert when guestToken is provided to prevent race conditions.
  *
  * @param db - Database connection
  * @param guestToken - Token stored in localStorage (may be null)
@@ -114,39 +175,18 @@ export async function incrementGuestUsage(
   ipHash: string,
   existingRecord?: { id: string; messageCount: number; resetAt: Date | null }
 ): Promise<GuestUsageRecord> {
-  const record = existingRecord ?? (await findGuestRecord(db, guestToken, ipHash));
-
-  if (!record) {
-    const [newRecord] = await db
-      .insert(guestUsage)
-      .values({
-        guestToken,
-        ipHash,
-        messageCount: 1,
-        resetAt: getUtcMidnight(),
-      })
-      .returning();
-
-    if (!newRecord) throw new Error('Failed to create guest usage record');
-    return {
-      id: newRecord.id,
-      messageCount: 1,
-    };
+  if (existingRecord) {
+    return updateRecord(db, existingRecord);
   }
 
-  const shouldReset = needsResetBeforeMidnight(record.resetAt);
-  const newCount = shouldReset ? 1 : record.messageCount + 1;
+  const record = await findGuestRecord(db, guestToken, ipHash);
+  if (record) {
+    return updateRecord(db, record);
+  }
 
-  await db
-    .update(guestUsage)
-    .set({
-      messageCount: newCount,
-      resetAt: shouldReset ? getUtcMidnight() : undefined,
-    })
-    .where(eq(guestUsage.id, record.id));
+  if (guestToken) {
+    return insertWithToken(db, guestToken, ipHash);
+  }
 
-  return {
-    id: record.id,
-    messageCount: newCount,
-  };
+  return insertWithoutToken(db, ipHash);
 }
