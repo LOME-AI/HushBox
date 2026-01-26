@@ -89,6 +89,8 @@ export function ChatLayout({
   const promptInputRef = externalPromptInputRef ?? internalPromptInputRef;
   const previousInputDisabledRef = React.useRef(inputDisabled);
   const virtuosoRef = React.useRef<VirtuosoHandle>(null);
+  const inputContainerRef = React.useRef<HTMLDivElement>(null);
+  const [inputHeight, setInputHeight] = React.useState(0);
 
   const handleSubmit = React.useCallback((): void => {
     onSubmit();
@@ -109,6 +111,25 @@ export function ChatLayout({
       });
     }
   }, [inputDisabled, isMobile, promptInputRef]);
+
+  React.useEffect(() => {
+    if (!isMobile || !inputContainerRef.current) return;
+
+    const updateHeight = (): void => {
+      if (inputContainerRef.current) {
+        setInputHeight(inputContainerRef.current.offsetHeight);
+      }
+    };
+
+    updateHeight();
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(inputContainerRef.current);
+
+    return (): void => {
+      observer.disconnect();
+    };
+  }, [isMobile]);
 
   const {
     signupModalOpen,
@@ -139,7 +160,10 @@ export function ChatLayout({
           onPremiumClick={handlePremiumClick}
         />
       </div>
-      <div className="flex flex-1 overflow-hidden">
+      <div
+        className="flex flex-1 overflow-hidden"
+        style={isMobile && inputHeight > 0 ? { marginBottom: inputHeight } : undefined}
+      >
         <div className="flex min-w-0 flex-1 flex-col">
           {messages.length > 0 && (
             <MessageList
@@ -152,7 +176,12 @@ export function ChatLayout({
         </div>
         <DocumentPanel documents={documents} />
       </div>
-      <div data-chat-input className="bg-background flex-shrink-0 border-t p-4" style={inputStyle}>
+      <div
+        ref={inputContainerRef}
+        data-chat-input
+        className="bg-background flex-shrink-0 border-t p-4"
+        style={inputStyle}
+      >
         {rateLimitMessage && (
           <p className="text-destructive mb-2 text-center text-sm">
             You&apos;ve used all 5 free messages today.{' '}
