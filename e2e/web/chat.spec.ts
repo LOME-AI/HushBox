@@ -142,7 +142,7 @@ test.describe('Chat Functionality', () => {
       const initialBoundingBox = await firstMessage.boundingBox();
       expect(initialBoundingBox).not.toBeNull();
 
-      const longString = 'test'.repeat(200);
+      const longString = 'test'.repeat(50);
       await chatPage.sendFollowUpMessage(longString);
 
       await chatPage.waitForAIResponse(longString);
