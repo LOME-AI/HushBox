@@ -187,13 +187,13 @@ test.describe('Input Ready After Streaming', () => {
 
     // ~5 seconds at 10ms/char
     const message = 'Testing user interaction during streaming response. '.repeat(10);
-    const echoCountBefore = await chatPage.messageList.getByText('Echo:').count();
+    const countBefore = await chatPage.getMessageCountViaAPI();
 
     await chatPage.sendFollowUpMessage(message);
 
-    await expect(chatPage.messageList.getByText('Echo:')).toHaveCount(echoCountBefore + 1, {
-      timeout: 10_000,
-    });
+    await expect
+      .poll(() => chatPage.getMessageCountViaAPI(), { timeout: 10_000 })
+      .toBe(countBefore + 2);
 
     await chatPage.messageList.click();
     await chatPage.waitForAIResponse(message);

@@ -170,4 +170,25 @@ export class ChatPage {
       el.scrollTop = el.scrollHeight;
     });
   }
+
+  async getMessageCountViaAPI(): Promise<number> {
+    const conversationId = this.getConversationIdFromUrl();
+    const response = await this.page.request.get(
+      `http://localhost:8787/api/conversations/${conversationId}`
+    );
+    if (!response.ok()) {
+      throw new Error(`Failed to get conversation: ${String(response.status())}`);
+    }
+    const data = (await response.json()) as { messages: unknown[] };
+    return data.messages.length;
+  }
+
+  private getConversationIdFromUrl(): string {
+    const url = new URL(this.page.url());
+    const id = url.pathname.split('/').pop();
+    if (!id || id === 'chat' || id === 'guest') {
+      throw new Error('Not on a conversation page');
+    }
+    return id;
+  }
 }
