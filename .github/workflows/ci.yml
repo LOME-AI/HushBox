@@ -264,4 +264,4 @@ jobs:
       - name: Verify API health
         run: |
           sleep 10
-          curl -f https://lome-chat-api.${{ vars.WORKERS_SUBDOMAIN }}.workers.dev/health || exit 1
+          curl -f https://lome-chat-api.${{ vars.WORKERS_SUBDOMAIN }}.workers.dev/api/health || exit 1
