@@ -88,6 +88,7 @@ export function ChatLayout({
   const internalPromptInputRef = React.useRef<PromptInputRef>(null);
   const promptInputRef = externalPromptInputRef ?? internalPromptInputRef;
   const previousInputDisabledRef = React.useRef(inputDisabled);
+  const previousStreamingIdRef = React.useRef<string | null>(null);
   const virtuosoRef = React.useRef<VirtuosoHandle>(null);
   const inputContainerRef = React.useRef<HTMLDivElement>(null);
   const [inputHeight, setInputHeight] = React.useState(0);
@@ -111,6 +112,20 @@ export function ChatLayout({
       });
     }
   }, [inputDisabled, isMobile, promptInputRef]);
+
+  React.useEffect(() => {
+    const wasStreaming = previousStreamingIdRef.current !== null;
+    const isNowStreaming = streamingMessageId !== null;
+    previousStreamingIdRef.current = streamingMessageId;
+
+    const isFirstMessage = messages.length <= 2;
+
+    if (!wasStreaming && isNowStreaming && isFirstMessage) {
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
+      });
+    }
+  }, [streamingMessageId, messages.length]);
 
   React.useEffect(() => {
     if (!isMobile || !inputContainerRef.current) return;
