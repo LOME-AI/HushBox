@@ -31,6 +31,7 @@ This document specifies the complete authentication, recovery, and end-to-end en
 | 19  | Optional 2FA via authenticator apps                   | ✅   | TOTP with encrypted secret storage                                                                 |
 | 20  | Email verification                                    | ✅   | Custom implementation with rate limiting                                                           |
 | 21  | Use hash-wasm for Argon2id                            | ✅   | Replaces argon2-browser                                                                            |
+| 22  | Optional "Keep me signed in"                          | ✅   | Unchecked: sessionStorage (logout on browser close). Checked: localStorage (persist)               |
 
 ---
 
@@ -332,12 +333,13 @@ After successful OPAQUE login, the client receives the session key. However, for
 **Flow:**
 
 ```
-1. User enters password
+1. User enters password (+ optionally checks "Keep me signed in")
 2. Client performs OPAQUE login → session established
 3. Client fetches user's encrypted_dek_password and password_salt
 4. Client derives KEK = Argon2id(password, salt)
 5. Client unwraps DEK = AES-KW-decrypt(KEK, encrypted_dek)
-6. DEK stored in session memory for encrypting/decrypting content
+6. KEK stored in localStorage or sessionStorage (based on "Keep me signed in")
+7. DEK stored in memory only for encrypting/decrypting content
 ```
 
 ---
@@ -348,7 +350,7 @@ After successful OPAQUE login, the client receives the session key. However, for
 
 - **Optional** for all users
 - Uses TOTP (Time-based One-Time Password) compatible with Google Authenticator, Authy, etc.
-- TOTP secret stored encrypted with user's DEK
+- TOTP secret encrypted at rest with server-derived key (not user's DEK)
 - Blocks authentication until valid code provided
 
 ### 2FA Setup Flow
@@ -622,44 +624,48 @@ CLIENT:
 ```
 CLIENT:
 1. User enters email + password
-2. Initiate OPAQUE login → KE1 message
-3. Send { email, ke1 } to server
+2. User optionally checks "Keep me signed in" checkbox
+3. Initiate OPAQUE login → KE1 message
+4. Send { email, ke1 } to server
 
 SERVER:
-4. Look up user by email
-5. Check email_verified = true (reject if not)
-6. Retrieve opaque_registration
-7. Process OPAQUE → KE2 message
-8. Store server state in Redis (60s TTL)
-9. Return { ke2, login_attempt_id }
+5. Look up user by email
+6. Check email_verified = true (reject if not)
+7. Retrieve opaque_registration
+8. Process OPAQUE → KE2 message
+9. Store server state in Redis (60s TTL)
+10. Return { ke2, login_attempt_id }
 
 CLIENT:
-10. Complete OPAQUE → KE3 message
-11. Send { login_attempt_id, ke3 }
+11. Complete OPAQUE → KE3 message
+12. Send { login_attempt_id, ke3 }
 
 SERVER:
-12. Retrieve state from Redis
-13. Verify KE3
-14. Check if totp_enabled = true
-15. If 2FA enabled: Return { requires_2fa: true, ... }
-16. If no 2FA: Create session, return user data
+13. Retrieve state from Redis
+14. Verify KE3
+15. Check if totp_enabled = true
+16. If 2FA enabled: Return { requires_2fa: true, ... }
+17. If no 2FA: Create session, return user data
 
 CLIENT (if 2FA required):
-17. Prompt for 6-digit code
-18. Send { login_attempt_id, totp_code }
+18. Prompt for 6-digit code
+19. Send { login_attempt_id, totp_code }
 
 SERVER:
-19. Verify TOTP code against stored secret
-20. Rate limit check (max 5 attempts)
-21. If valid: Create session, return user data
-22. If invalid: Return error, increment attempt count
+20. Verify TOTP code against stored secret
+21. Rate limit check (max 5 attempts)
+22. If valid: Create session, return user data
+23. If invalid: Return error, increment attempt count
 
 CLIENT (after successful auth):
-23. Receive { encrypted_dek_password, password_salt, ... }
-24. Derive KEK = Argon2id(password, password_salt)
-25. Unwrap DEK = AES-KW-decrypt(KEK, encrypted_dek)
-26. Store DEK in session memory (not localStorage)
-27. User is now fully authenticated and can decrypt content
+24. Receive { encrypted_dek_password, password_salt, ... }
+25. Derive KEK = Argon2id(password, password_salt)
+26. Unwrap DEK = AES-KW-decrypt(KEK, encrypted_dek)
+27. Store KEK based on "Keep me signed in" choice:
+    - Checked: localStorage (persists across browser sessions)
+    - Unchecked: sessionStorage (cleared on browser close)
+28. Store DEK in memory only (not in any storage)
+29. User is now fully authenticated and can decrypt content
 ```
 
 ### Flow 3: Password Change (Authenticated)
@@ -1077,13 +1083,44 @@ interface SessionData {
 }
 ```
 
-### DEK Persistence Across Page Refreshes
+### DEK Persistence: "Keep me signed in" (Opt-in)
 
-The DEK lives in client memory and is lost on page refresh. To avoid re-prompting for password on every refresh while maintaining security:
+By default, closing the browser logs the user out. Users can opt-in to persistent sessions.
 
-**Approach:** User enters password once per browser session. Password stored in sessionStorage (encrypted with a session-bound key), re-run Argon2id on refresh to re-derive KEK and unwrap DEK.
+**Login screen checkbox:** "Keep me signed in"
 
-This balances UX (no repeated password entry) with security (password cleared when tab closes, never in localStorage).
+| Checkbox            | Storage        | Browser Close   | Page Refresh    |
+| ------------------- | -------------- | --------------- | --------------- |
+| Unchecked (default) | sessionStorage | Logged out      | Stays logged in |
+| Checked             | localStorage   | Stays logged in | Stays logged in |
+
+**Flow:**
+
+```
+Login (checkbox unchecked - default):
+  Password → Argon2id → KEK → unwrap DEK
+  Store KEK in sessionStorage
+  DEK in memory only
+
+  Browser close → sessionStorage cleared → must re-login
+  Page refresh → read KEK from sessionStorage → unwrap DEK → instant
+
+Login (checkbox checked):
+  Password → Argon2id → KEK → unwrap DEK
+  Store KEK in localStorage
+  DEK in memory only
+
+  Browser close → localStorage persists → stays logged in
+  Page refresh → read KEK from localStorage → unwrap DEK → instant
+```
+
+**Security note for users:**
+When "Keep me signed in" is enabled, display: "Only use this on devices you trust. Anyone with access to this browser can access your account."
+
+**Logout behavior:**
+
+- Explicit logout clears both localStorage and sessionStorage
+- User must re-enter password on next visit regardless of previous "Keep me signed in" choice
 
 ### Session Lifecycle
 
