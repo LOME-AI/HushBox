@@ -34,6 +34,7 @@ describe('getPaidTestModel', () => {
         pricing: { prompt: '0', completion: '0' },
         supported_parameters: [],
         created: Date.now(),
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
       {
         id: 'cheap/paid-model',
@@ -43,6 +44,7 @@ describe('getPaidTestModel', () => {
         pricing: { prompt: '0.000001', completion: '0.000001' },
         supported_parameters: [],
         created: Date.now(),
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
     ];
 
@@ -62,6 +64,7 @@ describe('getPaidTestModel', () => {
         pricing: { prompt: '0', completion: '0' },
         supported_parameters: [],
         created: Date.now(),
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
       {
         id: 'expensive/model',
@@ -71,6 +74,7 @@ describe('getPaidTestModel', () => {
         pricing: { prompt: '0.1', completion: '0.1' },
         supported_parameters: [],
         created: Date.now(),
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
     ];
 
@@ -90,6 +94,7 @@ describe('getPaidTestModel', () => {
         pricing: { prompt: '0.000001', completion: '0.000001' },
         supported_parameters: [],
         created: Date.now(),
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
     ];
 
@@ -121,6 +126,7 @@ describe('getPaidTestModel', () => {
         pricing: { prompt: '-1', completion: '0.000001' },
         supported_parameters: [],
         created: Date.now(),
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
       {
         id: 'valid/model',
@@ -130,6 +136,7 @@ describe('getPaidTestModel', () => {
         pricing: { prompt: '0.000001', completion: '0.000001' },
         supported_parameters: [],
         created: Date.now(),
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
     ];
 

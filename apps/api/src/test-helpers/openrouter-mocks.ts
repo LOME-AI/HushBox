@@ -12,6 +12,10 @@ export interface MockModel {
   pricing: { prompt: string; completion: string };
   supported_parameters: string[];
   created: number;
+  architecture: {
+    input_modalities: string[];
+    output_modalities: string[];
+  };
 }
 
 export function createFastMockOpenRouterClient(

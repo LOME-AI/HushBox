@@ -76,6 +76,7 @@ describe('createFastMockOpenRouterClient', () => {
         pricing: { prompt: '0.001', completion: '0.002' },
         supported_parameters: ['temperature'],
         created: 1_234_567_890,
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
     ];
 
@@ -103,6 +104,7 @@ describe('createFastMockOpenRouterClient', () => {
         pricing: { prompt: '0.001', completion: '0.002' },
         supported_parameters: ['temperature'],
         created: 1_234_567_890,
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
     ];
 

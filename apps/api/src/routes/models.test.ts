@@ -13,6 +13,10 @@ interface MockOpenRouterModel {
   pricing: { prompt: string; completion: string };
   supported_parameters: string[];
   created: number;
+  architecture: {
+    input_modalities: string[];
+    output_modalities: string[];
+  };
 }
 
 interface MockFetchResponse {
@@ -35,6 +39,7 @@ const MOCK_MODELS: MockOpenRouterModel[] = [
     pricing: { prompt: '0.00001', completion: '0.00003' },
     supported_parameters: ['temperature', 'max_tokens', 'tools'],
     created: sixMonthsAgo, // Recent
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
@@ -44,6 +49,7 @@ const MOCK_MODELS: MockOpenRouterModel[] = [
     pricing: { prompt: '0.000003', completion: '0.000015' },
     supported_parameters: ['temperature', 'max_tokens'],
     created: sixMonthsAgo, // Recent
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
 ];
 
@@ -162,6 +168,7 @@ describe('Models Routes', () => {
         pricing: { prompt: '0.001', completion: '0.001' },
         supported_parameters: ['temperature'],
         created: sixMonthsAgo,
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       }));
       mockModels.push({
         id: 'old/model',
@@ -171,6 +178,7 @@ describe('Models Routes', () => {
         pricing: { prompt: '0.001', completion: '0.001' },
         supported_parameters: ['temperature'],
         created: threeYearsAgo,
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       });
 
       fetchMock.mockResolvedValueOnce({
@@ -199,6 +207,7 @@ describe('Models Routes', () => {
         },
         supported_parameters: ['temperature'],
         created: oneYearAgo, // Within 2 years, so NOT filtered by age
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       }));
 
       fetchMock.mockResolvedValueOnce({
@@ -234,6 +243,7 @@ describe('Models Routes', () => {
           pricing: { prompt: '0.000001', completion: '0.000001' },
           supported_parameters: ['temperature'],
           created: eighteenMonthsAgo, // 18 months ago, beyond 1 year recency
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
         // Cheap new model (within 1 year) - should be premium due to recency
         {
@@ -244,6 +254,7 @@ describe('Models Routes', () => {
           pricing: { prompt: '0.000001', completion: '0.000001' },
           supported_parameters: ['temperature'],
           created: oneMonthAgo, // Recent
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
         // Add expensive models to establish price threshold
         {
@@ -254,6 +265,7 @@ describe('Models Routes', () => {
           pricing: { prompt: '0.0001', completion: '0.0001' },
           supported_parameters: ['temperature'],
           created: eighteenMonthsAgo,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
         {
           id: 'expensive/model-2',
@@ -263,6 +275,7 @@ describe('Models Routes', () => {
           pricing: { prompt: '0.0001', completion: '0.0001' },
           supported_parameters: ['temperature'],
           created: eighteenMonthsAgo,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
       ];
 

@@ -24,6 +24,7 @@ describe('isPremiumModel', () => {
     pricing: { prompt: '0.001', completion: '0.002' },
     supported_parameters: [],
     created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60, // 400 days ago
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
     ...overrides,
   });
 

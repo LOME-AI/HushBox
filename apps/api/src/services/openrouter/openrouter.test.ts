@@ -289,6 +289,7 @@ describe('createOpenRouterClient', () => {
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: [],
           created: 1_704_067_200,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
         {
           id: 'anthropic/claude-3',
@@ -298,6 +299,7 @@ describe('createOpenRouterClient', () => {
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: [],
           created: 1_704_067_200,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
       ];
 
@@ -333,6 +335,7 @@ describe('createOpenRouterClient', () => {
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: ['tools'],
           created: 1_704_067_200,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
         {
           id: 'anthropic/claude-3',
@@ -342,6 +345,7 @@ describe('createOpenRouterClient', () => {
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: [],
           created: 1_704_067_200,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
       ];
 
@@ -366,6 +370,7 @@ describe('createOpenRouterClient', () => {
           pricing: { prompt: '0.00001', completion: '0.00003' },
           supported_parameters: [],
           created: 1_704_067_200,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
       ];
 
@@ -424,6 +429,7 @@ describe('fetchModels (public, no auth required)', () => {
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: [],
         created: 1_704_067_200,
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
     ];
 
@@ -650,6 +656,7 @@ describe('getModel (public, no auth required)', () => {
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: [],
         created: 1_704_067_200,
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
       {
         id: 'anthropic/claude-3',
@@ -659,6 +666,7 @@ describe('getModel (public, no auth required)', () => {
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: [],
         created: 1_704_067_200,
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
     ];
 
@@ -683,6 +691,7 @@ describe('getModel (public, no auth required)', () => {
         pricing: { prompt: '0.00001', completion: '0.00003' },
         supported_parameters: [],
         created: 1_704_067_200,
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       },
     ];
 

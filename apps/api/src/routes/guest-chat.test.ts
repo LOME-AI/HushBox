@@ -24,6 +24,7 @@ const guestChatModels = [
     pricing: { prompt: '0.0000005', completion: '0.0000005' },
     supported_parameters: ['temperature'],
     created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60, // Old model
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
   {
     id: 'openai/gpt-4-turbo',
@@ -33,6 +34,7 @@ const guestChatModels = [
     pricing: { prompt: '0.00001', completion: '0.00003' },
     supported_parameters: ['temperature'],
     created: Math.floor(Date.now() / 1000), // Recent model (premium)
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
 ];
 
@@ -364,6 +366,7 @@ describe('guest chat routes', () => {
           pricing: { prompt: '0.001', completion: '0.001' },
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds, // Old model (non-premium by recency)
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
         // Add expensive models to push threshold above our test model's price
         {
@@ -374,6 +377,7 @@ describe('guest chat routes', () => {
           pricing: { prompt: '0.1', completion: '0.1' }, // Much more expensive
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
         {
           id: 'super-expensive/model-2',
@@ -383,6 +387,7 @@ describe('guest chat routes', () => {
           pricing: { prompt: '0.1', completion: '0.1' },
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
         {
           id: 'super-expensive/model-3',
@@ -392,6 +397,7 @@ describe('guest chat routes', () => {
           pricing: { prompt: '0.1', completion: '0.1' },
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
       ];
 
@@ -440,6 +446,7 @@ describe('guest chat routes', () => {
           pricing: { prompt: '0.0000001', completion: '0.0000001' }, // Very cheap
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds, // Old model (non-premium by recency)
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
         // Add expensive models to push threshold above our test model's price
         {
@@ -450,6 +457,7 @@ describe('guest chat routes', () => {
           pricing: { prompt: '0.001', completion: '0.001' },
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
         {
           id: 'expensive/model-2',
@@ -459,6 +467,7 @@ describe('guest chat routes', () => {
           pricing: { prompt: '0.001', completion: '0.001' },
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
         {
           id: 'expensive/model-3',
@@ -468,6 +477,7 @@ describe('guest chat routes', () => {
           pricing: { prompt: '0.001', completion: '0.001' },
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
       ];
 

@@ -18,6 +18,10 @@ function createModel(overrides: Partial<Parameters<typeof processModels>[0][0]> 
     pricing: { prompt: '0.001', completion: '0.002' },
     supported_parameters: ['temperature'],
     created: Math.floor(now / 1000),
+    architecture: {
+      input_modalities: ['text'],
+      output_modalities: ['text'],
+    },
     ...overrides,
   };
 }
@@ -66,10 +70,11 @@ describe('processModels', () => {
       expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
     });
 
-    it('excludes image models', () => {
+    it('excludes models with audio in name', () => {
       const models = [
         createModel({ id: 'normal/model' }),
-        createModel({ id: 'image/dalle', name: 'DALL-E 3 Image Generator' }),
+        createModel({ id: 'openai/gpt-audio', name: 'GPT Audio' }),
+        createModel({ id: 'openai/audio-preview', name: 'OpenAI: Audio Preview' }),
       ];
 
       const result = processModels(models);
@@ -77,12 +82,64 @@ describe('processModels', () => {
       expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
     });
 
+    it('excludes models with image in name', () => {
+      const models = [
+        createModel({ id: 'normal/model' }),
+        createModel({ id: 'openai/gpt-image', name: 'GPT Image' }),
+        createModel({ id: 'openai/image-gen', name: 'OpenAI: Image Generator' }),
+      ];
+
+      const result = processModels(models);
+
+      expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
+    });
+
+    it('excludes models without text in input_modalities', () => {
+      const models = [
+        createModel({ id: 'text/model' }),
+        createModel({
+          id: 'image-only/model',
+          architecture: { input_modalities: ['image'], output_modalities: ['text'] },
+        }),
+      ];
+
+      const result = processModels(models);
+
+      expect(result.models.map((m) => m.id)).toEqual(['text/model']);
+    });
+
+    it('excludes models without text in output_modalities', () => {
+      const models = [
+        createModel({ id: 'text/model' }),
+        createModel({
+          id: 'embedding/model',
+          architecture: { input_modalities: ['text'], output_modalities: ['embeddings'] },
+        }),
+      ];
+
+      const result = processModels(models);
+
+      expect(result.models.map((m) => m.id)).toEqual(['text/model']);
+    });
+
+    it('includes multimodal models with text input and output', () => {
+      const models = [
+        createModel({
+          id: 'vision/model',
+          architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] },
+        }),
+      ];
+
+      const result = processModels(models);
+
+      expect(result.models.map((m) => m.id)).toEqual(['vision/model']);
+    });
+
     it('applies name pattern matching case-insensitively', () => {
       const models = [
         createModel({ id: 'normal/model' }),
         createModel({ id: 'utility/1', name: 'BODY BUILDER' }),
         createModel({ id: 'utility/2', name: 'auto router' }),
-        createModel({ id: 'utility/3', name: 'Image Model' }),
       ];
 
       const result = processModels(models);

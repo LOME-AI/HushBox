@@ -57,6 +57,7 @@ const mockModels = [
     pricing: { prompt: '0.00001', completion: '0.00003' },
     supported_parameters: ['temperature'],
     created: Math.floor(Date.now() / 1000),
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
 ];
 

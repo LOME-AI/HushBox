@@ -22,7 +22,7 @@ const MAX_AGE_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 const MIN_PRICE_PER_1K_TOKENS = 0.001;
 
 /** Name patterns for utility models that should always be excluded */
-const EXCLUDED_NAME_PATTERNS = [/body builder/i, /auto router/i, /image/i];
+const EXCLUDED_NAME_PATTERNS = [/body builder/i, /auto router/i, /audio/i, /image/i];
 
 /** Provider name mapping from model ID prefix */
 const PROVIDER_MAP: Record<string, string> = {
@@ -49,6 +49,10 @@ export interface OpenRouterModel {
   pricing: { prompt: string; completion: string };
   supported_parameters: string[];
   created: number;
+  architecture: {
+    input_modalities: string[];
+    output_modalities: string[];
+  };
 }
 
 /** Result of processing models */
@@ -85,12 +89,18 @@ function calculatePercentileThreshold(values: number[], percentile: number): num
  * Check if model should always be excluded (never bypassed by top context).
  * - Free models (both prices = 0)
  * - Utility models by name pattern
+ * - Models that don't include text in input or output modalities
  */
 function isExcludedAlways(model: OpenRouterModel): boolean {
   if (getCombinedPrice(model) === 0) {
     return true;
   }
-  return EXCLUDED_NAME_PATTERNS.some((p) => p.test(model.name));
+  if (EXCLUDED_NAME_PATTERNS.some((p) => p.test(model.name))) {
+    return true;
+  }
+  const hasTextInput = model.architecture.input_modalities.includes('text');
+  const hasTextOutput = model.architecture.output_modalities.includes('text');
+  return !hasTextInput || !hasTextOutput;
 }
 
 /**

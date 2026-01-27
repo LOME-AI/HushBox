@@ -55,6 +55,7 @@ const MOCK_MODELS = [
     pricing: { prompt: '0.00001', completion: '0.00003' },
     supported_parameters: ['temperature'],
     created: Date.now(),
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
   {
     id: 'anthropic/claude-3-sonnet',
@@ -64,6 +65,7 @@ const MOCK_MODELS = [
     pricing: { prompt: '0.000003', completion: '0.000015' },
     supported_parameters: ['temperature'],
     created: Date.now(),
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
   {
     id: FALLBACK_MODEL,
@@ -73,6 +75,7 @@ const MOCK_MODELS = [
     pricing: { prompt: '0.0000001', completion: '0.0000001' },
     supported_parameters: ['temperature'],
     created: Date.now(),
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
 ];
 

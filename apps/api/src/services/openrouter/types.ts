@@ -61,6 +61,10 @@ export interface ModelInfo {
   supported_parameters: string[];
   /** Unix timestamp when the model was created */
   created: number;
+  architecture: {
+    input_modalities: string[];
+    output_modalities: string[];
+  };
 }
 
 /**
