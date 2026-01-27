@@ -36,21 +36,22 @@ This document specifies the complete authentication, recovery, and end-to-end en
 
 ## Technology Stack
 
-| Purpose                   | Technology               | Notes                                        |
-| ------------------------- | ------------------------ | -------------------------------------------- |
-| **Sessions**              | iron-session             | Encrypted cookies only, no server storage    |
-| **Authentication**        | @cloudflare/opaque       | PAKE protocol, password never leaves client  |
-| **Challenge State**       | Upstash Redis            | Ephemeral OPAQUE state, auto-expiry          |
-| **Rate Limiting**         | Upstash Redis            | Per-user and global limits                   |
-| **Key Derivation**        | hash-wasm                | Argon2id WASM implementation                 |
-| **Recovery Phrase**       | @scure/bip39             | Audited, small bundle                        |
-| **Encryption**            | Web Crypto API           | Native AES-256-GCM, AES-KW                   |
-| **Key Derivation (HKDF)** | @noble/hashes            | For deriving conversation/message keys       |
-| **Key Agreement**         | @noble/curves            | X25519/P-256 for sharing                     |
-| **2FA (Server)**          | otplib                   | TOTP secret generation and code verification |
-| **2FA (UI - Input)**      | input-otp                | Accessible OTP input component               |
-| **2FA (UI - QR Code)**    | react-qrcode-logo        | QR code with custom logo and styling         |
-| **Compression**           | Native CompressionStream | No fallback, no polyfill                     |
+| Purpose                   | Technology               | Notes                                          |
+| ------------------------- | ------------------------ | ---------------------------------------------- |
+| **Sessions**              | iron-session             | Encrypted cookies only, no server storage      |
+| **Authentication**        | @cloudflare/opaque       | PAKE protocol, password never leaves client    |
+| **Challenge State**       | Upstash Redis            | Ephemeral OPAQUE state, auto-expiry            |
+| **Rate Limiting**         | Upstash Redis            | Per-user and global limits                     |
+| **Key Derivation**        | hash-wasm                | Argon2id WASM implementation                   |
+| **Recovery Phrase**       | @scure/bip39             | Audited, small bundle                          |
+| **Encryption**            | Web Crypto API           | Native AES-256-GCM, AES-KW                     |
+| **Key Derivation (HKDF)** | @noble/hashes            | For deriving conversation/message keys         |
+| **Key Agreement**         | @noble/curves            | X25519/P-256 for sharing                       |
+| **2FA (Server)**          | otplib                   | TOTP secret generation and code verification   |
+| **2FA (Encryption)**      | @noble/ciphers           | AES-256-GCM encryption of TOTP secrets at rest |
+| **2FA (UI - Input)**      | input-otp                | Accessible OTP input component                 |
+| **2FA (UI - QR Code)**    | react-qrcode-logo        | QR code with custom logo and styling           |
+| **Compression**           | Native CompressionStream | No fallback, no polyfill                       |
 
 ---
 
@@ -101,7 +102,8 @@ CREATE TABLE users (
   opaque_registration     BYTEA NOT NULL,  -- OPAQUE server registration record
 
   -- 2FA (Optional)
-  totp_secret             BYTEA,           -- TOTP secret stored server-side, NULL if not enabled
+  totp_secret_encrypted   BYTEA,           -- TOTP secret encrypted with server-side key
+  totp_iv                 BYTEA,           -- 12-byte IV for AES-GCM decryption
   totp_enabled            BOOLEAN DEFAULT FALSE,
 
   -- E2E Encryption - Password Path
@@ -355,17 +357,19 @@ After successful OPAQUE login, the client receives the session key. However, for
 1. User clicks "Enable 2FA" in settings
 2. User must be authenticated with password (have DEK in memory)
 3. Server generates random TOTP secret (20 bytes) using otplib
-4. Server creates otpauth:// URI with secret, issuer, and account name
-5. Client displays QR code using react-qrcode-logo:
+4. Server encrypts secret with server-derived TOTP encryption key (AES-256-GCM)
+5. Server stores encrypted secret + IV in database
+6. Server creates otpauth:// URI and sends to client (secret in memory only)
+7. Client displays QR code using react-qrcode-logo:
    - Shape: "liquid" (rounded, organic corners)
    - Logo: App logo centered in QR code
    - Logo size: ~20% of QR code width
    - Error correction: "H" (high) to accommodate logo
-6. User scans with authenticator app (Google Authenticator, Authy, etc.)
-7. Client displays input-otp component for 6-digit code entry
-8. User enters code to verify setup
-9. Server verifies code using otplib.authenticator.check()
-10. If valid, server sets totp_enabled = true and stores totp_secret
+8. User scans with authenticator app (Google Authenticator, Authy, etc.)
+9. Client displays input-otp component for 6-digit code entry
+10. User enters code to verify setup
+11. Server decrypts secret, verifies code using otplib.authenticator.check()
+12. If valid, server sets totp_enabled = true
 ```
 
 ### QR Code Implementation
@@ -420,53 +424,102 @@ function Slot(props: SlotProps) {
 3. If yes, server returns { requires_2fa: true, session_pending: true }
 4. Client displays input-otp component for 6-digit code entry
 5. Client sends code to server
-6. Server verifies code using otplib.authenticator.check(code, totp_secret)
-7. If valid, server creates full session
-8. If invalid, increment attempt counter in Redis
+6. Server decrypts TOTP secret from database (AES-256-GCM)
+7. Server verifies code using otplib.authenticator.check(code, secret)
+8. Secret discarded from memory after verification
+9. If valid, server creates full session
+10. If invalid, increment attempt counter in Redis
 ```
 
 ### 2FA Implementation Decision
 
-**Store TOTP secret server-side (not encrypted with DEK).**
+**Encrypt TOTP secrets at rest with a server-derived key.**
 
-Rationale:
+The server must verify TOTP codes, so it needs access to the secret. However, we encrypt secrets at rest to protect against database-only breaches (SQL injection, backup leaks, admin access).
 
-- 2FA protects account access, not message content
-- Message content is already E2E encrypted
-- If attacker has server access + TOTP secret, they still can't read messages
-- This matches industry standard (Google, GitHub, etc.)
-- Simpler implementation, no circular dependency
+**Threat mitigation:**
 
-**Schema adjustment:**
+| Threat                  | Plaintext  | Encrypted at Rest |
+| ----------------------- | ---------- | ----------------- |
+| SQL injection / DB leak | ❌ Exposed | ✅ Protected      |
+| Backup theft            | ❌ Exposed | ✅ Protected      |
+| Database admin access   | ❌ Exposed | ✅ Protected      |
+| Full server compromise  | ❌ Exposed | ❌ Exposed        |
+
+**Key derivation (from existing OPAQUE master secret):**
+
+```typescript
+// Derive TOTP encryption key from master secret
+const totpEncryptionKey = hkdf(
+  sha256,
+  masterSecret, // Same master used for OPAQUE keys
+  'totp-encryption-v1', // Context string
+  'totp', // Label
+  32 // 256 bits
+);
+```
+
+**Schema:**
 
 ```sql
-totp_secret    BYTEA,  -- Stored server-side, not encrypted with DEK
-totp_enabled   BOOLEAN DEFAULT FALSE,
+totp_secret_encrypted   BYTEA,  -- AES-256-GCM encrypted secret
+totp_iv                 BYTEA,  -- 12-byte IV for decryption
+totp_enabled            BOOLEAN DEFAULT FALSE,
 ```
 
 ### Server-Side TOTP with otplib
 
 ```typescript
 import { authenticator } from 'otplib';
+import { gcm } from '@noble/ciphers/aes';
+import { randomBytes } from '@noble/ciphers/webcrypto';
 
-// Generate secret during 2FA setup
-const secret = authenticator.generateSecret(); // 20 bytes, base32 encoded
+// Configure time window (allow 1 step before/after = ±30 seconds)
+authenticator.options = { window: 1 };
 
-// Generate otpauth:// URI for QR code
+// --- Encryption (at 2FA setup) ---
+
+function encryptTotpSecret(secret: string): { encrypted: Buffer; iv: Buffer } {
+  const iv = randomBytes(12);
+  const cipher = gcm(totpEncryptionKey, iv);
+  const encrypted = cipher.encrypt(Buffer.from(secret, 'utf8'));
+  return { encrypted: Buffer.from(encrypted), iv: Buffer.from(iv) };
+}
+
+// Generate and encrypt secret during setup
+const secret = authenticator.generateSecret(); // 20 bytes, base32
+const { encrypted, iv } = encryptTotpSecret(secret);
+// Store encrypted + iv in DB, return URI to client for QR code
+
+// Generate otpauth:// URI for QR code (sent to client, not stored)
 const otpauthUri = authenticator.keyuri(
   userEmail, // Account name
   'YourAppName', // Issuer
-  secret
+  secret // Plaintext secret (only in memory)
 );
-// Example: otpauth://totp/YourAppName:user@email.com?secret=JBSWY3DPEHPK3PXP&issuer=YourAppName
+
+// --- Decryption (at login verification) ---
+
+function decryptTotpSecret(encrypted: Buffer, iv: Buffer): string {
+  const cipher = gcm(totpEncryptionKey, iv);
+  const decrypted = cipher.decrypt(encrypted);
+  return Buffer.from(decrypted).toString('utf8');
+}
 
 // Verify code during login
-const isValid = authenticator.check(userProvidedCode, secret);
+async function verifyTotpCode(userId: string, code: string): Promise<boolean> {
+  const user = await db.query('SELECT totp_secret_encrypted, totp_iv FROM users WHERE id = $1', [
+    userId,
+  ]);
 
-// Optional: Configure time window (default is 1 step = 30 seconds)
-authenticator.options = {
-  window: 1, // Allow 1 step before/after current time
-};
+  if (!user.totp_secret_encrypted) return false;
+
+  // Decrypt in memory only for verification
+  const secret = decryptTotpSecret(user.totp_secret_encrypted, user.totp_iv);
+
+  return authenticator.check(code, secret);
+  // secret goes out of scope here — minimal exposure window
+}
 ```
 
 ### 2FA Rate Limiting
@@ -882,6 +935,29 @@ SECURITY NOTES:
 
 ## Compression + Encryption Pipeline
 
+### Compression Strategy
+
+**Flag byte values:**
+
+- `0x00` = uncompressed (raw bytes)
+- `0x01` = gzip compressed
+
+**Decision logic:**
+
+1. Always try gzip compression
+2. Compare sizes:
+   - If compressed is smaller → use compressed, flag `0x01`
+   - If compressed is same/larger → use original, flag `0x00`
+
+**Why this approach:**
+
+- Some content compresses well (text, code, repetitive data)
+- Some content compresses poorly (already compressed images, random data)
+- Always comparing ensures we never make things worse
+- Simple logic, no magic thresholds
+
+**No database flag needed:** The compression state is embedded as the first byte of the encrypted payload itself. The server never knows whether content is compressed — it just stores opaque ciphertext.
+
 ### Sending a Message
 
 ```
@@ -894,12 +970,9 @@ User types message
           │
           ▼
 ┌─────────────────────┐
-│ 2. TRY COMPRESS     │  If message.length >= 50:
-│    (measure result) │    compressed = gzip(messageBytes)
-│                     │    if compressed.length < messageBytes.length:
-│                     │      use compressed, flag = 0x01
-│                     │    else:
-│                     │      use original, flag = 0x00
+│ 2. TRY COMPRESS     │  compressed = gzip(messageBytes)
+│    (compare sizes)  │  if compressed.length < messageBytes.length:
+│                     │    use compressed, flag = 0x01
 │                     │  else:
 │                     │    use original, flag = 0x00
 └─────────┬───────────┘
@@ -1004,6 +1077,14 @@ interface SessionData {
 }
 ```
 
+### DEK Persistence Across Page Refreshes
+
+The DEK lives in client memory and is lost on page refresh. To avoid re-prompting for password on every refresh while maintaining security:
+
+**Approach:** User enters password once per browser session. Password stored in sessionStorage (encrypted with a session-bound key), re-run Argon2id on refresh to re-derive KEK and unwrap DEK.
+
+This balances UX (no repeated password entry) with security (password cleared when tab closes, never in localStorage).
+
 ### Session Lifecycle
 
 1. **Created:** After successful OPAQUE login (+ 2FA if enabled)
@@ -1064,7 +1145,7 @@ interface SessionData {
 - Wrapped DEK (cannot unwrap without password/phrase)
 - Encrypted content (cannot decrypt)
 - Public keys (safe to expose)
-- TOTP secret (protects access, not content)
+- TOTP secret encrypted at rest (decrypted only in memory during verification)
 
 ### Attack Scenarios
 
@@ -1092,6 +1173,7 @@ interface SessionData {
     "@scure/bip39": "^1.x.x",
     "@noble/hashes": "^1.x.x",
     "@noble/curves": "^1.x.x",
+    "@noble/ciphers": "^1.x.x",
     "otplib": "^12.x.x",
     "input-otp": "^1.x.x",
     "react-qrcode-logo": "^3.x.x"
