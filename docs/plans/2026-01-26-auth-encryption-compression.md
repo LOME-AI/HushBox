@@ -441,6 +441,24 @@ export async function phraseToSeed(phrase: string): Promise<Uint8Array> {
 export function validatePhrase(phrase: string): boolean {
   return validateMnemonic(phrase, wordlist);
 }
+
+// Phrase verifier: hash of the phrase-derived KEK
+// Allows server to verify phrase without storing it
+export function computePhraseVerifier(phraseKEK: Uint8Array): Uint8Array {
+  // Double-hash to ensure verifier can't be used to derive KEK
+  return sha256(sha256(phraseKEK));
+}
+
+export function verifyPhraseVerifier(phraseKEK: Uint8Array, storedVerifier: Uint8Array): boolean {
+  const computed = computePhraseVerifier(phraseKEK);
+  // Constant-time comparison
+  if (computed.length !== storedVerifier.length) return false;
+  let result = 0;
+  for (let i = 0; i < computed.length; i++) {
+    result |= computed[i] ^ storedVerifier[i];
+  }
+  return result === 0;
+}
 ```
 
 ### 3.7 Sharing (`sharing.ts`)
@@ -607,6 +625,36 @@ export function generateTotpUri(email: string, secret: string): string {
 export function verifyTotpCode(code: string, secret: string): boolean {
   return authenticator.check(code, secret);
 }
+
+// TOTP Replay Prevention
+// Store used codes in Redis to prevent reuse within the 30-second window
+// Key: totp:used:{userId}:{code} → 1, TTL: 90 seconds (covers clock drift)
+
+export async function verifyTotpWithReplayProtection(
+  redis: Redis,
+  userId: string,
+  code: string,
+  encryptedSecret: Uint8Array,
+  iv: Uint8Array
+): Promise<{ valid: boolean; error?: string }> {
+  // Check if code was already used
+  const usedKey = `totp:used:${userId}:${code}`;
+  const alreadyUsed = await redis.get(usedKey);
+  if (alreadyUsed) {
+    return { valid: false, error: 'CODE_ALREADY_USED' };
+  }
+
+  // Decrypt and verify
+  const secret = decryptTotpSecret(encryptedSecret, iv);
+  const isValid = authenticator.check(code, secret);
+
+  if (isValid) {
+    // Mark code as used (90s TTL covers 30s window + clock drift)
+    await redis.set(usedKey, '1', { ex: 90 });
+  }
+
+  return { valid: isValid };
+}
 ```
 
 ---
@@ -681,6 +729,9 @@ Replace Better Auth session extraction with iron-session.
 `lockout:login:${email}` → timestamp (TTL: 15 min)
 `lockout:2fa:${userId}` → timestamp (TTL: 15 min)
 `lockout:recovery:${email}` → timestamp (TTL: 1 hour)
+
+// TOTP replay prevention
+`totp:used:${userId}:${code}` → 1 (TTL: 90 sec)
 ```
 
 ### 6.5.3 Email Enumeration Protection
