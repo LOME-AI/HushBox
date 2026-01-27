@@ -264,7 +264,7 @@ describe('saveMessageWithBilling', () => {
       // Set free allowance
       await db
         .update(users)
-        .set({ freeAllowanceCents: 500 }) // $5.00
+        .set({ freeAllowanceCents: '500.00000000' }) // $5.00
         .where(eq(users.id, user.id));
 
       const conversation = await createTestConversation(user.id);
@@ -286,7 +286,7 @@ describe('saveMessageWithBilling', () => {
       const [updatedUser] = await db.select().from(users).where(eq(users.id, user.id));
       if (!updatedUser) throw new Error('User not found');
       expect(Number.parseFloat(updatedUser.balance)).toBeCloseTo(10 - 0.01, 5);
-      expect(updatedUser.freeAllowanceCents).toBe(500); // Unchanged
+      expect(updatedUser.freeAllowanceCents).toBe('500.00000000'); // Unchanged
     });
 
     it('deducts from freeAllowance when specified', async () => {
@@ -294,7 +294,7 @@ describe('saveMessageWithBilling', () => {
       // Set free allowance
       await db
         .update(users)
-        .set({ freeAllowanceCents: 500 }) // $5.00 = 500 cents
+        .set({ freeAllowanceCents: '500.00000000' }) // $5.00 = 500 cents
         .where(eq(users.id, user.id));
 
       const conversation = await createTestConversation(user.id);
@@ -316,12 +316,15 @@ describe('saveMessageWithBilling', () => {
       const [updatedUser] = await db.select().from(users).where(eq(users.id, user.id));
       if (!updatedUser) throw new Error('User not found');
       expect(Number.parseFloat(updatedUser.balance)).toBe(10); // Unchanged
-      expect(updatedUser.freeAllowanceCents).toBe(499); // Reduced by 1 cent
+      expect(Number.parseFloat(updatedUser.freeAllowanceCents)).toBeCloseTo(499, 5); // Reduced by 1 cent
     });
 
     it('stores deductionSource in transaction', async () => {
       const user = await createTestUser('10.00000000');
-      await db.update(users).set({ freeAllowanceCents: 500 }).where(eq(users.id, user.id));
+      await db
+        .update(users)
+        .set({ freeAllowanceCents: '500.00000000' })
+        .where(eq(users.id, user.id));
 
       const conversation = await createTestConversation(user.id);
       const messageId = crypto.randomUUID();

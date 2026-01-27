@@ -189,7 +189,7 @@ export function createBillingRoutes(): OpenAPIHono<AppEnv> {
 
     const response = getBalanceResponseSchema.parse({
       balance: userData?.balance ?? '0.00000000',
-      freeAllowanceCents: userData?.freeAllowanceCents ?? 0,
+      freeAllowanceCents: Number.parseFloat(userData?.freeAllowanceCents ?? '0'),
     });
     return c.json(response, 200);
   });

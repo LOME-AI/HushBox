@@ -1,34 +1,82 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { createDb, LOCAL_NEON_DEV_CONFIG, type Database } from '@lome-chat/db';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { eq, inArray } from 'drizzle-orm';
+import {
+  createDb,
+  LOCAL_NEON_DEV_CONFIG,
+  type Database,
+  users,
+  conversations,
+  messages,
+  balanceTransactions,
+} from '@lome-chat/db';
+import { userFactory, conversationFactory } from '@lome-chat/db/factories';
+import { createEnvUtilities, FREE_ALLOWANCE_CENTS } from '@lome-chat/shared';
 import { createOpenRouterClient, clearModelCache, type EvidenceConfig } from './openrouter.js';
+import { createFastMockOpenRouterClient } from '../../test-helpers/openrouter-mocks.js';
+import { saveMessageWithBilling } from '../chat/message-persistence.js';
 import type { OpenRouterClient } from './types.js';
 
 /**
  * Integration tests for OpenRouter API.
- * These tests call the real OpenRouter API and require OPENROUTER_API_KEY to be set.
  *
- * - Local dev: Tests skip gracefully (no API key needed)
- * - CI: Tests fail if API key is missing (ensures real API calls are tested)
+ * - Local dev: Tests run with mock client (no API key needed)
+ * - CI: Tests run with real API (OPENROUTER_API_KEY required)
  */
 
 // Fallback model if dynamic selection fails
 const FALLBACK_MODEL = 'meta-llama/llama-3.1-8b-instruct';
 
+const env = createEnvUtilities({
+  ...(process.env['NODE_ENV'] && { NODE_ENV: process.env['NODE_ENV'] }),
+  ...(process.env['CI'] && { CI: process.env['CI'] }),
+});
+
 const hasApiKey = Boolean(process.env['OPENROUTER_API_KEY']);
-const isCI = Boolean(process.env['CI']);
 const DATABASE_URL = process.env['DATABASE_URL'];
 
-if (isCI && !hasApiKey) {
+// Fail fast in CI if API key is missing
+if (env.isCI && !hasApiKey) {
   throw new Error(
     'OPENROUTER_API_KEY is required in CI. Ensure the secret is set in GitHub Actions.'
   );
 }
 
-if (isCI && !DATABASE_URL) {
+if (env.isCI && !DATABASE_URL) {
   throw new Error('DATABASE_URL is required in CI for evidence recording.');
 }
 
-describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
+// Mock models for local dev testing
+const MOCK_MODELS = [
+  {
+    id: 'openai/gpt-4-turbo',
+    name: 'GPT-4 Turbo',
+    description: 'Latest GPT-4 model',
+    context_length: 128_000,
+    pricing: { prompt: '0.00001', completion: '0.00003' },
+    supported_parameters: ['temperature'],
+    created: Date.now(),
+  },
+  {
+    id: 'anthropic/claude-3-sonnet',
+    name: 'Claude 3 Sonnet',
+    description: 'Anthropic Claude 3 Sonnet',
+    context_length: 200_000,
+    pricing: { prompt: '0.000003', completion: '0.000015' },
+    supported_parameters: ['temperature'],
+    created: Date.now(),
+  },
+  {
+    id: FALLBACK_MODEL,
+    name: 'Llama 3.1 8B Instruct',
+    description: 'Meta Llama 3.1 8B',
+    context_length: 131_072,
+    pricing: { prompt: '0.0000001', completion: '0.0000001' },
+    supported_parameters: ['temperature'],
+    created: Date.now(),
+  },
+];
+
+describe('OpenRouter Integration', () => {
   let client: OpenRouterClient;
   let testModel: string = FALLBACK_MODEL;
   let db: Database | null = null;
@@ -37,9 +85,22 @@ describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
   beforeAll(async () => {
     // Clear cache to ensure fresh model list
     clearModelCache();
+
+    if (env.isLocalDev) {
+      // Local dev: use mock client
+      client = createFastMockOpenRouterClient({
+        streamContent: 'INTEGRATION_TEST_OK',
+        models: MOCK_MODELS,
+      });
+      testModel = FALLBACK_MODEL;
+      console.log('Using mock OpenRouter client for local development');
+      return;
+    }
+
+    // CI/Production: use real client
     const apiKey = process.env['OPENROUTER_API_KEY'];
     if (!apiKey) {
-      throw new Error('OPENROUTER_API_KEY is required - this should not happen due to skipIf');
+      throw new Error('OPENROUTER_API_KEY is required in CI/production');
     }
 
     // Set up database connection for evidence recording in CI
@@ -48,7 +109,7 @@ describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
         connectionString: DATABASE_URL,
         neonDev: LOCAL_NEON_DEV_CONFIG,
       });
-      evidenceConfig = { db, isCI };
+      evidenceConfig = { db, isCI: env.isCI };
     }
 
     client = createOpenRouterClient(apiKey, evidenceConfig);
@@ -199,4 +260,160 @@ describe.skipIf(!hasApiKey)('OpenRouter Integration', () => {
       expect(tokenTimestamps.length).toBeGreaterThan(1);
     }, 30_000);
   });
+});
+
+/**
+ * Free allowance billing integration tests.
+ * These tests verify the complete billing flow for free-tier users.
+ *
+ * Requires DATABASE_URL for database operations.
+ */
+describe('Free Allowance Billing', () => {
+  let db: Database;
+  const createdUserIds: string[] = [];
+  const createdConversationIds: string[] = [];
+  const createdMessageIds: string[] = [];
+  const createdTransactionIds: string[] = [];
+
+  beforeAll(() => {
+    if (!DATABASE_URL) {
+      throw new Error('DATABASE_URL required for billing integration tests');
+    }
+    db = createDb({
+      connectionString: DATABASE_URL,
+      neonDev: LOCAL_NEON_DEV_CONFIG,
+    });
+  });
+
+  afterAll(async () => {
+    // Clean up in reverse order of dependencies
+    if (createdTransactionIds.length > 0) {
+      await db
+        .delete(balanceTransactions)
+        .where(inArray(balanceTransactions.id, createdTransactionIds));
+    }
+    if (createdMessageIds.length > 0) {
+      await db.delete(messages).where(inArray(messages.id, createdMessageIds));
+    }
+    if (createdConversationIds.length > 0) {
+      await db.delete(conversations).where(inArray(conversations.id, createdConversationIds));
+    }
+    if (createdUserIds.length > 0) {
+      await db.delete(users).where(inArray(users.id, createdUserIds));
+    }
+  });
+
+  it('deducts from freeAllowance when free-tier user sends message', async () => {
+    // 1. Create a free-tier user (balance=0, freeAllowance=5 cents)
+    const initialFreeAllowance = FREE_ALLOWANCE_CENTS; // "5.00000000"
+    const [user] = await db
+      .insert(users)
+      .values(
+        userFactory.build({
+          balance: '0.00000000',
+          freeAllowanceCents: initialFreeAllowance,
+        })
+      )
+      .returning();
+    if (!user) throw new Error('Failed to create test user');
+    createdUserIds.push(user.id);
+
+    // 2. Create a conversation
+    const [conversation] = await db
+      .insert(conversations)
+      .values(conversationFactory.build({ userId: user.id }))
+      .returning();
+    if (!conversation) throw new Error('Failed to create test conversation');
+    createdConversationIds.push(conversation.id);
+
+    // 3. Save a message with billing (deduct from free allowance)
+    const messageId = crypto.randomUUID();
+    createdMessageIds.push(messageId);
+    const costCents = 0.01; // 0.01 cents (fractional cost to test numeric precision)
+
+    const result = await saveMessageWithBilling(db, {
+      messageId,
+      conversationId: conversation.id,
+      content: 'Test AI response',
+      model: 'openai/gpt-4o-mini',
+      userId: user.id,
+      totalCost: costCents / 100, // Convert to dollars for the function
+      inputCharacters: 100,
+      outputCharacters: 50,
+      deductionSource: 'freeAllowance',
+    });
+    createdTransactionIds.push(result.transactionId);
+
+    // 4. Verify the free allowance was decremented
+    const [updatedUser] = await db.select().from(users).where(eq(users.id, user.id));
+    if (!updatedUser) throw new Error('User not found after update');
+
+    const initialCents = Number.parseFloat(initialFreeAllowance);
+    const updatedCents = Number.parseFloat(updatedUser.freeAllowanceCents);
+    const expectedCents = initialCents - costCents;
+
+    expect(updatedCents).toBeCloseTo(expectedCents, 6);
+
+    // 5. Verify transaction was recorded with correct deductionSource
+    const [tx] = await db
+      .select()
+      .from(balanceTransactions)
+      .where(eq(balanceTransactions.id, result.transactionId));
+    if (!tx) throw new Error('Transaction not found');
+
+    expect(tx.deductionSource).toBe('freeAllowance');
+    expect(tx.type).toBe('usage');
+  }, 30_000);
+
+  it('stores fractional freeAllowance deductions with precision', async () => {
+    // This test verifies that very small costs (< 1 cent) are tracked accurately
+    const initialFreeAllowance = FREE_ALLOWANCE_CENTS;
+    const [user] = await db
+      .insert(users)
+      .values(
+        userFactory.build({
+          balance: '0.00000000',
+          freeAllowanceCents: initialFreeAllowance,
+        })
+      )
+      .returning();
+    if (!user) throw new Error('Failed to create test user');
+    createdUserIds.push(user.id);
+
+    const [conversation] = await db
+      .insert(conversations)
+      .values(conversationFactory.build({ userId: user.id }))
+      .returning();
+    if (!conversation) throw new Error('Failed to create test conversation');
+    createdConversationIds.push(conversation.id);
+
+    // Small fractional cost: 0.001_234_56 cents (a tiny API call)
+    const fractionalCostCents = 0.001_234_56;
+    const messageId = crypto.randomUUID();
+    createdMessageIds.push(messageId);
+
+    const result = await saveMessageWithBilling(db, {
+      messageId,
+      conversationId: conversation.id,
+      content: 'Test response',
+      model: 'openai/gpt-4o-mini',
+      userId: user.id,
+      totalCost: fractionalCostCents / 100, // Convert to dollars
+      inputCharacters: 10,
+      outputCharacters: 5,
+      deductionSource: 'freeAllowance',
+    });
+    createdTransactionIds.push(result.transactionId);
+
+    // Verify fractional precision is maintained
+    const [updatedUser] = await db.select().from(users).where(eq(users.id, user.id));
+    if (!updatedUser) throw new Error('User not found after update');
+
+    const initialCents = Number.parseFloat(initialFreeAllowance);
+    const updatedCents = Number.parseFloat(updatedUser.freeAllowanceCents);
+    const expectedCents = initialCents - fractionalCostCents;
+
+    // Should maintain precision to at least 6 decimal places
+    expect(updatedCents).toBeCloseTo(expectedCents, 6);
+  }, 30_000);
 });

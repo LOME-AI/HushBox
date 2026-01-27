@@ -4,6 +4,7 @@ import {
   canUseModel,
   getDeductionSource,
   FREE_ALLOWANCE_CENTS,
+  FREE_ALLOWANCE_CENTS_VALUE,
   GUEST_MESSAGE_LIMIT,
   WELCOME_CREDIT_CENTS,
   type UserTierInfo,
@@ -11,9 +12,14 @@ import {
 
 describe('tiers', () => {
   describe('constants', () => {
-    it('exports FREE_ALLOWANCE_CENTS as a positive integer', () => {
-      expect(FREE_ALLOWANCE_CENTS).toBeGreaterThan(0);
-      expect(Number.isInteger(FREE_ALLOWANCE_CENTS)).toBe(true);
+    it('exports FREE_ALLOWANCE_CENTS as a numeric string for database', () => {
+      expect(typeof FREE_ALLOWANCE_CENTS).toBe('string');
+      expect(Number.parseFloat(FREE_ALLOWANCE_CENTS)).toBeGreaterThan(0);
+    });
+
+    it('exports FREE_ALLOWANCE_CENTS_VALUE as a positive integer for calculations', () => {
+      expect(FREE_ALLOWANCE_CENTS_VALUE).toBeGreaterThan(0);
+      expect(Number.isInteger(FREE_ALLOWANCE_CENTS_VALUE)).toBe(true);
     });
 
     it('exports GUEST_MESSAGE_LIMIT as a positive integer', () => {

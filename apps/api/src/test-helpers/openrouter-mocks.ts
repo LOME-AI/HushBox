@@ -4,19 +4,21 @@ import type { OpenRouterClient } from '../services/openrouter/types.js';
  * Create a fast mock OpenRouter client for testing (no delays).
  * Returns immediate responses without network simulation.
  */
+export interface MockModel {
+  id: string;
+  name: string;
+  description: string;
+  context_length: number;
+  pricing: { prompt: string; completion: string };
+  supported_parameters: string[];
+  created: number;
+}
+
 export function createFastMockOpenRouterClient(
   options: {
     streamContent?: string;
     generationId?: string;
-    models?: {
-      id: string;
-      name: string;
-      description: string;
-      context_length: number;
-      pricing: { prompt: string; completion: string };
-      supported_parameters: string[];
-      created: number;
-    }[];
+    models?: MockModel[];
   } = {}
 ): OpenRouterClient {
   const { streamContent = 'Echo: Hello', generationId = 'mock-gen-123', models = [] } = options;
@@ -58,7 +60,11 @@ export function createFastMockOpenRouterClient(
     listModels() {
       return Promise.resolve(models);
     },
-    getModel() {
+    getModel(modelId: string) {
+      const model = models.find((m) => m.id === modelId);
+      if (model) {
+        return Promise.resolve(model);
+      }
       return Promise.reject(new Error('Model not found'));
     },
     getGenerationStats(genId: string) {

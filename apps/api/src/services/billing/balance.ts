@@ -36,10 +36,10 @@ export async function checkUserBalance(db: Database, userId: string): Promise<Ba
   const balance = user?.balance ?? '0';
   const balanceValue = Number.parseFloat(balance);
 
-  // Check if free allowance needs reset
-  let freeAllowanceCents = user?.freeAllowanceCents ?? 0;
+  // Check if free allowance needs reset (parse string to number for comparison)
+  let freeAllowanceCents = Number.parseFloat(user?.freeAllowanceCents ?? '0');
   if (user && needsResetBeforeMidnight(user.freeAllowanceResetAt)) {
-    freeAllowanceCents = FREE_ALLOWANCE_CENTS;
+    freeAllowanceCents = Number.parseFloat(FREE_ALLOWANCE_CENTS);
   }
 
   // User has balance if: primary balance > 0 OR free allowance > 0
@@ -77,11 +77,11 @@ export async function getUserTierInfo(db: Database, userId: string | null): Prom
     return getUserTier(null);
   }
 
-  // Check if free allowance needs reset
-  let freeAllowanceCents = user.freeAllowanceCents;
+  // Check if free allowance needs reset (parse string to number)
+  let freeAllowanceCents = Number.parseFloat(user.freeAllowanceCents);
   if (needsResetBeforeMidnight(user.freeAllowanceResetAt)) {
     // Reset free allowance
-    freeAllowanceCents = FREE_ALLOWANCE_CENTS;
+    freeAllowanceCents = Number.parseFloat(FREE_ALLOWANCE_CENTS);
 
     // Update in database (fire-and-forget, don't block)
     fireAndForget(

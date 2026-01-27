@@ -93,10 +93,30 @@ describe('createFastMockOpenRouterClient', () => {
     expect(models).toEqual([]);
   });
 
-  it('getModel rejects with error', async () => {
+  it('getModel returns model if found in models list', async () => {
+    const customModels = [
+      {
+        id: 'test-model',
+        name: 'Test Model',
+        description: 'A test model',
+        context_length: 4096,
+        pricing: { prompt: '0.001', completion: '0.002' },
+        supported_parameters: ['temperature'],
+        created: 1_234_567_890,
+      },
+    ];
+
+    const client = createFastMockOpenRouterClient({ models: customModels });
+    const model = await client.getModel('test-model');
+
+    expect(model.id).toBe('test-model');
+    expect(model.name).toBe('Test Model');
+  });
+
+  it('getModel rejects with error if model not found', async () => {
     const client = createFastMockOpenRouterClient();
 
-    await expect(client.getModel('any-model')).rejects.toThrow('Model not found');
+    await expect(client.getModel('nonexistent-model')).rejects.toThrow('Model not found');
   });
 
   it('getGenerationStats returns mock stats with provided id', async () => {

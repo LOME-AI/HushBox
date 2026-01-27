@@ -50,6 +50,13 @@
       "when": 1768966377326,
       "tag": "0006_supreme_stranger",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1769407451291,
+      "tag": "0007_tiny_trauma",
+      "breakpoints": true
     }
   ]
 }

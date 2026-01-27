@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, numeric, integer } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, numeric } from 'drizzle-orm/pg-core';
 
 import { FREE_ALLOWANCE_CENTS, WELCOME_CREDIT_BALANCE } from '../constants';
 
@@ -13,7 +13,9 @@ export const users = pgTable('users', {
   balance: numeric('balance', { precision: 20, scale: 8 })
     .notNull()
     .default(WELCOME_CREDIT_BALANCE),
-  freeAllowanceCents: integer('free_allowance_cents').notNull().default(FREE_ALLOWANCE_CENTS),
+  freeAllowanceCents: numeric('free_allowance_cents', { precision: 20, scale: 8 })
+    .notNull()
+    .default(FREE_ALLOWANCE_CENTS),
   freeAllowanceResetAt: timestamp('free_allowance_reset_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

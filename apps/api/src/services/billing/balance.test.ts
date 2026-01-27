@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { inArray } from 'drizzle-orm';
 import { createDb, LOCAL_NEON_DEV_CONFIG, users, type Database } from '@lome-chat/db';
 import { userFactory } from '@lome-chat/db/factories';
-import { FREE_ALLOWANCE_CENTS } from '@lome-chat/shared';
+import { FREE_ALLOWANCE_CENTS, FREE_ALLOWANCE_CENTS_VALUE } from '@lome-chat/shared';
 import { checkUserBalance, getUserTierInfo } from './balance.js';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
@@ -33,7 +33,7 @@ describe('checkUserBalance', () => {
 
   async function createTestUser(
     balance: string,
-    freeAllowanceCents: number = FREE_ALLOWANCE_CENTS,
+    freeAllowanceCents: string = FREE_ALLOWANCE_CENTS,
     freeAllowanceResetAt: Date | null = null
   ) {
     const userData = userFactory.build({ balance, freeAllowanceCents, freeAllowanceResetAt });
@@ -54,7 +54,7 @@ describe('checkUserBalance', () => {
 
   it('returns true for zero balance with free allowance', async () => {
     // Set resetAt to today to prevent reset
-    const user = await createTestUser('0.00000000', 5, getTodayMidnight());
+    const user = await createTestUser('0.00000000', '5.00000000', getTodayMidnight());
 
     const result = await checkUserBalance(db, user.id);
 
@@ -64,7 +64,7 @@ describe('checkUserBalance', () => {
 
   it('returns false for zero balance with no free allowance', async () => {
     // Set resetAt to today so the 0 allowance isn't reset
-    const user = await createTestUser('0.00000000', 0, getTodayMidnight());
+    const user = await createTestUser('0.00000000', '0.00000000', getTodayMidnight());
 
     const result = await checkUserBalance(db, user.id);
 
@@ -74,7 +74,7 @@ describe('checkUserBalance', () => {
 
   it('returns false for negative balance with no free allowance', async () => {
     // Set resetAt to today so the 0 allowance isn't reset
-    const user = await createTestUser('-5.00000000', 0, getTodayMidnight());
+    const user = await createTestUser('-5.00000000', '0.00000000', getTodayMidnight());
 
     const result = await checkUserBalance(db, user.id);
 
@@ -125,7 +125,7 @@ describe('getUserTierInfo', () => {
 
   async function createTestUser(overrides: {
     balance?: string;
-    freeAllowanceCents?: number;
+    freeAllowanceCents?: string;
     freeAllowanceResetAt?: Date | null;
   }) {
     const userData = userFactory.build({
@@ -162,7 +162,7 @@ describe('getUserTierInfo', () => {
   it('includes free allowance in tier info', async () => {
     const user = await createTestUser({
       balance: '0.00000000',
-      freeAllowanceCents: 5,
+      freeAllowanceCents: '5.00000000',
     });
 
     const result = await getUserTierInfo(db, user.id);
@@ -188,14 +188,14 @@ describe('getUserTierInfo', () => {
 
       const user = await createTestUser({
         balance: '0.00000000',
-        freeAllowanceCents: 2, // partially used
+        freeAllowanceCents: '2.00000000', // partially used
         freeAllowanceResetAt: yesterday,
       });
 
       const result = await getUserTierInfo(db, user.id);
 
       // Should be reset to full allowance
-      expect(result.freeAllowanceCents).toBe(FREE_ALLOWANCE_CENTS);
+      expect(result.freeAllowanceCents).toBe(FREE_ALLOWANCE_CENTS_VALUE);
     });
 
     it('does not reset if already reset today', async () => {
@@ -205,7 +205,7 @@ describe('getUserTierInfo', () => {
 
       const user = await createTestUser({
         balance: '0.00000000',
-        freeAllowanceCents: 2, // partially used
+        freeAllowanceCents: '2.00000000', // partially used
         freeAllowanceResetAt: todayMidnight,
       });
 
@@ -218,14 +218,14 @@ describe('getUserTierInfo', () => {
     it('resets if resetAt is null (first time user)', async () => {
       const user = await createTestUser({
         balance: '0.00000000',
-        freeAllowanceCents: 3, // partial
+        freeAllowanceCents: '3.00000000', // partial
         freeAllowanceResetAt: null,
       });
 
       const result = await getUserTierInfo(db, user.id);
 
       // First-time users with null resetAt get reset to full allowance
-      expect(result.freeAllowanceCents).toBe(FREE_ALLOWANCE_CENTS);
+      expect(result.freeAllowanceCents).toBe(FREE_ALLOWANCE_CENTS_VALUE);
     });
   });
 });

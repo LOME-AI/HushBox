@@ -45,7 +45,8 @@ export async function saveMessageWithBilling(
 
   const costAmount = totalCost.toFixed(8);
   const chargeAmount = (-totalCost).toFixed(8);
-  const chargeCents = Math.round(totalCost * 100);
+  // Use string with 8 decimal precision for fractional cents support
+  const chargeCents = (totalCost * 100).toFixed(8);
   const transactionId = crypto.randomUUID();
 
   return db.transaction(async (tx) => {
