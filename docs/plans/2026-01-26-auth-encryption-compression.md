@@ -6,16 +6,16 @@ Replace Better Auth with a custom OPAQUE-based authentication system featuring e
 
 ## Decisions Made
 
-| Decision              | Choice                                                                   |
-| --------------------- | ------------------------------------------------------------------------ |
-| Scope                 | Full implementation (all 11 phases)                                      |
-| OPAQUE library        | `@cloudflare/opaque-ts`                                                  |
-| Data migration        | Clean break — drop Better Auth tables, fresh start                       |
-| Crypto package        | New `packages/crypto` package                                            |
-| OPAQUE server secrets | KMS derivation — single `OPAQUE_MASTER_SECRET` derives all keys via HKDF |
-| TOTP secrets          | Encrypted at rest with server-side key derived from master secret        |
-| DEK persistence       | sessionStorage (encrypted password), re-derive on page refresh           |
-| Compression           | Always try gzip, use smaller result (no threshold)                       |
+| Decision              | Choice                                                                             |
+| --------------------- | ---------------------------------------------------------------------------------- |
+| Scope                 | Full implementation (all 11 phases)                                                |
+| OPAQUE library        | `@cloudflare/opaque-ts`                                                            |
+| Data migration        | Clean break — drop Better Auth tables, fresh start                                 |
+| Crypto package        | New `packages/crypto` package                                                      |
+| OPAQUE server secrets | KMS derivation — single `OPAQUE_MASTER_SECRET` derives all keys via HKDF           |
+| TOTP secrets          | Encrypted at rest with server-side key derived from master secret                  |
+| KEK persistence       | sessionStorage (default) or localStorage ("Keep me signed in"), DEK in memory only |
+| Compression           | Always try gzip, use smaller result (no threshold)                                 |
 
 ---
 
@@ -127,7 +127,7 @@ export function redisMiddleware(): MiddlewareHandler<AppEnv> {
 ### 1.5 Packages to Install
 
 ```bash
-pnpm --filter @lome-chat/api add @upstash/redis
+pnpm --filter @lome-chat/api add @upstash/redis iron-session otplib @noble/ciphers @noble/hashes
 ```
 
 ---
@@ -158,7 +158,7 @@ ALTER TABLE users ADD COLUMN email_verify_token TEXT;
 ALTER TABLE users ADD COLUMN email_verify_expires TIMESTAMPTZ;
 
 -- OPAQUE Authentication
-ALTER TABLE users ADD COLUMN opaque_registration BYTEA;
+ALTER TABLE users ADD COLUMN opaque_registration BYTEA NOT NULL;
 
 -- 2FA (encrypted at rest)
 ALTER TABLE users ADD COLUMN totp_secret_encrypted BYTEA;
@@ -166,18 +166,18 @@ ALTER TABLE users ADD COLUMN totp_iv BYTEA;
 ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- E2E Encryption - Password Path
-ALTER TABLE users ADD COLUMN password_salt BYTEA;
-ALTER TABLE users ADD COLUMN encrypted_dek_password BYTEA;
+ALTER TABLE users ADD COLUMN password_salt BYTEA NOT NULL;
+ALTER TABLE users ADD COLUMN encrypted_dek_password BYTEA NOT NULL;
 
--- E2E Encryption - Recovery Path
+-- E2E Encryption - Recovery Path (nullable until phrase acknowledged)
 ALTER TABLE users ADD COLUMN phrase_salt BYTEA;
 ALTER TABLE users ADD COLUMN encrypted_dek_phrase BYTEA;
 ALTER TABLE users ADD COLUMN phrase_verifier BYTEA;
 ALTER TABLE users ADD COLUMN has_acknowledged_phrase BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Sharing Keys (X25519)
-ALTER TABLE users ADD COLUMN public_key BYTEA;
-ALTER TABLE users ADD COLUMN private_key_wrapped BYTEA;
+ALTER TABLE users ADD COLUMN public_key BYTEA NOT NULL;
+ALTER TABLE users ADD COLUMN private_key_wrapped BYTEA NOT NULL;
 
 -- Versioning
 ALTER TABLE users ADD COLUMN encryption_version INTEGER NOT NULL DEFAULT 1;
@@ -185,6 +185,8 @@ ALTER TABLE users ADD COLUMN encryption_version INTEGER NOT NULL DEFAULT 1;
 -- Indexes
 CREATE INDEX idx_users_email_verify_token ON users(email_verify_token) WHERE email_verify_token IS NOT NULL;
 ```
+
+**Note:** Clean break — no existing users, so `NOT NULL` columns can be added directly in a single migration.
 
 ### 2.3 Modify Messages Table
 
@@ -474,7 +476,10 @@ import { OpaqueServer, getOpaqueConfig, OpaqueID } from '@cloudflare/opaque-ts';
 import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha256';
 
-export function createOpaqueServer(masterSecret: Uint8Array): OpaqueServer {
+export function createOpaqueServer(
+  masterSecret: Uint8Array,
+  serverIdentifier: string
+): OpaqueServer {
   // Derive OPRF seed and AKE keypair from master secret
   const oprfSeed = hkdf(sha256, masterSecret, 'opaque-oprf-seed-v1', '', 32);
   const akePrivateKey = hkdf(sha256, masterSecret, 'opaque-ake-private-v1', '', 32);
@@ -482,13 +487,19 @@ export function createOpaqueServer(masterSecret: Uint8Array): OpaqueServer {
   const config = getOpaqueConfig(OpaqueID.OPAQUE_P256_SHA256);
 
   // Note: AKE public key derived from private key by the library
+  // serverIdentifier comes from env (FRONTEND_URL) - e.g., 'lome-chat.com' or 'localhost:5173'
   return new OpaqueServer(
     config,
     Array.from(oprfSeed),
     { private_key: Array.from(akePrivateKey), public_key: [] }, // Library derives public
-    'lome-chat.com'
+    serverIdentifier
   );
 }
+
+// Usage in middleware:
+// const url = new URL(c.env.FRONTEND_URL);
+// const serverIdentifier = url.host; // 'lome-chat.com' or 'localhost:5173'
+// const opaqueServer = createOpaqueServer(masterSecret, serverIdentifier);
 ```
 
 ### 4.2 Client-Side OPAQUE (`packages/crypto/src/opaque-client.ts`)
@@ -544,12 +555,14 @@ New endpoints:
 - `POST /api/auth/verify-email` — Verify email token
 - `POST /api/auth/resend-verification` — Resend verification email
 - `POST /api/auth/logout` — Clear session
+- `GET /api/auth/wrapped-dek` — Return encrypted_dek_password for KEK-based DEK unwrapping (authenticated)
 - `POST /api/auth/password/change` — Change password (authenticated)
 - `POST /api/auth/password/reset` — Reset password (via recovery phrase)
 - `POST /api/auth/recovery/setup` — Setup recovery phrase
 - `POST /api/auth/recovery/change` — Change recovery phrase
+- `POST /api/auth/recovery/disable-2fa` — Disable 2FA using recovery phrase (for lockout recovery)
 - `POST /api/auth/2fa/setup` — Setup 2FA
-- `POST /api/auth/2fa/disable` — Disable 2FA
+- `POST /api/auth/2fa/disable` — Disable 2FA (requires TOTP code)
 
 ---
 
@@ -634,47 +647,244 @@ Replace Better Auth session extraction with iron-session.
 
 ---
 
-## Phase 7: DEK Persistence in Client (`apps/web/src/lib/auth-client.ts`)
+## Phase 6.5: Rate Limiting & Security (`apps/api/src/lib/rate-limit.ts`)
+
+### 6.5.1 Rate Limit Bounds
+
+| Endpoint                              | Per-User Limit         | Global Limit | Lockout                         |
+| ------------------------------------- | ---------------------- | ------------ | ------------------------------- |
+| `POST /api/auth/login/*`              | 5 attempts / 15 min    | 100 / min    | 15 min lockout after 5 failures |
+| `POST /api/auth/register/*`           | 3 accounts / hour / IP | 50 / hour    | —                               |
+| `POST /api/auth/2fa/verify`           | 5 attempts / 15 min    | 100 / min    | 15 min lockout after 5 failures |
+| `POST /api/auth/recovery/disable-2fa` | 3 attempts / hour      | 20 / hour    | 1 hour lockout after 3 failures |
+| `POST /api/auth/password/reset`       | 3 attempts / hour      | 20 / hour    | 1 hour lockout after 3 failures |
+| `POST /api/auth/resend-verification`  | 3 / hour / user        | 100 / min    | —                               |
+| `POST /api/auth/verify-email`         | 10 / hour / token      | 200 / min    | —                               |
+
+### 6.5.2 Redis Key Patterns
 
 ```typescript
-// Store encrypted password in sessionStorage for DEK re-derivation
-const SESSION_KEY = 'lome_auth_state';
+// Per-user rate limits
+`ratelimit:login:user:${email}` → { count: number, firstAttempt: timestamp }
+`ratelimit:2fa:user:${userId}` → { count: number, firstAttempt: timestamp }
+`ratelimit:recovery:user:${email}` → { count: number, firstAttempt: timestamp }
+`ratelimit:email:user:${userId}` → { count: number, firstAttempt: timestamp }
 
-interface AuthState {
-  encryptedPassword: string; // Base64
-  passwordSalt: string; // Base64
+// Per-IP rate limits
+`ratelimit:register:ip:${ipHash}` → { count: number, firstAttempt: timestamp }
+
+// Global rate limits (sliding window)
+`ratelimit:global:login:${minuteBucket}` → count
+`ratelimit:global:register:${hourBucket}` → count
+
+// Lockouts
+`lockout:login:${email}` → timestamp (TTL: 15 min)
+`lockout:2fa:${userId}` → timestamp (TTL: 15 min)
+`lockout:recovery:${email}` → timestamp (TTL: 1 hour)
+```
+
+### 6.5.3 Email Enumeration Protection
+
+**Problem:** Attackers can discover valid emails by observing different responses.
+
+**Solution:** Return identical responses and timing for valid/invalid emails.
+
+```typescript
+// Login - always return same response structure
+// Even if email doesn't exist, proceed through OPAQUE init (will fail at finish)
+// Response time should be consistent
+
+// Password reset - always return success message
+// "If an account exists with this email, you will receive reset instructions."
+
+// Registration - if email exists, still send "verification email sent"
+// Then send email saying "someone tried to register with your email"
+```
+
+### 6.5.4 Password Memory Clearing
+
+After deriving KEK, the password must be cleared from memory:
+
+```typescript
+// Client-side (auth-client.ts)
+async function login(password: string, keepSignedIn: boolean) {
+  const passwordBytes = new TextEncoder().encode(password);
+
+  try {
+    // OPAQUE authentication
+    const { ke1, state } = await client.authInit(passwordBytes);
+    // ... complete OPAQUE flow
+
+    // Derive KEK
+    const kek = await derivePasswordKEK(passwordBytes, salt);
+
+    // Unwrap DEK
+    const dek = await unwrapKey(kek, encryptedDek);
+
+    // Persist KEK (not password)
+    persistKEK(kek, userId, keepSignedIn);
+
+    // Store DEK in memory
+    setDEK(dek);
+  } finally {
+    // Clear password from memory
+    passwordBytes.fill(0);
+    // Note: Cannot clear the original `password` string in JS
+    // This is a limitation of JavaScript - strings are immutable
+    // The TextEncoder output (Uint8Array) CAN be cleared
+  }
+}
+```
+
+**Limitation:** JavaScript strings are immutable and cannot be reliably cleared from memory. The password string may persist until garbage collected. This is a known limitation of browser-based crypto. For maximum security, users should close the browser tab after sensitive operations.
+
+### 6.5.5 Content Security Policy (CSP)
+
+XSS would expose the KEK in storage. CSP is critical defense-in-depth:
+
+```typescript
+// apps/api/src/middleware/security.ts
+export function securityHeaders(): MiddlewareHandler {
+  return async (c, next) => {
+    await next();
+
+    c.header(
+      'Content-Security-Policy',
+      [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'", // For Tailwind
+        "img-src 'self' data: blob:",
+        "connect-src 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+      ].join('; ')
+    );
+
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header('X-Frame-Options', 'DENY');
+    c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  };
+}
+```
+
+### 6.5.6 CSRF Protection
+
+Check Origin header on state-changing requests:
+
+```typescript
+// apps/api/src/middleware/csrf.ts
+export function csrfProtection(): MiddlewareHandler {
+  return async (c, next) => {
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(c.req.method)) {
+      const origin = c.req.header('Origin');
+      const allowedOrigins = [c.env.FRONTEND_URL];
+
+      // Also allow same-origin requests (no Origin header)
+      if (origin && !allowedOrigins.includes(origin)) {
+        return c.json({ error: 'CSRF_REJECTED' }, 403);
+      }
+    }
+    await next();
+  };
+}
+```
+
+**Note:** Uses `FRONTEND_URL` from env — same source of truth as OPAQUE server identifier.
+
+---
+
+## Phase 7: KEK Persistence — "Keep Me Signed In" (`apps/web/src/lib/auth-client.ts`)
+
+### 7.1 Persistence Strategy
+
+| Checkbox            | Storage        | Browser Close   | Page Refresh    |
+| ------------------- | -------------- | --------------- | --------------- |
+| Unchecked (default) | sessionStorage | Logged out      | Stays logged in |
+| Checked             | localStorage   | Stays logged in | Stays logged in |
+
+**Key insight:** Store KEK (not password, not DEK). DEK only exists in memory.
+
+### 7.2 Implementation
+
+```typescript
+const STORAGE_KEY = 'lome_auth_kek';
+
+interface StoredAuth {
+  kek: string; // Base64-encoded KEK
+  userId: string;
 }
 
-export function persistAuthState(password: Uint8Array, salt: Uint8Array): void {
-  // Encrypt password with a session-specific key derived from crypto.getRandomValues
-  const sessionKey = crypto.getRandomValues(new Uint8Array(32));
-  const { ciphertext, iv } = encrypt(sessionKey, password);
-
-  sessionStorage.setItem(
-    SESSION_KEY,
+// After successful login
+export function persistKEK(kek: Uint8Array, userId: string, keepSignedIn: boolean): void {
+  const storage = keepSignedIn ? localStorage : sessionStorage;
+  storage.setItem(
+    STORAGE_KEY,
     JSON.stringify({
-      encryptedPassword: toBase64(ciphertext),
-      iv: toBase64(iv),
-      sessionKey: toBase64(sessionKey), // Stored alongside, cleared on tab close
-      passwordSalt: toBase64(salt),
+      kek: toBase64(kek),
+      userId,
     })
   );
 }
 
-export async function restoreDEK(): Promise<Uint8Array | null> {
-  const stored = sessionStorage.getItem(SESSION_KEY);
+// On page load / refresh
+export async function restoreSession(): Promise<{ dek: Uint8Array; userId: string } | null> {
+  // Check both storages (localStorage takes precedence if both exist)
+  const stored = localStorage.getItem(STORAGE_KEY) ?? sessionStorage.getItem(STORAGE_KEY);
   if (!stored) return null;
 
-  const { encryptedPassword, iv, sessionKey, passwordSalt } = JSON.parse(stored);
-  const password = decrypt(fromBase64(sessionKey), fromBase64(iv), fromBase64(encryptedPassword));
-  const kek = await derivePasswordKEK(password, fromBase64(passwordSalt));
+  const { kek, userId } = JSON.parse(stored) as StoredAuth;
 
-  // Fetch wrapped DEK from server and unwrap
-  const response = await fetch('/api/auth/wrapped-dek');
+  // Fetch wrapped DEK from server (validates session cookie too)
+  const response = await fetch('/api/auth/wrapped-dek', { credentials: 'include' });
+  if (!response.ok) {
+    clearStoredAuth(); // Session invalid, clear local state
+    return null;
+  }
+
   const { encryptedDekPassword } = await response.json();
-  return unwrapKey(kek, fromBase64(encryptedDekPassword));
+  const dek = await unwrapKey(fromBase64(kek), fromBase64(encryptedDekPassword));
+
+  return { dek, userId };
+}
+
+// On explicit logout
+export function clearStoredAuth(): void {
+  localStorage.removeItem(STORAGE_KEY);
+  sessionStorage.removeItem(STORAGE_KEY);
 }
 ```
+
+### 7.3 Login Flow
+
+```
+User enters password + (optional) checks "Keep me signed in"
+    ↓
+OPAQUE authentication completes
+    ↓
+Derive KEK = Argon2id(password, salt)
+    ↓
+Fetch encrypted_dek_password from server
+    ↓
+Unwrap DEK = AES-KW-decrypt(KEK, encrypted_dek_password)
+    ↓
+Store KEK in sessionStorage (default) or localStorage (if "Keep me signed in")
+    ↓
+DEK stored in memory only (React context / Zustand store)
+```
+
+### 7.4 UI Requirements
+
+**Login page:**
+
+- Checkbox: "Keep me signed in"
+- Below checkbox (when checked): "Only use this on devices you trust. Anyone with access to this browser can access your account."
+
+**Logout behavior:**
+
+- Always clears both localStorage and sessionStorage
+- Next visit requires password regardless of previous "Keep me signed in" choice
 
 ---
 
@@ -689,7 +899,9 @@ export async function restoreDEK(): Promise<Uint8Array | null> {
 ### 8.2 Packages to Install
 
 ```bash
-pnpm --filter @lome-chat/web add otplib input-otp react-qrcode-logo
+# Client only displays QR codes (URI from server) and sends user-entered codes
+# otplib stays on server — client never generates or verifies TOTP
+pnpm --filter @lome-chat/web add input-otp react-qrcode-logo
 ```
 
 ---
@@ -834,21 +1046,24 @@ Add new Cryptography section:
 
 ### New Files to Create
 
-| File                                                   | Purpose                       |
-| ------------------------------------------------------ | ----------------------------- |
-| `packages/crypto/src/*`                                | All crypto utilities          |
-| `apps/api/src/lib/redis.ts`                            | Redis client                  |
-| `apps/api/src/lib/opaque-server.ts`                    | OPAQUE server setup           |
-| `apps/api/src/lib/totp.ts`                             | TOTP encryption/verification  |
-| `apps/api/src/lib/session.ts`                          | iron-session configuration    |
-| `apps/api/src/middleware/redis.ts`                     | Redis middleware              |
-| `apps/api/src/routes/auth.ts`                          | New auth routes (replace old) |
-| `apps/web/src/lib/auth-client.ts`                      | New auth client (replace old) |
-| `apps/web/src/components/auth/RecoveryPhraseModal.tsx` | Recovery phrase UI            |
-| `apps/web/src/components/auth/TwoFactorSetup.tsx`      | 2FA setup UI                  |
-| `apps/web/src/components/auth/TwoFactorInput.tsx`      | 2FA input UI                  |
-| `packages/db/src/schema/conversation-shares.ts`        | Sharing schema                |
-| `packages/db/src/schema/message-shares.ts`             | Sharing schema                |
+| File                                                   | Purpose                          |
+| ------------------------------------------------------ | -------------------------------- |
+| `packages/crypto/src/*`                                | All crypto utilities             |
+| `apps/api/src/lib/redis.ts`                            | Redis client                     |
+| `apps/api/src/lib/opaque-server.ts`                    | OPAQUE server setup              |
+| `apps/api/src/lib/totp.ts`                             | TOTP encryption/verification     |
+| `apps/api/src/lib/session.ts`                          | iron-session configuration       |
+| `apps/api/src/lib/rate-limit.ts`                       | Rate limiting with Redis         |
+| `apps/api/src/middleware/redis.ts`                     | Redis middleware                 |
+| `apps/api/src/middleware/security.ts`                  | CSP and security headers         |
+| `apps/api/src/middleware/csrf.ts`                      | CSRF protection via Origin check |
+| `apps/api/src/routes/auth.ts`                          | New auth routes (replace old)    |
+| `apps/web/src/lib/auth-client.ts`                      | New auth client (replace old)    |
+| `apps/web/src/components/auth/RecoveryPhraseModal.tsx` | Recovery phrase UI               |
+| `apps/web/src/components/auth/TwoFactorSetup.tsx`      | 2FA setup UI                     |
+| `apps/web/src/components/auth/TwoFactorInput.tsx`      | 2FA input UI                     |
+| `packages/db/src/schema/conversation-shares.ts`        | Sharing schema                   |
+| `packages/db/src/schema/message-shares.ts`             | Sharing schema                   |
 
 ### Files to Modify
 
