@@ -9,8 +9,8 @@
   },
   "devDependencies": {
     "@lome-chat/config": "workspace:*",
-    "@playwright/test": "^1.57.0",
-    "@types/node": "^22.13.14",
+    "@playwright/test": "^1.58.1",
+    "@types/node": "^25.1.0",
     "typescript": "^5.7.2"
   }
 }

@@ -13,7 +13,7 @@
     "@lome-chat/config": "workspace:*",
     "@lome-chat/db": "workspace:*",
     "@lome-chat/shared": "workspace:*",
-    "@types/node": "^22.13.14",
+    "@types/node": "^25.1.0",
     "typescript": "^5.7.2"
   }
 }
