@@ -111,19 +111,18 @@ A unified workspace for creating, editing, and previewing content alongside your
 
 ## Conversation Management
 
-| Feature              | Description                                                                    |
-| -------------------- | ------------------------------------------------------------------------------ |
-| Chat History         | Access all your previous conversations.                                        |
-| Chat Search          | Search across your entire conversation history.                                |
-| Chat Naming          | Name and rename conversations for easy organization.                           |
-| Chat Pinning         | Pin important conversations to the top of your list.                           |
-| Chat Archive         | Archive conversations without deleting them.                                   |
-| Message Editing      | Edit messages you've already sent to refine your questions.                    |
-| Conversation Forking | Create alternate conversation paths from any point with visual history.        |
-| Chat Sharing         | Share conversations via URL with others.                                       |
-| Cross-Device Sync    | Access your conversations from any device.                                     |
-| Local-Only Mode      | Create conversations stored only in your browser that never touch our servers. |
-| Incognito Chat       | Temporary conversations that auto-delete and create no memories.               |
+| Feature              | Description                                                             |
+| -------------------- | ----------------------------------------------------------------------- |
+| Chat History         | Access all your previous conversations.                                 |
+| Chat Search          | Search across your entire conversation history.                         |
+| Chat Naming          | Name and rename conversations for easy organization.                    |
+| Chat Pinning         | Pin important conversations to the top of your list.                    |
+| Chat Archive         | Archive conversations without deleting them.                            |
+| Message Editing      | Edit messages you've already sent to refine your questions.             |
+| Conversation Forking | Create alternate conversation paths from any point with visual history. |
+| Chat Sharing         | Share conversations via URL with others.                                |
+| Cross-Device Sync    | Access your conversations from any device.                              |
+| Incognito Chat       | Temporary conversations that auto-delete and create no memories.        |
 
 ---
 
@@ -196,3 +195,17 @@ A unified workspace for creating, editing, and previewing content alongside your
 | Quick Analytics Panel | View conversation cost, context usage, and stats alongside your chat. |
 | Account Analytics     | Track spending, usage patterns, and model preferences over time.      |
 | Team Analytics        | Usage reporting across team members and projects.                     |
+
+---
+
+## Security & Encryption
+
+| Feature                   | Description                                                                  |
+| ------------------------- | ---------------------------------------------------------------------------- |
+| Zero-Knowledge Password   | OPAQUE protocol ensures your password is never transmitted to the server.    |
+| End-to-End Encryption     | Messages encrypted in-browser before storage. Server stores only ciphertext. |
+| Recovery Phrase           | 12-word BIP39 mnemonic backup for encryption key recovery.                   |
+| Two-Factor Authentication | TOTP-based 2FA with authenticator app support.                               |
+| Rate Limiting             | Auth endpoints protected against brute-force attempts.                       |
+| Encrypted Sessions        | Iron-session encrypted cookies with no server-side session storage.          |
+| Pseudo-Anonymous Requests | AI providers see LOME-CHAT credentials, not your identity.                   |

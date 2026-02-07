@@ -56,6 +56,16 @@ Coding standards for all contributors (human and AI).
 - Zod schemas define API contracts
 - Types flow from these sources, never duplicated
 
+### Environment Detection
+
+- Always use `envUtils` (from `createEnvUtilities()`) for environment branching
+- Never check `NODE_ENV`, `CI`, or `E2E` directly
+- Never use `??` fallback defaults for environment variables — `envConfig` defines values for every mode
+- If a variable is missing at runtime, fail-fast with a clear error
+- Backend middleware: use `c.get('envUtils')` (set by `envMiddleware()`)
+- Middleware running before `envMiddleware()`: call `createEnvUtilities(c.env)` directly
+- Service factories: accept `EnvContext` and call `createEnvUtilities()` internally
+
 ### Idempotency
 
 - Every operation safe to retry

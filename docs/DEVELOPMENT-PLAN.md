@@ -148,8 +148,6 @@ Commit this file with progress updates to maintain state across sessions.
 - [x] Test connection locally via wsproxy
 - [x] Integration tests pass against Docker Postgres
 
-**Deferred to Phase 23:** PGlite browser client for local-only mode
-
 **Human Setup Required (for production):**
 
 1. Create Neon account at https://neon.tech
@@ -356,7 +354,7 @@ Commit this file with progress updates to maintain state across sessions.
 
 **Purpose:** Implement user authentication.
 
-**Tech Stack Addition:** Better Auth, Resend
+**Tech Stack Addition:** OPAQUE (@cloudflare/opaque-ts), iron-session, otplib, Resend
 
 ### Backend (Complete)
 
@@ -585,25 +583,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 25: Local-Only Mode (PGlite)
-
-**Purpose:** Implement conversations that stay in browser only.
-
-**Features:** Local-Only Mode, Incognito Chat
-
-- [ ] Add `mode` field to conversations (cloud/local)
-- [ ] Initialize PGlite in browser
-- [ ] Run migrations on PGlite
-- [ ] Create mode selector when starting new conversation
-- [ ] Route database operations based on mode
-- [ ] Visual indicator for local-only conversations
-- [ ] Implement incognito mode (local + auto-delete on close)
-- [ ] Test data isolation between modes
-- [ ] Ensure local data survives page refresh
-
----
-
-## Phase 26: Conversation Management
+## Phase 25: Conversation Management
 
 **Purpose:** Implement conversation organization features.
 
@@ -621,7 +601,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 27: Conversation Forking
+## Phase 26: Conversation Forking
 
 **Purpose:** Allow branching conversations from any point.
 
@@ -637,7 +617,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 28: Document Panel - Basic
+## Phase 27: Document Panel - Basic
 
 **Purpose:** Create the unified document panel structure.
 
@@ -654,7 +634,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 29: Document Panel - Live Preview
+## Phase 28: Document Panel - Live Preview
 
 **Purpose:** Add live rendering for HTML/React content.
 
@@ -673,7 +653,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 30: Document Panel - Versions
+## Phase 29: Document Panel - Versions
 
 **Purpose:** Implement document versioning and history.
 
@@ -690,7 +670,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 31: Context Management
+## Phase 30: Context Management
 
 **Purpose:** Implement context awareness features.
 
@@ -706,7 +686,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 32: Response Features
+## Phase 31: Response Features
 
 **Purpose:** Implement response manipulation features.
 
@@ -721,7 +701,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 33: Testing Additions
+## Phase 32: Testing Additions
 
 **Purpose:** Add comprehensive test coverage for all implemented features.
 
@@ -739,7 +719,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 34: Redis & Rate Limiting
+## Phase 33: Redis & Rate Limiting
 
 **Purpose:** Add caching and rate limiting infrastructure.
 
@@ -767,7 +747,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 35: Storage Setup
+## Phase 34: Storage Setup
 
 **Purpose:** Add object storage for files.
 
@@ -795,7 +775,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 36: File Upload - Basic
+## Phase 35: File Upload - Basic
 
 **Purpose:** Implement basic file upload functionality.
 
@@ -814,7 +794,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 37: File Analysis - Documents
+## Phase 36: File Analysis - Documents
 
 **Purpose:** Analyze uploaded document files.
 
@@ -832,7 +812,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 38: File Analysis - Images
+## Phase 37: File Analysis - Images
 
 **Purpose:** Analyze uploaded images with vision models.
 
@@ -848,7 +828,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 39: Storage Quota
+## Phase 38: Storage Quota
 
 **Purpose:** Implement dynamic storage limits.
 
@@ -863,7 +843,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 40: Compute Setup
+## Phase 39: Compute Setup
 
 **Purpose:** Set up server-side code execution.
 
@@ -891,7 +871,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 41: Code Execution - Backend
+## Phase 40: Code Execution - Backend
 
 **Purpose:** Implement Python and JavaScript execution.
 
@@ -909,7 +889,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 42: Document Creation
+## Phase 41: Document Creation
 
 **Purpose:** Generate downloadable document files.
 
@@ -927,7 +907,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 43: File Handling - Advanced
+## Phase 42: File Handling - Advanced
 
 **Purpose:** Implement remaining file handling features.
 
@@ -942,7 +922,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 44: Content Publishing
+## Phase 43: Content Publishing
 
 **Purpose:** Allow publishing documents to public URLs.
 
@@ -959,7 +939,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 45: Backups
+## Phase 44: Backups
 
 **Purpose:** Implement disaster recovery.
 
@@ -989,7 +969,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 46: Observability - Error Tracking
+## Phase 45: Observability - Error Tracking
 
 **Purpose:** Add error tracking and monitoring.
 
@@ -1012,7 +992,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 47: Observability - Analytics
+## Phase 46: Observability - Analytics
 
 **Purpose:** Add product analytics and feature flags.
 
@@ -1041,7 +1021,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 48: Observability - Logs
+## Phase 47: Observability - Logs
 
 **Purpose:** Add structured logging.
 
@@ -1066,7 +1046,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 49: Memory System
+## Phase 48: Memory System
 
 **Purpose:** Implement cross-session memory.
 
@@ -1084,7 +1064,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 50: Custom Instructions
+## Phase 49: Custom Instructions
 
 **Purpose:** Allow persistent user preferences.
 
@@ -1100,7 +1080,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 51: Projects - Basic
+## Phase 50: Projects - Basic
 
 **Purpose:** Implement project organization.
 
@@ -1115,7 +1095,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 52: Projects - Files & Knowledge
+## Phase 51: Projects - Files & Knowledge
 
 **Purpose:** Add project file storage and knowledge base.
 
@@ -1131,7 +1111,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 53: Projects - Sharing
+## Phase 52: Projects - Sharing
 
 **Purpose:** Allow sharing projects with others.
 
@@ -1146,7 +1126,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 54: Web Search
+## Phase 53: Web Search
 
 **Purpose:** Implement web search capabilities.
 
@@ -1169,7 +1149,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 55: Research Mode
+## Phase 54: Research Mode
 
 **Purpose:** Implement deep research capabilities.
 
@@ -1186,7 +1166,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 56: Reasoning Features
+## Phase 55: Reasoning Features
 
 **Purpose:** Expose model reasoning capabilities.
 
@@ -1201,7 +1181,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 57: Custom Bots - Basic
+## Phase 56: Custom Bots - Basic
 
 **Purpose:** Allow creating custom AI assistants.
 
@@ -1220,7 +1200,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 58: Custom Bots - Advanced
+## Phase 57: Custom Bots - Advanced
 
 **Purpose:** Add knowledge and actions to bots.
 
@@ -1236,7 +1216,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 59: Integrations - MCP
+## Phase 58: Integrations - MCP
 
 **Purpose:** Implement Model Context Protocol support.
 
@@ -1254,7 +1234,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 60: Integrations - Webhooks
+## Phase 59: Integrations - Webhooks
 
 **Purpose:** Allow external integrations via webhooks.
 
@@ -1273,7 +1253,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 61: Quick Analytics
+## Phase 60: Quick Analytics
 
 **Purpose:** Implement in-chat analytics.
 
@@ -1289,7 +1269,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 62: Teams - Basic
+## Phase 61: Teams - Basic
 
 **Purpose:** Implement team functionality.
 
@@ -1306,7 +1286,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 63: Teams - Advanced
+## Phase 62: Teams - Advanced
 
 **Purpose:** Add enterprise team features.
 
@@ -1315,13 +1295,13 @@ After Phase 22, the product has all MVP features:
 - [ ] Implement team usage analytics
 - [ ] Create team analytics dashboard
 - [ ] Implement group chat (multiple users in one conversation)
-- [ ] Add SAML/SSO configuration to Better Auth
+- [ ] Add SAML/SSO configuration
 - [ ] Create SSO setup UI
 - [ ] Test with common providers (Okta, Azure AD)
 
 ---
 
-## Phase 64: Privacy Features
+## Phase 63: Privacy Features
 
 **Purpose:** Implement privacy and compliance features.
 
@@ -1339,7 +1319,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 65: Marketing Site
+## Phase 64: Marketing Site
 
 **Purpose:** Create public marketing website.
 
@@ -1360,7 +1340,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 66: Mobile App
+## Phase 65: Mobile App
 
 **Purpose:** Create native mobile applications.
 
@@ -1387,7 +1367,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 67: CI/CD - Advanced Testing
+## Phase 66: CI/CD - Advanced Testing
 
 **Purpose:** Add comprehensive CI testing including real API tests.
 
@@ -1407,7 +1387,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 68: Storage Cleanup Job
+## Phase 67: Storage Cleanup Job
 
 **Purpose:** Implement scheduled maintenance tasks.
 
@@ -1420,7 +1400,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 69: Performance Optimization
+## Phase 68: Performance Optimization
 
 **Purpose:** Optimize application performance.
 
@@ -1432,7 +1412,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 70: Final Polish
+## Phase 69: Final Polish
 
 **Purpose:** Complete remaining features and refinements.
 
@@ -1449,7 +1429,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 71: Together AI Privacy Models
+## Phase 70: Together AI Privacy Models
 
 **Purpose:** Offer verifiable private AI option via Together AI with zero-retention.
 
@@ -1476,7 +1456,7 @@ After Phase 22, the product has all MVP features:
 
 ---
 
-## Phase 72: Self-Hosted Privacy LLM
+## Phase 71: Self-Hosted Privacy LLM
 
 **Purpose:** Maximum privacy option with infrastructure we fully control.
 
@@ -1522,37 +1502,37 @@ Phase 21-22: Payments + Credits (depends on 16)
     ↓
 Phase 23: OpenRouter Mocks (optional, for local dev)
     ↓
-Phase 24-32: Chat features (depends on 18-20)
+Phase 24-31: Chat features (depends on 18-20)
     ↓
-Phase 33: Testing additions (can parallel with 24+)
+Phase 32: Testing additions (can parallel with 24+)
     ↓
-Phase 34: Redis (depends on 11-15)
+Phase 33: Redis (depends on 11-15)
     ↓
-Phase 35-39: Storage (depends on 11-15, 34)
+Phase 34-38: Storage (depends on 11-15, 33)
     ↓
-Phase 40-43: Compute (depends on 35-39)
+Phase 39-42: Compute (depends on 34-38)
     ↓
-Phase 44: Publishing (depends on 35-39)
+Phase 43: Publishing (depends on 34-38)
     ↓
-Phase 45: Backups (depends on 21-22)
+Phase 44: Backups (depends on 21-22)
     ↓
-Phase 46-48: Observability (can start after 11)
+Phase 45-47: Observability (can start after 11)
     ↓
-Phase 49-53: Memory/Projects (depends on 16, 35-39)
+Phase 48-52: Memory/Projects (depends on 16, 34-38)
     ↓
-Phase 54-56: Search/Research/Reasoning (depends on 18-20)
+Phase 53-55: Search/Research/Reasoning (depends on 18-20)
     ↓
-Phase 57-60: Bots/Integrations (depends on 49-53)
+Phase 56-59: Bots/Integrations (depends on 48-52)
     ↓
-Phase 61: Quick Analytics (depends on 18-20)
+Phase 60: Quick Analytics (depends on 18-20)
     ↓
-Phase 62-64: Teams/Privacy (depends on 21-22)
+Phase 61-63: Teams/Privacy (depends on 21-22)
     ↓
-Phase 65-66: Marketing/Mobile (depends on 8-10)
+Phase 64-65: Marketing/Mobile (depends on 8-10)
     ↓
-Phase 67-68: DevOps (depends on all above)
+Phase 66-67: DevOps (depends on all above)
     ↓
-Phase 69-70: Polish (depends on all above)
+Phase 68-69: Polish (depends on all above)
     ↓
-Phase 71-72: Privacy LLM (depends on all above)
+Phase 70-71: Privacy LLM (depends on all above)
 ```

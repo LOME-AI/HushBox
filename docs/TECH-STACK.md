@@ -50,16 +50,18 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 
 ## Frontend
 
-| Technology          | Purpose                                                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **React 19**        | UI framework. Largest ecosystem, best Capacitor support, excellent for text-heavy interfaces.                       |
-| **Vite**            | Build tool and dev server. Fast HMR, simple config, no SSR complexity for SPA.                                      |
-| **TanStack Router** | Routing. Fully type-safe routes, params, and search params. Compile-time errors for invalid routes.                 |
-| **TanStack Query**  | Server state management. Caching, background refetching, request deduplication for all API calls.                   |
-| **Zustand**         | Client state management. Lightweight, minimal boilerplate for UI state not tied to server.                          |
-| **shadcn/ui**       | UI components. Accessible (Radix-based), customizable, copy-paste ownership. Favor existing components over custom. |
-| **Tailwind CSS**    | Styling. Utility-first, consistent design tokens, pairs with shadcn/ui.                                             |
-| **Sandpack**        | Browser code execution. Renders HTML/React/CSS in iframe sandbox for artifact previews.                             |
+| Technology            | Purpose                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **React 19**          | UI framework. Largest ecosystem, best Capacitor support, excellent for text-heavy interfaces.                       |
+| **Vite**              | Build tool and dev server. Fast HMR, simple config, no SSR complexity for SPA.                                      |
+| **TanStack Router**   | Routing. Fully type-safe routes, params, and search params. Compile-time errors for invalid routes.                 |
+| **TanStack Query**    | Server state management. Caching, background refetching, request deduplication for all API calls.                   |
+| **Zustand**           | Client state management. Lightweight, minimal boilerplate for UI state not tied to server.                          |
+| **shadcn/ui**         | UI components. Accessible (Radix-based), customizable, copy-paste ownership. Favor existing components over custom. |
+| **Tailwind CSS**      | Styling. Utility-first, consistent design tokens, pairs with shadcn/ui.                                             |
+| **Sandpack**          | Browser code execution. Renders HTML/React/CSS in iframe sandbox for artifact previews.                             |
+| **input-otp**         | OTP input component. Accessible, mobile-friendly 6-digit code entry for 2FA verification.                           |
+| **react-qrcode-logo** | QR code generation. Renders TOTP provisioning URIs for authenticator app setup.                                     |
 
 ---
 
@@ -91,19 +93,19 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 
 ## Database
 
-| Technology  | Purpose                                                                                               |
-| ----------- | ----------------------------------------------------------------------------------------------------- |
-| **Neon**    | Cloud Postgres. Serverless, scales to zero, branching for previews. Used for cloud mode.              |
-| **PGlite**  | Browser Postgres. WASM Postgres in browser with IndexedDB persistence. Used for local-only mode.      |
-| **Drizzle** | ORM. Type-safe, lightweight, identical queries work on Neon and PGlite. Single schema for both modes. |
+| Technology  | Purpose                                                                    |
+| ----------- | -------------------------------------------------------------------------- |
+| **Neon**    | Cloud Postgres. Serverless, scales to zero, branching for previews.        |
+| **Drizzle** | ORM. Type-safe, lightweight, identical queries on Neon and local Postgres. |
 
 ---
 
 ## Cache
 
-| Technology        | Purpose                                                                                |
-| ----------------- | -------------------------------------------------------------------------------------- |
-| **Upstash Redis** | Serverless Redis. Rate limiting, session cache, model metadata cache. Pay-per-request. |
+| Technology                | Purpose                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| **Upstash Redis**         | Serverless Redis. OPAQUE challenge state, rate limiting, 2FA attempt tracking. |
+| **Serverless Redis HTTP** | Local development proxy. Emulates Upstash REST API against local Redis.        |
 
 ---
 
@@ -137,9 +139,23 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 
 ## Authentication
 
-| Technology      | Purpose                                                                                |
-| --------------- | -------------------------------------------------------------------------------------- |
-| **Better Auth** | Auth library. Built-in OAuth, email/password, 2FA. Drizzle adapter, no vendor lock-in. |
+| Technology                | Purpose                                                             |
+| ------------------------- | ------------------------------------------------------------------- |
+| **@cloudflare/opaque-ts** | OPAQUE PAKE protocol. Zero-knowledge password auth.                 |
+| **iron-session**          | Encrypted session cookies. Stateless, no server-side session store. |
+| **otplib**                | TOTP generation and verification for two-factor authentication.     |
+
+---
+
+## Cryptography
+
+| Technology         | Purpose                                                              |
+| ------------------ | -------------------------------------------------------------------- |
+| **@noble/ciphers** | AES-256-GCM encryption for message content. Audited, zero deps.      |
+| **@noble/curves**  | X25519 ECDH for key exchange between client and recovery flows.      |
+| **@noble/hashes**  | SHA-256 and HKDF for key derivation and content-addressable storage. |
+| **@scure/bip39**   | BIP39 mnemonic generation for 12-word recovery phrases.              |
+| **hash-wasm**      | Argon2id password hashing in WebAssembly.                            |
 
 ---
 
@@ -251,6 +267,7 @@ Local dev and CI use `.env.development`. No secrets needed outside production.
 │   ├── ui/               # shadcn/ui components
 │   ├── shared/           # Zod schemas, types, constants
 │   ├── db/               # Drizzle schema, migrations, client
+│   ├── crypto/           # Encryption, key derivation, OPAQUE helpers
 │   └── config/           # Shared ESLint, TypeScript configs
 │
 ├── services/
@@ -286,20 +303,6 @@ Browser → API (Workers) → Neon Postgres / R2
                        → Fly.io (code execution)
 ```
 
-### Local-Only Mode
-
-```
-Browser → API (Workers) → OpenRouter (LLM)
-   ↓                    → Fly.io (code execution)
-PGlite (IndexedDB)
-
-Server returns responses but never persists.
-Browser stores everything in PGlite.
-Does not support S3 usage like media. Text only.
-```
-
----
-
 ## API Patterns
 
 | Pattern          | Technology     | Use Case                                   |
@@ -321,6 +324,8 @@ Starts:
 - Wrangler (Workers) on :8787
 - Postgres (Docker) on :5432
 - Neon Proxy (Docker) on :4444 (WebSocket → Postgres)
+- Redis (Docker) on :6379
+- Serverless Redis HTTP (Docker) on :8079 (Upstash REST API emulator)
 - MinIO (S3 mock) on :9000
 
 All external APIs (OpenRouter, Helcim) are mocked locally. Real API calls (to OpenRouter and Helcim Sandbox) only run in CI when a LOME team member comments "pr test". These tests must pass to merge the PR.

@@ -1001,10 +1001,7 @@ ChatGPT, Claude, and Gemini can read your conversations. We can't.
 | | ChatGPT | Claude | Gemini | LOME-CHAT |
 |---|:---:|:---:|:---:|:---:|
 | E2E Encrypted | No | No | No | **Yes** |
-| Password sent to server | Yes | Yes | Yes | **No** |
 | Provider can read chats | Yes | Yes | Yes | **No** |
-
-This isn't marketing. It's mathematics.
 ---
 ```
 
@@ -1140,3 +1137,321 @@ Add new Cryptography section:
 | `packages/db/src/schema/accounts.ts`      | Better Auth table  |
 | `packages/db/src/schema/verifications.ts` | Better Auth table  |
 | `packages/db/src/utils/password.ts`       | No longer needed   |
+
+# Guide to Using @cloudflare/opaque-ts
+
+A practical guide to implementing password authentication using Cloudflare's OPAQUE TypeScript library.
+
+---
+
+## What is OPAQUE?
+
+OPAQUE is a modern password authentication protocol where **the server never sees or stores your actual password**. Instead of sending passwords to the server (like traditional login), OPAQUE uses cryptographic magic so:
+
+- Your password never leaves your device
+- The server stores an encrypted "envelope" it cannot open without your password
+- Even if the server's database is breached, attackers can't recover passwords
+
+---
+
+## Installation
+
+```bash
+npm install @cloudflare/opaque-ts
+```
+
+**Requirements:** Node.js 20+ (uses native WebCrypto API)
+
+---
+
+## Core Concepts
+
+The library provides two main classes:
+
+| Class          | Used On        | Purpose                              |
+| -------------- | -------------- | ------------------------------------ |
+| `OpaqueServer` | Server         | Handle registration & authentication |
+| `OpaqueClient` | Client/Browser | Create registration & login requests |
+
+There are also configuration helpers (`OpaqueID`, `getOpaqueConfig`) and message types for the protocol.
+
+---
+
+## Quick Setup
+
+### 1. Configuration (Both Client & Server)
+
+Both sides need the same configuration:
+
+```typescript
+import { OpaqueID, getOpaqueConfig } from '@cloudflare/opaque-ts';
+
+// Use a preset configuration (recommended)
+const config = getOpaqueConfig(OpaqueID.OPAQUE_P256_SHA256);
+```
+
+Available configurations:
+
+- `OpaqueID.OPAQUE_P256_SHA256` — Good balance of security and performance
+- `OpaqueID.OPAQUE_P384_SHA384` — Higher security level
+- `OpaqueID.OPAQUE_P521_SHA512` — Maximum security
+
+### 2. Server Setup (One-time)
+
+The server needs to generate and securely store:
+
+- An **OPRF seed** (random bytes)
+- An **AKE keypair** (public/private key for authentication)
+
+```typescript
+import { OpaqueServer, getOpaqueConfig, OpaqueID } from '@cloudflare/opaque-ts';
+import crypto from 'crypto';
+
+// Generate these ONCE and store securely (env vars, secret manager, etc.)
+const oprfSeed = Array.from(crypto.randomBytes(32));
+const akeKeypair = {
+  private_key: Array.from(crypto.randomBytes(32)),
+  public_key: Array.from(crypto.randomBytes(32)), // In practice, derive from private
+};
+
+const config = getOpaqueConfig(OpaqueID.OPAQUE_P256_SHA256);
+const server = new OpaqueServer(
+  config,
+  oprfSeed,
+  akeKeypair,
+  'myapp.com' // Optional server identity
+);
+```
+
+### 3. Client Setup
+
+```typescript
+import { OpaqueClient, getOpaqueConfig, OpaqueID } from '@cloudflare/opaque-ts';
+
+const config = getOpaqueConfig(OpaqueID.OPAQUE_P256_SHA256);
+const client = new OpaqueClient(config);
+```
+
+---
+
+## User Registration Flow
+
+Registration happens in **two round trips**:
+
+```
+┌────────┐                          ┌────────┐
+│ Client │                          │ Server │
+└───┬────┘                          └───┬────┘
+    │                                   │
+    │  1. Create registration request   │
+    │ ─────────────────────────────────>│
+    │                                   │
+    │  2. Registration response         │
+    │ <─────────────────────────────────│
+    │                                   │
+    │  3. Final record (store this!)    │
+    │ ─────────────────────────────────>│
+    │                                   │
+```
+
+### Client Side (Registration)
+
+```typescript
+// Convert password to bytes
+const password = new TextEncoder().encode('user-password');
+
+// Step 1: Create registration request
+const { request, blind } = await client.registerInit(password);
+
+// Send `request` to server, get back `response`
+// Keep `blind` in memory for step 3
+
+// Step 3: Finalize registration
+const { record, export_key } = await client.registerFinish(
+  password,
+  blind,
+  response // from server
+);
+
+// Send `record` to server for storage
+// `export_key` can be used for client-side encryption (optional)
+```
+
+### Server Side (Registration)
+
+```typescript
+// Step 2: Create registration response
+const response = await server.registerInit(
+  request, // from client
+  'user@example.com' // credential identifier (username/email)
+);
+
+// Send `response` back to client
+
+// After receiving the final `record` from client:
+// Store it in your database associated with the user
+await database.save({
+  username: 'user@example.com',
+  opaqueRecord: record, // This is what you store instead of a password hash
+});
+```
+
+---
+
+## Login (Authentication) Flow
+
+Login happens in **three round trips**:
+
+```
+┌────────┐                          ┌────────┐
+│ Client │                          │ Server │
+└───┬────┘                          └───┬────┘
+    │                                   │
+    │  1. KE1 (key exchange init)       │
+    │ ─────────────────────────────────>│
+    │                                   │
+    │  2. KE2 (server challenge)        │
+    │ <─────────────────────────────────│
+    │                                   │
+    │  3. KE3 (client proof)            │
+    │ ─────────────────────────────────>│
+    │                                   │
+    │  4. Success + session             │
+    │ <─────────────────────────────────│
+```
+
+### Client Side (Login)
+
+```typescript
+const password = new TextEncoder().encode('user-password');
+
+// Step 1: Start authentication
+const { ke1, state } = await client.authInit(password);
+
+// Send `ke1` to server, get back `ke2`
+// Keep `state` in memory
+
+// Step 3: Finish authentication
+const result = await client.authFinish(password, state, ke2);
+
+if (result instanceof Error) {
+  console.log('Login failed');
+  return;
+}
+
+const { ke3, session_key } = result;
+
+// Send `ke3` to server for verification
+// `session_key` is a shared secret (use for encryption or derive session tokens)
+```
+
+### Server Side (Login)
+
+```typescript
+// Retrieve the stored record for this user
+const storedRecord = await database.getOpaqueRecord('user@example.com');
+
+// Step 2: Process KE1, generate KE2
+const authResult = await server.authInit(
+  ke1, // from client
+  storedRecord, // from database
+  'user@example.com' // credential identifier
+);
+
+if (authResult instanceof Error) {
+  return { error: 'Authentication failed' };
+}
+
+const { ke2, expected } = authResult;
+// Send `ke2` to client
+// Store `expected` temporarily (in memory/session) for step 4
+
+// Step 4: Verify KE3
+const finishResult = server.authFinish(ke3, expected);
+
+if (finishResult instanceof Error) {
+  return { error: 'Authentication failed' };
+}
+
+const { session_key } = finishResult;
+// `session_key` matches the client's — authentication succeeded!
+// Create a session token, set cookies, etc.
+```
+
+---
+
+## Serialization (Sending Messages Over HTTP)
+
+The library uses `Uint8Array` and custom message types. You'll need to serialize them for HTTP transport:
+
+```typescript
+// Serialize for transport
+function toBase64(data: Uint8Array | number[]): string {
+  return Buffer.from(data).toString('base64');
+}
+
+// Deserialize on receiving end
+function fromBase64(str: string): Uint8Array {
+  return new Uint8Array(Buffer.from(str, 'base64'));
+}
+
+// Example: sending ke1 to server
+const response = await fetch('/api/auth/init', {
+  method: 'POST',
+  body: JSON.stringify({
+    username: 'user@example.com',
+    ke1: toBase64(ke1.serialize()), // if serialize() method exists
+  }),
+});
+```
+
+---
+
+## Best Practices
+
+1. **Store server secrets securely** — The OPRF seed and AKE keypair should be in environment variables or a secrets manager, not in code.
+
+2. **Use HTTPS** — While OPAQUE protects the password, you still need TLS for the overall connection security.
+
+3. **Handle errors gracefully** — Many methods return `Error` objects on failure. Always check.
+
+4. **Same config everywhere** — Client and server must use identical `OpaqueID` configuration.
+
+5. **Don't log sensitive data** — Never log passwords, keys, or the blind value.
+
+---
+
+## Comparison with Traditional Auth
+
+| Aspect                      | Traditional | OPAQUE                       |
+| --------------------------- | ----------- | ---------------------------- |
+| Password sent to server     | ✅ Yes      | ❌ No                        |
+| Server stores password hash | ✅ Yes      | ❌ No (stores opaque record) |
+| Vulnerable to server breach | ⚠️ Somewhat | ✅ Protected                 |
+| Round trips for login       | 1           | 2                            |
+| Complexity                  | Low         | Medium                       |
+
+---
+
+## Resources
+
+- [GitHub Repository](https://github.com/cloudflare/opaque-ts)
+- [Live Demo](https://opaque.research.cloudflare.com/)
+- [IETF OPAQUE Draft Specification](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-opaque-07)
+- [Cloudflare Blog Post](https://blog.cloudflare.com/opaque-oblivious-passwords/)
+
+---
+
+## Troubleshooting
+
+**"WebCrypto not available"**  
+→ Use Node.js 20+ or ensure you're in a browser environment
+
+**"Configuration mismatch"**  
+→ Ensure client and server use the same `OpaqueID`
+
+**"Authentication always fails"**  
+→ Check that you're passing the correct stored record for the user
+
+**TypeScript errors about modules**  
+→ The package uses ES modules. Set `"type": "module"` in your package.json or use `.mjs` extension
