@@ -2,7 +2,7 @@
 
 ## Context
 
-Complete transition of LOME-CHAT from current DEK-based encryption + REST API to the new epoch-based E2EE architecture with tRPC, Durable Objects, group conversations, shared links, budget system, and wallet-based billing. No existing users — clean slate. The authoritative specification is the design document provided by the user (Parts 1–17).
+Complete transition of LOME-CHAT from current DEK-based encryption + REST API to the new epoch-based E2EE architecture with Hono RPC, Durable Objects, group conversations, shared links, budget system, and wallet-based billing. No existing users — clean slate. The authoritative specification is the design document provided by the user (Parts 1–17).
 
 This change is needed because the current architecture uses a Data Encryption Key (DEK) model that doesn't support group conversations, public link sharing, or server-side encryption of AI responses. The new epoch-based ECIES system enables all of these while maintaining the guarantee that the server can encrypt but never decrypt message content.
 
@@ -21,8 +21,12 @@ This change is needed because the current architecture uses a Data Encryption Ke
 | 7 | Drizzle enums | All text columns | More flexible, no migration needed for new values |
 | 8 | Guest naming | `trial` / `linkGuest` | Clear code separation |
 | 9 | Link expiry | No expiry (removed requirement 24) | Links valid until explicitly revoked |
-| 10 | Auth in tRPC | OPAQUE stays as Hono routes | Set-Cookie, multi-step protocol, complex rate limiting |
+| 10 | API layer | All routes are Hono; typed client via `hc<AppType>()`; no separate RPC framework | Single framework, type inference from chained route definitions |
 | 11 | Naming convention | camelCase throughout plan | Matches TypeScript/Drizzle. Actual SQL migration uses snake_case; Drizzle auto-maps. |
+| 12 | Messages column transition | DROP `content` + ADD `encryptedBlob` (not RENAME) | AES-GCM and ECIES are fundamentally different formats; RENAME implies data continuity |
+| 13 | Payment status values | 5 statuses: `pending`, `awaitingWebhook`, `completed`, `failed`, `refunded` | Explicit intermediate state for two-phase payment flow; supports idempotent webhook handler |
+| 14 | Communication architecture | Hono RPC for request-response, SSE for chat streaming, WebSocket+DO for group broadcast only | SSE kept for `POST /api/chat` and `POST /api/trial`; DO only for multi-member conversations |
+| 15 | All-in-one transaction | User msg + AI msg + billing in one atomic transaction; no refund logic | On failure nothing is persisted or charged; eliminates need for refund path on message sends |
 
 ---
 
@@ -40,6 +44,7 @@ This change is needed because the current architecture uses a Data Encryption Ke
 - Crypto boundary: `packages/crypto` is the ONLY package that imports `@noble/*`, `hash-wasm`, `@scure/bip39`, `fflate`, or `@cloudflare/opaque-ts` (client-side)
 - `apps/api` imports `@cloudflare/opaque-ts` (server-side), `iron-session`, `otplib` — no other crypto libs
 - Naming: camelCase for all column/table references in this plan (matching TypeScript/Drizzle). The actual SQL migration file uses snake_case; Drizzle maps between them automatically. No mixing.
+- All API routes use Hono with chained syntax. Typed client via `hc<AppType>()` from `hono/client`. Input validation via `@hono/zod-validator`.
 
 ---
 
@@ -48,18 +53,43 @@ This change is needed because the current architecture uses a Data Encryption Ke
 ```
 Phase 0 (Crypto Fixes) ──→ Phase 1 (DB Schema)
                                     │
-Phase 2 (tRPC Infra) ──┬──→ Phase 3 (Auth) ──→ Phase 4 (Billing) ──→ Phase 5 (Conversations)
-                        │                                                       │
-                        │                                                       ├──→ Phase 8 (Groups) ──→ Phase 9 (Sharing)
-                        │                                                       │
-                        └──→ Phase 6 (DO/Real-time) ────────────────────────────┘
-                        │
-                        └──→ Phase 7 (Route Migration)
-
-All ──→ Phase 10 (Frontend) ──→ Phase 11 (Cleanup)
+                    ┌───────────────┼───────────────┐
+                    │               │               │
+                    v               v               v
+             Phase 3 (Auth)  Phase 2 (Hono RPC)  Phase 7 (Route Restructuring)
+                    │               │
+                    v               │
+             Phase 4 (Billing) <────┘
+                    │
+                    v
+             Phase 5 (Conversations)
+                    │
+          ┌─────────┴─────────┐
+          │                   │
+          v                   v
+   Phase 6 (DO/Real-time)  Phase 8 (Groups)
+          │                   │
+          └────→ Phase 9 (Sharing) ←────┘
+                      │
+                      v
+               Phase 10 (Frontend)
+                      │
+                      v
+               Phase 11 (Cleanup)
 ```
 
-Phases 1 and 2 can proceed in parallel. Phase 3 depends on 1. Phase 4 depends on 1+3. Phase 5 depends on 1+2+3+4. Phase 6 depends on 2. Phases 7, 8, 9 depend on 5+6. Phase 10 depends on all prior. Phase 11 is cleanup.
+- Phases 0 and 1 are sequential (0 before 1).
+- After Phase 1: Phases 2, 3, and 7 can proceed in parallel.
+  - Phase 2 (Hono RPC Infrastructure) sets up `@hono/zod-validator`, `api-client.ts`, and React Query patterns.
+  - Phase 3 (Auth) updates auth routes for the new key hierarchy.
+  - Phase 7 (Route Restructuring) converts existing route files to chained Hono syntax for type inference.
+- Phase 4 (Billing) depends on Phase 1 + Phase 3.
+- Phase 5 (Conversations) depends on Phase 1 + Phase 3 + Phase 4. Benefits from Phase 2 and 7 being complete.
+- Phase 6 (DO/Real-time) depends on Phase 5.
+- Phase 8 (Groups) depends on Phase 5.
+- Phase 9 (Sharing) depends on Phase 5 + Phase 6 + Phase 8.
+- Phase 10 (Frontend) depends on all prior phases.
+- Phase 11 (Cleanup) is last.
 
 ---
 
@@ -153,13 +183,15 @@ DROP TYPE IF EXISTS "payment_status";
 - Change `id` default to `uuidv7()`
 
 **Step 4 — ALTER `messages`:**
-- DROP: role, iv, model, balanceTransactionId, cost, sharingKeyWrapped, contentType, pendingReEncryption, ephemeralPublicKey
-- RENAME: content → `encryptedBlob`
-- ADD: `senderType` (text NOT NULL), `senderId` (text nullable), `senderDisplayName` (text nullable), `payerId` (text nullable), `epochNumber` (int NOT NULL), `sequenceNumber` (int NOT NULL)
+- DROP columns: `role`, `iv`, `model`, `balanceTransactionId`, `cost`, `sharingKeyWrapped`, `contentType`, `pendingReEncryption`, `ephemeralPublicKey`, **`content`**
+- ADD column: **`encryptedBlob`** (bytea NOT NULL)
+- ADD columns: `senderType` (text NOT NULL), `senderId` (text nullable), `senderDisplayName` (text nullable), `payerId` (text nullable), `epochNumber` (int NOT NULL), `sequenceNumber` (int NOT NULL)
 - CHECK: `senderType IN ('user', 'ai')`
 - DROP OLD INDEX on conversationId
 - ADD INDEX: (conversationId, sequenceNumber)
 - Change `id` default to `uuidv7()`
+
+**Why DROP + ADD instead of RENAME:** The old `content` column stores AES-GCM ciphertext (DEK-encrypted by the client, with a separate `iv` column). The new `encryptedBlob` stores ECIES blobs: version byte (1B) + ephemeral X25519 public key (32B) + XChaCha20-Poly1305 ciphertext + Poly1305 tag (16B). These are completely different encryption formats. `RENAME` would falsely suggest data continuity. Since there are no existing users (clean slate), a clean `DROP` + `ADD` makes the break explicit.
 
 **Step 5 — ALTER `projects`:**
 - DROP: name, description
@@ -170,8 +202,18 @@ DROP TYPE IF EXISTS "payment_status";
 - Make userId nullable
 - Change FK from ON DELETE CASCADE to ON DELETE SET NULL
 - Change status from enum to text
-- CHECK: `status IN ('pending', 'completed', 'failed', 'refunded')` (design doc values; `awaiting_webhook` state is inferrable from `helcimTransactionId IS NOT NULL AND status = 'pending'`)
+- CHECK: `status IN ('pending', 'awaitingWebhook', 'completed', 'failed', 'refunded')`
 - Change `id` default to `uuidv7()`
+
+**Status flow:**
+```
+pending → awaitingWebhook → completed (happy path)
+pending → failed (pre-processing failure)
+awaitingWebhook → failed (webhook reports failure)
+completed → refunded (admin action or dispute)
+```
+
+**Rationale:** The current codebase uses `awaitingWebhook` as an intermediate state between Helcim's synchronous approval and the webhook callback (which credits the balance). The `processWebhookCredit()` function relies on an atomic `UPDATE payments SET status = 'completed' WHERE helcimTransactionId = ? AND status = 'awaitingWebhook'` — this conditional update is the idempotency mechanism. Without the explicit status, `pending` would be overloaded (meaning both "not submitted" and "approved but unconfirmed"), and the idempotent conditional update pattern would need reworking.
 
 **Step 7 — CREATE new tables** (in FK dependency order):
 
@@ -192,36 +234,38 @@ DROP TYPE IF EXISTS "payment_status";
 
 All new table IDs use `DEFAULT uuidv7()`.
 
-**Step 8 — All CHECK constraints summary** (explicit SQL for every CHECK in the migration):
+**Step 8 — All CHECK constraints summary (camelCase for plan readability):**
 
-```sql
+```
 -- messages
-CHECK (sender_type IN ('user', 'ai'))
+CHECK (senderType IN ('user', 'ai'))
 
 -- payments (altered in Step 6)
-CHECK (status IN ('pending', 'completed', 'failed', 'refunded'))
+CHECK (status IN ('pending', 'awaitingWebhook', 'completed', 'failed', 'refunded'))
 
--- usage_records
+-- usageRecords
 CHECK (status IN ('pending', 'completed', 'failed'))
 
--- ledger_entries (exactly one FK non-null)
+-- ledgerEntries (exactly one FK non-null)
 CHECK (
-  (payment_id IS NOT NULL)::int +
-  (usage_record_id IS NOT NULL)::int +
-  (source_wallet_id IS NOT NULL)::int = 1
+  (paymentId IS NOT NULL)::int +
+  (usageRecordId IS NOT NULL)::int +
+  (sourceWalletId IS NOT NULL)::int = 1
 )
-CHECK (entry_type IN ('deposit', 'usage_charge', 'refund', 'adjustment', 'renewal', 'welcome_credit'))
+CHECK (entryType IN ('deposit', 'usage_charge', 'refund', 'adjustment', 'renewal', 'welcome_credit'))
 
--- shared_links
+-- sharedLinks
 CHECK (privilege IN ('read', 'write'))
 
--- conversation_members
-CHECK ((user_id IS NOT NULL) OR (link_id IS NOT NULL))
+-- conversationMembers
+CHECK ((userId IS NOT NULL) OR (linkId IS NOT NULL))
 CHECK (privilege IN ('read', 'write', 'admin', 'owner'))
 
--- epoch_members
+-- epochMembers
 CHECK (privilege IN ('read', 'write', 'admin', 'owner'))
 ```
+
+Note: `entryType` string values use snake_case (`usage_charge`, `welcome_credit`) because these are stored data values, not column names. Drizzle auto-maps column names (camelCase → snake_case) but does NOT transform string values. The design doc uses snake_case for multi-word enum values.
 
 **Step 9 — All partial unique indexes** (explicit SQL):
 
@@ -271,7 +315,7 @@ CREATE INDEX conversation_members_user_active_lookup
 **MODIFY:**
 - `users.ts` — drop old columns, add `passwordWrappedPrivateKey` (bytea NOT NULL), `recoveryWrappedPrivateKey` (bytea NOT NULL), `username` (text NOT NULL UNIQUE). Remove all DEK/balance/phrase columns. Change ID default to `sql`uuidv7()``
 - `conversations.ts` — drop isPublic/publicShareId/publicShareExpires, add projectId/titleEpochNumber/currentEpoch/nextSequence/rotationPending/perPersonBudget/conversationBudget
-- `messages.ts` — drop role/iv/model/balanceTransactionId/cost/sharingKeyWrapped/contentType/pendingReEncryption/ephemeralPublicKey, rename content→encryptedBlob, add senderType/senderId/senderDisplayName/payerId/epochNumber/sequenceNumber
+- `messages.ts` — drop role/iv/model/balanceTransactionId/cost/sharingKeyWrapped/contentType/pendingReEncryption/ephemeralPublicKey, **drop content, add encryptedBlob** (bytea NOT NULL), add senderType/senderId/senderDisplayName/payerId/epochNumber/sequenceNumber
 - `projects.ts` — replace name→encryptedName (bytea NOT NULL), description→encryptedDescription (bytea nullable)
 - `payments.ts` — make userId nullable, FK ON DELETE SET NULL, status as text (not enum)
 - `index.ts` — update barrel exports
@@ -281,7 +325,7 @@ CREATE INDEX conversation_members_user_active_lookup
 **MODIFY:**
 - `user.ts` — remove DEK/balance fields, add passwordWrappedPrivateKey, recoveryWrappedPrivateKey (use crypto `createAccount()` for realistic test data)
 - `conversation.ts` — remove isPublic/publicShareId, add currentEpoch/titleEpochNumber/nextSequence/rotationPending/budget fields
-- `message.ts` — remove role/iv/model/cost/etc, rename content→encryptedBlob, add senderType/senderId/payerId/epochNumber/sequenceNumber
+- `message.ts` — remove role/iv/model/cost/etc, drop content field, add encryptedBlob field, add senderType/senderId/payerId/epochNumber/sequenceNumber
 - `payment.ts` — make userId nullable, status as string
 
 **CREATE:**
@@ -303,93 +347,51 @@ cd packages/db && pnpm typecheck && pnpm lint && pnpm test
 
 ---
 
-## Phase 2: tRPC Infrastructure
+## Phase 2: Hono RPC Infrastructure
 
-**Goal:** Set up tRPC alongside existing Hono routes. Both coexist during migration.
+**Goal:** Set up the typed Hono RPC client infrastructure. Add `@hono/zod-validator`, create `api-client.ts` with `hc<AppType>()`, establish React Query wrapper patterns. This enables Phase 7 (Route Restructuring) and Phase 10 (Frontend).
 
 ### 2A — Install Dependencies
 
 | Package | Where | Purpose |
 |---------|-------|---------|
-| `@trpc/server` | `apps/api` | Server routers + fetch adapter |
-| `@trpc/client` | `apps/web` | Typed vanilla client |
-| `@trpc/react-query` | `apps/web` | React hooks wrapping TanStack Query |
+| `@hono/zod-validator` | `apps/api` | Zod-based input validation middleware for chained route syntax |
 
-`@tanstack/react-query` is already in `apps/web`.
+`hono` is already installed. `hono/client` is a subpath export of the existing `hono` package (zero additional dependency). `@tanstack/react-query` is already in `apps/web`.
 
-### 2B — Create `apps/api/src/trpc/`
+### 2B — Export AppType from API
 
-| File | Purpose |
-|------|---------|
-| `context.ts` | `createTRPCContext(c: HonoContext<AppEnv>)` → extracts db, redis, user, session, envUtils, env, executionCtx from Hono context. Exports `TRPCContext` type |
-| `trpc.ts` | `initTRPC.context<TRPCContext>().create()`. Exports: `router`, `middleware`, `publicProcedure`, `protectedProcedure`, `phraseRequiredProcedure`, `chatProcedure`, `billingProcedure`, `rateLimited(key, config)` middleware factory |
-| `routers/index.ts` | Root `appRouter` combining sub-routers. Export `type AppRouter` |
-| `test-utils.ts` | `createCallerFactory(appRouter)` for unit tests + `createTestContext()` factory |
-| `index.ts` | Barrel: `appRouter`, `AppRouter`, `createTRPCContext` |
+In `apps/api/src/app.ts`, the app must use chained `.route()` calls so the inferred type captures all route definitions. Export `type AppType = typeof app`. The barrel export or a dedicated type file must expose `AppType` so `apps/web` can import it as `import type { AppType } from '@lome-chat/api'`.
 
-### 2C — TRPCContext Type
+During this phase, only a minimal chained route (e.g., health) needs to demonstrate the pattern. Full conversion happens in Phase 7.
+
+### 2C — Create `apps/web/src/lib/api-client.ts`
 
 ```typescript
-interface TRPCContext {
-  db: Database;
-  redis: Redis;
-  envUtils: EnvUtilities;
-  env: Bindings;
-  executionCtx: ExecutionContext;
-  user: AppEnv['Variables']['user'];  // nullable
-  session: SessionData | null;
-  openrouter?: OpenRouterClient;      // lazy via chatProcedure middleware
-  helcim?: HelcimClient;              // lazy via billingProcedure middleware
-  honoContext?: Context<AppEnv>;      // for Set-Cookie (auth-adjacent only)
-}
+/**
+ * Single source for all typed API calls.
+ * All server state hooks (useQuery/useMutation) import `client` from here.
+ * Never use raw fetch() for endpoints covered by this client.
+ */
+import { hc } from 'hono/client'
+import type { AppType } from '@lome-chat/api'
+export const client = hc<AppType>(getApiUrl(), { init: { credentials: 'include' } })
 ```
 
-### 2D — Procedure Hierarchy
+All frontend code imports from this file. The `client` object provides fully typed method calls. No separate example file — the CODE-RULES.md API Client pattern and this file's doc comment are the reference. React Query wrapping pattern is learned from the first hook written in Phase 10.
 
-```
-publicProcedure           — no auth required
-  └─ protectedProcedure   — requires authenticated user (throws UNAUTHORIZED)
-       └─ phraseRequiredProcedure — requires hasAcknowledgedPhrase
-            └─ billingProcedure   — lazy Helcim client init
-       └─ chatProcedure          — lazy OpenRouter client init
-```
+### 2D — What Stays vs. What Changes
 
-`rateLimited(key, config)` is a standalone middleware factory that wraps any procedure:
-```typescript
-export function rateLimited(key: string, config: { windowMs: number; max: number }) {
-  return middleware(async ({ ctx, next }) => {
-    const ip = getClientIP(ctx.honoContext);
-    const result = await checkRateLimit(ctx.redis, key, ip, config);
-    if (!result.allowed) throw new TRPCError({ code: 'TOO_MANY_REQUESTS' });
-    return next();
-  });
-}
-```
-
-### 2E — Mount on Hono (`apps/api/src/app.ts`)
-
-```
-/trpc/* middleware chain:
-  csrfProtection → dbMiddleware → redisMiddleware → ironSessionMiddleware
-  → sessionMiddleware (non-rejecting, loads user if session exists)
-  → fetchRequestHandler(@trpc/server/adapters/fetch)
-```
-
-Key: `sessionMiddleware` loads user from session if available but does NOT reject unauthenticated requests. `protectedProcedure` handles auth gating within tRPC. Use `fetchRequestHandler` with `c.req.raw`.
-
-### 2F — Client Setup (`apps/web/src/lib/trpc.ts`)
-
-- `createTRPCReact<AppRouter>()`
-- `httpBatchLink` with `credentials: 'include'` and `url: ${getApiUrl()}/trpc`
-- Provider: `TRPCProvider` wrapping existing `QueryClientProvider` (shared `queryClient` instance)
-
-### 2G — What Stays as Plain Hono (Forever)
-
-| Route | Reason |
-|-------|--------|
-| `/api/auth/*` | OPAQUE multi-step protocol + Set-Cookie + complex rate limiting |
-| `/api/webhooks/*` | External payment callbacks (Helcim), signature verification |
-| `/api/ws/:conversationId` | WebSocket upgrade to Durable Object |
+| Aspect | Before | After (Hono RPC) |
+|--------|--------|-------------------|
+| Server handler logic | Same | Same |
+| Input validation | `@hono/zod-openapi` `createRoute` | `@hono/zod-validator` `zValidator('json', schema)` |
+| Response typing | OpenAPI schema definitions | Inferred from `c.json()` return type |
+| Client calls | Manual `fetch()` + hand-typed | `client.api.route.$method()` (inferred types) |
+| Error handling | HTTP status codes | HTTP status codes (unchanged) |
+| Auth middleware | Hono middleware | Hono middleware (unchanged) |
+| Streaming | Hono SSE (`streamSSE`) | Hono SSE (unchanged) |
+| Webhook | Plain Hono route | Plain Hono route (unchanged) |
 
 ### Verification
 
@@ -427,9 +429,9 @@ Server stores atomically:
 
 Client: `unwrapAccountKeyWithPassword(opaqueExportKey, blob)` → account private key in memory.
 
-### 3C — `/me` Response (Stays as Hono `GET /api/auth/me`)
+### 3C — `/me` Response (`GET /api/auth/me`)
 
-Stays in Hono because it's called during session restoration before tRPC client init.
+Stays as plain Hono route because it's called during session restoration before the typed client is initialized.
 
 **New response:** `{ user, passwordWrappedPrivateKey, publicKey }`
 
@@ -603,11 +605,18 @@ When member M sends in conversation C owned by O:
 
 **Clarification on `conversationSpending.totalSpent`:** This counter only increments when the conversation owner is charged on behalf of a non-owner member. It does NOT increment when the owner sends their own messages or when a non-owner member pays from their own wallets. It answers the question "how much has the owner spent subsidizing other members?" and is checked against `conversations.conversationBudget`.
 
-### 4F — Billing tRPC Router (`apps/api/src/trpc/routers/billing.ts`)
+### 4F — Billing Hono Routes (`apps/api/src/routes/billing.ts`)
 
-- `getBalance`: phraseRequiredProcedure → query wallets, compute tier info
-- `listTransactions`: phraseRequiredProcedure → query ledger_entries JOIN wallets with cursor pagination
-- `createPayment`, `processPayment`, `getPaymentStatus`: billingProcedure (lazy Helcim) → reuse existing Helcim logic
+**Read routes (sessionRequired only — no phrase acknowledgment needed):**
+- `GET /api/billing/balance` — sessionRequired → query wallets, compute tier info
+- `GET /api/billing/transactions` — sessionRequired → query ledgerEntries JOIN wallets with cursor pagination
+- `GET /api/billing/payment/:id/status` — sessionRequired → get payment status
+
+**Purchase routes (sessionRequired + phraseRequired — financial action):**
+- `POST /api/billing/payment` — sessionRequired + phraseRequired + helcimMiddleware → create payment
+- `POST /api/billing/payment/:id/process` — sessionRequired + phraseRequired + helcimMiddleware → process payment
+
+**Rationale:** Viewing your balance and transaction history is a read-only operation that should not be gated behind phrase acknowledgment. Only actions that spend or add money (creating/processing payments) require the phrase gate.
 
 ### Verification
 
@@ -622,7 +631,7 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 
 **Goal:** Create conversations with epoch 1. Server-side message encryption. Remove finalize. Design doc Parts 4, 5.
 
-### 5A — Conversation Creation (tRPC `conversations.create`)
+### 5A — Conversation Creation (`POST /api/conversations`)
 
 1. Client: `createFirstEpochForConversation([userAccountPublicKey])` → epochPublicKey, confirmationHash, memberWraps
 2. Client encrypts title: `encryptMessageForStorage(epochPublicKey, "")` → ECIES blob for empty/placeholder title
@@ -633,7 +642,7 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
     - `epochMembers` row (wrap for owner)
     - `conversationMembers` row (privilege='owner', visibleFromEpoch=1)
 
-### 5B — Message Send (tRPC `messages.send`)
+### 5B — Message Send (`POST /api/chat` — SSE streaming)
 
 1. Client sends: `{ conversationId, model, content (plaintext), messagesForInference }`
 2. Server validates: auth, write permission via conversationMembers, budget check
@@ -652,7 +661,7 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
    g. **All in ONE database transaction** — user message, AI message, and billing commit together
 9. Server broadcasts `message:complete` to DO (with both message IDs + encrypted blobs)
 10. Server releases speculative budget reservation from Redis
-11. If AI fails: **nothing persisted**, no charge, budget released. Client discards the optimistic user message preview.
+11. **If AI fails or stream errors:** Nothing is persisted, no charge, budget reservation released from Redis. No refund logic needed because we never charged. The `refund` entryType in ledgerEntries is for payment disputes/admin adjustments only, never for failed AI calls.
 
 **NO finalize needed — single server-side encryption path.**
 
@@ -665,18 +674,18 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 - On epoch rotation: rotating client re-encrypts title under new epoch key, updates `titleEpochNumber`
 - Conversation list page requires epoch key resolution per conversation
 
-### 5D — Key Endpoints (tRPC `keys.*`)
+### 5D — Key Endpoints (Hono RPC routes under `/api/keys`)
 
-| Procedure | Type | Input | Returns |
-|-----------|------|-------|---------|
-| `getEpochWraps` | query | `{ conversationId }` | All epoch member wraps for current user's publicKey |
-| `getChainLinks` | query | `{ conversationId }` | Chain links for backward traversal |
-| `submitRotation` | mutation | `{ conversationId, newEpochPublicKey, confirmationHash, memberWraps[], chainLink, removedMemberIds[], encryptedTitle?, message? }` | Atomic rotation + optional message |
-| `getMemberPublicKeys` | query | `{ conversationId }` | Public keys of all active members |
+| Route | Method | Returns |
+|-------|--------|---------|
+| `/api/keys/:conversationId/wraps` | GET | All epoch member wraps for current user's publicKey |
+| `/api/keys/:conversationId/chain-links` | GET | Chain links for backward traversal |
+| `/api/keys/:conversationId/rotation` | POST | Atomic rotation + optional message |
+| `/api/keys/:conversationId/member-keys` | GET | Public keys of all active members |
 
 ### 5E — Epoch Rotation Protocol (Atomic Server Transaction)
 
-When `submitRotation` is called:
+When rotation is submitted:
 1. Create new `epochs` row (epochNumber = currentEpoch + 1)
 2. Store all member wraps in `epochMembers`
 3. Store chain link on new epoch row
@@ -769,7 +778,7 @@ export async function broadcastToRoom(
 
 ### 6E — WebSocket Route (`apps/api/src/routes/ws.ts` — NEW)
 
-Hono route (NOT tRPC). Two auth paths:
+Hono route. Two auth paths:
 
 **Authenticated:** `GET /api/ws/:conversationId`
 1. Validate session → verify user is active member
@@ -810,10 +819,17 @@ server: {
 }
 ```
 
-### 6I — DELETE
+### 6I — MODIFY (Not DELETE)
 
-- `apps/web/src/lib/sse-client.ts` (replaced by WebSocket)
-- `apps/api/src/lib/stream-handler.ts` (SSE replaced by DO broadcast)
+| File | Change |
+|------|--------|
+| `apps/web/src/lib/sse-client.ts` | UPDATE event types: remove `ephemeralPublicKey`, add `messageId`, `sequenceNumber`, `cost`. Keep SSE parsing logic. |
+| `apps/api/src/lib/stream-handler.ts` | UPDATE event types: remove `ephemeralPublicKey` from `DoneEventData`, add committed message metadata. Keep SSE writing logic. |
+
+**ADD:**
+- `apps/web/src/lib/ws-client.ts` — NEW WebSocket client for group chat DO connections only
+
+**Rationale:** SSE is still the streaming mechanism for `POST /api/chat` (authed + link guest) and `POST /api/trial` (anonymous). WebSocket + DO is only for broadcasting to OTHER members in group chats. The sending client always uses SSE.
 
 ### Verification
 
@@ -824,123 +840,162 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 
 ---
 
-## Phase 7: tRPC Route Migration
+## Phase 7: Route Restructuring
 
-**Goal:** Migrate all remaining REST routes to tRPC. Design doc Part 12.
+**Goal:** Restructure all Hono route files to use chained syntax for type inference via `hc<AppType>()`. Handler logic stays identical — only the route definition pattern changes.
 
-### 7A — Migration Order
+### 7A — Why This Phase Exists
 
-1. **Models** — simplest, `publicProcedure`, no auth
-2. **Conversations CRUD** — straightforward `protectedProcedure`
-3. **Billing** — query-heavy, `billingProcedure`
-4. **Messages** — send mutation + DO integration
-5. **Trial chat** — `publicProcedure` with rate limiting (standalone anonymous, kept from current)
-6. **Link guest** — `publicProcedure` with rate limiting (shared link based)
-7. **Dev** — wrapped in env check middleware
+Hono RPC infers client types from the chained `.get()/.post()` calls. The current codebase uses `OpenAPIHono` with `createRoute()`, which does not produce the chained type signature that `hc` needs. Each route file must be converted from `OpenAPIHono` + `createRoute` pattern to chained `Hono` + `zValidator` pattern.
 
-### 7B — Pattern Per Route Migration
+### 7B — Migration Order
 
-1. Create tRPC sub-router in `apps/api/src/trpc/routers/`
-2. Move business logic from Hono handler into procedure body (service functions stay in `services/`)
-3. Input: Zod schemas from `packages/shared` where possible
-4. Errors: `throw new TRPCError({ code, message })`
-5. Update client hooks to use `trpc.router.procedure.useQuery/useMutation()`
-6. Delete old Hono route file
-7. Testing: use `createCallerFactory`
+1. Health (trivial, proves the pattern)
+2. Models (simple, no auth)
+3. Conversations CRUD
+4. Billing
+5. Dev
+6. Guest chat (rate limiting patterns)
+7. Chat (SSE streaming — most complex)
 
-### 7C — Complete tRPC Router Structure
+### 7C — Pattern Per Route File
+
+1. Replace `OpenAPIHono` with `Hono`
+2. Replace `@hono/zod-openapi` with `@hono/zod-validator`
+3. Convert from `app.openapi(route, handler)` to chained `new Hono<AppEnv>().get(...).post(...)`
+4. Input: `zValidator('json', schema)` / `zValidator('param', schema)` / `zValidator('query', schema)`
+5. Response: `c.json(data)` directly (type inferred)
+6. Export the chained Hono instance
+
+### 7D — App-Level Chaining
+
+Main `app.ts` chains all `.route()` calls:
 
 ```
-appRouter
-├── models
-│   └── list (publicProcedure)
-├── conversations
-│   ├── create (protectedProcedure)
-│   ├── list (protectedProcedure)
-│   ├── get (protectedProcedure)
-│   ├── delete (protectedProcedure)
-│   ├── updateTitle (protectedProcedure)
-│   ├── updateBudget (protectedProcedure) — owner only
-│   └── assignProject (protectedProcedure) — owner only
-├── projects
-│   ├── create (protectedProcedure)
-│   ├── list (protectedProcedure)
-│   ├── update (protectedProcedure)
-│   └── delete (protectedProcedure)
-├── messages
-│   ├── send (chatProcedure)
-│   ├── delete (protectedProcedure)
-│   ├── getHistory (protectedProcedure)
-│   ├── createShare (protectedProcedure)
-│   └── getShared (publicProcedure)
-├── keys
-│   ├── getEpochWraps (protectedProcedure)
-│   ├── getChainLinks (protectedProcedure)
-│   ├── submitRotation (protectedProcedure)
-│   └── getMemberPublicKeys (protectedProcedure)
-├── members
-│   ├── add (protectedProcedure) — admin/owner
-│   ├── remove (protectedProcedure) — admin/owner
-│   ├── leave (protectedProcedure) — non-owner
-│   ├── updatePrivilege (protectedProcedure) — admin/owner
-│   └── list (protectedProcedure)
-├── links
-│   ├── create (protectedProcedure) — admin/owner
-│   ├── revoke (protectedProcedure) — admin/owner
-│   └── list (protectedProcedure)
-├── budget
-│   ├── get (protectedProcedure)
-│   ├── setMemberBudget (protectedProcedure) — owner
-│   └── removeMemberBudget (protectedProcedure) — owner
-├── billing
-│   ├── getBalance (phraseRequiredProcedure)
-│   ├── listTransactions (phraseRequiredProcedure)
-│   ├── createPayment (billingProcedure)
-│   ├── processPayment (billingProcedure)
-│   └── getPaymentStatus (billingProcedure)
-├── account
-│   ├── getProfile (protectedProcedure)
-│   ├── updateProfile (protectedProcedure)
-│   ├── regenerateRecovery (protectedProcedure)
-│   └── deleteAccount (protectedProcedure)
-├── trial
-│   └── stream (publicProcedure + rateLimited) — anonymous trial chat (no account, no persistence)
-├── linkGuest
-│   ├── accessLink (publicProcedure + rateLimited) — validate link, return epoch wraps + messages + wsToken
-│   └── sendMessage (publicProcedure + rateLimited) — send via link with owner's budget
-└── dev
-    ├── getPersonas (publicProcedure, dev-only)
-    └── cleanup (publicProcedure, dev-only)
+const app = new Hono<AppEnv>()
+  .use('*', ...)
+  .route('/api/auth', auth)
+  .route('/api/conversations', conversations)
+  .route('/api/members', members)
+  .route('/api/keys', keys)
+  .route('/api/messages', messages)
+  .route('/api/links', links)
+  .route('/api/budget', budget)
+  .route('/api/billing', billing)
+  .route('/api/account', account)
+  .route('/api/projects', projects)
+  .route('/api/link-guest', linkGuest)
+  .post('/api/chat', sessionRequired, chatHandler)
+  .post('/api/trial', rateLimited(...), trialHandler)
+  .get('/api/ws/:conversationId', wsUpgradeHandler)
+  .post('/api/webhooks/payments', webhookHandler)
+
+export type AppType = typeof app
 ```
 
-### 7D — Trial Chat (`trial.stream`)
+### 7E — Complete Route Structure
 
-This is the existing anonymous trial chat, kept as-is but moved to tRPC. `publicProcedure + rateLimited`:
+```
+/api
+  /auth — OPAQUE multi-step, Set-Cookie, rate limiting
+    POST /register/init, /register/finish
+    POST /login/init, /login/finish
+    POST /verify-2fa, /logout
+    GET  /me
+    POST /recovery/*, /change-password/*
+  /account
+    GET, PATCH /profile
+    POST /regenerate-recovery, /delete
+  /conversations
+    GET / (list), POST / (create)
+    GET /:id, DELETE /:id
+    PATCH /:id/settings, /:id/project
+  /projects
+    GET / (list), POST / (create)
+    PATCH /:id, DELETE /:id
+  /members
+    GET /:conversationId (list)
+    POST /:conversationId/add, /remove, /leave
+    PATCH /:conversationId/privilege
+  /links
+    GET /:conversationId (list), POST /:conversationId (create)
+    POST /:conversationId/revoke
+  /keys
+    GET /:conversationId/wraps, /chain-links, /member-keys
+    POST /:conversationId/rotation
+  /messages
+    GET /:conversationId (history)
+    POST /:conversationId/delete
+    POST /share (create), GET /share/:shareId
+  /budget
+    GET /:conversationId, PATCH /:conversationId
+  /billing
+    GET /balance, /transactions
+    POST /payment, /payment/:id/process
+    GET /payment/:id/status
+  /link-guest
+    POST /access — validate link by linkPublicKey lookup, return epoch wraps + messages + wsToken
+    POST /send — send via link with owner's budget
+  POST /chat — authenticated + linkGuest SSE streaming
+  POST /trial — anonymous SSE streaming, no persistence
+  GET /ws/:conversationId — WebSocket upgrade to DO
+  POST /webhooks/payments — Helcim callback
+```
+
+### 7F — Trial Chat (`POST /api/trial`)
+
+Plain Hono route with SSE streaming + rate limiting middleware:
 - Input: `{ messages, model }` — no auth, no persistence
-- Rejects authenticated users (they should use `messages.send`)
-- Uses existing `consumeGuestMessage()` from guest-usage.ts for dual-identity Redis rate limiting
-- Streams AI response back (via SSE or batched tRPC subscription — TBD based on tRPC streaming support)
-- No message storage, no billing beyond rate limits
+- Rejects authenticated users
+- Uses existing `consumeGuestMessage()` for dual-identity Redis rate limiting
+- Streams AI response as SSE events
+- No message storage, no billing
 
-### 7E — Link Guest (`linkGuest.accessLink`, `linkGuest.sendMessage`)
+### 7G — Link Guest Access (Explicit `linkPublicKey` Lookup)
 
-**`accessLink`:** publicProcedure + rateLimited(30/hour per IP)
-1. Input: `{ conversationId, linkPublicKey (base64) }`
-2. Validates link exists + not revoked + has correct privilege
-3. Returns epoch wraps + chain links + messages (respecting visibleFromEpoch) + wsToken (Redis, 5min TTL, single-use)
+**`POST /api/link-guest/access`:**
 
-**`sendMessage`:** publicProcedure + rateLimited(10/min per IP)
-1. Input: `{ conversationId, linkPublicKey, content, model, displayName, messagesForInference }`
-2. Validates link + write privilege + owner budget
-3. Encrypts + stores (senderType='user', senderId=null, senderDisplayName=displayName)
-4. Invokes AI, streams via DO
-5. Charges owner's wallets (payerId=owner)
+Input: `{ conversationId, linkPublicKey (base64) }`
+
+Server validation:
+1. Query `sharedLinks WHERE conversationId = ? AND linkPublicKey = ? AND revokedAt IS NULL`
+2. If no row found: return 404 (link not found or revoked)
+3. Look up `conversationMembers` row via `linkId = sharedLinks.id`
+4. Extract `visibleFromEpoch` from the conversationMembers row
+5. Return: epoch member wraps for this linkPublicKey (from `epochMembers WHERE memberPublicKey = ?`), chain links (respecting visibleFromEpoch), encrypted messages (respecting visibleFromEpoch), wsToken (Redis, 5min TTL, single-use)
+
+The lookup is **by `sharedLinks.linkPublicKey`**, not by link ID or any other identifier. The client derives the public key from the URL fragment secret via `HKDF(linkSecret, info="link-keypair-v1")` and sends the public half.
+
+**`POST /api/link-guest/send`:**
+
+Input: `{ conversationId, linkPublicKey (base64), content, model, displayName, messagesForInference }`
+
+Server validation:
+1. Query `sharedLinks WHERE conversationId = ? AND linkPublicKey = ? AND revokedAt IS NULL`
+2. Verify link has `write` privilege
+3. Look up conversationMembers row via linkId, verify budget
+4. Proceed with message send flow (encrypt, AI, atomic transaction — charges owner)
+
+### 7H — OpenAPI Removal
+
+After all routes are converted, remove `@hono/zod-openapi` from `apps/api/package.json`.
+
+### 7I — Routes Not in Typed Client
+
+These routes are still Hono but not called via `hc<AppType>()`:
+
+| Route | Reason |
+|-------|--------|
+| `POST /api/webhooks/payments` | Called by Helcim, not by `apps/web` |
+| `GET /api/ws/:conversationId` | WebSocket upgrade, dedicated client class |
+| `POST /api/chat` | SSE streaming, consumed by custom SSE parser |
+| `POST /api/trial` | SSE streaming, same reason |
 
 ### Verification
 
 ```bash
 cd apps/api && pnpm typecheck && pnpm lint && pnpm test
-cd apps/web && pnpm typecheck && pnpm lint && pnpm test
+cd apps/web && pnpm typecheck && pnpm lint
 ```
 
 ---
@@ -949,7 +1004,7 @@ cd apps/web && pnpm typecheck && pnpm lint && pnpm test
 
 **Goal:** Multi-member conversations with privileges and lazy epoch rotation. Design doc Parts 4, 6.
 
-### 8A — Member Management (tRPC `members.*`)
+### 8A — Member Management (Hono routes under `/api/members/:conversationId/*`)
 
 **`add`:** Admin/owner client:
 1. Fetches new member's publicKey from server
@@ -981,10 +1036,10 @@ cd apps/web && pnpm typecheck && pnpm lint && pnpm test
 ### 8C — Lazy Epoch Rotation
 
 1. On trigger (remove/link revocation): server sets `rotationPending = true`, records `pendingRemovals`
-2. On next `messages.send` by write-capable member:
+2. On next message send by write-capable member:
     - Client detects `rotationPending` in response
     - Client: `performEpochRotation(oldEpochPrivKey, remainingMemberPubKeys[])`
-    - Client sends rotation data + message atomically via `keys.submitRotation`
+    - Client sends rotation data + message atomically via key rotation endpoint
     - Server processes in single transaction (Phase 5E protocol)
 
 ### 8D — Owner Lifecycle
@@ -1013,7 +1068,7 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 
 **Goal:** Public link sharing and individual message sharing. Design doc Parts 7, 8.
 
-### 9A — Public Link Sharing (tRPC `links.*`)
+### 9A — Public Link Sharing (Hono routes under `/api/links/:conversationId/*`)
 
 **Create:**
 1. Owner/admin: `createSharedLink(epochPrivKey)` → linkSecret, linkPublicKey, memberWrap
@@ -1024,7 +1079,7 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
    c. `conversationMembers` row — linkId set to the new sharedLinks.id, userId null, privilege, visibleFromEpoch
 4. URL: `https://app.com/c/{conversationId}#{linkSecretBase64url}` (fragment never sent to server)
 
-**Access (`linkGuest.accessLink` — already defined in Phase 7E):**
+**Access (`POST /api/link-guest/access` — already defined in Phase 7G):**
 1. Visitor extracts linkSecret from URL fragment
 2. `deriveKeysFromLinkSecret(linkSecret)` → linkKeyPair
 3. Sends conversationId + linkPublicKey to server
@@ -1033,8 +1088,12 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 
 **Revocation:** Sets `revokedAt` on sharedLinks, `leftAt` on conversationMembers, inserts `pendingRemovals`, sets `rotationPending`. Triggers lazy epoch rotation.
 
-### 9B — Individual Message Sharing (tRPC `messages.createShare`/`getShared`)
+### 9B — Individual Message Sharing
 
+- `POST /api/messages/share` — create a share
+- `GET /api/messages/share/:shareId` — access a shared message
+
+Flow:
 1. Client decrypts target message → `createMessageShare(plaintext)` → shareSecret + shareBlob
 2. Server stores shareBlob in `sharedMessages`, returns shareId
 3. URL: `https://app.com/m/{shareId}#{shareSecretBase64url}`
@@ -1051,7 +1110,7 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 
 ## Phase 10: Frontend Overhaul
 
-**Goal:** Update all frontend code for epoch-based E2EE, tRPC, WebSocket. Design doc Part 11.
+**Goal:** Update all frontend code for epoch-based E2EE, Hono RPC typed client, React Query hooks, SSE for streaming, WebSocket for group broadcast.
 
 ### 10A — DELETE Entirely
 
@@ -1060,49 +1119,53 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 | `apps/web/src/stores/finalize-queue.ts` + tests | No finalize with epoch encryption |
 | `apps/web/src/stores/finalize-queue.compression.test.ts` | Same |
 | `apps/web/src/lib/encrypt-content.ts` + test | Server encrypts now |
-| `apps/web/src/lib/sse-client.ts` | Replaced by WebSocket |
 
-### 10B — Message Decryption Rewrite (`apps/web/src/hooks/use-decrypted-messages.ts`)
+**NOT deleted:** `apps/web/src/lib/sse-client.ts` — KEPT and updated (SSE used for chat streaming)
 
-Epoch-based decryption:
-1. Fetch epoch wraps from `trpc.keys.getEpochWraps.useQuery({ conversationId })`
-2. `unwrapEpochKey(accountPrivKey, wrap)` → cache in session-scoped `Map<string, Uint8Array>` keyed by `convId:epochNum`
+### 10B — Message Decryption Rewrite
+
+Uses Hono RPC client:
+1. Fetch wraps: `client.api.keys[':conversationId'].wraps.$get(...)` wrapped in `useQuery`
+2. `unwrapEpochKey(accountPrivKey, wrap)` — cache in singleton Map
 3. `decryptMessage(epochPrivKey, blob)` for each message
-4. Chain link traversal for older epochs via `trpc.keys.getChainLinks`
-5. Epoch key cache lives in a **module-scope Map or React context provider** — NOT `useRef`. This ensures navigating away from a conversation and back doesn't require re-fetching and re-unwrapping epoch keys. The cache persists for the entire session and is cleared on logout (subscribe to auth store changes). Create `apps/web/src/lib/epoch-key-cache.ts` as a singleton: `const epochKeyCache = new Map<string, Uint8Array>()` with `clearCache()` export wired to auth store's `clear()` method.
+4. Chain link traversal via `client.api.keys[':conversationId']['chain-links'].$get(...)`
+5. Epoch key cache: `apps/web/src/lib/epoch-key-cache.ts` singleton, cleared on logout
 
 ### 10C — Chat Hooks Rewrite
 
-- `use-authenticated-chat.ts`: Send plaintext via `trpc.messages.send.useMutation()`, no finalize. Receive tokens via WebSocket, final blob via `message:complete`.
-- `use-chat-stream.ts`: Rewrite to use WebSocket instead of SSE.
+- `use-authenticated-chat.ts`: Send plaintext via `client.api.chat.$post(...)`. Parse SSE stream from the Response. No finalize.
+- `use-chat-stream.ts`: Update SSE event handling for new format. Keep SSE parsing.
+- NEW `use-conversation-ws.ts`: React hook wrapping `ConversationWebSocket` for group broadcast
 
 ### 10D — New Hooks
 
 | Hook | Purpose |
 |------|---------|
-| `use-epoch-keys.ts` | Fetches + caches epoch key wraps per conversation |
-| `use-conversation-ws.ts` | React hook wrapping `ConversationWebSocket` |
-| `use-message-replay-guard.ts` | Tracks received message_id in `Set<string>` via `useRef`, rejects duplicates |
+| `use-epoch-keys.ts` | Fetches + caches epoch key wraps via Hono RPC + React Query |
+| `use-conversation-ws.ts` | React hook for group chat WebSocket broadcast |
+| `use-message-replay-guard.ts` | Tracks received messageId in Set, rejects duplicates |
 
-### 10E — Replace Manual Hooks with tRPC
+### 10E — Replace Manual Fetch Hooks with Hono RPC + React Query
 
-| Current | tRPC Replacement |
-|---------|------------------|
-| `useConversations()` with manual fetch | `trpc.conversations.list.useQuery()` |
-| `useConversation(id)` with manual fetch | `trpc.conversations.get.useQuery({ id })` |
-| `useBalance()` with manual fetch | `trpc.billing.getBalance.useQuery()` |
-| `useTransactions()` with manual fetch | `trpc.billing.listTransactions.useQuery()` |
-| manual `fetch` for mutations | `trpc.*.useMutation()` |
+| Current | Replacement |
+|---------|-------------|
+| `useConversations()` manual fetch | `useQuery({ queryKey: ['conversations'], queryFn: () => client.api.conversations.$get().then(r => r.json()) })` |
+| `useConversation(id)` manual fetch | `useQuery({ queryKey: ['conversation', id], queryFn: () => client.api.conversations[':id'].$get({ param: { id } }).then(r => r.json()) })` |
+| `useBalance()` manual fetch | `useQuery({ queryKey: ['balance'], queryFn: () => client.api.billing.balance.$get().then(r => r.json()) })` |
+| manual `fetch` for mutations | `useMutation({ mutationFn: ... })` |
 
-### 10F — Shared Schemas Update (`packages/shared/`)
+The `QueryClientProvider` from `@tanstack/react-query` is the only data layer provider.
 
+### 10F-10G — Shared Schemas + New UI Components
+
+**10F — Shared Schemas Update (`packages/shared/`):**
 - REMOVE: finalize-related schemas
 - UPDATE: message response schema (encryptedBlob, epochNumber, senderType, senderId, senderDisplayName, payerId, sequenceNumber)
 - UPDATE: chat request schema (content is plaintext string, not encrypted)
 - UPDATE: conversation response schema (epoch/budget fields)
 - ADD: schemas for epochs, members, links, budgets, key operations
 
-### 10G — New UI Components
+**10G — New UI Components:**
 
 | Component | Purpose |
 |-----------|---------|
@@ -1129,10 +1192,12 @@ cd apps/web && pnpm typecheck && pnpm lint && pnpm test
 
 ### 11A — Delete from `apps/api`
 
-- `@noble/ciphers` and `@noble/hashes` from package.json
-- Old REST route files fully migrated to tRPC
-- `stream-handler.ts` + test (SSE replaced by DO)
+- `@noble/ciphers` and `@noble/hashes` from package.json (moved to crypto package)
+- `@hono/zod-openapi` from package.json (replaced by `@hono/zod-validator`)
+- Old route files using `OpenAPIHono` + `createRoute` pattern
 - Unused middleware from old flows
+- **DO NOT delete `stream-handler.ts`** — still used for SSE streaming
+- **DO NOT delete `sse-client.ts`** — still used for SSE parsing
 
 ### 11B — Delete from DB schema
 
@@ -1182,9 +1247,9 @@ pnpm dev           # Local dev starts
 - `packages/db/src/zod/` — update all schemas
 
 ### API (Phases 2–9)
-- `apps/api/src/app.ts` — tRPC mount + DO binding + WebSocket route
+- `apps/api/src/app.ts` — chained Hono routes + `export type AppType` + DO binding + WebSocket route
 - `apps/api/src/types.ts` — add CONVERSATION_ROOM to Bindings
-- `apps/api/src/trpc/` — all tRPC infrastructure
+- `apps/api/src/routes/*.ts` — all routes restructured with chained syntax + `zValidator`
 - `apps/api/src/routes/opaque-auth.ts` — auth flow changes
 - `apps/api/src/routes/ws.ts` — NEW (WebSocket upgrade)
 - `apps/api/src/services/chat/message-persistence.ts` — epoch encryption
@@ -1193,6 +1258,7 @@ pnpm dev           # Local dev starts
 - `apps/api/src/lib/totp.ts` — crypto package import
 - `apps/api/src/lib/broadcast.ts` — NEW (API→DO)
 - `apps/api/src/lib/speculative-balance.ts` — group budget reservation
+- `apps/web/src/lib/api-client.ts` — NEW Hono RPC client (`hc<AppType>()`)
 
 ### Preserved Billing Logic (UNCHANGED algorithms)
 - `packages/shared/src/pricing.ts`
@@ -1210,11 +1276,12 @@ pnpm dev           # Local dev starts
 ### Frontend (Phase 10)
 - `apps/web/src/lib/auth.ts` — remove DEK
 - `apps/web/src/lib/auth-client.ts` — new key hierarchy
-- `apps/web/src/lib/trpc.ts` — NEW tRPC client
+- `apps/web/src/lib/api-client.ts` — NEW Hono RPC client
 - `apps/web/src/lib/ws-client.ts` — NEW WebSocket client
+- `apps/web/src/lib/sse-client.ts` — KEPT (updated event types)
 - `apps/web/src/hooks/use-decrypted-messages.ts` — epoch rewrite
 - `apps/web/src/hooks/use-authenticated-chat.ts` — send plaintext, no finalize
-- `apps/web/src/hooks/use-chat-stream.ts` — WebSocket instead of SSE
+- `apps/web/src/hooks/use-chat-stream.ts` — SSE event handling updated
 
 ---
 
