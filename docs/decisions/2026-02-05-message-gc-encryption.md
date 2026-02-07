@@ -1,1037 +1,1246 @@
-# Final Plan: E2EE AI Chat Application — Auth, Crypto, Communication & Architecture
+# Execution Plan: Full E2EE Architecture Transition
+
+## Context
+
+Complete transition of LOME-CHAT from current DEK-based encryption + REST API to the new epoch-based E2EE architecture with tRPC, Durable Objects, group conversations, shared links, budget system, and wallet-based billing. No existing users — clean slate. The authoritative specification is the design document provided by the user (Parts 1–17).
+
+This change is needed because the current architecture uses a Data Encryption Key (DEK) model that doesn't support group conversations, public link sharing, or server-side encryption of AI responses. The new epoch-based ECIES system enables all of these while maintaining the guarantee that the server can encrypt but never decrypt message content.
 
 ---
 
-## Instructions for the Implementing Developer
+## Decision Log
 
-This document is a complete specification, not working code. Before writing any code, you must:
-
-1. **Read this entire document first.** Understand every section and how they connect. The crypto system, auth flow, real-time layer, and API design are deeply interdependent.
-
-2. **Deeply plan every step before implementation.** Map each section of this document onto the existing codebase. Identify what exists, what needs modification, and what is new. Plan the file structure and module boundaries. Focus on clean code design and strong software engineering — small functions, clear separation, thorough error handling.
-
-3. **The crypto package is a hard boundary.** Code outside of `packages/crypto` must NEVER perform any cryptographic operation directly — no key generation, no encryption, no decryption, no hashing, no key derivation. Instead, the crypto package must expose methods with names so explicit that misuse is effectively impossible. A developer working in the API or frontend should never need to understand the underlying cryptography — they call a method whose name describes exactly what it does for their use case, and the crypto package handles everything internally. If you find yourself importing `@noble/*` or `hash-wasm` outside of `packages/crypto`, you are doing it wrong.
-
-4. **Adapt to the existing codebase.** This document does not prescribe filenames, directory structures, or code patterns. It prescribes behavior, algorithms, data flows, and architectural boundaries. You know the codebase — map these requirements onto it in whatever way produces the cleanest result.
-
-5. **Test cryptographic operations exhaustively.** Every encrypt/decrypt round-trip, every key derivation path, every edge case (empty plaintext, maximum-size messages, corrupted blobs, wrong keys) must be covered by tests in the crypto package before integrating with the rest of the system.
-
----
-
-## Requirements
-
-These are the original requirements and all subsequent clarifications, collected verbatim.
-
-### Context
-
-This is an AI chat application. The full stack is TypeScript — React on the frontend, Cloudflare Pages for hosting, Cloudflare Workers for the backend, PostgreSQL for persistent storage, and Redis for caching/real-time. Authentication uses the OPAQUE protocol for password management, a 12-word recovery phrase as the sole password reset mechanism, and optional 2FA codes.
-
-### End-to-End Encryption
-
-1. The client is the only entity that can decrypt messages — the server never has access to plaintext at rest or in storage.
-2. A full database breach must not reveal any message plaintext.
-3. The sole exception to E2EE is that plaintext is sent in transit to invoke the AI model.
-4. The server must be able to encrypt messages (at minimum AI responses) without any client being online or available. The server must never need to rely on a connected client to persist an encrypted message. The server must still not be able to decrypt.
-5. Server encrypts all messages (both user and AI). User sends plaintext only, server encrypts before storage.
-
-### Message Storage
-
-6. Each message must only be stored once, not duplicated per user or per group member.
-7. For extremely common things like messages, we cannot justify high storage costs each, like 1KB per message.
-8. Message deletion is allowed and is a hard-delete from the database.
-
-### Account & Credential Binding
-
-9. Decryption must be tied to the account — possessing any single key without account credentials must not be sufficient to decrypt.
-10. A user must be able to regain full access using only their password.
-11. If the password is forgotten, the only recovery path is a 12-word recovery phrase.
-12. Recovery phrases and regenerating them already exist in the code — keep them how they are.
-
-### Offline / Long Absence Tolerance
-
-13. A user must be able to be logged out for an arbitrarily long time, return to a group with membership changes, new messages, etc., and still access everything they are entitled to.
-
-### Group Conversations
-
-14. Support creating groups with multiple members. Not expecting 1,000+ member groups.
-15. Support varying privilege levels within a group (at minimum: read vs. write).
-16. Members with write permission can message the AI, and all members (including read-only) can see the AI response.
-17. Support adding and removing members from a group at any time.
-18. When a member is removed, they must lose the ability to decrypt future messages (forward secrecy of membership).
-19. A brief race window between revocation and the revoked client learning of it is acceptable.
-20. Any write-capable member can perform the epoch rotation action — they all have the keys necessary, so let any client handle it. Only write+ can rotate.
-21. Upon epoch rotation, all remaining members can still see old messages.
-
-### Public Link Sharing
-
-22. It must be possible to share a link that grants anyone access to a conversation without requiring an account.
-23. The link must not transmit the decryption secret to the server (e.g., via URL fragment).
-24. Public links must support expiry.
-25. Guests via write-enabled links can send messages using the owner's balance.
-
-### Individual Message Sharing
-
-26. It must be possible to share a single message outside its conversation.
-27. Sharing a single message must be cryptographically isolated — access to one shared message must not grant access to any other message or the conversation as a whole.
-
-### Real-Time
-
-28. All messages (from AI and users) must update in real time for all members of a conversation.
-29. Must be able to stream the plaintext directly to the user as the stream comes in from the AI.
-
-### Budget System
-
-30. Owner can set a max budget both per person and conversation wide to allow others to use their balance instead of their own. This is 0 by default.
-31. When out, the other people must use their own balance.
-32. Support both everyone-per-person spending (single value for all) and individual per-person spending. One column: if non-null, that's the everyone value; if null, individual entries elsewhere, no entry means zero.
-33. On shared chats, show who paid next to the message price. Who paid is also who owns the message / it is under their account.
-34. Guests can send messages with the owner's balance without an account.
-
-### Threat Model
-
-35. The server must be assumed potentially malicious — even a compromised or adversarial server must not be able to decrypt any encrypted data.
-36. Protection against the server reading plaintext in transit (during AI invocation) is out of scope — accepted exception.
-
-### Lifecycle & Membership
-
-37. Owner leaving the group deletes all their conversations, including group chats.
-38. Voluntary leave triggers removal (and therefore lazy epoch rotation).
-39. For account deletions, leave all groups.
-40. Must be able to control if new users and guests can see messages from before they were added.
-
-### Operational
-
-41. No lock on normal message sends — concurrent writes are fine. Lock only during epoch rotation.
-42. Failed AI responses just don't save.
-43. Support client-side caching of decrypted epoch keys.
-44. Rate limiting via Redis.
-45. Lazy epoch rotation: on a rotation-triggering event, just mark the conversation as due for a rotation, then rotate when the next message is sent.
-
-### Design Constraints
-
-46. Want the absolute strongest, future-proof possible design, hyper-optimized to this use-case with the possibility of migration and change in the future.
-47. Minimize storage accumulation through repetitive tasks like epoch rotations with either non-increasing storage or low accumulation while maintaining security and features.
-48. Keep storage accumulation bounded, not needing to grow unbounded for certain operations.
-49. Must be able to cryptographically lock out people whose information has been revoked.
-50. Post-quantum is out of scope — no added complexity or cost is necessary to support it.
-51. Keep it relatively simple. Make sure every addition has meaningful value added.
-52. Must support one webhook for the payment processor.
-53. Favor existing dependencies already in the codebase.
+| # | Decision | Chosen | Rationale |
+|---|----------|--------|-----------|
+| 1 | Guest systems | Keep both: `trial` (anonymous) + `linkGuest` (shared link) | Anonymous trial for marketing, link-based for conversations |
+| 2 | Migration strategy | Single clean migration (delete 0008–0012) | No users, clean slate |
+| 3 | Crypto package | Audit & fix to match design doc | Info strings, compression, version alignment needed |
+| 4 | PostgreSQL version | PG18 ready, use native `uuidv7()` | Design doc requires it |
+| 5 | HKDF info strings | Match design doc exactly | `"shared-link-v1"` → `"link-keypair-v1"`, `"message-share-v1"` → `"share-msg-v1"` |
+| 6 | Compression | Switch gzip → raw deflate | Saves ~18B/msg, matches design doc |
+| 7 | Drizzle enums | All text columns | More flexible, no migration needed for new values |
+| 8 | Guest naming | `trial` / `linkGuest` | Clear code separation |
+| 9 | Link expiry | No expiry (removed requirement 24) | Links valid until explicitly revoked |
+| 10 | Auth in tRPC | OPAQUE stays as Hono routes | Set-Cookie, multi-step protocol, complex rate limiting |
+| 11 | Naming convention | camelCase throughout plan | Matches TypeScript/Drizzle. Actual SQL migration uses snake_case; Drizzle auto-maps. |
 
 ---
 
-## Part 1: Cryptographic Primitives
+## Ground Rules
 
-### Algorithm Table
-
-| Purpose | Algorithm | Library | Package Location |
-|---|---|---|---|
-| Asymmetric key exchange | X25519 | `@noble/curves` | packages/crypto |
-| Symmetric AEAD | XChaCha20-Poly1305 | `@noble/ciphers` | packages/crypto |
-| Key derivation | HKDF-SHA-256 | `@noble/hashes` | packages/crypto |
-| General hashing | SHA-256 | `@noble/hashes` | packages/crypto (expose utility methods for any hashing needs in other packages) |
-| Password authentication | OPAQUE | `@cloudflare/opaque-ts` | packages/crypto (exposes both client-side and server-side OPAQUE helpers; apps/api calls the server-side helpers) |
-| Recovery phrase KDF | Argon2id | `hash-wasm` | packages/crypto |
-| Recovery phrase generation | BIP-39 | `@scure/bip39` | packages/crypto |
-| TOTP 2FA | TOTP | `otplib` | apps/api |
-| Message signing (future) | Ed25519 | `@noble/curves` | packages/crypto (not implemented in v1) |
-| Pre-encryption compression | Deflate | `fflate` | packages/crypto |
-| Session management | Encrypted cookies | `iron-session` | apps/api |
-
-### Why Each Algorithm
-
-**X25519:** Conservative elliptic curve design. No point validation needed, no invalid curve attacks, constant-time by construction. 128-bit security. Native in Cloudflare Workers Web Crypto and all modern browsers. From the same curve family as Ed25519, so one library (`@noble/curves`) covers both current and future needs.
-
-**XChaCha20-Poly1305 over AES-256-GCM:** The extended 192-bit nonce eliminates nonce collision risk entirely with random generation. While our ECIES construction uses a zero nonce (unique key per operation makes nonce irrelevant), XChaCha20 provides a free safety margin against implementation mistakes — if someone accidentally reuses a key, the 192-bit nonce still protects them. AES-256-GCM's 96-bit nonce would be catastrophic in the same scenario. Additionally, `@noble/ciphers` is already a dependency, so there is zero added cost. Performance is consistent across all platforms since we use the pure JS path regardless.
-
-**HKDF-SHA-256:** Standard (RFC 5869). Extracts entropy from non-uniform DH outputs and expands to exact key sizes. Domain separation via the `info` parameter prevents cross-protocol key reuse. Native in Web Crypto, available via `@noble/hashes`.
-
-**Argon2id:** Memory-hard password hashing. Resists GPU/ASIC brute force. The `id` variant combines side-channel resistance (Argon2i) with GPU resistance (Argon2d). Winner of the Password Hashing Competition. Used only for recovery phrase KDF — infrequent, so the WASM overhead of `hash-wasm` is acceptable.
-
-**OPAQUE:** Asymmetric PAKE where the server never sees the password, not even during registration. Produces an export key that is deterministic from the password but unknown to the server. This property is what makes the entire account key hierarchy work. `@cloudflare/opaque-ts` is Cloudflare's own implementation built for Workers.
-
-**BIP-39:** Standardized 2048-word list, built-in checksum, human-readable. 12 words = 128 bits of entropy. Widely understood UX pattern. `@scure/bip39` is from the same author as the `@noble` family.
-
-### Version Mismatch — Must Fix Before Implementation
-
-`packages/crypto` uses `@noble/ciphers@^1.2.1` and `@noble/hashes@^1.7.1`. `apps/api` uses `@noble/ciphers@^2.1.1` and `@noble/hashes@^2.0.1`. The v2 releases had breaking API changes (different import paths, different function signatures). Both must be aligned to v2 across the board before any implementation work begins. The v2 APIs are cleaner and the migration is straightforward.
+- Run `pnpm lint` and `pnpm typecheck` after every batch of changes in the affected package
+- TDD discipline: failing test first, always — follow AGENT-RULES.md strictly
+- Zero code duplication — extract shared utilities into `packages/`
+- Supreme code quality: small functions, clear separation, thorough error handling
+- Keep cost calculation logic IDENTICAL (see Phase 4 preservation list)
+- All IDs: PG18 native `DEFAULT uuidv7()` via `default(sql`uuidv7()`)` in Drizzle
+- All monetary values: `numeric(20,8)`
+- All binary columns: custom `bytea` type from `packages/db/src/schema/bytea.ts`
+- All type/status columns: text (no Drizzle enums)
+- Crypto boundary: `packages/crypto` is the ONLY package that imports `@noble/*`, `hash-wasm`, `@scure/bip39`, `fflate`, or `@cloudflare/opaque-ts` (client-side)
+- `apps/api` imports `@cloudflare/opaque-ts` (server-side), `iron-session`, `otplib` — no other crypto libs
+- Naming: camelCase for all column/table references in this plan (matching TypeScript/Drizzle). The actual SQL migration file uses snake_case; Drizzle maps between them automatically. No mixing.
 
 ---
 
-## Part 2: ECIES — The Single Encryption Primitive
-
-Every encrypted blob in this system — messages, key wraps, chain links, share blobs — uses the same ECIES construction. There is exactly one encrypt function and one decrypt function in the entire system.
-
-### Encrypt(recipient_public_key, plaintext) → blob
+## Phase Dependency Graph
 
 ```
-1. Generate ephemeral X25519 key pair (ephemeral_private, ephemeral_public)
-2. Compute shared_secret = X25519_DH(ephemeral_private, recipient_public_key)
-3. Derive symmetric_key = HKDF-SHA-256(
-     ikm = shared_secret,
-     salt = ephemeral_public ‖ recipient_public_key,
-     info = "ecies-xchacha20-v1",
-     length = 32
-   )
-4. Nonce = 24 bytes of zeros (safe because key is unique per operation)
-5. ciphertext ‖ tag = XChaCha20-Poly1305(symmetric_key, nonce, plaintext)
-6. Return: version_byte (1B) ‖ ephemeral_public (32B) ‖ ciphertext ‖ tag (16B)
+Phase 0 (Crypto Fixes) ──→ Phase 1 (DB Schema)
+                                    │
+Phase 2 (tRPC Infra) ──┬──→ Phase 3 (Auth) ──→ Phase 4 (Billing) ──→ Phase 5 (Conversations)
+                        │                                                       │
+                        │                                                       ├──→ Phase 8 (Groups) ──→ Phase 9 (Sharing)
+                        │                                                       │
+                        └──→ Phase 6 (DO/Real-time) ────────────────────────────┘
+                        │
+                        └──→ Phase 7 (Route Migration)
+
+All ──→ Phase 10 (Frontend) ──→ Phase 11 (Cleanup)
 ```
 
-### Decrypt(recipient_private_key, blob) → plaintext
-
-```
-1. Parse blob: version_byte (1B), ephemeral_public (32B), ciphertext, tag (16B)
-2. Check version_byte = 0x01 (current version)
-3. Compute shared_secret = X25519_DH(recipient_private_key, ephemeral_public)
-4. Derive symmetric_key = HKDF-SHA-256(
-     ikm = shared_secret,
-     salt = ephemeral_public ‖ recipient_public_key,
-     info = "ecies-xchacha20-v1",
-     length = 32
-   )
-5. plaintext = XChaCha20-Poly1305_Open(symmetric_key, zeros, ciphertext, tag)
-6. If auth fails, reject (tampered or wrong key)
-```
-
-### Per-Blob Overhead: 49 bytes
-
-| Component | Size |
-|---|---|
-| Version byte | 1 byte |
-| Ephemeral public key | 32 bytes |
-| Poly1305 auth tag | 16 bytes |
-| **Total fixed overhead** | **49 bytes** |
-
-### Why Zero Nonce is Safe
-
-Each ECIES operation generates a fresh ephemeral key pair, producing a unique shared secret and therefore a unique derived symmetric key. No symmetric key is ever reused. The nonce value is irrelevant when the key is unique — a constant zero nonce is perfectly safe and saves 24 bytes per blob.
-
-### Version Byte
-
-The first byte of every blob is `0x01`, indicating X25519 + XChaCha20-Poly1305. Future algorithm migrations (e.g., post-quantum ML-KEM) would use `0x02`. Clients check the version byte and select the appropriate decrypt path. Cost: 1 byte per blob. Value: painless future migration.
-
-### Compression
-
-Before encryption, compress the plaintext using `fflate` (deflate). After decryption, decompress. This reduces blob sizes for typical chat messages (text compresses well). The crypto package handles this internally — callers never see compressed data.
+Phases 1 and 2 can proceed in parallel. Phase 3 depends on 1. Phase 4 depends on 1+3. Phase 5 depends on 1+2+3+4. Phase 6 depends on 2. Phases 7, 8, 9 depend on 5+6. Phase 10 depends on all prior. Phase 11 is cleanup.
 
 ---
 
-## Part 3: Account Key Hierarchy
+## Phase 0: Crypto Package Fixes
 
-### Key Structure
+**Goal:** Fix `@noble/*` version mismatch, update HKDF info strings, switch compression to raw deflate, clean up exports.
 
+### 0A — Version Alignment
+
+| Package | Current | Target | Action |
+|---------|---------|--------|--------|
+| `packages/crypto` → `@noble/ciphers` | `^1.2.1` | `^2.1.1` | Update + fix import paths |
+| `packages/crypto` → `@noble/hashes` | `^1.7.1` | `^2.0.1` | Update + fix import paths |
+| `apps/api` → `@noble/ciphers` | `^2.1.1` | REMOVE | All crypto via `@lome-chat/crypto` |
+| `apps/api` → `@noble/hashes` | `^2.0.1` | REMOVE | All crypto via `@lome-chat/crypto` |
+
+The v2 APIs changed import paths (e.g., `@noble/ciphers/aead` → `@noble/ciphers`). Update all imports in `packages/crypto/src/`.
+
+### 0B — HKDF Info String Fixes
+
+| File | Current | New |
+|------|---------|-----|
+| `packages/crypto/src/link.ts` | `"shared-link-v1"` | `"link-keypair-v1"` |
+| `packages/crypto/src/message-share.ts` | `"message-share-v1"` | `"share-msg-v1"` |
+
+Update in both the derivation functions and their tests.
+
+### 0C — Compression: gzip → Raw Deflate
+
+**File:** `packages/crypto/src/compression.ts`
+
+- Change `gzipSync()` → `deflateSync()` from `fflate`
+- Change `gunzipSync()` → `inflateSync()` from `fflate`
+- Saves ~18 bytes per message (no gzip headers)
+- Update `message-codec.ts` compression flag byte if it encodes format type (verify)
+
+### 0D — Export Cleanup
+
+- Verify `deriveSharedSecret` from `sharing.ts` is NOT exported from `index.ts` (internal only)
+- Verify all exports in `index.ts` match the design doc Part 11 API surface
+
+### Verification
+
+```bash
+cd packages/crypto && pnpm typecheck && pnpm lint && pnpm test
+cd apps/api && pnpm typecheck && pnpm lint
 ```
-Password
-  → OPAQUE protocol → export key (server never sees this)
-    → HKDF(export_key, info="account-wrap-v1") → wrapping key pair
-      → ECIES_Encrypt(wrapping_pub, account_private_key) → password_wrapped_blob
-
-12-Word Mnemonic
-  → BIP-39 → 256-bit seed
-    → Argon2id(seed, salt="recovery-kek-v1") → recovery KEK
-      → HKDF(recovery_kek, info="recovery-wrap-v1") → recovery key pair
-        → ECIES_Encrypt(recovery_pub, account_private_key) → recovery_wrapped_blob
-```
-
-### Account Creation
-
-1. Client runs OPAQUE registration with server. Server stores OPAQUE state. Client receives export key.
-2. Client generates X25519 account key pair.
-3. Client derives wrapping key pair from export key via HKDF.
-4. Client wraps account private key under wrapping public key via ECIES.
-5. Client generates 12-word BIP-39 mnemonic, derives seed, runs Argon2id, derives recovery key pair, wraps account private key under recovery public key via ECIES.
-6. Client sends to server: account public key, password-wrapped blob, recovery-wrapped blob.
-7. Client displays mnemonic once for user to record. Mnemonic is never sent to the server.
-
-### Server-Stored Account Data
-
-| Field | Approx Size | Encrypted? |
-|---|---|---|
-| account_id (UUID) | 16B | No |
-| account_public_key | 32B | No |
-| password_wrapped_private_key | ~81B | ECIES blob |
-| recovery_wrapped_private_key | ~81B | ECIES blob |
-| OPAQUE server state | ~200B | Per OPAQUE spec |
-
-### Login
-
-1. Client completes OPAQUE login → receives export key.
-2. Client derives wrapping key pair from export key.
-3. Client fetches password_wrapped_private_key from server.
-4. Client decrypts via ECIES → account_private_key in memory.
-5. Client can now decrypt all conversation epoch keys.
-
-### Password Change
-
-1. Authenticate with old password → get account private key.
-2. Run new OPAQUE registration with new password → new export key.
-3. Derive new wrapping key pair, re-wrap account private key.
-4. Upload new blob and new OPAQUE registration atomically.
-5. Recovery blob is unchanged.
-
-### Account Recovery
-
-1. User enters 12-word mnemonic.
-2. Client derives recovery key pair (BIP-39 → seed → Argon2id → HKDF → key pair).
-3. Client fetches recovery_wrapped_private_key from server.
-4. Client decrypts → account_private_key.
-5. Client sets new password (new OPAQUE registration + new password wrap).
-6. Optionally regenerate recovery phrase (new mnemonic, new recovery blob).
-
-### Recovery Phrase Regeneration
-
-Supported at any time while authenticated. Generate new mnemonic, derive new recovery key pair, re-wrap account private key, replace recovery blob on server. Old mnemonic becomes invalid.
-
-### 2FA (TOTP)
-
-2FA is an authentication gate, not an encryption factor. The server verifies the TOTP code before releasing wrapped key material. Losing the 2FA device does not lock the user out — the recovery phrase bypasses 2FA after identity verification. 2FA is implemented via `otplib` on the server.
 
 ---
 
-## Part 4: Conversations & Epochs
+## Phase 1: Database Schema Overhaul
 
-### Core Concept
+**Goal:** Replace entire schema to match design doc Part 14. Single clean migration from the 0007 baseline.
 
-Each conversation has a sequence of epochs. Each epoch has its own X25519 key pair. The epoch public key is stored in plaintext so the server can encrypt AI responses. The epoch private key is wrapped (via ECIES) for each current member under their account public key.
+### 1A — Delete Old Migrations
 
-### Epoch Rotation Triggers
+Delete migration files 0008–0012 and their journal entries:
+- `packages/db/drizzle/0008_encryption_columns.sql`
+- `packages/db/drizzle/0009_auth_columns_not_null.sql`
+- `packages/db/drizzle/0010_drop_plaintext_columns.sql`
+- `packages/db/drizzle/0011_drop_guest_usage.sql`
+- `packages/db/drizzle/0012_rename_name_to_username.sql`
+- Update `packages/db/drizzle/meta/_journal.json` to remove entries for idx 9–12
 
-A new epoch is created **only** when:
-- A member is removed (including via voluntary leave)
-- A shared link is revoked
+### 1B — Migration File: `packages/db/drizzle/0008_full_schema_overhaul.sql`
 
-Adding a member does NOT require rotation (no backward secrecy requirement — new members should see history by default).
+Hand-written SQL (snake_case in actual SQL file; camelCase used below for plan readability). Structured in dependency order:
 
-### Lazy Epoch Rotation
-
-On a rotation-triggering event (removal, link revocation), the server does NOT rotate immediately. Instead:
-
-1. Server marks the conversation as `rotation_pending = true`.
-2. Server records the pending removals (member IDs and/or link IDs to remove).
-3. Server immediately revokes server-side access for removed members (they can no longer fetch any data).
-4. No cryptographic rotation happens yet.
-5. When the next message is sent by any write-capable member:
-   a. Client detects `rotation_pending` flag.
-   b. Client performs the full epoch rotation (new key pair, wraps for remaining members, chain link).
-   c. Client sends rotation + message atomically.
-   d. Server clears `rotation_pending` and processes the rotation.
-
-Benefits: conversations where someone is removed but no one ever messages again incur zero rotation cost. Multiple removals between messages collapse into a single rotation.
-
-Race window: between removal and the next message, the removed member theoretically still has the epoch key cached in memory. But they are locked out server-side (cannot fetch new messages). The only exposure is if they intercept a message in transit during this window. This is within the accepted race window per the requirements.
-
-### Epoch Chain (Backward Access)
-
-Each epoch rotation produces a chain link: the OLD epoch's private key encrypted under the NEW epoch's public key.
-
-```
-chain_link_N = ECIES_Encrypt(epoch_N_public_key, epoch_(N-1)_private_key)
+**Step 1 — DROP old tables and enums:**
+```sql
+DROP TABLE IF EXISTS "message_shares";
+DROP TABLE IF EXISTS "conversation_shares";
+DROP TABLE IF EXISTS "balance_transactions";
+DROP TABLE IF EXISTS "guest_usage";
+DROP TYPE IF EXISTS "balance_transaction_type";
+DROP TYPE IF EXISTS "deduction_source";
+DROP TYPE IF EXISTS "message_role";
+DROP TYPE IF EXISTS "payment_status";
 ```
 
-To read a message from epoch 1 when the current epoch is 5:
-1. Unwrap epoch 5 private key from your member wrap (using account private key).
-2. Decrypt chain link at epoch 5 → epoch 4 private key.
-3. Decrypt chain link at epoch 4 → epoch 3 private key.
-4. Continue to epoch 1.
-5. Decrypt the message.
+**Step 2 — ALTER `users`:**
+- DROP: balance, freeAllowanceCents, freeAllowanceResetAt, passwordSalt, encryptedDekPassword, phraseSalt, encryptedDekPhrase, phraseVerifier, encryptionVersion, totpIv, name, image, privateKeyWrapped
+- ADD: `username` (text NOT NULL UNIQUE), `passwordWrappedPrivateKey` (bytea NOT NULL), `recoveryWrappedPrivateKey` (bytea NOT NULL)
+- KEEP: id, email, emailVerified, emailVerifyToken, emailVerifyExpires, opaqueRegistration, publicKey, totpSecretEncrypted, totpEnabled, hasAcknowledgedPhrase, createdAt, updatedAt
+- Change `id` default to `uuidv7()`
 
-This is O(E) ECDH operations where E is the number of epochs traversed. At ~50μs per operation, 50 epochs = 2.5ms. Negligible.
+**Step 3 — ALTER `conversations`:**
+- DROP: isPublic, publicShareId, publicShareExpires
+- ADD: `projectId` (text FK→projects ON DELETE SET NULL), `titleEpochNumber` (int NOT NULL DEFAULT 1), `currentEpoch` (int NOT NULL DEFAULT 1), `nextSequence` (int NOT NULL DEFAULT 1), `rotationPending` (boolean NOT NULL DEFAULT false), `perPersonBudget` (numeric 20,8 nullable), `conversationBudget` (numeric 20,8 nullable)
+- KEEP: title (bytea NOT NULL — now ECIES blob under epoch key instead of AES-GCM)
+- Change `id` default to `uuidv7()`
 
-### Client-Side Key Caching
+**Step 4 — ALTER `messages`:**
+- DROP: role, iv, model, balanceTransactionId, cost, sharingKeyWrapped, contentType, pendingReEncryption, ephemeralPublicKey
+- RENAME: content → `encryptedBlob`
+- ADD: `senderType` (text NOT NULL), `senderId` (text nullable), `senderDisplayName` (text nullable), `payerId` (text nullable), `epochNumber` (int NOT NULL), `sequenceNumber` (int NOT NULL)
+- CHECK: `senderType IN ('user', 'ai')`
+- DROP OLD INDEX on conversationId
+- ADD INDEX: (conversationId, sequenceNumber)
+- Change `id` default to `uuidv7()`
 
-Clients should cache decrypted epoch keys in memory for the duration of the session. After first traversal, all subsequent reads from any epoch are O(1). Cache is cleared on logout. Never persisted to disk.
+**Step 5 — ALTER `projects`:**
+- DROP: name, description
+- ADD: `encryptedName` (bytea NOT NULL), `encryptedDescription` (bytea nullable)
+- Change `id` default to `uuidv7()`
 
-### Key Confirmation Hash
+**Step 6 — ALTER `payments`:**
+- Make userId nullable
+- Change FK from ON DELETE CASCADE to ON DELETE SET NULL
+- Change status from enum to text
+- CHECK: `status IN ('pending', 'completed', 'failed', 'refunded')` (design doc values; `awaiting_webhook` state is inferrable from `helcimTransactionId IS NOT NULL AND status = 'pending'`)
+- Change `id` default to `uuidv7()`
 
-Each epoch row stores `confirmation_hash = SHA-256(epoch_private_key)`. After unwrapping an epoch key, the client hashes it and compares against the stored confirmation hash. This provides fast failure on corrupted wraps or wrong keys, rather than confusing Poly1305 auth failures on every message decrypt attempt. Cost: 32 bytes per epoch row. The confirmation hash does not help identify which key to use — the `epoch_number` on each message metadata tells the client which epoch to look up.
+**Step 7 — CREATE new tables** (in FK dependency order):
 
-### History Visibility for New Members
+| Table | Key Columns | Notes |
+|-------|-------------|-------|
+| `wallets` | id, userId FK→users SET NULL, type (text), balance (numeric 20,8 default 0), priority (int), createdAt | Index on userId |
+| `usage_records` | id, userId FK→users SET NULL, type (text), status (text default 'pending'), cost (numeric 20,8), sourceType, sourceId, createdAt, completedAt | CHECK: `status IN ('pending', 'completed', 'failed')`. Indexes: (userId, type, createdAt), (sourceType, sourceId) |
+| `ledger_entries` | id, walletId FK CASCADE, amount, balanceAfter, entryType (text), paymentId FK SET NULL, usageRecordId FK SET NULL, sourceWalletId FK SET NULL, createdAt | CHECK: `entryType IN ('deposit', 'usage_charge', 'refund', 'adjustment', 'renewal', 'welcome_credit')`. CHECK: exactly one of (paymentId, usageRecordId, sourceWalletId) IS NOT NULL. Indexes: (walletId, createdAt), (usageRecordId) WHERE usageRecordId IS NOT NULL |
+| `llm_completions` | id, usageRecordId FK CASCADE UNIQUE, model, provider, inputTokens, outputTokens, cachedTokens (default 0) | Index on model |
+| `shared_links` | id, conversationId FK CASCADE, linkPublicKey (bytea), privilege (text default 'read'), visibleFromEpoch (int), revokedAt, createdAt | CHECK: `privilege IN ('read', 'write')`. Index: (conversationId) WHERE revokedAt IS NULL |
+| `conversation_members` | id, conversationId FK CASCADE, userId FK SET NULL, linkId FK→sharedLinks SET NULL, privilege (text default 'write'), visibleFromEpoch (int), joinedAt, leftAt | CHECK: `privilege IN ('read', 'write', 'admin', 'owner')`. CHECK: `(userId IS NOT NULL) OR (linkId IS NOT NULL)`. UNIQUE: (conversationId, userId) WHERE leftAt IS NULL. UNIQUE: (conversationId, linkId) WHERE leftAt IS NULL. Indexes: (conversationId) WHERE leftAt IS NULL, (userId) WHERE leftAt IS NULL |
+| `epochs` | id, conversationId FK CASCADE, epochNumber, epochPublicKey (bytea), confirmationHash (bytea), chainLink (bytea nullable), createdAt | UNIQUE (conversationId, epochNumber) |
+| `epoch_members` | id, epochId FK CASCADE, memberPublicKey (bytea), wrap (bytea), privilege (text), visibleFromEpoch (int), createdAt | CHECK: `privilege IN ('read', 'write', 'admin', 'owner')`. UNIQUE (epochId, memberPublicKey). Index on memberPublicKey |
+| `pending_removals` | id, conversationId FK CASCADE, memberId FK→conversationMembers CASCADE, requestedBy FK→users SET NULL, createdAt | Index on conversationId |
+| `shared_messages` | id, messageId FK→messages CASCADE, shareBlob (bytea), createdAt | |
+| `member_budgets` | id, memberId FK→conversationMembers CASCADE UNIQUE, budget (numeric 20,8), spent (numeric 20,8 default 0), createdAt | |
+| `conversation_spending` | id, conversationId FK CASCADE UNIQUE, totalSpent (numeric 20,8 default 0), updatedAt | `totalSpent` only increments when the owner is charged on behalf of a non-owner member — not when the owner sends their own messages |
 
-Controlled by `visible_from_epoch` (an integer stored per member). The server refuses to serve messages or chain links from before that epoch. This is server-enforced, not cryptographic.
+All new table IDs use `DEFAULT uuidv7()`.
 
-Rationale: cryptographic history restriction (breaking chain links, retained wraps, split MEK/CK keys) was evaluated extensively. Every approach either accumulates unbounded storage, breaks after multiple boundaries, or adds significant complexity. No major protocol (MLS, Signal, Matrix) has solved this cryptographically in a general, composable way. MLS explicitly leaves it to the application layer. Since new members never possessed old keys, the only way they access old history is if the server serves it. The server is already trusted not to replay AI plaintext logs — this is the same trust boundary.
+**Step 8 — All CHECK constraints summary** (explicit SQL for every CHECK in the migration):
 
-When adding a member with history access: just wrap the current epoch key for them. They chain backward to all history. `visible_from_epoch = 1`.
+```sql
+-- messages
+CHECK (sender_type IN ('user', 'ai'))
 
-When adding a member with no history access: just wrap the current epoch key for them. Set `visible_from_epoch = current_epoch`. Server enforces the boundary. No rotation, no chain link changes.
+-- payments (altered in Step 6)
+CHECK (status IN ('pending', 'completed', 'failed', 'refunded'))
 
-This also applies to guest links. A link can have a `visible_from_epoch` that restricts how far back the server serves data.
+-- usage_records
+CHECK (status IN ('pending', 'completed', 'failed'))
 
-Lazy application: adding a no-history member can also be lazy — mark the pending add, execute when the next message is sent. The new member sees an empty conversation until then. Display a "waiting for new messages" state in the UI.
+-- ledger_entries (exactly one FK non-null)
+CHECK (
+  (payment_id IS NOT NULL)::int +
+  (usage_record_id IS NOT NULL)::int +
+  (source_wallet_id IS NOT NULL)::int = 1
+)
+CHECK (entry_type IN ('deposit', 'usage_charge', 'refund', 'adjustment', 'renewal', 'welcome_credit'))
 
-### Epoch Rotation Protocol (Detailed)
+-- shared_links
+CHECK (privilege IN ('read', 'write'))
 
-When a write-capable client detects `rotation_pending` and sends a message:
+-- conversation_members
+CHECK ((user_id IS NOT NULL) OR (link_id IS NOT NULL))
+CHECK (privilege IN ('read', 'write', 'admin', 'owner'))
 
-1. Client fetches the current epoch's public key and its own member wrap.
-2. Client decrypts current epoch private key using its account private key.
-3. Client generates a new X25519 epoch key pair.
-4. Client computes `confirmation_hash = SHA-256(new_epoch_private_key)`.
-5. For each remaining member (accounts + active links, excluding pending removals):
-   `new_wrap = ECIES_Encrypt(member_public_key, new_epoch_private_key)`
-6. `chain_link = ECIES_Encrypt(new_epoch_public_key, old_epoch_private_key)`
-7. Client encrypts their message under the NEW epoch public key.
-8. Client sends atomically to server:
-    - New epoch public key
-    - New epoch confirmation hash
-    - All member wraps
-    - Chain link
-    - IDs of removed members/links
-    - The encrypted message
-9. Server in one transaction:
-    - Creates new epoch row
-    - Stores all member wraps
-    - Stores chain link
-    - Deletes old epoch's per-member wraps
-    - Removes revoked members/links
-    - Updates conversation's current_epoch pointer
-    - Clears rotation_pending
-    - Stores the message
+-- epoch_members
+CHECK (privilege IN ('read', 'write', 'admin', 'owner'))
+```
 
-### Adding a Member
+**Step 9 — All partial unique indexes** (explicit SQL):
 
-No rotation. Any admin/owner client:
+```sql
+-- conversation_members: prevent duplicate active members
+CREATE UNIQUE INDEX conversation_members_user_active
+    ON conversation_members (conversation_id, user_id) WHERE left_at IS NULL;
+CREATE UNIQUE INDEX conversation_members_link_active
+    ON conversation_members (conversation_id, link_id) WHERE left_at IS NULL;
 
-1. Fetches new member's account_public_key from server.
-2. Decrypts current epoch private key using own account private key.
-3. `new_wrap = ECIES_Encrypt(new_member_account_public_key, current_epoch_private_key)`
-4. Sends to server: new member ID, wrap, privilege level, visible_from_epoch.
-5. Server stores the member wrap and membership record.
+-- conversation_members: fast active member lookups
+CREATE INDEX conversation_members_active
+    ON conversation_members (conversation_id) WHERE left_at IS NULL;
+CREATE INDEX conversation_members_user_active_lookup
+    ON conversation_members (user_id) WHERE left_at IS NULL;
+```
 
-### Storage Per Conversation
+### 1C — Drizzle Schema Files
 
-| Component | Count | Size Each | Accumulates? |
-|---|---|---|---|
-| Epoch rows | E (one per rotation + 1) | ~182B (32B pubkey + 32B confirmation hash + 80B chain link + overhead) | Yes, bounded by human actions |
-| Current member wraps | N (current members + active links) | ~81B | No — replaced on rotation |
-| Messages | M | 49B overhead + compressed plaintext + metadata | Yes, inherent to chat |
+**DELETE:**
+- `packages/db/src/schema/balance-transactions.ts`
+- `packages/db/src/schema/conversation-shares.ts`
+- `packages/db/src/schema/message-shares.ts`
+- `packages/db/src/schema/guest-usage.ts` (if remnant exists)
+- `packages/db/src/schema/sessions.ts` (if remnant exists)
+- `packages/db/src/schema/accounts.ts` (if remnant exists)
+- `packages/db/src/schema/verifications.ts` (if remnant exists)
 
-For a conversation with 10 members, 20 removals, 50,000 messages averaging 300B: key management overhead is ~5.6KB. Messages are ~15MB. Key overhead is 0.037% of message storage.
+**KEEP:**
+- `bytea.ts` — used by all bytea columns
+- `service-evidence.ts` — testing/audit log, unchanged
+
+**CREATE** (new files):
+1. `wallets.ts`
+2. `usage-records.ts`
+3. `llm-completions.ts`
+4. `ledger-entries.ts`
+5. `shared-links.ts`
+6. `conversation-members.ts`
+7. `epochs.ts`
+8. `epoch-members.ts`
+9. `pending-removals.ts`
+10. `shared-messages.ts`
+11. `member-budgets.ts`
+12. `conversation-spending.ts`
+
+**MODIFY:**
+- `users.ts` — drop old columns, add `passwordWrappedPrivateKey` (bytea NOT NULL), `recoveryWrappedPrivateKey` (bytea NOT NULL), `username` (text NOT NULL UNIQUE). Remove all DEK/balance/phrase columns. Change ID default to `sql`uuidv7()``
+- `conversations.ts` — drop isPublic/publicShareId/publicShareExpires, add projectId/titleEpochNumber/currentEpoch/nextSequence/rotationPending/perPersonBudget/conversationBudget
+- `messages.ts` — drop role/iv/model/balanceTransactionId/cost/sharingKeyWrapped/contentType/pendingReEncryption/ephemeralPublicKey, rename content→encryptedBlob, add senderType/senderId/senderDisplayName/payerId/epochNumber/sequenceNumber
+- `projects.ts` — replace name→encryptedName (bytea NOT NULL), description→encryptedDescription (bytea nullable)
+- `payments.ts` — make userId nullable, FK ON DELETE SET NULL, status as text (not enum)
+- `index.ts` — update barrel exports
+
+### 1D — Factories
+
+**MODIFY:**
+- `user.ts` — remove DEK/balance fields, add passwordWrappedPrivateKey, recoveryWrappedPrivateKey (use crypto `createAccount()` for realistic test data)
+- `conversation.ts` — remove isPublic/publicShareId, add currentEpoch/titleEpochNumber/nextSequence/rotationPending/budget fields
+- `message.ts` — remove role/iv/model/cost/etc, rename content→encryptedBlob, add senderType/senderId/payerId/epochNumber/sequenceNumber
+- `payment.ts` — make userId nullable, status as string
+
+**CREATE:**
+- `wallet.ts`, `usage-record.ts`, `llm-completion.ts`, `ledger-entry.ts`, `epoch.ts`, `epoch-member.ts`, `conversation-member.ts`, `shared-link.ts`
+
+**DELETE:** `balance-transaction.ts` factory (if exists)
+
+### 1E — Zod Schemas (`packages/db/src/zod/`)
+
+- Remove schemas for dropped tables
+- Add select/insert schemas for all 12 new tables (with bytea → `instanceof Uint8Array` overrides)
+- Update user, conversation, message, project, payment schemas for column changes
+
+### Verification
+
+```bash
+cd packages/db && pnpm typecheck && pnpm lint && pnpm test
+```
 
 ---
 
-## Part 5: Message Encryption & Storage
+## Phase 2: tRPC Infrastructure
 
-### User Messages
+**Goal:** Set up tRPC alongside existing Hono routes. Both coexist during migration.
 
-The server encrypts all messages (both user and AI). When a user sends a message:
-
-1. Client sends plaintext to server via tRPC mutation.
-2. Server validates auth, checks write permission, checks budget.
-3. Server fetches current epoch public key.
-4. Server encrypts: `blob = ECIES_Encrypt(epoch_public_key, compress(plaintext))`
-5. Server stores blob and metadata. Discards plaintext.
-6. Server invokes AI with plaintext.
-7. Server streams AI tokens to Durable Object for real-time fan-out.
-8. On AI completion, server encrypts AI response the same way, stores it.
-9. Server sends final encrypted blob to Durable Object.
-
-The server can encrypt (it has the epoch public key) but cannot decrypt (it never has the epoch private key). This is the core asymmetric property of ECIES.
-
-### Why Server Encrypts Everything
-
-The server already receives the plaintext for AI invocation. Having the client also encrypt and send a blob adds a second code path for user messages while the server still needs to encrypt AI messages. Since the server sees plaintext either way, there is no security gain from client-side encryption of user messages. One encryption code path (server-side ECIES) is simpler and the security posture is identical.
-
-### Message Metadata (Plaintext, Not in Blob)
-
-| Field | Purpose |
-|---|---|
-| message_id (UUID) | Unique identifier, replay protection |
-| conversation_id | Routing |
-| epoch_number | Which epoch key decrypts this message |
-| sender_type ('user' or 'ai') | Display |
-| sender_id (UUID, nullable) | Who sent it (null for AI, null for anonymous guests) |
-| sender_display_name (nullable) | Guest display name |
-| payer_id (UUID, nullable) | Who paid for this message |
-| cost (integer) | Message cost in smallest currency unit |
-| created_at (timestamp) | Ordering and display |
-
-This metadata is needed by the server for routing, billing, real-time delivery, and decryption key selection. It does not reveal message content.
-
-### Per-Message Storage Cost
-
-For a typical 200-character message:
-
-| Component | Size |
-|---|---|
-| Row metadata | ~81B |
-| ECIES overhead | 49B |
-| Compressed message ciphertext | ~150B (compression helps) |
-| **Total** | **~280 bytes** |
-
-### Message Deletion
-
-Hard delete. The server removes the entire row from the database. The encrypted blob is gone permanently. The server cannot read the blobs it is deleting — no trust issue.
-
-### Replay Protection
-
-Clients track received `message_id` values in a set during the session. Duplicate IDs are rejected. Cleared on logout. This prevents a malicious server from re-sending old encrypted messages.
-
----
-
-## Part 6: Privilege Levels
-
-| Level | Decrypt | Send Messages | Add Members | Remove Members | Manage Links | Perform Rotation |
-|---|---|---|---|---|---|---|
-| Read | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Write | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ (only when rotation_pending during message send) |
-| Admin | ✓ | ✓ | ✓ | ✓ (not owner) | ✓ | ✓ |
-| Owner | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-
-Privilege enforcement is server-side. All privilege levels share the same cryptographic key material (the epoch private key). A malicious server could theoretically allow a read-only member to submit a message, but since read-only members already have the decryption key, this is not a meaningful escalation. Cryptographic write enforcement (e.g., signing keys) can be added later via Ed25519 without changing the core architecture.
-
----
-
-## Part 7: Public Link Sharing
-
-### Links as Virtual Members
-
-A shared link is a virtual member of the conversation with its own X25519 key pair derived from a secret in the URL. The epoch rotation machinery handles links automatically — no special cases.
-
-### Link Creation
-
-1. Owner/admin generates a random 256-bit `link_secret`.
-2. Derives key pair: `link_keypair = X25519_FromSeed(HKDF(link_secret, info="link-keypair-v1"))`.
-3. Decrypts current epoch private key.
-4. Wraps epoch key for the link: `link_wrap = ECIES_Encrypt(link_keypair.public, epoch_private_key)`.
-5. Sends to server: link_public_key, link_wrap, expires_at, privilege, visible_from_epoch, link_id.
-6. Constructs URL: `https://app.com/c/{conversation_id}#{link_secret_base64url}`
-
-The URL fragment (after `#`) is never sent to the server by the browser. The server only sees the conversation_id.
-
-### Link Access
-
-1. Visitor opens link.
-2. Client extracts `link_secret` from URL fragment.
-3. Derives `link_keypair` from secret.
-4. Sends conversation_id to server (no auth required for link access).
-5. Server checks link validity (exists, not expired, not revoked).
-6. Server returns: link_wrap, epoch chain data, encrypted messages (respecting `visible_from_epoch`).
-7. Client decrypts: link private key → epoch private key → messages.
-
-### Link Expiry and Revocation
-
-Links expire when `expires_at` passes — the server stops serving data. For cryptographic lockout (not just access control), revoking a link triggers lazy epoch rotation, same as removing a member. The link's virtual member is removed and the new epoch key is not wrapped for it.
-
-### Guest Messaging via Links
-
-If a link has write privilege and the owner's budget allows it:
-- Guest sends plaintext to server.
-- Server charges owner's balance (within budget limits).
-- `payer_id = owner`. `sender_id = null`. `sender_display_name` = whatever name the guest entered.
-- Message is encrypted and stored normally.
-
----
-
-## Part 8: Individual Message Sharing
-
-Sharing a single message is cryptographically isolated from the conversation.
-
-### Share Flow
-
-1. Client decrypts the target message using the epoch key chain.
-2. Generates a random 256-bit `share_secret`.
-3. Derives key pair: `share_keypair = X25519_FromSeed(HKDF(share_secret, info="share-msg-v1"))`.
-4. Encrypts: `share_blob = ECIES_Encrypt(share_keypair.public, plaintext_message)`.
-5. Sends to server: share_id, share_blob, expires_at, original_message_id.
-6. URL: `https://app.com/m/{share_id}#{share_secret_base64url}`
-
-The share_secret is random and unrelated to any conversation key, epoch key, or account key. Possessing it reveals exactly one message. Even if the same message is shared twice, each share has a different secret and blob.
-
----
-
-## Part 9: Budget System
-
-### Schema Design
-
-On the conversations table: one column `per_person_budget` (nullable integer). If non-null, this value applies to every non-owner member. If null, individual budgets are looked up in a separate table.
-
-Separate member_budgets table: per-user per-conversation rows with `budget` and `spent` fields. No row means zero budget for that user.
-
-Separate column `conversation_budget` on conversations (nullable integer): total cap across all users. Checked in addition to per-person budget.
-
-### Payment Logic (Server-Side)
-
-```
-When user U sends a message in conversation C owned by O:
-  1. Compute message cost from AI token usage.
-  2. If U == O:
-       Charge O's balance. payer = O.
-  3. Else:
-       Determine U's budget:
-         If conversations.per_person_budget IS NOT NULL → use that value
-         Else if member_budgets row exists for U → use row.budget
-         Else → budget is 0
-       If budget > spent AND conversation_budget > total_spent:
-         Charge O's balance. payer = O. Increment spent counters.
-       Else:
-         Charge U's balance. payer = U.
-  4. Store payer_id and cost in message metadata.
-```
-
-### Display
-
-Each message in the UI shows: content (decrypted), sender name, cost, and "paid by [username]" (resolved from payer_id).
-
----
-
-## Part 10: Communication Architecture
-
-### Overview
-
-```
-Client (React)
-  │
-  ├── tRPC (HTTP via Hono) ──────► Cloudflare Worker (apps/api)
-  │     All request-response           │
-  │     operations                     ├── PostgreSQL
-  │                                    ├── Redis (cache, rate limit, sessions)
-  │                                    └── AI Provider
-  │                                        │
-  └── WebSocket ─────────────────► Durable Object (packages/realtime)
-        Real-time push only               Per-conversation instance
-                                          Pure broadcast hub
-
-Payment Processor ──webhook──► Cloudflare Worker (apps/api, plain Hono route)
-```
-
-### tRPC Layer
-
-All request-response operations go through tRPC, mounted as Hono middleware. tRPC provides end-to-end TypeScript type safety with zero code generation. Input validation uses Zod (runtime validation that also generates TypeScript types).
-
-Hono setup:
-
-```
-Hono app
-  ├── /trpc/*  →  @hono/trpc-server middleware → tRPC router
-  └── /webhooks/payments  →  plain Hono route handler
-```
-
-#### tRPC Router Structure
-
-```
-appRouter
-├── auth
-│   ├── register
-│   ├── login
-│   ├── verify2FA
-│   ├── logout
-│   └── refreshSession
-├── account
-│   ├── getProfile
-│   ├── updateProfile
-│   ├── changePassword
-│   ├── recoverAccount
-│   ├── regenerateRecovery
-│   └── deleteAccount
-├── conversations
-│   ├── create
-│   ├── list
-│   ├── get
-│   ├── delete
-│   └── updateSettings
-├── members
-│   ├── add
-│   ├── remove
-│   ├── leave
-│   ├── updatePrivilege
-│   └── list
-├── links
-│   ├── create
-│   ├── revoke
-│   └── list
-├── keys
-│   ├── getEpochWraps
-│   ├── getChainLinks
-│   ├── submitRotation
-│   └── getMemberPublicKeys
-├── messages
-│   ├── send
-│   ├── delete
-│   ├── getHistory
-│   ├── createShare
-│   └── getShared
-└── budget
-    ├── get
-    └── update
-```
-
-### Durable Object + WebSocket Layer
-
-One Durable Object instance per conversation. All members of a conversation connect their WebSocket to the same DO. The DO is a pure broadcast hub — it holds no encryption keys, no message content, no business logic beyond fan-out.
-
-#### Events the DO Broadcasts
-
-| Event | Payload | Trigger |
-|---|---|---|
-| `message:new` | encrypted blob + metadata | User message stored |
-| `message:stream` | plaintext token | AI generating (ephemeral) |
-| `message:complete` | encrypted blob + metadata | AI response stored |
-| `message:deleted` | message_id | Message hard-deleted |
-| `member:added` | member_id, privilege | New member added |
-| `member:removed` | member_id | Member removed |
-| `rotation:pending` | (empty) | Tells next sender to rotate |
-| `rotation:complete` | new_epoch_number | Clients re-fetch keys |
-| `typing:start` | member_id | Ephemeral, never stored |
-| `typing:stop` | member_id | Ephemeral, never stored |
-| `presence:update` | member_id, status | Ephemeral, never stored |
-
-#### Communication Flow: API Worker → Durable Object
-
-The API Worker calls the DO via a Durable Object binding (stub). The DO is not called directly by clients for mutations — only for WebSocket connections and ephemeral events (typing, presence). All state-changing operations go through tRPC, and the API Worker notifies the DO after committing changes.
-
-#### Message Send Flow (Detailed)
-
-1. Client calls tRPC `messages.send` mutation with plaintext and conversation_id.
-2. API Worker: validates auth, checks write permission, checks budget.
-3. API Worker: checks `rotation_pending`. If true, returns a signal to the client that rotation is needed. Client performs rotation (generates keys, wraps, chain link), resubmits with rotation data + message.
-4. API Worker: fetches current epoch public key, encrypts message via ECIES, stores in PostgreSQL.
-5. API Worker: notifies Durable Object with the encrypted blob + metadata.
-6. Durable Object: broadcasts `message:new` to all connected WebSockets.
-7. API Worker: invokes AI with plaintext, streams tokens.
-8. For each token: API Worker sends to DO, DO broadcasts `message:stream` to all sockets.
-9. On AI completion: API Worker encrypts full response via ECIES, stores in PostgreSQL.
-10. API Worker: sends final blob to DO, DO broadcasts `message:complete`.
-11. Connected clients replace ephemeral stream with authoritative encrypted blob.
-12. API Worker: discards all plaintext.
-
-#### Concurrency
-
-No lock on normal message sends — they all use the same epoch public key, and ECIES generates a fresh ephemeral key per operation. Concurrent sends are safe. The server assigns message ordering (timestamp or sequence number).
-
-Lock only during epoch rotation. If two clients simultaneously detect `rotation_pending` and attempt to rotate, the server uses first-write-wins. The second client's rotation is rejected; it re-fetches the new epoch and re-encrypts its message under the new key.
-
-### Webhook
-
-The payment processor webhook is a plain Hono POST route alongside the tRPC middleware. It verifies the webhook signature (processor-specific), updates the user's balance in PostgreSQL, and returns 200. If the payment affects an active conversation, optionally notify the conversation's DO to refresh budget state.
-
-### What Redis Is Used For
-
-| Purpose | Why Redis, Not DO? |
-|---|---|
-| Rate limiting | Global across all Workers, not per-conversation |
-| Session tokens | Shared state across all Worker instances |
-| Cache (user profiles, public keys) | Avoid DB round-trips for frequently accessed data |
-| Budget enforcement cache | Hot path during message sends |
-
-Redis is for cross-request, cross-conversation shared state. DOs are for per-conversation real-time coordination.
-
----
-
-## Part 11: Package Structure
-
-```
-packages/
-  crypto/          ← All cryptographic operations. The ONLY package that imports @noble/*, hash-wasm, @scure/bip39, @cloudflare/opaque-ts (client-side)
-  db/              ← Database schema, queries, migrations
-  realtime/        ← Durable Object class + WebSocket handling. No crypto imports.
-apps/
-  api/             ← Hono + tRPC router + webhook. Imports @cloudflare/opaque-ts (server-side), iron-session, otplib. Re-exports DO class from packages/realtime.
-  web/             ← React frontend. Imports packages/crypto as a dependency.
-```
-
-### Crypto Package API Design
-
-The crypto package must expose methods with names so explicit that misuse is impossible. Non-crypto code should never perform any cryptographic operation — it calls a method that describes the exact use case.
-
-Examples of the kinds of method names the crypto package should expose (these are illustrative, not prescriptive — adapt to the codebase's conventions):
-
-**Account operations:**
-- `createAccount()` → returns { publicKey, passwordWrappedBlob, recoveryWrappedBlob, mnemonic }
-- `loginUnwrapAccountKey(exportKey, passwordWrappedBlob)` → returns accountPrivateKey
-- `recoverAccountFromMnemonic(mnemonic, recoveryWrappedBlob)` → returns accountPrivateKey
-- `rewrapAccountKeyForPasswordChange(accountPrivateKey, newExportKey)` → returns newPasswordWrappedBlob
-- `regenerateRecoveryPhrase(accountPrivateKey)` → returns { mnemonic, recoveryWrappedBlob }
-
-**Epoch operations:**
-- `createFirstEpochForConversation(memberPublicKeys[])` → returns { epochPublicKey, confirmationHash, memberWraps[] }
-- `performEpochRotation(oldEpochPrivateKey, remainingMemberPublicKeys[])` → returns { newEpochPublicKey, confirmationHash, memberWraps[], chainLink }
-- `unwrapEpochKey(accountPrivateKey, memberWrap)` → returns epochPrivateKey
-- `traverseChainLink(newerEpochPrivateKey, chainLinkBlob)` → returns olderEpochPrivateKey
-- `verifyEpochKeyConfirmation(epochPrivateKey, expectedHash)` → returns boolean
-
-**Message operations (server-side):**
-- `encryptMessageForStorage(epochPublicKey, plaintext)` → returns encryptedBlob
-- `decryptMessage(epochPrivateKey, encryptedBlob)` → returns plaintext
-
-**Member operations:**
-- `wrapEpochKeyForNewMember(epochPrivateKey, newMemberPublicKey)` → returns memberWrap
-
-**Link operations:**
-- `createSharedLink(epochPrivateKey)` → returns { linkSecret, linkPublicKey, linkWrap }
-- `deriveKeysFromLinkSecret(linkSecret)` → returns linkKeyPair
-- `accessConversationViaLink(linkSecret, linkWrap, chainLinks[], encryptedMessages[])` → returns decryptedMessages[]
-
-**Message sharing:**
-- `createMessageShare(plaintext)` → returns { shareSecret, shareBlob }
-- `decryptMessageShare(shareSecret, shareBlob)` → returns plaintext
-
-The key principle: a developer in `apps/api` or `apps/web` should never need to know what X25519, ECIES, HKDF, or XChaCha20 are. They call `encryptMessageForStorage()` and get a blob. They call `performEpochRotation()` and get everything they need to send to the server. The crypto package is the only place where algorithm-level code lives.
-
----
-
-## Part 12: Migration from REST to tRPC
-
-### Packages to Add
+### 2A — Install Dependencies
 
 | Package | Where | Purpose |
-|---|---|---|
-| `@trpc/server` | apps/api | Define routers and procedures |
-| `@trpc/client` | apps/web | Vanilla typed client |
-| `@trpc/react-query` | apps/web | React hooks integration |
-| `@tanstack/react-query` | apps/web | Peer dependency of above |
-| `@hono/trpc-server` | apps/api | Mount tRPC as Hono middleware |
-| `zod` | apps/api | Runtime input validation + type inference |
+|---------|-------|---------|
+| `@trpc/server` | `apps/api` | Server routers + fetch adapter |
+| `@trpc/client` | `apps/web` | Typed vanilla client |
+| `@trpc/react-query` | `apps/web` | React hooks wrapping TanStack Query |
 
-### Migration Steps
+`@tanstack/react-query` is already in `apps/web`.
 
-1. **Set up tRPC infrastructure alongside existing REST.** Create the tRPC initialization (context, router instance, procedure helpers) in `apps/api`. Mount it as Hono middleware on `/trpc/*`. Existing REST routes continue working on their current paths. Both coexist on the same Worker.
+### 2B — Create `apps/api/src/trpc/`
 
-2. **Define the tRPC context.** The context should include everything procedures need: the authenticated user (from session), Cloudflare env bindings (DB, DO, KV), and the execution context. This replaces whatever you currently extract from the Hono request context.
+| File | Purpose |
+|------|---------|
+| `context.ts` | `createTRPCContext(c: HonoContext<AppEnv>)` → extracts db, redis, user, session, envUtils, env, executionCtx from Hono context. Exports `TRPCContext` type |
+| `trpc.ts` | `initTRPC.context<TRPCContext>().create()`. Exports: `router`, `middleware`, `publicProcedure`, `protectedProcedure`, `phraseRequiredProcedure`, `chatProcedure`, `billingProcedure`, `rateLimited(key, config)` middleware factory |
+| `routers/index.ts` | Root `appRouter` combining sub-routers. Export `type AppRouter` |
+| `test-utils.ts` | `createCallerFactory(appRouter)` for unit tests + `createTestContext()` factory |
+| `index.ts` | Barrel: `appRouter`, `AppRouter`, `createTRPCContext` |
 
-3. **Create middleware for auth.** A `protectedProcedure` base procedure that checks the session and injects the authenticated user into the context. An `adminProcedure` that additionally checks admin/owner privilege for the target conversation. These replace your current Hono auth middleware.
+### 2C — TRPCContext Type
 
-4. **Migrate one endpoint at a time.** For each existing REST route handler:
-   a. Create a tRPC procedure (query for reads, mutation for writes).
-   b. Move the input validation to a Zod schema in `.input()`.
-   c. Move the handler logic into the procedure body. The business logic is identical — only the wiring changes.
-   d. On the client, replace the `fetch()` call with the tRPC client call.
-   e. Delete the TypeScript interface you were manually maintaining for the response.
-   f. Once the tRPC version works, remove the old REST route.
+```typescript
+interface TRPCContext {
+    db: Database;
+    redis: Redis;
+    envUtils: EnvUtilities;
+    env: Bindings;
+    executionCtx: ExecutionContext;
+    user: AppEnv['Variables']['user'];  // nullable
+    session: SessionData | null;
+    openrouter?: OpenRouterClient;      // lazy via chatProcedure middleware
+    helcim?: HelcimClient;              // lazy via billingProcedure middleware
+    honoContext?: Context<AppEnv>;      // for Set-Cookie (auth-adjacent only)
+}
+```
 
-5. **Start with low-risk endpoints.** Migrate simple reads first (getProfile, list conversations). Then mutations. Save auth endpoints (OPAQUE flows) for last since they're the most complex.
+### 2D — Procedure Hierarchy
 
-6. **Keep the webhook as a plain Hono route.** The payment processor does not speak tRPC. This route stays as-is, forever.
+```
+publicProcedure           — no auth required
+  └─ protectedProcedure   — requires authenticated user (throws UNAUTHORIZED)
+       └─ phraseRequiredProcedure — requires hasAcknowledgedPhrase
+            └─ billingProcedure   — lazy Helcim client init
+       └─ chatProcedure          — lazy OpenRouter client init
+```
 
-7. **Set up the React Query integration.** Wrap the app in the tRPC + React Query providers. Replace manual `useEffect` + `fetch` patterns with `trpc.conversations.list.useQuery()` style hooks. This gives you automatic caching, revalidation, loading states, and optimistic updates for free.
+`rateLimited(key, config)` is a standalone middleware factory that wraps any procedure:
+```typescript
+export function rateLimited(key: string, config: { windowMs: number; max: number }) {
+  return middleware(async ({ ctx, next }) => {
+    const ip = getClientIP(ctx.honoContext);
+    const result = await checkRateLimit(ctx.redis, key, ip, config);
+    if (!result.allowed) throw new TRPCError({ code: 'TOO_MANY_REQUESTS' });
+    return next();
+  });
+}
+```
 
-### What Changes, What Doesn't
+### 2E — Mount on Hono (`apps/api/src/app.ts`)
 
-| Aspect | Before (REST) | After (tRPC) |
-|---|---|---|
-| Server handler logic | Same | Same (procedure body) |
-| Input validation | Manual or middleware | Zod schema in `.input()` |
-| Response typing | Manual interfaces | Inferred from return type |
-| Client calls | `fetch()` + manual typing | `trpc.router.procedure.mutate()` |
-| Error handling | HTTP status codes | tRPC error codes (map to HTTP) |
-| Auth middleware | Hono middleware | tRPC middleware (protectedProcedure) |
-| Webhook | Hono route | Hono route (unchanged) |
+```
+/trpc/* middleware chain:
+  csrfProtection → dbMiddleware → redisMiddleware → ironSessionMiddleware
+  → sessionMiddleware (non-rejecting, loads user if session exists)
+  → fetchRequestHandler(@trpc/server/adapters/fetch)
+```
+
+Key: `sessionMiddleware` loads user from session if available but does NOT reject unauthenticated requests. `protectedProcedure` handles auth gating within tRPC. Use `fetchRequestHandler` with `c.req.raw`.
+
+### 2F — Client Setup (`apps/web/src/lib/trpc.ts`)
+
+- `createTRPCReact<AppRouter>()`
+- `httpBatchLink` with `credentials: 'include'` and `url: ${getApiUrl()}/trpc`
+- Provider: `TRPCProvider` wrapping existing `QueryClientProvider` (shared `queryClient` instance)
+
+### 2G — What Stays as Plain Hono (Forever)
+
+| Route | Reason |
+|-------|--------|
+| `/api/auth/*` | OPAQUE multi-step protocol + Set-Cookie + complex rate limiting |
+| `/api/webhooks/*` | External payment callbacks (Helcim), signature verification |
+| `/api/ws/:conversationId` | WebSocket upgrade to Durable Object |
+
+### Verification
+
+```bash
+cd apps/api && pnpm typecheck && pnpm lint && pnpm test
+cd apps/web && pnpm typecheck && pnpm lint
+```
 
 ---
 
-## Part 13: Durable Object Setup for Local Development
+## Phase 3: Auth System Update
 
-### Wrangler Configuration
+**Goal:** Update auth routes for new key hierarchy (ECIES-wrapped account keys, no DEK). Design doc Parts 3, 16.
 
-The Durable Object class must be registered in the wrangler configuration for the API Worker. The DO binding allows the API Worker to get a stub and call the DO.
+### 3A — Registration Flow (`apps/api/src/routes/opaque-auth.ts`)
+
+**`POST /register/finish` — New payload:**
+```typescript
+{ email, username, registrationRecord, accountPublicKey, passwordWrappedPrivateKey, recoveryWrappedPrivateKey }
+```
+
+Server stores atomically:
+- `accountPublicKey` → `users.publicKey`
+- `passwordWrappedPrivateKey` → `users.passwordWrappedPrivateKey`
+- `recoveryWrappedPrivateKey` → `users.recoveryWrappedPrivateKey`
+- Two wallets: `{ type: 'purchased', balance: WELCOME_CREDIT_BALANCE, priority: 0 }` + `{ type: 'free_tier', balance: FREE_ALLOWANCE_CENTS, priority: 1 }`
+- Two ledger entries: welcome_credit for each wallet
+
+### 3B — Login Flow
+
+**`POST /login/finish` response:**
+```typescript
+{ success, userId, email, passwordWrappedPrivateKey }
+```
+
+Client: `unwrapAccountKeyWithPassword(opaqueExportKey, blob)` → account private key in memory.
+
+### 3C — `/me` Response (Stays as Hono `GET /api/auth/me`)
+
+Stays in Hono because it's called during session restoration before tRPC client init.
+
+**New response:** `{ user, passwordWrappedPrivateKey, publicKey }`
+
+### 3D — Password Change (`/change-password/finish`)
+
+Client: `rewrapAccountKeyForPasswordChange(accountPrivateKey, newOpaqueExportKey)` → sends `newPasswordWrappedPrivateKey`. Server stores new blob + new OPAQUE registration atomically. Recovery blob unchanged.
+
+### 3E — Recovery Flow
+
+**DELETE old endpoints:** `recovery/request-salt`, `recovery/verify-phrase`
+
+**New flow:**
+1. Client enters 12-word mnemonic
+2. Client: `recoverAccountFromMnemonic(mnemonic, recoveryWrappedBlob)` → account private key
+3. Client performs OPAQUE re-registration → sends new `passwordWrappedPrivateKey`
+
+**New endpoint:** `POST /recovery/reset` — receives newRegistrationRecord + newPasswordWrappedPrivateKey.
+
+### 3F — Recovery Phrase Save (`/recovery/save`)
+
+**New:** Saves `recoveryWrappedPrivateKey` (re-generated from new mnemonic). Sets `hasAcknowledgedPhrase = true`.
+
+### 3G — TOTP Encryption (`apps/api/src/lib/totp.ts`)
+
+- Import `symmetricEncrypt`/`symmetricDecrypt` from `@lome-chat/crypto`
+- Remove `totpIv` column usage — nonce prepended inside the symmetric blob
+- `encryptTotpSecret(secret, key)` → single blob (nonce + ciphertext + tag)
+- `decryptTotpSecret(blob, key)` → plaintext secret
+
+### 3H — Frontend Auth Store (`apps/web/src/lib/auth.ts`)
+
+- REMOVE: `dek: Uint8Array | null`, `setDEK()`
+- KEEP: `privateKey: Uint8Array | null` (account X25519 private key)
+- `clear()`: zero `privateKey`, clear state
+- `signUpEmail()`: calls `createAccount(exportKey)` from crypto → sends accountPublicKey + wrappedBlobs
+- `signInEmail()`: receives `passwordWrappedPrivateKey` → calls `unwrapAccountKeyWithPassword(exportKey, blob)` → sets `privateKey`
+
+### 3I — Frontend Auth Client (`apps/web/src/lib/auth-client.ts`)
+
+- `STORAGE_KEY` stays `'lome_auth_kek'` (still persists export key)
+- `restoreSession()`: fetch `/api/auth/me` → receive `passwordWrappedPrivateKey` → unwrap with stored export key
+- Rename `persistKEK` → `persistExportKey` (clearer name)
+
+### 3J — Frontend Auth Routes
+
+- Update signup to send new payload (accountPublicKey, passwordWrappedPrivateKey, recoveryWrappedPrivateKey)
+- Update login to handle `passwordWrappedPrivateKey` response
+- Update recovery flow: local mnemonic unwrap instead of server-side verify
+
+### 3K — RecoveryPhraseModal Changes
+
+- Remove `computePhraseVerifier` (no server-side verifier)
+- Remove `wrapKey` usage → `regenerateRecoveryPhrase(accountPrivateKey)`
+- Save: POST new `recoveryWrappedPrivateKey` to server
+
+### Verification
+
+```bash
+cd apps/api && pnpm typecheck && pnpm lint && pnpm test
+cd apps/web && pnpm typecheck && pnpm lint && pnpm test
+```
+
+---
+
+## Phase 4: Billing System Transition
+
+**Goal:** Migrate from user-column balances + balance_transactions to wallets + ledger_entries + usage_records + llm_completions. Design doc Part 9.
+
+### Files That MUST NOT Change Their Algorithms
+
+| File | Functions to Preserve Exactly |
+|------|-------------------------------|
+| `packages/shared/src/pricing.ts` | `estimateMessageCostDevelopment()`, `calculateMessageCostFromOpenRouter()`, `applyFees()`, `calculateTokenCostWithFees()`, `getModelCostPer1k()`, `isExpensiveModel()`, `estimateTokenCount()` |
+| `packages/shared/src/constants.ts` | All fee rates (5%+4.5%+5.5%=15%), `STORAGE_COST_PER_CHARACTER`, `STORAGE_COST_PER_1K_CHARS`, `EXPENSIVE_MODEL_THRESHOLD_PER_1K`, `CHARS_PER_TOKEN_*`, `MAX_ALLOWED_NEGATIVE_BALANCE_CENTS`, `MAX_GUEST_MESSAGE_COST_CENTS`, `MINIMUM_OUTPUT_TOKENS` |
+| `packages/shared/src/budget.ts` | `calculateBudget()`, `estimateTokensForTier()`, `getEffectiveBalance()`, `generateBudgetErrors()` |
+| `packages/shared/src/tiers.ts` | `getUserTier()`, `getDeductionSource()`, `canUseModel()` |
+| `apps/api/src/services/billing/cost-calculator.ts` | `calculateMessageCost()` — 3 paths: OpenRouter exact, character estimate dev, character estimate fallback |
+| `apps/api/src/services/billing/can-send.ts` | `canUserSendMessage()` — wraps `canUseModel()` |
+| `apps/api/src/services/billing/guest-usage.ts` | `consumeGuestMessage()` — Redis dual-identity rate limiting |
+
+### 4A — Tier System Adaptation
+
+`getUserTier()` interface STAYS THE SAME: takes `{ balanceCents, freeAllowanceCents }`. Callers change how they compute values:
+
+| Before | After |
+|--------|-------|
+| `users.balance` → balanceCents | `SUM(wallets.balance) WHERE type='purchased'` → balanceCents |
+| `users.freeAllowanceCents` → freeAllowanceCents | `wallets.balance WHERE type='free_tier'` → freeAllowanceCents |
+
+### 4B — Balance Service Changes (`apps/api/src/services/billing/balance.ts`)
+
+**`getUserTierInfo()` — query changes only:**
+- Before: `SELECT balance, freeAllowanceCents FROM users WHERE id = ?`
+- After: `SELECT type, balance, createdAt FROM wallets WHERE userId = ?`
+- Compute per-type sums, pass to `getUserTier()` unchanged
+- Return type `UserTierInfo` unchanged
+
+**Free tier lazy renewal (new logic):**
+- No `freeAllowanceResetAt` column. No Redis state.
+- On each `getUserTierInfo()` call, query: `SELECT MAX(createdAt) FROM ledgerEntries WHERE walletId = ? AND entryType = 'renewal'`
+- If no renewal exists or last renewal is before today's UTC midnight: renew.
+- Renewal (atomic): `UPDATE wallets SET balance = FREE_ALLOWANCE_CENTS WHERE userId = ? AND type = 'free_tier' AND balance < FREE_ALLOWANCE_CENTS` + INSERT ledgerEntries (entryType='renewal', sourceWalletId=walletId).
+- The `WHERE balance < FREE_ALLOWANCE_CENTS` guard prevents double-top-up if two requests race.
+- Idempotent, no Redis dependency, one extra query on the hot path (but only when renewal is needed — the MAX query is cheap with the (walletId, createdAt) index on ledgerEntries).
+
+### 4C — Transaction Writer Changes (`apps/api/src/services/billing/transaction-writer.ts`)
+
+**`creditUserBalance()` (payment deposits):**
+- Before: `UPDATE users SET balance += amount` + `INSERT balance_transactions`
+- After: `UPDATE wallets SET balance += amount WHERE userId = ? AND type = 'purchased'` + `INSERT ledger_entries (entryType='deposit', paymentId=..., walletId=...)`
+
+**`processWebhookCredit()` (webhook deposits):** Same pattern change. Idempotency logic unchanged.
+
+**NEW: `chargeForUsage()` — unified charging function:**
+```typescript
+export async function chargeForUsage(db: Database, params: {
+  userId: string;
+  cost: string;          // numeric(20,8) string
+  model: string;
+  provider: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens?: number;
+  sourceType: string;    // 'message'
+  sourceId: string;      // message.id
+}): Promise<ChargeResult>
+```
+
+Atomic transaction:
+1. INSERT `usage_records` (type='llm_completion', status='pending', cost)
+2. INSERT `llm_completions` (model, provider, inputTokens, outputTokens, cachedTokens)
+3. Query `wallets WHERE userId = ? ORDER BY priority`, find first with sufficient balance
+4. `UPDATE wallets SET balance -= cost WHERE id = walletId`
+5. INSERT `ledger_entries` (walletId, amount=-cost, balanceAfter, entryType='usage_charge', usageRecordId)
+6. UPDATE `usage_records SET status='completed', completedAt=now()`
+7. Return `{ usageRecordId, walletId, walletType, newBalance }`
+
+### 4D — Speculative Balance Extension (`apps/api/src/lib/speculative-balance.ts`)
+
+- KEEP existing: `reserveBudget(redis, userId, costCents)` / `releaseBudget()` / `getReservedTotal()`
+- ADD: `reserveGroupBudget(redis, conversationId, memberId, costCents)` — reserves against per-member + conversation-wide caps
+- ADD: `releaseGroupBudget(redis, conversationId, memberId, costCents)`
+- New Redis keys: `chat:group-reserved:{conversationId}:{memberId}`, `chat:conversation-reserved:{conversationId}`
+
+### 4E — Group Budget Payment Logic (New)
 
 ```
-[durable_objects]
-bindings = [
-  { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" }
-]
+When member M sends in conversation C owned by O:
+  0. Look up M's conversationMembers row.
+  1. AI completes. Compute cost via calculateMessageCost() (UNCHANGED).
+  2. If M == O:
+       Debit O's wallets (priority order). payerId = O.
+       Do NOT increment conversationSpending.totalSpent (owner's own usage doesn't count).
+  3. Else:
+       budget = conversations.perPersonBudget ?? memberBudgets[M].budget ?? 0
+       spent = memberBudgets[M].spent ?? 0
+       If budget > spent AND (conversationBudget IS NULL OR conversationSpending.totalSpent < conversationBudget):
+         Debit O's wallets. payerId = O.
+         Increment memberBudgets.spent AND conversationSpending.totalSpent.
+         (totalSpent only tracks owner spending on behalf of OTHER members)
+       Else if M is authenticated (not guest link):
+         Debit M's wallets. payerId = M.
+         Do NOT increment conversationSpending.totalSpent (M is paying for themselves).
+       Else (guest link with exhausted budget):
+         Reject.
+  4. Create usageRecords + llmCompletions.
+  5. Create ledgerEntries for wallet debited.
+  6. Store payerId in message metadata.
+  All in one database transaction (same transaction as AI message storage — see Phase 5B).
+```
 
+**Clarification on `conversationSpending.totalSpent`:** This counter only increments when the conversation owner is charged on behalf of a non-owner member. It does NOT increment when the owner sends their own messages or when a non-owner member pays from their own wallets. It answers the question "how much has the owner spent subsidizing other members?" and is checked against `conversations.conversationBudget`.
+
+### 4F — Billing tRPC Router (`apps/api/src/trpc/routers/billing.ts`)
+
+- `getBalance`: phraseRequiredProcedure → query wallets, compute tier info
+- `listTransactions`: phraseRequiredProcedure → query ledger_entries JOIN wallets with cursor pagination
+- `createPayment`, `processPayment`, `getPaymentStatus`: billingProcedure (lazy Helcim) → reuse existing Helcim logic
+
+### Verification
+
+```bash
+cd packages/shared && pnpm typecheck && pnpm lint && pnpm test
+cd apps/api && pnpm typecheck && pnpm lint && pnpm test
+```
+
+---
+
+## Phase 5: Conversations & Epoch Management
+
+**Goal:** Create conversations with epoch 1. Server-side message encryption. Remove finalize. Design doc Parts 4, 5.
+
+### 5A — Conversation Creation (tRPC `conversations.create`)
+
+1. Client: `createFirstEpochForConversation([userAccountPublicKey])` → epochPublicKey, confirmationHash, memberWraps
+2. Client encrypts title: `encryptMessageForStorage(epochPublicKey, "")` → ECIES blob for empty/placeholder title
+3. Client sends: encryptedTitle, epochPublicKey, confirmationHash, memberWrap
+4. Server creates in one transaction:
+    - `conversations` row (currentEpoch=1, titleEpochNumber=1, nextSequence=1)
+    - `epochs` row (epochNumber=1, epochPublicKey, confirmationHash, chainLink=null)
+    - `epochMembers` row (wrap for owner)
+    - `conversationMembers` row (privilege='owner', visibleFromEpoch=1)
+
+### 5B — Message Send (tRPC `messages.send`)
+
+1. Client sends: `{ conversationId, model, content (plaintext), messagesForInference }`
+2. Server validates: auth, write permission via conversationMembers, budget check
+3. Server checks `rotationPending`. If true → return `{ rotationRequired: true, currentEpoch, pendingRemovalIds }`. Client performs rotation, resubmits via `keys.submitRotation`.
+4. Server fetches current epoch public key
+5. Server encrypts user message: `encryptMessageForStorage(epochPublicKey, plaintext)` → userBlob
+6. Server broadcasts ephemeral `message:new` to DO (user message preview — not yet persisted, clients show optimistically)
+7. Server invokes AI with plaintext, streams tokens via SSE/DO
+8. On AI completion — **single atomic transaction (all or nothing)**:
+   a. Assign user message sequence: `UPDATE conversations SET nextSequence = nextSequence + 2 WHERE id = ? RETURNING nextSequence - 2 AS userSeq, nextSequence - 1 AS aiSeq`
+   b. INSERT user message (senderType='user', senderId, epochNumber, sequenceNumber=userSeq, encryptedBlob=userBlob)
+   c. Encrypt AI response: `encryptMessageForStorage(epochPublicKey, aiContent)` → aiBlob
+   d. INSERT AI message (senderType='ai', epochNumber, sequenceNumber=aiSeq, encryptedBlob=aiBlob)
+   e. `chargeForUsage()` — INSERT usageRecords + llmCompletions + UPDATE wallet + INSERT ledgerEntries
+   f. Store payerId on AI message
+   g. **All in ONE database transaction** — user message, AI message, and billing commit together
+9. Server broadcasts `message:complete` to DO (with both message IDs + encrypted blobs)
+10. Server releases speculative budget reservation from Redis
+11. If AI fails: **nothing persisted**, no charge, budget released. Client discards the optimistic user message preview.
+
+**NO finalize needed — single server-side encryption path.**
+
+**Why all-in-one:** If user message stored separately and AI fails, you have orphaned user messages with no response and wasted sequence numbers. By committing everything atomically: either the full exchange (user message + AI response + billing) is persisted, or nothing is. Clients show the user message optimistically from the DO broadcast, then the committed data becomes authoritative.
+
+### 5C — Conversation Titles
+
+- Encrypted under epoch public key (ECIES blob)
+- `titleEpochNumber` tracks which epoch key encrypts the title
+- On epoch rotation: rotating client re-encrypts title under new epoch key, updates `titleEpochNumber`
+- Conversation list page requires epoch key resolution per conversation
+
+### 5D — Key Endpoints (tRPC `keys.*`)
+
+| Procedure | Type | Input | Returns |
+|-----------|------|-------|---------|
+| `getEpochWraps` | query | `{ conversationId }` | All epoch member wraps for current user's publicKey |
+| `getChainLinks` | query | `{ conversationId }` | Chain links for backward traversal |
+| `submitRotation` | mutation | `{ conversationId, newEpochPublicKey, confirmationHash, memberWraps[], chainLink, removedMemberIds[], encryptedTitle?, message? }` | Atomic rotation + optional message |
+| `getMemberPublicKeys` | query | `{ conversationId }` | Public keys of all active members |
+
+### 5E — Epoch Rotation Protocol (Atomic Server Transaction)
+
+When `submitRotation` is called:
+1. Create new `epochs` row (epochNumber = currentEpoch + 1)
+2. Store all member wraps in `epochMembers`
+3. Store chain link on new epoch row
+4. DELETE old epoch's `epochMembers` wraps
+5. DELETE `pendingRemovals` rows
+6. Set `leftAt = NOW()` on removed `conversationMembers` rows
+7. UPDATE `conversations.currentEpoch += 1, rotationPending = false`
+8. Re-encrypt title under new epoch key if provided, update `titleEpochNumber`
+9. If message included: store with new epoch number
+
+**Concurrency:** First-write-wins via `UPDATE conversations SET currentEpoch = ? WHERE id = ? AND currentEpoch = ? - 1`. Check rows affected. Rejected client re-fetches + re-encrypts.
+
+### 5F — Files to DELETE
+
+- Finalize endpoint from conversations routes
+- All `pendingReEncryption` / `ephemeralPublicKey` / `iv` handling
+- `apps/web/src/lib/encrypt-content.ts` + test
+- `apps/web/src/stores/finalize-queue.ts` + tests
+
+### Verification
+
+```bash
+cd apps/api && pnpm typecheck && pnpm lint && pnpm test
+cd apps/web && pnpm typecheck && pnpm lint && pnpm test
+```
+
+---
+
+## Phase 6: Durable Objects & Real-Time
+
+**Goal:** WebSocket-based real-time messaging via per-conversation Durable Objects. Design doc Parts 10, 13.
+
+### 6A — Create `packages/realtime/`
+
+```
+packages/realtime/
+  package.json       (@cloudflare/workers-types devDep)
+  tsconfig.json
+  src/
+    index.ts                    (barrel: ConversationRoom, event types)
+    conversation-room.ts        (DO class)
+    conversation-room.test.ts
+    events.ts                   (typed event definitions)
+    events.test.ts
+```
+
+### 6B — ConversationRoom DO
+
+- Pure broadcast hub: NO crypto, NO DB, NO business logic
+- Uses Durable Object Hibernation API (`state.acceptWebSocket`, `state.getWebSockets`)
+- `Map<WebSocket, ConnectionMeta>` tracking connected members
+- Routes:
+    - `/websocket?userId=xxx` or `/websocket?guest=true&name=xxx` — WebSocket upgrade
+    - `/broadcast` — POST from API Worker with event payload
+- Dead socket cleanup via `webSocketClose(ws)` and `webSocketError(ws)` handlers
+- On wake: re-hydrate Map from `state.getWebSockets()` via `ws.deserializeAttachment()`
+
+### 6C — Events Broadcast
+
+| Event | Payload | Trigger |
+|-------|---------|---------|
+| `message:new` | messageId, metadata | User message stored |
+| `message:stream` | messageId, token (batched ~50ms) | AI generating |
+| `message:complete` | messageId, encrypted blob + metadata | AI response stored |
+| `message:deleted` | messageId | Hard-delete |
+| `member:added` | userId/linkId, privilege | New member |
+| `member:removed` | userId/linkId | Member removed |
+| `rotation:pending` | conversationId | Tells next sender to rotate |
+| `rotation:complete` | conversationId, newEpochNumber | Clients re-fetch keys |
+| `typing:start/stop` | userId | Ephemeral, client→DO→broadcast |
+| `presence:update` | members[] | Connection state change |
+
+### 6D — API Worker → DO Communication
+
+```typescript
+// apps/api/src/lib/broadcast.ts (NEW)
+export async function broadcastToRoom(
+  env: Bindings,
+  conversationId: string,
+  event: RealtimeEvent,
+): Promise<void> {
+  const id = env.CONVERSATION_ROOM.idFromName(conversationId);
+  const stub = env.CONVERSATION_ROOM.get(id);
+  await stub.fetch(new Request('http://internal/broadcast', {
+    method: 'POST',
+    body: JSON.stringify(event),
+  }));
+}
+```
+
+### 6E — WebSocket Route (`apps/api/src/routes/ws.ts` — NEW)
+
+Hono route (NOT tRPC). Two auth paths:
+
+**Authenticated:** `GET /api/ws/:conversationId`
+1. Validate session → verify user is active member
+2. Forward to DO with `?userId=xxx`
+
+**Link guests:** `GET /api/ws/:conversationId?linkToken=xxx`
+1. Validate `linkToken` against Redis (short-lived, single-use)
+2. Forward to DO with `?guest=true&name=xxx`
+
+### 6F — Wrangler Config (`apps/api/wrangler.toml`)
+
+```toml
+[durable_objects]
+bindings = [{ name = "CONVERSATION_ROOM", class_name = "ConversationRoom" }]
 [[migrations]]
 tag = "v1"
 new_classes = ["ConversationRoom"]
 ```
 
-The API Worker's entry point must re-export the DO class from `packages/realtime` so Cloudflare can find it.
+Add to Bindings type in `types.ts`: `CONVERSATION_ROOM: DurableObjectNamespace;`
 
-### Local Development
+Worker entry point re-export: `export { ConversationRoom } from '@lome-chat/realtime';`
 
-`wrangler dev` supports Durable Objects locally. When running the API Worker in dev mode, DOs are instantiated in-process. WebSocket connections work over localhost. No special setup beyond the wrangler configuration.
+### 6G — Frontend WebSocket Client (`apps/web/src/lib/ws-client.ts` — NEW)
 
-For the frontend development server (Vite or similar), configure the WebSocket proxy to forward `/ws/*` to the local Worker's WebSocket upgrade endpoint.
+- `ConversationWebSocket` class: per-conversation connection
+- Auto-reconnect with exponential backoff (1s initial, 30s max)
+- Typed event handlers matching DO event types
 
-Test the full flow locally: client opens WebSocket → Worker upgrades → routes to DO → DO accepts connection. Client sends tRPC mutation → Worker processes → notifies DO → DO broadcasts to WebSocket → client receives.
+### 6H — Vite WebSocket Proxy (Local Dev)
 
-### Durable Object Design Principles
+```typescript
+// apps/web/vite.config.ts
+server: {
+  proxy: {
+    '/api/ws': { target: 'ws://localhost:8787', ws: true },
+  }
+}
+```
 
-The DO is a pure broadcast hub. It must NOT:
-- Access the database directly
-- Perform any cryptographic operations
-- Hold any encryption keys
-- Store any message content
-- Implement any business logic beyond connection management and fan-out
+### 6I — DELETE
 
-The DO SHOULD:
-- Maintain a map of connected WebSockets (member_id → socket)
-- Track ephemeral state (typing indicators, presence)
-- Accept events from the API Worker (via HTTP fetch on the DO stub) and broadcast to connected sockets
-- Handle WebSocket lifecycle (open, close, error, reconnect)
-- Use Durable Object Hibernation to reduce costs when a conversation has connected clients but no activity
+- `apps/web/src/lib/sse-client.ts` (replaced by WebSocket)
+- `apps/api/src/lib/stream-handler.ts` (SSE replaced by DO broadcast)
 
-The DO receives events from two sources:
-1. **API Worker** (via stub fetch): message:new, message:complete, message:deleted, member changes, rotation events. These are the result of tRPC mutations that the API Worker has already processed and committed to the database.
-2. **Client WebSockets** (via WebSocket messages): typing:start, typing:stop, presence:update. These are ephemeral and never touch the database or API Worker.
+### Verification
 
----
-
-## Part 14: Database Schema (Key-Related)
-
-```sql
-CREATE TABLE accounts (
-    id                           UUID PRIMARY KEY,
-    public_key                   BYTEA NOT NULL,        -- 32B X25519
-    password_wrapped_private_key BYTEA NOT NULL,        -- ~81B ECIES blob
-    recovery_wrapped_private_key BYTEA NOT NULL,        -- ~81B ECIES blob
-    created_at                   TIMESTAMPTZ NOT NULL
-);
-
-CREATE TABLE conversations (
-    id                  UUID PRIMARY KEY,
-    owner_id            UUID NOT NULL REFERENCES accounts(id),
-    current_epoch       INTEGER NOT NULL DEFAULT 1,
-    rotation_pending    BOOLEAN NOT NULL DEFAULT FALSE,
-    pending_removals    UUID[] DEFAULT '{}',
-    per_person_budget   INTEGER,            -- NULL = use member_budgets table
-    conversation_budget INTEGER,            -- NULL = no conversation-wide cap
-    created_at          TIMESTAMPTZ NOT NULL
-);
-
-CREATE TABLE epochs (
-    id                UUID PRIMARY KEY,
-    conversation_id   UUID NOT NULL REFERENCES conversations(id),
-    epoch_number      INTEGER NOT NULL,
-    public_key        BYTEA NOT NULL,       -- 32B
-    confirmation_hash BYTEA NOT NULL,       -- 32B SHA-256(private_key)
-    chain_link        BYTEA,               -- ~81B ECIES blob, NULL for first epoch
-    created_at        TIMESTAMPTZ NOT NULL,
-    UNIQUE (conversation_id, epoch_number)
-);
-
-CREATE TABLE epoch_members (
-    epoch_id            UUID NOT NULL REFERENCES epochs(id),
-    member_id           UUID NOT NULL,       -- account ID or link ID
-    member_type         TEXT NOT NULL CHECK (member_type IN ('account', 'link')),
-    encrypted_epoch_key BYTEA NOT NULL,      -- ~81B ECIES blob
-    privilege           TEXT NOT NULL CHECK (privilege IN ('read', 'write', 'admin', 'owner')),
-    visible_from_epoch  INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (epoch_id, member_id)
-);
-
-CREATE TABLE shared_links (
-    id              UUID PRIMARY KEY,
-    conversation_id UUID NOT NULL REFERENCES conversations(id),
-    public_key      BYTEA NOT NULL,          -- 32B
-    privilege       TEXT NOT NULL DEFAULT 'read',
-    visible_from_epoch INTEGER NOT NULL,
-    expires_at      TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL
-);
-
-CREATE TABLE messages (
-    id                  UUID PRIMARY KEY,
-    conversation_id     UUID NOT NULL REFERENCES conversations(id),
-    epoch_number        INTEGER NOT NULL,
-    sender_type         TEXT NOT NULL CHECK (sender_type IN ('user', 'ai')),
-    sender_id           UUID,
-    sender_display_name TEXT,
-    payer_id            UUID,
-    cost                INTEGER NOT NULL DEFAULT 0,
-    encrypted_blob      BYTEA NOT NULL,
-    created_at          TIMESTAMPTZ NOT NULL
-);
-
-CREATE TABLE shared_messages (
-    id                  UUID PRIMARY KEY,
-    original_message_id UUID REFERENCES messages(id),
-    encrypted_blob      BYTEA NOT NULL,
-    expires_at          TIMESTAMPTZ,
-    created_at          TIMESTAMPTZ NOT NULL
-);
-
-CREATE TABLE member_budgets (
-    conversation_id UUID NOT NULL REFERENCES conversations(id),
-    user_id         UUID NOT NULL,
-    budget          INTEGER NOT NULL,
-    spent           INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (conversation_id, user_id)
-);
-
-CREATE TABLE conversation_spending (
-    conversation_id UUID NOT NULL REFERENCES conversations(id),
-    total_spent     INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (conversation_id)
-);
-
-CREATE INDEX idx_messages_conversation ON messages(conversation_id, created_at);
-CREATE INDEX idx_epochs_conversation ON epochs(conversation_id, epoch_number);
-CREATE INDEX idx_epoch_members_member ON epoch_members(member_id);
-CREATE INDEX idx_shared_links_conversation ON shared_links(conversation_id);
-CREATE INDEX idx_shared_links_expiry ON shared_links(expires_at) WHERE expires_at IS NOT NULL;
+```bash
+cd packages/realtime && pnpm typecheck && pnpm lint && pnpm test
+cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 ```
 
 ---
 
-## Part 15: Threat Model Summary
+## Phase 7: tRPC Route Migration
 
-### What the Server Cannot Do
+**Goal:** Migrate all remaining REST routes to tRPC. Design doc Part 12.
 
-- Decrypt any stored message (only has epoch public keys)
-- Decrypt any epoch private key (wrapped under account public keys)
-- Decrypt any account private key (wrapped under OPAQUE export key / recovery KEK)
-- Forge a valid key wrap for a non-member
-- Decrypt shared link data (link secret in URL fragment, never transmitted)
-- Decrypt individually shared messages (share secret in URL fragment)
+### 7A — Migration Order
 
-### What the Server Can Do
+1. **Models** — simplest, `publicProcedure`, no auth
+2. **Conversations CRUD** — straightforward `protectedProcedure`
+3. **Billing** — query-heavy, `billingProcedure`
+4. **Messages** — send mutation + DO integration
+5. **Trial chat** — `publicProcedure` with rate limiting (standalone anonymous, kept from current)
+6. **Link guest** — `publicProcedure` with rate limiting (shared link based)
+7. **Dev** — wrapped in env check middleware
 
-- Encrypt messages (holds epoch public keys) — this is by design
-- Read plaintext during AI invocation — accepted exception
-- Stream plaintext AI tokens — accepted exception
-- Read message metadata (who, when, cost, not content)
-- Observe traffic patterns (message sizes, timing, frequency)
-- Deny service
-- Observe membership
+### 7B — Pattern Per Route Migration
 
-### Accepted Tradeoffs
+1. Create tRPC sub-router in `apps/api/src/trpc/routers/`
+2. Move business logic from Hono handler into procedure body (service functions stay in `services/`)
+3. Input: Zod schemas from `packages/shared` where possible
+4. Errors: `throw new TRPCError({ code, message })`
+5. Update client hooks to use `trpc.router.procedure.useQuery/useMutation()`
+6. Delete old Hono route file
+7. Testing: use `createCallerFactory`
 
-| Tradeoff | Severity | Rationale |
-|---|---|---|
-| Server sees AI plaintext | Accepted | Fundamental to the product |
-| No message signatures in v1 | Medium | Ed25519 can be added later |
-| Server-enforced privileges | Low | Cryptographic enforcement adds no real value against the stated threat model |
-| Metadata visible | Medium | Standard for all E2EE systems |
-| No per-message PFS | Low | Server already sees plaintext during AI invocation |
-| Race window on revocation | Low | Explicitly accepted, bounded by lazy rotation |
-| History visibility is server-enforced | Low | New members never had old keys; same trust boundary as AI plaintext |
-
-### Full Decryption Chain
+### 7C — Complete tRPC Router Structure
 
 ```
-Password → OPAQUE → export key → HKDF → wrapping key pair → ECIES decrypt → account_private_key → ECIES decrypt (member wrap) → epoch_private_key → [chain traversal if needed] → ECIES decrypt (message blob) → decompress → plaintext
+appRouter
+├── models
+│   └── list (publicProcedure)
+├── conversations
+│   ├── create (protectedProcedure)
+│   ├── list (protectedProcedure)
+│   ├── get (protectedProcedure)
+│   ├── delete (protectedProcedure)
+│   ├── updateTitle (protectedProcedure)
+│   ├── updateBudget (protectedProcedure) — owner only
+│   └── assignProject (protectedProcedure) — owner only
+├── projects
+│   ├── create (protectedProcedure)
+│   ├── list (protectedProcedure)
+│   ├── update (protectedProcedure)
+│   └── delete (protectedProcedure)
+├── messages
+│   ├── send (chatProcedure)
+│   ├── delete (protectedProcedure)
+│   ├── getHistory (protectedProcedure)
+│   ├── createShare (protectedProcedure)
+│   └── getShared (publicProcedure)
+├── keys
+│   ├── getEpochWraps (protectedProcedure)
+│   ├── getChainLinks (protectedProcedure)
+│   ├── submitRotation (protectedProcedure)
+│   └── getMemberPublicKeys (protectedProcedure)
+├── members
+│   ├── add (protectedProcedure) — admin/owner
+│   ├── remove (protectedProcedure) — admin/owner
+│   ├── leave (protectedProcedure) — non-owner
+│   ├── updatePrivilege (protectedProcedure) — admin/owner
+│   └── list (protectedProcedure)
+├── links
+│   ├── create (protectedProcedure) — admin/owner
+│   ├── revoke (protectedProcedure) — admin/owner
+│   └── list (protectedProcedure)
+├── budget
+│   ├── get (protectedProcedure)
+│   ├── setMemberBudget (protectedProcedure) — owner
+│   └── removeMemberBudget (protectedProcedure) — owner
+├── billing
+│   ├── getBalance (phraseRequiredProcedure)
+│   ├── listTransactions (phraseRequiredProcedure)
+│   ├── createPayment (billingProcedure)
+│   ├── processPayment (billingProcedure)
+│   └── getPaymentStatus (billingProcedure)
+├── account
+│   ├── getProfile (protectedProcedure)
+│   ├── updateProfile (protectedProcedure)
+│   ├── regenerateRecovery (protectedProcedure)
+│   └── deleteAccount (protectedProcedure)
+├── trial
+│   └── stream (publicProcedure + rateLimited) — anonymous trial chat (no account, no persistence)
+├── linkGuest
+│   ├── accessLink (publicProcedure + rateLimited) — validate link, return epoch wraps + messages + wsToken
+│   └── sendMessage (publicProcedure + rateLimited) — send via link with owner's budget
+└── dev
+    ├── getPersonas (publicProcedure, dev-only)
+    └── cleanup (publicProcedure, dev-only)
+```
+
+### 7D — Trial Chat (`trial.stream`)
+
+This is the existing anonymous trial chat, kept as-is but moved to tRPC. `publicProcedure + rateLimited`:
+- Input: `{ messages, model }` — no auth, no persistence
+- Rejects authenticated users (they should use `messages.send`)
+- Uses existing `consumeGuestMessage()` from guest-usage.ts for dual-identity Redis rate limiting
+- Streams AI response back (via SSE or batched tRPC subscription — TBD based on tRPC streaming support)
+- No message storage, no billing beyond rate limits
+
+### 7E — Link Guest (`linkGuest.accessLink`, `linkGuest.sendMessage`)
+
+**`accessLink`:** publicProcedure + rateLimited(30/hour per IP)
+1. Input: `{ conversationId, linkPublicKey (base64) }`
+2. Validates link exists + not revoked + has correct privilege
+3. Returns epoch wraps + chain links + messages (respecting visibleFromEpoch) + wsToken (Redis, 5min TTL, single-use)
+
+**`sendMessage`:** publicProcedure + rateLimited(10/min per IP)
+1. Input: `{ conversationId, linkPublicKey, content, model, displayName, messagesForInference }`
+2. Validates link + write privilege + owner budget
+3. Encrypts + stores (senderType='user', senderId=null, senderDisplayName=displayName)
+4. Invokes AI, streams via DO
+5. Charges owner's wallets (payerId=owner)
+
+### Verification
+
+```bash
+cd apps/api && pnpm typecheck && pnpm lint && pnpm test
+cd apps/web && pnpm typecheck && pnpm lint && pnpm test
 ```
 
 ---
 
-## Part 16: Owner & Account Lifecycle
+## Phase 8: Group Conversations
 
-### Owner Leaves a Conversation
+**Goal:** Multi-member conversations with privileges and lazy epoch rotation. Design doc Parts 4, 6.
 
-Owner leaving deletes the entire conversation, including all messages, epochs, member wraps, chain links, shared links, and budget data. All connected members are disconnected via the Durable Object.
+### 8A — Member Management (tRPC `members.*`)
 
-### Account Deletion
+**`add`:** Admin/owner client:
+1. Fetches new member's publicKey from server
+2. Decrypts current epoch private key
+3. `wrapEpochKeyForNewMember(epochPrivKey, memberPubKey)` → wrap
+4. Sends: member ID, wrap, privilege, visibleFromEpoch
+5. Server creates `conversationMembers` + `epochMembers` in one transaction
+6. NO rotation needed (adding doesn't require new epoch)
 
-1. User authenticates.
-2. User leaves all conversations (triggering lazy rotation for each, or conversation deletion if they are the owner).
-3. Account row is deleted (public key, wrapped blobs, OPAQUE state).
-4. All sessions are invalidated.
+**`remove`:** Server:
+1. Sets `rotationPending = true`
+2. Inserts `pendingRemovals` row
+3. Immediately sets `leftAt` on `conversationMembers` (server-side access revoked)
+4. Broadcasts `member:removed` + `rotation:pending` via DO
 
-### Voluntary Leave
+**`leave`:** Same as remove but self-initiated.
 
-Treated identically to removal. Triggers lazy rotation. The leaving member's wrap is deleted, and they lose the ability to decrypt future messages once rotation occurs.
+**`updatePrivilege`:** Server-side column update only, no crypto changes.
+
+### 8B — Privilege Levels (Server-Enforced)
+
+| Level | Decrypt | Send | Add Members | Remove Members | Manage Links | Rotate |
+|-------|---------|------|-------------|----------------|--------------|--------|
+| Read | Yes | No | No | No | No | No |
+| Write | Yes | Yes | No | No | No | Yes (lazy) |
+| Admin | Yes | Yes | Yes | Yes (not owner) | Yes | Yes |
+| Owner | Yes | Yes | Yes | Yes | Yes | Yes |
+
+### 8C — Lazy Epoch Rotation
+
+1. On trigger (remove/link revocation): server sets `rotationPending = true`, records `pendingRemovals`
+2. On next `messages.send` by write-capable member:
+    - Client detects `rotationPending` in response
+    - Client: `performEpochRotation(oldEpochPrivKey, remainingMemberPubKeys[])`
+    - Client sends rotation data + message atomically via `keys.submitRotation`
+    - Server processes in single transaction (Phase 5E protocol)
+
+### 8D — Owner Lifecycle
+
+- Owner leaving → deletes entire conversation (CASCADE)
+- Account deletion → leave all groups first (trigger lazy rotations), then delete owned conversations
+- Financial records preserved (userId SET NULL on wallets, ledger_entries, usage_records, payments)
+
+### 8E — History Visibility
+
+Controlled by `visibleFromEpoch` on `conversationMembers`:
+- Server refuses messages/chain links from before that epoch
+- Server-enforced, not cryptographic (design doc rationale: no major protocol solves this cryptographically)
+- New member with history: `visibleFromEpoch = 1` (chains backward to all)
+- New member without history: `visibleFromEpoch = currentEpoch`
+
+### Verification
+
+```bash
+cd apps/api && pnpm typecheck && pnpm lint && pnpm test
+```
 
 ---
 
-## Part 17: Future Migration Paths
+## Phase 9: Sharing System
 
-These are not implemented in v1 but the architecture supports them without redesign:
+**Goal:** Public link sharing and individual message sharing. Design doc Parts 7, 8.
 
-- **Post-quantum:** Replace X25519 with ML-KEM in the ECIES construction. Version byte `0x02`. Symmetric layer (XChaCha20-Poly1305) is already quantum-resistant.
-- **Message signatures:** Add Ed25519 signing (already available via `@noble/curves`). Store signature alongside the encrypted blob. No schema changes beyond adding a `signature` column.
-- **Multi-device:** Each device gets its own X25519 key pair. Account private key is wrapped for each device. Adds one indirection layer, does not change epoch/conversation design.
-- **Key transparency:** Publish account public keys to a transparency log. No encryption changes.
-- **Cryptographic history boundaries:** If server-enforced `visible_from_epoch` proves insufficient, the MEK/CK split can be added for a single hard cryptographic boundary per conversation.
+### 9A — Public Link Sharing (tRPC `links.*`)
+
+**Create:**
+1. Owner/admin: `createSharedLink(epochPrivKey)` → linkSecret, linkPublicKey, memberWrap
+2. Send to server: linkPublicKey, memberWrap, privilege, visibleFromEpoch
+3. Server creates **three rows in one transaction**:
+   a. `sharedLinks` row — linkPublicKey, privilege, visibleFromEpoch, conversationId
+   b. `epochMembers` row — wrap stored uniformly alongside account member wraps (epochId for current epoch, memberPublicKey=linkPublicKey, wrap=memberWrap)
+   c. `conversationMembers` row — linkId set to the new sharedLinks.id, userId null, privilege, visibleFromEpoch
+4. URL: `https://app.com/c/{conversationId}#{linkSecretBase64url}` (fragment never sent to server)
+
+**Access (`linkGuest.accessLink` — already defined in Phase 7E):**
+1. Visitor extracts linkSecret from URL fragment
+2. `deriveKeysFromLinkSecret(linkSecret)` → linkKeyPair
+3. Sends conversationId + linkPublicKey to server
+4. Server returns epoch wraps + chain links + messages
+5. Client decrypts via link private key → epoch key → messages
+
+**Revocation:** Sets `revokedAt` on sharedLinks, `leftAt` on conversationMembers, inserts `pendingRemovals`, sets `rotationPending`. Triggers lazy epoch rotation.
+
+### 9B — Individual Message Sharing (tRPC `messages.createShare`/`getShared`)
+
+1. Client decrypts target message → `createMessageShare(plaintext)` → shareSecret + shareBlob
+2. Server stores shareBlob in `sharedMessages`, returns shareId
+3. URL: `https://app.com/m/{shareId}#{shareSecretBase64url}`
+4. Access: `decryptMessageShare(shareSecret, shareBlob)` → plaintext
+5. Cryptographically isolated — random secret per share, unrelated to conversation keys
+
+### Verification
+
+```bash
+cd apps/api && pnpm typecheck && pnpm lint && pnpm test
+```
+
+---
+
+## Phase 10: Frontend Overhaul
+
+**Goal:** Update all frontend code for epoch-based E2EE, tRPC, WebSocket. Design doc Part 11.
+
+### 10A — DELETE Entirely
+
+| File | Reason |
+|------|--------|
+| `apps/web/src/stores/finalize-queue.ts` + tests | No finalize with epoch encryption |
+| `apps/web/src/stores/finalize-queue.compression.test.ts` | Same |
+| `apps/web/src/lib/encrypt-content.ts` + test | Server encrypts now |
+| `apps/web/src/lib/sse-client.ts` | Replaced by WebSocket |
+
+### 10B — Message Decryption Rewrite (`apps/web/src/hooks/use-decrypted-messages.ts`)
+
+Epoch-based decryption:
+1. Fetch epoch wraps from `trpc.keys.getEpochWraps.useQuery({ conversationId })`
+2. `unwrapEpochKey(accountPrivKey, wrap)` → cache in session-scoped `Map<string, Uint8Array>` keyed by `convId:epochNum`
+3. `decryptMessage(epochPrivKey, blob)` for each message
+4. Chain link traversal for older epochs via `trpc.keys.getChainLinks`
+5. Epoch key cache lives in a **module-scope Map or React context provider** — NOT `useRef`. This ensures navigating away from a conversation and back doesn't require re-fetching and re-unwrapping epoch keys. The cache persists for the entire session and is cleared on logout (subscribe to auth store changes). Create `apps/web/src/lib/epoch-key-cache.ts` as a singleton: `const epochKeyCache = new Map<string, Uint8Array>()` with `clearCache()` export wired to auth store's `clear()` method.
+
+### 10C — Chat Hooks Rewrite
+
+- `use-authenticated-chat.ts`: Send plaintext via `trpc.messages.send.useMutation()`, no finalize. Receive tokens via WebSocket, final blob via `message:complete`.
+- `use-chat-stream.ts`: Rewrite to use WebSocket instead of SSE.
+
+### 10D — New Hooks
+
+| Hook | Purpose |
+|------|---------|
+| `use-epoch-keys.ts` | Fetches + caches epoch key wraps per conversation |
+| `use-conversation-ws.ts` | React hook wrapping `ConversationWebSocket` |
+| `use-message-replay-guard.ts` | Tracks received message_id in `Set<string>` via `useRef`, rejects duplicates |
+
+### 10E — Replace Manual Hooks with tRPC
+
+| Current | tRPC Replacement |
+|---------|------------------|
+| `useConversations()` with manual fetch | `trpc.conversations.list.useQuery()` |
+| `useConversation(id)` with manual fetch | `trpc.conversations.get.useQuery({ id })` |
+| `useBalance()` with manual fetch | `trpc.billing.getBalance.useQuery()` |
+| `useTransactions()` with manual fetch | `trpc.billing.listTransactions.useQuery()` |
+| manual `fetch` for mutations | `trpc.*.useMutation()` |
+
+### 10F — Shared Schemas Update (`packages/shared/`)
+
+- REMOVE: finalize-related schemas
+- UPDATE: message response schema (encryptedBlob, epochNumber, senderType, senderId, senderDisplayName, payerId, sequenceNumber)
+- UPDATE: chat request schema (content is plaintext string, not encrypted)
+- UPDATE: conversation response schema (epoch/budget fields)
+- ADD: schemas for epochs, members, links, budgets, key operations
+
+### 10G — New UI Components
+
+| Component | Purpose |
+|-----------|---------|
+| Group chat header | Member avatars, count, add member button |
+| Member list panel | Privileges, online status, remove button |
+| Add member modal | Search users, set privilege, visibleFromEpoch |
+| Budget settings modal | Per-conversation + per-person budget |
+| Share conversation modal | Generate link, set privilege/visibility |
+| Share message modal | Generate isolated share URL |
+| Shared conversation view | Public route, key from URL fragment |
+| Shared message view | Public route, single message display |
+| Settings page updates | Recovery phrase regen, password change, 2FA |
+| Encryption badge | Visual E2EE status indicator |
+
+### Verification
+
+```bash
+cd apps/web && pnpm typecheck && pnpm lint && pnpm test
+```
+
+---
+
+## Phase 11: Cleanup & Final Verification
+
+### 11A — Delete from `apps/api`
+
+- `@noble/ciphers` and `@noble/hashes` from package.json
+- Old REST route files fully migrated to tRPC
+- `stream-handler.ts` + test (SSE replaced by DO)
+- Unused middleware from old flows
+
+### 11B — Delete from DB schema
+
+- Verify no remnant files for dropped tables
+- Remove superseded migration comments
+
+### 11C — Delete from frontend
+
+- Dead code from old DEK encryption flow
+- Unused imports and types
+- Old `lib/chat-messages.ts` if fully replaced
+
+### 11D — Full Verification
+
+```bash
+pnpm typecheck     # No TypeScript errors
+pnpm lint          # No ESLint errors
+pnpm test          # All tests pass
+pnpm test:coverage # Coverage targets met
+pnpm dev           # Local dev starts
+```
+
+### 11E — E2E Flow Verification
+
+1. Signup → create conversation → send message → verify encrypted storage → decrypt → display
+2. Group conversation → add member → both see messages → remove member → lazy rotation → forward secrecy
+3. Shared link → access without account → read messages
+4. Guest messaging via write-enabled link → owner budget charged
+5. Individual message share → access via share URL
+6. Payment → wallet credit → send message → usage record + ledger entry
+7. Password change → re-wrap account key → existing sessions work
+8. Recovery phrase → recover account → decrypt all conversations
+9. 2FA enable/disable → login with 2FA → verify TOTP
+10. Anonymous trial chat → rate limited → no persistence
+
+---
+
+## Critical File Reference
+
+### Crypto Package (Phase 0)
+- `packages/crypto/src/` — ecies, account, epoch, message-encrypt, member, link, message-share, symmetric, key-derivation, sharing, hash, errors, compression, message-codec, constant-time, serialization, opaque-client
+
+### Database (Phase 1)
+- `packages/db/src/schema/` — users, conversations, messages, projects, payments (MODIFY) + 12 new tables (CREATE)
+- `packages/db/src/schema/bytea.ts` — KEEP (custom Uint8Array↔hex type)
+- `packages/db/src/factories/` — update existing + create new
+- `packages/db/src/zod/` — update all schemas
+
+### API (Phases 2–9)
+- `apps/api/src/app.ts` — tRPC mount + DO binding + WebSocket route
+- `apps/api/src/types.ts` — add CONVERSATION_ROOM to Bindings
+- `apps/api/src/trpc/` — all tRPC infrastructure
+- `apps/api/src/routes/opaque-auth.ts` — auth flow changes
+- `apps/api/src/routes/ws.ts` — NEW (WebSocket upgrade)
+- `apps/api/src/services/chat/message-persistence.ts` — epoch encryption
+- `apps/api/src/services/billing/balance.ts` — wallet queries
+- `apps/api/src/services/billing/transaction-writer.ts` — chargeForUsage
+- `apps/api/src/lib/totp.ts` — crypto package import
+- `apps/api/src/lib/broadcast.ts` — NEW (API→DO)
+- `apps/api/src/lib/speculative-balance.ts` — group budget reservation
+
+### Preserved Billing Logic (UNCHANGED algorithms)
+- `packages/shared/src/pricing.ts`
+- `packages/shared/src/constants.ts`
+- `packages/shared/src/budget.ts`
+- `packages/shared/src/tiers.ts`
+- `apps/api/src/services/billing/cost-calculator.ts`
+- `apps/api/src/services/billing/can-send.ts`
+- `apps/api/src/services/billing/guest-usage.ts`
+
+### Real-time (Phase 6)
+- `packages/realtime/src/conversation-room.ts` — NEW DO class
+- `packages/realtime/src/events.ts` — NEW typed events
+
+### Frontend (Phase 10)
+- `apps/web/src/lib/auth.ts` — remove DEK
+- `apps/web/src/lib/auth-client.ts` — new key hierarchy
+- `apps/web/src/lib/trpc.ts` — NEW tRPC client
+- `apps/web/src/lib/ws-client.ts` — NEW WebSocket client
+- `apps/web/src/hooks/use-decrypted-messages.ts` — epoch rewrite
+- `apps/web/src/hooks/use-authenticated-chat.ts` — send plaintext, no finalize
+- `apps/web/src/hooks/use-chat-stream.ts` — WebSocket instead of SSE
+
+---
+
+## Cascade Map (from Design Doc Part 14)
+
+```
+users (DELETE)
+├── conversations (owned)               ON DELETE CASCADE
+│   ├── messages                         ON DELETE CASCADE
+│   │   └── sharedMessages               ON DELETE CASCADE
+│   ├── epochs                           ON DELETE CASCADE
+│   │   └── epochMembers                 ON DELETE CASCADE
+│   ├── sharedLinks                      ON DELETE CASCADE
+│   ├── conversationMembers              ON DELETE CASCADE
+│   │   ├── memberBudgets                ON DELETE CASCADE
+│   │   └── pendingRemovals (memberId)   ON DELETE CASCADE
+│   ├── pendingRemovals (conversationId) ON DELETE CASCADE
+│   └── conversationSpending             ON DELETE CASCADE
+├── projects                             ON DELETE CASCADE
+├── conversationMembers (as member)      ON DELETE SET NULL (userId nulled)
+└── pendingRemovals (requestedBy)        ON DELETE SET NULL
+
+Financial records (PRESERVED on user deletion):
+├── wallets.userId                       ON DELETE SET NULL
+│   └── ledger_entries.walletId          ON DELETE CASCADE
+├── usage_records.userId                 ON DELETE SET NULL
+│   └── llmCompletions.usageRecordId     ON DELETE CASCADE
+└── payments.userId                      ON DELETE SET NULL
+```
