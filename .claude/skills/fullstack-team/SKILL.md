@@ -1,17 +1,18 @@
 ---
 name: fullstack-team
-description: Spawn a coordinated agent team for full-stack development. Use when implementing features, refactoring, debugging, or reviewing code that spans frontend, backend, and tests. Four core teammates with an optional security auditor for sensitive work.
+description: Spawn a coordinated agent team for development. Use for frontend-only, backend-only, or full-stack tasks. Spawns only the implementation agents needed, plus a Devil's Advocate and Quality Monitor on every run. Optional security auditor for sensitive work.
 ---
 
-# Full-Stack Agent Team
+# Agent Team
 
 ## Task: $ARGUMENTS
 
 ## Rules
 
 - **Discover the project structure before spawning.** Read the actual codebase to fill in each teammate's file ownership. Never guess or assume directory names.
-- **Backend owns shared types.** They define the API, they define the types. Frontend consumes.
-- **File conflicts are the #1 failure mode.** If both implementation teammates need the same file, one edits and the other sends changes as a message.
+- **Only spawn the layers the task needs.** If the task is purely frontend, only spawn the Frontend Specialist. If purely backend, only spawn the Backend Specialist. Spawn both for cross-layer work. Devil's Advocate and Quality Monitor are always spawned.
+- **For cross-layer tasks, Backend owns shared types.** They define the API, they define the types. Frontend consumes.
+- **When both implementation teammates are spawned, file conflicts are the #1 failure mode.** If both need the same file, one edits and the other sends changes as a message.
 - **Use plan approval** for destructive or irreversible changes.
 - **Spawn read-only roles on Sonnet** to save tokens — they're reading and messaging, not writing code.
 - **Do NOT implement anything yourself** — your only job is coordination.
@@ -21,17 +22,19 @@ description: Spawn a coordinated agent team for full-stack development. Use when
 
 ### Phase 1: Plan
 1. Scan the codebase to understand the architecture and directory structure
-2. Break the task into frontend and backend subtasks with clear deliverables
-3. Map file ownership by reading the actual project structure
-4. Identify what blocks what — typically backend API contracts unblock frontend data fetching
+2. Determine which layers the task touches — frontend only, backend only, or both
+3. Break the task into subtasks with clear deliverables
+4. Map file ownership by reading the actual project structure
+5. For cross-layer tasks, identify what blocks what — typically backend API contracts unblock frontend data fetching
 
 ### Phase 2: Spawn & Assign
-1. Spawn all four core teammates using the role prompts below, filling in TASK and FILE OWNERSHIP for each
-2. Spawn the Security Auditor if applicable
-3. Create tasks with dependency chains where needed
+1. Spawn the implementation teammates needed (Frontend, Backend, or both) using the role prompts below, filling in TASK and FILE OWNERSHIP
+2. Always spawn Devil's Advocate and Quality Monitor
+3. Spawn the Security Auditor if applicable
+4. Create tasks with dependency chains where needed
 
 ### Phase 3: Coordinate
-1. When Backend defines API contracts, relay them to Frontend or have Backend message Frontend directly
+1. For cross-layer tasks, relay API contracts between Backend and Frontend or have them message each other directly
 2. If a teammate appears stuck, message them directly to unblock
 3. Watch for Devil's Advocate and Quality Monitor feedback — relay blockers to the relevant teammate
 
