@@ -246,12 +246,10 @@ test.describe('Group Chat Admin', () => {
       await sidebar.openMemberActions(daveMemberId);
       await sidebar.clickChangePrivilege(daveMemberId, 'read');
 
-      // Wait for update to propagate
-      await authenticatedPage.waitForTimeout(500);
       await sidebar.expectMemberInSection(daveMemberId, 'read');
     });
 
-    await test.step('privilege options do not include owner', async () => {
+    await test.step('verify privilege options and change Dave to admin', async () => {
       await sidebar.openMemberActions(daveMemberId);
       const changeTrigger = authenticatedPage.getByTestId(
         `member-change-privilege-${daveMemberId}`
@@ -259,9 +257,8 @@ test.describe('Group Chat Admin', () => {
       await changeTrigger.click();
 
       // Verify admin, write, read exist
-      await expect(
-        authenticatedPage.getByTestId(`privilege-option-${daveMemberId}-admin`)
-      ).toBeVisible();
+      const adminOption = authenticatedPage.getByTestId(`privilege-option-${daveMemberId}-admin`);
+      await expect(adminOption).toBeVisible();
       await expect(
         authenticatedPage.getByTestId(`privilege-option-${daveMemberId}-write`)
       ).toBeVisible();
@@ -274,15 +271,8 @@ test.describe('Group Chat Admin', () => {
         authenticatedPage.getByTestId(`privilege-option-${daveMemberId}-owner`)
       ).not.toBeVisible();
 
-      // Close sub-menu then parent dropdown
-      await authenticatedPage.keyboard.press('Escape');
-      await authenticatedPage.keyboard.press('Escape');
-    });
-
-    await test.step('change Dave to admin', async () => {
-      await sidebar.openMemberActions(daveMemberId);
-      await sidebar.clickChangePrivilege(daveMemberId, 'admin');
-      await authenticatedPage.waitForTimeout(500);
+      // Click admin directly from open sub-menu (no close/reopen cycle)
+      await adminOption.click();
       await sidebar.expectMemberInSection(daveMemberId, 'admin');
     });
 

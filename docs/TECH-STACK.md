@@ -257,7 +257,7 @@ Local dev and CI use `.env.development`. No secrets needed outside production.
 | Item        | Choice                                                |
 | ----------- | ----------------------------------------------------- |
 | **License** | Proprietary (source-available, no rights granted).    |
-| **CLA**     | Required for all contributions via CLA Assistant bot. |
+| **CAA**     | Required for all contributions via CLA Assistant bot. |
 
 ---
 
