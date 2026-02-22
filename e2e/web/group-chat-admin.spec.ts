@@ -176,12 +176,15 @@ test.describe('Group Chat Admin', () => {
     });
   });
 
-  // Test 3: Add member with full history
-  test('add member with full history and verify access', async ({
+  // Test 3: Member lifecycle — add, change privilege, remove
+  test('member lifecycle: add, change privilege, remove', async ({
     authenticatedPage,
     testDavePage,
     groupConversation,
   }) => {
+    // Many steps with sidebar interactions + page navigations
+    test.slow();
+
     const aliceChatPage = new ChatPage(authenticatedPage);
     await aliceChatPage.gotoConversation(groupConversation.id);
     await aliceChatPage.waitForConversationLoaded();
@@ -189,6 +192,8 @@ test.describe('Group Chat Admin', () => {
     const sidebar = new MemberSidebarPage(authenticatedPage);
     await sidebar.openViaFacepile();
     await sidebar.waitForLoaded();
+
+    // --- Add Dave ---
 
     await test.step('open add member modal and search for Dave', async () => {
       await sidebar.clickNewMember();
@@ -232,20 +237,8 @@ test.describe('Group Chat Admin', () => {
       await daveChatPage.expectMessageVisible('Hello from Alice');
       await daveChatPage.expectMessageVisible('Hi from Bob');
     });
-  });
 
-  // Test 4: Change member privilege
-  test('change member privilege updates sidebar grouping', async ({
-    authenticatedPage,
-    groupConversation,
-  }) => {
-    const aliceChatPage = new ChatPage(authenticatedPage);
-    await aliceChatPage.gotoConversation(groupConversation.id);
-    await aliceChatPage.waitForConversationLoaded();
-
-    const sidebar = new MemberSidebarPage(authenticatedPage);
-    await sidebar.openViaFacepile();
-    await sidebar.waitForLoaded();
+    // --- Change privilege ---
 
     const daveMemberId = await sidebar.getMemberIdByUsername('test dave');
 
@@ -291,9 +284,54 @@ test.describe('Group Chat Admin', () => {
       await authenticatedPage.waitForTimeout(500);
       await sidebar.expectMemberInSection(daveMemberId, 'admin');
     });
+
+    // --- Remove member ---
+
+    const bobMemberId = await sidebar.getMemberIdByUsername('test bob');
+
+    await test.step('cancel remove keeps member', async () => {
+      await sidebar.openMemberActions(bobMemberId);
+      await sidebar.clickRemoveMember(bobMemberId);
+
+      const modal = authenticatedPage.getByTestId('remove-member-modal');
+      await expect(modal).toBeVisible();
+
+      await authenticatedPage.getByTestId('remove-member-cancel').click();
+      await expect(modal).not.toBeVisible();
+
+      // Bob still in sidebar
+      await expect(sidebar.memberRow(bobMemberId)).toBeVisible();
+    });
+
+    await test.step('remove Dave with confirmation', async () => {
+      await sidebar.openMemberActions(daveMemberId);
+      await sidebar.clickRemoveMember(daveMemberId);
+
+      const modal = authenticatedPage.getByTestId('remove-member-modal');
+      await expect(modal).toBeVisible();
+
+      // Warning text
+      await expect(authenticatedPage.getByTestId('remove-member-warning')).toBeVisible();
+
+      await authenticatedPage.getByTestId('remove-member-confirm').click();
+      await expect(modal).not.toBeVisible();
+
+      // Dave removed from sidebar
+      await expect(sidebar.memberRow(daveMemberId)).not.toBeVisible();
+    });
+
+    await test.step('Dave loses access to conversation', async () => {
+      const daveChatPage = new ChatPage(testDavePage);
+      await daveChatPage.gotoConversation(groupConversation.id);
+
+      // Dave should be redirected away or see an error
+      await expect(testDavePage).not.toHaveURL(new RegExp(groupConversation.id), {
+        timeout: 10_000,
+      });
+    });
   });
 
-  // Test 5: Invite link lifecycle
+  // Test 4: Invite link lifecycle
   test('invite link lifecycle: create, rename, change privilege, revoke', async ({
     authenticatedPage,
     groupConversation,
@@ -398,7 +436,7 @@ test.describe('Group Chat Admin', () => {
     });
   });
 
-  // Test 6: Budget settings modal
+  // Test 5: Budget settings modal
   test('budget settings: owner editable, non-owner read-only', async ({
     authenticatedPage,
     testBobPage,
@@ -497,7 +535,7 @@ test.describe('Group Chat Admin', () => {
     });
   });
 
-  // Test 7: Share AI message
+  // Test 6: Share AI message
   test('share AI message creates shareable link', async ({
     authenticatedPage,
     groupConversation,
@@ -555,66 +593,6 @@ test.describe('Group Chat Admin', () => {
         await authenticatedPage.getByTestId('share-message-cancel-button').click();
         await expect(authenticatedPage.getByTestId('share-message-modal')).not.toBeVisible();
       }
-    });
-  });
-
-  // Test 8: Remove member
-  test('remove member and cancel remove', async ({
-    authenticatedPage,
-    testDavePage,
-    groupConversation,
-  }) => {
-    const aliceChatPage = new ChatPage(authenticatedPage);
-    await aliceChatPage.gotoConversation(groupConversation.id);
-    await aliceChatPage.waitForConversationLoaded();
-
-    const sidebar = new MemberSidebarPage(authenticatedPage);
-    await sidebar.openViaFacepile();
-    await sidebar.waitForLoaded();
-
-    const bobMemberId = await sidebar.getMemberIdByUsername('test bob');
-
-    await test.step('cancel remove keeps member', async () => {
-      await sidebar.openMemberActions(bobMemberId);
-      await sidebar.clickRemoveMember(bobMemberId);
-
-      const modal = authenticatedPage.getByTestId('remove-member-modal');
-      await expect(modal).toBeVisible();
-
-      await authenticatedPage.getByTestId('remove-member-cancel').click();
-      await expect(modal).not.toBeVisible();
-
-      // Bob still in sidebar
-      await expect(sidebar.memberRow(bobMemberId)).toBeVisible();
-    });
-
-    const daveMemberId = await sidebar.getMemberIdByUsername('test dave');
-
-    await test.step('remove Dave with confirmation', async () => {
-      await sidebar.openMemberActions(daveMemberId);
-      await sidebar.clickRemoveMember(daveMemberId);
-
-      const modal = authenticatedPage.getByTestId('remove-member-modal');
-      await expect(modal).toBeVisible();
-
-      // Warning text
-      await expect(authenticatedPage.getByTestId('remove-member-warning')).toBeVisible();
-
-      await authenticatedPage.getByTestId('remove-member-confirm').click();
-      await expect(modal).not.toBeVisible();
-
-      // Dave removed from sidebar
-      await expect(sidebar.memberRow(daveMemberId)).not.toBeVisible();
-    });
-
-    await test.step('Dave loses access to conversation', async () => {
-      const daveChatPage = new ChatPage(testDavePage);
-      await daveChatPage.gotoConversation(groupConversation.id);
-
-      // Dave should be redirected away or see an error
-      await expect(testDavePage).not.toHaveURL(new RegExp(groupConversation.id), {
-        timeout: 10_000,
-      });
     });
   });
 });
