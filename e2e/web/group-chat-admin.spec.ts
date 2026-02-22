@@ -274,7 +274,8 @@ test.describe('Group Chat Admin', () => {
         authenticatedPage.getByTestId(`privilege-option-${daveMemberId}-owner`)
       ).not.toBeVisible();
 
-      // Close menu by pressing Escape
+      // Close sub-menu then parent dropdown
+      await authenticatedPage.keyboard.press('Escape');
       await authenticatedPage.keyboard.press('Escape');
     });
 
@@ -369,8 +370,8 @@ test.describe('Group Chat Admin', () => {
       // Copy button appears
       await expect(authenticatedPage.getByTestId('invite-link-copy-button')).toBeVisible();
 
-      // Close modal
-      await authenticatedPage.keyboard.press('Escape');
+      // Close modal via X button (Escape would also close the sidebar Sheet on tablet)
+      await authenticatedPage.locator('[data-slot="modal-overlay-close"]').click();
     });
 
     await test.step('read link appears in sidebar', async () => {
@@ -399,7 +400,8 @@ test.describe('Group Chat Admin', () => {
       const urlEl = authenticatedPage.getByTestId('invite-link-url');
       await expect(urlEl).toBeVisible();
 
-      await authenticatedPage.keyboard.press('Escape');
+      // Close modal via X button (Escape would also close the sidebar Sheet on tablet)
+      await authenticatedPage.locator('[data-slot="modal-overlay-close"]').click();
     });
 
     await test.step('rename link', async () => {

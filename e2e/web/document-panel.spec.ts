@@ -144,11 +144,6 @@ test.describe('Document Panel', () => {
       await documentPanel.clickCard(0);
 
       await expect(documentPanel.documentCard(0)).toHaveAttribute('data-active', 'true');
-      const lastCardIndex = (await documentPanel.getCardCount()) - 1;
-      await expect(documentPanel.documentCard(lastCardIndex)).toHaveAttribute(
-        'data-active',
-        'false'
-      );
       await documentPanel.expectTitle('fibonacci');
       // Raw toggle should not be visible for code documents
       await expect(documentPanel.showRawButton()).not.toBeVisible();
@@ -156,6 +151,10 @@ test.describe('Document Panel', () => {
     });
 
     await test.step('switch back to mermaid resets raw toggle', async () => {
+      // Scroll to bring mermaid card into DOM (Virtuoso may have removed it)
+      await chatPage.scrollToBottom();
+      await expect(documentPanel.documentCards().last()).toBeVisible();
+
       const lastCardIndex = (await documentPanel.getCardCount()) - 1;
       await documentPanel.clickCard(lastCardIndex);
 
