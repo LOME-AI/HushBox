@@ -105,7 +105,7 @@ describe('member rotation integration', () => {
       owner.publicKey
     );
 
-    const epoch1PrivateKey = epoch1Result.epochPrivateKey;
+    const epoch1PrivateKey = epoch1Result.epochPrivateKey; // gitleaks:allow
     const rotation = performEpochRotation(epoch1PrivateKey, [owner.publicKey, memberB.publicKey]);
 
     const ownerWrap = defined(

@@ -365,8 +365,8 @@ describe('OPAQUE auth routes', () => {
         body: JSON.stringify({
           registrationRecord: [1, 2, 3],
           accountPublicKey: 'YmFzZTY0cHVia2V5',
-          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
-          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=',
+          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
         }),
       });
 
@@ -380,8 +380,8 @@ describe('OPAQUE auth routes', () => {
         body: JSON.stringify({
           email: 'test@example.com',
           accountPublicKey: 'YmFzZTY0cHVia2V5',
-          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
-          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=',
+          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
         }),
       });
 
@@ -409,8 +409,8 @@ describe('OPAQUE auth routes', () => {
           email: 'test@example.com',
           registrationRecord: [1, 2, 3],
           accountPublicKey: 'YmFzZTY0cHVia2V5',
-          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
-          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=',
+          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
         }),
       });
 
@@ -450,8 +450,8 @@ describe('OPAQUE auth routes', () => {
           email: 'newuser@example.com',
           registrationRecord: record,
           accountPublicKey: 'YmFzZTY0cHVia2V5',
-          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
-          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=',
+          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
         }),
       });
 
@@ -495,8 +495,8 @@ describe('OPAQUE auth routes', () => {
           email: 'existing@example.com',
           registrationRecord: record,
           accountPublicKey: 'YmFzZTY0cHVia2V5',
-          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
-          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=',
+          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
         }),
       });
 
@@ -690,8 +690,8 @@ describe('OPAQUE auth routes', () => {
           email,
           registrationRecord: record,
           accountPublicKey: 'YmFzZTY0cHVia2V5',
-          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
-          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=',
+          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
         }),
       });
       expect(finishRes.status).toBe(201);
@@ -779,8 +779,8 @@ describe('OPAQUE auth routes', () => {
           email,
           registrationRecord: record,
           accountPublicKey: 'YmFzZTY0cHVia2V5',
-          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
-          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=',
+          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
         }),
       });
       expect(finishRes.status).toBe(201);
@@ -866,8 +866,8 @@ describe('OPAQUE auth routes', () => {
           email,
           registrationRecord: record,
           accountPublicKey: 'YmFzZTY0cHVia2V5',
-          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
-          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=',
+          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
         }),
       });
       expect(finishRes.status).toBe(201);
@@ -1623,7 +1623,7 @@ describe('OPAQUE auth routes', () => {
         body: JSON.stringify({
           ke3: [1, 2, 3],
           newRegistrationRecord: [4, 5, 6],
-          newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
+          newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
         }),
       });
 
@@ -1642,7 +1642,7 @@ describe('OPAQUE auth routes', () => {
         body: JSON.stringify({
           ke3: [1, 2, 3],
           newRegistrationRecord: [4, 5, 6],
-          newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
+          newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
         }),
       });
 
@@ -1766,7 +1766,7 @@ describe('OPAQUE auth routes', () => {
           body: JSON.stringify({
             identifier: 'user@example.com',
             newRegistrationRecord: record,
-            newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
+            newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           }),
         });
 
@@ -1808,7 +1808,7 @@ describe('OPAQUE auth routes', () => {
           body: JSON.stringify({
             identifier: 'test_user',
             newRegistrationRecord: record,
-            newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
+            newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           }),
         });
 
@@ -1826,7 +1826,7 @@ describe('OPAQUE auth routes', () => {
           body: JSON.stringify({
             identifier: 'user@example.com',
             newRegistrationRecord: [1, 2, 3],
-            newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
+            newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           }),
         });
 
@@ -1865,7 +1865,7 @@ describe('OPAQUE auth routes', () => {
           body: JSON.stringify({
             identifier: 'user@example.com',
             newRegistrationRecord: record,
-            newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
+            newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           }),
         });
 
@@ -1909,7 +1909,7 @@ describe('OPAQUE auth routes', () => {
           body: JSON.stringify({
             identifier: 'user@example.com',
             newRegistrationRecord: record,
-            newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==',
+            newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           }),
         });
 
@@ -2036,7 +2036,7 @@ describe('OPAQUE auth routes', () => {
 
   describe('POST /api/auth/recovery/save', () => {
     const validPayload = {
-      recoveryWrappedPrivateKey: 'dGVzdHJlY292ZXJ5d3JhcHBlZA==',
+      recoveryWrappedPrivateKey: 'dGVzdHJlY292ZXJ5d3JhcHBlZA==', // gitleaks:allow
     };
 
     it('returns 401 when not authenticated', async () => {
