@@ -298,7 +298,16 @@ describe('dev service', () => {
         }),
       }));
 
-      return { select: mockSelect, insert: mockInsert };
+      const txMock = { select: mockSelect, insert: mockInsert };
+      return {
+        select: mockSelect,
+        insert: mockInsert,
+        transaction: vi
+          .fn()
+          .mockImplementation(async (function_: (tx: typeof txMock) => Promise<void>) =>
+            function_(txMock)
+          ),
+      };
     }
 
     beforeEach(() => {

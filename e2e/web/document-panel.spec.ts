@@ -140,7 +140,12 @@ test.describe('Document Panel', () => {
     });
 
     await test.step('switch to Python card', async () => {
+      // On mobile, panel covers the message list — close first so cards are clickable
+      await documentPanel.closePanel();
+      await expect(documentPanel.panel).not.toBeVisible();
+
       await documentPanel.clickCard(0);
+      await documentPanel.waitForPanelOpen();
 
       await expect(documentPanel.documentCard(0)).toHaveAttribute('data-active', 'true');
       await documentPanel.expectTitle('fibonacci');
@@ -150,12 +155,17 @@ test.describe('Document Panel', () => {
     });
 
     await test.step('switch back to mermaid resets raw toggle', async () => {
+      // Close panel so message list cards are accessible (mobile = 100% width panel)
+      await documentPanel.closePanel();
+      await expect(documentPanel.panel).not.toBeVisible();
+
       // Scroll to bring mermaid card into DOM (Virtuoso may have removed it)
       await chatPage.scrollToBottom();
       await expect(documentPanel.documentCards().last()).toBeVisible();
 
       const lastCardIndex = (await documentPanel.getCardCount()) - 1;
       await documentPanel.clickCard(lastCardIndex);
+      await documentPanel.waitForPanelOpen();
 
       // Should show rendered diagram (toggle resets on doc switch)
       await documentPanel.waitForMermaidRendered();

@@ -238,72 +238,76 @@ export async function createDevGroupChat(
   const conversationId = crypto.randomUUID();
   const epochId = crypto.randomUUID();
 
-  // Insert conversation
-  await db.insert(conversations).values({
-    id: conversationId,
-    userId: owner.id,
-    title: encryptMessageForStorage(epochResult.epochPublicKey, ''),
-  });
+  await db.transaction(async (tx) => {
+    // Insert conversation
+    await tx.insert(conversations).values({
+      id: conversationId,
+      userId: owner.id,
+      title: encryptMessageForStorage(epochResult.epochPublicKey, ''),
+    });
 
-  // Insert epoch
-  await db.insert(epochs).values({
-    id: epochId,
-    conversationId,
-    epochNumber: 1,
-    epochPublicKey: epochResult.epochPublicKey,
-    confirmationHash: epochResult.confirmationHash,
-    chainLink: null,
-  });
-
-  // Insert epoch members (one per user with their wrap)
-  await db.insert(epochMembers).values(
-    orderedUsers.map((user, index) => {
-      const memberWrap = epochResult.memberWraps[index];
-      if (!memberWrap) throw new Error(`invariant: member wrap missing at index ${String(index)}`);
-      return {
-        id: crypto.randomUUID(),
-        epochId,
-        memberPublicKey: user.publicKey,
-        wrap: memberWrap.wrap,
-        privilege: index === 0 ? 'owner' : ('admin' as string),
-        visibleFromEpoch: 1,
-      };
-    })
-  );
-
-  // Insert conversation members (acceptedAt set so they're not treated as pending invites)
-  await db.insert(conversationMembers).values(
-    orderedUsers.map((user, index) => ({
-      id: crypto.randomUUID(),
+    // Insert epoch
+    await tx.insert(epochs).values({
+      id: epochId,
       conversationId,
-      userId: user.id,
-      privilege: index === 0 ? 'owner' : ('admin' as string),
-      visibleFromEpoch: 1,
-      acceptedAt: new Date(),
-    }))
-  );
+      epochNumber: 1,
+      epochPublicKey: epochResult.epochPublicKey,
+      confirmationHash: epochResult.confirmationHash,
+      chainLink: null,
+    });
 
-  // Insert messages if provided
-  if (params.messages && params.messages.length > 0) {
-    await db.insert(messages).values(
-      params.messages.map((msg, index) => {
-        const senderId =
-          msg.senderType === 'user' && msg.senderEmail
-            ? (orderedUsers.find((u) => u.email != null && u.email === msg.senderEmail)?.id ?? null)
-            : null;
-
+    // Insert epoch members (one per user with their wrap)
+    await tx.insert(epochMembers).values(
+      orderedUsers.map((user, index) => {
+        const memberWrap = epochResult.memberWraps[index];
+        if (!memberWrap)
+          throw new Error(`invariant: member wrap missing at index ${String(index)}`);
         return {
           id: crypto.randomUUID(),
-          conversationId,
-          encryptedBlob: encryptMessageForStorage(epochResult.epochPublicKey, msg.content),
-          senderType: msg.senderType,
-          senderId,
-          epochNumber: 1,
-          sequenceNumber: index + 1,
+          epochId,
+          memberPublicKey: user.publicKey,
+          wrap: memberWrap.wrap,
+          privilege: index === 0 ? 'owner' : ('admin' as string),
+          visibleFromEpoch: 1,
         };
       })
     );
-  }
+
+    // Insert conversation members (acceptedAt set so they're not treated as pending invites)
+    await tx.insert(conversationMembers).values(
+      orderedUsers.map((user, index) => ({
+        id: crypto.randomUUID(),
+        conversationId,
+        userId: user.id,
+        privilege: index === 0 ? 'owner' : ('admin' as string),
+        visibleFromEpoch: 1,
+        acceptedAt: new Date(),
+      }))
+    );
+
+    // Insert messages if provided
+    if (params.messages && params.messages.length > 0) {
+      await tx.insert(messages).values(
+        params.messages.map((msg, index) => {
+          const senderId =
+            msg.senderType === 'user' && msg.senderEmail
+              ? (orderedUsers.find((u) => u.email != null && u.email === msg.senderEmail)?.id ??
+                null)
+              : null;
+
+          return {
+            id: crypto.randomUUID(),
+            conversationId,
+            encryptedBlob: encryptMessageForStorage(epochResult.epochPublicKey, msg.content),
+            senderType: msg.senderType,
+            senderId,
+            epochNumber: 1,
+            sequenceNumber: index + 1,
+          };
+        })
+      );
+    }
+  });
 
   return {
     conversationId,
