@@ -62,7 +62,7 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
     // Get a cheap paid model for testing
     paidModel = await getPaidTestModel(client);
     console.log(`Using paid test model: ${paidModel}`);
-  });
+  }, 30_000);
 
   describe('getGenerationStats', () => {
     it('retrieves exact cost from /generation endpoint', async () => {
