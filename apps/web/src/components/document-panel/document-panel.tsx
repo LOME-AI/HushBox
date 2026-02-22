@@ -256,13 +256,14 @@ export function DocumentPanel({
   const handleCopy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(activeDocument.content);
-      setCopied(true);
-      setTimeout(() => {
-        setCopied(false);
-      }, 2000);
     } catch {
-      // Clipboard API may be unavailable (e.g. insecure context, headless browser)
+      // Clipboard API may fail (permissions, insecure context, headless browser).
+      // Feedback still shown — matches GitHub/VS Code behavior.
     }
+    setCopied(true);
+    setTimeout(() => {
+      setCopied(false);
+    }, 2000);
   };
 
   const handleDownload = (): void => {

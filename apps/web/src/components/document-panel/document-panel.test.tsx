@@ -180,8 +180,10 @@ describe('DocumentPanel', () => {
 
       await user.click(screen.getByRole('button', { name: /copy/i }));
 
-      // Should not crash — copy button remains visible
-      expect(screen.getByRole('button', { name: /copy/i })).toBeInTheDocument();
+      // Should not crash — feedback still shown even when clipboard API fails
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument();
+      });
     });
 
     it('has download button', () => {
