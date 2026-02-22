@@ -146,7 +146,7 @@ export class MemberSidebarPage {
   // --- Close ---
 
   async closeSidebar(): Promise<void> {
-    await this.page.getByRole('button', { name: 'Close sidebar' }).click();
+    await this.sidebar.getByRole('button', { name: 'Close sidebar' }).click();
   }
 
   // --- Budget ---
