@@ -116,7 +116,7 @@ export const test = base.extend<CustomFixtures>({
   },
 
   // Group chat: creates conversation with seeded messages via dev endpoint
-  groupConversation: async ({ authenticatedRequest }, use) => {
+  groupConversation: async ({ authenticatedPage, authenticatedRequest }, use) => {
     const response = await authenticatedRequest.post('/api/dev/group-chat', {
       data: {
         ownerEmail: 'test-alice@test.hushbox.ai',
@@ -154,6 +154,11 @@ export const test = base.extend<CustomFixtures>({
       members: GroupConversation['members'];
     };
     await use({ id: data.conversationId, members: data.members });
+
+    // Allow pending billing (deferred via waitUntil inside SSE streams) to complete
+    // before deleting the conversation. Without this, the DELETE races with
+    // saveChatTurn() and produces billing_failed errors.
+    await authenticatedPage.waitForTimeout(3000);
 
     try {
       await authenticatedRequest.delete(`/api/conversations/${data.conversationId}`);

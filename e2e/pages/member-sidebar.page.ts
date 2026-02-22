@@ -63,7 +63,7 @@ export class MemberSidebarPage {
   }
 
   async expectOnlineIndicator(entityId: string): Promise<void> {
-    await expect(this.page.getByTestId(`member-avatar-online-${entityId}`)).toBeVisible();
+    await expect(this.page.getByTestId(`member-online-${entityId}`)).toBeVisible();
   }
 
   linkRow(linkId: string): Locator {

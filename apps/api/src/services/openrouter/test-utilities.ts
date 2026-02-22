@@ -1,3 +1,4 @@
+import { fetchZdrModelIds } from './openrouter.js';
 import type { OpenRouterClient } from './types.js';
 
 /** Fallback model if no cheap paid model is found */
@@ -17,7 +18,7 @@ export function clearTestModelCache(): void {
 
 /**
  * Get a cheap paid model for billing integration tests.
- * Finds the cheapest available paid model (non-zero pricing, below max price).
+ * Finds the cheapest available paid model that supports ZDR (Zero Data Retention).
  * Falls back to gpt-4o-mini if no suitable model is found.
  * Results are cached to avoid repeated API calls.
  */
@@ -26,21 +27,19 @@ export async function getPaidTestModel(client: OpenRouterClient): Promise<string
     return cachedPaidModel;
   }
 
-  const models = await client.listModels();
+  const [models, zdrModelIds] = await Promise.all([client.listModels(), fetchZdrModelIds()]);
 
-  // Find cheapest paid model within price threshold
+  // Find cheapest paid model within price threshold that supports ZDR
   const cheapPaidModels = models.filter((model) => {
     const promptPrice = Number.parseFloat(model.pricing.prompt);
     const completionPrice = Number.parseFloat(model.pricing.completion);
 
-    // Exclude free models (price = 0)
-    // Exclude invalid models (price < 0, used for "no prompt" models)
-    // Exclude expensive models above threshold
     return (
       promptPrice > 0 &&
       completionPrice > 0 &&
       promptPrice <= MAX_TEST_MODEL_PRICE &&
-      completionPrice <= MAX_TEST_MODEL_PRICE
+      completionPrice <= MAX_TEST_MODEL_PRICE &&
+      zdrModelIds.has(model.id)
     );
   });
 
