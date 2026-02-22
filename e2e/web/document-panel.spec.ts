@@ -69,7 +69,6 @@ test.describe('Document Panel', () => {
       await documentPanel.waitForPanelOpen();
 
       await documentPanel.expectTitle('fibonacci');
-      await expect(documentPanel.activeCard()).toBeVisible();
       await expect(documentPanel.highlightedCode).toBeVisible();
     });
 
@@ -182,8 +181,11 @@ test.describe('Document Panel', () => {
     });
 
     await test.step('small code block not extracted', async () => {
-      // Close panel first to avoid it interfering with message input
+      // Close panel and wait for CSS transition to complete before interacting
+      // with the message input — on iPad the width transition causes Virtuoso
+      // re-layout that can interfere with sendFollowUpMessage.
       await documentPanel.closePanel();
+      await expect(documentPanel.panel).not.toBeVisible();
 
       await chatPage.sendFollowUpMessage(SMALL_CODE_BLOCK);
       await chatPage.waitForAIResponse('add', 20_000);

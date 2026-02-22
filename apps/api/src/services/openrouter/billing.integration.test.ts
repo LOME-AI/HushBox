@@ -24,13 +24,15 @@ if (isCI && !hasApiKey) {
 
 /**
  * Wait for generation stats to become available.
- * OpenRouter's /generation endpoint may have a slight delay after completion.
+ * OpenRouter's /generation endpoint has variable indexing latency (typically 1-3s,
+ * occasionally 10-15s+ under load). Uses exponential backoff: 1s, 2s, 4s, 4s, ...
+ * Total polling window: ~39s (well within 60s test timeout).
  */
 async function waitForGenerationStats(
   client: OpenRouterClient,
   generationId: string,
-  maxAttempts = 10,
-  delayMs = 1000
+  maxAttempts = 12,
+  initialDelayMs = 1000
 ): Promise<ReturnType<OpenRouterClient['getGenerationStats']>> {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
@@ -39,8 +41,8 @@ async function waitForGenerationStats(
       if (attempt === maxAttempts - 1) {
         throw error;
       }
-      // Wait before retrying
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      const delay = Math.min(initialDelayMs * 2 ** attempt, 4000);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
   throw new Error('Failed to get generation stats after max attempts');
