@@ -58,6 +58,7 @@ export const linksRoute = new Hono<AppEnv>()
         memberWrap: z.string(),
         privilege: z.string(),
         giveFullHistory: z.boolean(),
+        displayName: z.string().min(1).max(100).optional(),
       })
     ),
     requirePrivilege('admin'),
@@ -100,6 +101,7 @@ export const linksRoute = new Hono<AppEnv>()
           privilege: body.privilege,
           visibleFromEpoch,
           currentEpochId: currentEpoch.id,
+          ...(body.displayName !== undefined && { displayName: body.displayName }),
         });
 
         return c.json({ linkId: result.linkId, memberId: result.memberId }, 201);

@@ -603,6 +603,57 @@ describe('links route', () => {
       expect(body.memberId).toBeDefined();
     });
 
+    it('accepts optional displayName in POST body', async () => {
+      const app = createCreateTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'admin' },
+          currentEpoch: { id: 'epoch-1', epochNumber: 1 },
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(createLinkBody({ displayName: 'Guest Reader' })),
+      });
+
+      expect(res.status).toBe(201);
+    });
+
+    it('returns 400 when displayName is not a string', async () => {
+      const app = createCreateTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'admin' },
+          currentEpoch: { id: 'epoch-1', epochNumber: 1 },
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(createLinkBody({ displayName: 123 })),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when displayName is empty string', async () => {
+      const app = createCreateTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'admin' },
+          currentEpoch: { id: 'epoch-1', epochNumber: 1 },
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(createLinkBody({ displayName: '' })),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
     it('returns 409 when epoch has rotated between query and transaction', async () => {
       const app = createCreateTestApp({
         dbConfig: {

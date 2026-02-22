@@ -24,6 +24,7 @@ export interface CreateLinkParams {
   privilege: string;
   visibleFromEpoch: number;
   currentEpochId: string;
+  displayName?: string;
 }
 
 export interface CreateLinkResult {
@@ -111,6 +112,7 @@ export async function createLink(
       .values({
         conversationId: params.conversationId,
         linkPublicKey: params.linkPublicKey,
+        ...(params.displayName !== undefined && { displayName: params.displayName }),
       })
       .onConflictDoUpdate({
         target: sharedLinks.linkPublicKey,

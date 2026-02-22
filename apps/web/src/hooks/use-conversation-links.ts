@@ -45,17 +45,25 @@ export function useCreateLink() {
       memberWrap,
       privilege,
       giveFullHistory,
+      displayName,
     }: {
       conversationId: string;
       linkPublicKey: string;
       memberWrap: string;
       privilege: string;
       giveFullHistory: boolean;
+      displayName?: string;
     }) =>
       fetchJson(
         client.api.links[':conversationId'].$post({
           param: { conversationId },
-          json: { linkPublicKey, memberWrap, privilege, giveFullHistory },
+          json: {
+            linkPublicKey,
+            memberWrap,
+            privilege,
+            giveFullHistory,
+            ...(displayName !== undefined && { displayName }),
+          },
         })
       ),
     onSuccess: invalidateLinkAndBudget(queryClient),

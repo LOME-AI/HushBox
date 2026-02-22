@@ -308,6 +308,56 @@ describe('createLink', () => {
     expect(result.memberId).toBe('existing-member');
   });
 
+  it('includes displayName in sharedLinks insert when provided', async () => {
+    mockSelectChainWithFor(mockSelect, [{ currentEpoch: 1 }]);
+    mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-1' }]);
+    mockInsertUpsertChain(mockInsert, [{ id: 'link-named' }]);
+    mockInsertUpsertChainNoReturn(mockInsert);
+    mockInsertUpsertChain(mockInsert, [{ id: 'member-named' }]);
+
+    await createLink(db as never, {
+      conversationId: 'conv-1',
+      linkPublicKey: new Uint8Array(32).fill(11),
+      memberWrap: new Uint8Array(48).fill(12),
+      privilege: 'read',
+      visibleFromEpoch: 1,
+      currentEpochId: 'epoch-1',
+      displayName: 'Guest Reader',
+    });
+
+    // First insert is sharedLinks — verify values() received displayName
+    const firstInsertResult = mockInsert.mock.results[0];
+    expect(firstInsertResult).toBeDefined();
+    const valuesFunction = firstInsertResult!.value.values;
+    expect(valuesFunction).toHaveBeenCalledWith(
+      expect.objectContaining({ displayName: 'Guest Reader' })
+    );
+  });
+
+  it('omits displayName from sharedLinks insert when not provided', async () => {
+    mockSelectChainWithFor(mockSelect, [{ currentEpoch: 1 }]);
+    mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-1' }]);
+    mockInsertUpsertChain(mockInsert, [{ id: 'link-no-name' }]);
+    mockInsertUpsertChainNoReturn(mockInsert);
+    mockInsertUpsertChain(mockInsert, [{ id: 'member-no-name' }]);
+
+    await createLink(db as never, {
+      conversationId: 'conv-1',
+      linkPublicKey: new Uint8Array(32).fill(13),
+      memberWrap: new Uint8Array(48).fill(14),
+      privilege: 'read',
+      visibleFromEpoch: 1,
+      currentEpochId: 'epoch-1',
+    });
+
+    // First insert is sharedLinks — verify values() does NOT include displayName
+    const firstInsertResult = mockInsert.mock.results[0];
+    expect(firstInsertResult).toBeDefined();
+    const valuesFunction = firstInsertResult!.value.values;
+    const valuesArgument = valuesFunction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(valuesArgument).not.toHaveProperty('displayName');
+  });
+
   it('throws StaleEpochError when epoch has rotated between query and transaction', async () => {
     // Lock query returns currentEpoch = 5 (rotated past expected)
     mockSelectChainWithFor(mockSelect, [{ currentEpoch: 5 }]);

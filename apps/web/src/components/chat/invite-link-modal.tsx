@@ -32,20 +32,7 @@ export function InviteLinkModal({
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const createLink = useCreateLink();
-  const mutateAsync = (
-    createLink as {
-      mutateAsync: (args: {
-        conversationId: string;
-        linkPublicKey: string;
-        memberWrap: string;
-        privilege: string;
-        giveFullHistory: boolean;
-      }) => Promise<unknown>;
-      isPending: boolean;
-    }
-  ).mutateAsync;
-  const isPending = (createLink as { isPending: boolean }).isPending;
+  const { mutateAsync, isPending } = useCreateLink();
 
   // Reset state when modal reopens
   const [previousOpen, setPreviousOpen] = useState(open);
@@ -62,12 +49,14 @@ export function InviteLinkModal({
   async function handleGenerate(): Promise<void> {
     const result = createSharedLink(currentEpochPrivateKey);
 
+    const trimmedName = guestName.trim();
     await mutateAsync({
       conversationId,
       linkPublicKey: toBase64(result.linkPublicKey),
       memberWrap: toBase64(result.linkWrap),
       privilege,
       giveFullHistory: includeHistory,
+      ...(trimmedName !== '' && { displayName: trimmedName }),
     });
 
     const url = `${globalThis.location.origin}/share/c/${conversationId}#${toBase64(result.linkSecret)}`;
