@@ -109,9 +109,9 @@ describe('lint-check', () => {
 
   describe('validateFilters', () => {
     const mockWorkspaces = [
-      { name: 'web', path: 'apps/web', fullName: '@lome-chat/web' },
-      { name: 'api', path: 'apps/api', fullName: '@lome-chat/api' },
-      { name: 'shared', path: 'packages/shared', fullName: '@lome-chat/shared' },
+      { name: 'web', path: 'apps/web', fullName: '@hushbox/web' },
+      { name: 'api', path: 'apps/api', fullName: '@hushbox/api' },
+      { name: 'shared', path: 'packages/shared', fullName: '@hushbox/shared' },
     ];
 
     it('does not throw for valid packages', () => {
@@ -310,8 +310,8 @@ describe('lint-check', () => {
   describe('extractJsonFromTurboOutput', () => {
     it('extracts JSON from turbo output lines', () => {
       const output = `• turbo 2.7.5
-@lome-chat/shared:lint: cache hit
-@lome-chat/shared:lint: [{"filePath":"/app/test.ts","messages":[],"errorCount":0,"warningCount":0}]`;
+@hushbox/shared:lint: cache hit
+@hushbox/shared:lint: [{"filePath":"/app/test.ts","messages":[],"errorCount":0,"warningCount":0}]`;
 
       const results = extractJsonFromTurboOutput(output);
 
@@ -320,8 +320,8 @@ describe('lint-check', () => {
     });
 
     it('handles multiple packages', () => {
-      const output = `@lome-chat/web:lint: [{"filePath":"/web/a.ts","messages":[],"errorCount":0,"warningCount":0}]
-@lome-chat/api:lint: [{"filePath":"/api/b.ts","messages":[],"errorCount":0,"warningCount":0}]`;
+      const output = `@hushbox/web:lint: [{"filePath":"/web/a.ts","messages":[],"errorCount":0,"warningCount":0}]
+@hushbox/api:lint: [{"filePath":"/api/b.ts","messages":[],"errorCount":0,"warningCount":0}]`;
 
       const results = extractJsonFromTurboOutput(output);
 
@@ -332,7 +332,7 @@ describe('lint-check', () => {
       const output = `• turbo 2.7.5
 • Packages in scope
 Some other output
-@lome-chat/shared:lint: [{"filePath":"/app/test.ts","messages":[],"errorCount":0,"warningCount":0}]`;
+@hushbox/shared:lint: [{"filePath":"/app/test.ts","messages":[],"errorCount":0,"warningCount":0}]`;
 
       const results = extractJsonFromTurboOutput(output);
 
@@ -356,8 +356,8 @@ Some other output
       mkdirSync(testDir, { recursive: true });
 
       mockDiscoverWorkspaces.mockReturnValue([
-        { name: 'web', path: 'apps/web', fullName: '@lome-chat/web' },
-        { name: 'api', path: 'apps/api', fullName: '@lome-chat/api' },
+        { name: 'web', path: 'apps/web', fullName: '@hushbox/web' },
+        { name: 'api', path: 'apps/api', fullName: '@hushbox/api' },
       ]);
     });
 
@@ -384,7 +384,7 @@ Some other output
 
       expect(mockExeca).toHaveBeenCalledWith(
         'pnpm',
-        expect.arrayContaining(['--filter', '@lome-chat/web']),
+        expect.arrayContaining(['--filter', '@hushbox/web']),
         expect.any(Object)
       );
     });
@@ -396,7 +396,7 @@ Some other output
     });
 
     it('applies rule filter to results', async () => {
-      const turboOutput = `@lome-chat/web:lint: [{"filePath":"/app/index.ts","messages":[{"ruleId":"complexity","line":1,"column":1,"message":"Too complex","severity":2},{"ruleId":"no-console","line":2,"column":1,"message":"No console","severity":2}],"errorCount":2,"warningCount":0}]`;
+      const turboOutput = `@hushbox/web:lint: [{"filePath":"/app/index.ts","messages":[{"ruleId":"complexity","line":1,"column":1,"message":"Too complex","severity":2},{"ruleId":"no-console","line":2,"column":1,"message":"No console","severity":2}],"errorCount":2,"warningCount":0}]`;
       mockExeca.mockResolvedValueOnce({ stdout: turboOutput, stderr: '' } as never);
 
       const result = await runLint({ rules: ['complexity'], packages: [], files: [] }, testDir);
@@ -407,7 +407,7 @@ Some other output
     });
 
     it('applies file filter to results', async () => {
-      const turboOutput = `@lome-chat/web:lint: [{"filePath":"/app/index.ts","messages":[{"ruleId":"complexity","line":1,"column":1,"message":"a","severity":2}],"errorCount":1,"warningCount":0},{"filePath":"/app/utils.ts","messages":[{"ruleId":"complexity","line":1,"column":1,"message":"b","severity":2}],"errorCount":1,"warningCount":0}]`;
+      const turboOutput = `@hushbox/web:lint: [{"filePath":"/app/index.ts","messages":[{"ruleId":"complexity","line":1,"column":1,"message":"a","severity":2}],"errorCount":1,"warningCount":0},{"filePath":"/app/utils.ts","messages":[{"ruleId":"complexity","line":1,"column":1,"message":"b","severity":2}],"errorCount":1,"warningCount":0}]`;
       mockExeca.mockResolvedValueOnce({ stdout: turboOutput, stderr: '' } as never);
 
       const result = await runLint({ rules: [], packages: [], files: ['index'] }, testDir);

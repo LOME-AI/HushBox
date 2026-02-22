@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cn } from '@lome-chat/ui';
+import { cn } from '@hushbox/ui';
 
 interface PasswordStrengthProps {
   password: string;

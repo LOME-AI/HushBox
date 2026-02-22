@@ -7,7 +7,7 @@ import { useUIStore } from '@/stores/ui';
 
 // Mock the chat hooks
 vi.mock('@/hooks/chat', () => ({
-  useConversations: vi.fn(),
+  useDecryptedConversations: vi.fn(),
   useDeleteConversation: () => ({
     mutate: vi.fn(),
     isPending: false,
@@ -16,15 +16,24 @@ vi.mock('@/hooks/chat', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+  DECRYPTING_TITLE: 'Decrypting...',
 }));
 
-import { useConversations } from '@/hooks/chat';
+import { useDecryptedConversations } from '@/hooks/chat';
 
-const mockUseConversations = vi.mocked(useConversations);
+const mockUseDecryptedConversations = vi.mocked(useDecryptedConversations);
 
-// Mock @lome-chat/shared with feature flags (partial mock)
-vi.mock('@lome-chat/shared', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@lome-chat/shared')>();
+// Mock member hooks used by ChatItem
+vi.mock('@/hooks/use-conversation-members', () => ({
+  useLeaveConversation: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
+}));
+
+// Mock @hushbox/shared with feature flags (partial mock)
+vi.mock('@hushbox/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/shared')>();
   return {
     ...actual,
     FEATURE_FLAGS: {
@@ -37,7 +46,7 @@ vi.mock('@lome-chat/shared', async (importOriginal) => {
 vi.mock('@/lib/auth', () => ({
   useSession: vi.fn(() => ({
     data: {
-      user: { id: 'user-1', email: 'test@example.com' },
+      user: { id: 'user-1', email: 'test@example.com', username: 'test_user' },
       session: { id: 'session-1' },
     },
     isPending: false,
@@ -47,6 +56,7 @@ vi.mock('@/lib/auth', () => ({
 // Mock router for SidebarContent children
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
+  useLocation: () => ({ pathname: '/' }),
   Link: ({
     children,
     to,
@@ -79,6 +89,11 @@ vi.mock('@/providers/stability-provider', () => ({
   }),
 }));
 
+// Mock useIsMobile to return false (desktop mode)
+vi.mock('@/hooks/use-is-mobile', () => ({
+  useIsMobile: vi.fn(() => false),
+}));
+
 function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -99,20 +114,24 @@ describe('Sidebar', () => {
   beforeEach(() => {
     useUIStore.setState({ sidebarOpen: true });
     // Default mock: return conversations
-    mockUseConversations.mockReturnValue({
+    mockUseDecryptedConversations.mockReturnValue({
       data: [
         {
           id: 'conv-1',
           userId: 'user-1',
           title: 'Test Chat',
+          currentEpoch: 1,
+          titleEpochNumber: 1,
+          nextSequence: 1,
           createdAt: '2024-01-01',
           updatedAt: '2024-01-01',
+          accepted: true,
+          invitedByUsername: null,
+          privilege: 'owner',
         },
       ],
       isLoading: false,
-      isError: false,
-      error: null,
-    } as ReturnType<typeof useConversations>);
+    });
   });
 
   describe('desktop view', () => {
@@ -121,7 +140,7 @@ describe('Sidebar', () => {
       expect(screen.getByRole('complementary')).toBeInTheDocument();
     });
 
-    it('renders SidebarHeader', () => {
+    it('renders sidebar header', () => {
       render(<Sidebar />, { wrapper: createWrapper() });
       expect(screen.getByTestId('sidebar-header')).toBeInTheDocument();
     });
@@ -153,7 +172,8 @@ describe('Sidebar', () => {
     it('uses sidebar border color', () => {
       render(<Sidebar />, { wrapper: createWrapper() });
       const aside = screen.getByRole('complementary');
-      expect(aside).toHaveClass('border-sidebar-border');
+      // SidebarPanel uses border-r for left side
+      expect(aside.className).toContain('border-r');
     });
 
     it('uses sidebar foreground color', () => {
@@ -186,9 +206,9 @@ describe('Sidebar', () => {
       expect(screen.getByRole('button', { name: /new chat/i })).toBeInTheDocument();
     });
 
-    it('renders Search input', () => {
+    it('renders Search chats input', () => {
       render(<Sidebar />, { wrapper: createWrapper() });
-      expect(screen.getByText('Search')).toBeInTheDocument();
+      expect(screen.getByText('Search chats')).toBeInTheDocument();
     });
 
     it('hides ProjectsLink when FEATURE_FLAGS.PROJECTS_ENABLED is false', () => {
@@ -198,57 +218,77 @@ describe('Sidebar', () => {
   });
 
   describe('data fetching', () => {
-    it('calls useConversations hook', () => {
+    it('calls useDecryptedConversations hook', () => {
       render(<Sidebar />, { wrapper: createWrapper() });
-      expect(mockUseConversations).toHaveBeenCalled();
+      expect(mockUseDecryptedConversations).toHaveBeenCalled();
     });
 
-    it('shows loading state when fetching', () => {
-      mockUseConversations.mockReturnValue({
+    it('shows decrypting state with lock icon when fetching', () => {
+      mockUseDecryptedConversations.mockReturnValue({
         data: undefined,
         isLoading: true,
-        isError: false,
-        error: null,
-      } as ReturnType<typeof useConversations>);
+      });
 
       render(<Sidebar />, { wrapper: createWrapper() });
-      expect(screen.getByText('Loading...')).toBeInTheDocument();
+      expect(screen.getByTestId('decrypting-indicator')).toBeInTheDocument();
+      expect(screen.getByTestId('decrypting-lock-icon')).toBeInTheDocument();
+      expect(screen.getByText('Decrypting...')).toBeInTheDocument();
+    });
+
+    it('shows only lock icon without text when collapsed and loading', () => {
+      useUIStore.setState({ sidebarOpen: false });
+      mockUseDecryptedConversations.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+      });
+
+      render(<Sidebar />, { wrapper: createWrapper() });
+      expect(screen.getByTestId('decrypting-lock-icon')).toBeInTheDocument();
+      expect(screen.queryByText('Decrypting...')).not.toBeInTheDocument();
     });
 
     it('shows empty state when no conversations', () => {
-      mockUseConversations.mockReturnValue({
+      mockUseDecryptedConversations.mockReturnValue({
         data: [],
         isLoading: false,
-        isError: false,
-        error: null,
-      } as unknown as ReturnType<typeof useConversations>);
+      });
 
       render(<Sidebar />, { wrapper: createWrapper() });
       expect(screen.getByText('No conversations yet')).toBeInTheDocument();
     });
 
     it('displays conversations from hook', () => {
-      mockUseConversations.mockReturnValue({
+      mockUseDecryptedConversations.mockReturnValue({
         data: [
           {
             id: 'conv-1',
             userId: 'user-1',
             title: 'First Chat',
+            currentEpoch: 1,
+            titleEpochNumber: 1,
+            nextSequence: 1,
             createdAt: '2024-01-01',
             updatedAt: '2024-01-01',
+            accepted: true,
+            invitedByUsername: null,
+            privilege: 'owner',
           },
           {
             id: 'conv-2',
             userId: 'user-1',
             title: 'Second Chat',
+            currentEpoch: 1,
+            titleEpochNumber: 1,
+            nextSequence: 1,
             createdAt: '2024-01-02',
             updatedAt: '2024-01-02',
+            accepted: true,
+            invitedByUsername: null,
+            privilege: 'write',
           },
         ],
         isLoading: false,
-        isError: false,
-        error: null,
-      } as ReturnType<typeof useConversations>);
+      });
 
       render(<Sidebar />, { wrapper: createWrapper() });
       expect(screen.getByText('First Chat')).toBeInTheDocument();

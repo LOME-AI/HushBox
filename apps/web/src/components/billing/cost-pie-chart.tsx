@@ -1,10 +1,10 @@
 import * as React from 'react';
 import {
-  LOME_FEE_RATE,
+  HUSHBOX_FEE_RATE,
   CREDIT_CARD_FEE_RATE,
   PROVIDER_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
-} from '@lome-chat/shared';
+} from '@hushbox/shared';
 
 interface CostPieChartProps {
   /** The deposit amount in USD */
@@ -24,7 +24,7 @@ interface PieSlice {
 const COLORS = {
   SERVICE_VALUE: '#3b82f6', // Blue
   TRANSACTION_COSTS: '#f59e0b', // Amber
-  PLATFORM_FEE: '#ec4755', // LOME red
+  PLATFORM_FEE: '#ec4755', // brand red
 };
 
 interface ArcParams {
@@ -77,16 +77,16 @@ export function CostPieChart({
   depositAmount,
   estimatedCharacters = 1_000_000,
 }: Readonly<CostPieChartProps>): React.JSX.Element {
-  const lomeFee = depositAmount * LOME_FEE_RATE;
+  const hushboxFee = depositAmount * HUSHBOX_FEE_RATE;
   const ccFee = depositAmount * CREDIT_CARD_FEE_RATE;
   const providerFee = depositAmount * PROVIDER_FEE_RATE;
   const storageFee = estimatedCharacters * STORAGE_COST_PER_CHARACTER;
-  const modelUsage = depositAmount - lomeFee - ccFee - providerFee - storageFee;
+  const modelUsage = depositAmount - hushboxFee - ccFee - providerFee - storageFee;
 
   // Group into 3 categories
   const serviceValue = modelUsage + storageFee;
   const transactionCosts = ccFee + providerFee;
-  const platformFee = lomeFee;
+  const platformFee = hushboxFee;
 
   const slices: PieSlice[] = [
     {

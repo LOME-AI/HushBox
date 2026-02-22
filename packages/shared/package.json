@@ -1,21 +1,26 @@
 {
-  "name": "@lome-chat/shared",
+  "name": "@hushbox/shared",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./env.config": "./src/env.config.ts"
+    "./env.config": "./src/env.config.ts",
+    "./legal": "./src/legal/index.ts",
+    "./routes": "./src/routes.ts",
+    "./src/test-utilities.js": "./src/test-utilities.ts",
+    "./test-polyfills": "./src/test-polyfills.ts"
   },
   "scripts": {
-    "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "test": "../../scripts/with-env vitest run --passWithNoTests",
+    "test:watch": "../../scripts/with-env vitest",
+    "test:coverage": "../../scripts/with-env vitest run --coverage --passWithNoTests",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@lome-chat/config": "workspace:*",
+    "@hushbox/config": "workspace:*",
+    "jsdom": "^27.4.0",
     "typescript": "^5.7.2"
   },
   "dependencies": {

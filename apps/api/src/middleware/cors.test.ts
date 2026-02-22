@@ -58,13 +58,13 @@ describe('cors middleware', () => {
       const res = await app.request(
         '/test',
         {
-          headers: { Origin: 'https://lome-chat.com' },
+          headers: { Origin: 'https://hushbox.ai' },
         },
-        { FRONTEND_URL: 'https://lome-chat.com' }
+        { FRONTEND_URL: 'https://hushbox.ai' }
       );
 
       expect(res.status).toBe(200);
-      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://lome-chat.com');
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://hushbox.ai');
       expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
     });
 
@@ -78,7 +78,7 @@ describe('cors middleware', () => {
         {
           headers: { Origin: 'http://localhost:5173' },
         },
-        { FRONTEND_URL: 'https://lome-chat.com' }
+        { FRONTEND_URL: 'https://hushbox.ai' }
       );
 
       expect(res.status).toBe(200);
@@ -95,15 +95,15 @@ describe('cors middleware', () => {
         {
           method: 'OPTIONS',
           headers: {
-            Origin: 'https://lome-chat.com',
+            Origin: 'https://hushbox.ai',
             'Access-Control-Request-Method': 'POST',
           },
         },
-        { FRONTEND_URL: 'https://lome-chat.com' }
+        { FRONTEND_URL: 'https://hushbox.ai' }
       );
 
       expect(res.status).toBe(204);
-      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://lome-chat.com');
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://hushbox.ai');
     });
 
     it('rejects requests from disallowed origins in production', async () => {
@@ -116,7 +116,7 @@ describe('cors middleware', () => {
         {
           headers: { Origin: 'http://evil.com' },
         },
-        { FRONTEND_URL: 'https://lome-chat.com' }
+        { FRONTEND_URL: 'https://hushbox.ai' }
       );
 
       expect(res.status).toBe(200);

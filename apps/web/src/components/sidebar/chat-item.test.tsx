@@ -31,10 +31,25 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-// Mock useIsMobile hook
-let mockIsMobile = false;
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: () => mockIsMobile,
+// Mock crypto — encryptMessageForStorage returns a known Uint8Array
+const MOCK_ENCRYPTED_BYTES = new Uint8Array([1, 2, 3, 4]);
+vi.mock('@hushbox/crypto', () => ({
+  encryptMessageForStorage: vi.fn(() => MOCK_ENCRYPTED_BYTES),
+  getPublicKeyFromPrivate: vi.fn(() => new Uint8Array([10, 20, 30])),
+}));
+
+vi.mock('@hushbox/shared', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@hushbox/shared')>();
+  return {
+    ...original,
+    toBase64: vi.fn(() => 'bW9jay1lbmNyeXB0ZWQ'),
+  };
+});
+
+// Mock epoch-key-cache — return a fake epoch private key
+const MOCK_EPOCH_KEY = new Uint8Array([99, 88, 77]);
+vi.mock('@/lib/epoch-key-cache', () => ({
+  getEpochKey: vi.fn(() => MOCK_EPOCH_KEY),
 }));
 
 // Mock chat hooks
@@ -50,20 +65,32 @@ vi.mock('@/hooks/chat', () => ({
     mutate: mockUpdateMutate,
     isPending: false,
   }),
+  DECRYPTING_TITLE: 'Decrypting...',
+}));
+
+// Mock leave conversation hook
+const mockLeaveMutate = vi.fn();
+vi.mock('@/hooks/use-conversation-members', () => ({
+  useLeaveConversation: () => ({
+    mutate: mockLeaveMutate,
+    isPending: false,
+  }),
 }));
 
 describe('ChatItem', () => {
   const mockConversation = {
     id: 'conv-123',
     title: 'Test Conversation',
+    currentEpoch: 2,
     updatedAt: new Date().toISOString(),
+    privilege: 'owner',
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockDeleteMutate.mockClear();
     mockUpdateMutate.mockClear();
-    mockIsMobile = false;
+    mockLeaveMutate.mockClear();
     useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false });
   });
 
@@ -87,6 +114,13 @@ describe('ChatItem', () => {
       render(<ChatItem conversation={longTitle} />);
       const title = screen.getByText(longTitle.title);
       expect(title).toHaveClass('truncate');
+    });
+
+    it('renders lock icon with muted style when title is Decrypting...', () => {
+      const decryptingConversation = { ...mockConversation, title: 'Decrypting...' };
+      render(<ChatItem conversation={decryptingConversation} />);
+      expect(screen.getByTestId('decrypting-title')).toBeInTheDocument();
+      expect(screen.getByText('Decrypting...')).toHaveClass('text-muted-foreground');
     });
 
     it('hides message icon when expanded', () => {
@@ -197,7 +231,7 @@ describe('ChatItem', () => {
       expect(screen.getByDisplayValue('Test Conversation')).toBeInTheDocument();
     });
 
-    it('calls update mutation with new title when saved', async () => {
+    it('calls update mutation with encrypted title and titleEpochNumber when saved', async () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
@@ -210,7 +244,10 @@ describe('ChatItem', () => {
       await user.click(screen.getByTestId('save-rename-button'));
 
       expect(mockUpdateMutate).toHaveBeenCalledWith(
-        { conversationId: 'conv-123', data: { title: 'New Title' } },
+        {
+          conversationId: 'conv-123',
+          data: { title: 'bW9jay1lbmNyeXB0ZWQ', titleEpochNumber: 2 },
+        },
         expect.any(Object)
       );
     });
@@ -243,29 +280,100 @@ describe('ChatItem', () => {
     });
   });
 
-  describe('mobile sidebar behavior', () => {
-    it('closes mobile sidebar when clicking chat link on mobile', async () => {
-      mockIsMobile = true;
-      useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: true });
+  describe('non-owner actions', () => {
+    const nonOwnerConversation = {
+      ...mockConversation,
+      privilege: 'write',
+    };
 
+    it('shows Leave instead of Rename and Delete for non-owner', async () => {
       const user = userEvent.setup();
-      render(<ChatItem conversation={mockConversation} />);
+      render(<ChatItem conversation={nonOwnerConversation} />);
 
-      await user.click(screen.getByTestId('chat-link'));
+      await user.click(screen.getByTestId('chat-item-more-button'));
 
-      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+      expect(screen.getByText('Leave')).toBeInTheDocument();
+      expect(screen.queryByText('Rename')).not.toBeInTheDocument();
+      expect(screen.queryByText('Delete')).not.toBeInTheDocument();
     });
 
-    it('does not close mobile sidebar when clicking on desktop', async () => {
-      mockIsMobile = false;
-      useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: true });
+    it('shows Leave for read privilege', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={{ ...mockConversation, privilege: 'read' }} />);
 
+      await user.click(screen.getByTestId('chat-item-more-button'));
+
+      expect(screen.getByText('Leave')).toBeInTheDocument();
+      expect(screen.queryByText('Rename')).not.toBeInTheDocument();
+    });
+
+    it('shows Leave for admin privilege', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={{ ...mockConversation, privilege: 'admin' }} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+
+      expect(screen.getByText('Leave')).toBeInTheDocument();
+      expect(screen.queryByText('Delete')).not.toBeInTheDocument();
+    });
+
+    it('opens leave confirmation modal when Leave is clicked', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={nonOwnerConversation} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByText('Leave'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('leave-confirmation-modal')).toBeInTheDocument();
+      });
+    });
+
+    it('calls leave mutation when confirmed', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={nonOwnerConversation} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByText('Leave'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('leave-confirmation-modal')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('leave-confirmation-confirm'));
+
+      expect(mockLeaveMutate).toHaveBeenCalledWith(
+        { conversationId: 'conv-123' },
+        expect.any(Object)
+      );
+    });
+
+    it('does not call leave mutation when cancelled', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={nonOwnerConversation} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByText('Leave'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('leave-confirmation-modal')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('leave-confirmation-cancel'));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('leave-confirmation-modal')).not.toBeInTheDocument();
+      });
+      expect(mockLeaveMutate).not.toHaveBeenCalled();
+    });
+
+    it('shows Rename and Delete for owner privilege', async () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-link'));
+      await user.click(screen.getByTestId('chat-item-more-button'));
 
-      expect(useUIStore.getState().mobileSidebarOpen).toBe(true);
+      expect(screen.getByText('Rename')).toBeInTheDocument();
+      expect(screen.getByText('Delete')).toBeInTheDocument();
+      expect(screen.queryByText('Leave')).not.toBeInTheDocument();
     });
   });
 });

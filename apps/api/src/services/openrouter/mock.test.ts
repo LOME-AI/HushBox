@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { createMockOpenRouterClient } from './mock.js';
 import type { ChatCompletionRequest, MockOpenRouterClient } from './types.js';
 
@@ -226,6 +226,47 @@ describe('createMockOpenRouterClient', () => {
       }
 
       expect(tokens).toEqual(['E', 'c', 'h', 'o', ':', '\n', '\n', 'A']);
+    });
+  });
+
+  describe('chatCompletionStreamWithMetadata', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('delays before yielding the first token to simulate thinking', async () => {
+      const request: ChatCompletionRequest = {
+        model: 'openai/gpt-4-turbo',
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+
+      const iterator = client.chatCompletionStreamWithMetadata(request)[Symbol.asyncIterator]();
+
+      // The first token should NOT be available immediately
+      let resolved = false;
+      // eslint-disable-next-line promise/prefer-await-to-then -- intentionally captures promise without awaiting to test timing
+      const firstTokenPromise = iterator.next().then((result) => {
+        resolved = true;
+        return result;
+      });
+
+      // Advance past per-token delay but NOT past initial thinking delay
+      await vi.advanceTimersByTimeAsync(500);
+      expect(resolved).toBe(false);
+
+      // Advance past the 1-second thinking delay
+      await vi.advanceTimersByTimeAsync(600);
+      expect(resolved).toBe(true);
+
+      const first = await firstTokenPromise;
+      expect(first.done).toBe(false);
+      if (!first.done) {
+        expect(first.value.content).toBe('E'); // First char of "Echo:\n\nHi"
+      }
     });
   });
 

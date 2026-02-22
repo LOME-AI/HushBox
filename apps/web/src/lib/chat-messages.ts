@@ -1,13 +1,18 @@
 import type { Message } from '@/lib/api';
-import type { GuestMessage } from '@/stores/guest-chat';
+import type { TrialMessage } from '@/stores/trial-chat';
 
-export function createUserMessage(conversationId: string, content: string): Message {
+export function createUserMessage(
+  conversationId: string,
+  content: string,
+  senderId?: string
+): Message {
   return {
     id: crypto.randomUUID(),
     conversationId,
     role: 'user',
     content,
     createdAt: new Date().toISOString(),
+    ...(senderId !== undefined && { senderId }),
   };
 }
 
@@ -24,18 +29,26 @@ export function createAssistantMessage(
   };
 }
 
-export function createGuestMessage(
+export function createTrialMessage(
   role: 'user' | 'assistant',
   content: string,
   id?: string
-): GuestMessage {
+): TrialMessage {
   return {
     id: id ?? crypto.randomUUID(),
-    conversationId: 'guest',
+    conversationId: 'trial',
     role,
     content,
     createdAt: new Date().toISOString(),
   };
+}
+
+export interface ChatErrorDisplay {
+  id: string;
+  role: 'assistant';
+  content: string;
+  retryable: boolean;
+  isError: true;
 }
 
 export function appendTokenToMessage<T extends { id: string; content: string }>(

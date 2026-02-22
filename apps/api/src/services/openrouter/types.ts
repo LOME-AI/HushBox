@@ -68,6 +68,18 @@ export interface ModelInfo {
 }
 
 /**
+ * Entry from OpenRouter's /endpoints/zdr endpoint.
+ * Represents a model/provider combo that supports Zero Data Retention.
+ */
+export interface ZdrEndpoint {
+  model_id: string;
+  model_name: string;
+  provider_name: string;
+  context_length: number;
+  pricing: { prompt: string; completion: string };
+}
+
+/**
  * Streaming chunk from OpenRouter API (SSE format).
  */
 export interface ChatCompletionChunk {

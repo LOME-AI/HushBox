@@ -121,4 +121,25 @@ describe('AuthPasswordInput', () => {
     const feedbackContainer = screen.getByTestId('form-input-feedback');
     expect(feedbackContainer).toHaveClass('h-5');
   });
+
+  describe('showStrength', () => {
+    it('does not render strength indicator by default', () => {
+      render(<AuthPasswordInput label="Password" value="test1234" onChange={vi.fn()} />);
+      expect(screen.queryByTestId('strength-indicator')).not.toBeInTheDocument();
+    });
+
+    it('renders strength indicator when showStrength is true', () => {
+      render(
+        <AuthPasswordInput label="Password" value="test1234" onChange={vi.fn()} showStrength />
+      );
+      expect(screen.getByTestId('strength-indicator')).toBeInTheDocument();
+    });
+
+    it('shows strength based on password value', () => {
+      render(
+        <AuthPasswordInput label="Password" value="Test1234!abc" onChange={vi.fn()} showStrength />
+      );
+      expect(screen.getByText('Strong')).toBeInTheDocument();
+    });
+  });
 });

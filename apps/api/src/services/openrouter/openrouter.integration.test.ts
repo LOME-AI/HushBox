@@ -1,20 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { eq, inArray } from 'drizzle-orm';
-import {
-  createDb,
-  LOCAL_NEON_DEV_CONFIG,
-  type Database,
-  users,
-  conversations,
-  messages,
-  balanceTransactions,
-} from '@lome-chat/db';
-import { userFactory, conversationFactory } from '@lome-chat/db/factories';
-import { createEnvUtilities, FREE_ALLOWANCE_CENTS } from '@lome-chat/shared';
-import { createOpenRouterClient, clearModelCache, type EvidenceConfig } from './openrouter.js';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { createDb, LOCAL_NEON_DEV_CONFIG, type Database } from '@hushbox/db';
+import { createEnvUtilities } from '@hushbox/shared';
+import { createOpenRouterClient, fetchZdrModelIds, type EvidenceConfig } from './openrouter.js';
 import { createFastMockOpenRouterClient } from '../../test-helpers/openrouter-mocks.js';
-import { saveMessageWithBilling } from '../chat/message-persistence.js';
-import type { OpenRouterClient } from './types.js';
+import type { OpenRouterClient, ModelInfo } from './types.js';
+import { fetchModels } from './openrouter.js';
 
 /**
  * Integration tests for OpenRouter API.
@@ -86,9 +76,6 @@ describe('OpenRouter Integration', () => {
   let evidenceConfig: EvidenceConfig | undefined;
 
   beforeAll(async () => {
-    // Clear cache to ensure fresh model list
-    clearModelCache();
-
     if (env.isLocalDev) {
       // Local dev: use mock client
       client = createFastMockOpenRouterClient({
@@ -266,157 +253,52 @@ describe('OpenRouter Integration', () => {
 });
 
 /**
- * Free allowance billing integration tests.
- * These tests verify the complete billing flow for free-tier users.
+ * ZDR (Zero Data Retention) endpoint tests.
  *
- * Requires DATABASE_URL for database operations.
+ * fetchZdrModelIds() and fetchModels() hit public endpoints (no auth required).
+ * Local dev: uses MOCK_MODELS to avoid flaky network calls.
+ * CI: makes real HTTP calls to verify endpoint availability.
  */
-describe('Free Allowance Billing', () => {
-  let db: Database;
-  const createdUserIds: string[] = [];
-  const createdConversationIds: string[] = [];
-  const createdMessageIds: string[] = [];
-  const createdTransactionIds: string[] = [];
+describe('ZDR Endpoints (public, no auth)', () => {
+  let zdrIds: Set<string>;
+  let models: ModelInfo[];
 
-  beforeAll(() => {
-    if (!DATABASE_URL) {
-      throw new Error('DATABASE_URL required for billing integration tests');
+  beforeAll(async () => {
+    if (env.isLocalDev) {
+      zdrIds = new Set(MOCK_MODELS.map((m) => m.id));
+      models = MOCK_MODELS as ModelInfo[];
+      return;
     }
-    db = createDb({
-      connectionString: DATABASE_URL,
-      neonDev: LOCAL_NEON_DEV_CONFIG,
-    });
-  });
 
-  afterAll(async () => {
-    // Clean up in reverse order of dependencies
-    if (createdTransactionIds.length > 0) {
-      await db
-        .delete(balanceTransactions)
-        .where(inArray(balanceTransactions.id, createdTransactionIds));
-    }
-    if (createdMessageIds.length > 0) {
-      await db.delete(messages).where(inArray(messages.id, createdMessageIds));
-    }
-    if (createdConversationIds.length > 0) {
-      await db.delete(conversations).where(inArray(conversations.id, createdConversationIds));
-    }
-    if (createdUserIds.length > 0) {
-      await db.delete(users).where(inArray(users.id, createdUserIds));
+    // CI: real network calls
+    [zdrIds, models] = await Promise.all([fetchZdrModelIds(), fetchModels()]);
+  }, 30_000);
+
+  it('fetches ZDR endpoint list', () => {
+    expect(zdrIds.size).toBeGreaterThan(0);
+    // IDs follow the provider/model format
+    for (const id of zdrIds) {
+      expect(id).toContain('/');
     }
   });
 
-  it('deducts from freeAllowance when free-tier user sends message', async () => {
-    // 1. Create a free-tier user (balance=0, freeAllowance=5 cents)
-    const initialFreeAllowance = FREE_ALLOWANCE_CENTS; // "5.00000000"
-    const [user] = await db
-      .insert(users)
-      .values(
-        userFactory.build({
-          balance: '0.00000000',
-          freeAllowanceCents: initialFreeAllowance,
-        })
-      )
-      .returning();
-    if (!user) throw new Error('Failed to create test user');
-    createdUserIds.push(user.id);
+  it('ZDR model set overlaps with available models', () => {
+    const modelIds = new Set(models.map((m) => m.id));
+    let overlap = 0;
+    for (const id of zdrIds) {
+      if (modelIds.has(id)) {
+        overlap++;
+      }
+    }
 
-    // 2. Create a conversation
-    const [conversation] = await db
-      .insert(conversations)
-      .values(conversationFactory.build({ userId: user.id }))
-      .returning();
-    if (!conversation) throw new Error('Failed to create test conversation');
-    createdConversationIds.push(conversation.id);
-
-    // 3. Save a message with billing (deduct from free allowance)
-    const messageId = crypto.randomUUID();
-    createdMessageIds.push(messageId);
-    const costCents = 0.01; // 0.01 cents (fractional cost to test numeric precision)
-
-    const result = await saveMessageWithBilling(db, {
-      messageId,
-      conversationId: conversation.id,
-      content: 'Test AI response',
-      model: 'openai/gpt-4o-mini',
-      userId: user.id,
-      totalCost: costCents / 100, // Convert to dollars for the function
-      inputCharacters: 100,
-      outputCharacters: 50,
-      deductionSource: 'freeAllowance',
-    });
-    createdTransactionIds.push(result.transactionId);
-
-    // 4. Verify the free allowance was decremented
-    const [updatedUser] = await db.select().from(users).where(eq(users.id, user.id));
-    if (!updatedUser) throw new Error('User not found after update');
-
-    const initialCents = Number.parseFloat(initialFreeAllowance);
-    const updatedCents = Number.parseFloat(updatedUser.freeAllowanceCents);
-    const expectedCents = initialCents - costCents;
-
-    expect(updatedCents).toBeCloseTo(expectedCents, 6);
-
-    // 5. Verify transaction was recorded with correct deductionSource
-    const [tx] = await db
-      .select()
-      .from(balanceTransactions)
-      .where(eq(balanceTransactions.id, result.transactionId));
-    if (!tx) throw new Error('Transaction not found');
-
-    expect(tx.deductionSource).toBe('freeAllowance');
-    expect(tx.type).toBe('usage');
-  }, 30_000);
-
-  it('stores fractional freeAllowance deductions with precision', async () => {
-    // This test verifies that very small costs (< 1 cent) are tracked accurately
-    const initialFreeAllowance = FREE_ALLOWANCE_CENTS;
-    const [user] = await db
-      .insert(users)
-      .values(
-        userFactory.build({
-          balance: '0.00000000',
-          freeAllowanceCents: initialFreeAllowance,
-        })
-      )
-      .returning();
-    if (!user) throw new Error('Failed to create test user');
-    createdUserIds.push(user.id);
-
-    const [conversation] = await db
-      .insert(conversations)
-      .values(conversationFactory.build({ userId: user.id }))
-      .returning();
-    if (!conversation) throw new Error('Failed to create test conversation');
-    createdConversationIds.push(conversation.id);
-
-    // Small fractional cost: 0.001_234_56 cents (a tiny API call)
-    const fractionalCostCents = 0.001_234_56;
-    const messageId = crypto.randomUUID();
-    createdMessageIds.push(messageId);
-
-    const result = await saveMessageWithBilling(db, {
-      messageId,
-      conversationId: conversation.id,
-      content: 'Test response',
-      model: 'openai/gpt-4o-mini',
-      userId: user.id,
-      totalCost: fractionalCostCents / 100, // Convert to dollars
-      inputCharacters: 10,
-      outputCharacters: 5,
-      deductionSource: 'freeAllowance',
-    });
-    createdTransactionIds.push(result.transactionId);
-
-    // Verify fractional precision is maintained
-    const [updatedUser] = await db.select().from(users).where(eq(users.id, user.id));
-    if (!updatedUser) throw new Error('User not found after update');
-
-    const initialCents = Number.parseFloat(initialFreeAllowance);
-    const updatedCents = Number.parseFloat(updatedUser.freeAllowanceCents);
-    const expectedCents = initialCents - fractionalCostCents;
-
-    // Should maintain precision to at least 6 decimal places
-    expect(updatedCents).toBeCloseTo(expectedCents, 6);
-  }, 30_000);
+    // At least some ZDR models should appear in the full model list
+    expect(overlap).toBeGreaterThan(0);
+  });
 });
+
+// Free Allowance Billing tests were removed in Phase 4 schema migration.
+// The old tests referenced deleted tables (balanceTransactions) and columns
+// (users.balance, users.freeAllowanceCents). The billing flow is now covered by:
+// - apps/api/src/services/billing/transaction-writer.test.ts (chargeForUsage, creditUserBalance)
+// - apps/api/src/services/billing/balance.test.ts (checkUserBalance with wallets)
+// - apps/api/src/routes/webhooks.test.ts (processWebhookCredit end-to-end)

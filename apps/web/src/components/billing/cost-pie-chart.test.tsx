@@ -20,7 +20,7 @@ describe('CostPieChart', () => {
       // Should not find any label text
       expect(screen.queryByText('Model usage')).not.toBeInTheDocument();
       expect(screen.queryByText('Storage')).not.toBeInTheDocument();
-      expect(screen.queryByText('LOME profit')).not.toBeInTheDocument();
+      expect(screen.queryByText('HushBox profit')).not.toBeInTheDocument();
       expect(screen.queryByText('AI provider overhead')).not.toBeInTheDocument();
       expect(screen.queryByText('Credit card processing')).not.toBeInTheDocument();
     });
@@ -55,7 +55,7 @@ describe('CostPieChart', () => {
       expect(slice).toHaveAttribute('fill', '#f59e0b');
     });
 
-    it('renders Platform Fee slice (LOME red)', () => {
+    it('renders Platform Fee slice (brand red)', () => {
       render(<CostPieChart depositAmount={100} />);
       const container = screen.getByTestId('cost-pie-chart');
       const slice = container.querySelector('[data-testid="slice-platform-fee"]');

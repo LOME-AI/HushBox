@@ -626,6 +626,24 @@ describe('PaymentForm', () => {
     });
   });
 
+  describe('keyboard navigation', () => {
+    it('Enter on amount field focuses card number field', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      // Wait for script to load so card fields are rendered
+      await waitFor(() => {
+        expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
+      });
+
+      const amountInput = screen.getByLabelText(/amount/i);
+      await user.click(amountInput);
+      await user.keyboard('{Enter}');
+
+      expect(document.activeElement).toBe(screen.getByLabelText(/card number/i));
+    });
+  });
+
   describe('dev simulation buttons', () => {
     it('does not show simulation buttons in production mode', async () => {
       // Mock env as production mode (isDev = false)

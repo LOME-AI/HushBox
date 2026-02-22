@@ -1,0 +1,22 @@
+# HushBox — https://hushbox.ai
+#
+# Public marketing pages are allowed by default.
+# App routes are behind auth and not useful for indexing.
+
+User-agent: *
+
+# App routes — not indexable
+Disallow: /chat
+Disallow: /billing
+Disallow: /settings
+Disallow: /login
+Disallow: /signup
+Disallow: /verify
+Disallow: /dev
+Disallow: /api
+Disallow: /share
+
+# Assets — no need to index images/scripts
+Disallow: /assets
+
+Sitemap: https://hushbox.ai/sitemap.xml

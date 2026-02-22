@@ -1,4 +1,4 @@
-import { buildSystemPrompt, type CapabilityId } from '@lome-chat/shared';
+import { buildSystemPrompt, type CapabilityId } from '@hushbox/shared';
 import { pythonModule } from './modules/python.js';
 import { javascriptModule } from './modules/javascript.js';
 import type { ToolModule, PromptBuilderOptions, BuiltPrompt } from './types.js';

@@ -9,6 +9,7 @@ out/
 .next/
 .vercel/
 .wrangler/
+.astro/
 
 # TypeScript
 *.tsbuildinfo

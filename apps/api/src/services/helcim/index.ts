@@ -1,4 +1,4 @@
-import { createEnvUtilities, type EnvContext } from '@lome-chat/shared';
+import { createEnvUtilities, type EnvContext } from '@hushbox/shared';
 import type { HelcimClient } from './types.js';
 import { createMockHelcimClient } from './mock.js';
 import { createHelcimClient } from './helcim.js';
@@ -16,7 +16,7 @@ export { createHelcimClient, verifyWebhookSignatureAsync } from './helcim.js';
 interface HelcimEnv extends EnvContext {
   HELCIM_API_TOKEN?: string;
   HELCIM_WEBHOOK_VERIFIER?: string;
-  BETTER_AUTH_URL?: string;
+  API_URL?: string;
 }
 
 /**
@@ -29,11 +29,11 @@ export function getHelcimClient(env: HelcimEnv): HelcimClient {
   const { isLocalDev } = createEnvUtilities(env);
 
   if (isLocalDev) {
-    if (!env.BETTER_AUTH_URL || !env.HELCIM_WEBHOOK_VERIFIER) {
-      throw new Error('BETTER_AUTH_URL and HELCIM_WEBHOOK_VERIFIER required for local dev');
+    if (!env.API_URL || !env.HELCIM_WEBHOOK_VERIFIER) {
+      throw new Error('API_URL and HELCIM_WEBHOOK_VERIFIER required for local dev');
     }
     return createMockHelcimClient({
-      webhookUrl: `${env.BETTER_AUTH_URL}${WEBHOOK_PAYMENT_PATH}`,
+      webhookUrl: `${env.API_URL}${WEBHOOK_PAYMENT_PATH}`,
       webhookVerifier: env.HELCIM_WEBHOOK_VERIFIER,
     });
   }

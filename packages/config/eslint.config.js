@@ -142,6 +142,13 @@ export const testConfig = [
       // Allow deeper nesting for describe/it/act patterns (standard BDD testing)
       'max-nested-callbacks': ['error', { max: 5 }],
 
+      // Test code often asserts on renderHook results and mock-captured variables
+      // that TypeScript narrows to null (control flow can't see mock callbacks)
+      '@typescript-eslint/no-non-null-assertion': 'off',
+
+      // Vitest mock functions (vi.fn()) are standalone — not class methods with this binding
+      '@typescript-eslint/unbound-method': 'off',
+
       // Vitest mocks return `any` by design
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-argument': 'off',

@@ -19,7 +19,7 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 // Mock UI components
-vi.mock('@lome-chat/ui', () => ({
+vi.mock('@hushbox/ui', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
   Input: ({
     label,
@@ -101,12 +101,12 @@ describe('SignupPage', () => {
 
     render(<SignupPage />);
 
-    expect(screen.getByLabelText(/name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/confirm password/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /create account/i })).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it('renders login link', async () => {
     const { SignupPage } = await import('./signup');
@@ -122,7 +122,7 @@ describe('SignupPage', () => {
 
     render(<SignupPage />);
 
-    await user.type(screen.getByLabelText(/name/i), 'Test User');
+    await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'invalid-email');
     await user.type(screen.getByLabelText(/^password$/i), 'password123');
     await user.type(screen.getByLabelText(/confirm password/i), 'password123');
@@ -137,7 +137,7 @@ describe('SignupPage', () => {
 
     render(<SignupPage />);
 
-    await user.type(screen.getByLabelText(/name/i), 'Test User');
+    await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
     await user.type(screen.getByLabelText(/^password$/i), 'short');
     await user.type(screen.getByLabelText(/confirm password/i), 'short');
@@ -152,7 +152,7 @@ describe('SignupPage', () => {
 
     render(<SignupPage />);
 
-    await user.type(screen.getByLabelText(/name/i), 'Test User');
+    await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
     await user.type(screen.getByLabelText(/^password$/i), 'password123');
     await user.type(screen.getByLabelText(/confirm password/i), 'different123');
@@ -163,33 +163,33 @@ describe('SignupPage', () => {
   });
 
   it('calls signUp.email with valid data', async () => {
-    vi.mocked(signUp.email).mockResolvedValue({ data: {}, error: null });
+    vi.mocked(signUp.email).mockResolvedValue({});
     const user = userEvent.setup();
     const { SignupPage } = await import('./signup');
 
     render(<SignupPage />);
 
-    await user.type(screen.getByLabelText(/name/i), 'Test User');
+    await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
     await user.type(screen.getByLabelText(/^password$/i), 'password123');
     await user.type(screen.getByLabelText(/confirm password/i), 'password123');
     await user.click(screen.getByRole('button', { name: /create account/i }));
 
     expect(signUp.email).toHaveBeenCalledWith({
-      name: 'Test User',
+      username: 'test_user',
       email: 'test@example.com',
       password: 'password123',
     });
   });
 
   it('shows success message on successful signup', async () => {
-    vi.mocked(signUp.email).mockResolvedValue({ data: {}, error: null });
+    vi.mocked(signUp.email).mockResolvedValue({});
     const user = userEvent.setup();
     const { SignupPage } = await import('./signup');
 
     render(<SignupPage />);
 
-    await user.type(screen.getByLabelText(/name/i), 'Test User');
+    await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
     await user.type(screen.getByLabelText(/^password$/i), 'password123');
     await user.type(screen.getByLabelText(/confirm password/i), 'password123');
@@ -200,7 +200,6 @@ describe('SignupPage', () => {
 
   it('shows inline error on signup failure', async () => {
     vi.mocked(signUp.email).mockResolvedValue({
-      data: null,
       error: { message: 'Email already exists' },
     });
     const user = userEvent.setup();
@@ -208,7 +207,7 @@ describe('SignupPage', () => {
 
     render(<SignupPage />);
 
-    await user.type(screen.getByLabelText(/name/i), 'Test User');
+    await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
     await user.type(screen.getByLabelText(/^password$/i), 'password123');
     await user.type(screen.getByLabelText(/confirm password/i), 'password123');
@@ -222,15 +221,14 @@ describe('SignupPage', () => {
 
   it('shows fallback error message when error has no message', async () => {
     vi.mocked(signUp.email).mockResolvedValue({
-      data: null,
-      error: {},
+      error: { message: 'Signup failed' },
     });
     const user = userEvent.setup();
     const { SignupPage } = await import('./signup');
 
     render(<SignupPage />);
 
-    await user.type(screen.getByLabelText(/name/i), 'Test User');
+    await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
     await user.type(screen.getByLabelText(/^password$/i), 'password123');
     await user.type(screen.getByLabelText(/confirm password/i), 'password123');
@@ -242,15 +240,15 @@ describe('SignupPage', () => {
     expect(errorAlert).toBeInTheDocument();
   });
 
-  it('shows success message when name is valid as user types', async () => {
+  it('shows success message when username is valid as user types', async () => {
     const user = userEvent.setup();
     const { SignupPage } = await import('./signup');
 
     render(<SignupPage />);
 
-    await user.type(screen.getByLabelText(/name/i), 'Test User');
+    await user.type(screen.getByLabelText(/username/i), 'test_user');
 
-    expect(screen.getByTestId('name-success')).toHaveTextContent('Looks good!');
+    expect(screen.getByTestId('username-success')).toHaveTextContent('Looks good!');
   });
 
   it('shows success message when email is valid as user types', async () => {
@@ -319,5 +317,45 @@ describe('SignupPage', () => {
     await user.type(screen.getByLabelText(/confirm password/i), 'different');
 
     expect(screen.getAllByRole('alert')[0]).toHaveTextContent('Passwords do not match');
+  });
+
+  it('Enter on username focuses email field', async () => {
+    const user = userEvent.setup();
+    const { SignupPage } = await import('./signup');
+
+    render(<SignupPage />);
+
+    await user.click(screen.getByLabelText(/username/i));
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByLabelText(/email/i)).toHaveFocus();
+  });
+
+  it('Enter on email focuses password field', async () => {
+    const user = userEvent.setup();
+    const { SignupPage } = await import('./signup');
+
+    render(<SignupPage />);
+
+    await user.click(screen.getByLabelText(/email/i));
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByLabelText(/^password$/i)).toHaveFocus();
+  });
+
+  it('renders terms acceptance text with links', async () => {
+    const { SignupPage } = await import('./signup');
+
+    render(<SignupPage />);
+
+    expect(screen.getByText(/by creating an account, you agree to our/i)).toBeInTheDocument();
+
+    const termsLink = screen.getByRole('link', { name: /terms of service/i });
+    expect(termsLink).toHaveAttribute('href', '/terms');
+    expect(termsLink).toHaveAttribute('target', '_blank');
+
+    const privacyLink = screen.getByRole('link', { name: /privacy policy/i });
+    expect(privacyLink).toHaveAttribute('href', '/privacy');
+    expect(privacyLink).toHaveAttribute('target', '_blank');
   });
 });

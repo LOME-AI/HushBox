@@ -38,7 +38,7 @@ describe('createSSEEventWriter', () => {
       });
     });
 
-    it('writes start event with only assistantMessageId for guests', async () => {
+    it('writes start event with only assistantMessageId for trial users', async () => {
       const stream = createMockStream();
       const writer = createSSEEventWriter(stream);
 
@@ -77,17 +77,52 @@ describe('createSSEEventWriter', () => {
       });
     });
 
-    it('writes done event', async () => {
+    it('writes done event with epoch-based metadata', async () => {
       const stream = createMockStream();
       const writer = createSSEEventWriter(stream);
 
-      await writer.writeDone();
+      await writer.writeDone({
+        userMessageId: 'msg-user-001',
+        assistantMessageId: 'msg-asst-002',
+        userSequence: 1,
+        aiSequence: 2,
+        epochNumber: 0,
+        cost: '0.00100000',
+      });
 
       expect(stream.events).toHaveLength(1);
       expect(stream.events[0]).toEqual({
         event: 'done',
-        data: JSON.stringify({}),
+        data: JSON.stringify({
+          userMessageId: 'msg-user-001',
+          assistantMessageId: 'msg-asst-002',
+          userSequence: 1,
+          aiSequence: 2,
+          epochNumber: 0,
+          cost: '0.00100000',
+        }),
       });
+    });
+
+    it('serializes all DoneEventData fields correctly', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      const doneData = {
+        userMessageId: 'uid-abc',
+        assistantMessageId: 'aid-xyz',
+        userSequence: 42,
+        aiSequence: 43,
+        epochNumber: 5,
+        cost: '1.23456789',
+      };
+
+      await writer.writeDone(doneData);
+
+      const firstEvent = stream.events[0];
+      if (!firstEvent) throw new Error('Expected at least one SSE event');
+      const parsed = JSON.parse(firstEvent.data) as Record<string, unknown>;
+      expect(parsed).toStrictEqual(doneData);
     });
   });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { buildPrompt } from './builder.js';
-import type { CapabilityId } from '@lome-chat/shared';
+import type { CapabilityId } from '@hushbox/shared';
 
 describe('buildPrompt', () => {
   beforeEach(() => {
@@ -20,7 +20,7 @@ describe('buildPrompt', () => {
         supportedCapabilities: [],
       });
 
-      expect(result.systemPrompt).toContain('LOME-CHAT');
+      expect(result.systemPrompt).toContain('HushBox');
       expect(result.systemPrompt).toContain('helpful');
     });
 
@@ -120,7 +120,7 @@ describe('buildPrompt', () => {
         supportedCapabilities: capabilities,
       });
 
-      expect(result.systemPrompt).toContain('LOME-CHAT');
+      expect(result.systemPrompt).toContain('HushBox');
       expect(result.systemPrompt).toContain('Python Code Execution');
       expect(result.systemPrompt).toContain('JavaScript Code Execution');
     });
@@ -146,7 +146,7 @@ describe('buildPrompt', () => {
       });
 
       // Base and Python sections should be separated by double newline
-      expect(result.systemPrompt).toMatch(/LOME-CHAT[\s\S]*\n\n[\s\S]*Python/);
+      expect(result.systemPrompt).toMatch(/HushBox[\s\S]*\n\n[\s\S]*Python/);
     });
   });
 });

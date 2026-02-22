@@ -81,6 +81,23 @@ Coding standards for all contributors (human and AI).
 - Type-safe wrappers for all external resources
 - Packages provide safety without network hops
 
+### API Client
+
+- `apps/web/src/lib/api-client.ts` is the single source for all typed API calls
+- All server state management uses TanStack Query hooks wrapping the typed client
+- Never use raw `fetch()` for API endpoints covered by the typed client
+- Hono route definitions are the single source of API types (via `AppType` export)
+
+### Error Responses
+
+- API errors return `{ code: string, details?: object }` — no message field
+- `code` is a machine-readable constant exported from `packages/shared/src/schemas/api/error.ts`
+- Frontend maps `code` → user-facing message via `friendlyErrorMessage()` from `@hushbox/shared`
+- All user-facing error messages live in `packages/shared/src/error-messages.ts`
+- New error codes need: (1) constant in shared error schema, (2) entry in `friendlyErrorMessage` map
+- Budget/billing notifications use `generateNotifications()` (separate system, already user-friendly)
+- Use `createErrorResponse(code, details?)` for all API error responses — never `c.json({ error: ... })`
+
 ### Serverless Mindset
 
 - Handle cold starts gracefully

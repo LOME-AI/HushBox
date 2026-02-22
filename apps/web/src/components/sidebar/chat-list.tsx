@@ -2,12 +2,14 @@ import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { useUIStore } from '@/stores/ui';
 import { ChatItem } from './chat-item';
-import { ROUTES } from '@/lib/routes';
+import { ROUTES } from '@hushbox/shared';
 
 interface Conversation {
   id: string;
   title: string;
+  currentEpoch: number;
   updatedAt: string;
+  privilege: string;
 }
 
 export interface ChatListProps {

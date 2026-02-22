@@ -33,11 +33,11 @@ describe('fireAndForget', () => {
     const error = new Error('Database failure');
     const promise = Promise.reject(error);
 
-    fireAndForget(promise, 'reset guest usage');
+    fireAndForget(promise, 'reset trial usage');
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(console.error).toHaveBeenCalledWith('Failed to reset guest usage:', error);
+    expect(console.error).toHaveBeenCalledWith('Failed to reset trial usage:', error);
   });
 
   it('handles non-Error rejection values', async () => {

@@ -1,10 +1,10 @@
-# LOME-CHAT
+# HushBox
 
-**One interface. Every AI model. Your data stays yours.**
+**One interface. Every AI model. Private.**
 
-LOME-CHAT is a unified AI chat interface that lets you access GPT, Claude, Gemini, Grok, and dozens of other models from a single application. Switch models mid-conversation. Keep your history forever. Never manage another AI subscription.
+HushBox is a unified AI chat interface that lets you access GPT, Claude, Gemini, Grok, and dozens of other models from a single application. Switch models mid-conversation. Keep your history forever. Never manage another AI subscription.
 
-🌐 [lome-chat.com](https://lome-chat.com)
+🌐 [hushbox.ai](https://hushbox.ai)
 
 ---
 
@@ -34,9 +34,24 @@ Your AI history is fragmented across ChatGPT, Claude, Gemini, Perplexity, and wh
 
 ## The Solution
 
-LOME-CHAT ends the cycle. One interface, every model, forever.
+HushBox ends the cycle. One interface, every model, forever.
 
 When a new model launches, you don't migrate—you just select it from the dropdown. Your conversations, your projects, your workflow stay exactly where they are. The AI industry moves fast. Your tools shouldn't force you to move with it.
+
+---
+
+## Encrypted By Default
+
+When you send a message, it's encrypted in transit to the AI model and stored with an encryption key only you hold. We never store plaintext. Our servers cannot read your conversations — even if we wanted to.
+
+**Your password never leaves your device.** We use OPAQUE, the state-of-the-art password protocol, so your password is never transmitted to our servers.
+
+**Your messages are encrypted with your password.** Every message is encrypted in your browser before it's stored. The encryption key is derived from your password — which only you know. Without your password or recovery phrase, your data is inaccessible to everyone, including us.
+
+|                                | ChatGPT | Claude | Gemini | HushBox |
+| ------------------------------ | :-----: | :----: | :----: | :-----: |
+| Stored messages encrypted      |   No    |   No   |   No   | **Yes** |
+| Provider can read stored chats |   Yes   |  Yes   |  Yes   | **No**  |
 
 ---
 
@@ -51,21 +66,20 @@ We believe your conversations with AI are deeply personal. They contain your ide
 - We never sell your data
 - We never train on your conversations
 - We never share your information with data brokers
-- Local-only conversations never touch our servers
 
 **Pseudo-anonymity:**
-When your messages reach AI providers, they see LOME-CHAT's credentials—not yours. Providers cannot link messages to your identity. However, avoid including personal information in messages (names, addresses, financial details) as message content is visible to model providers.
+When your messages reach AI providers, they see HushBox's credentials—not yours. Providers cannot link messages to your identity. However, avoid including personal information in messages (names, addresses, financial details) as message content is visible to model providers.
 
 **What we cannot control:**
 
 - Model providers (OpenAI, Anthropic, Google) have their own data policies
 - We cannot guarantee providers don't log or train on message content
-- Messages are not end-to-end encrypted
+- Message content must be sent to AI providers for inference — this is inherent to how AI models work
 
 **For maximum privacy:**
 
-- Use Local-Only mode (stored only in your browser)
-- Avoid including personal information in messages
+- Avoid including personal information in messages (names, addresses, financial details)
+- Review provider data policies for models you use
 
 ### Radical Transparency
 
@@ -73,7 +87,7 @@ We charge a **{{TOTAL_FEE_PERCENT}} fee** on AI model usage plus a **storage fee
 
 **Fee breakdown ({{TOTAL_FEE_PERCENT}} total on model usage):**
 
-- **{{LOME_FEE_PERCENT}}** — LOME profit margin
+- **{{HUSHBOX_FEE_PERCENT}}** — HushBox profit margin
 - **{{CC_FEE_PERCENT}}** — Credit card processing
 - **{{PROVIDER_FEE_PERCENT}}** — AI provider overhead
 
@@ -110,7 +124,6 @@ This isn't a marketing promise—it's our business model. We make money from the
 - **Model Switching** — Change models mid-conversation, compare outputs
 - **Unified Document Panel** — Code editing, rendering, and word processing in one place
 - **Code Execution** — Run Python and JavaScript in secure sandboxes
-- **Local-Only Mode** — Conversations that never leave your browser
 - **Project Organization** — Group conversations, files, and context together
 
 See [docs/FEATURES.md](./docs/FEATURES.md) for the complete feature list and development phases.
@@ -135,9 +148,9 @@ All code in this repository, including all contributions, is the sole property o
 
 ## Contact
 
-- **Website:** [lome-chat.com](https://lome-chat.com)
-- **Email:** hello@lome-chat.com
-- **Security Issues:** security@lome-chat.com
+- **Website:** [hushbox.ai](https://hushbox.ai)
+- **Email:** hello@hushbox.ai
+- **Security Issues:** security@hushbox.ai
 
 ---
 

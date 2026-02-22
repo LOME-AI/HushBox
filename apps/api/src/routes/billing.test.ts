@@ -7,25 +7,18 @@ import {
   LOCAL_NEON_DEV_CONFIG,
   users,
   payments,
-  balanceTransactions,
-  accounts,
-  sessions,
-} from '@lome-chat/db';
-import { createBillingRoutes } from './billing.js';
-import { createAuthRoutes } from './auth.js';
-import { createAuth } from '../auth/index.js';
-import { createMockEmailClient } from '../services/email/index.js';
+  wallets,
+  ledgerEntries,
+} from '@hushbox/db';
+import { userFactory } from '@hushbox/db/factories';
+import { billingRoute } from './billing.js';
 import { createMockHelcimClient } from '../services/helcim/index.js';
-import { sessionMiddleware } from '../middleware/dependencies.js';
 import type { AppEnv } from '../types.js';
+import type { SessionData } from '../lib/session.js';
 
 // Response types for type-safe JSON parsing
-interface SignupResponse {
-  user?: { id: string };
-}
-
 interface ErrorResponse {
-  error: string;
+  code: string;
 }
 
 interface BalanceResponse {
@@ -39,7 +32,7 @@ interface CreatePaymentResponse {
 }
 
 interface ProcessPaymentConfirmedResponse {
-  status: 'confirmed';
+  status: 'completed';
   newBalance: string;
   helcimTransactionId?: string;
 }
@@ -52,7 +45,7 @@ interface ProcessPaymentProcessingResponse {
 type ProcessPaymentResponse = ProcessPaymentConfirmedResponse | ProcessPaymentProcessingResponse;
 
 interface PaymentStatusResponse {
-  status: 'pending' | 'awaiting_webhook' | 'confirmed' | 'failed';
+  status: 'pending' | 'awaiting_webhook' | 'completed' | 'failed';
   newBalance?: string;
   errorMessage?: string | null;
 }
@@ -80,21 +73,27 @@ if (!DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is required for tests');
 }
 
+function getAuthHeaders(userId: string): Record<string, string> {
+  return { 'X-Test-User-Id': userId };
+}
+
 describe('billing routes', () => {
   const connectionString = DATABASE_URL;
   let db: ReturnType<typeof createDb>;
   let app: Hono<AppEnv>;
   let testUserId: string;
-  let authCookie: string;
   let helcimClient: ReturnType<typeof createMockHelcimClient>;
 
   const TEST_EMAIL = `test-billing-${String(Date.now())}@example.com`;
-  const TEST_PASSWORD = 'TestPassword123!';
-  const TEST_NAME = 'Test Billing User';
+  const TEST_USERNAME = 'test_billing_user';
+
+  // Toggle for phrase guard tests — defaults to true so most tests pass the guard
+  let mockHasAcknowledgedPhrase = true;
 
   // Track created IDs for cleanup
   const createdPaymentIds: string[] = [];
-  const createdTransactionIds: string[] = [];
+  const createdLedgerEntryIds: string[] = [];
+  let testWalletId: string;
 
   beforeAll(async () => {
     db = createDb({ connectionString, neonDev: LOCAL_NEON_DEV_CONFIG });
@@ -103,21 +102,35 @@ describe('billing routes', () => {
       webhookVerifier: 'dGVzdC12ZXJpZmllcg==', // gitleaks:allow
     });
 
-    const emailClient = createMockEmailClient();
-    const auth = createAuth({
-      db,
-      emailClient,
-      baseUrl: 'http://localhost:8787',
-      secret: 'test-secret-key-at-least-32-characters-long', // gitleaks:allow
-      frontendUrl: 'http://localhost:5173',
+    // Create test user using factory (provides all required bytea columns)
+    const userData = userFactory.build({
+      email: TEST_EMAIL,
+      username: 'test_billing_user',
+      emailVerified: true,
     });
+    const [createdUser] = await db.insert(users).values(userData).returning();
+    if (!createdUser) throw new Error('Failed to create test user');
+    testUserId = createdUser.id;
 
-    // Create the app with auth and billing routes
+    // Create a purchased wallet for the test user (wallet-based balance system)
+    const [createdWallet] = await db
+      .insert(wallets)
+      .values({
+        userId: testUserId,
+        type: 'purchased',
+        balance: '0.00000000',
+        priority: 0,
+      })
+      .returning();
+    if (!createdWallet) throw new Error('Failed to create test wallet');
+    testWalletId = createdWallet.id;
+
+    // Create the app with billing routes
     app = new Hono<AppEnv>();
-    // Set db, auth, helcim, and envUtils on context for all routes
+    // OPAQUE-MIGRATION: Remove X-Test-User-Id mock auth once OPAQUE auth is implemented (Phase 9)
+    // Currently using header-based auth mock because Better Auth is stubbed during migration
     app.use('*', async (c, next) => {
       c.set('db', db);
-      c.set('auth', auth);
       c.set('helcim', helcimClient);
       c.set('envUtils', {
         isCI: false,
@@ -127,75 +140,99 @@ describe('billing routes', () => {
         isProduction: false,
         requiresRealServices: false,
       });
+      // Only set user/session when X-Test-User-Id header is present
+      const testUserIdHeader = c.req.header('X-Test-User-Id');
+      if (testUserIdHeader) {
+        const sessionData: SessionData = {
+          sessionId: `test-session-${testUserIdHeader}`,
+          userId: testUserIdHeader,
+          email: TEST_EMAIL,
+          username: TEST_USERNAME,
+          emailVerified: true,
+          totpEnabled: false,
+          hasAcknowledgedPhrase: mockHasAcknowledgedPhrase,
+          pending2FA: false,
+          pending2FAExpiresAt: 0,
+          createdAt: Date.now(),
+        };
+        c.set('user', {
+          id: testUserIdHeader,
+          email: TEST_EMAIL,
+          username: TEST_USERNAME,
+          emailVerified: true,
+          totpEnabled: false,
+          hasAcknowledgedPhrase: mockHasAcknowledgedPhrase,
+          publicKey: new Uint8Array(32),
+        });
+        c.set('session', sessionData);
+        c.set('sessionData', sessionData);
+      }
       await next();
     });
-    app.use('*', sessionMiddleware());
-    app.route('/api/auth', createAuthRoutes(auth));
-    app.route('/billing', createBillingRoutes());
-
-    // Create user via HTTP request to auth endpoint
-    const signupRes = await app.request('/api/auth/sign-up/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: TEST_EMAIL,
-        password: TEST_PASSWORD,
-        name: TEST_NAME,
-      }),
-    });
-
-    if (!signupRes.ok) {
-      throw new Error(`Signup failed: ${await signupRes.text()}`);
-    }
-
-    const signupData = (await signupRes.json()) as SignupResponse;
-    testUserId = signupData.user?.id ?? '';
-    if (!testUserId) {
-      throw new Error('Signup failed - no user ID returned');
-    }
-
-    // Mark email as verified (bypass email verification for testing)
-    await db.update(users).set({ emailVerified: true }).where(eq(users.id, testUserId));
-
-    // Now sign in to get a session cookie
-    const signinRes = await app.request('/api/auth/sign-in/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: TEST_EMAIL,
-        password: TEST_PASSWORD,
-      }),
-    });
-
-    if (!signinRes.ok) {
-      throw new Error(`Signin failed: ${await signinRes.text()}`);
-    }
-
-    const setCookie = signinRes.headers.get('set-cookie');
-    if (setCookie) {
-      authCookie = setCookie.split(';')[0] ?? '';
-    } else {
-      throw new Error('Signin succeeded but no session cookie returned');
-    }
+    app.route('/billing', billingRoute);
   });
 
   afterAll(async () => {
-    // Clean up created records
-    if (createdTransactionIds.length > 0) {
-      await db
-        .delete(balanceTransactions)
-        .where(inArray(balanceTransactions.id, createdTransactionIds));
+    // Clean up created records (ledger entries cascade from wallets, but clean explicitly first)
+    if (createdLedgerEntryIds.length > 0) {
+      await db.delete(ledgerEntries).where(inArray(ledgerEntries.id, createdLedgerEntryIds));
     }
     if (createdPaymentIds.length > 0) {
       await db.delete(payments).where(inArray(payments.id, createdPaymentIds));
     }
 
+    // Clean up wallet (ledger entries cascade)
+    if (testWalletId) {
+      await db.delete(wallets).where(eq(wallets.id, testWalletId));
+    }
+
     // Clean up test user
     if (testUserId) {
-      await db.delete(sessions).where(eq(sessions.userId, testUserId));
-      await db.delete(accounts).where(eq(accounts.userId, testUserId));
       await db.delete(users).where(eq(users.id, testUserId));
     }
+  });
+
+  describe('phrase guard', () => {
+    beforeAll(() => {
+      mockHasAcknowledgedPhrase = false;
+    });
+
+    afterAll(() => {
+      mockHasAcknowledgedPhrase = true;
+    });
+
+    it('allows GET /billing/balance without phrase acknowledgment (read-only)', async () => {
+      const res = await app.request('/billing/balance', {
+        headers: getAuthHeaders(testUserId),
+      });
+
+      // Read routes should not require phrase acknowledgment
+      expect(res.status).toBe(200);
+    });
+
+    it('returns 403 for POST /billing/payments when phrase not acknowledged', async () => {
+      const res = await app.request('/billing/payments', {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(testUserId),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ amount: '10.00000000' }),
+      });
+
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as ErrorResponse;
+      expect(body.code).toBe('PHRASE_REQUIRED');
+    });
+
+    it('allows GET /billing/transactions without phrase acknowledgment (read-only)', async () => {
+      const res = await app.request('/billing/transactions', {
+        headers: getAuthHeaders(testUserId),
+      });
+
+      // Read routes should not require phrase acknowledgment
+      expect(res.status).toBe(200);
+    });
   });
 
   describe('GET /billing/balance', () => {
@@ -207,7 +244,7 @@ describe('billing routes', () => {
 
     it('returns user balance and free allowance', async () => {
       const res = await app.request('/billing/balance', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
 
       expect(res.status).toBe(200);
@@ -220,7 +257,7 @@ describe('billing routes', () => {
 
     it('returns balance as numeric string with decimal precision', async () => {
       const res = await app.request('/billing/balance', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
 
       expect(res.status).toBe(200);
@@ -246,7 +283,7 @@ describe('billing routes', () => {
       const res = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount: '10.00000000' }),
@@ -263,13 +300,43 @@ describe('billing routes', () => {
       const res = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({}),
       });
 
       expect(res.status).toBe(400);
+    });
+
+    it('returns existing payment when same idempotencyKey is used', async () => {
+      const idempotencyKey = crypto.randomUUID();
+
+      const res1 = await app.request('/billing/payments', {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(testUserId),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ amount: '10.00000000', idempotencyKey }),
+      });
+      expect(res1.status).toBe(201);
+      const data1 = (await res1.json()) as CreatePaymentResponse;
+      createdPaymentIds.push(data1.paymentId);
+
+      const res2 = await app.request('/billing/payments', {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(testUserId),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ amount: '10.00000000', idempotencyKey }),
+      });
+      expect(res2.status).toBe(201);
+      const data2 = (await res2.json()) as CreatePaymentResponse;
+
+      expect(data2.paymentId).toBe(data1.paymentId);
+      expect(data2.amount).toBe(data1.amount);
     });
   });
 
@@ -288,7 +355,7 @@ describe('billing routes', () => {
       const res = await app.request('/billing/payments/non-existent-id/process', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
@@ -302,7 +369,7 @@ describe('billing routes', () => {
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount: '25.00000000' }),
@@ -316,7 +383,7 @@ describe('billing routes', () => {
       const processRes = await app.request(`/billing/payments/${createData.paymentId}/process`, {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ cardToken: 'test-token-123', customerCode: 'CST1234' }),
@@ -340,7 +407,7 @@ describe('billing routes', () => {
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount: '10.00000000' }),
@@ -353,7 +420,7 @@ describe('billing routes', () => {
       const processRes = await app.request(`/billing/payments/${createData.paymentId}/process`, {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ cardToken: 'test-token-456', customerCode: 'CST1234' }),
@@ -361,7 +428,7 @@ describe('billing routes', () => {
 
       expect(processRes.status).toBe(400);
       const errorData = (await processRes.json()) as ErrorResponse;
-      expect(errorData.error).toBe('Card declined');
+      expect(errorData.code).toBe('PAYMENT_DECLINED');
 
       // Reset mock to approved for other tests
       helcimClient.setNextResponse({
@@ -378,7 +445,7 @@ describe('billing routes', () => {
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount: '5.00000000' }),
@@ -390,7 +457,7 @@ describe('billing routes', () => {
       await app.request(`/billing/payments/${createData.paymentId}/process`, {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
           'cf-connecting-ip': '203.0.113.42',
         },
@@ -408,7 +475,7 @@ describe('billing routes', () => {
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount: '5.00000000' }),
@@ -420,7 +487,7 @@ describe('billing routes', () => {
       await app.request(`/billing/payments/${createData.paymentId}/process`, {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
           'x-forwarded-for': '198.51.100.178, 70.41.3.18',
         },
@@ -438,7 +505,7 @@ describe('billing routes', () => {
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount: '5.00000000' }),
@@ -450,7 +517,7 @@ describe('billing routes', () => {
       await app.request(`/billing/payments/${createData.paymentId}/process`, {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
@@ -466,7 +533,7 @@ describe('billing routes', () => {
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount: '5.00000000' }),
@@ -479,7 +546,7 @@ describe('billing routes', () => {
       await app.request(`/billing/payments/${createData.paymentId}/process`, {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
@@ -491,7 +558,7 @@ describe('billing routes', () => {
         {
           method: 'POST',
           headers: {
-            Cookie: authCookie,
+            ...getAuthHeaders(testUserId),
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
@@ -500,7 +567,108 @@ describe('billing routes', () => {
 
       expect(secondProcessRes.status).toBe(400);
       const errorData = (await secondProcessRes.json()) as ErrorResponse;
-      expect(errorData.error).toBe('Payment already processed');
+      expect(errorData.code).toBe('PAYMENT_ALREADY_PROCESSED');
+    });
+
+    it('does not overwrite completed payment with failed status', async () => {
+      // Create payment
+      const createRes = await app.request('/billing/payments', {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(testUserId),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ amount: '10.00000000' }),
+      });
+
+      const createData = (await createRes.json()) as CreatePaymentResponse;
+      createdPaymentIds.push(createData.paymentId);
+
+      // Simulate webhook completed the payment before decline response
+      await db
+        .update(payments)
+        .set({ status: 'completed', updatedAt: new Date() })
+        .where(eq(payments.id, createData.paymentId));
+
+      // Set mock to decline
+      helcimClient.setNextResponse({
+        status: 'declined',
+        errorMessage: 'Card declined',
+      });
+
+      // Try to process - should not overwrite completed status
+      const processRes = await app.request(`/billing/payments/${createData.paymentId}/process`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(testUserId),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
+      });
+
+      // Should reject because status is not 'pending'
+      expect(processRes.status).toBe(400);
+
+      // Verify payment is still completed
+      const [payment] = await db
+        .select()
+        .from(payments)
+        .where(eq(payments.id, createData.paymentId));
+      expect(payment?.status).toBe('completed');
+
+      // Reset mock
+      helcimClient.setNextResponse({
+        status: 'approved',
+        transactionId: 'mock-txn',
+        cardType: 'Visa',
+        cardLastFour: '9990',
+      });
+    });
+
+    it('does not overwrite completed payment with expired status', async () => {
+      // Create payment
+      const createRes = await app.request('/billing/payments', {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(testUserId),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ amount: '10.00000000' }),
+      });
+
+      const createData = (await createRes.json()) as CreatePaymentResponse;
+      createdPaymentIds.push(createData.paymentId);
+
+      // Simulate: payment was completed by webhook AND has old createdAt
+      const expiredTime = new Date(Date.now() - 31 * 60 * 1000); // 31 minutes ago
+      await db
+        .update(payments)
+        .set({
+          status: 'completed',
+          createdAt: expiredTime,
+          updatedAt: new Date(),
+        })
+        .where(eq(payments.id, createData.paymentId));
+
+      // Try to process - should not overwrite completed with expired/failed
+      const processRes = await app.request(`/billing/payments/${createData.paymentId}/process`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(testUserId),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
+      });
+
+      // Should reject because status is not 'pending'
+      expect(processRes.status).toBe(400);
+
+      // Verify payment is still completed (not overwritten to 'failed')
+      const [payment] = await db
+        .select()
+        .from(payments)
+        .where(eq(payments.id, createData.paymentId));
+      expect(payment?.status).toBe('completed');
     });
   });
 
@@ -513,7 +681,7 @@ describe('billing routes', () => {
 
     it('returns 404 for non-existent payment', async () => {
       const res = await app.request('/billing/payments/non-existent-id', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
 
       expect(res.status).toBe(404);
@@ -524,7 +692,7 @@ describe('billing routes', () => {
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount: '15.00000000' }),
@@ -535,7 +703,7 @@ describe('billing routes', () => {
 
       // Get its status
       const statusRes = await app.request(`/billing/payments/${createData.paymentId}`, {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
 
       expect(statusRes.status).toBe(200);
@@ -553,7 +721,7 @@ describe('billing routes', () => {
 
     it('returns transaction history', async () => {
       const res = await app.request('/billing/transactions', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
 
       expect(res.status).toBe(200);
@@ -563,7 +731,7 @@ describe('billing routes', () => {
 
     it('respects limit parameter', async () => {
       const res = await app.request('/billing/transactions?limit=5', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
 
       expect(res.status).toBe(200);
@@ -572,42 +740,39 @@ describe('billing routes', () => {
     });
 
     it('filters by type=deposit to return only deposits', async () => {
-      // Create a deposit transaction directly in DB
-      // (Mock payments go through webhook flow, so we create deposit directly for this test)
-      const [depositTransaction] = await db
-        .insert(balanceTransactions)
+      // Create a deposit ledger entry directly in DB
+      const [depositEntry] = await db
+        .insert(ledgerEntries)
         .values({
-          userId: testUserId,
+          walletId: testWalletId,
           amount: '10.00000000',
           balanceAfter: '20.00000000',
-          type: 'deposit',
+          entryType: 'deposit',
+          sourceWalletId: testWalletId,
         })
         .returning();
-      if (depositTransaction) {
-        createdTransactionIds.push(depositTransaction.id);
+      if (depositEntry) {
+        createdLedgerEntryIds.push(depositEntry.id);
       }
 
-      // Create a usage transaction directly in DB
-      const [usageTransaction] = await db
-        .insert(balanceTransactions)
+      // Create a usage_charge ledger entry directly in DB
+      const [usageEntry] = await db
+        .insert(ledgerEntries)
         .values({
-          userId: testUserId,
+          walletId: testWalletId,
           amount: '-0.50000000',
           balanceAfter: '9.50000000',
-          type: 'usage',
-          model: 'openai/gpt-4o-mini',
-          inputCharacters: 500,
-          outputCharacters: 200,
-          deductionSource: 'balance',
+          entryType: 'usage_charge',
+          sourceWalletId: testWalletId,
         })
         .returning();
-      if (usageTransaction) {
-        createdTransactionIds.push(usageTransaction.id);
+      if (usageEntry) {
+        createdLedgerEntryIds.push(usageEntry.id);
       }
 
       // Query with type=deposit
       const res = await app.request('/billing/transactions?type=deposit', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
 
       expect(res.status).toBe(200);
@@ -620,44 +785,41 @@ describe('billing routes', () => {
       }
     });
 
-    it('filters by type=usage to return only usage charges', async () => {
-      // Create a usage transaction directly in DB
-      const [usageTransaction] = await db
-        .insert(balanceTransactions)
+    it('filters by type=usage_charge to return only usage transactions', async () => {
+      // Create a usage_charge ledger entry directly in DB
+      const [usageEntry] = await db
+        .insert(ledgerEntries)
         .values({
-          userId: testUserId,
+          walletId: testWalletId,
           amount: '-0.25000000',
           balanceAfter: '9.25000000',
-          type: 'usage',
-          model: 'anthropic/claude-3-opus',
-          inputCharacters: 300,
-          outputCharacters: 150,
-          deductionSource: 'balance',
+          entryType: 'usage_charge',
+          sourceWalletId: testWalletId,
         })
         .returning();
-      if (usageTransaction) {
-        createdTransactionIds.push(usageTransaction.id);
+      if (usageEntry) {
+        createdLedgerEntryIds.push(usageEntry.id);
       }
 
-      // Query with type=usage
-      const res = await app.request('/billing/transactions?type=usage', {
-        headers: { Cookie: authCookie },
+      // Query with type=usage_charge
+      const res = await app.request('/billing/transactions?type=usage_charge', {
+        headers: getAuthHeaders(testUserId),
       });
 
       expect(res.status).toBe(200);
       const data = (await res.json()) as TransactionsResponse;
 
-      // All returned transactions should be usage
+      // All returned transactions should be usage_charge
       expect(data.transactions.length).toBeGreaterThan(0);
       for (const tx of data.transactions) {
-        expect(tx.type).toBe('usage');
+        expect(tx.type).toBe('usage_charge');
       }
     });
 
     it('returns all transaction types when no type filter is provided', async () => {
       // Query without type filter
       const res = await app.request('/billing/transactions', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
 
       expect(res.status).toBe(200);
@@ -673,7 +835,7 @@ describe('billing routes', () => {
       const firstPageRes = await app.request(
         '/billing/transactions?type=deposit&limit=2&offset=0',
         {
-          headers: { Cookie: authCookie },
+          headers: getAuthHeaders(testUserId),
         }
       );
 
@@ -684,7 +846,7 @@ describe('billing routes', () => {
       const secondPageRes = await app.request(
         '/billing/transactions?type=deposit&limit=2&offset=2',
         {
-          headers: { Cookie: authCookie },
+          headers: getAuthHeaders(testUserId),
         }
       );
 

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/unbound-method -- vitest mocks are self-bound */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -9,25 +8,63 @@ import {
   useConversation,
   useMessages,
   useCreateConversation,
-  useSendMessage,
   useDeleteConversation,
   useUpdateConversation,
+  useDecryptedConversations,
 } from './chat';
 
-// Mock the api module
-vi.mock('../lib/api', () => ({
-  api: {
-    get: vi.fn(),
-    post: vi.fn(),
-    patch: vi.fn(),
-    delete: vi.fn(),
-  },
-  getApiUrl: () => 'http://localhost:8787',
+// Mock auth to break transitive import chain to api.ts (env parse)
+vi.mock('../lib/auth', () => ({
+  useAuthStore: vi.fn((selector: (s: { privateKey: null }) => unknown) =>
+    selector({ privateKey: null })
+  ),
 }));
 
-import { api } from '../lib/api';
+// Mock crypto and epoch-key-cache (used by useDecryptedConversations)
+const mockDecryptMessage = vi.fn();
+vi.mock('@hushbox/crypto', () => ({
+  decryptMessage: (...args: unknown[]) => mockDecryptMessage(...args),
+}));
 
-const mockApi = vi.mocked(api);
+vi.mock('@hushbox/shared', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@hushbox/shared')>();
+  return {
+    ...original,
+    fromBase64: vi.fn((s: string) => new Uint8Array(Buffer.from(s, 'base64'))),
+  };
+});
+
+const mockGetEpochKey = vi.fn(() => undefined as Uint8Array | undefined);
+vi.mock('../lib/epoch-key-cache', () => ({
+  getEpochKey: () => mockGetEpochKey(),
+  processKeyChain: vi.fn(),
+  subscribe: vi.fn(() => () => {}),
+  getSnapshot: vi.fn(() => 0),
+}));
+
+// Mock the api-client module
+const mockFetchJson = vi.fn();
+vi.mock('../lib/api-client', () => ({
+  client: {
+    api: {
+      conversations: {
+        $get: vi.fn(),
+        $post: vi.fn(),
+        ':id': {
+          $get: vi.fn(),
+          $delete: vi.fn(),
+          $patch: vi.fn(),
+        },
+      },
+      keys: {
+        ':conversationId': {
+          $get: vi.fn(),
+        },
+      },
+    },
+  },
+  fetchJson: (...args: unknown[]) => mockFetchJson(...args),
+}));
 
 function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
   const queryClient = new QueryClient({
@@ -93,9 +130,12 @@ describe('useConversations', () => {
         title: 'Test',
         createdAt: '2024-01-01',
         updatedAt: '2024-01-01',
+        accepted: true,
+        invitedByUsername: null,
+        privilege: 'owner',
       },
     ];
-    mockApi.get.mockResolvedValueOnce({ conversations: mockConversations });
+    mockFetchJson.mockResolvedValueOnce({ conversations: mockConversations });
 
     const { result } = renderHook(() => useConversations(), { wrapper: createWrapper() });
 
@@ -103,12 +143,12 @@ describe('useConversations', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.get).toHaveBeenCalledWith('/api/conversations');
+    expect(mockFetchJson).toHaveBeenCalledTimes(1);
     expect(result.current.data).toEqual(mockConversations);
   });
 
   it('handles API errors', async () => {
-    mockApi.get.mockRejectedValueOnce(new Error('Network error'));
+    mockFetchJson.mockRejectedValueOnce(new Error('Network error'));
 
     const { result } = renderHook(() => useConversations(), { wrapper: createWrapper() });
 
@@ -146,7 +186,7 @@ describe('useConversation', () => {
         createdAt: '2024-01-01',
       },
     ];
-    mockApi.get.mockResolvedValueOnce({ conversation: mockConversation, messages: mockMessages });
+    mockFetchJson.mockResolvedValueOnce({ conversation: mockConversation, messages: mockMessages });
 
     const { result } = renderHook(() => useConversation('conv-1'), { wrapper: createWrapper() });
 
@@ -154,7 +194,7 @@ describe('useConversation', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.get).toHaveBeenCalledWith('/api/conversations/conv-1');
+    expect(mockFetchJson).toHaveBeenCalledTimes(1);
     expect(result.current.data).toEqual(mockConversation);
   });
 
@@ -162,7 +202,7 @@ describe('useConversation', () => {
     const { result } = renderHook(() => useConversation(''), { wrapper: createWrapper() });
 
     expect(result.current.fetchStatus).toBe('idle');
-    expect(mockApi.get).not.toHaveBeenCalled();
+    expect(mockFetchJson).not.toHaveBeenCalled();
   });
 });
 
@@ -187,19 +227,29 @@ describe('useMessages', () => {
       {
         id: 'msg-1',
         conversationId: 'conv-1',
-        role: 'user',
-        content: 'Hello',
+        encryptedBlob: 'blob-1',
+        senderType: 'user',
+        senderId: 'user-1',
+        senderDisplayName: null,
+        payerId: null,
+        epochNumber: 1,
+        sequenceNumber: 0,
         createdAt: '2024-01-01',
       },
       {
         id: 'msg-2',
         conversationId: 'conv-1',
-        role: 'assistant',
-        content: 'Hi!',
+        encryptedBlob: 'blob-2',
+        senderType: 'ai',
+        senderId: null,
+        senderDisplayName: null,
+        payerId: null,
+        epochNumber: 1,
+        sequenceNumber: 1,
         createdAt: '2024-01-01',
       },
     ];
-    mockApi.get.mockResolvedValueOnce({ conversation: mockConversation, messages: mockMessages });
+    mockFetchJson.mockResolvedValueOnce({ conversation: mockConversation, messages: mockMessages });
 
     const { result } = renderHook(() => useMessages('conv-1'), { wrapper: createWrapper() });
 
@@ -207,7 +257,7 @@ describe('useMessages', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.get).toHaveBeenCalledWith('/api/conversations/conv-1');
+    expect(mockFetchJson).toHaveBeenCalledTimes(1);
     expect(result.current.data).toEqual(mockMessages);
   });
 
@@ -215,11 +265,11 @@ describe('useMessages', () => {
     const { result } = renderHook(() => useMessages(''), { wrapper: createWrapper() });
 
     expect(result.current.fetchStatus).toBe('idle');
-    expect(mockApi.get).not.toHaveBeenCalled();
+    expect(mockFetchJson).not.toHaveBeenCalled();
   });
 
   it('handles API errors', async () => {
-    mockApi.get.mockRejectedValueOnce(new Error('Conversation not found'));
+    mockFetchJson.mockRejectedValueOnce(new Error('Conversation not found'));
 
     const { result } = renderHook(() => useMessages('invalid-id'), { wrapper: createWrapper() });
 
@@ -250,24 +300,27 @@ describe('useCreateConversation', () => {
         updatedAt: '2024-01-01',
       },
     };
-    mockApi.post.mockResolvedValueOnce(mockResponse);
+    mockFetchJson.mockResolvedValueOnce(mockResponse);
 
     const { result } = renderHook(() => useCreateConversation(), { wrapper: createWrapper() });
 
-    result.current.mutate({ id: 'conv-1', title: 'New Chat' });
+    result.current.mutate({
+      id: 'conv-1',
+      title: 'New Chat',
+      epochPublicKey: 'test-epoch-key',
+      confirmationHash: 'test-hash',
+      memberWrap: 'test-wrap',
+    });
 
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.post).toHaveBeenCalledWith('/api/conversations', {
-      id: 'conv-1',
-      title: 'New Chat',
-    });
+    expect(mockFetchJson).toHaveBeenCalledTimes(1);
     expect(result.current.data).toEqual(mockResponse);
   });
 
-  it('returns conversation and message when firstMessage provided', async () => {
+  it('creates conversation without firstMessage field', async () => {
     const mockResponse = {
       conversation: {
         id: 'conv-1',
@@ -276,148 +329,43 @@ describe('useCreateConversation', () => {
         createdAt: '2024-01-01',
         updatedAt: '2024-01-01',
       },
-      message: {
-        id: 'msg-1',
-        conversationId: 'conv-1',
-        role: 'user',
-        content: 'Hello!',
-        createdAt: '2024-01-01',
-      },
     };
-    mockApi.post.mockResolvedValueOnce(mockResponse);
+    mockFetchJson.mockResolvedValueOnce(mockResponse);
 
     const { result } = renderHook(() => useCreateConversation(), { wrapper: createWrapper() });
 
-    result.current.mutate({ id: 'conv-1', firstMessage: { content: 'Hello!' } });
+    result.current.mutate({
+      id: 'conv-1',
+      epochPublicKey: 'test-epoch-key',
+      confirmationHash: 'test-hash',
+      memberWrap: 'test-wrap',
+    });
 
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.post).toHaveBeenCalledWith('/api/conversations', {
-      id: 'conv-1',
-      firstMessage: { content: 'Hello!' },
-    });
-    expect(result.current.data?.message?.content).toBe('Hello!');
+    expect(mockFetchJson).toHaveBeenCalledTimes(1);
   });
 
   it('handles API errors correctly', async () => {
-    mockApi.post.mockRejectedValueOnce(new Error('Unauthorized'));
+    mockFetchJson.mockRejectedValueOnce(new Error('Unauthorized'));
 
     const { result } = renderHook(() => useCreateConversation(), { wrapper: createWrapper() });
 
-    result.current.mutate({ id: 'conv-error', title: 'Test' });
+    result.current.mutate({
+      id: 'conv-error',
+      title: 'Test',
+      epochPublicKey: 'test-epoch-key',
+      confirmationHash: 'test-hash',
+      memberWrap: 'test-wrap',
+    });
 
     await waitFor(() => {
       expect(result.current.isError).toBe(true);
     });
 
     expect(result.current.error?.message).toBe('Unauthorized');
-  });
-});
-
-describe('useSendMessage', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  afterEach(() => {
-    vi.resetAllMocks();
-  });
-
-  it('calls POST /conversations/:id/messages with correct body', async () => {
-    const mockResponse = {
-      message: {
-        id: 'msg-1',
-        conversationId: 'conv-1',
-        role: 'user',
-        content: 'Hello AI!',
-        createdAt: '2024-01-01',
-      },
-    };
-    mockApi.post.mockResolvedValueOnce(mockResponse);
-
-    const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper() });
-
-    result.current.mutate({
-      conversationId: 'conv-1',
-      message: { role: 'user', content: 'Hello AI!' },
-    });
-
-    await waitFor(() => {
-      expect(result.current.isSuccess).toBe(true);
-    });
-
-    expect(mockApi.post).toHaveBeenCalledWith('/api/conversations/conv-1/messages', {
-      role: 'user',
-      content: 'Hello AI!',
-    });
-    expect(result.current.data).toEqual(mockResponse);
-  });
-
-  it('includes model field when provided', async () => {
-    const mockResponse = {
-      message: {
-        id: 'msg-1',
-        conversationId: 'conv-1',
-        role: 'assistant',
-        content: 'Response',
-        model: 'gpt-4',
-        createdAt: '2024-01-01',
-      },
-    };
-    mockApi.post.mockResolvedValueOnce(mockResponse);
-
-    const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper() });
-
-    result.current.mutate({
-      conversationId: 'conv-1',
-      message: { role: 'assistant', content: 'Response', model: 'gpt-4' },
-    });
-
-    await waitFor(() => {
-      expect(result.current.isSuccess).toBe(true);
-    });
-
-    expect(mockApi.post).toHaveBeenCalledWith('/api/conversations/conv-1/messages', {
-      role: 'assistant',
-      content: 'Response',
-      model: 'gpt-4',
-    });
-  });
-
-  it('handles conversation not found error', async () => {
-    mockApi.post.mockRejectedValueOnce(new Error('Conversation not found'));
-
-    const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper() });
-
-    result.current.mutate({
-      conversationId: 'invalid-id',
-      message: { role: 'user', content: 'Hello' },
-    });
-
-    await waitFor(() => {
-      expect(result.current.isError).toBe(true);
-    });
-
-    expect(result.current.error?.message).toBe('Conversation not found');
-  });
-
-  it('handles validation errors for empty content', async () => {
-    mockApi.post.mockRejectedValueOnce(new Error('Validation failed'));
-
-    const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper() });
-
-    result.current.mutate({
-      conversationId: 'conv-1',
-      message: { role: 'user', content: '' },
-    });
-
-    await waitFor(() => {
-      expect(result.current.isError).toBe(true);
-    });
-
-    expect(result.current.error?.message).toBe('Validation failed');
   });
 });
 
@@ -432,7 +380,7 @@ describe('useDeleteConversation', () => {
 
   it('calls DELETE /conversations/:id', async () => {
     const mockResponse = { deleted: true };
-    mockApi.delete.mockResolvedValueOnce(mockResponse);
+    mockFetchJson.mockResolvedValueOnce(mockResponse);
 
     const { result } = renderHook(() => useDeleteConversation(), { wrapper: createWrapper() });
 
@@ -442,12 +390,12 @@ describe('useDeleteConversation', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.delete).toHaveBeenCalledWith('/api/conversations/conv-1');
+    expect(mockFetchJson).toHaveBeenCalledTimes(1);
     expect(result.current.data).toEqual(mockResponse);
   });
 
   it('handles 404 error when conversation already deleted', async () => {
-    mockApi.delete.mockRejectedValueOnce(new Error('Conversation not found'));
+    mockFetchJson.mockRejectedValueOnce(new Error('Conversation not found'));
 
     const { result } = renderHook(() => useDeleteConversation(), { wrapper: createWrapper() });
 
@@ -461,7 +409,7 @@ describe('useDeleteConversation', () => {
   });
 
   it('handles unauthorized error', async () => {
-    mockApi.delete.mockRejectedValueOnce(new Error('Unauthorized'));
+    mockFetchJson.mockRejectedValueOnce(new Error('Unauthorized'));
 
     const { result } = renderHook(() => useDeleteConversation(), { wrapper: createWrapper() });
 
@@ -494,33 +442,31 @@ describe('useUpdateConversation', () => {
         updatedAt: '2024-01-02',
       },
     };
-    mockApi.patch.mockResolvedValueOnce(mockResponse);
+    mockFetchJson.mockResolvedValueOnce(mockResponse);
 
     const { result } = renderHook(() => useUpdateConversation(), { wrapper: createWrapper() });
 
     result.current.mutate({
       conversationId: 'conv-1',
-      data: { title: 'Updated Title' },
+      data: { title: 'Updated Title', titleEpochNumber: 1 },
     });
 
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.patch).toHaveBeenCalledWith('/api/conversations/conv-1', {
-      title: 'Updated Title',
-    });
+    expect(mockFetchJson).toHaveBeenCalledTimes(1);
     expect(result.current.data?.conversation.title).toBe('Updated Title');
   });
 
   it('handles 404 error for non-existent conversation', async () => {
-    mockApi.patch.mockRejectedValueOnce(new Error('Conversation not found'));
+    mockFetchJson.mockRejectedValueOnce(new Error('Conversation not found'));
 
     const { result } = renderHook(() => useUpdateConversation(), { wrapper: createWrapper() });
 
     result.current.mutate({
       conversationId: 'invalid-id',
-      data: { title: 'New Title' },
+      data: { title: 'New Title', titleEpochNumber: 1 },
     });
 
     await waitFor(() => {
@@ -531,13 +477,13 @@ describe('useUpdateConversation', () => {
   });
 
   it('handles validation error for empty title', async () => {
-    mockApi.patch.mockRejectedValueOnce(new Error('Title is required'));
+    mockFetchJson.mockRejectedValueOnce(new Error('Title is required'));
 
     const { result } = renderHook(() => useUpdateConversation(), { wrapper: createWrapper() });
 
     result.current.mutate({
       conversationId: 'conv-1',
-      data: { title: '' },
+      data: { title: '', titleEpochNumber: 1 },
     });
 
     await waitFor(() => {
@@ -548,14 +494,14 @@ describe('useUpdateConversation', () => {
   });
 
   it('handles validation error for title exceeding max length', async () => {
-    mockApi.patch.mockRejectedValueOnce(new Error('Title too long'));
+    mockFetchJson.mockRejectedValueOnce(new Error('Title too long'));
 
     const { result } = renderHook(() => useUpdateConversation(), { wrapper: createWrapper() });
 
     const longTitle = 'a'.repeat(256);
     result.current.mutate({
       conversationId: 'conv-1',
-      data: { title: longTitle },
+      data: { title: longTitle, titleEpochNumber: 1 },
     });
 
     await waitFor(() => {
@@ -563,5 +509,51 @@ describe('useUpdateConversation', () => {
     });
 
     expect(result.current.error?.message).toBe('Title too long');
+  });
+});
+
+describe('useDecryptedConversations', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('shows Encrypted conversation placeholder when decryption throws', async () => {
+    const mockConversations = [
+      {
+        id: 'conv-1',
+        userId: 'user-1',
+        title: 'base64encryptedblob',
+        titleEpochNumber: 1,
+        currentEpoch: 1,
+        nextSequence: 0,
+        createdAt: '2024-01-01',
+        updatedAt: '2024-01-01',
+        accepted: true,
+        invitedByUsername: null,
+        privilege: 'owner',
+      },
+    ];
+    mockFetchJson.mockResolvedValueOnce({ conversations: mockConversations });
+
+    // Epoch key is available so decryption path is reached
+    mockGetEpochKey.mockReturnValue(new Uint8Array(32).fill(1));
+    // Decryption throws (e.g., wrong key or corrupt blob)
+    mockDecryptMessage.mockImplementation(() => {
+      throw new Error('Decryption failed');
+    });
+
+    const { result } = renderHook(() => useDecryptedConversations(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.data).toBeDefined();
+    });
+
+    expect(result.current.data![0]!.title).toBe('Encrypted conversation');
   });
 });

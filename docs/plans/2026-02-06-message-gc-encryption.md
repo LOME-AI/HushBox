@@ -2,7 +2,7 @@
 
 ## Context
 
-Complete transition of LOME-CHAT from current DEK-based encryption + REST API to the new epoch-based E2EE architecture with Hono RPC, Durable Objects, group conversations, shared links, budget system, and wallet-based billing. No existing users — clean slate. The authoritative specification is the design document provided by the user (Parts 1–17).
+Complete transition of HushBox from current DEK-based encryption + REST API to the new epoch-based E2EE architecture with Hono RPC, Durable Objects, group conversations, shared links, budget system, and wallet-based billing. No existing users — clean slate. The authoritative specification is the design document provided by the user (Parts 1–17).
 
 This change is needed because the current architecture uses a Data Encryption Key (DEK) model that doesn't support group conversations, public link sharing, or server-side encryption of AI responses. The new epoch-based ECIES system enables all of these while maintaining the guarantee that the server can encrypt but never decrypt message content.
 
@@ -10,23 +10,24 @@ This change is needed because the current architecture uses a Data Encryption Ke
 
 ## Decision Log
 
-| # | Decision | Chosen | Rationale |
-|---|----------|--------|-----------|
-| 1 | Guest systems | Keep both: `trial` (anonymous) + `linkGuest` (shared link) | Anonymous trial for marketing, link-based for conversations |
-| 2 | Migration strategy | Single clean migration (delete 0008–0012) | No users, clean slate |
-| 3 | Crypto package | Audit & fix to match design doc | Info strings, compression, version alignment needed |
-| 4 | PostgreSQL version | PG18 ready, use native `uuidv7()` | Design doc requires it |
-| 5 | HKDF info strings | Match design doc exactly | `"shared-link-v1"` → `"link-keypair-v1"`, `"message-share-v1"` → `"share-msg-v1"` |
-| 6 | Compression | Switch gzip → raw deflate | Saves ~18B/msg, matches design doc |
-| 7 | Drizzle enums | All text columns | More flexible, no migration needed for new values |
-| 8 | Guest naming | `trial` / `linkGuest` | Clear code separation |
-| 9 | Link expiry | No expiry (removed requirement 24) | Links valid until explicitly revoked |
-| 10 | API layer | All routes are Hono; typed client via `hc<AppType>()`; no separate RPC framework | Single framework, type inference from chained route definitions |
-| 11 | Naming convention | camelCase throughout plan | Matches TypeScript/Drizzle. Actual SQL migration uses snake_case; Drizzle auto-maps. |
-| 12 | Messages column transition | DROP `content` + ADD `encryptedBlob` (not RENAME) | AES-GCM and ECIES are fundamentally different formats; RENAME implies data continuity |
-| 13 | Payment status values | 5 statuses: `pending`, `awaitingWebhook`, `completed`, `failed`, `refunded` | Explicit intermediate state for two-phase payment flow; supports idempotent webhook handler |
-| 14 | Communication architecture | Hono RPC for request-response, SSE for chat streaming, WebSocket+DO for group broadcast only | SSE kept for `POST /api/chat` and `POST /api/trial`; DO only for multi-member conversations |
-| 15 | All-in-one transaction | User msg + AI msg + billing in one atomic transaction; no refund logic | On failure nothing is persisted or charged; eliminates need for refund path on message sends |
+| #   | Decision                   | Chosen                                                                                       | Rationale                                                                                                                                                                                                             |
+| --- | -------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Guest systems              | Keep both: `trial` (anonymous) + `linkGuest` (shared link)                                   | Anonymous trial for marketing, link-based for conversations                                                                                                                                                           |
+| 2   | Migration strategy         | Single clean migration (delete 0008–0012)                                                    | No users, clean slate                                                                                                                                                                                                 |
+| 3   | Crypto package             | Audit & fix to match design doc                                                              | Info strings, compression, version alignment needed                                                                                                                                                                   |
+| 4   | PostgreSQL version         | PG18 ready, use native `uuidv7()`                                                            | Design doc requires it                                                                                                                                                                                                |
+| 5   | HKDF info strings          | Match design doc exactly                                                                     | `"shared-link-v1"` → `"link-keypair-v1"`, `"message-share-v1"` → `"share-msg-v1"`                                                                                                                                     |
+| 6   | Compression                | Switch gzip → raw deflate                                                                    | Saves ~18B/msg, matches design doc                                                                                                                                                                                    |
+| 7   | Drizzle enums              | All text columns                                                                             | More flexible, no migration needed for new values                                                                                                                                                                     |
+| 8   | Guest naming               | `trial` / `linkGuest`                                                                        | Clear code separation                                                                                                                                                                                                 |
+| 9   | Link expiry                | No expiry (removed requirement 24)                                                           | Links valid until explicitly revoked                                                                                                                                                                                  |
+| 10  | API layer                  | All routes are Hono; typed client via `hc<AppType>()`; no separate RPC framework             | Single framework, type inference from chained route definitions                                                                                                                                                       |
+| 11  | Naming convention          | camelCase throughout plan                                                                    | Matches TypeScript/Drizzle. Actual SQL migration uses snake_case; Drizzle auto-maps.                                                                                                                                  |
+| 12  | Messages column transition | DROP `content` + ADD `encryptedBlob` (not RENAME)                                            | AES-GCM and ECIES are fundamentally different formats; RENAME implies data continuity                                                                                                                                 |
+| 13  | Payment status values      | 5 statuses: `pending`, `awaitingWebhook`, `completed`, `failed`, `refunded`                  | Explicit intermediate state for two-phase payment flow; supports idempotent webhook handler                                                                                                                           |
+| 14  | Communication architecture | Hono RPC for request-response, SSE for chat streaming, WebSocket+DO for group broadcast only | SSE kept for `POST /api/chat` and `POST /api/trial`; DO only for multi-member conversations                                                                                                                           |
+| 15  | All-in-one transaction     | User msg + AI msg + billing in one atomic transaction; no refund logic                       | On failure nothing is persisted or charged; eliminates need for refund path on message sends                                                                                                                          |
+| 16  | Integrated rotation        | Lazy epoch rotation lives in `POST /api/chat` stream route, not a standalone endpoint        | Rotation always accompanies a message (that's what "lazy" means). Single atomic transaction: rotation + message + AI + billing. Standalone endpoint would either duplicate the streaming pipeline or break atomicity. |
 
 ---
 
@@ -99,21 +100,21 @@ Phase 0 (Crypto Fixes) ──→ Phase 1 (DB Schema)
 
 ### 0A — Version Alignment
 
-| Package | Current | Target | Action |
-|---------|---------|--------|--------|
-| `packages/crypto` → `@noble/ciphers` | `^1.2.1` | `^2.1.1` | Update + fix import paths |
-| `packages/crypto` → `@noble/hashes` | `^1.7.1` | `^2.0.1` | Update + fix import paths |
-| `apps/api` → `@noble/ciphers` | `^2.1.1` | REMOVE | All crypto via `@lome-chat/crypto` |
-| `apps/api` → `@noble/hashes` | `^2.0.1` | REMOVE | All crypto via `@lome-chat/crypto` |
+| Package                              | Current  | Target   | Action                           |
+| ------------------------------------ | -------- | -------- | -------------------------------- |
+| `packages/crypto` → `@noble/ciphers` | `^1.2.1` | `^2.1.1` | Update + fix import paths        |
+| `packages/crypto` → `@noble/hashes`  | `^1.7.1` | `^2.0.1` | Update + fix import paths        |
+| `apps/api` → `@noble/ciphers`        | `^2.1.1` | REMOVE   | All crypto via `@hushbox/crypto` |
+| `apps/api` → `@noble/hashes`         | `^2.0.1` | REMOVE   | All crypto via `@hushbox/crypto` |
 
 The v2 APIs changed import paths (e.g., `@noble/ciphers/aead` → `@noble/ciphers`). Update all imports in `packages/crypto/src/`.
 
 ### 0B — HKDF Info String Fixes
 
-| File | Current | New |
-|------|---------|-----|
-| `packages/crypto/src/link.ts` | `"shared-link-v1"` | `"link-keypair-v1"` |
-| `packages/crypto/src/message-share.ts` | `"message-share-v1"` | `"share-msg-v1"` |
+| File                                   | Current              | New                 |
+| -------------------------------------- | -------------------- | ------------------- |
+| `packages/crypto/src/link.ts`          | `"shared-link-v1"`   | `"link-keypair-v1"` |
+| `packages/crypto/src/message-share.ts` | `"message-share-v1"` | `"share-msg-v1"`    |
 
 Update in both the derivation functions and their tests.
 
@@ -147,6 +148,7 @@ cd apps/api && pnpm typecheck && pnpm lint
 ### 1A — Delete Old Migrations
 
 Delete migration files 0008–0012 and their journal entries:
+
 - `packages/db/drizzle/0008_encryption_columns.sql`
 - `packages/db/drizzle/0009_auth_columns_not_null.sql`
 - `packages/db/drizzle/0010_drop_plaintext_columns.sql`
@@ -159,6 +161,7 @@ Delete migration files 0008–0012 and their journal entries:
 Hand-written SQL (snake_case in actual SQL file; camelCase used below for plan readability). Structured in dependency order:
 
 **Step 1 — DROP old tables and enums:**
+
 ```sql
 DROP TABLE IF EXISTS "message_shares";
 DROP TABLE IF EXISTS "conversation_shares";
@@ -171,18 +174,21 @@ DROP TYPE IF EXISTS "payment_status";
 ```
 
 **Step 2 — ALTER `users`:**
+
 - DROP: balance, freeAllowanceCents, freeAllowanceResetAt, passwordSalt, encryptedDekPassword, phraseSalt, encryptedDekPhrase, phraseVerifier, encryptionVersion, totpIv, name, image, privateKeyWrapped
 - ADD: `username` (text NOT NULL UNIQUE), `passwordWrappedPrivateKey` (bytea NOT NULL), `recoveryWrappedPrivateKey` (bytea NOT NULL)
 - KEEP: id, email, emailVerified, emailVerifyToken, emailVerifyExpires, opaqueRegistration, publicKey, totpSecretEncrypted, totpEnabled, hasAcknowledgedPhrase, createdAt, updatedAt
 - Change `id` default to `uuidv7()`
 
 **Step 3 — ALTER `conversations`:**
+
 - DROP: isPublic, publicShareId, publicShareExpires
 - ADD: `projectId` (text FK→projects ON DELETE SET NULL), `titleEpochNumber` (int NOT NULL DEFAULT 1), `currentEpoch` (int NOT NULL DEFAULT 1), `nextSequence` (int NOT NULL DEFAULT 1), `rotationPending` (boolean NOT NULL DEFAULT false), `perPersonBudget` (numeric 20,8 nullable), `conversationBudget` (numeric 20,8 nullable)
 - KEEP: title (bytea NOT NULL — now ECIES blob under epoch key instead of AES-GCM)
 - Change `id` default to `uuidv7()`
 
 **Step 4 — ALTER `messages`:**
+
 - DROP columns: `role`, `iv`, `model`, `balanceTransactionId`, `cost`, `sharingKeyWrapped`, `contentType`, `pendingReEncryption`, `ephemeralPublicKey`, **`content`**
 - ADD column: **`encryptedBlob`** (bytea NOT NULL)
 - ADD columns: `senderType` (text NOT NULL), `senderId` (text nullable), `senderDisplayName` (text nullable), `payerId` (text nullable), `epochNumber` (int NOT NULL), `sequenceNumber` (int NOT NULL)
@@ -194,11 +200,13 @@ DROP TYPE IF EXISTS "payment_status";
 **Why DROP + ADD instead of RENAME:** The old `content` column stores AES-GCM ciphertext (DEK-encrypted by the client, with a separate `iv` column). The new `encryptedBlob` stores ECIES blobs: version byte (1B) + ephemeral X25519 public key (32B) + XChaCha20-Poly1305 ciphertext + Poly1305 tag (16B). These are completely different encryption formats. `RENAME` would falsely suggest data continuity. Since there are no existing users (clean slate), a clean `DROP` + `ADD` makes the break explicit.
 
 **Step 5 — ALTER `projects`:**
+
 - DROP: name, description
 - ADD: `encryptedName` (bytea NOT NULL), `encryptedDescription` (bytea nullable)
 - Change `id` default to `uuidv7()`
 
 **Step 6 — ALTER `payments`:**
+
 - Make userId nullable
 - Change FK from ON DELETE CASCADE to ON DELETE SET NULL
 - Change status from enum to text
@@ -206,6 +214,7 @@ DROP TYPE IF EXISTS "payment_status";
 - Change `id` default to `uuidv7()`
 
 **Status flow:**
+
 ```
 pending → awaitingWebhook → completed (happy path)
 pending → failed (pre-processing failure)
@@ -217,20 +226,20 @@ completed → refunded (admin action or dispute)
 
 **Step 7 — CREATE new tables** (in FK dependency order):
 
-| Table | Key Columns | Notes |
-|-------|-------------|-------|
-| `wallets` | id, userId FK→users SET NULL, type (text), balance (numeric 20,8 default 0), priority (int), createdAt | Index on userId |
-| `usage_records` | id, userId FK→users SET NULL, type (text), status (text default 'pending'), cost (numeric 20,8), sourceType, sourceId, createdAt, completedAt | CHECK: `status IN ('pending', 'completed', 'failed')`. Indexes: (userId, type, createdAt), (sourceType, sourceId) |
-| `ledger_entries` | id, walletId FK CASCADE, amount, balanceAfter, entryType (text), paymentId FK SET NULL, usageRecordId FK SET NULL, sourceWalletId FK SET NULL, createdAt | CHECK: `entryType IN ('deposit', 'usage_charge', 'refund', 'adjustment', 'renewal', 'welcome_credit')`. CHECK: exactly one of (paymentId, usageRecordId, sourceWalletId) IS NOT NULL. Indexes: (walletId, createdAt), (usageRecordId) WHERE usageRecordId IS NOT NULL |
-| `llm_completions` | id, usageRecordId FK CASCADE UNIQUE, model, provider, inputTokens, outputTokens, cachedTokens (default 0) | Index on model |
-| `shared_links` | id, conversationId FK CASCADE, linkPublicKey (bytea), privilege (text default 'read'), visibleFromEpoch (int), revokedAt, createdAt | CHECK: `privilege IN ('read', 'write')`. Index: (conversationId) WHERE revokedAt IS NULL |
-| `conversation_members` | id, conversationId FK CASCADE, userId FK SET NULL, linkId FK→sharedLinks SET NULL, privilege (text default 'write'), visibleFromEpoch (int), joinedAt, leftAt | CHECK: `privilege IN ('read', 'write', 'admin', 'owner')`. CHECK: `(userId IS NOT NULL) OR (linkId IS NOT NULL)`. UNIQUE: (conversationId, userId) WHERE leftAt IS NULL. UNIQUE: (conversationId, linkId) WHERE leftAt IS NULL. Indexes: (conversationId) WHERE leftAt IS NULL, (userId) WHERE leftAt IS NULL |
-| `epochs` | id, conversationId FK CASCADE, epochNumber, epochPublicKey (bytea), confirmationHash (bytea), chainLink (bytea nullable), createdAt | UNIQUE (conversationId, epochNumber) |
-| `epoch_members` | id, epochId FK CASCADE, memberPublicKey (bytea), wrap (bytea), privilege (text), visibleFromEpoch (int), createdAt | CHECK: `privilege IN ('read', 'write', 'admin', 'owner')`. UNIQUE (epochId, memberPublicKey). Index on memberPublicKey |
-| `pending_removals` | id, conversationId FK CASCADE, memberId FK→conversationMembers CASCADE, requestedBy FK→users SET NULL, createdAt | Index on conversationId |
-| `shared_messages` | id, messageId FK→messages CASCADE, shareBlob (bytea), createdAt | |
-| `member_budgets` | id, memberId FK→conversationMembers CASCADE UNIQUE, budget (numeric 20,8), spent (numeric 20,8 default 0), createdAt | |
-| `conversation_spending` | id, conversationId FK CASCADE UNIQUE, totalSpent (numeric 20,8 default 0), updatedAt | `totalSpent` only increments when the owner is charged on behalf of a non-owner member — not when the owner sends their own messages |
+| Table                   | Key Columns                                                                                                                                                   | Notes                                                                                                                                                                                                                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wallets`               | id, userId FK→users SET NULL, type (text), balance (numeric 20,8 default 0), priority (int), createdAt                                                        | Index on userId                                                                                                                                                                                                                                                                                               |
+| `usage_records`         | id, userId FK→users SET NULL, type (text), status (text default 'pending'), cost (numeric 20,8), sourceType, sourceId, createdAt, completedAt                 | CHECK: `status IN ('pending', 'completed', 'failed')`. Indexes: (userId, type, createdAt), (sourceType, sourceId)                                                                                                                                                                                             |
+| `ledger_entries`        | id, walletId FK CASCADE, amount, balanceAfter, entryType (text), paymentId FK SET NULL, usageRecordId FK SET NULL, sourceWalletId FK SET NULL, createdAt      | CHECK: `entryType IN ('deposit', 'usage_charge', 'refund', 'adjustment', 'renewal', 'welcome_credit')`. CHECK: exactly one of (paymentId, usageRecordId, sourceWalletId) IS NOT NULL. Indexes: (walletId, createdAt), (usageRecordId) WHERE usageRecordId IS NOT NULL                                         |
+| `llm_completions`       | id, usageRecordId FK CASCADE UNIQUE, model, provider, inputTokens, outputTokens, cachedTokens (default 0)                                                     | Index on model                                                                                                                                                                                                                                                                                                |
+| `shared_links`          | id, conversationId FK CASCADE, linkPublicKey (bytea), privilege (text default 'read'), visibleFromEpoch (int), revokedAt, createdAt                           | CHECK: `privilege IN ('read', 'write')`. Index: (conversationId) WHERE revokedAt IS NULL                                                                                                                                                                                                                      |
+| `conversation_members`  | id, conversationId FK CASCADE, userId FK SET NULL, linkId FK→sharedLinks SET NULL, privilege (text default 'write'), visibleFromEpoch (int), joinedAt, leftAt | CHECK: `privilege IN ('read', 'write', 'admin', 'owner')`. CHECK: `(userId IS NOT NULL) OR (linkId IS NOT NULL)`. UNIQUE: (conversationId, userId) WHERE leftAt IS NULL. UNIQUE: (conversationId, linkId) WHERE leftAt IS NULL. Indexes: (conversationId) WHERE leftAt IS NULL, (userId) WHERE leftAt IS NULL |
+| `epochs`                | id, conversationId FK CASCADE, epochNumber, epochPublicKey (bytea), confirmationHash (bytea), chainLink (bytea nullable), createdAt                           | UNIQUE (conversationId, epochNumber)                                                                                                                                                                                                                                                                          |
+| `epoch_members`         | id, epochId FK CASCADE, memberPublicKey (bytea), wrap (bytea), privilege (text), visibleFromEpoch (int), createdAt                                            | CHECK: `privilege IN ('read', 'write', 'admin', 'owner')`. UNIQUE (epochId, memberPublicKey). Index on memberPublicKey                                                                                                                                                                                        |
+| `pending_removals`      | id, conversationId FK CASCADE, memberId FK→conversationMembers CASCADE, requestedBy FK→users SET NULL, createdAt                                              | Index on conversationId                                                                                                                                                                                                                                                                                       |
+| `shared_messages`       | id, messageId FK→messages CASCADE, shareBlob (bytea), createdAt                                                                                               |                                                                                                                                                                                                                                                                                                               |
+| `member_budgets`        | id, memberId FK→conversationMembers CASCADE UNIQUE, budget (numeric 20,8), spent (numeric 20,8 default 0), createdAt                                          |                                                                                                                                                                                                                                                                                                               |
+| `conversation_spending` | id, conversationId FK CASCADE UNIQUE, totalSpent (numeric 20,8 default 0), updatedAt                                                                          | `totalSpent` only increments when the owner is charged on behalf of a non-owner member — not when the owner sends their own messages                                                                                                                                                                          |
 
 All new table IDs use `DEFAULT uuidv7()`.
 
@@ -286,6 +295,7 @@ CREATE INDEX conversation_members_user_active_lookup
 ### 1C — Drizzle Schema Files
 
 **DELETE:**
+
 - `packages/db/src/schema/balance-transactions.ts`
 - `packages/db/src/schema/conversation-shares.ts`
 - `packages/db/src/schema/message-shares.ts`
@@ -295,10 +305,12 @@ CREATE INDEX conversation_members_user_active_lookup
 - `packages/db/src/schema/verifications.ts` (if remnant exists)
 
 **KEEP:**
+
 - `bytea.ts` — used by all bytea columns
 - `service-evidence.ts` — testing/audit log, unchanged
 
 **CREATE** (new files):
+
 1. `wallets.ts`
 2. `usage-records.ts`
 3. `llm-completions.ts`
@@ -313,6 +325,7 @@ CREATE INDEX conversation_members_user_active_lookup
 12. `conversation-spending.ts`
 
 **MODIFY:**
+
 - `users.ts` — drop old columns, add `passwordWrappedPrivateKey` (bytea NOT NULL), `recoveryWrappedPrivateKey` (bytea NOT NULL), `username` (text NOT NULL UNIQUE). Remove all DEK/balance/phrase columns. Change ID default to `sql`uuidv7()``
 - `conversations.ts` — drop isPublic/publicShareId/publicShareExpires, add projectId/titleEpochNumber/currentEpoch/nextSequence/rotationPending/perPersonBudget/conversationBudget
 - `messages.ts` — drop role/iv/model/balanceTransactionId/cost/sharingKeyWrapped/contentType/pendingReEncryption/ephemeralPublicKey, **drop content, add encryptedBlob** (bytea NOT NULL), add senderType/senderId/senderDisplayName/payerId/epochNumber/sequenceNumber
@@ -323,12 +336,14 @@ CREATE INDEX conversation_members_user_active_lookup
 ### 1D — Factories
 
 **MODIFY:**
+
 - `user.ts` — remove DEK/balance fields, add passwordWrappedPrivateKey, recoveryWrappedPrivateKey (use crypto `createAccount()` for realistic test data)
 - `conversation.ts` — remove isPublic/publicShareId, add currentEpoch/titleEpochNumber/nextSequence/rotationPending/budget fields
 - `message.ts` — remove role/iv/model/cost/etc, drop content field, add encryptedBlob field, add senderType/senderId/payerId/epochNumber/sequenceNumber
 - `payment.ts` — make userId nullable, status as string
 
 **CREATE:**
+
 - `wallet.ts`, `usage-record.ts`, `llm-completion.ts`, `ledger-entry.ts`, `epoch.ts`, `epoch-member.ts`, `conversation-member.ts`, `shared-link.ts`
 
 **DELETE:** `balance-transaction.ts` factory (if exists)
@@ -353,15 +368,15 @@ cd packages/db && pnpm typecheck && pnpm lint && pnpm test
 
 ### 2A — Install Dependencies
 
-| Package | Where | Purpose |
-|---------|-------|---------|
+| Package               | Where      | Purpose                                                        |
+| --------------------- | ---------- | -------------------------------------------------------------- |
 | `@hono/zod-validator` | `apps/api` | Zod-based input validation middleware for chained route syntax |
 
 `hono` is already installed. `hono/client` is a subpath export of the existing `hono` package (zero additional dependency). `@tanstack/react-query` is already in `apps/web`.
 
 ### 2B — Export AppType from API
 
-In `apps/api/src/app.ts`, the app must use chained `.route()` calls so the inferred type captures all route definitions. Export `type AppType = typeof app`. The barrel export or a dedicated type file must expose `AppType` so `apps/web` can import it as `import type { AppType } from '@lome-chat/api'`.
+In `apps/api/src/app.ts`, the app must use chained `.route()` calls so the inferred type captures all route definitions. Export `type AppType = typeof app`. The barrel export or a dedicated type file must expose `AppType` so `apps/web` can import it as `import type { AppType } from '@hushbox/api'`.
 
 During this phase, only a minimal chained route (e.g., health) needs to demonstrate the pattern. Full conversion happens in Phase 7.
 
@@ -373,25 +388,25 @@ During this phase, only a minimal chained route (e.g., health) needs to demonstr
  * All server state hooks (useQuery/useMutation) import `client` from here.
  * Never use raw fetch() for endpoints covered by this client.
  */
-import { hc } from 'hono/client'
-import type { AppType } from '@lome-chat/api'
-export const client = hc<AppType>(getApiUrl(), { init: { credentials: 'include' } })
+import { hc } from 'hono/client';
+import type { AppType } from '@hushbox/api';
+export const client = hc<AppType>(getApiUrl(), { init: { credentials: 'include' } });
 ```
 
 All frontend code imports from this file. The `client` object provides fully typed method calls. No separate example file — the CODE-RULES.md API Client pattern and this file's doc comment are the reference. React Query wrapping pattern is learned from the first hook written in Phase 10.
 
 ### 2D — What Stays vs. What Changes
 
-| Aspect | Before | After (Hono RPC) |
-|--------|--------|-------------------|
-| Server handler logic | Same | Same |
-| Input validation | `@hono/zod-openapi` `createRoute` | `@hono/zod-validator` `zValidator('json', schema)` |
-| Response typing | OpenAPI schema definitions | Inferred from `c.json()` return type |
-| Client calls | Manual `fetch()` + hand-typed | `client.api.route.$method()` (inferred types) |
-| Error handling | HTTP status codes | HTTP status codes (unchanged) |
-| Auth middleware | Hono middleware | Hono middleware (unchanged) |
-| Streaming | Hono SSE (`streamSSE`) | Hono SSE (unchanged) |
-| Webhook | Plain Hono route | Plain Hono route (unchanged) |
+| Aspect               | Before                            | After (Hono RPC)                                   |
+| -------------------- | --------------------------------- | -------------------------------------------------- |
+| Server handler logic | Same                              | Same                                               |
+| Input validation     | `@hono/zod-openapi` `createRoute` | `@hono/zod-validator` `zValidator('json', schema)` |
+| Response typing      | OpenAPI schema definitions        | Inferred from `c.json()` return type               |
+| Client calls         | Manual `fetch()` + hand-typed     | `client.api.route.$method()` (inferred types)      |
+| Error handling       | HTTP status codes                 | HTTP status codes (unchanged)                      |
+| Auth middleware      | Hono middleware                   | Hono middleware (unchanged)                        |
+| Streaming            | Hono SSE (`streamSSE`)            | Hono SSE (unchanged)                               |
+| Webhook              | Plain Hono route                  | Plain Hono route (unchanged)                       |
 
 ### Verification
 
@@ -409,11 +424,20 @@ cd apps/web && pnpm typecheck && pnpm lint
 ### 3A — Registration Flow (`apps/api/src/routes/opaque-auth.ts`)
 
 **`POST /register/finish` — New payload:**
+
 ```typescript
-{ email, username, registrationRecord, accountPublicKey, passwordWrappedPrivateKey, recoveryWrappedPrivateKey }
+{
+  (email,
+    username,
+    registrationRecord,
+    accountPublicKey,
+    passwordWrappedPrivateKey,
+    recoveryWrappedPrivateKey);
+}
 ```
 
 Server stores atomically:
+
 - `accountPublicKey` → `users.publicKey`
 - `passwordWrappedPrivateKey` → `users.passwordWrappedPrivateKey`
 - `recoveryWrappedPrivateKey` → `users.recoveryWrappedPrivateKey`
@@ -423,8 +447,11 @@ Server stores atomically:
 ### 3B — Login Flow
 
 **`POST /login/finish` response:**
+
 ```typescript
-{ success, userId, email, passwordWrappedPrivateKey }
+{
+  (success, userId, email, passwordWrappedPrivateKey);
+}
 ```
 
 Client: `unwrapAccountKeyWithPassword(opaqueExportKey, blob)` → account private key in memory.
@@ -444,6 +471,7 @@ Client: `rewrapAccountKeyForPasswordChange(accountPrivateKey, newOpaqueExportKey
 **DELETE old endpoints:** `recovery/request-salt`, `recovery/verify-phrase`
 
 **New flow:**
+
 1. Client enters 12-word mnemonic
 2. Client: `recoverAccountFromMnemonic(mnemonic, recoveryWrappedBlob)` → account private key
 3. Client performs OPAQUE re-registration → sends new `passwordWrappedPrivateKey`
@@ -456,7 +484,7 @@ Client: `rewrapAccountKeyForPasswordChange(accountPrivateKey, newOpaqueExportKey
 
 ### 3G — TOTP Encryption (`apps/api/src/lib/totp.ts`)
 
-- Import `symmetricEncrypt`/`symmetricDecrypt` from `@lome-chat/crypto`
+- Import `symmetricEncrypt`/`symmetricDecrypt` from `@hushbox/crypto`
 - Remove `totpIv` column usage — nonce prepended inside the symmetric blob
 - `encryptTotpSecret(secret, key)` → single blob (nonce + ciphertext + tag)
 - `decryptTotpSecret(blob, key)` → plaintext secret
@@ -502,34 +530,36 @@ cd apps/web && pnpm typecheck && pnpm lint && pnpm test
 
 ### Files That MUST NOT Change Their Algorithms
 
-| File | Functions to Preserve Exactly |
-|------|-------------------------------|
-| `packages/shared/src/pricing.ts` | `estimateMessageCostDevelopment()`, `calculateMessageCostFromOpenRouter()`, `applyFees()`, `calculateTokenCostWithFees()`, `getModelCostPer1k()`, `isExpensiveModel()`, `estimateTokenCount()` |
-| `packages/shared/src/constants.ts` | All fee rates (5%+4.5%+5.5%=15%), `STORAGE_COST_PER_CHARACTER`, `STORAGE_COST_PER_1K_CHARS`, `EXPENSIVE_MODEL_THRESHOLD_PER_1K`, `CHARS_PER_TOKEN_*`, `MAX_ALLOWED_NEGATIVE_BALANCE_CENTS`, `MAX_GUEST_MESSAGE_COST_CENTS`, `MINIMUM_OUTPUT_TOKENS` |
-| `packages/shared/src/budget.ts` | `calculateBudget()`, `estimateTokensForTier()`, `getEffectiveBalance()`, `generateBudgetErrors()` |
-| `packages/shared/src/tiers.ts` | `getUserTier()`, `getDeductionSource()`, `canUseModel()` |
-| `apps/api/src/services/billing/cost-calculator.ts` | `calculateMessageCost()` — 3 paths: OpenRouter exact, character estimate dev, character estimate fallback |
-| `apps/api/src/services/billing/can-send.ts` | `canUserSendMessage()` — wraps `canUseModel()` |
-| `apps/api/src/services/billing/guest-usage.ts` | `consumeGuestMessage()` — Redis dual-identity rate limiting |
+| File                                               | Functions to Preserve Exactly                                                                                                                                                                                                                       |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared/src/pricing.ts`                   | `estimateMessageCostDevelopment()`, `calculateMessageCostFromOpenRouter()`, `applyFees()`, `calculateTokenCostWithFees()`, `getModelCostPer1k()`, `isExpensiveModel()`, `estimateTokenCount()`                                                      |
+| `packages/shared/src/constants.ts`                 | All fee rates (5%+4.5%+5.5%=15%), `STORAGE_COST_PER_CHARACTER`, `STORAGE_COST_PER_1K_CHARS`, `EXPENSIVE_MODEL_THRESHOLD_PER_1K`, `CHARS_PER_TOKEN_*`, `MAX_ALLOWED_NEGATIVE_BALANCE_CENTS`, `MAX_TRIAL_MESSAGE_COST_CENTS`, `MINIMUM_OUTPUT_TOKENS` |
+| `packages/shared/src/budget.ts`                    | `calculateBudget()`, `estimateTokensForTier()`, `getEffectiveBalance()`, `generateBudgetErrors()`                                                                                                                                                   |
+| `packages/shared/src/tiers.ts`                     | `getUserTier()`, `getDeductionSource()`, `canUseModel()`                                                                                                                                                                                            |
+| `apps/api/src/services/billing/cost-calculator.ts` | `calculateMessageCost()` — 3 paths: OpenRouter exact, character estimate dev, character estimate fallback                                                                                                                                           |
+| `apps/api/src/services/billing/can-send.ts`        | `canUserSendMessage()` — wraps `canUseModel()`                                                                                                                                                                                                      |
+| `apps/api/src/services/billing/trial-usage.ts`     | `consumeTrialMessage()` — Redis dual-identity rate limiting                                                                                                                                                                                         |
 
 ### 4A — Tier System Adaptation
 
 `getUserTier()` interface STAYS THE SAME: takes `{ balanceCents, freeAllowanceCents }`. Callers change how they compute values:
 
-| Before | After |
-|--------|-------|
-| `users.balance` → balanceCents | `SUM(wallets.balance) WHERE type='purchased'` → balanceCents |
+| Before                                          | After                                                         |
+| ----------------------------------------------- | ------------------------------------------------------------- |
+| `users.balance` → balanceCents                  | `SUM(wallets.balance) WHERE type='purchased'` → balanceCents  |
 | `users.freeAllowanceCents` → freeAllowanceCents | `wallets.balance WHERE type='free_tier'` → freeAllowanceCents |
 
 ### 4B — Balance Service Changes (`apps/api/src/services/billing/balance.ts`)
 
 **`getUserTierInfo()` — query changes only:**
+
 - Before: `SELECT balance, freeAllowanceCents FROM users WHERE id = ?`
 - After: `SELECT type, balance, createdAt FROM wallets WHERE userId = ?`
 - Compute per-type sums, pass to `getUserTier()` unchanged
 - Return type `UserTierInfo` unchanged
 
 **Free tier lazy renewal (new logic):**
+
 - No `freeAllowanceResetAt` column. No Redis state.
 - On each `getUserTierInfo()` call, query: `SELECT MAX(createdAt) FROM ledgerEntries WHERE walletId = ? AND entryType = 'renewal'`
 - If no renewal exists or last renewal is before today's UTC midnight: renew.
@@ -540,27 +570,33 @@ cd apps/web && pnpm typecheck && pnpm lint && pnpm test
 ### 4C — Transaction Writer Changes (`apps/api/src/services/billing/transaction-writer.ts`)
 
 **`creditUserBalance()` (payment deposits):**
+
 - Before: `UPDATE users SET balance += amount` + `INSERT balance_transactions`
 - After: `UPDATE wallets SET balance += amount WHERE userId = ? AND type = 'purchased'` + `INSERT ledger_entries (entryType='deposit', paymentId=..., walletId=...)`
 
 **`processWebhookCredit()` (webhook deposits):** Same pattern change. Idempotency logic unchanged.
 
 **NEW: `chargeForUsage()` — unified charging function:**
+
 ```typescript
-export async function chargeForUsage(db: Database, params: {
-  userId: string;
-  cost: string;          // numeric(20,8) string
-  model: string;
-  provider: string;
-  inputTokens: number;
-  outputTokens: number;
-  cachedTokens?: number;
-  sourceType: string;    // 'message'
-  sourceId: string;      // message.id
-}): Promise<ChargeResult>
+export async function chargeForUsage(
+  db: Database,
+  params: {
+    userId: string;
+    cost: string; // numeric(20,8) string
+    model: string;
+    provider: string;
+    inputTokens: number;
+    outputTokens: number;
+    cachedTokens?: number;
+    sourceType: string; // 'message'
+    sourceId: string; // message.id
+  }
+): Promise<ChargeResult>;
 ```
 
 Atomic transaction:
+
 1. INSERT `usage_records` (type='llm_completion', status='pending', cost)
 2. INSERT `llm_completions` (model, provider, inputTokens, outputTokens, cachedTokens)
 3. Query `wallets WHERE userId = ? ORDER BY priority`, find first with sufficient balance
@@ -608,11 +644,13 @@ When member M sends in conversation C owned by O:
 ### 4F — Billing Hono Routes (`apps/api/src/routes/billing.ts`)
 
 **Read routes (sessionRequired only — no phrase acknowledgment needed):**
+
 - `GET /api/billing/balance` — sessionRequired → query wallets, compute tier info
 - `GET /api/billing/transactions` — sessionRequired → query ledgerEntries JOIN wallets with cursor pagination
 - `GET /api/billing/payment/:id/status` — sessionRequired → get payment status
 
 **Purchase routes (sessionRequired + phraseRequired — financial action):**
+
 - `POST /api/billing/payment` — sessionRequired + phraseRequired + helcimMiddleware → create payment
 - `POST /api/billing/payment/:id/process` — sessionRequired + phraseRequired + helcimMiddleware → process payment
 
@@ -637,31 +675,37 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 2. Client encrypts title: `encryptMessageForStorage(epochPublicKey, "")` → ECIES blob for empty/placeholder title
 3. Client sends: encryptedTitle, epochPublicKey, confirmationHash, memberWrap
 4. Server creates in one transaction:
-    - `conversations` row (currentEpoch=1, titleEpochNumber=1, nextSequence=1)
-    - `epochs` row (epochNumber=1, epochPublicKey, confirmationHash, chainLink=null)
-    - `epochMembers` row (wrap for owner)
-    - `conversationMembers` row (privilege='owner', visibleFromEpoch=1)
+   - `conversations` row (currentEpoch=1, titleEpochNumber=1, nextSequence=1)
+   - `epochs` row (epochNumber=1, epochPublicKey, confirmationHash, chainLink=null)
+   - `epochMembers` row (wrap for owner)
+   - `conversationMembers` row (privilege='owner', visibleFromEpoch=1)
 
 ### 5B — Message Send (`POST /api/chat` — SSE streaming)
 
-1. Client sends: `{ conversationId, model, content (plaintext), messagesForInference }`
+1. Client sends: `{ conversationId, model, userMessage: { id, content (plaintext) }, messagesForInference, rotation? }`
 2. Server validates: auth, write permission via conversationMembers, budget check
-3. Server checks `rotationPending`. If true → return `{ rotationRequired: true, currentEpoch, pendingRemovalIds }`. Client performs rotation, resubmits via `keys.submitRotation`.
-4. Server fetches current epoch public key
+3. Server checks `rotationPending`:
+   - If `true` and no `rotation` provided → return JSON error `{ rotationRequired: true, currentEpoch, pendingRemovalIds }`. Client fetches member keys, performs `performEpochRotation()`, re-sends with `rotation` field.
+   - If `true` and `rotation` provided → proceed with rotation + message in unified flow.
+   - If `false` and `rotation` provided → reject (stale client state).
+4. Server determines epoch public key:
+   - Normal path: fetches current epoch public key from DB.
+   - Rotation path: uses the NEW epoch public key from `rotation.epochPublicKey` (decoded from base64).
 5. Server encrypts user message: `encryptMessageForStorage(epochPublicKey, plaintext)` → userBlob
 6. Server broadcasts ephemeral `message:new` to DO (user message preview — not yet persisted, clients show optimistically)
 7. Server invokes AI with plaintext, streams tokens via SSE/DO
 8. On AI completion — **single atomic transaction (all or nothing)**:
-   a. Assign user message sequence: `UPDATE conversations SET nextSequence = nextSequence + 2 WHERE id = ? RETURNING nextSequence - 2 AS userSeq, nextSequence - 1 AS aiSeq`
-   b. INSERT user message (senderType='user', senderId, epochNumber, sequenceNumber=userSeq, encryptedBlob=userBlob)
-   c. Encrypt AI response: `encryptMessageForStorage(epochPublicKey, aiContent)` → aiBlob
-   d. INSERT AI message (senderType='ai', epochNumber, sequenceNumber=aiSeq, encryptedBlob=aiBlob)
-   e. `chargeForUsage()` — INSERT usageRecords + llmCompletions + UPDATE wallet + INSERT ledgerEntries
-   f. Store payerId on AI message
-   g. **All in ONE database transaction** — user message, AI message, and billing commit together
+   a. **If rotation:** perform epoch rotation inside the same transaction (see 5E for details)
+   b. Assign user message sequence: `UPDATE conversations SET nextSequence = nextSequence + 2 WHERE id = ? RETURNING nextSequence - 2 AS userSeq, nextSequence - 1 AS aiSeq`
+   c. INSERT user message (senderType='user', senderId, epochNumber, sequenceNumber=userSeq, encryptedBlob=userBlob)
+   d. Encrypt AI response: `encryptMessageForStorage(epochPublicKey, aiContent)` → aiBlob
+   e. INSERT AI message (senderType='ai', epochNumber, sequenceNumber=aiSeq, encryptedBlob=aiBlob)
+   f. `chargeForUsage()` — INSERT usageRecords + llmCompletions + UPDATE wallet + INSERT ledgerEntries
+   g. Store payerId on AI message
+   h. **All in ONE database transaction** — rotation (if any) + user message + AI message + billing commit together
 9. Server broadcasts `message:complete` to DO (with both message IDs + encrypted blobs)
 10. Server releases speculative budget reservation from Redis
-11. **If AI fails or stream errors:** Nothing is persisted, no charge, budget reservation released from Redis. No refund logic needed because we never charged. The `refund` entryType in ledgerEntries is for payment disputes/admin adjustments only, never for failed AI calls.
+11. **If AI fails or stream errors:** Nothing is persisted, no charge, no rotation applied, budget reservation released from Redis. No refund logic needed because we never charged. The `refund` entryType in ledgerEntries is for payment disputes/admin adjustments only, never for failed AI calls.
 
 **NO finalize needed — single server-side encryption path.**
 
@@ -676,27 +720,61 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 
 ### 5D — Key Endpoints (Hono RPC routes under `/api/keys`)
 
-| Route | Method | Returns |
-|-------|--------|---------|
-| `/api/keys/:conversationId/wraps` | GET | All epoch member wraps for current user's publicKey |
-| `/api/keys/:conversationId/chain-links` | GET | Chain links for backward traversal |
-| `/api/keys/:conversationId/rotation` | POST | Atomic rotation + optional message |
-| `/api/keys/:conversationId/member-keys` | GET | Public keys of all active members |
+| Route                                   | Method | Returns                                                                                     |
+| --------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
+| `/api/keys/:conversationId`             | GET    | Combined: epoch wraps + chain links for current user (single round-trip for full key chain) |
+| `/api/keys/:conversationId/member-keys` | GET    | Public keys of all active members                                                           |
 
-### 5E — Epoch Rotation Protocol (Atomic Server Transaction)
+**Why combined wraps + chain links:** The client always needs both to build its epoch key chain — wraps to unwrap the current epoch key, then chain links to traverse backward for older epochs. Two separate requests would always be called together. The combined endpoint returns `{ wraps[], chainLinks[], currentEpoch }` in one round-trip.
 
-When rotation is submitted:
-1. Create new `epochs` row (epochNumber = currentEpoch + 1)
-2. Store all member wraps in `epochMembers`
-3. Store chain link on new epoch row
-4. DELETE old epoch's `epochMembers` wraps
-5. DELETE `pendingRemovals` rows
-6. Set `leftAt = NOW()` on removed `conversationMembers` rows
-7. UPDATE `conversations.currentEpoch += 1, rotationPending = false`
-8. Re-encrypt title under new epoch key if provided, update `titleEpochNumber`
-9. If message included: store with new epoch number
+**No standalone rotation endpoint.** Lazy epoch rotation is integrated into the `POST /api/chat` stream route (see 5E). The rotation always accompanies a message — making it a single atomic flow: rotation + message encryption + AI streaming + billing. A standalone `/api/keys/:conversationId/rotation` can be added later if explicit admin-triggered rotation (without a message) is needed.
 
-**Concurrency:** First-write-wins via `UPDATE conversations SET currentEpoch = ? WHERE id = ? AND currentEpoch = ? - 1`. Check rows affected. Rejected client re-fetches + re-encrypts.
+### 5E — Epoch Rotation Protocol (Integrated into Stream Route)
+
+Lazy rotation is embedded in the `POST /api/chat` stream route (see 5B). The rotation data arrives as an optional `rotation` field on the stream request — there is no standalone rotation endpoint. This guarantees rotation, message encryption, AI streaming, and billing are always a single atomic flow.
+
+**Rotation request schema** (the `rotation` field on `streamChatRequestSchema`):
+
+```typescript
+rotation: z.object({
+  expectedEpoch: z.number(), // current epoch the client is rotating FROM (concurrency guard)
+  epochPublicKey: z.string(), // base64 — new epoch's public key
+  confirmationHash: z.string(), // base64 — SHA-256(epochPrivateKey)
+  chainLink: z.string(), // base64 — ECIES(newEpochPubKey, oldEpochPrivKey)
+  memberWraps: z.array(
+    z.object({
+      // one per remaining active member
+      memberPublicKey: z.string(), // base64
+      wrap: z.string(), // base64 — ECIES(memberPubKey, newEpochPrivKey)
+      privilege: z.string(),
+      visibleFromEpoch: z.number(),
+    })
+  ),
+  encryptedTitle: z.string(), // base64 — REQUIRED: title re-encrypted under new epoch key
+}).optional();
+```
+
+**`encryptedTitle` is required** (not optional) within the rotation object. When rotating, the old epoch key is considered compromised for the removed member. The client already has the old epoch private key (needed for the chain link), so it decrypts the title and re-encrypts under the new epoch key. This is deterministic, not a branch.
+
+**Rotation steps within the atomic transaction** (step 8a of 5B):
+
+1. **First-write-wins concurrency guard:** `UPDATE conversations SET currentEpoch = expectedEpoch + 1, rotationPending = false WHERE id = ? AND currentEpoch = expectedEpoch`. Check rows affected — if 0, another client already rotated. Return `409 Conflict` with current epoch. Rejected client re-fetches keys + member list, re-encrypts, and re-submits.
+2. INSERT new `epochs` row (epochNumber = expectedEpoch + 1, epochPublicKey, confirmationHash, chainLink)
+3. INSERT new `epochMembers` rows — one per remaining member with their ECIES-wrapped epoch key
+4. DELETE old epoch's `epochMembers` wraps (replaced by new wraps)
+5. DELETE `pendingRemovals` rows for this conversation
+6. SET `leftAt = NOW()` on removed `conversationMembers` rows
+7. UPDATE conversation title: `title = encryptedTitle, titleEpochNumber = expectedEpoch + 1`
+8. Messages (user + AI) are encrypted with the NEW epoch public key and stored with the new epoch number
+
+**Client-side flow when `rotationRequired` is returned:**
+
+1. Server returns JSON error: `{ rotationRequired: true, currentEpoch, pendingRemovalIds }`
+2. Client fetches member keys via `GET /api/keys/:conversationId/member-keys`
+3. Client performs `performEpochRotation(oldEpochPrivKey, remainingMemberPubKeys[])` — produces new epoch keypair, chain link, member wraps
+4. Client decrypts current title, re-encrypts under new epoch key
+5. Client re-sends the original message to `POST /api/chat` with the `rotation` field populated
+6. Server processes rotation + message + AI + billing in one atomic transaction
 
 ### 5F — Files to DELETE
 
@@ -738,25 +816,25 @@ packages/realtime/
 - Uses Durable Object Hibernation API (`state.acceptWebSocket`, `state.getWebSockets`)
 - `Map<WebSocket, ConnectionMeta>` tracking connected members
 - Routes:
-    - `/websocket?userId=xxx` or `/websocket?guest=true&name=xxx` — WebSocket upgrade
-    - `/broadcast` — POST from API Worker with event payload
+  - `/websocket?userId=xxx` or `/websocket?guest=true&name=xxx` — WebSocket upgrade
+  - `/broadcast` — POST from API Worker with event payload
 - Dead socket cleanup via `webSocketClose(ws)` and `webSocketError(ws)` handlers
 - On wake: re-hydrate Map from `state.getWebSockets()` via `ws.deserializeAttachment()`
 
 ### 6C — Events Broadcast
 
-| Event | Payload | Trigger |
-|-------|---------|---------|
-| `message:new` | messageId, metadata | User message stored |
-| `message:stream` | messageId, token (batched ~50ms) | AI generating |
-| `message:complete` | messageId, encrypted blob + metadata | AI response stored |
-| `message:deleted` | messageId | Hard-delete |
-| `member:added` | userId/linkId, privilege | New member |
-| `member:removed` | userId/linkId | Member removed |
-| `rotation:pending` | conversationId | Tells next sender to rotate |
-| `rotation:complete` | conversationId, newEpochNumber | Clients re-fetch keys |
-| `typing:start/stop` | userId | Ephemeral, client→DO→broadcast |
-| `presence:update` | members[] | Connection state change |
+| Event               | Payload                              | Trigger                        |
+| ------------------- | ------------------------------------ | ------------------------------ |
+| `message:new`       | messageId, metadata                  | User message stored            |
+| `message:stream`    | messageId, token (batched ~50ms)     | AI generating                  |
+| `message:complete`  | messageId, encrypted blob + metadata | AI response stored             |
+| `message:deleted`   | messageId                            | Hard-delete                    |
+| `member:added`      | userId/linkId, privilege             | New member                     |
+| `member:removed`    | userId/linkId                        | Member removed                 |
+| `rotation:pending`  | conversationId                       | Tells next sender to rotate    |
+| `rotation:complete` | conversationId, newEpochNumber       | Clients re-fetch keys          |
+| `typing:start/stop` | userId                               | Ephemeral, client→DO→broadcast |
+| `presence:update`   | members[]                            | Connection state change        |
 
 ### 6D — API Worker → DO Communication
 
@@ -765,14 +843,16 @@ packages/realtime/
 export async function broadcastToRoom(
   env: Bindings,
   conversationId: string,
-  event: RealtimeEvent,
+  event: RealtimeEvent
 ): Promise<void> {
   const id = env.CONVERSATION_ROOM.idFromName(conversationId);
   const stub = env.CONVERSATION_ROOM.get(id);
-  await stub.fetch(new Request('http://internal/broadcast', {
-    method: 'POST',
-    body: JSON.stringify(event),
-  }));
+  await stub.fetch(
+    new Request('http://internal/broadcast', {
+      method: 'POST',
+      body: JSON.stringify(event),
+    })
+  );
 }
 ```
 
@@ -781,10 +861,12 @@ export async function broadcastToRoom(
 Hono route. Two auth paths:
 
 **Authenticated:** `GET /api/ws/:conversationId`
+
 1. Validate session → verify user is active member
 2. Forward to DO with `?userId=xxx`
 
 **Link guests:** `GET /api/ws/:conversationId?linkToken=xxx`
+
 1. Validate `linkToken` against Redis (short-lived, single-use)
 2. Forward to DO with `?guest=true&name=xxx`
 
@@ -800,7 +882,7 @@ new_classes = ["ConversationRoom"]
 
 Add to Bindings type in `types.ts`: `CONVERSATION_ROOM: DurableObjectNamespace;`
 
-Worker entry point re-export: `export { ConversationRoom } from '@lome-chat/realtime';`
+Worker entry point re-export: `export { ConversationRoom } from '@hushbox/realtime';`
 
 ### 6G — Frontend WebSocket Client (`apps/web/src/lib/ws-client.ts` — NEW)
 
@@ -821,12 +903,13 @@ server: {
 
 ### 6I — MODIFY (Not DELETE)
 
-| File | Change |
-|------|--------|
-| `apps/web/src/lib/sse-client.ts` | UPDATE event types: remove `ephemeralPublicKey`, add `messageId`, `sequenceNumber`, `cost`. Keep SSE parsing logic. |
+| File                                 | Change                                                                                                                        |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/lib/sse-client.ts`     | UPDATE event types: remove `ephemeralPublicKey`, add `messageId`, `sequenceNumber`, `cost`. Keep SSE parsing logic.           |
 | `apps/api/src/lib/stream-handler.ts` | UPDATE event types: remove `ephemeralPublicKey` from `DoneEventData`, add committed message metadata. Keep SSE writing logic. |
 
 **ADD:**
+
 - `apps/web/src/lib/ws-client.ts` — NEW WebSocket client for group chat DO connections only
 
 **Rationale:** SSE is still the streaming mechanism for `POST /api/chat` (authed + link guest) and `POST /api/trial` (anonymous). WebSocket + DO is only for broadcasting to OTHER members in group chats. The sending client always uses SSE.
@@ -855,7 +938,7 @@ Hono RPC infers client types from the chained `.get()/.post()` calls. The curren
 3. Conversations CRUD
 4. Billing
 5. Dev
-6. Guest chat (rate limiting patterns)
+6. Trial chat (rate limiting patterns)
 7. Chat (SSE streaming — most complex)
 
 ### 7C — Pattern Per Route File
@@ -921,8 +1004,8 @@ export type AppType = typeof app
     GET /:conversationId (list), POST /:conversationId (create)
     POST /:conversationId/revoke
   /keys
-    GET /:conversationId/wraps, /chain-links, /member-keys
-    POST /:conversationId/rotation
+    GET /:conversationId (wraps + chain links combined)
+    GET /:conversationId/member-keys
   /messages
     GET /:conversationId (history)
     POST /:conversationId/delete
@@ -945,9 +1028,10 @@ export type AppType = typeof app
 ### 7F — Trial Chat (`POST /api/trial`)
 
 Plain Hono route with SSE streaming + rate limiting middleware:
+
 - Input: `{ messages, model }` — no auth, no persistence
 - Rejects authenticated users
-- Uses existing `consumeGuestMessage()` for dual-identity Redis rate limiting
+- Uses existing `consumeTrialMessage()` for dual-identity Redis rate limiting
 - Streams AI response as SSE events
 - No message storage, no billing
 
@@ -958,6 +1042,7 @@ Plain Hono route with SSE streaming + rate limiting middleware:
 Input: `{ conversationId, linkPublicKey (base64) }`
 
 Server validation:
+
 1. Query `sharedLinks WHERE conversationId = ? AND linkPublicKey = ? AND revokedAt IS NULL`
 2. If no row found: return 404 (link not found or revoked)
 3. Look up `conversationMembers` row via `linkId = sharedLinks.id`
@@ -971,6 +1056,7 @@ The lookup is **by `sharedLinks.linkPublicKey`**, not by link ID or any other id
 Input: `{ conversationId, linkPublicKey (base64), content, model, displayName, messagesForInference }`
 
 Server validation:
+
 1. Query `sharedLinks WHERE conversationId = ? AND linkPublicKey = ? AND revokedAt IS NULL`
 2. Verify link has `write` privilege
 3. Look up conversationMembers row via linkId, verify budget
@@ -984,12 +1070,12 @@ After all routes are converted, remove `@hono/zod-openapi` from `apps/api/packag
 
 These routes are still Hono but not called via `hc<AppType>()`:
 
-| Route | Reason |
-|-------|--------|
-| `POST /api/webhooks/payments` | Called by Helcim, not by `apps/web` |
-| `GET /api/ws/:conversationId` | WebSocket upgrade, dedicated client class |
-| `POST /api/chat` | SSE streaming, consumed by custom SSE parser |
-| `POST /api/trial` | SSE streaming, same reason |
+| Route                         | Reason                                       |
+| ----------------------------- | -------------------------------------------- |
+| `POST /api/webhooks/payments` | Called by Helcim, not by `apps/web`          |
+| `GET /api/ws/:conversationId` | WebSocket upgrade, dedicated client class    |
+| `POST /api/chat`              | SSE streaming, consumed by custom SSE parser |
+| `POST /api/trial`             | SSE streaming, same reason                   |
 
 ### Verification
 
@@ -1007,6 +1093,7 @@ cd apps/web && pnpm typecheck && pnpm lint
 ### 8A — Member Management (Hono routes under `/api/members/:conversationId/*`)
 
 **`add`:** Admin/owner client:
+
 1. Fetches new member's publicKey from server
 2. Decrypts current epoch private key
 3. `wrapEpochKeyForNewMember(epochPrivKey, memberPubKey)` → wrap
@@ -1015,6 +1102,7 @@ cd apps/web && pnpm typecheck && pnpm lint
 6. NO rotation needed (adding doesn't require new epoch)
 
 **`remove`:** Server:
+
 1. Sets `rotationPending = true`
 2. Inserts `pendingRemovals` row
 3. Immediately sets `leftAt` on `conversationMembers` (server-side access revoked)
@@ -1026,21 +1114,23 @@ cd apps/web && pnpm typecheck && pnpm lint
 
 ### 8B — Privilege Levels (Server-Enforced)
 
-| Level | Decrypt | Send | Add Members | Remove Members | Manage Links | Rotate |
-|-------|---------|------|-------------|----------------|--------------|--------|
-| Read | Yes | No | No | No | No | No |
-| Write | Yes | Yes | No | No | No | Yes (lazy) |
-| Admin | Yes | Yes | Yes | Yes (not owner) | Yes | Yes |
-| Owner | Yes | Yes | Yes | Yes | Yes | Yes |
+| Level | Decrypt | Send | Add Members | Remove Members  | Manage Links | Rotate     |
+| ----- | ------- | ---- | ----------- | --------------- | ------------ | ---------- |
+| Read  | Yes     | No   | No          | No              | No           | No         |
+| Write | Yes     | Yes  | No          | No              | No           | Yes (lazy) |
+| Admin | Yes     | Yes  | Yes         | Yes (not owner) | Yes          | Yes        |
+| Owner | Yes     | Yes  | Yes         | Yes             | Yes          | Yes        |
 
 ### 8C — Lazy Epoch Rotation
 
 1. On trigger (remove/link revocation): server sets `rotationPending = true`, records `pendingRemovals`
 2. On next message send by write-capable member:
-    - Client detects `rotationPending` in response
-    - Client: `performEpochRotation(oldEpochPrivKey, remainingMemberPubKeys[])`
-    - Client sends rotation data + message atomically via key rotation endpoint
-    - Server processes in single transaction (Phase 5E protocol)
+   - Server detects `rotationPending` and no `rotation` field → returns `{ rotationRequired: true, currentEpoch, pendingRemovalIds }` (JSON error, not SSE)
+   - Client fetches remaining member public keys via `GET /api/keys/:conversationId/member-keys`
+   - Client: `performEpochRotation(oldEpochPrivKey, remainingMemberPubKeys[])` → new epoch keypair, chain link, member wraps
+   - Client decrypts current title, re-encrypts under new epoch public key
+   - Client re-sends message to `POST /api/chat` with `rotation` field populated
+   - Server processes rotation + user message + AI response + billing in single atomic transaction (Phase 5E protocol)
 
 ### 8D — Owner Lifecycle
 
@@ -1051,6 +1141,7 @@ cd apps/web && pnpm typecheck && pnpm lint
 ### 8E — History Visibility
 
 Controlled by `visibleFromEpoch` on `conversationMembers`:
+
 - Server refuses messages/chain links from before that epoch
 - Server-enforced, not cryptographic (design doc rationale: no major protocol solves this cryptographically)
 - New member with history: `visibleFromEpoch = 1` (chains backward to all)
@@ -1071,6 +1162,7 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 ### 9A — Public Link Sharing (Hono routes under `/api/links/:conversationId/*`)
 
 **Create:**
+
 1. Owner/admin: `createSharedLink(epochPrivKey)` → linkSecret, linkPublicKey, memberWrap
 2. Send to server: linkPublicKey, memberWrap, privilege, visibleFromEpoch
 3. Server creates **three rows in one transaction**:
@@ -1080,6 +1172,7 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 4. URL: `https://app.com/c/{conversationId}#{linkSecretBase64url}` (fragment never sent to server)
 
 **Access (`POST /api/link-guest/access` — already defined in Phase 7G):**
+
 1. Visitor extracts linkSecret from URL fragment
 2. `deriveKeysFromLinkSecret(linkSecret)` → linkKeyPair
 3. Sends conversationId + linkPublicKey to server
@@ -1094,6 +1187,7 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 - `GET /api/messages/share/:shareId` — access a shared message
 
 Flow:
+
 1. Client decrypts target message → `createMessageShare(plaintext)` → shareSecret + shareBlob
 2. Server stores shareBlob in `sharedMessages`, returns shareId
 3. URL: `https://app.com/m/{shareId}#{shareSecretBase64url}`
@@ -1114,21 +1208,22 @@ cd apps/api && pnpm typecheck && pnpm lint && pnpm test
 
 ### 10A — DELETE Entirely
 
-| File | Reason |
-|------|--------|
-| `apps/web/src/stores/finalize-queue.ts` + tests | No finalize with epoch encryption |
-| `apps/web/src/stores/finalize-queue.compression.test.ts` | Same |
-| `apps/web/src/lib/encrypt-content.ts` + test | Server encrypts now |
+| File                                                     | Reason                            |
+| -------------------------------------------------------- | --------------------------------- |
+| `apps/web/src/stores/finalize-queue.ts` + tests          | No finalize with epoch encryption |
+| `apps/web/src/stores/finalize-queue.compression.test.ts` | Same                              |
+| `apps/web/src/lib/encrypt-content.ts` + test             | Server encrypts now               |
 
 **NOT deleted:** `apps/web/src/lib/sse-client.ts` — KEPT and updated (SSE used for chat streaming)
 
 ### 10B — Message Decryption Rewrite
 
 Uses Hono RPC client:
-1. Fetch wraps: `client.api.keys[':conversationId'].wraps.$get(...)` wrapped in `useQuery`
+
+1. Fetch key chain: `client.api.keys[':conversationId'].$get(...)` wrapped in `useQuery` — returns wraps + chain links in one round-trip
 2. `unwrapEpochKey(accountPrivKey, wrap)` — cache in singleton Map
-3. `decryptMessage(epochPrivKey, blob)` for each message
-4. Chain link traversal via `client.api.keys[':conversationId']['chain-links'].$get(...)`
+3. Chain link traversal to derive older epoch keys from current
+4. `decryptMessage(epochPrivKey, blob)` for each message
 5. Epoch key cache: `apps/web/src/lib/epoch-key-cache.ts` singleton, cleared on logout
 
 ### 10C — Chat Hooks Rewrite
@@ -1139,26 +1234,27 @@ Uses Hono RPC client:
 
 ### 10D — New Hooks
 
-| Hook | Purpose |
-|------|---------|
-| `use-epoch-keys.ts` | Fetches + caches epoch key wraps via Hono RPC + React Query |
-| `use-conversation-ws.ts` | React hook for group chat WebSocket broadcast |
-| `use-message-replay-guard.ts` | Tracks received messageId in Set, rejects duplicates |
+| Hook                          | Purpose                                                     |
+| ----------------------------- | ----------------------------------------------------------- |
+| `use-epoch-keys.ts`           | Fetches + caches epoch key wraps via Hono RPC + React Query |
+| `use-conversation-ws.ts`      | React hook for group chat WebSocket broadcast               |
+| `use-message-replay-guard.ts` | Tracks received messageId in Set, rejects duplicates        |
 
 ### 10E — Replace Manual Fetch Hooks with Hono RPC + React Query
 
-| Current | Replacement |
-|---------|-------------|
-| `useConversations()` manual fetch | `useQuery({ queryKey: ['conversations'], queryFn: () => client.api.conversations.$get().then(r => r.json()) })` |
+| Current                            | Replacement                                                                                                                                |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `useConversations()` manual fetch  | `useQuery({ queryKey: ['conversations'], queryFn: () => client.api.conversations.$get().then(r => r.json()) })`                            |
 | `useConversation(id)` manual fetch | `useQuery({ queryKey: ['conversation', id], queryFn: () => client.api.conversations[':id'].$get({ param: { id } }).then(r => r.json()) })` |
-| `useBalance()` manual fetch | `useQuery({ queryKey: ['balance'], queryFn: () => client.api.billing.balance.$get().then(r => r.json()) })` |
-| manual `fetch` for mutations | `useMutation({ mutationFn: ... })` |
+| `useBalance()` manual fetch        | `useQuery({ queryKey: ['balance'], queryFn: () => client.api.billing.balance.$get().then(r => r.json()) })`                                |
+| manual `fetch` for mutations       | `useMutation({ mutationFn: ... })`                                                                                                         |
 
 The `QueryClientProvider` from `@tanstack/react-query` is the only data layer provider.
 
 ### 10F-10G — Shared Schemas + New UI Components
 
 **10F — Shared Schemas Update (`packages/shared/`):**
+
 - REMOVE: finalize-related schemas
 - UPDATE: message response schema (encryptedBlob, epochNumber, senderType, senderId, senderDisplayName, payerId, sequenceNumber)
 - UPDATE: chat request schema (content is plaintext string, not encrypted)
@@ -1167,18 +1263,18 @@ The `QueryClientProvider` from `@tanstack/react-query` is the only data layer pr
 
 **10G — New UI Components:**
 
-| Component | Purpose |
-|-----------|---------|
-| Group chat header | Member avatars, count, add member button |
-| Member list panel | Privileges, online status, remove button |
-| Add member modal | Search users, set privilege, visibleFromEpoch |
-| Budget settings modal | Per-conversation + per-person budget |
-| Share conversation modal | Generate link, set privilege/visibility |
-| Share message modal | Generate isolated share URL |
-| Shared conversation view | Public route, key from URL fragment |
-| Shared message view | Public route, single message display |
-| Settings page updates | Recovery phrase regen, password change, 2FA |
-| Encryption badge | Visual E2EE status indicator |
+| Component                | Purpose                                       |
+| ------------------------ | --------------------------------------------- |
+| Group chat header        | Member avatars, count, add member button      |
+| Member list panel        | Privileges, online status, remove button      |
+| Add member modal         | Search users, set privilege, visibleFromEpoch |
+| Budget settings modal    | Per-conversation + per-person budget          |
+| Share conversation modal | Generate link, set privilege/visibility       |
+| Share message modal      | Generate isolated share URL                   |
+| Shared conversation view | Public route, key from URL fragment           |
+| Shared message view      | Public route, single message display          |
+| Settings page updates    | Recovery phrase regen, password change, 2FA   |
+| Encryption badge         | Visual E2EE status indicator                  |
 
 ### Verification
 
@@ -1238,15 +1334,18 @@ pnpm dev           # Local dev starts
 ## Critical File Reference
 
 ### Crypto Package (Phase 0)
+
 - `packages/crypto/src/` — ecies, account, epoch, message-encrypt, member, link, message-share, symmetric, key-derivation, sharing, hash, errors, compression, message-codec, constant-time, serialization, opaque-client
 
 ### Database (Phase 1)
+
 - `packages/db/src/schema/` — users, conversations, messages, projects, payments (MODIFY) + 12 new tables (CREATE)
 - `packages/db/src/schema/bytea.ts` — KEEP (custom Uint8Array↔hex type)
 - `packages/db/src/factories/` — update existing + create new
 - `packages/db/src/zod/` — update all schemas
 
 ### API (Phases 2–9)
+
 - `apps/api/src/app.ts` — chained Hono routes + `export type AppType` + DO binding + WebSocket route
 - `apps/api/src/types.ts` — add CONVERSATION_ROOM to Bindings
 - `apps/api/src/routes/*.ts` — all routes restructured with chained syntax + `zValidator`
@@ -1261,19 +1360,22 @@ pnpm dev           # Local dev starts
 - `apps/web/src/lib/api-client.ts` — NEW Hono RPC client (`hc<AppType>()`)
 
 ### Preserved Billing Logic (UNCHANGED algorithms)
+
 - `packages/shared/src/pricing.ts`
 - `packages/shared/src/constants.ts`
 - `packages/shared/src/budget.ts`
 - `packages/shared/src/tiers.ts`
 - `apps/api/src/services/billing/cost-calculator.ts`
 - `apps/api/src/services/billing/can-send.ts`
-- `apps/api/src/services/billing/guest-usage.ts`
+- `apps/api/src/services/billing/trial-usage.ts`
 
 ### Real-time (Phase 6)
+
 - `packages/realtime/src/conversation-room.ts` — NEW DO class
 - `packages/realtime/src/events.ts` — NEW typed events
 
 ### Frontend (Phase 10)
+
 - `apps/web/src/lib/auth.ts` — remove DEK
 - `apps/web/src/lib/auth-client.ts` — new key hierarchy
 - `apps/web/src/lib/api-client.ts` — NEW Hono RPC client

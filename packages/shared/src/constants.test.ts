@@ -6,7 +6,7 @@ import {
   TEST_EMAIL_DOMAIN,
   STRONGEST_MODEL_ID,
   VALUE_MODEL_ID,
-  LOME_FEE_RATE,
+  HUSHBOX_FEE_RATE,
   CREDIT_CARD_FEE_RATE,
   PROVIDER_FEE_RATE,
   TOTAL_FEE_RATE,
@@ -18,6 +18,11 @@ import {
   STORAGE_YEARS,
   STORAGE_COST_PER_CHARACTER,
   STORAGE_COST_PER_1K_CHARS,
+  MAX_CONVERSATION_MEMBERS,
+  PRIVACY_POLICY_EFFECTIVE_DATE,
+  TERMS_OF_SERVICE_EFFECTIVE_DATE,
+  BILLING_CONTACT_EMAIL,
+  PRIVACY_CONTACT_EMAIL,
 } from './constants.js';
 
 describe('MESSAGE_ROLES', () => {
@@ -38,14 +43,14 @@ describe('DEV_PASSWORD', () => {
 });
 
 describe('DEV_EMAIL_DOMAIN', () => {
-  it('is dev.lome-chat.com', () => {
-    expect(DEV_EMAIL_DOMAIN).toBe('dev.lome-chat.com');
+  it('is dev.hushbox.ai', () => {
+    expect(DEV_EMAIL_DOMAIN).toBe('dev.hushbox.ai');
   });
 });
 
 describe('TEST_EMAIL_DOMAIN', () => {
-  it('is test.lome-chat.com', () => {
-    expect(TEST_EMAIL_DOMAIN).toBe('test.lome-chat.com');
+  it('is test.hushbox.ai', () => {
+    expect(TEST_EMAIL_DOMAIN).toBe('test.hushbox.ai');
   });
 
   it('is different from DEV_EMAIL_DOMAIN', () => {
@@ -54,8 +59,8 @@ describe('TEST_EMAIL_DOMAIN', () => {
 });
 
 describe('STRONGEST_MODEL_ID', () => {
-  it('is anthropic/claude-opus-4.5', () => {
-    expect(STRONGEST_MODEL_ID).toBe('anthropic/claude-opus-4.5');
+  it('is anthropic/claude-opus-4.6', () => {
+    expect(STRONGEST_MODEL_ID).toBe('anthropic/claude-opus-4.6');
   });
 
   it('follows provider/model format', () => {
@@ -78,14 +83,14 @@ describe('VALUE_MODEL_ID', () => {
 });
 
 describe('Fee Structure', () => {
-  describe('LOME_FEE_RATE', () => {
+  describe('HUSHBOX_FEE_RATE', () => {
     it('is 0.05 (5%)', () => {
-      expect(LOME_FEE_RATE).toBe(0.05);
+      expect(HUSHBOX_FEE_RATE).toBe(0.05);
     });
 
     it('is a positive number less than 1', () => {
-      expect(LOME_FEE_RATE).toBeGreaterThan(0);
-      expect(LOME_FEE_RATE).toBeLessThan(1);
+      expect(HUSHBOX_FEE_RATE).toBeGreaterThan(0);
+      expect(HUSHBOX_FEE_RATE).toBeLessThan(1);
     });
   });
 
@@ -113,7 +118,7 @@ describe('Fee Structure', () => {
 
   describe('TOTAL_FEE_RATE', () => {
     it('is sum of all individual fees', () => {
-      expect(TOTAL_FEE_RATE).toBe(LOME_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE);
+      expect(TOTAL_FEE_RATE).toBe(HUSHBOX_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE);
     });
 
     it('equals 0.15 (15%)', () => {
@@ -190,6 +195,60 @@ describe('Storage Fee Constants', () => {
 
     it('equals $0.0003', () => {
       expect(STORAGE_COST_PER_1K_CHARS).toBeCloseTo(0.0003, 10);
+    });
+  });
+
+  describe('MAX_CONVERSATION_MEMBERS', () => {
+    it('equals 100', () => {
+      expect(MAX_CONVERSATION_MEMBERS).toBe(100);
+    });
+  });
+});
+
+describe('Legal Constants', () => {
+  describe('PRIVACY_POLICY_EFFECTIVE_DATE', () => {
+    it('is a valid YYYY-MM-DD date string', () => {
+      expect(PRIVACY_POLICY_EFFECTIVE_DATE).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it('parses to a valid date', () => {
+      const date = new Date(PRIVACY_POLICY_EFFECTIVE_DATE);
+      expect(date.toString()).not.toBe('Invalid Date');
+    });
+  });
+
+  describe('TERMS_OF_SERVICE_EFFECTIVE_DATE', () => {
+    it('is a valid YYYY-MM-DD date string', () => {
+      expect(TERMS_OF_SERVICE_EFFECTIVE_DATE).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it('parses to a valid date', () => {
+      const date = new Date(TERMS_OF_SERVICE_EFFECTIVE_DATE);
+      expect(date.toString()).not.toBe('Invalid Date');
+    });
+  });
+
+  describe('BILLING_CONTACT_EMAIL', () => {
+    it('is a valid email address', () => {
+      expect(BILLING_CONTACT_EMAIL).toMatch(/^[^@]+@[^@]+\.[^@]+$/);
+    });
+
+    it('uses hushbox.ai domain', () => {
+      expect(BILLING_CONTACT_EMAIL).toContain('@hushbox.ai');
+    });
+  });
+
+  describe('PRIVACY_CONTACT_EMAIL', () => {
+    it('is a valid email address', () => {
+      expect(PRIVACY_CONTACT_EMAIL).toMatch(/^[^@]+@[^@]+\.[^@]+$/);
+    });
+
+    it('uses hushbox.ai domain', () => {
+      expect(PRIVACY_CONTACT_EMAIL).toContain('@hushbox.ai');
+    });
+
+    it('is different from BILLING_CONTACT_EMAIL', () => {
+      expect(PRIVACY_CONTACT_EMAIL).not.toBe(BILLING_CONTACT_EMAIL);
     });
   });
 });

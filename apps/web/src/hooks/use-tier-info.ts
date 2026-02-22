@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { getUserTier, type UserTierInfo, type UserBalanceState } from '@lome-chat/shared';
+import { getUserTier, type UserTierInfo } from '@hushbox/shared';
 import { useSession } from '@/lib/auth';
 import { useBalance } from './billing.js';
 
@@ -7,26 +7,35 @@ import { useBalance } from './billing.js';
  * Hook to get user tier info including canAccessPremium.
  * Single source of truth for frontend tier determination.
  *
- * Uses getUserTier() from @lome-chat/shared to ensure consistency
+ * Returns null when the tier cannot be determined yet (session or balance loading).
+ * Uses getUserTier() from @hushbox/shared to ensure consistency
  * with backend tier determination.
  */
-export function useTierInfo(): UserTierInfo {
-  const { data: session } = useSession();
+export function useTierInfo(): UserTierInfo | null {
+  const { data: session, isPending: isSessionPending } = useSession();
   const { data: balanceData } = useBalance();
 
-  const balanceState = React.useMemo((): UserBalanceState | null => {
-    const isAuthenticated = Boolean(session?.user);
-    if (!isAuthenticated) {
-      return null; // Guest
+  return React.useMemo((): UserTierInfo | null => {
+    // Session still loading — we don't know if user is authenticated
+    if (isSessionPending) {
+      return null;
     }
-    if (!balanceData) {
-      return null; // Treat as guest while loading
-    }
-    return {
-      balanceCents: Math.round(Number.parseFloat(balanceData.balance) * 100),
-      freeAllowanceCents: balanceData.freeAllowanceCents,
-    };
-  }, [session?.user, balanceData]);
 
-  return React.useMemo(() => getUserTier(balanceState), [balanceState]);
+    const isAuthenticated = Boolean(session?.user);
+
+    // Not authenticated — we know the answer
+    if (!isAuthenticated) {
+      return getUserTier(null);
+    }
+
+    // Authenticated but balance not loaded — don't guess
+    if (!balanceData) {
+      return null;
+    }
+
+    return getUserTier({
+      balanceCents: Number.parseFloat(balanceData.balance) * 100,
+      freeAllowanceCents: balanceData.freeAllowanceCents,
+    });
+  }, [isSessionPending, session, balanceData]);
 }

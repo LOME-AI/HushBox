@@ -8,15 +8,37 @@ describe('messageFactory', () => {
 
     expect(message.id).toMatch(/^[0-9a-f-]{36}$/i);
     expect(message.conversationId).toMatch(/^[0-9a-f-]{36}$/i);
-    expect(['user', 'assistant', 'system']).toContain(message.role);
-    expect(message.content).toBeTruthy();
+    expect(['user', 'ai']).toContain(message.senderType);
+    expect(message.encryptedBlob).toBeInstanceOf(Uint8Array);
+    expect(message.encryptedBlob.length).toBeGreaterThan(0);
     expect(message.createdAt).toBeInstanceOf(Date);
   });
 
+  it('generates epoch and sequence fields', () => {
+    const message = messageFactory.build();
+
+    expect(message.epochNumber).toBe(1);
+    expect(message.sequenceNumber).toBeGreaterThanOrEqual(1);
+  });
+
+  it('generates nullable fields', () => {
+    const message = messageFactory.build();
+
+    expect(message.senderDisplayName).toBeNull();
+    expect(message.payerId).toBeNull();
+  });
+
+  it('generates senderId as UUID', () => {
+    const message = messageFactory.build();
+
+    expect(message.senderId).toMatch(/^[0-9a-f-]{36}$/i);
+  });
+
   it('allows field overrides', () => {
-    const message = messageFactory.build({ role: 'system', content: 'Custom content' });
-    expect(message.role).toBe('system');
-    expect(message.content).toBe('Custom content');
+    const customBlob = new TextEncoder().encode('Custom content');
+    const message = messageFactory.build({ senderType: 'ai', encryptedBlob: customBlob });
+    expect(message.senderType).toBe('ai');
+    expect(message.encryptedBlob).toEqual(customBlob);
   });
 
   it('builds a list with unique IDs', () => {

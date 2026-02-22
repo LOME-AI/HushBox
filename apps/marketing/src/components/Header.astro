@@ -1,0 +1,55 @@
+---
+import { ROUTES } from '@hushbox/shared/routes';
+import { buttonVariants, Logo } from '@hushbox/ui';
+---
+
+<header class="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-md">
+  <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+    <a href="/" class="hover:opacity-80 transition-opacity">
+      <Logo />
+    </a>
+
+    <nav class="hidden items-center gap-6 md:flex">
+      <a href={ROUTES.PRIVACY} class="cursor-pointer text-sm text-foreground-muted transition-colors hover:text-foreground">Privacy</a>
+      <a href={ROUTES.TERMS} class="cursor-pointer text-sm text-foreground-muted transition-colors hover:text-foreground">Terms</a>
+      <a href={ROUTES.LOGIN} class={buttonVariants({ variant: 'ghost', size: 'sm' })}>Log in</a>
+      <a href={ROUTES.SIGNUP} class={buttonVariants({ variant: 'default', size: 'sm' })}>Get Started</a>
+    </nav>
+
+    <button
+      type="button"
+      id="mobile-menu-toggle"
+      class="cursor-pointer md:hidden"
+      aria-label="Toggle menu"
+      aria-expanded="false"
+    >
+      <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+      </svg>
+    </button>
+  </div>
+
+  <div id="mobile-menu" class="hidden border-t md:hidden">
+    <div class="mx-auto flex max-w-5xl flex-col gap-3 px-6 py-4">
+      <a href={ROUTES.PRIVACY} class="cursor-pointer text-sm text-foreground-muted transition-colors hover:text-foreground">Privacy</a>
+      <a href={ROUTES.TERMS} class="cursor-pointer text-sm text-foreground-muted transition-colors hover:text-foreground">Terms</a>
+      <hr class="border-border" />
+      <a href={ROUTES.LOGIN} class="cursor-pointer text-sm text-foreground-muted transition-colors hover:text-foreground">Log in</a>
+      <a href={ROUTES.SIGNUP} class={buttonVariants({ variant: 'default', size: 'sm' }) + ' w-full text-center'}>Get Started</a>
+    </div>
+  </div>
+</header>
+
+<script is:inline>
+  (function () {
+    var toggle = document.getElementById('mobile-menu-toggle');
+    var menu = document.getElementById('mobile-menu');
+    if (toggle && menu) {
+      toggle.addEventListener('click', function () {
+        var open = !menu.classList.contains('hidden');
+        menu.classList.toggle('hidden');
+        toggle.setAttribute('aria-expanded', String(!open));
+      });
+    }
+  })();
+</script>

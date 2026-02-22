@@ -1,11 +1,11 @@
 import * as React from 'react';
-import { useSession } from '@/lib/auth';
+import { useSession, initAuth } from '@/lib/auth';
 import { useBalance } from '@/hooks/billing';
 
 interface StabilityState {
   /** True when session query has completed initial load */
   isAuthStable: boolean;
-  /** True when balance has loaded (or user is guest) */
+  /** True when balance has loaded (or user is trial) */
   isBalanceStable: boolean;
   /** Convenience: all core queries stable */
   isAppStable: boolean;
@@ -20,6 +20,10 @@ interface StabilityProviderProps {
 export function StabilityProvider({
   children,
 }: Readonly<StabilityProviderProps>): React.JSX.Element {
+  React.useEffect(() => {
+    void initAuth();
+  }, []);
+
   const { data: session, isPending: isSessionPending } = useSession();
   const { data: balanceData } = useBalance();
 
@@ -29,7 +33,7 @@ export function StabilityProvider({
   const isAuthStable = !isSessionPending;
 
   // Balance is stable when:
-  // - User is guest (no balance to load), OR
+  // - User is trial (no balance to load), OR
   // - User is authenticated AND we have balance data (cached or fresh)
   const isBalanceStable = !isAuthenticated || Boolean(balanceData);
 

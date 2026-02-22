@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { formatCost } from '@lome-chat/shared';
+import { formatCost } from '@hushbox/shared';
 
 interface MessageCostProps {
   /** Cost in USD as a string (e.g., "0.00136000") */

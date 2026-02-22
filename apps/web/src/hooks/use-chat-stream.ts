@@ -1,35 +1,42 @@
 import { useState, useCallback } from 'react';
 import { getApiUrl } from '../lib/api';
-import { getGuestToken } from '../lib/guest-token';
-import { createSSEParser } from '../lib/sse-client';
+import { getTrialToken } from '../lib/trial-token';
+import { createSSEParser, type DoneEventData } from '../lib/sse-client';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export type StreamMode = 'authenticated' | 'guest';
+export type StreamMode = 'authenticated' | 'trial';
 
 interface AuthenticatedStreamRequest {
   conversationId: string;
   model: string;
+  userMessage: {
+    id: string;
+    content: string;
+  };
+  messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[];
+  fundingSource: string;
 }
 
-interface GuestStreamMessage {
+interface TrialStreamMessage {
   role: 'user' | 'assistant';
   content: string;
 }
 
-interface GuestStreamRequest {
-  messages: GuestStreamMessage[];
+interface TrialStreamRequest {
+  messages: TrialStreamMessage[];
   model: string;
 }
 
-export type StreamRequest = AuthenticatedStreamRequest | GuestStreamRequest;
+export type StreamRequest = AuthenticatedStreamRequest | TrialStreamRequest;
 
 interface StreamResult {
   userMessageId: string;
   assistantMessageId: string;
   content: string;
+  cost: string;
 }
 
 interface StreamOptions {
@@ -38,16 +45,47 @@ interface StreamOptions {
   signal?: AbortSignal;
 }
 
-export class GuestRateLimitError extends Error {
+export class TrialRateLimitError extends Error {
   public readonly limit: number;
   public readonly remaining: number;
   public readonly isRateLimited = true;
 
-  constructor(message: string, limit: number, remaining: number) {
-    super(message);
-    this.name = 'GuestRateLimitError';
+  constructor(
+    public readonly code: string,
+    limit: number,
+    remaining: number
+  ) {
+    super(code);
+    this.name = 'TrialRateLimitError';
     this.limit = limit;
     this.remaining = remaining;
+  }
+}
+
+export class BalanceReservedError extends Error {
+  public readonly isBalanceReserved = true;
+
+  constructor(public readonly code: string) {
+    super(code);
+    this.name = 'BalanceReservedError';
+  }
+}
+
+export class BillingMismatchError extends Error {
+  public readonly isBillingMismatch = true;
+
+  constructor(public readonly code: string) {
+    super(code);
+    this.name = 'BillingMismatchError';
+  }
+}
+
+export class ContextCapacityError extends Error {
+  public readonly isContextCapacity = true;
+
+  constructor(public readonly code: string) {
+    super(code);
+    this.name = 'ContextCapacityError';
   }
 }
 
@@ -66,11 +104,11 @@ function buildStreamRequest(
   request: StreamRequest,
   signal?: AbortSignal
 ): StreamRequestConfig {
-  const endpoint = mode === 'guest' ? '/api/guest/stream' : '/api/chat/stream';
+  const endpoint = mode === 'trial' ? '/api/trial/stream' : '/api/chat/stream';
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
 
-  if (mode === 'guest') {
-    headers['X-Guest-Token'] = getGuestToken();
+  if (mode === 'trial') {
+    headers['X-Trial-Token'] = getTrialToken();
   }
 
   const fetchOptions: RequestInit = {
@@ -87,28 +125,35 @@ function buildStreamRequest(
   return { url: `${getApiUrl()}${endpoint}`, options: fetchOptions };
 }
 
-function extractErrorMessage(data: unknown): string {
-  if (
-    typeof data === 'object' &&
-    data !== null &&
-    'error' in data &&
-    typeof data.error === 'string'
-  ) {
-    return data.error;
+function extractErrorCode(data: unknown): string | undefined {
+  if (typeof data === 'object' && data !== null && 'code' in data) {
+    const code = (data as Record<string, unknown>)['code'];
+    if (typeof code === 'string') return code;
   }
-  return 'Stream request failed';
+  return undefined;
+}
+
+function createTrialRateLimitError(code: string, data: unknown): TrialRateLimitError {
+  const errorData = data as { details?: { limit?: number; remaining?: number } };
+  return new TrialRateLimitError(
+    code,
+    errorData.details?.limit ?? 5,
+    errorData.details?.remaining ?? 0
+  );
 }
 
 function handleStreamError(mode: StreamMode, status: number, data: unknown): never {
-  if (mode === 'guest' && status === 429) {
-    const errorData = data as { error?: string; limit?: number; remaining?: number };
-    throw new GuestRateLimitError(
-      errorData.error ?? 'Daily limit exceeded',
-      errorData.limit ?? 5,
-      errorData.remaining ?? 0
-    );
+  const code = extractErrorCode(data) ?? 'INTERNAL';
+  if (mode === 'trial' && status === 429) {
+    throw createTrialRateLimitError(code, data);
   }
-  throw new Error(extractErrorMessage(data));
+  if (mode === 'authenticated' && status === 409) {
+    throw new BillingMismatchError(code);
+  }
+  if (mode === 'authenticated' && status === 402 && code === 'BALANCE_RESERVED') {
+    throw new BalanceReservedError(code);
+  }
+  throw new Error(code);
 }
 
 async function validateSSEResponse(
@@ -117,9 +162,7 @@ async function validateSSEResponse(
   const contentType = response.headers.get('Content-Type');
   if (!contentType?.includes('text/event-stream')) {
     const errorData: unknown = await response.json().catch(() => ({}));
-    throw new Error(
-      extractErrorMessage(errorData) || 'Expected SSE stream but received different content type'
-    );
+    throw new Error(extractErrorCode(errorData) ?? 'INTERNAL');
   }
 
   if (!response.body) {
@@ -132,6 +175,7 @@ async function validateSSEResponse(
 interface StreamState {
   error: Error | null;
   done: boolean;
+  doneData: DoneEventData | null;
 }
 
 type SSEParser = ReturnType<typeof createSSEParser>;
@@ -163,6 +207,7 @@ async function consumeSSEStream(
       userMessageId: parser.getUserMessageId(),
       assistantMessageId: parser.getAssistantMessageId(),
       content: parser.getContent(),
+      cost: state.doneData?.cost ?? '0',
     };
   } finally {
     void (async () => {
@@ -192,16 +237,20 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
         }
 
         const reader = await validateSSEResponse(response);
-        const streamState: StreamState = { error: null, done: false };
+        const streamState: StreamState = { error: null, done: false, doneData: null };
 
         const parser = createSSEParser({
           onStart: (data) => options?.onStart?.(data),
           onToken: (tokenContent) => options?.onToken?.(tokenContent),
           onError: (errorData) => {
-            streamState.error = new Error(errorData.message);
+            streamState.error =
+              errorData.code === 'context_length_exceeded'
+                ? new ContextCapacityError(errorData.code)
+                : new Error(errorData.message);
           },
-          onDone: () => {
+          onDone: (doneData) => {
             streamState.done = true;
+            streamState.doneData = doneData;
           },
         });
 

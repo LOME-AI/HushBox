@@ -28,6 +28,15 @@
     "e2e": {
       "entry": ["fixtures.ts", "auth.setup.ts", "**/*.spec.ts"],
       "project": ["**/*.ts"]
+    },
+    "packages/realtime": {
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["cloudflare"]
+    },
+    "apps/marketing": {
+      "entry": ["src/pages/**/*.astro"],
+      "project": ["src/**/*.{astro,ts,tsx}"],
+      "ignore": ["src/styles/**"]
     }
   },
   "ignoreDependencies": ["eslint-formatter-summary", "tailwindcss", "tw-animate-css", "vite"],

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { verificationEmail } from './verification.js';
 
 describe('verificationEmail', () => {
-  const testUrl = 'https://lome-chat.com/verify?token=abc123';
+  const testUrl = 'https://hushbox.ai/verify?token=abc123';
 
   describe('html output', () => {
     it('contains the verification URL', () => {
@@ -42,7 +42,7 @@ describe('verificationEmail', () => {
     it('contains contact email', () => {
       const result = verificationEmail({ verificationUrl: testUrl });
 
-      expect(result.html).toContain('hello@lome-chat.com');
+      expect(result.html).toContain('hello@hushbox.ai');
     });
 
     it('defaults expiration to 24 hours', () => {

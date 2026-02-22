@@ -1,8 +1,20 @@
 import { like, eq, count, inArray } from 'drizzle-orm';
-import { users, conversations, messages, projects, guestUsage, type Database } from '@lome-chat/db';
-import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN, type DevPersona } from '@lome-chat/shared';
+import {
+  users,
+  conversations,
+  messages,
+  projects,
+  epochs,
+  epochMembers,
+  conversationMembers,
+  type Database,
+} from '@hushbox/db';
+import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN, type DevPersona } from '@hushbox/shared';
+import { createFirstEpoch, encryptMessageForStorage } from '@hushbox/crypto';
+import { checkUserBalance } from '../billing/index.js';
+import type { Redis } from '@upstash/redis';
 
-export interface ResetGuestUsageResult {
+export interface ResetTrialUsageResult {
   deleted: number;
 }
 
@@ -20,11 +32,9 @@ export async function listDevPersonas(db: Database, type: 'dev' | 'test'): Promi
   const devUsers = await db
     .select({
       id: users.id,
-      name: users.name,
+      username: users.username,
       email: users.email,
       emailVerified: users.emailVerified,
-      image: users.image,
-      balance: users.balance,
     })
     .from(users)
     .where(like(users.email, `%@${emailDomain}`));
@@ -47,15 +57,15 @@ export async function listDevPersonas(db: Database, type: 'dev' | 'test'): Promi
         .from(projects)
         .where(eq(projects.userId, user.id));
 
-      const balanceNumber = Number.parseFloat(user.balance);
+      const balanceResult = await checkUserBalance(db, user.id);
+      const balanceNumber = Number.parseFloat(balanceResult.currentBalance);
       const formattedCredits = `$${balanceNumber.toFixed(2)}`;
 
       return {
         id: user.id,
-        name: user.name,
-        email: user.email,
+        username: user.username,
+        email: user.email ?? '', // Dev personas always have email (filtered by email domain)
         emailVerified: user.emailVerified,
-        image: user.image,
         stats: {
           conversationCount: convCount?.count ?? 0,
           messageCount: msgCount?.count ?? 0,
@@ -108,10 +118,199 @@ export async function cleanupTestData(db: Database): Promise<CleanupResult> {
 }
 
 /**
- * Reset all guest usage records for testing purposes.
- * This deletes all records from the guest_usage table.
+ * Reset all trial usage records for testing purposes.
+ * Scans Redis for trial:token:* and trial:ip:* keys and deletes them.
  */
-export async function resetGuestUsage(db: Database): Promise<ResetGuestUsageResult> {
-  const deleted = await db.delete(guestUsage).returning();
-  return { deleted: deleted.length };
+export async function resetTrialUsage(redis: Redis): Promise<ResetTrialUsageResult> {
+  let deleted = 0;
+  let cursor: string | number = 0;
+
+  do {
+    const [nextCursor, keys]: [string, string[]] = await redis.scan(cursor, {
+      match: 'trial:*',
+      count: 100,
+    });
+    cursor = nextCursor;
+    if (keys.length > 0) {
+      await redis.del(...keys);
+      deleted += keys.length;
+    }
+  } while (cursor !== '0');
+
+  return { deleted };
+}
+
+export interface ResetAuthRateLimitsResult {
+  deleted: number;
+}
+
+/**
+ * Reset all auth-related rate limits, lockouts, and TOTP replay keys for testing.
+ * Scans Redis for each auth-related prefix and deletes matching keys.
+ */
+export async function resetAuthRateLimits(redis: Redis): Promise<ResetAuthRateLimitsResult> {
+  const prefixes = [
+    'login:*:ratelimit:*',
+    'login:lockout:*',
+    'register:*:ratelimit:*',
+    '2fa:*:ratelimit:*',
+    '2fa:lockout:*',
+    'recovery:*:ratelimit:*',
+    'recovery:lockout:*',
+    'verify:*:ratelimit:*',
+    'resend-verify:*:ratelimit:*',
+    'totp:used:*',
+  ];
+
+  let deleted = 0;
+
+  for (const prefix of prefixes) {
+    let cursor: string | number = 0;
+    do {
+      const [nextCursor, keys]: [string, string[]] = await redis.scan(cursor, {
+        match: prefix,
+        count: 100,
+      });
+      cursor = nextCursor;
+      if (keys.length > 0) {
+        await redis.del(...keys);
+        deleted += keys.length;
+      }
+    } while (cursor !== '0');
+  }
+
+  return { deleted };
+}
+
+export interface CreateDevGroupChatParams {
+  ownerEmail: string;
+  memberEmails: string[];
+  messages?: {
+    senderEmail?: string;
+    content: string;
+    senderType: 'user' | 'ai';
+  }[];
+}
+
+export interface CreateDevGroupChatResult {
+  conversationId: string;
+  members: { userId: string; username: string; email: string }[];
+}
+
+/**
+ * Create a group conversation with epoch crypto for E2E testing.
+ * Mirrors the seed script's createConversationEpochData pattern.
+ */
+export async function createDevGroupChat(
+  db: Database,
+  params: CreateDevGroupChatParams
+): Promise<CreateDevGroupChatResult> {
+  const allEmails = [params.ownerEmail, ...params.memberEmails];
+
+  const foundUsers = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      publicKey: users.publicKey,
+    })
+    .from(users)
+    .where(inArray(users.email, allEmails));
+
+  const owner = foundUsers.find((u) => u.email === params.ownerEmail);
+  if (!owner) {
+    throw new Error(`Owner not found: ${params.ownerEmail}`);
+  }
+
+  // Order: owner first, then members in request order
+  const orderedUsers = [
+    owner,
+    ...params.memberEmails.map((email) => {
+      const found = foundUsers.find((u) => u.email === email);
+      if (!found) throw new Error(`Member not found: ${email}`);
+      return found;
+    }),
+  ];
+
+  const publicKeys = orderedUsers.map((u) => u.publicKey);
+  const epochResult = createFirstEpoch(publicKeys);
+
+  const conversationId = crypto.randomUUID();
+  const epochId = crypto.randomUUID();
+
+  // Insert conversation
+  await db.insert(conversations).values({
+    id: conversationId,
+    userId: owner.id,
+    title: encryptMessageForStorage(epochResult.epochPublicKey, ''),
+  });
+
+  // Insert epoch
+  await db.insert(epochs).values({
+    id: epochId,
+    conversationId,
+    epochNumber: 1,
+    epochPublicKey: epochResult.epochPublicKey,
+    confirmationHash: epochResult.confirmationHash,
+    chainLink: null,
+  });
+
+  // Insert epoch members (one per user with their wrap)
+  await db.insert(epochMembers).values(
+    orderedUsers.map((user, index) => {
+      const memberWrap = epochResult.memberWraps[index];
+      if (!memberWrap) throw new Error(`invariant: member wrap missing at index ${String(index)}`);
+      return {
+        id: crypto.randomUUID(),
+        epochId,
+        memberPublicKey: user.publicKey,
+        wrap: memberWrap.wrap,
+        privilege: index === 0 ? 'owner' : ('admin' as string),
+        visibleFromEpoch: 1,
+      };
+    })
+  );
+
+  // Insert conversation members (acceptedAt set so they're not treated as pending invites)
+  await db.insert(conversationMembers).values(
+    orderedUsers.map((user, index) => ({
+      id: crypto.randomUUID(),
+      conversationId,
+      userId: user.id,
+      privilege: index === 0 ? 'owner' : ('admin' as string),
+      visibleFromEpoch: 1,
+      acceptedAt: new Date(),
+    }))
+  );
+
+  // Insert messages if provided
+  if (params.messages && params.messages.length > 0) {
+    await db.insert(messages).values(
+      params.messages.map((msg, index) => {
+        const senderId =
+          msg.senderType === 'user' && msg.senderEmail
+            ? (orderedUsers.find((u) => u.email != null && u.email === msg.senderEmail)?.id ?? null)
+            : null;
+
+        return {
+          id: crypto.randomUUID(),
+          conversationId,
+          encryptedBlob: encryptMessageForStorage(epochResult.epochPublicKey, msg.content),
+          senderType: msg.senderType,
+          senderId,
+          epochNumber: 1,
+          sequenceNumber: index + 1,
+        };
+      })
+    );
+  }
+
+  return {
+    conversationId,
+    members: orderedUsers.map((u) => ({
+      userId: u.id,
+      username: u.username,
+      email: u.email ?? '', // Dev users always have email (looked up by email)
+    })),
+  };
 }

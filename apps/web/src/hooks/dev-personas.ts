@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import type { DevPersonasResponse } from '@lome-chat/shared';
-
-const API_URL = import.meta.env['VITE_API_URL'] as string;
+import type { DevPersonasResponse } from '@hushbox/shared';
+import { client, fetchJson } from '../lib/api-client.js';
 
 export type PersonaType = 'dev' | 'test';
 
@@ -15,13 +14,8 @@ export function useDevPersonas(
 ): ReturnType<typeof useQuery<DevPersonasResponse, Error>> {
   return useQuery({
     queryKey: devPersonaKeys.list(type),
-    queryFn: async (): Promise<DevPersonasResponse> => {
-      const response = await fetch(`${API_URL}/api/dev/personas?type=${type}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch dev personas');
-      }
-      return response.json() as Promise<DevPersonasResponse>;
-    },
+    queryFn: (): Promise<DevPersonasResponse> =>
+      fetchJson<DevPersonasResponse>(client.api.dev.personas.$get({ query: { type } })),
     enabled: import.meta.env.DEV,
     retry: 3,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),

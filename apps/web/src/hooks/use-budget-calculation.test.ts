@@ -3,7 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useBudgetCalculation } from './use-budget-calculation';
 import * as billingHooks from './billing';
 import type { UseQueryResult } from '@tanstack/react-query';
-import type { GetBalanceResponse } from '@lome-chat/shared';
+import type { GetBalanceResponse } from '@hushbox/shared';
 
 // Hoist mock functions for vi.mock factories
 const { mockUseStability } = vi.hoisted(() => ({
@@ -50,19 +50,21 @@ describe('useBudgetCalculation', () => {
   });
 
   describe('initial state', () => {
-    it('returns default result before debounce completes', () => {
+    it('returns math result before debounce completes', () => {
       const { result } = renderHook(() => useBudgetCalculation(defaultInput));
 
-      expect(result.current.canAfford).toBe(true);
-      expect(result.current.errors).toEqual([]);
+      expect(result.current.maxOutputTokens).toBeGreaterThan(0);
+      expect(result.current.estimatedInputTokens).toBeGreaterThan(0);
+      expect(result.current.capacityPercent).toBeGreaterThanOrEqual(0);
     });
   });
 
   describe('tier determination', () => {
-    it('treats unauthenticated user as guest', () => {
+    it('uses conservative token estimation for unauthenticated (trial) user', () => {
       const { result } = renderHook(() =>
         useBudgetCalculation({
           ...defaultInput,
+          promptCharacterCount: 4000,
           isAuthenticated: false,
         })
       );
@@ -71,28 +73,29 @@ describe('useBudgetCalculation', () => {
         vi.advanceTimersByTime(200);
       });
 
-      // Guest tier should have the guest notice
-      const hasGuestNotice = result.current.errors.some((e) => e.id === 'guest_notice');
-      expect(hasGuestNotice).toBe(true);
+      // Trial tier uses 2 chars/token → 4000/2 = 2000 tokens
+      expect(result.current.estimatedInputTokens).toBe(2000);
     });
 
-    it('treats authenticated user with positive balance as paid tier', () => {
+    it('uses standard token estimation for authenticated paid user', () => {
       mockUseBalance.mockReturnValue({
         data: { balance: '10.00000000', freeAllowanceCents: 0 },
         isPending: false,
       } as UseQueryResult<GetBalanceResponse>);
 
-      const { result } = renderHook(() => useBudgetCalculation(defaultInput));
+      const { result } = renderHook(() =>
+        useBudgetCalculation({
+          ...defaultInput,
+          promptCharacterCount: 4000,
+        })
+      );
 
       act(() => {
         vi.advanceTimersByTime(200);
       });
 
-      // Paid tier should NOT have free/guest notices
-      const hasTierNotice = result.current.errors.some(
-        (e) => e.id === 'guest_notice' || e.id === 'free_tier_notice'
-      );
-      expect(hasTierNotice).toBe(false);
+      // Paid tier uses 4 chars/token → 4000/4 = 1000 tokens
+      expect(result.current.estimatedInputTokens).toBe(1000);
     });
 
     it('treats authenticated user with zero balance as free tier', () => {
@@ -101,15 +104,19 @@ describe('useBudgetCalculation', () => {
         isPending: false,
       } as UseQueryResult<GetBalanceResponse>);
 
-      const { result } = renderHook(() => useBudgetCalculation(defaultInput));
+      const { result } = renderHook(() =>
+        useBudgetCalculation({
+          ...defaultInput,
+          promptCharacterCount: 4000,
+        })
+      );
 
       act(() => {
         vi.advanceTimersByTime(200);
       });
 
-      // Free tier should have the free tier notice
-      const hasFreeTierNotice = result.current.errors.some((e) => e.id === 'free_tier_notice');
-      expect(hasFreeTierNotice).toBe(true);
+      // Free tier uses 2 chars/token → 4000/2 = 2000 tokens
+      expect(result.current.estimatedInputTokens).toBe(2000);
     });
 
     it('sets isBalanceLoading true when authenticated and balance is not stable', () => {
@@ -129,16 +136,13 @@ describe('useBudgetCalculation', () => {
         vi.advanceTimersByTime(200);
       });
 
-      // isBalanceLoading should be true for authenticated users while balance is not stable
       expect(result.current.isBalanceLoading).toBe(true);
-      // Calculation still happens with guest tier (errors may include guest notice)
-      // but UI should use isBalanceLoading to suppress display
     });
 
     it('sets isBalanceLoading false when not authenticated', () => {
       mockUseStability.mockReturnValue({
         isAuthStable: true,
-        isBalanceStable: true, // Still true because balance is stable for guests (no balance to load)
+        isBalanceStable: true,
         isAppStable: true,
       });
       mockUseBalance.mockReturnValue({
@@ -157,7 +161,6 @@ describe('useBudgetCalculation', () => {
         vi.advanceTimersByTime(200);
       });
 
-      // Not authenticated, so loading state doesn't matter
       expect(result.current.isBalanceLoading).toBe(false);
     });
 
@@ -178,62 +181,7 @@ describe('useBudgetCalculation', () => {
         vi.advanceTimersByTime(200);
       });
 
-      // Balance is stable, no longer loading
       expect(result.current.isBalanceLoading).toBe(false);
-    });
-
-    it('filters tier notices when app is not stable', () => {
-      mockUseStability.mockReturnValue({
-        isAuthStable: false, // Auth pending
-        isBalanceStable: true,
-        isAppStable: false,
-      });
-      mockUseBalance.mockReturnValue({
-        data: undefined,
-        isPending: false,
-      } as UseQueryResult<GetBalanceResponse>);
-
-      const { result } = renderHook(() =>
-        useBudgetCalculation({
-          ...defaultInput,
-          isAuthenticated: false,
-        })
-      );
-
-      act(() => {
-        vi.advanceTimersByTime(200);
-      });
-
-      const hasTierNotice = result.current.errors.some(
-        (e) => e.id === 'guest_notice' || e.id === 'free_tier_notice'
-      );
-      expect(hasTierNotice).toBe(false);
-    });
-
-    it('shows tier notices after app becomes stable', () => {
-      mockUseStability.mockReturnValue({
-        isAuthStable: true,
-        isBalanceStable: true,
-        isAppStable: true,
-      });
-      mockUseBalance.mockReturnValue({
-        data: { balance: '0.00000000', freeAllowanceCents: 500 },
-        isPending: false,
-      } as UseQueryResult<GetBalanceResponse>);
-
-      const { result } = renderHook(() =>
-        useBudgetCalculation({
-          ...defaultInput,
-          isAuthenticated: true,
-        })
-      );
-
-      act(() => {
-        vi.advanceTimersByTime(200);
-      });
-
-      const hasFreeTierNotice = result.current.errors.some((e) => e.id === 'free_tier_notice');
-      expect(hasFreeTierNotice).toBe(true);
     });
   });
 
@@ -288,7 +236,7 @@ describe('useBudgetCalculation', () => {
       expect(result.current.estimatedInputTokens).toBe(1000);
     });
 
-    it('returns canAfford true when balance covers minimum cost', () => {
+    it('returns positive maxOutputTokens when balance covers minimum cost', () => {
       mockUseBalance.mockReturnValue({
         data: { balance: '10.00000000', freeAllowanceCents: 0 },
         isPending: false,
@@ -300,11 +248,10 @@ describe('useBudgetCalculation', () => {
         vi.advanceTimersByTime(200);
       });
 
-      expect(result.current.canAfford).toBe(true);
       expect(result.current.maxOutputTokens).toBeGreaterThan(0);
     });
 
-    it('returns canAfford false when balance is insufficient', () => {
+    it('returns zero maxOutputTokens when balance is insufficient', () => {
       mockUseBalance.mockReturnValue({
         data: { balance: '0.00000000', freeAllowanceCents: 0 },
         isPending: false,
@@ -322,7 +269,6 @@ describe('useBudgetCalculation', () => {
         vi.advanceTimersByTime(200);
       });
 
-      expect(result.current.canAfford).toBe(false);
       expect(result.current.maxOutputTokens).toBe(0);
     });
 
@@ -344,15 +290,12 @@ describe('useBudgetCalculation', () => {
         vi.advanceTimersByTime(200);
       });
 
-      // currentUsage = estimatedInputTokens + MINIMUM_OUTPUT_TOKENS
-      // 1000 + 1000 = 2000
+      // currentUsage = capacityInputTokens (4000/4=1000) + MINIMUM_OUTPUT_TOKENS (1000)
       // capacityPercent = 2000 / 10000 * 100 = 20%
       expect(result.current.capacityPercent).toBe(20);
     });
-  });
 
-  describe('error messages', () => {
-    it('includes capacity warning when over threshold', () => {
+    it('returns estimatedMinimumCost in dollars', () => {
       mockUseBalance.mockReturnValue({
         data: { balance: '10.00000000', freeAllowanceCents: 0 },
         isPending: false,
@@ -361,34 +304,9 @@ describe('useBudgetCalculation', () => {
       const { result } = renderHook(() =>
         useBudgetCalculation({
           ...defaultInput,
-          promptCharacterCount: 40_000, // 10000 tokens at 4 chars/token
-          modelContextLength: 15_000, // capacity = (10000+1000)/15000 = 73%
-        })
-      );
-
-      act(() => {
-        vi.advanceTimersByTime(200);
-      });
-
-      const hasCapacityWarning = result.current.errors.some((e) => e.id === 'capacity_warning');
-      expect(hasCapacityWarning).toBe(true);
-    });
-
-    it('includes low balance warning for paid user with limited output', () => {
-      // Very low balance: $0.01 primary + $0.50 cushion = $0.51 effective
-      // With expensive output price, maxOutputTokens < 10000 triggers warning
-      mockUseBalance.mockReturnValue({
-        data: { balance: '0.01000000', freeAllowanceCents: 0 },
-        isPending: false,
-      } as UseQueryResult<GetBalanceResponse>);
-
-      const { result } = renderHook(() =>
-        useBudgetCalculation({
-          ...defaultInput,
-          promptCharacterCount: 400,
+          promptCharacterCount: 4000,
           modelInputPricePerToken: 0.000_01,
-          // High output price: $0.51 / $0.0001 per token = ~5100 tokens (< 10000)
-          modelOutputPricePerToken: 0.0001,
+          modelOutputPricePerToken: 0.000_03,
         })
       );
 
@@ -396,8 +314,10 @@ describe('useBudgetCalculation', () => {
         vi.advanceTimersByTime(200);
       });
 
-      const hasLowBalanceWarning = result.current.errors.some((e) => e.id === 'low_balance');
-      expect(hasLowBalanceWarning).toBe(true);
+      // estimatedInputCost = 1000 * 0.00001 = 0.01
+      // minimumOutputCost = 1000 * 0.00003 = 0.03
+      // estimatedMinimumCost = 0.04
+      expect(result.current.estimatedMinimumCost).toBeCloseTo(0.04, 5);
     });
   });
 });

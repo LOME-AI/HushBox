@@ -1,28 +1,32 @@
-/**
- * Centralized route constants.
- * Single source of truth for all navigation paths.
- */
-export const ROUTES = {
-  // Main app routes
-  CHAT: '/chat',
-  CHAT_NEW: '/chat/new',
-  CHAT_ID: '/chat/$id',
-  CHAT_GUEST: '/chat/guest',
-  PROJECTS: '/projects',
-  BILLING: '/billing',
+import { ROUTES } from '@hushbox/shared';
 
-  // Auth routes
-  LOGIN: '/login',
-  SIGNUP: '/signup',
-  VERIFY: '/verify',
-
-  // Dev routes
-  DEV_PERSONAS: '/dev/personas',
-} as const;
+/** Drizzle Studio URL — only accessible during local development. */
+export const DRIZZLE_STUDIO_URL = 'https://local.drizzle.studio';
 
 /**
  * Helper for conversation route with ID substitution.
  */
 export function chatConversationRoute(conversationId: string): string {
   return `${ROUTES.CHAT}/${conversationId}`;
+}
+
+/**
+ * Constructs a share conversation URL with the link private key in the fragment.
+ * The fragment is never sent to the server, preserving E2E encryption.
+ */
+export function shareConversationRoute(
+  conversationId: string,
+  linkPrivateKeyBase64: string
+): string {
+  const [prefix = ''] = ROUTES.SHARE_CONVERSATION.split('$');
+  return `${prefix}${conversationId}#${linkPrivateKeyBase64}`;
+}
+
+/**
+ * Constructs a share message URL with the share key in the fragment.
+ * The fragment is never sent to the server, preserving E2E encryption.
+ */
+export function shareMessageRoute(shareId: string, shareKeyBase64: string): string {
+  const [prefix = ''] = ROUTES.SHARE_MESSAGE.split('$');
+  return `${prefix}${shareId}#${shareKeyBase64}`;
 }

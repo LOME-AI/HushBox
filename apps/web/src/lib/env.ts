@@ -1,4 +1,4 @@
-import { createEnvUtilities } from '@lome-chat/shared';
+import { createEnvUtilities } from '@hushbox/shared';
 
 /**
  * Frontend environment utilities - initialized once with Vite's env.

@@ -7,11 +7,20 @@ describe('paymentFactory', () => {
     const payment = paymentFactory.build();
 
     expect(payment.id).toMatch(/^[0-9a-f-]{36}$/i);
-    expect(payment.userId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(payment.amount).toBeTruthy();
-    expect(payment.status).toBe('confirmed');
+    expect(payment.status).toBe('completed');
     expect(payment.createdAt).toBeInstanceOf(Date);
     expect(payment.updatedAt).toBeInstanceOf(Date);
+  });
+
+  it('generates userId as nullable UUID by default', () => {
+    const payment = paymentFactory.build();
+    expect(payment.userId).toMatch(/^[0-9a-f-]{36}$/i);
+  });
+
+  it('allows null userId', () => {
+    const payment = paymentFactory.build({ userId: null });
+    expect(payment.userId).toBeNull();
   });
 
   it('allows field overrides', () => {
@@ -24,12 +33,26 @@ describe('paymentFactory', () => {
     expect(payment.status).toBe('pending');
   });
 
-  it('builds confirmed payments with Helcim details', () => {
-    const payment = paymentFactory.build({ status: 'confirmed' });
+  it('generates valid status values', () => {
+    const validStatuses = ['pending', 'awaiting_webhook', 'completed', 'failed', 'refunded'];
+    const payment = paymentFactory.build();
+    expect(validStatuses).toContain(payment.status);
+  });
+
+  it('builds completed payments with Helcim details', () => {
+    const payment = paymentFactory.build({ status: 'completed' });
     expect(payment.helcimTransactionId).toBeTruthy();
     expect(payment.cardType).toBeTruthy();
     expect(payment.cardLastFour).toMatch(/^\d{4}$/);
     expect(payment.webhookReceivedAt).toBeInstanceOf(Date);
+  });
+
+  it('builds pending payments without Helcim details', () => {
+    const payment = paymentFactory.build({ status: 'pending' });
+    expect(payment.helcimTransactionId).toBeNull();
+    expect(payment.cardType).toBeNull();
+    expect(payment.cardLastFour).toBeNull();
+    expect(payment.webhookReceivedAt).toBeNull();
   });
 
   it('builds a list with unique IDs', () => {

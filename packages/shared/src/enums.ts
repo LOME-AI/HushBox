@@ -23,7 +23,13 @@ export type MessageRole = z.infer<typeof messageRoleSchema>;
 // ============================================================================
 
 /** Valid statuses for payments */
-export const PAYMENT_STATUSES = ['pending', 'awaiting_webhook', 'confirmed', 'failed'] as const;
+export const PAYMENT_STATUSES = [
+  'pending',
+  'awaiting_webhook',
+  'completed',
+  'failed',
+  'refunded',
+] as const;
 
 /** Zod schema for payment status validation */
 export const paymentStatusSchema = z.enum(PAYMENT_STATUSES);
@@ -32,17 +38,24 @@ export const paymentStatusSchema = z.enum(PAYMENT_STATUSES);
 export type PaymentStatus = z.infer<typeof paymentStatusSchema>;
 
 // ============================================================================
-// Balance Transaction Type
+// Ledger Entry Type
 // ============================================================================
 
-/** Valid types for balance transactions */
-export const BALANCE_TRANSACTION_TYPES = ['deposit', 'usage', 'adjustment'] as const;
+/** Valid types for ledger entries */
+export const LEDGER_ENTRY_TYPES = [
+  'deposit',
+  'usage_charge',
+  'refund',
+  'adjustment',
+  'renewal',
+  'welcome_credit',
+] as const;
 
-/** Zod schema for balance transaction type validation */
-export const balanceTransactionTypeSchema = z.enum(BALANCE_TRANSACTION_TYPES);
+/** Zod schema for ledger entry type validation */
+export const ledgerEntryTypeSchema = z.enum(LEDGER_ENTRY_TYPES);
 
-/** TypeScript type for balance transaction type */
-export type BalanceTransactionType = z.infer<typeof balanceTransactionTypeSchema>;
+/** TypeScript type for ledger entry type */
+export type LedgerEntryType = z.infer<typeof ledgerEntryTypeSchema>;
 
 // ============================================================================
 // Deduction Source (for balance transactions)
@@ -56,3 +69,16 @@ export const deductionSourceSchema = z.enum(DEDUCTION_SOURCES);
 
 /** TypeScript type for deduction source */
 export type StoredDeductionSource = z.infer<typeof deductionSourceSchema>;
+
+// ============================================================================
+// Member Privilege
+// ============================================================================
+
+/** Valid privilege levels for conversation members, ordered lowest to highest */
+export const MEMBER_PRIVILEGES = ['read', 'write', 'admin', 'owner'] as const;
+
+/** Zod schema for member privilege validation */
+export const memberPrivilegeSchema = z.enum(MEMBER_PRIVILEGES);
+
+/** TypeScript type for member privilege */
+export type MemberPrivilege = z.infer<typeof memberPrivilegeSchema>;

@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getGreeting } from './greetings';
 
 // Mock the shared random module to always return first element
-vi.mock('@lome-chat/shared', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@lome-chat/shared')>();
+vi.mock('@hushbox/shared', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@hushbox/shared')>();
   return {
     ...original,
     getSecureRandomElement: <T>(array: readonly T[]): T => array[0] as T,

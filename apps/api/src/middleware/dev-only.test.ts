@@ -23,7 +23,7 @@ describe('devOnly middleware', () => {
 
     const res = await app.request('/', {}, { NODE_ENV: 'production' });
     const body = await res.json();
-    expect(body).toEqual({ error: 'Not Found' });
+    expect(body).toEqual({ code: 'NOT_FOUND' });
   });
 
   it('allows request when NODE_ENV is development', async () => {

@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createUserMessage,
   createAssistantMessage,
-  createGuestMessage,
+  createTrialMessage,
   appendTokenToMessage,
+  type ChatErrorDisplay,
 } from './chat-messages';
 
 describe('chat-messages', () => {
@@ -36,6 +37,18 @@ describe('chat-messages', () => {
 
       expect(message1.id).not.toBe(message2.id);
     });
+
+    it('includes senderId when provided', () => {
+      const message = createUserMessage('conv-123', 'Hello', 'user-42');
+
+      expect(message.senderId).toBe('user-42');
+    });
+
+    it('omits senderId when not provided', () => {
+      const message = createUserMessage('conv-123', 'Hello');
+
+      expect(message.senderId).toBeUndefined();
+    });
   });
 
   describe('createAssistantMessage', () => {
@@ -58,12 +71,12 @@ describe('chat-messages', () => {
     });
   });
 
-  describe('createGuestMessage', () => {
-    it('creates a guest user message with generated ID', () => {
-      const message = createGuestMessage('user', 'Hello from guest');
+  describe('createTrialMessage', () => {
+    it('creates a trial user message with generated ID', () => {
+      const message = createTrialMessage('user', 'Hello from guest');
 
       expect(message).toMatchObject({
-        conversationId: 'guest',
+        conversationId: 'trial',
         role: 'user',
         content: 'Hello from guest',
         createdAt: '2024-01-15T10:00:00.000Z',
@@ -71,12 +84,12 @@ describe('chat-messages', () => {
       expect(message.id).toBeDefined();
     });
 
-    it('creates a guest assistant message with provided ID', () => {
-      const message = createGuestMessage('assistant', '', 'provided-id');
+    it('creates a trial assistant message with provided ID', () => {
+      const message = createTrialMessage('assistant', '', 'provided-id');
 
       expect(message).toEqual({
         id: 'provided-id',
-        conversationId: 'guest',
+        conversationId: 'trial',
         role: 'assistant',
         content: '',
         createdAt: '2024-01-15T10:00:00.000Z',
@@ -84,10 +97,26 @@ describe('chat-messages', () => {
     });
 
     it('generates ID when not provided', () => {
-      const message1 = createGuestMessage('user', 'Test');
-      const message2 = createGuestMessage('user', 'Test');
+      const message1 = createTrialMessage('user', 'Test');
+      const message2 = createTrialMessage('user', 'Test');
 
       expect(message1.id).not.toBe(message2.id);
+    });
+  });
+
+  describe('ChatErrorDisplay', () => {
+    it('has the correct shape', () => {
+      const errorDisplay: ChatErrorDisplay = {
+        id: 'err-1',
+        role: 'assistant',
+        content: 'Error message',
+        retryable: true,
+        isError: true,
+      };
+
+      expect(errorDisplay.role).toBe('assistant');
+      expect(errorDisplay.isError).toBe(true);
+      expect(errorDisplay.retryable).toBe(true);
     });
   });
 

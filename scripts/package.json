@@ -1,18 +1,18 @@
 {
-  "name": "@lome-chat/scripts",
+  "name": "@hushbox/scripts",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests",
-    "test:coverage": "vitest run --coverage --passWithNoTests"
+    "test": "./with-env vitest run --passWithNoTests",
+    "test:coverage": "./with-env vitest run --coverage --passWithNoTests"
   },
   "devDependencies": {
-    "@lome-chat/config": "workspace:*",
-    "@lome-chat/db": "workspace:*",
-    "@lome-chat/shared": "workspace:*",
+    "@hushbox/config": "workspace:*",
+    "@hushbox/db": "workspace:*",
+    "@hushbox/shared": "workspace:*",
     "@types/node": "^22.13.14",
     "typescript": "^5.7.2"
   }

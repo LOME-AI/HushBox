@@ -7,9 +7,9 @@
 
 :root {
   /* Brand */
-  --lome-red: #ec4755;
-  --lome-red-hover: #d93d4a;
-  --lome-red-subtle: #ec475515;
+  --brand-red: #ec4755;
+  --brand-red-hover: #d93d4a;
+  --brand-red-subtle: #ec475515;
 
   /* Backgrounds */
   --background: #faf9f6;
@@ -50,9 +50,9 @@
 
 .dark {
   /* Brand */
-  --lome-red: #ec4755;
-  --lome-red-hover: #d93d4a;
-  --lome-red-subtle: #ec475520;
+  --brand-red: #ec4755;
+  --brand-red-hover: #d93d4a;
+  --brand-red-subtle: #ec475520;
 
   /* Backgrounds */
   --background: #1a1816;
@@ -87,15 +87,27 @@
   /* Messages */
   --message-user: #2a2725;
   --message-assistant: transparent;
+
+  /* Shiki dual-theme: override inline light-theme colors with dark-theme values.
+     Shiki puts `color: #lightcolor` directly in inline style (cannot be overridden
+     by normal CSS), so !important is required. --shiki-dark is also set as an
+     inline CSS variable on each <span> by Shiki's htmlStyle output. */
+  & [data-streamdown='code-block-body'] span {
+    color: var(--shiki-dark, inherit) !important;
+  }
+  & [data-streamdown='code-block-body'] {
+    background-color: var(--shiki-dark-bg, var(--sdm-bg, transparent));
+  }
 }
 
 @theme inline {
-  --font-sans: 'Merriweather', serif;
+  --font-sans: 'Merriweather';
+  --font-mono: 'JetBrains Mono';
 
   /* Brand */
-  --color-lome-red: var(--lome-red);
-  --color-lome-red-hover: var(--lome-red-hover);
-  --color-lome-red-subtle: var(--lome-red-subtle);
+  --color-brand-red: var(--brand-red);
+  --color-brand-red-hover: var(--brand-red-hover);
+  --color-brand-red-subtle: var(--brand-red-subtle);
 
   /* Backgrounds */
   --color-background: var(--background);
@@ -123,7 +135,7 @@
   --color-success: var(--success);
 
   /* Aliases for shadcn/ui compatibility */
-  --color-primary: var(--lome-red);
+  --color-primary: var(--brand-red);
   --color-primary-foreground: #ffffff;
   --color-destructive: var(--error);
   --color-destructive-foreground: #ffffff;
@@ -134,7 +146,7 @@
   --color-popover: var(--background-paper);
   --color-popover-foreground: var(--foreground);
   --color-input: var(--border);
-  --color-ring: var(--lome-red);
+  --color-ring: var(--brand-red);
 
   /* Sidebar */
   --color-sidebar: var(--sidebar);
@@ -171,7 +183,7 @@
   h4,
   h5,
   h6 {
-    color: var(--color-lome-red);
+    color: var(--color-brand-red);
   }
 }
 

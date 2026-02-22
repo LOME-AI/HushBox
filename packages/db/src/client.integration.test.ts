@@ -9,6 +9,14 @@ if (!DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is required for integration tests');
 }
 
+function testBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length);
+  for (let index = 0; index < length; index++) {
+    bytes[index] = index % 256;
+  }
+  return bytes;
+}
+
 describe('createDb integration', () => {
   let db: Database;
   const testEmail = `test-${String(Date.now())}@example.com`;
@@ -29,7 +37,11 @@ describe('createDb integration', () => {
       .insert(users)
       .values({
         email: testEmail,
-        name: 'Test User',
+        username: 'test_user',
+        opaqueRegistration: testBytes(64),
+        publicKey: testBytes(32),
+        passwordWrappedPrivateKey: testBytes(48),
+        recoveryWrappedPrivateKey: testBytes(48),
       })
       .returning();
 
@@ -39,7 +51,7 @@ describe('createDb integration', () => {
 
     expect(inserted.id).toBeDefined();
     expect(inserted.email).toBe(testEmail);
-    expect(inserted.name).toBe('Test User');
+    expect(inserted.username).toBe('test_user');
     expect(inserted.createdAt).toBeInstanceOf(Date);
     expect(inserted.updatedAt).toBeInstanceOf(Date);
 
@@ -56,7 +68,7 @@ describe('createDb integration', () => {
   it('updates a user', async () => {
     const [updated] = await db
       .update(users)
-      .set({ name: 'Updated Name' })
+      .set({ username: 'updated_name' })
       .where(eq(users.email, testEmail))
       .returning();
 
@@ -64,6 +76,6 @@ describe('createDb integration', () => {
       throw new Error('Update failed - no record returned');
     }
 
-    expect(updated.name).toBe('Updated Name');
+    expect(updated.username).toBe('updated_name');
   });
 });

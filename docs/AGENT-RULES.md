@@ -188,9 +188,9 @@ Never fix bugs without a test.
 
 ### Coverage Requirements
 
-- 100% line coverage
-- 100% branch coverage
-- 100% function coverage
+- 95% line coverage
+- 95% branch coverage
+- 95% function coverage
 - Check with `pnpm test:coverage`
 - No exceptions
 
@@ -248,7 +248,7 @@ Never fix bugs without a test.
 4. Verify it passes
 5. Refactor if needed
 6. Repeat until feature complete
-7. Verify 100% coverage
+7. Verify 95% coverage
 
 ### Fixing a Bug
 

@@ -1,10 +1,10 @@
 import * as React from 'react';
 import {
-  LOME_FEE_RATE,
+  HUSHBOX_FEE_RATE,
   CREDIT_CARD_FEE_RATE,
   PROVIDER_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
-} from '@lome-chat/shared';
+} from '@hushbox/shared';
 
 interface FeeBreakdownProps {
   /** The deposit amount in USD */
@@ -34,18 +34,18 @@ export function FeeBreakdown({
   depositAmount,
   estimatedCharacters = 1_000_000, // Default 1M characters
 }: Readonly<FeeBreakdownProps>): React.JSX.Element {
-  const lomeFee = depositAmount * LOME_FEE_RATE;
+  const hushboxFee = depositAmount * HUSHBOX_FEE_RATE;
   const ccFee = depositAmount * CREDIT_CARD_FEE_RATE;
   const providerFee = depositAmount * PROVIDER_FEE_RATE;
   const storageFee = estimatedCharacters * STORAGE_COST_PER_CHARACTER;
-  const modelUsage = depositAmount - lomeFee - ccFee - providerFee - storageFee;
+  const modelUsage = depositAmount - hushboxFee - ccFee - providerFee - storageFee;
 
   // Calculate percentages
   const modelUsagePct = (modelUsage / depositAmount) * 100;
   const storagePct = (storageFee / depositAmount) * 100;
   const serviceValuePct = modelUsagePct + storagePct;
   const transactionCostsPct = (CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE) * 100;
-  const platformFeePct = LOME_FEE_RATE * 100;
+  const platformFeePct = HUSHBOX_FEE_RATE * 100;
 
   const categories: FeeCategory[] = [
     {
@@ -101,10 +101,10 @@ export function FeeBreakdown({
       colorClass: 'text-[#ec4755]',
       items: [
         {
-          label: 'LOME margin',
-          percentage: LOME_FEE_RATE * 100,
-          testId: 'item-lome-margin',
-          pctTestId: 'item-lome-margin-pct',
+          label: 'HushBox margin',
+          percentage: HUSHBOX_FEE_RATE * 100,
+          testId: 'item-hushbox-margin',
+          pctTestId: 'item-hushbox-margin-pct',
         },
       ],
     },

@@ -5,69 +5,13 @@ import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PromptInput } from './prompt-input';
 import type { PromptInputRef } from './prompt-input';
-import type { BudgetCalculationResult } from '@lome-chat/shared';
+import type { PromptBudgetResult } from '@/hooks/use-prompt-budget';
 
-// Mock the hooks used by PromptInput
-vi.mock('@/stores/model', () => ({
-  useModelStore: vi.fn(() => ({
-    selectedModelId: 'test-model',
-  })),
-}));
+// Mock usePromptBudget directly — PromptInput's only budget dependency
+const mockUsePromptBudget = vi.fn();
 
-vi.mock('@/hooks/models', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/hooks/models')>();
-  return {
-    ...actual,
-    useModels: vi.fn(() => ({
-      data: {
-        models: [
-          {
-            id: 'test-model',
-            name: 'Test Model',
-            contextLength: 50_000,
-            pricePerInputToken: 0.000_001,
-            pricePerOutputToken: 0.000_002,
-          },
-        ],
-      },
-      isLoading: false,
-      error: null,
-    })),
-  };
-});
-
-// Default session mock value
-const defaultSession: { data: { user: { id: string; email: string } } | null; isPending: boolean } =
-  {
-    data: { user: { id: 'test-user', email: 'test@example.com' } },
-    isPending: false,
-  };
-
-const mockUseSession = vi.fn(() => defaultSession);
-
-vi.mock('@/lib/auth', () => ({
-  useSession: () => mockUseSession(),
-}));
-
-// Default budget result - can afford, no errors, not loading
-const defaultBudgetResult: BudgetCalculationResult & { isBalanceLoading: boolean } = {
-  canAfford: true,
-  maxOutputTokens: 1000,
-  estimatedInputTokens: 100,
-  estimatedInputCost: 0.0001,
-  estimatedMinimumCost: 0.001,
-  effectiveBalance: 1,
-  currentUsage: 1100,
-  capacityPercent: 5,
-  errors: [],
-  isBalanceLoading: false,
-};
-
-// Mock useBudgetCalculation with customizable return value
-const mockBudgetResult = vi.fn(() => defaultBudgetResult);
-
-vi.mock('@/hooks/use-budget-calculation', () => ({
-  useBudgetCalculation: () => mockBudgetResult(),
+vi.mock('@/hooks/use-prompt-budget', () => ({
+  usePromptBudget: (...args: unknown[]) => mockUsePromptBudget(...args),
 }));
 
 // Mock stability hooks - configurable via mockUseStability
@@ -81,6 +25,19 @@ const mockUseStability = vi.fn(() => defaultStabilityState);
 vi.mock('@/providers/stability-provider', () => ({
   useStability: () => mockUseStability(),
 }));
+
+// Default budget result — approved, no notifications, not over capacity
+const defaultBudget: PromptBudgetResult = {
+  fundingSource: 'personal_balance',
+  notifications: [],
+  capacityPercent: 5,
+  capacityCurrentUsage: 1100,
+  capacityMaxCapacity: 50_000,
+  estimatedCostCents: 0.1,
+  isOverCapacity: false,
+  hasBlockingError: false,
+  hasContent: true,
+};
 
 function createTestQueryClient(): QueryClient {
   return new QueryClient({
@@ -105,8 +62,11 @@ describe('PromptInput', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    mockBudgetResult.mockReturnValue(defaultBudgetResult);
-    mockUseSession.mockReturnValue(defaultSession);
+    // Default: derive hasContent from input value
+    mockUsePromptBudget.mockImplementation((input: { value: string }) => ({
+      ...defaultBudget,
+      hasContent: input.value.trim().length > 0,
+    }));
     mockUseStability.mockReturnValue(defaultStabilityState);
   });
 
@@ -195,10 +155,10 @@ describe('PromptInput', () => {
     });
 
     it('shows capacity percentage', () => {
-      mockBudgetResult.mockReturnValue({
-        ...defaultBudgetResult,
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
         capacityPercent: 25,
-        currentUsage: 12_500,
+        capacityCurrentUsage: 12_500,
       });
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
@@ -207,10 +167,11 @@ describe('PromptInput', () => {
     });
 
     it('send button is disabled when over capacity', () => {
-      mockBudgetResult.mockReturnValue({
-        ...defaultBudgetResult,
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
         capacityPercent: 105,
-        canAfford: true,
+        isOverCapacity: true,
+        hasBlockingError: true,
       });
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
@@ -218,12 +179,13 @@ describe('PromptInput', () => {
       expect(screen.getByRole('button', { name: /send/i })).toBeDisabled();
     });
 
-    it('send button is disabled when cannot afford', () => {
-      mockBudgetResult.mockReturnValue({
-        ...defaultBudgetResult,
-        canAfford: false,
-        errors: [
-          { id: 'insufficient_guest', type: 'error', message: 'Message exceeds guest limits.' },
+    it('send button is disabled when billing is denied', () => {
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        fundingSource: 'denied',
+        hasBlockingError: true,
+        notifications: [
+          { id: 'insufficient_balance', type: 'error', message: 'Insufficient balance.' },
         ],
       });
       renderWithProviders(
@@ -233,10 +195,11 @@ describe('PromptInput', () => {
     });
 
     it('textarea remains enabled even when over capacity', () => {
-      mockBudgetResult.mockReturnValue({
-        ...defaultBudgetResult,
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
         capacityPercent: 105,
-        canAfford: false,
+        isOverCapacity: true,
+        hasBlockingError: true,
       });
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
@@ -246,26 +209,23 @@ describe('PromptInput', () => {
   });
 
   describe('budget messages', () => {
-    it('displays budget errors when present', () => {
-      mockBudgetResult.mockReturnValue({
-        ...defaultBudgetResult,
-        canAfford: false,
-        errors: [
-          { id: 'insufficient_guest', type: 'error', message: 'Message exceeds guest limits.' },
+    it('displays budget notifications when present', () => {
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        fundingSource: 'denied',
+        hasBlockingError: true,
+        notifications: [
+          { id: 'insufficient_balance', type: 'error', message: 'Insufficient balance.' },
         ],
       });
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
       expect(screen.getByTestId('budget-messages')).toBeInTheDocument();
-      expect(screen.getByText('Message exceeds guest limits.')).toBeInTheDocument();
+      expect(screen.getByText('Insufficient balance.')).toBeInTheDocument();
     });
 
-    it('does not show budget messages when no errors', () => {
-      mockBudgetResult.mockReturnValue({
-        ...defaultBudgetResult,
-        errors: [],
-      });
+    it('does not show budget messages when no notifications', () => {
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
@@ -273,9 +233,9 @@ describe('PromptInput', () => {
     });
 
     it('shows warning messages', () => {
-      mockBudgetResult.mockReturnValue({
-        ...defaultBudgetResult,
-        errors: [
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        notifications: [
           {
             id: 'capacity_warning',
             type: 'warning',
@@ -292,11 +252,11 @@ describe('PromptInput', () => {
     });
 
     it('shows info messages', () => {
-      mockBudgetResult.mockReturnValue({
-        ...defaultBudgetResult,
-        errors: [
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        notifications: [
           {
-            id: 'guest_notice',
+            id: 'trial_notice',
             type: 'info',
             message: 'Free preview. Sign up for full access.',
           },
@@ -315,12 +275,11 @@ describe('PromptInput', () => {
         isBalanceStable: false,
         isAppStable: false,
       });
-      mockBudgetResult.mockReturnValue({
-        ...defaultBudgetResult,
-        isBalanceLoading: true,
-        errors: [
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        notifications: [
           {
-            id: 'guest_notice',
+            id: 'trial_notice',
             type: 'info',
             message: 'Free preview. Sign up for full access.',
           },
@@ -341,17 +300,11 @@ describe('PromptInput', () => {
         isBalanceStable: true,
         isAppStable: false,
       });
-      mockUseSession.mockReturnValue({
-        data: null,
-        isPending: true,
-      });
-      // Budget calculation returns guest errors because session appears unauthenticated
-      mockBudgetResult.mockReturnValue({
-        ...defaultBudgetResult,
-        isBalanceLoading: false,
-        errors: [
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        notifications: [
           {
-            id: 'guest_notice',
+            id: 'trial_notice',
             type: 'info',
             message: 'Free preview. Sign up for full access.',
           },
@@ -376,7 +329,6 @@ describe('PromptInput', () => {
           historyCharacters={5000}
         />
       );
-      // Component should render without error
       expect(screen.getByTestId('capacity-bar')).toBeInTheDocument();
     });
 
@@ -389,7 +341,6 @@ describe('PromptInput', () => {
           capabilities={['web-search']}
         />
       );
-      // Component should render without error
       expect(screen.getByTestId('capacity-bar')).toBeInTheDocument();
     });
   });
@@ -503,12 +454,249 @@ describe('PromptInput', () => {
     });
   });
 
+  describe('autoFocus prop', () => {
+    it('applies autoFocus to textarea when autoFocus is true', async () => {
+      renderWithProviders(
+        <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} autoFocus />
+      );
+
+      const textarea = screen.getByRole('textbox');
+      await vi.waitFor(() => {
+        expect(document.activeElement).toBe(textarea);
+      });
+    });
+
+    it('does not autoFocus textarea when autoFocus is false', () => {
+      renderWithProviders(
+        <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} autoFocus={false} />
+      );
+
+      const textarea = screen.getByRole('textbox');
+      expect(document.activeElement).not.toBe(textarea);
+    });
+
+    it('does not autoFocus textarea when autoFocus is not provided', () => {
+      renderWithProviders(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+
+      const textarea = screen.getByRole('textbox');
+      expect(document.activeElement).not.toBe(textarea);
+    });
+  });
+
+  describe('AI toggle', () => {
+    it('does not show AI toggle when isGroupChat is not set', () => {
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      expect(screen.queryByRole('button', { name: /AI response/i })).not.toBeInTheDocument();
+    });
+
+    it('shows AI toggle when isGroupChat is true', () => {
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} isGroupChat />
+      );
+      expect(screen.getByRole('button', { name: /AI response on/i })).toBeInTheDocument();
+    });
+
+    it('defaults to AI ON', () => {
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} isGroupChat />
+      );
+      expect(screen.getByRole('button', { name: /AI response on/i })).toBeInTheDocument();
+    });
+
+    it('toggles to AI OFF when clicked', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} isGroupChat />
+      );
+      const toggle = screen.getByRole('button', { name: /AI response on/i });
+      await user.click(toggle);
+      expect(screen.getByRole('button', { name: /AI response off/i })).toBeInTheDocument();
+    });
+
+    it('toggles back to AI ON on second click', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} isGroupChat />
+      );
+      const toggle = screen.getByRole('button', { name: /AI response on/i });
+      await user.click(toggle);
+      await user.click(screen.getByRole('button', { name: /AI response off/i }));
+      expect(screen.getByRole('button', { name: /AI response on/i })).toBeInTheDocument();
+    });
+
+    it('calls onSubmitUserOnly instead of onSubmit when AI is off', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const mockSubmitUserOnly = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          onSubmitUserOnly={mockSubmitUserOnly}
+          isGroupChat
+        />
+      );
+      // Toggle AI off
+      await user.click(screen.getByRole('button', { name: /AI response on/i }));
+      // Submit
+      await user.click(screen.getByRole('button', { name: /send/i }));
+      expect(mockSubmitUserOnly).toHaveBeenCalled();
+      expect(mockOnSubmit).not.toHaveBeenCalled();
+    });
+
+    it('calls onSubmit when AI is on (default)', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const mockSubmitUserOnly = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          onSubmitUserOnly={mockSubmitUserOnly}
+          isGroupChat
+        />
+      );
+      // AI is on by default, submit normally
+      await user.click(screen.getByRole('button', { name: /send/i }));
+      expect(mockOnSubmit).toHaveBeenCalled();
+      expect(mockSubmitUserOnly).not.toHaveBeenCalled();
+    });
+
+    it('calls onSubmitUserOnly on Enter key when AI is off', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const mockSubmitUserOnly = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          onSubmitUserOnly={mockSubmitUserOnly}
+          isGroupChat
+        />
+      );
+      // Toggle AI off
+      await user.click(screen.getByRole('button', { name: /AI response on/i }));
+      // Submit via Enter key
+      const textarea = screen.getByRole('textbox');
+      fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+      expect(mockSubmitUserOnly).toHaveBeenCalled();
+      expect(mockOnSubmit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onTypingChange', () => {
+    it('calls onTypingChange with true on first input change', () => {
+      const mockOnTypingChange = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          onTypingChange={mockOnTypingChange}
+        />
+      );
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'H' } });
+      expect(mockOnTypingChange).toHaveBeenCalledWith(true);
+    });
+
+    it('calls onTypingChange with false on submit', () => {
+      const mockOnTypingChange = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          onTypingChange={mockOnTypingChange}
+        />
+      );
+      const textarea = screen.getByRole('textbox');
+      fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+      expect(mockOnTypingChange).toHaveBeenCalledWith(false);
+    });
+
+    it('throttles onTypingChange calls within 3s window', () => {
+      const mockOnTypingChange = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          onTypingChange={mockOnTypingChange}
+        />
+      );
+      const textarea = screen.getByRole('textbox');
+
+      // First change triggers immediately
+      fireEvent.change(textarea, { target: { value: 'H' } });
+      expect(mockOnTypingChange).toHaveBeenCalledTimes(1);
+
+      // Second change within 3s is throttled
+      fireEvent.change(textarea, { target: { value: 'He' } });
+      expect(mockOnTypingChange).toHaveBeenCalledTimes(1);
+
+      // After 3s, next change triggers again
+      vi.advanceTimersByTime(3000);
+      fireEvent.change(textarea, { target: { value: 'Hel' } });
+      expect(mockOnTypingChange).toHaveBeenCalledTimes(2);
+    });
+
+    it('calls onTypingChange with false when value becomes empty', () => {
+      const mockOnTypingChange = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value="H"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          onTypingChange={mockOnTypingChange}
+        />
+      );
+      const textarea = screen.getByRole('textbox');
+
+      // Clear the input
+      fireEvent.change(textarea, { target: { value: '' } });
+      expect(mockOnTypingChange).toHaveBeenCalledWith(false);
+    });
+
+    it('calls onTypingChange with false on unmount', () => {
+      const mockOnTypingChange = vi.fn();
+      const { unmount } = renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          onTypingChange={mockOnTypingChange}
+        />
+      );
+
+      mockOnTypingChange.mockClear();
+      unmount();
+      expect(mockOnTypingChange).toHaveBeenCalledWith(false);
+    });
+
+    it('does not error when onTypingChange is not provided', () => {
+      renderWithProviders(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
+      const textarea = screen.getByRole('textbox');
+      // Should not throw
+      expect(() => {
+        fireEvent.change(textarea, { target: { value: 'H' } });
+      }).not.toThrow();
+    });
+  });
+
   describe('blocking errors', () => {
     it('send button is disabled when blocking error present', () => {
-      mockBudgetResult.mockReturnValue({
-        ...defaultBudgetResult,
-        canAfford: true,
-        errors: [
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        hasBlockingError: true,
+        notifications: [
           {
             id: 'capacity_exceeded',
             type: 'error',
@@ -523,10 +711,10 @@ describe('PromptInput', () => {
     });
 
     it('Enter key does not submit when blocking error present', () => {
-      mockBudgetResult.mockReturnValue({
-        ...defaultBudgetResult,
-        canAfford: true,
-        errors: [
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        hasBlockingError: true,
+        notifications: [
           {
             id: 'capacity_exceeded',
             type: 'error',

@@ -1,4 +1,4 @@
-export { applyFees, formatContextLength, formatPricePer1k } from '@lome-chat/shared';
+export { applyFees, formatContextLength, formatPricePer1k } from '@hushbox/shared';
 
 export function formatBalance(balance: string | number): string {
   const numericBalance = typeof balance === 'string' ? Number.parseFloat(balance) : balance;

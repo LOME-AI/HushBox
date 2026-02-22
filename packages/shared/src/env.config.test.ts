@@ -52,16 +52,14 @@ describe('envConfig', () => {
     });
   });
 
-  describe('BETTER_AUTH_URL', () => {
+  describe('API_URL', () => {
     it('goes to Backend only', () => {
-      expect(envConfig.BETTER_AUTH_URL.to).toEqual([Destination.Backend]);
+      expect(envConfig.API_URL.to).toEqual([Destination.Backend]);
     });
 
     it('has dev and prod values', () => {
-      expect(resolveRaw(envConfig.BETTER_AUTH_URL, Mode.Development)).toBe('http://localhost:8787');
-      expect(resolveRaw(envConfig.BETTER_AUTH_URL, Mode.Production)).toBe(
-        'https://api.lome-chat.com'
-      );
+      expect(resolveRaw(envConfig.API_URL, Mode.Development)).toBe('http://localhost:8787');
+      expect(resolveRaw(envConfig.API_URL, Mode.Production)).toBe('https://api.hushbox.ai');
     });
   });
 
@@ -72,7 +70,7 @@ describe('envConfig', () => {
 
     it('has dev and prod values', () => {
       expect(resolveRaw(envConfig.FRONTEND_URL, Mode.Development)).toBe('http://localhost:5173');
-      expect(resolveRaw(envConfig.FRONTEND_URL, Mode.Production)).toBe('https://lome-chat.com');
+      expect(resolveRaw(envConfig.FRONTEND_URL, Mode.Production)).toBe('https://hushbox.ai');
     });
   });
 
@@ -99,20 +97,6 @@ describe('envConfig', () => {
       expect(resolveRaw(envConfig.E2E, Mode.CiVitest)).toBeUndefined();
       expect(resolveRaw(envConfig.E2E, Mode.CiE2E)).toBe('true');
       expect(resolveRaw(envConfig.E2E, Mode.Production)).toBeUndefined();
-    });
-  });
-
-  describe('BETTER_AUTH_SECRET', () => {
-    it('goes to Backend only', () => {
-      expect(envConfig.BETTER_AUTH_SECRET.to).toEqual([Destination.Backend]);
-    });
-
-    it('has dev value and production secret', () => {
-      expect(resolveRaw(envConfig.BETTER_AUTH_SECRET, Mode.Development)).toBe(
-        'dev-secret-minimum-32-characters-long'
-      );
-      const raw = resolveRaw(envConfig.BETTER_AUTH_SECRET, Mode.Production);
-      expect(isSecret(raw)).toBe(true);
     });
   });
 
@@ -192,7 +176,7 @@ describe('envConfig', () => {
 
     it('has dev and prod values', () => {
       expect(resolveRaw(envConfig.VITE_API_URL, Mode.Development)).toBe('http://localhost:8787');
-      expect(resolveRaw(envConfig.VITE_API_URL, Mode.Production)).toBe('https://api.lome-chat.com');
+      expect(resolveRaw(envConfig.VITE_API_URL, Mode.Production)).toBe('https://api.hushbox.ai');
     });
   });
 
@@ -249,9 +233,12 @@ describe('backendEnvSchema', () => {
     const validEnv = {
       NODE_ENV: 'development',
       DATABASE_URL: 'postgres://localhost:5432/test',
-      BETTER_AUTH_URL: 'http://localhost:8787',
-      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long', // gitleaks:allow
+      API_URL: 'http://localhost:8787',
       FRONTEND_URL: 'http://localhost:5173',
+      UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+      UPSTASH_REDIS_REST_TOKEN: 'local_dev_token',
+      OPAQUE_MASTER_SECRET: 'dev-opaque-master-secret-32-bytes-minimum', // gitleaks:allow
+      IRON_SESSION_SECRET: 'dev-iron-session-secret-32-bytes-min', // gitleaks:allow
     };
 
     const result = backendEnvSchema.safeParse(validEnv);
@@ -262,13 +249,16 @@ describe('backendEnvSchema', () => {
     const validEnv = {
       NODE_ENV: 'production',
       DATABASE_URL: 'postgres://neon.tech:5432/prod',
-      BETTER_AUTH_URL: 'https://api.lome-chat.com',
-      BETTER_AUTH_SECRET: 'a-production-secret-at-least-32-chars-long!!', // gitleaks:allow
-      FRONTEND_URL: 'https://lome-chat.com',
+      API_URL: 'https://api.hushbox.ai',
+      FRONTEND_URL: 'https://hushbox.ai',
       RESEND_API_KEY: 're_123456789',
       OPENROUTER_API_KEY: 'sk-or-123',
       HELCIM_API_TOKEN: 'helcim-token',
       HELCIM_WEBHOOK_VERIFIER: 'webhook-verifier',
+      UPSTASH_REDIS_REST_URL: 'https://upstash-redis.upstash.io',
+      UPSTASH_REDIS_REST_TOKEN: 'prod_token_value',
+      OPAQUE_MASTER_SECRET: 'prod-opaque-master-secret-32-bytes-minimum', // gitleaks:allow
+      IRON_SESSION_SECRET: 'prod-iron-session-secret-32-bytes-min', // gitleaks:allow
     };
 
     const result = backendEnvSchema.safeParse(validEnv);
@@ -279,9 +269,12 @@ describe('backendEnvSchema', () => {
     const invalidEnv = {
       NODE_ENV: 'invalid',
       DATABASE_URL: 'postgres://localhost:5432/test',
-      BETTER_AUTH_URL: 'http://localhost:8787',
-      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long', // gitleaks:allow
+      API_URL: 'http://localhost:8787',
       FRONTEND_URL: 'http://localhost:5173',
+      UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+      UPSTASH_REDIS_REST_TOKEN: 'local_dev_token',
+      OPAQUE_MASTER_SECRET: 'dev-opaque-master-secret-32-bytes-minimum', // gitleaks:allow
+      IRON_SESSION_SECRET: 'dev-iron-session-secret-32-bytes-min', // gitleaks:allow
     };
 
     const result = backendEnvSchema.safeParse(invalidEnv);
@@ -291,35 +284,12 @@ describe('backendEnvSchema', () => {
   it('rejects missing DATABASE_URL', () => {
     const invalidEnv = {
       NODE_ENV: 'development',
-      BETTER_AUTH_URL: 'http://localhost:8787',
-      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long', // gitleaks:allow
+      API_URL: 'http://localhost:8787',
       FRONTEND_URL: 'http://localhost:5173',
-    };
-
-    const result = backendEnvSchema.safeParse(invalidEnv);
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects BETTER_AUTH_SECRET shorter than 32 characters', () => {
-    const invalidEnv = {
-      NODE_ENV: 'development',
-      DATABASE_URL: 'postgres://localhost:5432/test',
-      BETTER_AUTH_URL: 'http://localhost:8787',
-      BETTER_AUTH_SECRET: 'too-short',
-      FRONTEND_URL: 'http://localhost:5173',
-    };
-
-    const result = backendEnvSchema.safeParse(invalidEnv);
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects invalid URL for BETTER_AUTH_URL', () => {
-    const invalidEnv = {
-      NODE_ENV: 'development',
-      DATABASE_URL: 'postgres://localhost:5432/test',
-      BETTER_AUTH_URL: 'not-a-url',
-      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long', // gitleaks:allow
-      FRONTEND_URL: 'http://localhost:5173',
+      UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+      UPSTASH_REDIS_REST_TOKEN: 'local_dev_token',
+      OPAQUE_MASTER_SECRET: 'dev-opaque-master-secret-32-bytes-minimum', // gitleaks:allow
+      IRON_SESSION_SECRET: 'dev-iron-session-secret-32-bytes-min', // gitleaks:allow
     };
 
     const result = backendEnvSchema.safeParse(invalidEnv);
@@ -330,9 +300,13 @@ describe('backendEnvSchema', () => {
     const validEnv = {
       NODE_ENV: 'development',
       DATABASE_URL: 'postgres://localhost:5432/test',
-      BETTER_AUTH_URL: 'http://localhost:8787',
-      BETTER_AUTH_SECRET: 'a-secret-that-is-at-least-32-characters-long', // gitleaks:allow
+      API_URL: 'http://localhost:8787',
       FRONTEND_URL: 'http://localhost:5173',
+      UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+      UPSTASH_REDIS_REST_TOKEN: 'local_dev_token',
+      OPAQUE_MASTER_SECRET: 'dev-opaque-master-secret-32-bytes-minimum', // gitleaks:allow
+      IRON_SESSION_SECRET: 'dev-iron-session-secret-32-bytes-min', // gitleaks:allow
+      // CI/prod secrets are omitted - test they're optional
     };
 
     const result = backendEnvSchema.safeParse(validEnv);

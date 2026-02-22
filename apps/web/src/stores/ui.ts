@@ -16,10 +16,11 @@ export const useUIStore = create<UIState>()(
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
       mobileSidebarOpen: false,
-      setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
+      setMobileSidebarOpen: (open) =>
+        set(open ? { mobileSidebarOpen: true, sidebarOpen: true } : { mobileSidebarOpen: false }),
     }),
     {
-      name: 'lome-ui-storage',
+      name: 'hushbox-ui-storage',
       partialize: (state) => ({ sidebarOpen: state.sidebarOpen }),
     }
   )

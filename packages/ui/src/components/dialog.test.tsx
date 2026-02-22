@@ -66,6 +66,26 @@ describe('Dialog', () => {
     });
   });
 
+  it('has cursor-pointer on close button', async () => {
+    const user = userEvent.setup();
+    render(
+      <Dialog>
+        <DialogTrigger>Open Dialog</DialogTrigger>
+        <DialogContent>
+          <DialogTitle>Dialog Title</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    );
+
+    await user.click(screen.getByText('Open Dialog'));
+    await waitFor(() => {
+      expect(screen.getByText('Dialog Title')).toBeInTheDocument();
+    });
+
+    const closeButton = screen.getByRole('button', { name: /close/i });
+    expect(closeButton).toHaveClass('cursor-pointer');
+  });
+
   it('can hide close button', async () => {
     const user = userEvent.setup();
     render(

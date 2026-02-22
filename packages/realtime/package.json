@@ -1,0 +1,25 @@
+{
+  "name": "@hushbox/realtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./events": "./src/events.ts"
+  },
+  "scripts": {
+    "test": "../../scripts/with-env vitest run --passWithNoTests",
+    "test:watch": "../../scripts/with-env vitest",
+    "test:coverage": "../../scripts/with-env vitest run --coverage --passWithNoTests",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260117.0",
+    "@hushbox/config": "workspace:*",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "zod": "^4.2.1"
+  }
+}

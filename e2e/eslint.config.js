@@ -1,5 +1,5 @@
 // @ts-check
-import { createBaseConfig, nodeConfig, testConfig, prettierConfig } from '@lome-chat/config/eslint';
+import { createBaseConfig, nodeConfig, testConfig, prettierConfig } from '@hushbox/config/eslint';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [

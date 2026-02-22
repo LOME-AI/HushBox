@@ -1,5 +1,5 @@
 {
-  "name": "@lome-chat/db",
+  "name": "@hushbox/db",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -15,15 +15,14 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test": "../../scripts/with-env vitest run",
+    "test:watch": "../../scripts/with-env vitest",
+    "test:coverage": "../../scripts/with-env vitest run --coverage",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
-    "@noble/hashes": "^2.0.1",
     "drizzle-orm": "^0.45.0",
     "drizzle-zod": "^0.8.0",
     "ws": "^8.18.3",
@@ -31,9 +30,8 @@
   },
   "devDependencies": {
     "@faker-js/faker": "^10.2.0",
-    "@lome-chat/config": "workspace:*",
+    "@hushbox/config": "workspace:*",
     "@types/ws": "^8.18.1",
-    "better-auth": "^1.4.7",
     "drizzle-kit": "^0.31.0",
     "fishery": "^2.4.0",
     "pg": "^8.17.1",

@@ -4,26 +4,52 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { PromptInputRef } from '@/components/chat/prompt-input';
 import { createUserMessage, createAssistantMessage } from '@/lib/chat-messages';
 import { useChatPageState } from '@/hooks/use-chat-page';
-import { useChatStream } from '@/hooks/use-chat-stream';
+import {
+  useChatStream,
+  BalanceReservedError,
+  BillingMismatchError,
+  ContextCapacityError,
+} from '@/hooks/use-chat-stream';
 import { useOptimisticMessages } from '@/hooks/use-optimistic-messages';
 import {
   useConversation,
   useMessages,
-  useSendMessage,
   useCreateConversation,
   chatKeys,
+  DECRYPTING_TITLE,
 } from '@/hooks/chat';
 import { usePendingChatStore } from '@/stores/pending-chat';
 import { useModelStore } from '@/stores/model';
+import { useChatErrorStore, createChatError } from '@/stores/chat-error';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { billingKeys } from '@/hooks/billing';
-import { generateChatTitle } from '@lome-chat/shared';
+import {
+  createFirstEpoch,
+  getPublicKeyFromPrivate,
+  encryptMessageForStorage,
+  decryptMessage,
+} from '@hushbox/crypto';
+import {
+  setEpochKey,
+  getEpochKey,
+  subscribe as epochCacheSubscribe,
+  getSnapshot as epochCacheSnapshot,
+} from '@/lib/epoch-key-cache';
+import {
+  generateChatTitle,
+  toBase64,
+  fromBase64,
+  friendlyErrorMessage,
+  ROUTES,
+  type FundingSource,
+} from '@hushbox/shared';
 import type { Message } from '@/lib/api';
-import { ROUTES } from '@/lib/routes';
+import { useAuthStore } from '@/lib/auth';
+import { useDecryptedMessages } from '@/hooks/use-decrypted-messages';
+import { client, fetchJson } from '@/lib/api-client';
 
 interface UseAuthenticatedChatInput {
   readonly routeConversationId: string;
-  readonly triggerStreaming?: boolean | undefined;
 }
 
 type RenderState =
@@ -40,13 +66,11 @@ interface UseAuthenticatedChatResult {
   readonly displayTitle: string | undefined;
   readonly inputDisabled: boolean;
   readonly isStreaming: boolean;
-  readonly handleSend: () => void;
+  readonly handleSend: (fundingSource: FundingSource) => void;
+  readonly handleSendUserOnly: () => void;
   readonly promptInputRef: React.RefObject<PromptInputRef | null>;
-}
-
-interface ResponseMessage {
-  readonly id?: string;
-  readonly createdAt?: string;
+  readonly errorMessageId: string | undefined;
+  readonly realConversationId: string | null;
 }
 
 interface ComputeRenderStateParams {
@@ -56,56 +80,6 @@ interface ComputeRenderStateParams {
   conversation: { title: string } | undefined;
   isConversationLoading: boolean;
   isMessagesLoading: boolean;
-}
-
-interface ShouldTriggerStreamParams {
-  triggerStreaming: boolean | undefined;
-  realConversationId: string | null;
-  isCreateMode: boolean;
-  isConversationLoading: boolean;
-  isMessagesLoading: boolean;
-  isStreaming: boolean;
-  apiMessages: Message[] | undefined;
-}
-
-function shouldTriggerStream(params: ShouldTriggerStreamParams): boolean {
-  const {
-    triggerStreaming,
-    realConversationId,
-    isCreateMode,
-    isConversationLoading,
-    isMessagesLoading,
-    isStreaming,
-    apiMessages,
-  } = params;
-
-  if (!triggerStreaming || !realConversationId || isCreateMode) {
-    return false;
-  }
-  if (isConversationLoading || isMessagesLoading || isStreaming) {
-    return false;
-  }
-  if (!apiMessages || apiMessages.length === 0) {
-    return false;
-  }
-
-  const lastMessage = apiMessages.at(-1);
-  return lastMessage?.role === 'user';
-}
-
-async function executeAndCleanupStream(
-  conversationId: string,
-  executeStream: (id: string) => Promise<string>,
-  removeOptimisticMessage: (id: string) => void,
-  stopStreaming: () => void
-): Promise<void> {
-  try {
-    const assistantMessageId = await executeStream(conversationId);
-    removeOptimisticMessage(assistantMessageId);
-  } catch (error: unknown) {
-    console.error('Stream failed:', error);
-    stopStreaming();
-  }
 }
 
 function shouldRedirect(
@@ -139,34 +113,27 @@ function computeRenderState(params: ComputeRenderStateParams): RenderState {
   }
 
   if (isConversationLoading || isMessagesLoading) {
-    return { type: 'loading', title: conversation?.title };
+    // During create→existing transition, local messages are still available —
+    // skip the loading state to avoid a flash of the decrypting indicator.
+    if (localMessagesLength > 0) {
+      return { type: 'ready' };
+    }
+    return { type: 'loading', title: DECRYPTING_TITLE };
   }
 
   return { type: 'ready' };
 }
 
-function applyMessageIds(message: Message, responseMessage: ResponseMessage | undefined): Message {
-  if (!responseMessage) {
-    return message;
-  }
-  const updated = { ...message };
-  if (responseMessage.id) {
-    updated.id = responseMessage.id;
-  }
-  if (responseMessage.createdAt) {
-    updated.createdAt = responseMessage.createdAt;
-  }
-  return updated;
-}
-
-function needsStreamResume(messages: Message[]): boolean {
-  const hasAssistantMessage = messages.some((m) => m.role === 'assistant');
-  return !hasAssistantMessage && messages.length > 0;
+function attachCostToMessage(
+  setter: React.Dispatch<React.SetStateAction<Message[]>>,
+  messageId: string,
+  cost: string
+): void {
+  setter((previous) => previous.map((m) => (m.id === messageId ? { ...m, cost } : m)));
 }
 
 export function useAuthenticatedChat({
   routeConversationId,
-  triggerStreaming,
 }: UseAuthenticatedChatInput): UseAuthenticatedChatResult {
   const state = useChatPageState();
   const navigate = useNavigate();
@@ -178,6 +145,7 @@ export function useAuthenticatedChat({
   const isCreateMode = routeConversationId === 'new';
 
   const pendingMessage = usePendingChatStore((s) => s.pendingMessage);
+  const pendingFundingSource = usePendingChatStore((s) => s.pendingFundingSource);
   const clearPendingMessage = usePendingChatStore((s) => s.clearPendingMessage);
 
   const [realConversationId, setRealConversationId] = React.useState<string | null>(
@@ -196,13 +164,20 @@ export function useAuthenticatedChat({
 
   const { selectedModelId } = useModelStore();
   const { isStreaming, startStream } = useChatStream('authenticated');
+  const chatError = useChatErrorStore((s) => s.error);
   const createConversation = useCreateConversation();
-  const sendMessage = useSendMessage();
+  const createConversationRef = React.useRef(createConversation.mutateAsync);
+  React.useEffect(() => {
+    createConversationRef.current = createConversation.mutateAsync;
+  });
+  const accountPrivateKey = useAuthStore((s) => s.privateKey);
+  const userId = useAuthStore((s) => s.user?.id);
 
   const { data: conversation, isLoading: isConversationLoading } = useConversation(
     realConversationId ?? ''
   );
   const { data: apiMessages, isLoading: isMessagesLoading } = useMessages(realConversationId ?? '');
+  const decryptedApiMessages = useDecryptedMessages(realConversationId, apiMessages);
 
   const localMessagesRef = React.useRef<Message[]>([]);
   React.useEffect(() => {
@@ -217,8 +192,15 @@ export function useAuthenticatedChat({
       resetOptimisticMessages();
       setLocalMessages([]);
       setLocalTitle(null);
+      useChatErrorStore.getState().clearError();
     }
   }, [isCreateMode, routeConversationId, realConversationId, resetOptimisticMessages]);
+
+  React.useEffect(() => {
+    return () => {
+      useChatErrorStore.getState().clearError();
+    };
+  }, []);
 
   const handleStreamStart = React.useCallback(
     ({ assistantMessageId }: { assistantMessageId: string }) => {
@@ -259,31 +241,38 @@ export function useAuthenticatedChat({
     [state, addOptimisticMessage, updateOptimisticMessageContent]
   );
 
-  const invalidateAfterStream = React.useCallback(
-    async (convId: string) => {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      await queryClient.invalidateQueries({ queryKey: chatKeys.messages(convId) });
-      void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
-    },
-    [queryClient]
-  );
+  interface ExecuteStreamParams {
+    convId: string;
+    userMessageData: { id: string; content: string };
+    messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[];
+    fundingSource: FundingSource;
+  }
 
   const executeStream = React.useCallback(
-    async (convId: string): Promise<string> => {
+    async (params: ExecuteStreamParams): Promise<{ assistantMessageId: string; cost: string }> => {
+      const { convId, userMessageData, messagesForInference, fundingSource } = params;
       const callbacks = createOptimisticStreamCallbacks(convId);
-      const { assistantMessageId } = await startStream(
-        { conversationId: convId, model: selectedModelId },
+      const { assistantMessageId, cost } = await startStream(
+        {
+          conversationId: convId,
+          model: selectedModelId,
+          userMessage: userMessageData,
+          messagesForInference,
+          fundingSource,
+        },
         callbacks
       );
       state.stopStreaming();
-      await invalidateAfterStream(convId);
-      return assistantMessageId;
+      await queryClient.invalidateQueries({ queryKey: chatKeys.messages(convId) });
+      void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+
+      return { assistantMessageId, cost };
     },
-    [createOptimisticStreamCallbacks, startStream, selectedModelId, state, invalidateAfterStream]
+    [createOptimisticStreamCallbacks, startStream, selectedModelId, state, queryClient]
   );
 
   React.useEffect(() => {
-    if (!isCreateMode || !pendingMessage || creationStartedRef.current) {
+    if (!isCreateMode || !pendingMessage || creationStartedRef.current || !accountPrivateKey) {
       return;
     }
     creationStartedRef.current = true;
@@ -291,34 +280,33 @@ export function useAuthenticatedChat({
     const conversationId = crypto.randomUUID();
     conversationIdRef.current = conversationId;
 
-    const userMessage = createUserMessage(conversationId, pendingMessage);
+    const userMessage = createUserMessage(conversationId, pendingMessage, userId);
     setLocalMessages([userMessage]);
 
     void (async () => {
       try {
-        const response = await createConversation.mutateAsync({
+        const accountPublicKey = getPublicKeyFromPrivate(accountPrivateKey);
+        const epoch = createFirstEpoch([accountPublicKey]);
+        const ownerWrap = epoch.memberWraps[0];
+        if (!ownerWrap) throw new Error('createFirstEpoch returned no member wraps');
+
+        const titleText = generateChatTitle(pendingMessage);
+        const encryptedTitleBytes = encryptMessageForStorage(epoch.epochPublicKey, titleText);
+
+        const response = await createConversationRef.current({
           id: conversationId,
-          firstMessage: { content: pendingMessage },
+          title: toBase64(encryptedTitleBytes),
+          epochPublicKey: toBase64(epoch.epochPublicKey),
+          confirmationHash: toBase64(epoch.confirmationHash),
+          memberWrap: toBase64(ownerWrap.wrap),
         });
 
         const realId = response.conversation.id;
 
-        if (!response.isNew && response.messages) {
-          setLocalMessages(response.messages);
-          setLocalTitle(response.conversation.title);
+        if (!response.isNew) {
+          queryClient.setQueryData(chatKeys.conversation(realId), response.conversation);
           clearPendingMessage();
           setRealConversationId(realId);
-
-          if (needsStreamResume(response.messages)) {
-            try {
-              const assistantMessageId = await executeStream(realId);
-              removeOptimisticMessage(assistantMessageId);
-            } catch (streamError: unknown) {
-              console.error('Stream failed:', streamError);
-              state.stopStreaming();
-            }
-          }
-
           void navigate({
             to: ROUTES.CHAT_ID,
             params: { id: realId },
@@ -327,26 +315,43 @@ export function useAuthenticatedChat({
           return;
         }
 
-        const baseUserMessage = createUserMessage(realId, pendingMessage);
-        const realUserMessage = applyMessageIds(baseUserMessage, response.message);
+        // Cache the epoch private key so sidebar can decrypt the title
+        setEpochKey(realId, 1, epoch.epochPrivateKey);
+
+        const realUserMessage = createUserMessage(realId, pendingMessage, userId);
         setLocalMessages([realUserMessage]);
-        setLocalTitle(generateChatTitle(pendingMessage));
+        setLocalTitle(titleText);
         clearPendingMessage();
+        setRealConversationId(realId);
+
+        const userMsgId = crypto.randomUUID();
 
         try {
-          await startStream(
-            { conversationId: realId, model: selectedModelId },
+          const streamResult = await startStream(
+            {
+              conversationId: realId,
+              model: selectedModelId,
+              userMessage: {
+                id: userMsgId,
+                content: pendingMessage,
+              },
+              messagesForInference: [{ role: 'user', content: pendingMessage }],
+              fundingSource: pendingFundingSource ?? 'personal_balance',
+            },
             { onStart: handleStreamStart, onToken: handleStreamToken }
           );
 
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          // Attach cost to the local assistant message so it displays immediately
+          const streamingMsgId = state.streamingMessageIdRef.current;
+          if (streamingMsgId && streamResult.cost) {
+            attachCostToMessage(setLocalMessages, streamingMsgId, streamResult.cost);
+          }
+
           queryClient.setQueryData(chatKeys.conversation(realId), response.conversation);
-          queryClient.setQueryData(chatKeys.messages(realId), localMessagesRef.current);
-          void queryClient.invalidateQueries({ queryKey: chatKeys.messages(realId) });
+          await queryClient.invalidateQueries({ queryKey: chatKeys.messages(realId) });
           void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
 
           state.stopStreaming();
-          setRealConversationId(realId);
 
           void navigate({
             to: ROUTES.CHAT_ID,
@@ -356,7 +361,13 @@ export function useAuthenticatedChat({
         } catch (streamError: unknown) {
           console.error('Stream failed:', streamError);
           state.stopStreaming();
-          setRealConversationId(realId);
+          useChatErrorStore.getState().setError(
+            createChatError({
+              content: friendlyErrorMessage('INTERNAL'),
+              retryable: false,
+              failedContent: pendingMessage,
+            })
+          );
 
           void navigate({
             to: ROUTES.CHAT_ID,
@@ -371,6 +382,8 @@ export function useAuthenticatedChat({
   }, [
     isCreateMode,
     pendingMessage,
+    pendingFundingSource,
+    accountPrivateKey,
     clearPendingMessage,
     handleStreamStart,
     handleStreamToken,
@@ -379,110 +392,190 @@ export function useAuthenticatedChat({
     queryClient,
     navigate,
     state,
-    executeStream,
-    removeOptimisticMessage,
   ]);
 
-  React.useEffect(() => {
-    const canTrigger = shouldTriggerStream({
-      triggerStreaming,
+  const handleSend = React.useCallback(
+    (fundingSource: FundingSource) => {
+      const content = state.inputValue.trim();
+      if (!content || !realConversationId) {
+        return;
+      }
+
+      useChatErrorStore.getState().clearError();
+
+      state.clearInput();
+      if (!isMobile) {
+        promptInputRef.current?.focus();
+      }
+
+      const userMessageId = crypto.randomUUID();
+
+      const optimisticUserMessage = createUserMessage(realConversationId, content, userId);
+      addOptimisticMessage(optimisticUserMessage);
+
+      // Build messagesForInference from decrypted messages + new user message
+      const messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[] = [
+        ...decryptedApiMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        ...optimisticMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        { role: 'user' as const, content },
+      ];
+
+      void (async () => {
+        try {
+          const { assistantMessageId } = await executeStream({
+            convId: realConversationId,
+            userMessageData: {
+              id: userMessageId,
+              content,
+            },
+            messagesForInference,
+            fundingSource,
+          });
+          removeOptimisticMessage(optimisticUserMessage.id);
+          removeOptimisticMessage(assistantMessageId);
+        } catch (error: unknown) {
+          if (error instanceof BillingMismatchError) {
+            await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+            useChatErrorStore.getState().setError(
+              createChatError({
+                content: friendlyErrorMessage(error.code),
+                retryable: true,
+                failedContent: content,
+              })
+            );
+          } else if (error instanceof ContextCapacityError) {
+            useChatErrorStore.getState().setError(
+              createChatError({
+                content: friendlyErrorMessage(error.code),
+                retryable: false,
+                failedContent: content,
+              })
+            );
+          } else if (error instanceof BalanceReservedError) {
+            useChatErrorStore.getState().setError(
+              createChatError({
+                content: friendlyErrorMessage(error.code),
+                retryable: true,
+                failedContent: content,
+              })
+            );
+          } else {
+            console.error('Stream failed:', error);
+            useChatErrorStore.getState().setError(
+              createChatError({
+                content: friendlyErrorMessage('INTERNAL'),
+                retryable: false,
+                failedContent: content,
+              })
+            );
+            promptInputRef.current?.focus();
+          }
+
+          removeOptimisticMessage(optimisticUserMessage.id);
+          state.stopStreaming();
+        }
+      })();
+    },
+    [
+      state,
       realConversationId,
-      isCreateMode,
-      isConversationLoading,
-      isMessagesLoading,
-      isStreaming,
-      apiMessages,
-    });
-
-    if (!canTrigger || !realConversationId) {
-      return;
-    }
-
-    void navigate({
-      to: ROUTES.CHAT_ID,
-      params: { id: realConversationId },
-      search: {},
-      replace: true,
-    });
-
-    void executeAndCleanupStream(
-      realConversationId,
-      executeStream,
+      isMobile,
+      promptInputRef,
+      addOptimisticMessage,
       removeOptimisticMessage,
-      state.stopStreaming
-    );
-  }, [
-    triggerStreaming,
-    realConversationId,
-    isCreateMode,
-    apiMessages,
-    isConversationLoading,
-    isMessagesLoading,
-    isStreaming,
-    executeStream,
-    removeOptimisticMessage,
-    navigate,
-    state,
-  ]);
+      executeStream,
+      decryptedApiMessages,
+      optimisticMessages,
+    ]
+  );
 
-  const handleSend = React.useCallback(() => {
+  const handleSendUserOnly = React.useCallback(() => {
     const content = state.inputValue.trim();
     if (!content || !realConversationId) {
       return;
     }
+
+    useChatErrorStore.getState().clearError();
 
     state.clearInput();
     if (!isMobile) {
       promptInputRef.current?.focus();
     }
 
-    const optimisticUserMessage = createUserMessage(realConversationId, content);
+    const messageId = crypto.randomUUID();
+    const optimisticUserMessage = createUserMessage(realConversationId, content, userId);
     addOptimisticMessage(optimisticUserMessage);
 
-    sendMessage.mutate(
-      {
-        conversationId: realConversationId,
-        message: { role: 'user', content },
-      },
-      {
-        onSuccess: () => {
-          removeOptimisticMessage(optimisticUserMessage.id);
-          void (async () => {
-            try {
-              const assistantMessageId = await executeStream(realConversationId);
-              removeOptimisticMessage(assistantMessageId);
-            } catch (error: unknown) {
-              console.error('Stream failed:', error);
-              state.stopStreaming();
-            }
-          })();
-        },
-        onError: () => {
-          removeOptimisticMessage(optimisticUserMessage.id);
-          promptInputRef.current?.focus();
-        },
+    void (async () => {
+      try {
+        await fetchJson(
+          client.api.chat.message.$post({
+            json: {
+              conversationId: realConversationId,
+              messageId,
+              content,
+            },
+          })
+        );
+        removeOptimisticMessage(optimisticUserMessage.id);
+        await queryClient.invalidateQueries({ queryKey: chatKeys.messages(realConversationId) });
+      } catch (error: unknown) {
+        console.error('User-only message failed:', error);
+        removeOptimisticMessage(optimisticUserMessage.id);
+        promptInputRef.current?.focus();
       }
-    );
+    })();
   }, [
     state,
     realConversationId,
     isMobile,
     promptInputRef,
-    sendMessage,
     addOptimisticMessage,
     removeOptimisticMessage,
-    executeStream,
+    queryClient,
   ]);
 
   const allMessages = React.useMemo(() => {
+    let messages: Message[];
     if (isCreateMode || !realConversationId) {
-      return localMessages;
+      messages = localMessages;
+    } else {
+      const apiMessageIds = new Set(decryptedApiMessages.map((m) => m.id));
+      const pendingOptimistic = optimisticMessages.filter((m) => !apiMessageIds.has(m.id));
+      messages = [...decryptedApiMessages, ...pendingOptimistic];
+      // During create→existing transition, API messages haven't loaded yet.
+      // Fall back to local messages to avoid a flash of empty content.
+      if (messages.length === 0 && localMessages.length > 0) {
+        messages = localMessages;
+      }
     }
-    const messages = apiMessages ?? [];
-    const apiMessageIds = new Set(messages.map((m) => m.id));
-    const pendingOptimistic = optimisticMessages.filter((m) => !apiMessageIds.has(m.id));
-    return [...messages, ...pendingOptimistic];
-  }, [isCreateMode, realConversationId, localMessages, apiMessages, optimisticMessages]);
+    if (chatError) {
+      messages = [
+        ...messages,
+        {
+          id: chatError.id,
+          conversationId: realConversationId ?? '',
+          role: 'assistant',
+          content: chatError.content,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+    }
+    return messages;
+  }, [
+    isCreateMode,
+    realConversationId,
+    localMessages,
+    decryptedApiMessages,
+    optimisticMessages,
+    chatError,
+  ]);
 
   const historyCharacters = React.useMemo(() => {
     return allMessages.reduce((total, message) => total + message.content.length, 0);
@@ -514,8 +607,25 @@ export function useAuthenticatedChat({
     }
   }, [renderState.type, navigate]);
 
-  const displayTitle = conversation?.title ?? localTitle ?? undefined;
+  // Subscribe to epoch key cache for title decryption reactivity
+  const epochCacheVersion = React.useSyncExternalStore(epochCacheSubscribe, epochCacheSnapshot);
+
+  // Decrypt conversation title from API (base64 ECIES blob) using cached epoch key
+  const displayTitle = React.useMemo(() => {
+    // Local title (from just-created conversation) takes priority
+    if (localTitle) return localTitle;
+    if (!conversation?.title || !realConversationId) return;
+    const epochKey = getEpochKey(realConversationId, conversation.titleEpochNumber);
+    if (!epochKey) return DECRYPTING_TITLE;
+    try {
+      return decryptMessage(epochKey, fromBase64(conversation.title));
+    } catch {
+      return 'Encrypted conversation';
+    }
+  }, [conversation, realConversationId, localTitle, epochCacheVersion]);
   const inputDisabled = isCreateMode && !realConversationId;
+
+  const errorMessageId: string | undefined = chatError?.id;
 
   return {
     state,
@@ -526,6 +636,9 @@ export function useAuthenticatedChat({
     inputDisabled,
     isStreaming,
     handleSend,
+    handleSendUserOnly,
     promptInputRef,
+    errorMessageId,
+    realConversationId,
   };
 }

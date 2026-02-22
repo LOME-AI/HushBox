@@ -1,28 +1,91 @@
 import { Hono } from 'hono';
-import { listDevPersonas, cleanupTestData, resetGuestUsage } from '../services/dev/index.js';
+import { zValidator } from '@hono/zod-validator';
+import { z } from 'zod';
+import { eq } from 'drizzle-orm';
+import { users } from '@hushbox/db';
+import { ERROR_CODE_NOT_FOUND } from '@hushbox/shared';
+import {
+  listDevPersonas,
+  cleanupTestData,
+  resetTrialUsage,
+  resetAuthRateLimits,
+  createDevGroupChat,
+} from '../services/dev/index.js';
+import { createErrorResponse } from '../lib/error-response.js';
 import type { AppEnv } from '../types.js';
 
-export function createDevRoute(): Hono<AppEnv> {
-  const app = new Hono<AppEnv>();
-
-  app.get('/personas', async (c) => {
-    const db = c.get('db');
-    const type = c.req.query('type') === 'test' ? 'test' : 'dev';
-    const personas = await listDevPersonas(db, type);
-    return c.json({ personas });
-  });
-
-  app.delete('/test-data', async (c) => {
+export const devRoute = new Hono<AppEnv>()
+  .get(
+    '/personas',
+    zValidator('query', z.object({ type: z.enum(['test', 'dev']).optional() })),
+    async (c) => {
+      const db = c.get('db');
+      const { type } = c.req.valid('query');
+      const resolvedType = type ?? 'dev';
+      const personas = await listDevPersonas(db, resolvedType);
+      return c.json({ personas });
+    }
+  )
+  .delete('/test-data', async (c) => {
     const db = c.get('db');
     const deleted = await cleanupTestData(db);
     return c.json({ success: true, deleted });
-  });
-
-  app.delete('/guest-usage', async (c) => {
+  })
+  .get('/verify-token/:email', zValidator('param', z.object({ email: z.email() })), async (c) => {
     const db = c.get('db');
-    const result = await resetGuestUsage(db);
-    return c.json({ success: true, deleted: result.deleted });
-  });
+    const { email } = c.req.valid('param');
 
-  return app;
-}
+    const [user] = await db
+      .select({ emailVerifyToken: users.emailVerifyToken })
+      .from(users)
+      .where(eq(users.email, email.toLowerCase()));
+
+    if (!user?.emailVerifyToken) {
+      return c.json(createErrorResponse(ERROR_CODE_NOT_FOUND), 404);
+    }
+
+    return c.json({ token: user.emailVerifyToken });
+  })
+  .delete('/trial-usage', async (c) => {
+    const redis = c.get('redis');
+    const result = await resetTrialUsage(redis);
+    return c.json({ success: true, deleted: result.deleted });
+  })
+  .delete('/auth-rate-limits', async (c) => {
+    const redis = c.get('redis');
+    const result = await resetAuthRateLimits(redis);
+    return c.json({ success: true, deleted: result.deleted });
+  })
+  .post(
+    '/group-chat',
+    zValidator(
+      'json',
+      z.object({
+        ownerEmail: z.email(),
+        memberEmails: z.array(z.email()).min(1),
+        messages: z
+          .array(
+            z.object({
+              senderEmail: z.email().optional(),
+              content: z.string(),
+              senderType: z.enum(['user', 'ai']),
+            })
+          )
+          .optional(),
+      })
+    ),
+    async (c) => {
+      const db = c.get('db');
+      const { messages: rawMessages, ...rest } = c.req.valid('json');
+      const result = await createDevGroupChat(db, {
+        ...rest,
+        ...(rawMessages !== undefined && {
+          messages: rawMessages.map(({ senderEmail, ...msgRest }) => ({
+            ...msgRest,
+            ...(senderEmail !== undefined && { senderEmail }),
+          })),
+        }),
+      });
+      return c.json(result, 201);
+    }
+  );

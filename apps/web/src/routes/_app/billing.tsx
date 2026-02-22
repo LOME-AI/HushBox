@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } from '@lome-chat/ui';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } from '@hushbox/ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import type { BalanceTransactionResponse } from '@lome-chat/shared';
+import type { BalanceTransactionResponse } from '@hushbox/shared';
 import { requireAuth } from '@/lib/auth';
 import { useStableBalance } from '@/hooks/use-stable-balance';
 import { useTransactions } from '@/hooks/billing';
@@ -15,21 +15,24 @@ import { CostPieChart } from '@/components/billing/cost-pie-chart';
 
 const TRANSACTIONS_PER_PAGE = 5;
 
+const SIMPLE_TRANSACTION_LABELS: Record<string, string> = {
+  adjustment: 'Balance adjustment',
+  renewal: 'Free tier renewal',
+  welcome_credit: 'Welcome credit',
+};
+
 /** Generate display text for a transaction based on its structured data */
 function getTransactionDisplay(tx: BalanceTransactionResponse): string {
-  switch (tx.type) {
-    case 'usage': {
-      const totalChars = (tx.inputCharacters ?? 0) + (tx.outputCharacters ?? 0);
-      const sourceNote = tx.deductionSource === 'freeAllowance' ? ' (free allowance)' : '';
-      return `AI response: ${tx.model ?? 'unknown'} (${String(totalChars)} chars)${sourceNote}`;
-    }
-    case 'deposit': {
-      return `Deposit of $${Number.parseFloat(tx.amount).toFixed(2)}`;
-    }
-    case 'adjustment': {
-      return 'Balance adjustment';
-    }
+  if (tx.type === 'usage_charge') {
+    const totalChars = (tx.inputCharacters ?? 0) + (tx.outputCharacters ?? 0);
+    const sourceNote = tx.deductionSource === 'freeAllowance' ? ' (free allowance)' : '';
+    return `AI response: ${tx.model ?? 'unknown'} (${String(totalChars)} chars)${sourceNote}`;
   }
+  if (tx.type === 'deposit' || tx.type === 'refund') {
+    const label = tx.type === 'deposit' ? 'Deposit' : 'Refund';
+    return `${label} of $${Number.parseFloat(tx.amount).toFixed(2)}`;
+  }
+  return SIMPLE_TRANSACTION_LABELS[tx.type] ?? tx.type;
 }
 
 export const Route = createFileRoute('/_app/billing')({

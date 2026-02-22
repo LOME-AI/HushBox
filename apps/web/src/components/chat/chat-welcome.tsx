@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
-import { cn } from '@lome-chat/ui';
+import { cn } from '@hushbox/ui';
 import { TypingAnimation } from './typing-animation';
 import { PromptInput } from './prompt-input';
 import type { PromptInputRef } from './prompt-input';
@@ -11,6 +11,7 @@ import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
 import { useStableBalance } from '@/hooks/use-stable-balance';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
+import type { FundingSource } from '@hushbox/shared';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 
 interface WelcomeGreetingProps {
@@ -52,11 +53,11 @@ function WelcomeGreeting({
 }
 
 interface ChatWelcomeProps {
-  onSend: (message: string) => void;
+  onSend: (message: string, fundingSource: FundingSource) => void;
   isAuthenticated: boolean;
   isLoading?: boolean | undefined;
   className?: string | undefined;
-  /** Called when a guest user clicks a premium model */
+  /** Called when a trial user clicks a premium model */
   onPremiumClick?: ((modelId: string) => void) | undefined;
 }
 
@@ -106,9 +107,9 @@ export function ChatWelcome({
     previousIsLoadingRef.current = isLoading;
   }, [isLoading, isMobile]);
 
-  const handleSubmit = (): void => {
+  const handleSubmit = (fundingSource: FundingSource): void => {
     if (inputValue.trim()) {
-      onSend(inputValue.trim());
+      onSend(inputValue.trim(), fundingSource);
       setInputValue('');
     }
   };
@@ -165,6 +166,12 @@ export function ChatWelcome({
             </p>
             <SuggestionChips onSelect={handleSuggestionSelect} showSurpriseMe />
           </div>
+
+          <p data-testid="privacy-tagline" className="text-muted-foreground/60 text-center text-xs">
+            {isAuthenticated
+              ? 'Encrypted storage \u00B7 AI providers retain nothing'
+              : 'AI providers retain nothing \u00B7 Sign up for encrypted storage'}
+          </p>
         </div>
       </div>
     </div>

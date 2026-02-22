@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import type { Model } from '@lome-chat/shared';
+import type { Model } from '@hushbox/shared';
 import { useModelValidation } from './use-model-validation.js';
 
 // Mock dependencies
@@ -66,7 +66,7 @@ describe('useModelValidation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Default mock setup: guest user (session loaded with no user, no balance)
+    // Default mock setup: trial user (session loaded with no user, no balance)
     mockedUseSession.mockReturnValue({
       data: null,
       isPending: false,
@@ -90,7 +90,7 @@ describe('useModelValidation', () => {
   });
 
   it('does nothing when models data is not loaded', () => {
-    // Guest user (session loaded with no user)
+    // Trial user (session loaded with no user)
     mockedUseSession.mockReturnValue({
       data: null,
       isPending: false,
@@ -107,7 +107,7 @@ describe('useModelValidation', () => {
 
   it('does not reset model while session is loading', () => {
     // Session still loading - we don't know if user is authenticated yet
-    // This is the key bug fix: without isPending check, we'd treat loading user as guest
+    // This is the key bug fix: without isPending check, we'd treat loading user as trial
     mockedUseSession.mockReturnValue({
       data: undefined,
       isPending: true,
@@ -225,8 +225,8 @@ describe('useModelValidation', () => {
     expect(mockSetSelectedModel).toHaveBeenCalledWith('basic-model', 'Basic Model');
   });
 
-  it('resets model when guest user has premium model selected', () => {
-    // Guest user (session loaded with no user)
+  it('resets model when trial user has premium model selected', () => {
+    // Trial user (session loaded with no user)
     mockedUseSession.mockReturnValue({
       data: null,
       isPending: false,
@@ -272,7 +272,7 @@ describe('useModelValidation', () => {
       },
     ];
 
-    // Guest user (session loaded with no user)
+    // Trial user (session loaded with no user)
     mockedUseSession.mockReturnValue({
       data: null,
       isPending: false,
@@ -302,7 +302,7 @@ describe('useModelValidation', () => {
   });
 
   it('does not reset if strongest model is not found in models list', () => {
-    // Guest user (session loaded with no user)
+    // Trial user (session loaded with no user)
     mockedUseSession.mockReturnValue({
       data: null,
       isPending: false,

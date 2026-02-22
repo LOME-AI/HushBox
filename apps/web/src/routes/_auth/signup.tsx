@@ -1,31 +1,33 @@
 import * as React from 'react';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { Mail, User } from 'lucide-react';
+import { ROUTES } from '@hushbox/shared';
+import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { signUp } from '@/lib/auth';
 import { FormInput } from '@/components/shared/form-input';
 import { AuthButton } from '@/components/auth/AuthButton';
 import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
-import { PasswordStrength } from '@/components/auth/PasswordStrength';
+import { AuthFeatureList } from '@/components/auth/auth-feature-list';
+import { AuthShakeError } from '@/components/auth/auth-shake-error';
 import {
-  validateName,
+  validateUsername,
   validateEmail,
   validatePassword,
   validateConfirmPassword,
 } from '@/lib/validation';
-import { ROUTES } from '@/lib/routes';
 
 export const Route = createFileRoute('/_auth/signup')({
   component: SignupPage,
 });
 
 export function SignupPage(): React.JSX.Element {
-  const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [touched, setTouched] = useState({
-    name: false,
+    username: false,
     email: false,
     password: false,
     confirmPassword: false,
@@ -34,8 +36,10 @@ export function SignupPage(): React.JSX.Element {
   const [isSuccess, setIsSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorKey, setErrorKey] = useState(0);
+  const formRef = useRef<HTMLFormElement>(null);
+  useFormEnterNav(formRef);
 
-  const nameValidation = touched.name ? validateName(name) : { isValid: false };
+  const usernameValidation = touched.username ? validateUsername(username) : { isValid: false };
   const emailValidation = touched.email ? validateEmail(email) : { isValid: false };
   const passwordValidation = touched.password ? validatePassword(password) : { isValid: false };
   const confirmPasswordValidation = touched.confirmPassword
@@ -45,15 +49,15 @@ export function SignupPage(): React.JSX.Element {
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
 
-    setTouched({ name: true, email: true, password: true, confirmPassword: true });
+    setTouched({ username: true, email: true, password: true, confirmPassword: true });
 
-    const nameResult = validateName(name);
+    const usernameResult = validateUsername(username);
     const emailResult = validateEmail(email);
     const passwordResult = validatePassword(password);
     const confirmPasswordResult = validateConfirmPassword(password, confirmPassword);
 
     if (
-      !nameResult.isValid ||
+      !usernameResult.isValid ||
       !emailResult.isValid ||
       !passwordResult.isValid ||
       !confirmPasswordResult.isValid
@@ -63,9 +67,9 @@ export function SignupPage(): React.JSX.Element {
 
     setIsLoading(true);
     try {
-      const response = await signUp.email({ name, email, password });
+      const response = await signUp.email({ username, email, password });
       if (response.error) {
-        setError(response.error.message ?? 'Signup failed');
+        setError(response.error.message);
         setErrorKey((k) => k + 1);
         return;
       }
@@ -88,12 +92,13 @@ export function SignupPage(): React.JSX.Element {
 
   return (
     <div>
-      <div className="mb-8 text-center">
+      <div className="mb-5 text-center">
         <h1 className="text-foreground mb-2 text-3xl font-bold">Create your account</h1>
-        <p className="text-primary text-lg font-medium">One interface for all AI</p>
+        <p className="text-primary text-lg font-medium">One interface. Every AI model. Private.</p>
       </div>
 
       <form
+        ref={formRef}
         onSubmit={(e) => {
           void handleSubmit(e);
         }}
@@ -101,18 +106,18 @@ export function SignupPage(): React.JSX.Element {
         noValidate
       >
         <FormInput
-          id="name"
-          label="Name"
+          id="username"
+          label="Username"
           type="text"
           icon={<User className="h-5 w-5" />}
-          value={name}
+          value={username}
           onChange={(e) => {
-            setName(e.target.value);
-            if (!touched.name) setTouched((t) => ({ ...t, name: true }));
+            setUsername(e.target.value);
+            if (!touched.username) setTouched((t) => ({ ...t, username: true }));
           }}
-          aria-invalid={!!nameValidation.error}
-          error={nameValidation.error}
-          success={nameValidation.success}
+          aria-invalid={!!usernameValidation.error}
+          error={usernameValidation.error}
+          success={usernameValidation.success}
         />
 
         <FormInput
@@ -130,21 +135,19 @@ export function SignupPage(): React.JSX.Element {
           success={emailValidation.success}
         />
 
-        <div>
-          <AuthPasswordInput
-            id="password"
-            label="Password"
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              if (!touched.password) setTouched((t) => ({ ...t, password: true }));
-            }}
-            aria-invalid={!!passwordValidation.error}
-            error={passwordValidation.error}
-            success={passwordValidation.success}
-          />
-          <PasswordStrength password={password} />
-        </div>
+        <AuthPasswordInput
+          id="password"
+          label="Password"
+          value={password}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            if (!touched.password) setTouched((t) => ({ ...t, password: true }));
+          }}
+          aria-invalid={!!passwordValidation.error}
+          error={passwordValidation.error}
+          success={passwordValidation.success}
+          showStrength
+        />
 
         <AuthPasswordInput
           id="confirmPassword"
@@ -159,15 +162,29 @@ export function SignupPage(): React.JSX.Element {
           success={confirmPasswordValidation.success}
         />
 
-        {error && (
-          <p
-            key={errorKey}
-            role="alert"
-            className="text-destructive animate-shake text-center text-sm"
+        <AuthShakeError error={error} errorKey={errorKey} />
+
+        <p className="text-muted-foreground text-center text-xs">
+          By creating an account, you agree to our{' '}
+          <a
+            href={ROUTES.TERMS}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
           >
-            {error}
-          </p>
-        )}
+            Terms of Service
+          </a>{' '}
+          and{' '}
+          <a
+            href={ROUTES.PRIVACY}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            Privacy Policy
+          </a>
+          .
+        </p>
 
         <AuthButton type="submit" className="w-full" disabled={isLoading}>
           {isLoading ? 'Creating account...' : 'Create account'}
@@ -181,22 +198,7 @@ export function SignupPage(): React.JSX.Element {
         </p>
       </form>
 
-      <div className="border-border mt-4 border-t pt-6">
-        <ul className="text-muted-foreground space-y-3 text-sm">
-          <li className="flex items-center gap-3">
-            <span className="text-primary text-lg">✓</span>
-            Access GPT, Claude, Gemini & more
-          </li>
-          <li className="flex items-center gap-3">
-            <span className="text-primary text-lg">✓</span>
-            Switch models mid-conversation
-          </li>
-          <li className="flex items-center gap-3">
-            <span className="text-primary text-lg">✓</span>
-            Privacy by design
-          </li>
-        </ul>
-      </div>
+      <AuthFeatureList />
     </div>
   );
 }

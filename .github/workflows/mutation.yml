@@ -7,14 +7,39 @@ on:
 
 jobs:
   mutation:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: ci
     steps:
       - uses: actions/checkout@v6
 
-      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-blacksmith
+
+      - name: Cache Docker images
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: docker-${{ hashFiles('docker-compose.yml') }}
+          path: /tmp/docker-cache
+
+      - name: Load cached Docker images
+        run: |
+          if ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            for img in /tmp/docker-cache/*.tar; do
+              docker load -i "$img"
+            done
+          fi
 
       - name: Start database
         run: pnpm db:up
+
+      - name: Save Docker images for next run
+        run: |
+          if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            mkdir -p /tmp/docker-cache
+            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar
+            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar
+            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar
+            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar
+          fi
 
       - name: Run migrations
         run: pnpm db:migrate

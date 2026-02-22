@@ -31,11 +31,20 @@ export function parseSSELine(line: string): SSELineResult | null {
   return null;
 }
 
+export interface DoneEventData {
+  userMessageId: string;
+  assistantMessageId: string;
+  userSequence: number;
+  aiSequence: number;
+  epochNumber: number;
+  cost: string;
+}
+
 export interface SSEHandlers {
   onStart?: (data: { userMessageId: string; assistantMessageId: string }) => void;
   onToken?: (content: string) => void;
   onError?: (error: { message: string; code?: string }) => void;
-  onDone?: () => void;
+  onDone?: (data: DoneEventData) => void;
 }
 
 export interface SSEParser {
@@ -70,8 +79,9 @@ function createEventHandlers(handlers: SSEHandlers): Record<string, EventHandler
       const errorData = data as { message: string; code?: string };
       handlers.onError?.(errorData);
     },
-    done: () => {
-      handlers.onDone?.();
+    done: (data) => {
+      const doneData = data as DoneEventData;
+      handlers.onDone?.(doneData);
     },
   };
 }

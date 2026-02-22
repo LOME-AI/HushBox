@@ -26,6 +26,11 @@ function createModel(overrides: Partial<Parameters<typeof processModels>[0][0]> 
   };
 }
 
+/** Build a ZDR set containing all model IDs (pass-all filter for non-ZDR tests). */
+function allZdr(models: ReturnType<typeof createModel>[]): Set<string> {
+  return new Set(models.map((m) => m.id));
+}
+
 describe('processModels', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -36,6 +41,38 @@ describe('processModels', () => {
     vi.useRealTimers();
   });
 
+  describe('filtering - ZDR compliance', () => {
+    it('filters to only ZDR-compliant models when zdrModelIds provided', () => {
+      const models = [
+        createModel({ id: 'zdr/model-a' }),
+        createModel({ id: 'non-zdr/model-b' }),
+        createModel({ id: 'zdr/model-c' }),
+      ];
+      const zdrModelIds = new Set(['zdr/model-a', 'zdr/model-c']);
+
+      const result = processModels(models, zdrModelIds);
+
+      expect(result.models.map((m) => m.id)).toEqual(['zdr/model-a', 'zdr/model-c']);
+    });
+
+    it('excludes non-ZDR models even if they pass other filters', () => {
+      const models = [
+        createModel({
+          id: 'non-zdr/expensive-recent',
+          pricing: { prompt: '0.01', completion: '0.01' },
+          context_length: 200_000,
+          created: Math.floor(now / 1000),
+        }),
+        createModel({ id: 'zdr/basic' }),
+      ];
+      const zdrModelIds = new Set(['zdr/basic']);
+
+      const result = processModels(models, zdrModelIds);
+
+      expect(result.models.map((m) => m.id)).toEqual(['zdr/basic']);
+    });
+  });
+
   describe('filtering - always excluded', () => {
     it('excludes free models (both prices = 0)', () => {
       const models = [
@@ -43,7 +80,7 @@ describe('processModels', () => {
         createModel({ id: 'free/model', pricing: { prompt: '0', completion: '0' } }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).toEqual(['paid/model']);
     });
@@ -54,7 +91,7 @@ describe('processModels', () => {
         createModel({ id: 'utility/builder', name: 'Body Builder (beta)' }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
     });
@@ -65,7 +102,7 @@ describe('processModels', () => {
         createModel({ id: 'utility/router', name: 'Auto Router' }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
     });
@@ -77,7 +114,7 @@ describe('processModels', () => {
         createModel({ id: 'openai/audio-preview', name: 'OpenAI: Audio Preview' }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
     });
@@ -89,7 +126,7 @@ describe('processModels', () => {
         createModel({ id: 'openai/image-gen', name: 'OpenAI: Image Generator' }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
     });
@@ -103,7 +140,7 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).toEqual(['text/model']);
     });
@@ -117,7 +154,7 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).toEqual(['text/model']);
     });
@@ -130,7 +167,7 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).toEqual(['vision/model']);
     });
@@ -142,7 +179,7 @@ describe('processModels', () => {
         createModel({ id: 'utility/2', name: 'auto router' }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
     });
@@ -166,7 +203,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).not.toContain('old/model');
     });
@@ -176,7 +213,7 @@ describe('processModels', () => {
         createModel({ id: 'boundary/model', created: Math.floor(twoYearsAgo / 1000) }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).toEqual(['boundary/model']);
     });
@@ -197,7 +234,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).not.toContain('cheap/model');
     });
@@ -220,7 +257,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).toContain('old-but-large-context/model');
     });
@@ -241,7 +278,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).toContain('cheap-but-large-context/model');
     });
@@ -261,7 +298,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).not.toContain('free-large-context/model');
     });
@@ -281,7 +318,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).not.toContain('utility-large-context/model');
     });
@@ -300,7 +337,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.premiumIds).toContain('model-9');
       expect(result.premiumIds).toContain('model-8');
@@ -321,7 +358,7 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.premiumIds).toContain('new-cheap/model');
     });
@@ -343,7 +380,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models.map((m) => m.id)).not.toContain('old-expensive/model');
       expect(result.models).toHaveLength(20);
@@ -364,7 +401,7 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
       const model = result.models[0];
 
       expect(model).toMatchObject({
@@ -392,7 +429,7 @@ describe('processModels', () => {
 
       for (const { id, expected } of testCases) {
         const models = [createModel({ id })];
-        const result = processModels(models);
+        const result = processModels(models, allZdr(models));
         expect(result.models[0]?.provider).toBe(expected);
       }
     });
@@ -405,7 +442,7 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models[0]?.provider).toBe('Acme Corp');
       expect(result.models[0]?.name).toBe('Super Model');
@@ -427,7 +464,7 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(modelsData);
+      const result = processModels(modelsData, allZdr(modelsData));
 
       const withTools = result.models.find((m) => m.id === 'with-tools/model');
       const withJson = result.models.find((m) => m.id === 'with-json/model');
@@ -442,7 +479,7 @@ describe('processModels', () => {
 
   describe('edge cases', () => {
     it('handles empty array', () => {
-      const result = processModels([]);
+      const result = processModels([], new Set());
 
       expect(result.models).toEqual([]);
       expect(result.premiumIds).toEqual([]);
@@ -451,7 +488,7 @@ describe('processModels', () => {
     it('handles single model', () => {
       const models = [createModel({ id: 'only/model' })];
 
-      const result = processModels(models);
+      const result = processModels(models, allZdr(models));
 
       expect(result.models).toHaveLength(1);
       expect(result.models[0]?.id).toBe('only/model');

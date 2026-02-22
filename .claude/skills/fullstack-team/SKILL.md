@@ -14,13 +14,13 @@ description: Spawn a coordinated agent team for development. Use for frontend-on
 - **For cross-layer tasks, Backend owns shared types.** They define the API, they define the types. Frontend consumes.
 - **When both implementation teammates are spawned, file conflicts are the #1 failure mode.** If both need the same file, one edits and the other sends changes as a message.
 - **Use plan approval** for destructive or irreversible changes.
-- **Spawn read-only roles on Sonnet** to save tokens — they're reading and messaging, not writing code.
 - **Do NOT implement anything yourself** — your only job is coordination.
 - If the task involves authentication, authorization, user data, payments, or file uploads, spawn the optional Security Auditor.
 
 ## Lead Workflow
 
 ### Phase 1: Plan
+
 1. Scan the codebase to understand the architecture and directory structure
 2. Determine which layers the task touches — frontend only, backend only, or both
 3. Break the task into subtasks with clear deliverables
@@ -28,17 +28,20 @@ description: Spawn a coordinated agent team for development. Use for frontend-on
 5. For cross-layer tasks, identify what blocks what — typically backend API contracts unblock frontend data fetching
 
 ### Phase 2: Spawn & Assign
+
 1. Spawn the implementation teammates needed (Frontend, Backend, or both) using the role prompts below, filling in TASK and FILE OWNERSHIP
 2. Always spawn Devil's Advocate and Quality Monitor
 3. Spawn the Security Auditor if applicable
 4. Create tasks with dependency chains where needed
 
 ### Phase 3: Coordinate
+
 1. For cross-layer tasks, relay API contracts between Backend and Frontend or have them message each other directly
 2. If a teammate appears stuck, message them directly to unblock
 3. Watch for Devil's Advocate and Quality Monitor feedback — relay blockers to the relevant teammate
 
 ### Phase 4: Verify & Close
+
 1. Run the project's typecheck, lint, and test commands
 2. Collect the Quality Monitor's final report
 3. Summarize all changes to the user

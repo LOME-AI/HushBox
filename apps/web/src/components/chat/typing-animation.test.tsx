@@ -16,6 +16,16 @@ describe('TypingAnimation', () => {
     expect(screen.getByTestId('typing-animation')).toBeInTheDocument();
   });
 
+  it('renders full text invisibly as layout spacer', () => {
+    render(<TypingAnimation text="Hello World" />);
+    const container = screen.getByTestId('typing-animation');
+    // Invisible spacer contains full text to reserve layout space
+    const spacer = container.querySelector('[aria-hidden="true"]');
+    expect(spacer).toBeInTheDocument();
+    expect(spacer).toHaveTextContent('Hello World');
+    expect(spacer).toHaveClass('invisible');
+  });
+
   it('displays cursor', () => {
     render(<TypingAnimation text="Hello" />);
     expect(screen.getByTestId('typing-cursor')).toBeInTheDocument();
@@ -40,22 +50,19 @@ describe('TypingAnimation', () => {
     expect(screen.getByTestId('typed-text').textContent).toBe('Hi');
   });
 
-  it('hides cursor when complete and loop is false', async () => {
+  it('hides cursor when complete and loop is false', () => {
     render(<TypingAnimation text="Hi" typingSpeed={75} loop={false} />);
 
-    // Type 'H' - flush state updates
-    await act(async () => {
+    // Type 'H'
+    act(() => {
       vi.advanceTimersByTime(75);
-      await Promise.resolve();
     });
+    expect(screen.getByTestId('typing-cursor')).toBeInTheDocument();
 
-    // Type 'i' and complete - this triggers setIsComplete(true)
-    await act(async () => {
+    // Type 'i' — cursor disappears immediately, no intermediate frame
+    act(() => {
       vi.advanceTimersByTime(75);
-      await Promise.resolve();
     });
-
-    // Cursor should be hidden when complete
     expect(screen.queryByTestId('typing-cursor')).not.toBeInTheDocument();
   });
 

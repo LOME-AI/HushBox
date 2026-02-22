@@ -1,5 +1,5 @@
 {
-  "name": "@lome-chat/e2e",
+  "name": "@hushbox/e2e",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,9 +8,10 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@lome-chat/config": "workspace:*",
+    "@hushbox/config": "workspace:*",
     "@playwright/test": "^1.57.0",
     "@types/node": "^22.13.14",
+    "@hushbox/crypto": "workspace:*",
     "typescript": "^5.7.2"
   }
 }

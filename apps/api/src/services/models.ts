@@ -4,7 +4,7 @@
  * Handles filtering, classification, and transformation of OpenRouter models.
  */
 
-import type { Model, ModelCapability } from '@lome-chat/shared';
+import type { Model, ModelCapability } from '@hushbox/shared';
 
 import { isPremiumModel, PREMIUM_PRICE_PERCENTILE } from './models/premium-check.js';
 
@@ -177,13 +177,6 @@ function transform(model: OpenRouterModel): Model {
 // ============================================================
 
 /**
- * Transform a single OpenRouter model to the shared Model type.
- */
-export function transformModel(model: OpenRouterModel): Model {
-  return transform(model);
-}
-
-/**
  * Process raw OpenRouter models: filter, classify, and transform.
  *
  * Filtering rules:
@@ -194,13 +187,19 @@ export function transformModel(model: OpenRouterModel): Model {
  * - Price >= 75th percentile of filtered models, OR
  * - Released within the last year
  */
-export function processModels(rawModels: OpenRouterModel[]): ProcessedModels {
-  // Calculate context threshold from full list (needed for filtering decision)
-  const contexts = rawModels.map((m) => m.context_length);
+export function processModels(
+  rawModels: OpenRouterModel[],
+  zdrModelIds: Set<string>
+): ProcessedModels {
+  // ZDR filter: only include models with ZDR-compliant providers
+  const zdrFiltered = rawModels.filter((m) => zdrModelIds.has(m.id));
+
+  // Calculate context threshold from ZDR-filtered list (needed for filtering decision)
+  const contexts = zdrFiltered.map((m) => m.context_length);
   const contextThreshold = calculatePercentileThreshold(contexts, TOP_CONTEXT_PERCENTILE);
 
   // Filter
-  const filtered = rawModels.filter((model) => {
+  const filtered = zdrFiltered.filter((model) => {
     if (isExcludedAlways(model)) {
       return false;
     }

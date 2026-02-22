@@ -1,15 +1,15 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { Search, ChevronUp, ChevronDown, Lock } from 'lucide-react';
-import { ModalOverlay, Input, Badge, Button, ScrollArea } from '@lome-chat/ui';
-import type { Model } from '@lome-chat/shared';
-import { ROUTES } from '@/lib/routes';
+import { ModalOverlay, Input, Badge, Button, ModalActions, ScrollArea } from '@hushbox/ui';
+import type { Model } from '@hushbox/shared';
 import {
+  ROUTES,
   formatNumber,
   getModelCostPer1k,
   isExpensiveModel,
   shortenModelName,
-} from '@lome-chat/shared';
+} from '@hushbox/shared';
 import { applyFees, formatContextLength, formatPricePer1k } from '../../lib/format';
 import { getAccessibleModelIds } from '../../hooks/models';
 import { useIsMobile } from '../../hooks/use-is-mobile';
@@ -153,7 +153,7 @@ function ModelListItem({
       </div>
       <div className="text-muted-foreground relative flex items-center justify-between text-xs">
         <span className="truncate">
-          {model.provider} • {formatContextLength(model.contextLength)}
+          {model.provider} • Capacity: {formatContextLength(model.contextLength)}
         </span>
         {showOverlay && (
           <span className="shrink-0 text-xs">
@@ -219,21 +219,6 @@ function SearchAndSortSection({
 
   return (
     <>
-      <div className={`border-border-strong border-b p-4`}>
-        <div className="relative">
-          <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-          <Input
-            type="text"
-            placeholder="Search models"
-            value={searchQuery}
-            onChange={(e) => {
-              onSearchChange(e.target.value);
-            }}
-            className="pl-9"
-          />
-        </div>
-      </div>
-
       <div className={`border-border-strong border-b ${padding}`}>
         <div className={`text-muted-foreground ${marginBottom} text-xs font-medium uppercase`}>
           Quick Select Model
@@ -282,6 +267,21 @@ function SearchAndSortSection({
             activeField={sortField}
             direction={sortDirection}
             onClick={onSortClick}
+          />
+        </div>
+      </div>
+
+      <div className={`border-border-strong border-b px-4 py-2`}>
+        <div className="relative">
+          <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+          <Input
+            type="text"
+            placeholder="Search models"
+            value={searchQuery}
+            onChange={(e) => {
+              onSearchChange(e.target.value);
+            }}
+            className="pl-9"
           />
         </div>
       </div>
@@ -580,9 +580,12 @@ export function ModelSelectorModal({
 
         {/* Bottom button - full width */}
         <div className="border-t p-4">
-          <Button variant="default" onClick={handleSelectButton} className="w-full">
-            Select model
-          </Button>
+          <ModalActions
+            primary={{
+              label: 'Select model',
+              onClick: handleSelectButton,
+            }}
+          />
         </div>
       </div>
     </ModalOverlay>

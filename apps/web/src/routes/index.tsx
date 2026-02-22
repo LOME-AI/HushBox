@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { ROUTES } from '@/lib/routes';
+import { ROUTES } from '@hushbox/shared';
 
 export const Route = createFileRoute('/')({
   beforeLoad: () => {

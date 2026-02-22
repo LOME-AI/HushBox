@@ -1,14 +1,15 @@
 import * as React from 'react';
-import { Button, cn } from '@lome-chat/ui';
-import { X, Code, Eye, Copy, Check } from 'lucide-react';
+import { Button, cn } from '@hushbox/ui';
+import { X, Code, Eye, Copy, Check, Download, Maximize2, Minimize2 } from 'lucide-react';
+import { Streamdown } from 'streamdown';
+import { code } from '@streamdown/code';
 import { useDocumentStore } from '../../stores/document';
-import { CodeBlock } from '../chat/code-block';
 import { MermaidDiagram } from '../chat/mermaid-diagram';
 import { useIsMobile } from '../../hooks/use-is-mobile';
+import { getFileExtension } from '../../lib/document-parser';
 import type { Document } from '../../lib/document-parser';
 
 interface DocumentPanelProps {
-  documents: Document[];
   className?: string;
 }
 
@@ -47,8 +48,12 @@ interface PanelHeaderProps {
   copied: boolean;
   showRaw: boolean;
   supportsRawToggle: boolean;
+  isFullscreen: boolean;
+  showFullscreenToggle: boolean;
   onCopy: () => void;
+  onDownload: () => void;
   onToggleRaw: () => void;
+  onToggleFullscreen: () => void;
   onClose: () => void;
 }
 
@@ -57,8 +62,12 @@ function PanelHeader({
   copied,
   showRaw,
   supportsRawToggle,
+  isFullscreen,
+  showFullscreenToggle,
   onCopy,
+  onDownload,
   onToggleRaw,
+  onToggleFullscreen,
   onClose,
 }: Readonly<PanelHeaderProps>): React.JSX.Element {
   return (
@@ -78,6 +87,30 @@ function PanelHeader({
             <Copy className="h-4 w-4" aria-hidden="true" />
           )}
         </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          onClick={onDownload}
+          aria-label="Download file"
+        >
+          <Download className="h-4 w-4" aria-hidden="true" />
+        </Button>
+        {showFullscreenToggle && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={onToggleFullscreen}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          >
+            {isFullscreen ? (
+              <Minimize2 className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Maximize2 className="h-4 w-4" aria-hidden="true" />
+            )}
+          </Button>
+        )}
         {supportsRawToggle && (
           <Button
             variant="ghost"
@@ -112,41 +145,66 @@ interface DocumentContentProps {
   showRaw: boolean;
 }
 
+/** Build a fenced code block string, using a fence longer than any backtick run in content */
+function buildFencedCodeBlock(content: string, language?: string): string {
+  let maxRun = 0;
+  let current = 0;
+  for (const char of content) {
+    if (char === '`') {
+      current++;
+      if (current > maxRun) maxRun = current;
+    } else {
+      current = 0;
+    }
+  }
+  const fence = '`'.repeat(Math.max(3, maxRun + 1));
+  return `${fence}${language ?? ''}\n${content}\n${fence}`;
+}
+
 /** Renders the document content based on type */
 function DocumentContent({ document, showRaw }: Readonly<DocumentContentProps>): React.JSX.Element {
   // For mermaid, show raw or rendered based on toggle
   if (document.type === 'mermaid') {
     if (showRaw) {
       return (
-        <CodeBlock language="mermaid" variant="transparent" hideHeader>
-          {document.content}
-        </CodeBlock>
+        <div data-testid="highlighted-code" className="document-panel-code">
+          <Streamdown plugins={{ code }} controls={{ code: false }} animated={false}>
+            {buildFencedCodeBlock(document.content, 'mermaid')}
+          </Streamdown>
+        </div>
       );
     }
     return <MermaidDiagram chart={document.content} />;
   }
 
-  // For code types, always show as code block with hidden header
+  // For code types, render with Shiki syntax highlighting via Streamdown
   return (
-    <CodeBlock language={document.language} variant="transparent" hideHeader>
-      {document.content}
-    </CodeBlock>
+    <div data-testid="highlighted-code" className="document-panel-code">
+      <Streamdown plugins={{ code }} controls={{ code: false }} animated={false}>
+        {buildFencedCodeBlock(document.content, document.language)}
+      </Streamdown>
+    </div>
   );
 }
 
 export function DocumentPanel({
-  documents,
   className,
 }: Readonly<DocumentPanelProps>): React.JSX.Element | null {
-  const { isPanelOpen, panelWidth, activeDocumentId, closePanel, setPanelWidth } =
-    useDocumentStore();
+  const {
+    isPanelOpen,
+    panelWidth,
+    activeDocumentId,
+    activeDocument,
+    isFullscreen,
+    closePanel,
+    setPanelWidth,
+    toggleFullscreen,
+  } = useDocumentStore();
   const [isResizing, setIsResizing] = React.useState(false);
   const [showRaw, setShowRaw] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   const panelRef = React.useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
-
-  const activeDocument = documents.find((document_) => document_.id === activeDocumentId);
 
   // Reset showRaw when active document changes
   React.useEffect(() => {
@@ -160,8 +218,9 @@ export function DocumentPanel({
     const handleMouseMove = (e: MouseEvent): void => {
       if (!panelRef.current) return;
       const panelRect = panelRef.current.getBoundingClientRect();
+      const maxWidth = panelRef.current.parentElement?.clientWidth ?? panelRect.width;
       const newWidth = panelRect.right - e.clientX;
-      setPanelWidth(newWidth);
+      setPanelWidth(newWidth, maxWidth);
     };
 
     const handleMouseUp = (): void => {
@@ -184,15 +243,38 @@ export function DocumentPanel({
 
   const handleResizeStart = (e: React.MouseEvent): void => {
     e.preventDefault();
+    if (isFullscreen) {
+      // Sync stored width to current rendered width so exiting fullscreen doesn't jump
+      const currentWidth = panelRef.current?.getBoundingClientRect().width ?? panelWidth;
+      const maxWidth = panelRef.current?.parentElement?.clientWidth ?? currentWidth;
+      setPanelWidth(currentWidth, maxWidth);
+      toggleFullscreen();
+    }
     setIsResizing(true);
   };
 
   const handleCopy = async (): Promise<void> => {
-    await navigator.clipboard.writeText(activeDocument.content);
-    setCopied(true);
-    setTimeout(() => {
-      setCopied(false);
-    }, 2000);
+    try {
+      await navigator.clipboard.writeText(activeDocument.content);
+      setCopied(true);
+      setTimeout(() => {
+        setCopied(false);
+      }, 2000);
+    } catch {
+      // Clipboard API may be unavailable (e.g. insecure context, headless browser)
+    }
+  };
+
+  const handleDownload = (): void => {
+    const extension = activeDocument.language ? getFileExtension(activeDocument.language) : 'txt';
+    const filename = `${activeDocument.title}.${extension}`;
+    const blob = new Blob([activeDocument.content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   // Check if document type supports raw toggle
@@ -205,9 +287,10 @@ export function DocumentPanel({
       className={cn(
         'bg-background border-border relative flex h-full flex-col border-l',
         isResizing && 'select-none',
+        !isResizing && !isMobile && 'transition-[width] duration-300 ease-in-out',
         className
       )}
-      style={{ width: isMobile ? '100%' : `${String(panelWidth)}px` }}
+      style={{ width: isMobile || isFullscreen ? '100%' : `${String(panelWidth)}px` }}
     >
       {!isMobile && <ResizeHandle isResizing={isResizing} onResizeStart={handleResizeStart} />}
 
@@ -216,15 +299,19 @@ export function DocumentPanel({
         copied={copied}
         showRaw={showRaw}
         supportsRawToggle={supportsRawToggle}
+        isFullscreen={isFullscreen}
+        showFullscreenToggle={!isMobile}
         onCopy={() => void handleCopy()}
+        onDownload={handleDownload}
         onToggleRaw={() => {
           setShowRaw(!showRaw);
         }}
+        onToggleFullscreen={toggleFullscreen}
         onClose={closePanel}
       />
 
       <div data-testid="document-panel-scroll" className="flex-1 overflow-auto">
-        <div className="p-4">
+        <div>
           <DocumentContent document={activeDocument} showRaw={showRaw} />
         </div>
       </div>

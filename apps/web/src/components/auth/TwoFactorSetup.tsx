@@ -1,0 +1,429 @@
+import * as React from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { ModalOverlay, Button, ModalActions } from '@hushbox/ui';
+import { Copy, Check, Loader2 } from 'lucide-react';
+import { QRCode } from 'react-qrcode-logo';
+import logoUrl from '@hushbox/ui/assets/HushBoxLogo.png';
+import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
+import { useOtpVerification } from '@/hooks/use-otp-verification';
+import { OtpInput } from '@/components/auth/otp-input';
+import { ModalSuccessStep } from '@/components/shared/modal-success-step';
+import { errorResponseSchema } from '@hushbox/shared';
+import { getApiUrl } from '@/lib/api';
+
+interface TwoFactorSetupProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess: () => void;
+}
+
+type Step = 'loading' | 'scan' | 'verify' | 'success';
+
+interface TotpData {
+  secret: string;
+  totpUri: string;
+}
+
+interface StepContentProps {
+  readonly step: Step;
+  readonly totpData: TotpData | null;
+  readonly copied: boolean;
+  readonly otpValue: string;
+  readonly error: string | null;
+  readonly isFetching: boolean;
+  readonly isVerifying: boolean;
+  readonly onStart: () => void;
+  readonly onCopy: () => void;
+  readonly onContinueToVerify: () => void;
+  readonly setOtpValue: (value: string) => void;
+  readonly onOtpComplete: (value: string) => void;
+  readonly onVerify: () => void;
+  readonly onDone: () => void;
+}
+
+function StepContent({
+  step,
+  totpData,
+  copied,
+  otpValue,
+  error,
+  isFetching,
+  isVerifying,
+  onStart,
+  onCopy,
+  onContinueToVerify,
+  setOtpValue,
+  onOtpComplete,
+  onVerify,
+  onDone,
+}: Readonly<StepContentProps>): React.JSX.Element | null {
+  if (step === 'loading') {
+    return <LoadingStep error={error} isLoading={isFetching} onStart={onStart} />;
+  }
+
+  if (step === 'scan' && totpData) {
+    return (
+      <ScanStep
+        totpData={totpData}
+        copied={copied}
+        onCopy={onCopy}
+        onContinue={onContinueToVerify}
+      />
+    );
+  }
+
+  if (step === 'verify') {
+    return (
+      <VerifyStep
+        otpValue={otpValue}
+        onOtpChange={setOtpValue}
+        onOtpComplete={onOtpComplete}
+        error={error}
+        isVerifying={isVerifying}
+        onVerify={onVerify}
+      />
+    );
+  }
+
+  if (step === 'success') {
+    return (
+      <ModalSuccessStep
+        heading="Two-Factor Authentication Enabled"
+        description="Your account is now more secure. You'll need to enter a code from your authenticator app each time you log in."
+        primaryLabel="Done"
+        onDone={onDone}
+      />
+    );
+  }
+
+  return null;
+}
+
+async function fetchTotpSetup(): Promise<
+  { ok: true; data: TotpData } | { ok: false; error: string }
+> {
+  const res = await fetch(`${getApiUrl()}/api/auth/2fa/setup`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+
+  if (!res.ok) {
+    const body: unknown = await res.json();
+    const parsed = errorResponseSchema.safeParse(body);
+    if (parsed.success && parsed.data.code === 'TOTP_ALREADY_ENABLED') {
+      return { ok: false, error: 'Two-factor authentication is already enabled.' };
+    }
+    return { ok: false, error: 'Failed to initialize 2FA setup' };
+  }
+
+  const data = (await res.json()) as TotpData;
+  return { ok: true, data };
+}
+
+async function verifyTotpCode(code: string): Promise<{ success: boolean; error?: string }> {
+  const response = await fetch(`${getApiUrl()}/api/auth/2fa/verify`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+
+  if (!response.ok) {
+    const body: unknown = await response.json();
+    const parsed = errorResponseSchema.safeParse(body);
+    return {
+      success: false,
+      error:
+        parsed.success && parsed.data.code === 'INVALID_TOTP_CODE'
+          ? 'Invalid code. Please try again.'
+          : 'Verification failed',
+    };
+  }
+
+  return { success: true };
+}
+
+export function TwoFactorSetup({
+  open,
+  onOpenChange,
+  onSuccess,
+}: Readonly<TwoFactorSetupProps>): React.JSX.Element | null {
+  const [step, setStep] = useState<Step>('loading');
+  const [totpData, setTotpData] = useState<TotpData | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+
+  const handleVerifySuccess = useCallback(() => {
+    setStep('success');
+  }, []);
+
+  const {
+    otpValue,
+    setOtpValue,
+    error: otpError,
+    isVerifying,
+    handleVerify,
+    handleComplete,
+    reset: resetOtp,
+  } = useOtpVerification({
+    onVerify: verifyTotpCode,
+    onSuccess: handleVerifySuccess,
+  });
+
+  // Reset state when modal opens
+  useEffect(() => {
+    if (open) {
+      setStep('loading');
+      setFetchError(null);
+      setCopied(false);
+      setIsFetching(false);
+      setTotpData(null);
+      resetOtp();
+    }
+  }, [open, resetOtp]);
+
+  const handleStart = useCallback(() => {
+    setIsFetching(true);
+    setFetchError(null);
+    void (async () => {
+      try {
+        const result = await fetchTotpSetup();
+        if (result.ok) {
+          setTotpData(result.data);
+          setStep('scan');
+        } else {
+          setFetchError(result.error);
+        }
+      } catch {
+        setFetchError('Failed to initialize 2FA setup');
+      } finally {
+        setIsFetching(false);
+      }
+    })();
+  }, []);
+
+  const handleCopy = useCallback(() => {
+    if (!totpData) return;
+    void navigator.clipboard.writeText(totpData.secret);
+    setCopied(true);
+    setTimeout(() => {
+      setCopied(false);
+    }, 3000);
+  }, [totpData]);
+
+  const handleContinueToVerify = useCallback(() => {
+    setStep('verify');
+    resetOtp();
+  }, [resetOtp]);
+
+  const handleBackToIntro = useCallback(() => {
+    setStep('loading');
+    setFetchError(null);
+  }, []);
+
+  const handleBackToScan = useCallback(() => {
+    setStep('scan');
+    resetOtp();
+  }, [resetOtp]);
+
+  const handleDone = useCallback(() => {
+    onSuccess();
+  }, [onSuccess]);
+
+  const handleOpenAutoFocus = useMobileAutoFocus();
+
+  if (!open) return null;
+
+  const currentStep = (() => {
+    if (step === 'loading') return 1;
+    if (step === 'scan') return 2;
+    if (step === 'verify') return 3;
+    return 4;
+  })();
+  const showBackButton = step === 'scan' || step === 'verify';
+
+  const handleBack = step === 'verify' ? handleBackToScan : handleBackToIntro;
+
+  // Loading step shows fetchError; verify step shows OTP verification error
+  const effectiveError = step === 'verify' ? otpError : fetchError;
+
+  return (
+    <ModalOverlay
+      open={open}
+      onOpenChange={onOpenChange}
+      ariaLabel="Two-factor authentication setup"
+      onOpenAutoFocus={handleOpenAutoFocus}
+      currentStep={currentStep}
+      {...(showBackButton && { onBack: handleBack })}
+    >
+      <div
+        data-testid="two-factor-setup-modal"
+        className="bg-background w-[75vw] max-w-md rounded-lg border p-6 shadow-lg"
+      >
+        <StepContent
+          step={step}
+          totpData={totpData}
+          copied={copied}
+          otpValue={otpValue}
+          error={effectiveError}
+          isFetching={isFetching}
+          isVerifying={isVerifying}
+          onStart={handleStart}
+          onCopy={handleCopy}
+          onContinueToVerify={handleContinueToVerify}
+          setOtpValue={setOtpValue}
+          onOtpComplete={handleComplete}
+          onVerify={() => {
+            handleVerify();
+          }}
+          onDone={handleDone}
+        />
+      </div>
+    </ModalOverlay>
+  );
+}
+
+interface LoadingStepProps {
+  error: string | null;
+  isLoading: boolean;
+  onStart: () => void;
+}
+
+function LoadingStep({ error, isLoading, onStart }: Readonly<LoadingStepProps>): React.JSX.Element {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold">Set Up Two-Factor Authentication</h2>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Add an extra layer of security. You&apos;ll need an authenticator app like Google
+          Authenticator, Authy, or 1Password.
+        </p>
+      </div>
+
+      {error && <p className="text-destructive text-center text-sm">{error}</p>}
+
+      {!error && isLoading && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="text-muted-foreground h-8 w-8 animate-spin" />
+          <span className="text-muted-foreground ml-2">Loading...</span>
+        </div>
+      )}
+
+      {!error && !isLoading && (
+        <ModalActions
+          primary={{
+            label: 'Get Started →',
+            onClick: onStart,
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+interface ScanStepProps {
+  totpData: TotpData;
+  copied: boolean;
+  onCopy: () => void;
+  onContinue: () => void;
+}
+
+function ScanStep({
+  totpData,
+  copied,
+  onCopy,
+  onContinue,
+}: Readonly<ScanStepProps>): React.JSX.Element {
+  const qrSize = 180;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold">Scan QR Code</h2>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Open your authenticator app and scan this code.
+        </p>
+      </div>
+
+      <div className="flex justify-center py-4">
+        <div className="rounded-lg bg-white p-3">
+          <QRCode
+            value={totpData.totpUri}
+            size={qrSize}
+            qrStyle="fluid"
+            eyeRadius={12}
+            eyeColor="#ec4755"
+            logoImage={logoUrl}
+            logoWidth={qrSize * 0.2}
+            logoPadding={5}
+            logoPaddingStyle="circle"
+            ecLevel="H"
+            removeQrCodeBehindLogo={true}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-muted-foreground text-center text-sm">
+          Can&apos;t scan? Enter this code manually:
+        </p>
+        <div className="bg-muted/50 flex items-center gap-2 rounded-md border p-2">
+          <code className="flex-1 text-center font-mono text-sm">{totpData.secret}</code>
+          <Button variant="ghost" size="icon-sm" onClick={onCopy}>
+            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            <span className="sr-only">{copied ? 'Copied' : 'Copy'}</span>
+          </Button>
+        </div>
+      </div>
+
+      <ModalActions
+        primary={{
+          label: 'Continue →',
+          onClick: onContinue,
+        }}
+      />
+    </div>
+  );
+}
+
+interface VerifyStepProps {
+  otpValue: string;
+  onOtpChange: (value: string) => void;
+  onOtpComplete: (value: string) => void;
+  error: string | null;
+  isVerifying: boolean;
+  onVerify: () => void;
+}
+
+function VerifyStep({
+  otpValue,
+  onOtpChange,
+  onOtpComplete,
+  error,
+  isVerifying,
+  onVerify,
+}: Readonly<VerifyStepProps>): React.JSX.Element {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold">Enter Verification Code</h2>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Enter the 6-digit code from your authenticator app.
+        </p>
+      </div>
+
+      <OtpInput value={otpValue} onChange={onOtpChange} onComplete={onOtpComplete} error={error} />
+
+      <ModalActions
+        primary={{
+          label: 'Verify →',
+          onClick: onVerify,
+          disabled: otpValue.length !== 6,
+          loading: isVerifying,
+          loadingLabel: 'Verifying...',
+        }}
+      />
+    </div>
+  );
+}

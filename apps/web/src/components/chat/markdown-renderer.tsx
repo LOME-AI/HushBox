@@ -1,151 +1,135 @@
 import * as React from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
-import rehypeHighlight from 'rehype-highlight';
-import { cn } from '@lome-chat/ui';
-import { CodeBlock } from './code-block';
-import { MermaidDiagram } from './mermaid-diagram';
+import { Streamdown } from 'streamdown';
+import type { Components } from 'streamdown';
+import { code } from '@streamdown/code';
+import { mermaid } from '@streamdown/mermaid';
+import { math } from '@streamdown/math';
+import { cn } from '@hushbox/ui';
 import { DocumentCard } from './document-card';
+import {
+  extractTitle,
+  generateDocumentId,
+  getDocumentType,
+  shouldExtractAsDocument,
+} from '../../lib/document-parser';
 import type { Document } from '../../lib/document-parser';
-import type { Components } from 'react-markdown';
+
+/** Minimal HAST node types (avoids @types/hast dependency) */
+interface HastText {
+  type: 'text';
+  value: string;
+}
+
+interface HastElement {
+  type: 'element';
+  tagName: string;
+  properties?: Record<string, unknown>;
+  children: HastNode[];
+}
+
+type HastNode = HastText | HastElement;
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
-  /** Unique ID for this message (used for document registration) */
-  messageId?: string;
-  /** Callback when documents are extracted */
-  onDocumentsExtracted?: (documents: Document[]) => void;
+  /** Whether this message is an error — applies inline color:inherit to links */
+  isError?: boolean | undefined;
+  /** Whether the message is currently streaming */
+  isStreaming?: boolean | undefined;
 }
 
-/** Extract text content from React node tree (handles syntax-highlighted code) */
-function extractTextFromChildren(children: React.ReactNode): string {
-  if (typeof children === 'string') {
-    return children;
+/** Extract text content from a HAST (HTML AST) node tree */
+function extractTextFromHast(node: HastNode): string {
+  if (node.type === 'text') {
+    return node.value;
   }
-  if (typeof children === 'number') {
-    return String(children);
-  }
-  if (Array.isArray(children)) {
-    return children.map((child: React.ReactNode) => extractTextFromChildren(child)).join('');
-  }
-  if (React.isValidElement(children)) {
-    const props = children.props as { children?: React.ReactNode };
-    return extractTextFromChildren(props.children);
+  if ('children' in node) {
+    return node.children.map((child) => extractTextFromHast(child)).join('');
   }
   return '';
 }
 
-const MIN_LINES_FOR_DOCUMENT = 15;
-
-/** Check if a code block should be rendered as a document card */
-function shouldRenderAsDocument(language: string | undefined, lineCount: number): boolean {
-  if (!language) return false;
-  if (language === 'mermaid') return true;
-  return lineCount >= MIN_LINES_FOR_DOCUMENT;
+interface CodeBlockMeta {
+  language: string;
+  codeText: string;
+  lineCount: number;
 }
 
-/** Generate a stable ID for a document based on content */
-function generateDocumentId(content: string): string {
-  let hash = 0;
-  for (let index = 0; index < content.length; index++) {
-    const char = content.codePointAt(index) ?? 0;
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash;
-  }
-  return `doc-${Math.abs(hash).toString(36)}`;
+function extractLanguageFromCodeNode(codeNode: HastElement): string | undefined {
+  const classNames = codeNode.properties?.['className'];
+  const rawClass: unknown = Array.isArray(classNames) ? classNames[0] : classNames;
+  if (typeof rawClass !== 'string') return undefined;
+  return /language-([\w-]+)/.exec(rawClass)?.[1];
 }
 
-/** Get document type from language */
-function getDocumentType(language: string): Document['type'] {
-  const lang = language.toLowerCase();
-  if (lang === 'mermaid') return 'mermaid';
-  if (lang === 'html') return 'html';
-  if (lang === 'jsx' || lang === 'tsx') return 'react';
-  return 'code';
+function extractCodeBlockMeta(node: HastElement | undefined): CodeBlockMeta | undefined {
+  const codeNode = node?.children[0];
+  if (codeNode?.type !== 'element' || codeNode.tagName !== 'code') return undefined;
+  const language = extractLanguageFromCodeNode(codeNode);
+  if (!language) return undefined;
+  const codeText = extractTextFromHast(codeNode).replace(/\n$/, '');
+  const lineCount = codeText.split('\n').length;
+  return { language, codeText, lineCount };
 }
 
 export function MarkdownRenderer({
   content,
   className,
-  onDocumentsExtracted,
+  isError,
+  isStreaming,
 }: Readonly<MarkdownRendererProps>): React.JSX.Element {
-  // Track documents found during this render pass
-  const currentDocumentsRef = React.useRef<Document[]>([]);
-  const previousContentRef = React.useRef<string>('');
-
-  // Reset document tracking on each render if content changed
-  if (previousContentRef.current !== content) {
-    currentDocumentsRef.current = [];
-    previousContentRef.current = content;
-  }
-
-  // Preserve consecutive empty lines by inserting non-breaking space
-  const processedContent = content.replaceAll('\n\n', '\n\n&nbsp;\n\n');
-
-  const components: Partial<Components> = React.useMemo(
+  const components = React.useMemo<Partial<Components>>(
     () => ({
-      // Custom code block handler
-      code: ({ className: codeClassName, children, ...props }) => {
-        const match = /language-(\w+)/.exec(codeClassName ?? '');
-        const language = match?.[1];
-        const codeContent = extractTextFromChildren(children).replace(/\n$/, '');
-        const lineCount = codeContent.split('\n').length;
+      // Override pre to intercept document-worthy code blocks.
+      // Streamdown's default pre adds data-block="true" to children, which
+      // MarkdownCode uses to distinguish block vs inline code.
+      // We intercept BEFORE MarkdownCode fires for large blocks and mermaid.
+      pre: ((props: { children?: React.ReactNode; node?: HastElement | undefined }) => {
+        const { children, node } = props;
+        const meta = extractCodeBlockMeta(node);
 
-        // Check if this is an inline code block (no language class and short content)
-        const isInline = !codeClassName && !codeContent.includes('\n');
-
-        if (isInline) {
-          return (
-            <code className="bg-muted rounded px-1.5 py-0.5 text-sm" {...props}>
-              {children}
-            </code>
-          );
-        }
-
-        // Check if this should be a document
-        if (language && shouldRenderAsDocument(language, lineCount)) {
+        if (meta && shouldExtractAsDocument(meta.language, meta.lineCount)) {
+          const type = getDocumentType(meta.language);
           const document_: Document = {
-            id: generateDocumentId(codeContent),
-            type: getDocumentType(language),
-            language,
-            title: language.charAt(0).toUpperCase() + language.slice(1) + ' Code',
-            content: codeContent,
-            lineCount,
+            id: generateDocumentId(meta.codeText),
+            type,
+            language: meta.language,
+            title: extractTitle(meta.codeText, meta.language, type),
+            content: meta.codeText,
+            lineCount: meta.lineCount,
           };
-
-          currentDocumentsRef.current.push(document_);
 
           return <DocumentCard document={document_} />;
         }
 
-        // Handle mermaid diagrams inline (this shouldn't happen since mermaid always becomes a doc)
-        if (language === 'mermaid') {
-          return <MermaidDiagram chart={codeContent} />;
-        }
-
-        // Regular code block - wrap in overflow container to prevent pushing chat offscreen
-        return (
-          <div className="max-w-full overflow-x-auto">
-            <CodeBlock language={language}>{codeContent}</CodeBlock>
-          </div>
+        // Default behavior: add data-block for MarkdownCode to detect block vs inline
+        return React.isValidElement(children) ? (
+          React.cloneElement(children as React.ReactElement<Record<string, unknown>>, {
+            'data-block': 'true',
+          })
+        ) : (
+          <>{children}</>
         );
-      },
-      // Custom pre handler to avoid double-wrapping
-      pre: ({ children }) => <>{children}</>,
+      }) as NonNullable<Components['pre']>,
+      // Error messages: style links red (brand-red) to stand out.
+      // Always define `a` to avoid exactOptionalPropertyTypes issues with conditional spread.
+      a: (({
+        children,
+        href,
+        ...props
+      }: React.AnchorHTMLAttributes<HTMLAnchorElement> & {
+        children?: React.ReactNode;
+      }) => (
+        <a href={href} {...(isError ? { style: { color: 'var(--brand-red)' } } : {})} {...props}>
+          {children}
+        </a>
+      )) as NonNullable<Components['a']>,
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [content]
-  );
+    // `content` excluded: ref reads happen at execution time, not closure time.
+    // Streamdown re-renders on children change independently.
 
-  // Notify parent of extracted documents after render
-  React.useEffect(() => {
-    if (onDocumentsExtracted && currentDocumentsRef.current.length > 0) {
-      onDocumentsExtracted([...currentDocumentsRef.current]);
-    }
-  }, [content, onDocumentsExtracted]);
+    [isError]
+  );
 
   return (
     <div
@@ -158,17 +142,19 @@ export function MarkdownRenderer({
         'prose-ul:my-2 prose-ol:my-2',
         'prose-li:my-0.5',
         'prose-blockquote:my-2',
-        'prose-pre:p-0 prose-pre:bg-transparent',
+        'prose-pre:p-0',
         className
       )}
     >
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex, rehypeHighlight]}
+      <Streamdown
+        plugins={{ code, mermaid, math }}
         components={components}
+        controls={{ code: true, mermaid: { copy: true, download: true } }}
+        isAnimating={isStreaming ?? false}
+        animated
       >
-        {processedContent}
-      </ReactMarkdown>
+        {content}
+      </Streamdown>
     </div>
   );
 }

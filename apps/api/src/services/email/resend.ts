@@ -1,6 +1,7 @@
 import type { EmailClient, EmailOptions } from './types.js';
+import { safeJsonParse } from '../../lib/safe-json.js';
 
-const DEFAULT_FROM = 'LOME-CHAT <noreply@mail.lome-chat.com>';
+const DEFAULT_FROM = 'HushBox <noreply@mail.hushbox.ai>';
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
 interface ResendErrorResponse {
@@ -26,7 +27,7 @@ export function createResendEmailClient(apiKey: string): EmailClient {
       });
 
       if (!response.ok) {
-        const error: ResendErrorResponse = await response.json();
+        const error = await safeJsonParse<ResendErrorResponse>(response, 'Resend email');
         throw new Error(`Failed to send email: ${error.message}`);
       }
     },

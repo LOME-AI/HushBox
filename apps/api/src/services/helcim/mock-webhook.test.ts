@@ -1,21 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { generateWebhookSignature, scheduleMockWebhook } from './mock-webhook.js';
+import { scheduleMockWebhook } from './mock-webhook.js';
+import { signHmacSha256Webhook } from '@hushbox/crypto';
 import { verifyWebhookSignatureAsync } from './helcim.js';
 
 describe('mock-webhook', () => {
-  describe('generateWebhookSignature', () => {
+  describe('signHmacSha256Webhook', () => {
     it('generates a signature that verifyWebhookSignatureAsync accepts', async () => {
       const webhookVerifier = 'bW9jay13ZWJob29rLXZlcmlmaWVyLXNlY3JldC0zMmI=';
       const payload = JSON.stringify({ type: 'cardTransaction', id: 'test-123' });
       const timestamp = '1234567890';
       const webhookId = 'webhook-abc';
 
-      const signature = await generateWebhookSignature(
-        webhookVerifier,
+      const signature = await signHmacSha256Webhook({
+        secret: webhookVerifier,
         payload,
         timestamp,
-        webhookId
-      );
+        webhookId,
+      });
 
       // Signature should be in versioned format "v1,base64signature"
       expect(signature).toMatch(/^v1,.+$/);
@@ -36,18 +37,18 @@ describe('mock-webhook', () => {
       const timestamp = '1234567890';
       const webhookId = 'webhook-abc';
 
-      const sig1 = await generateWebhookSignature(
-        webhookVerifier,
-        '{"id": "1"}',
+      const sig1 = await signHmacSha256Webhook({
+        secret: webhookVerifier,
+        payload: '{"id": "1"}',
         timestamp,
-        webhookId
-      );
-      const sig2 = await generateWebhookSignature(
-        webhookVerifier,
-        '{"id": "2"}',
+        webhookId,
+      });
+      const sig2 = await signHmacSha256Webhook({
+        secret: webhookVerifier,
+        payload: '{"id": "2"}',
         timestamp,
-        webhookId
-      );
+        webhookId,
+      });
 
       expect(sig1).not.toBe(sig2);
     });

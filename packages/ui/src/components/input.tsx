@@ -125,7 +125,13 @@ function Input({
       />
 
       {hasSuffix && (
-        <div data-testid="input-suffix" className="absolute top-1/2 right-3 -translate-y-1/2">
+        <div
+          data-testid="input-suffix"
+          className={cn(
+            'absolute right-3 -translate-y-1/2',
+            hasLabel ? 'top-[calc(50%+4px)]' : 'top-1/2'
+          )}
+        >
           {suffix}
         </div>
       )}

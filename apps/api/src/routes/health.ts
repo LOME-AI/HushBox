@@ -1,27 +1,9 @@
-import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
+import { Hono } from 'hono';
+import type { AppEnv } from '../types.js';
 
-const healthResponseSchema = z.object({
-  status: z.literal('ok'),
-  timestamp: z.string(),
-});
-
-const getHealthRoute = createRoute({
-  method: 'get',
-  path: '/',
-  responses: {
-    200: {
-      content: { 'application/json': { schema: healthResponseSchema } },
-      description: 'Service health status',
-    },
-  },
-});
-
-export const healthRoute = new OpenAPIHono().openapi(getHealthRoute, (c) => {
-  return c.json(
-    {
-      status: 'ok' as const,
-      timestamp: new Date().toISOString(),
-    },
-    200
-  );
+export const healthRoute = new Hono<AppEnv>().get('/', (c) => {
+  return c.json({
+    status: 'ok' as const,
+    timestamp: new Date().toISOString(),
+  });
 });

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useId, useState } from 'react';
-import { Input, cn, type InputProps } from '@lome-chat/ui';
+import { Input, cn, type InputProps } from '@hushbox/ui';
 
 interface FormInputProps extends Omit<InputProps, 'placeholder'> {
   error?: string | undefined;

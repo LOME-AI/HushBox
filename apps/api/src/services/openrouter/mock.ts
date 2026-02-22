@@ -94,6 +94,9 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
         completionCharacters: response.length,
       });
 
+      // Simulate model thinking latency before first token
+      await delay(1000);
+
       let isFirst = true;
       for (const char of response) {
         const token: StreamToken = { content: char };

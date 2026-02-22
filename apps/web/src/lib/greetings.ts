@@ -1,4 +1,4 @@
-import { getSecureRandomElement } from '@lome-chat/shared';
+import { getSecureRandomElement } from '@hushbox/shared';
 
 export interface Greeting {
   title: string;
@@ -6,9 +6,9 @@ export interface Greeting {
 }
 
 const NEW_USER_GREETINGS: Greeting[] = [
-  { title: 'Welcome to LOME', subtitle: 'Every model. One conversation.' },
+  { title: 'Welcome to HushBox', subtitle: 'Every model. One conversation.' },
   { title: 'First time here?', subtitle: 'Good timing' },
-  { title: 'LOME Chat', subtitle: 'One interface. Every model.' },
+  { title: 'HushBox', subtitle: 'One interface. Every model.' },
   { title: 'Welcome in', subtitle: 'Claude, GPT, Gemini—take your pick' },
   { title: "Let's go", subtitle: 'Ask something interesting' },
 ];
@@ -47,7 +47,7 @@ const NIGHT_GREETINGS: Greeting[] = [
 
 function getRandomGreeting(greetings: Greeting[]): Greeting {
   if (greetings.length === 0) {
-    return { title: 'LOME Chat', subtitle: 'What do you need?' };
+    return { title: 'HushBox', subtitle: 'What do you need?' };
   }
   return getSecureRandomElement(greetings);
 }

@@ -1,8 +1,9 @@
 /**
- * User tier system for LOME-CHAT.
+ * User tier system for HushBox.
  *
  * Tiers:
- * - guest: Unauthenticated user (message limit, basic models only)
+ * - trial: Unauthenticated user on main app (message limit, basic models only)
+ * - guest: Accessing via shared link (delegated budget from owner)
  * - free: Authenticated user with zero balance (daily allowance, basic models only)
  * - paid: Authenticated user with positive balance (all models)
  *
@@ -10,22 +11,22 @@
  */
 
 // ============================================================
-// Constants (re-exported from @lome-chat/db)
+// Constants (re-exported from @hushbox/db)
 // ============================================================
 
 export {
-  FREE_ALLOWANCE_CENTS,
+  FREE_ALLOWANCE_DOLLARS,
   FREE_ALLOWANCE_CENTS_VALUE,
-  GUEST_MESSAGE_LIMIT,
+  TRIAL_MESSAGE_LIMIT,
   WELCOME_CREDIT_CENTS,
   WELCOME_CREDIT_BALANCE,
-} from '@lome-chat/db/constants';
+} from '@hushbox/db/constants';
 
 // ============================================================
 // Types
 // ============================================================
 
-export type UserTier = 'guest' | 'free' | 'paid';
+export type UserTier = 'trial' | 'guest' | 'free' | 'paid';
 
 export interface UserTierInfo {
   tier: UserTier;
@@ -39,8 +40,6 @@ export interface UserBalanceState {
   freeAllowanceCents: number;
 }
 
-export type DeductionSource = 'balance' | 'freeAllowance' | 'insufficient';
-
 // ============================================================
 // Functions
 // ============================================================
@@ -49,13 +48,17 @@ export type DeductionSource = 'balance' | 'freeAllowance' | 'insufficient';
  * Derive user tier from balance state.
  * Single source of truth for tier determination.
  *
- * @param user - User's balance state, or null for guest
+ * @param user - User's balance state, or null for unauthenticated
+ * @param options - Optional flags (isLinkGuest distinguishes trial from guest)
  * @returns Full tier info including access permissions
  */
-export function getUserTier(user: UserBalanceState | null): UserTierInfo {
+export function getUserTier(
+  user: UserBalanceState | null,
+  options?: { isLinkGuest?: boolean }
+): UserTierInfo {
   if (user === null) {
     return {
-      tier: 'guest',
+      tier: options?.isLinkGuest ? 'guest' : 'trial',
       canAccessPremium: false,
       balanceCents: 0,
       freeAllowanceCents: 0,
@@ -84,34 +87,4 @@ export function canUseModel(tierInfo: UserTierInfo, isPremiumModel: boolean): bo
     return true; // Anyone can use basic models
   }
   return tierInfo.canAccessPremium;
-}
-
-/**
- * Determine which balance source to deduct from.
- *
- * Order:
- * 1. Primary balance first
- * 2. Free allowance (only for basic models, when balance insufficient)
- *
- * @param tierInfo - User's tier info
- * @param costCents - Cost in cents
- * @param isPremiumModel - Whether the model is premium
- * @returns Which source to deduct from, or 'insufficient' if neither has enough
- */
-export function getDeductionSource(
-  tierInfo: UserTierInfo,
-  costCents: number,
-  isPremiumModel: boolean
-): DeductionSource {
-  // Primary balance first
-  if (tierInfo.balanceCents >= costCents) {
-    return 'balance';
-  }
-
-  // Free allowance only for basic models
-  if (!isPremiumModel && tierInfo.freeAllowanceCents >= costCents) {
-    return 'freeAllowance';
-  }
-
-  return 'insufficient';
 }

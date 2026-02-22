@@ -92,11 +92,11 @@ describe('workspaces', () => {
   describe('discoverWorkspaces', () => {
     it('discovers all workspaces from pnpm-workspace.yaml', () => {
       createWorkspaceYaml(['apps/*', 'packages/*', 'e2e']);
-      createPackage('apps/web', '@lome-chat/web');
-      createPackage('apps/api', '@lome-chat/api');
-      createPackage('packages/ui', '@lome-chat/ui');
-      createPackage('packages/shared', '@lome-chat/shared');
-      createPackage('e2e', '@lome-chat/e2e');
+      createPackage('apps/web', '@hushbox/web');
+      createPackage('apps/api', '@hushbox/api');
+      createPackage('packages/ui', '@hushbox/ui');
+      createPackage('packages/shared', '@hushbox/shared');
+      createPackage('e2e', '@hushbox/e2e');
 
       const workspaces = discoverWorkspaces(testDir);
 
@@ -112,14 +112,14 @@ describe('workspaces', () => {
 
     it('extracts short name from package name', () => {
       createWorkspaceYaml(['apps/*']);
-      createPackage('apps/web', '@lome-chat/web');
+      createPackage('apps/web', '@hushbox/web');
 
       const workspaces = discoverWorkspaces(testDir);
 
       expect(workspaces[0]).toEqual({
         name: 'web',
         path: 'apps/web',
-        fullName: '@lome-chat/web',
+        fullName: '@hushbox/web',
       });
     });
 
@@ -150,7 +150,7 @@ describe('workspaces', () => {
 
     it('handles nested glob patterns', () => {
       createWorkspaceYaml(['packages/nested/*']);
-      createPackage('packages/nested/foo', '@lome-chat/foo');
+      createPackage('packages/nested/foo', '@hushbox/foo');
 
       const workspaces = discoverWorkspaces(testDir);
 
@@ -162,9 +162,9 @@ describe('workspaces', () => {
   describe('getWorkspaceByName', () => {
     beforeEach(() => {
       createWorkspaceYaml(['apps/*', 'packages/*']);
-      createPackage('apps/web', '@lome-chat/web');
-      createPackage('apps/api', '@lome-chat/api');
-      createPackage('packages/ui', '@lome-chat/ui');
+      createPackage('apps/web', '@hushbox/web');
+      createPackage('apps/api', '@hushbox/api');
+      createPackage('packages/ui', '@hushbox/ui');
     });
 
     it('returns workspace by short name', () => {
@@ -173,7 +173,7 @@ describe('workspaces', () => {
       expect(workspace).toEqual({
         name: 'web',
         path: 'apps/web',
-        fullName: '@lome-chat/web',
+        fullName: '@hushbox/web',
       });
     });
 
@@ -193,9 +193,9 @@ describe('workspaces', () => {
   describe('getWorkspacePaths', () => {
     it('returns all workspace paths', () => {
       createWorkspaceYaml(['apps/*', 'packages/*']);
-      createPackage('apps/web', '@lome-chat/web');
-      createPackage('apps/api', '@lome-chat/api');
-      createPackage('packages/ui', '@lome-chat/ui');
+      createPackage('apps/web', '@hushbox/web');
+      createPackage('apps/api', '@hushbox/api');
+      createPackage('packages/ui', '@hushbox/ui');
 
       const paths = getWorkspacePaths(testDir);
 
@@ -236,7 +236,7 @@ describe('workspaces', () => {
 
       expect(workspace).toBeDefined();
       expect(workspace?.path).toBe('apps/web');
-      expect(workspace?.fullName).toBe('@lome-chat/web');
+      expect(workspace?.fullName).toBe('@hushbox/web');
     });
   });
 });

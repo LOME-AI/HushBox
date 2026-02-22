@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cn } from '@lome-chat/ui';
+import { cn } from '@hushbox/ui';
 import { FileCode, GitBranch, Globe, Atom, ArrowUpRight } from 'lucide-react';
 import { useDocumentStore } from '../../stores/document';
 import type { Document } from '../../lib/document-parser';
@@ -54,7 +54,7 @@ export function DocumentCard({
   const isActive = activeDocumentId === document.id;
 
   const handleClick = (): void => {
-    setActiveDocument(document.id);
+    setActiveDocument(document);
   };
 
   return (

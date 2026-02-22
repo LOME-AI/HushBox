@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { Hono } from 'hono';
-import type { Model, ModelsListResponse } from '@lome-chat/shared';
-import { createModelsRoutes } from './models.js';
-import { clearModelCache } from '../services/openrouter/index.js';
+import type { ModelsListResponse } from '@hushbox/shared';
+import { modelsRoute } from './models.js';
 import type { AppEnv } from '../types.js';
 
 interface MockOpenRouterModel {
@@ -53,9 +52,36 @@ const MOCK_MODELS: MockOpenRouterModel[] = [
   },
 ];
 
+/** ZDR endpoint entries matching all MOCK_MODELS by default. */
+const MOCK_ZDR_ENDPOINTS = MOCK_MODELS.map((m) => ({
+  model_id: m.id,
+  model_name: m.name,
+  provider_name: 'SomeProvider',
+  context_length: m.context_length,
+  pricing: m.pricing,
+}));
+
+/**
+ * Mock fetch by URL — routes /models to models response, /endpoints/zdr to ZDR response.
+ * This is more robust than chaining mockResolvedValueOnce since Promise.all
+ * doesn't guarantee fetch initiation order.
+ */
+function mockBothEndpoints(
+  fetchMock: FetchMock,
+  models: MockOpenRouterModel[],
+  zdrEndpoints: typeof MOCK_ZDR_ENDPOINTS
+): void {
+  fetchMock.mockImplementation((url: string) => {
+    if (url.includes('/endpoints/zdr')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: zdrEndpoints }) });
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: models }) });
+  });
+}
+
 function createTestApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
-  app.route('/models', createModelsRoutes());
+  app.route('/models', modelsRoute);
   return app;
 }
 
@@ -67,21 +93,16 @@ describe('Models Routes', () => {
     vi.stubGlobal('fetch', fetchMock);
     vi.useFakeTimers();
     vi.setSystemTime(now);
-    clearModelCache();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
-    clearModelCache();
   });
 
   describe('GET /models', () => {
     it('returns list of available models in transformed format', async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: MOCK_MODELS }),
-      });
+      mockBothEndpoints(fetchMock, MOCK_MODELS, MOCK_ZDR_ENDPOINTS);
 
       const app = createTestApp();
       const response = await app.request('/models');
@@ -101,10 +122,7 @@ describe('Models Routes', () => {
     });
 
     it('returns models with all required fields', async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: MOCK_MODELS }),
-      });
+      mockBothEndpoints(fetchMock, MOCK_MODELS, MOCK_ZDR_ENDPOINTS);
 
       const app = createTestApp();
       const response = await app.request('/models');
@@ -127,10 +145,7 @@ describe('Models Routes', () => {
     });
 
     it('derives capabilities from supported_parameters', async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: MOCK_MODELS }),
-      });
+      mockBothEndpoints(fetchMock, MOCK_MODELS, MOCK_ZDR_ENDPOINTS);
 
       const app = createTestApp();
       const response = await app.request('/models');
@@ -144,10 +159,7 @@ describe('Models Routes', () => {
     });
 
     it('returns empty array when no models available', async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: [] }),
-      });
+      mockBothEndpoints(fetchMock, [], []);
 
       const app = createTestApp();
       const response = await app.request('/models');
@@ -155,6 +167,20 @@ describe('Models Routes', () => {
       expect(response.status).toBe(200);
       const data: ModelsListResponse = await response.json();
       expect(data).toEqual({ models: [], premiumModelIds: [] });
+    });
+
+    it('only returns ZDR-compliant models', async () => {
+      // Only GPT-4 is ZDR-compliant, Claude is not
+      const zdrEndpoints = [MOCK_ZDR_ENDPOINTS[0]!];
+      mockBothEndpoints(fetchMock, MOCK_MODELS, zdrEndpoints);
+
+      const app = createTestApp();
+      const response = await app.request('/models');
+
+      expect(response.status).toBe(200);
+      const data: ModelsListResponse = await response.json();
+      expect(data.models).toHaveLength(1);
+      expect(data.models[0]!.id).toBe('openai/gpt-4-turbo');
     });
 
     it('filters out old models (older than 2 years)', async () => {
@@ -181,10 +207,14 @@ describe('Models Routes', () => {
         architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       });
 
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: mockModels }),
-      });
+      const allZdr = mockModels.map((m) => ({
+        model_id: m.id,
+        model_name: m.name,
+        provider_name: 'Provider',
+        context_length: m.context_length,
+        pricing: m.pricing,
+      }));
+      mockBothEndpoints(fetchMock, mockModels, allZdr);
 
       const app = createTestApp();
       const response = await app.request('/models');
@@ -210,10 +240,14 @@ describe('Models Routes', () => {
         architecture: { input_modalities: ['text'], output_modalities: ['text'] },
       }));
 
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: mockModels }),
-      });
+      const allZdr = mockModels.map((m) => ({
+        model_id: m.id,
+        model_name: m.name,
+        provider_name: 'Provider',
+        context_length: m.context_length,
+        pricing: m.pricing,
+      }));
+      mockBothEndpoints(fetchMock, mockModels, allZdr);
 
       const app = createTestApp();
       const response = await app.request('/models');
@@ -279,10 +313,14 @@ describe('Models Routes', () => {
         },
       ];
 
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: mockModels }),
-      });
+      const allZdr = mockModels.map((m) => ({
+        model_id: m.id,
+        model_name: m.name,
+        provider_name: 'Provider',
+        context_length: m.context_length,
+        pricing: m.pricing,
+      }));
+      mockBothEndpoints(fetchMock, mockModels, allZdr);
 
       const app = createTestApp();
       const response = await app.request('/models');
@@ -293,45 +331,6 @@ describe('Models Routes', () => {
       expect(data.premiumModelIds).toContain('new/cheap-model');
       // Old cheap model should NOT be premium (old and below price threshold)
       expect(data.premiumModelIds).not.toContain('old/cheap-model');
-    });
-  });
-
-  describe('GET /models/:modelId', () => {
-    it('returns specific model by ID in transformed format', async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: MOCK_MODELS }),
-      });
-
-      const app = createTestApp();
-      const modelId = encodeURIComponent('openai/gpt-4-turbo');
-      const response = await app.request(`/models/${modelId}`);
-
-      expect(response.status).toBe(200);
-      const data: Model = await response.json();
-      expect(data).toMatchObject({
-        id: 'openai/gpt-4-turbo',
-        name: 'GPT-4 Turbo',
-        provider: 'OpenAI',
-        contextLength: 128_000,
-        pricePerInputToken: 0.000_01,
-        pricePerOutputToken: 0.000_03,
-      });
-    });
-
-    it('returns 404 for unknown model', async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: MOCK_MODELS }),
-      });
-
-      const app = createTestApp();
-      const modelId = encodeURIComponent('unknown/model');
-      const response = await app.request(`/models/${modelId}`);
-
-      expect(response.status).toBe(404);
-      const data: { error: string } = await response.json();
-      expect(data).toHaveProperty('error');
     });
   });
 });

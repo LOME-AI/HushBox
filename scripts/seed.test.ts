@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { DEV_PASSWORD, DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN } from '@lome-chat/shared';
+import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN } from '@hushbox/shared';
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((col: unknown, val: unknown) => ({ col, val })),
@@ -7,6 +7,52 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('dotenv', () => ({
   config: vi.fn(),
+}));
+
+function mockCryptoBytes(length: number): Uint8Array {
+  return new Uint8Array(length).fill(0xab);
+}
+
+vi.mock('@hushbox/crypto', () => ({
+  createOpaqueClient: vi.fn(() => ({})),
+  startRegistration: vi.fn(() => Promise.resolve({ serialized: [1, 2, 3] })),
+  finishRegistration: vi.fn(() =>
+    Promise.resolve({ record: [...mockCryptoBytes(192)], exportKey: [4, 5, 6] })
+  ),
+  createAccount: vi.fn(() =>
+    Promise.resolve({
+      publicKey: mockCryptoBytes(32),
+      passwordWrappedPrivateKey: mockCryptoBytes(48),
+      recoveryWrappedPrivateKey: mockCryptoBytes(48),
+      recoveryPhrase: 'test mnemonic phrase words here for recovery seed backup now',
+    })
+  ),
+  createFirstEpoch: vi.fn((keys: Uint8Array[]) => ({
+    epochPublicKey: mockCryptoBytes(32),
+    epochPrivateKey: mockCryptoBytes(32),
+    confirmationHash: mockCryptoBytes(32),
+    memberWraps: keys.map((k: Uint8Array) => ({
+      memberPublicKey: k,
+      wrap: mockCryptoBytes(48),
+    })),
+  })),
+  encryptMessageForStorage: vi.fn(() => mockCryptoBytes(64)),
+  generateKeyPair: vi.fn(() => ({
+    publicKey: mockCryptoBytes(32),
+    privateKey: mockCryptoBytes(32),
+  })),
+  OpaqueClientConfig: {},
+  OpaqueRegistrationRequest: {
+    deserialize: vi.fn(() => ({ serialize: vi.fn(() => [7, 8, 9]) })),
+  },
+  createOpaqueServer: vi.fn(() =>
+    Promise.resolve({
+      registerInit: vi.fn(() => Promise.resolve({ serialize: () => [10, 11, 12] })),
+    })
+  ),
+  getServerIdentifier: vi.fn(() => 'localhost:5173'),
+  deriveTotpEncryptionKey: vi.fn(() => mockCryptoBytes(32)),
+  encryptTotpSecret: vi.fn(() => mockCryptoBytes(48)),
 }));
 
 function createMockSelectChain(result: unknown[] = []) {
@@ -25,15 +71,10 @@ function createMockDb() {
     insert: vi.fn(() => ({
       values: vi.fn(() => Promise.resolve()),
     })),
-    update: vi.fn(() => ({
-      set: vi.fn(() => ({
-        where: vi.fn(() => Promise.resolve()),
-      })),
-    })),
   };
 }
 
-vi.mock('@lome-chat/db', () => {
+vi.mock('@hushbox/db', () => {
   return {
     createDb: vi.fn(() => createMockDb()),
     LOCAL_NEON_DEV_CONFIG: {},
@@ -41,28 +82,44 @@ vi.mock('@lome-chat/db', () => {
     conversations: { id: 'id' },
     messages: { id: 'id' },
     projects: { id: 'id' },
-    accounts: { id: 'id' },
     payments: { id: 'id' },
-    balanceTransactions: { id: 'id' },
-    hashPassword: vi.fn(() => Promise.resolve('mocksalt:mockkey')),
+    wallets: { id: 'id' },
+    ledgerEntries: { id: 'id' },
+    epochs: { id: 'id' },
+    epochMembers: { id: 'id' },
+    conversationMembers: { id: 'id' },
   };
 });
 
-vi.mock('@lome-chat/db/factories', () => ({
+vi.mock('@hushbox/db/factories', () => ({
   userFactory: {
-    build: vi.fn((overrides?: { id?: string; email?: string; name?: string }) => ({
-      id: overrides?.id ?? 'test-user-id',
-      email: overrides?.email ?? 'test@example.com',
-      name: overrides?.name ?? 'Test User',
+    build: vi.fn((overrides: Record<string, unknown> = {}) => ({
+      id: 'test-user-id',
+      email: 'test@example.com',
+      username: 'test_user',
+      publicKey: mockCryptoBytes(32),
+      passwordWrappedPrivateKey: mockCryptoBytes(48),
+      recoveryWrappedPrivateKey: mockCryptoBytes(48),
+      opaqueRegistration: mockCryptoBytes(64),
+      emailVerified: false,
+      totpEnabled: false,
+      totpSecretEncrypted: null,
+      hasAcknowledgedPhrase: false,
+      ...overrides,
       createdAt: new Date(),
       updatedAt: new Date(),
     })),
   },
   conversationFactory: {
-    build: vi.fn((overrides?: { id?: string; userId?: string; title?: string }) => ({
+    build: vi.fn((overrides?: { id?: string; userId?: string; title?: Uint8Array }) => ({
       id: overrides?.id ?? 'test-conv-id',
       userId: overrides?.userId ?? 'test-user-id',
-      title: overrides?.title ?? 'Test Conversation',
+      title: overrides?.title ?? mockCryptoBytes(64),
+      currentEpoch: 1,
+      titleEpochNumber: 1,
+      nextSequence: 1,
+
+      ...overrides,
       createdAt: new Date(),
       updatedAt: new Date(),
     })),
@@ -71,9 +128,13 @@ vi.mock('@lome-chat/db/factories', () => ({
     build: vi.fn((overrides: Record<string, unknown> = {}) => ({
       id: 'test-msg-id',
       conversationId: 'test-conv-id',
-      role: 'user',
-      content: 'Test message',
-      model: null,
+      encryptedBlob: mockCryptoBytes(64),
+      senderType: 'user',
+      senderId: 'test-user-id',
+      senderDisplayName: null,
+      payerId: null,
+      epochNumber: 1,
+      sequenceNumber: 1,
       ...overrides,
       createdAt: new Date(),
     })),
@@ -83,13 +144,14 @@ vi.mock('@lome-chat/db/factories', () => ({
       (overrides?: {
         id?: string;
         userId?: string;
-        name?: string;
-        description?: string | null;
+        encryptedName?: Uint8Array;
+        encryptedDescription?: Uint8Array | null;
       }) => ({
         id: overrides?.id ?? 'test-project-id',
         userId: overrides?.userId ?? 'test-user-id',
-        name: overrides?.name ?? 'Test Project',
-        description: overrides?.description ?? null,
+        encryptedName: overrides?.encryptedName ?? mockCryptoBytes(64),
+        encryptedDescription: overrides?.encryptedDescription ?? null,
+        ...overrides,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -100,7 +162,7 @@ vi.mock('@lome-chat/db/factories', () => ({
       id: 'test-payment-id',
       userId: 'test-user-id',
       amount: '50.00000000',
-      status: 'confirmed',
+      status: 'completed',
       helcimTransactionId: 'txn-123',
       cardType: 'Visa',
       cardLastFour: '4242',
@@ -111,17 +173,66 @@ vi.mock('@lome-chat/db/factories', () => ({
       webhookReceivedAt: new Date(),
     })),
   },
-  balanceTransactionFactory: {
+  walletFactory: {
     build: vi.fn((overrides: Record<string, unknown> = {}) => ({
-      id: 'test-tx-id',
+      id: 'test-wallet-id',
       userId: 'test-user-id',
-      amount: '50.00000000',
-      balanceAfter: '50.00000000',
-      type: 'deposit',
-      paymentId: 'test-payment-id',
-      description: 'Credit purchase - $50.00',
+      type: 'purchased',
+      balance: '0.00000000',
+      priority: 0,
       ...overrides,
       createdAt: new Date(),
+    })),
+  },
+  ledgerEntryFactory: {
+    build: vi.fn((overrides: Record<string, unknown> = {}) => ({
+      id: 'test-ledger-id',
+      walletId: 'test-wallet-id',
+      amount: '0.00000000',
+      balanceAfter: '0.00000000',
+      entryType: 'welcome_credit',
+      paymentId: null,
+      usageRecordId: null,
+      sourceWalletId: 'test-wallet-id',
+      ...overrides,
+      createdAt: new Date(),
+    })),
+  },
+  epochFactory: {
+    build: vi.fn((overrides: Record<string, unknown> = {}) => ({
+      id: 'test-epoch-id',
+      conversationId: 'test-conv-id',
+      epochNumber: 1,
+      epochPublicKey: mockCryptoBytes(32),
+      confirmationHash: mockCryptoBytes(32),
+      chainLink: null,
+      ...overrides,
+      createdAt: new Date(),
+    })),
+  },
+  epochMemberFactory: {
+    build: vi.fn((overrides: Record<string, unknown> = {}) => ({
+      id: 'test-epoch-member-id',
+      epochId: 'test-epoch-id',
+      memberPublicKey: mockCryptoBytes(32),
+      wrap: mockCryptoBytes(48),
+      privilege: 'owner',
+      visibleFromEpoch: 1,
+      ...overrides,
+      createdAt: new Date(),
+    })),
+  },
+  conversationMemberFactory: {
+    build: vi.fn((overrides: Record<string, unknown> = {}) => ({
+      id: 'test-member-id',
+      conversationId: 'test-conv-id',
+      userId: 'test-user-id',
+      linkId: null,
+      privilege: 'owner',
+      visibleFromEpoch: 1,
+      ...overrides,
+      joinedAt: new Date(),
+      leftAt: null,
     })),
   },
 }));
@@ -236,15 +347,57 @@ describe('seed script', () => {
       expect(conv1Messages).toHaveLength(SEED_CONFIG.MESSAGES_PER_CONVERSATION);
     });
 
-    it('alternates message roles between user and assistant', () => {
+    it('alternates message senderType between user and ai', () => {
       const data = generateSeedData();
       const firstConv = data.conversations[0];
       expect(firstConv).toBeDefined();
       const conv1Messages = data.messages.filter((m) => m.conversationId === firstConv?.id);
 
-      expect(conv1Messages[0]?.role).toBe('user');
-      expect(conv1Messages[1]?.role).toBe('assistant');
-      expect(conv1Messages[2]?.role).toBe('user');
+      expect(conv1Messages[0]?.senderType).toBe('user');
+      expect(conv1Messages[1]?.senderType).toBe('ai');
+      expect(conv1Messages[2]?.senderType).toBe('user');
+    });
+
+    it('generates epochs for each conversation', () => {
+      const data = generateSeedData();
+      const expectedEpochs = SEED_CONFIG.USER_COUNT * SEED_CONFIG.CONVERSATIONS_PER_USER;
+      expect(data.epochs).toHaveLength(expectedEpochs);
+    });
+
+    it('generates epoch members for each conversation', () => {
+      const data = generateSeedData();
+      const expectedEpochMembers = SEED_CONFIG.USER_COUNT * SEED_CONFIG.CONVERSATIONS_PER_USER;
+      expect(data.epochMembers).toHaveLength(expectedEpochMembers);
+    });
+
+    it('generates conversation members for each conversation', () => {
+      const data = generateSeedData();
+      const expectedConversationMembers =
+        SEED_CONFIG.USER_COUNT * SEED_CONFIG.CONVERSATIONS_PER_USER;
+      expect(data.conversationMembers).toHaveLength(expectedConversationMembers);
+    });
+
+    it('messages have encrypted blobs instead of plaintext content', () => {
+      const data = generateSeedData();
+      const firstMsg = data.messages[0];
+      expect(firstMsg).toBeDefined();
+      expect(firstMsg?.encryptedBlob).toBeInstanceOf(Uint8Array);
+      expect('content' in (firstMsg ?? {})).toBe(false);
+      expect('role' in (firstMsg ?? {})).toBe(false);
+    });
+
+    it('conversations have encrypted titles', () => {
+      const data = generateSeedData();
+      const firstConv = data.conversations[0];
+      expect(firstConv).toBeDefined();
+      expect(firstConv?.title).toBeInstanceOf(Uint8Array);
+    });
+
+    it('projects have encrypted names', () => {
+      const data = generateSeedData();
+      const firstProject = data.projects[0];
+      expect(firstProject).toBeDefined();
+      expect(firstProject?.encryptedName).toBeInstanceOf(Uint8Array);
     });
   });
 
@@ -317,27 +470,6 @@ describe('seed script', () => {
       expect(alice?.id).toBe(seedUUID('dev-user-alice'));
     });
 
-    it('generates accounts for each persona', async () => {
-      const data = await generatePersonaData();
-      expect(data.accounts).toHaveLength(3);
-    });
-
-    it('links accounts to correct users', async () => {
-      const data = await generatePersonaData();
-      const aliceId = seedUUID('dev-user-alice');
-      const aliceAccount = data.accounts.find((a) => a.userId === aliceId);
-      expect(aliceAccount).toBeDefined();
-      expect(aliceAccount?.providerId).toBe('credential');
-    });
-
-    it('accounts have hashed passwords', async () => {
-      const data = await generatePersonaData();
-      for (const account of data.accounts) {
-        expect(account.password).toBeDefined();
-        expect(account.password).not.toBe(DEV_PASSWORD);
-      }
-    });
-
     it('generates sample data only for alice (hasSampleData=true)', async () => {
       const data = await generatePersonaData();
       const aliceId = seedUUID('dev-user-alice');
@@ -372,11 +504,11 @@ describe('seed script', () => {
       );
       expect(charlieMessages).toHaveLength(4);
 
-      // Verify alternating roles
-      expect(charlieMessages[0]?.role).toBe('user');
-      expect(charlieMessages[1]?.role).toBe('assistant');
-      expect(charlieMessages[2]?.role).toBe('user');
-      expect(charlieMessages[3]?.role).toBe('assistant');
+      // Verify alternating sender types
+      expect(charlieMessages[0]?.senderType).toBe('user');
+      expect(charlieMessages[1]?.senderType).toBe('ai');
+      expect(charlieMessages[2]?.senderType).toBe('user');
+      expect(charlieMessages[3]?.senderType).toBe('ai');
     });
 
     it('alice has exactly 2 projects', async () => {
@@ -411,11 +543,13 @@ describe('seed script', () => {
       expect(alicePayments).toHaveLength(14);
     });
 
-    it('alice has exactly 14 balance transactions', async () => {
+    it('alice has exactly 14 deposit ledger entries', async () => {
       const data = await generatePersonaData();
-      const aliceId = seedUUID('dev-user-alice');
-      const aliceTransactions = data.balanceTransactions.filter((t) => t.userId === aliceId);
-      expect(aliceTransactions).toHaveLength(14);
+      const purchasedWalletId = seedUUID('alice-wallet-purchased');
+      const aliceDepositEntries = data.ledgerEntries.filter(
+        (e) => e.walletId === purchasedWalletId && e.entryType === 'deposit'
+      );
+      expect(aliceDepositEntries).toHaveLength(14);
     });
 
     it('all alice payments are confirmed status', async () => {
@@ -423,20 +557,22 @@ describe('seed script', () => {
       const aliceId = seedUUID('dev-user-alice');
       const alicePayments = data.payments.filter((p) => p.userId === aliceId);
       for (const payment of alicePayments) {
-        expect(payment.status).toBe('confirmed');
+        expect(payment.status).toBe('completed');
       }
     });
 
-    it('balance transactions are linked to payments', async () => {
+    it('deposit ledger entries are linked to payments', async () => {
       const data = await generatePersonaData();
-      const aliceId = seedUUID('dev-user-alice');
-      const aliceTransactions = data.balanceTransactions.filter((t) => t.userId === aliceId);
+      const purchasedWalletId = seedUUID('alice-wallet-purchased');
+      const aliceDepositEntries = data.ledgerEntries.filter(
+        (e) => e.walletId === purchasedWalletId && e.entryType === 'deposit'
+      );
       const alicePaymentIds = new Set(
-        data.payments.filter((p) => p.userId === aliceId).map((p) => p.id)
+        data.payments.filter((p) => p.userId === seedUUID('dev-user-alice')).map((p) => p.id)
       );
 
-      for (const tx of aliceTransactions) {
-        expect(alicePaymentIds.has(tx.paymentId ?? '')).toBe(true);
+      for (const entry of aliceDepositEntries) {
+        expect(alicePaymentIds.has(entry.paymentId ?? '')).toBe(true);
       }
     });
 
@@ -451,12 +587,66 @@ describe('seed script', () => {
       expect(bobPayments).toHaveLength(0);
       expect(charliePayments).toHaveLength(0);
     });
+
+    it('persona users have valid crypto fields', async () => {
+      const data = await generatePersonaData();
+      for (const user of data.users) {
+        expect(user.opaqueRegistration).toBeInstanceOf(Uint8Array);
+        expect(user.opaqueRegistration.length).toBeGreaterThan(64);
+        expect(user.publicKey).toBeInstanceOf(Uint8Array);
+        expect(user.passwordWrappedPrivateKey).toBeInstanceOf(Uint8Array);
+        expect(user.recoveryWrappedPrivateKey).toBeInstanceOf(Uint8Array);
+      }
+    });
+
+    it('each persona has 2 wallets (purchased + free_tier)', async () => {
+      const data = await generatePersonaData();
+      // 3 personas * 2 wallets each = 6
+      expect(data.wallets).toHaveLength(6);
+
+      const aliceId = seedUUID('dev-user-alice');
+      const aliceWallets = data.wallets.filter((w) => w.userId === aliceId);
+      expect(aliceWallets).toHaveLength(2);
+
+      const purchased = aliceWallets.find((w) => w.type === 'purchased');
+      const freeTier = aliceWallets.find((w) => w.type === 'free_tier');
+      expect(purchased).toBeDefined();
+      expect(freeTier).toBeDefined();
+      expect(purchased?.priority).toBe(0);
+      expect(freeTier?.priority).toBe(1);
+    });
+
+    it('alice conversations have epochs', async () => {
+      const data = await generatePersonaData();
+      const aliceId = seedUUID('dev-user-alice');
+      const aliceConversations = data.conversations.filter((c) => c.userId === aliceId);
+
+      // Each conversation should have 1 epoch
+      for (const conv of aliceConversations) {
+        const convEpochs = data.epochs.filter((e) => e.conversationId === conv.id);
+        expect(convEpochs).toHaveLength(1);
+        expect(convEpochs[0]?.epochNumber).toBe(1);
+      }
+    });
+
+    it('alice conversations have conversation members', async () => {
+      const data = await generatePersonaData();
+      const aliceId = seedUUID('dev-user-alice');
+      const aliceConversations = data.conversations.filter((c) => c.userId === aliceId);
+
+      for (const conv of aliceConversations) {
+        const convMembers = data.conversationMembers.filter((m) => m.conversationId === conv.id);
+        expect(convMembers).toHaveLength(1);
+        expect(convMembers[0]?.userId).toBe(aliceId);
+        expect(convMembers[0]?.privilege).toBe('owner');
+      }
+    });
   });
 
   describe('generateTestPersonaData', () => {
-    it('generates all eight test personas', async () => {
+    it('generates all ten test personas', async () => {
       const data = await generateTestPersonaData();
-      expect(data.users).toHaveLength(8);
+      expect(data.users).toHaveLength(10);
     });
 
     it('includes test-alice, test-bob, and test-charlie users with test domain', async () => {
@@ -471,27 +661,6 @@ describe('seed script', () => {
       const data = await generateTestPersonaData();
       const testAlice = data.users.find((u) => u.email === `test-alice@${TEST_EMAIL_DOMAIN}`);
       expect(testAlice?.id).toBe(seedUUID('test-user-test-alice'));
-    });
-
-    it('generates accounts for each test persona', async () => {
-      const data = await generateTestPersonaData();
-      expect(data.accounts).toHaveLength(8);
-    });
-
-    it('links accounts to correct test users', async () => {
-      const data = await generateTestPersonaData();
-      const testAliceId = seedUUID('test-user-test-alice');
-      const testAliceAccount = data.accounts.find((a) => a.userId === testAliceId);
-      expect(testAliceAccount).toBeDefined();
-      expect(testAliceAccount?.providerId).toBe('credential');
-    });
-
-    it('test accounts have hashed passwords', async () => {
-      const data = await generateTestPersonaData();
-      for (const account of data.accounts) {
-        expect(account.password).toBeDefined();
-        expect(account.password).not.toBe(DEV_PASSWORD);
-      }
     });
 
     it('generates sample data only for test-alice (hasSampleData=true)', async () => {
@@ -552,6 +721,48 @@ describe('seed script', () => {
       // No overlap between dev and test emails
       for (const devEmail of devEmails) {
         expect(testEmails).not.toContain(devEmail);
+      }
+    });
+
+    it('includes test-2fa persona with TOTP enabled', async () => {
+      const data = await generateTestPersonaData();
+      const test2fa = data.users.find((u) => u.email === `test-2fa@${TEST_EMAIL_DOMAIN}`);
+
+      expect(test2fa).toBeDefined();
+      expect(test2fa?.emailVerified).toBe(true);
+      expect(test2fa?.totpEnabled).toBe(true);
+      expect(test2fa?.totpSecretEncrypted).toBeInstanceOf(Uint8Array);
+    });
+
+    it('test persona users have valid crypto fields', async () => {
+      const data = await generateTestPersonaData();
+      for (const user of data.users) {
+        expect(user.opaqueRegistration).toBeInstanceOf(Uint8Array);
+        expect(user.opaqueRegistration.length).toBeGreaterThan(64);
+        expect(user.publicKey).toBeInstanceOf(Uint8Array);
+        expect(user.passwordWrappedPrivateKey).toBeInstanceOf(Uint8Array);
+        expect(user.recoveryWrappedPrivateKey).toBeInstanceOf(Uint8Array);
+      }
+    });
+
+    it('each test persona has 2 wallets (purchased + free_tier)', async () => {
+      const data = await generateTestPersonaData();
+      // 10 personas * 2 wallets each = 20
+      expect(data.wallets).toHaveLength(20);
+    });
+
+    it('test-alice conversations have epochs and members', async () => {
+      const data = await generateTestPersonaData();
+      const testAliceId = seedUUID('test-user-test-alice');
+      const testAliceConversations = data.conversations.filter((c) => c.userId === testAliceId);
+
+      for (const conv of testAliceConversations) {
+        const convEpochs = data.epochs.filter((e) => e.conversationId === conv.id);
+        expect(convEpochs).toHaveLength(1);
+
+        const convMembers = data.conversationMembers.filter((m) => m.conversationId === conv.id);
+        expect(convMembers).toHaveLength(1);
+        expect(convMembers[0]?.userId).toBe(testAliceId);
       }
     });
   });

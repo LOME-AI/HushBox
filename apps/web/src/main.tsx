@@ -4,9 +4,8 @@ import { RouterProvider } from '@tanstack/react-router';
 import { router } from './router';
 import './app.css';
 
-// Markdown rendering styles
-import 'katex/dist/katex.min.css';
-import 'highlight.js/styles/github-dark.css';
+// Streamdown rendering styles (animation keyframes for streaming cursor)
+import 'streamdown/styles.css';
 
 const rootElement = document.querySelector('#root');
 if (!rootElement) {

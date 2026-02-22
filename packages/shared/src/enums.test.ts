@@ -4,8 +4,10 @@ import {
   messageRoleSchema,
   PAYMENT_STATUSES,
   paymentStatusSchema,
-  BALANCE_TRANSACTION_TYPES,
-  balanceTransactionTypeSchema,
+  LEDGER_ENTRY_TYPES,
+  ledgerEntryTypeSchema,
+  MEMBER_PRIVILEGES,
+  memberPrivilegeSchema,
 } from './enums';
 
 describe('enums', () => {
@@ -29,14 +31,21 @@ describe('enums', () => {
 
   describe('PAYMENT_STATUSES', () => {
     it('contains all payment statuses', () => {
-      expect(PAYMENT_STATUSES).toEqual(['pending', 'awaiting_webhook', 'confirmed', 'failed']);
+      expect(PAYMENT_STATUSES).toEqual([
+        'pending',
+        'awaiting_webhook',
+        'completed',
+        'failed',
+        'refunded',
+      ]);
     });
 
     it('validates valid statuses', () => {
       expect(paymentStatusSchema.safeParse('pending').success).toBe(true);
       expect(paymentStatusSchema.safeParse('awaiting_webhook').success).toBe(true);
-      expect(paymentStatusSchema.safeParse('confirmed').success).toBe(true);
+      expect(paymentStatusSchema.safeParse('completed').success).toBe(true);
       expect(paymentStatusSchema.safeParse('failed').success).toBe(true);
+      expect(paymentStatusSchema.safeParse('refunded').success).toBe(true);
     });
 
     it('rejects invalid statuses', () => {
@@ -45,20 +54,50 @@ describe('enums', () => {
     });
   });
 
-  describe('BALANCE_TRANSACTION_TYPES', () => {
-    it('contains all transaction types', () => {
-      expect(BALANCE_TRANSACTION_TYPES).toEqual(['deposit', 'usage', 'adjustment']);
+  describe('LEDGER_ENTRY_TYPES', () => {
+    it('contains all ledger entry types', () => {
+      expect(LEDGER_ENTRY_TYPES).toEqual([
+        'deposit',
+        'usage_charge',
+        'refund',
+        'adjustment',
+        'renewal',
+        'welcome_credit',
+      ]);
     });
 
     it('validates valid types', () => {
-      expect(balanceTransactionTypeSchema.safeParse('deposit').success).toBe(true);
-      expect(balanceTransactionTypeSchema.safeParse('usage').success).toBe(true);
-      expect(balanceTransactionTypeSchema.safeParse('adjustment').success).toBe(true);
+      expect(ledgerEntryTypeSchema.safeParse('deposit').success).toBe(true);
+      expect(ledgerEntryTypeSchema.safeParse('usage_charge').success).toBe(true);
+      expect(ledgerEntryTypeSchema.safeParse('refund').success).toBe(true);
+      expect(ledgerEntryTypeSchema.safeParse('adjustment').success).toBe(true);
+      expect(ledgerEntryTypeSchema.safeParse('renewal').success).toBe(true);
+      expect(ledgerEntryTypeSchema.safeParse('welcome_credit').success).toBe(true);
     });
 
     it('rejects invalid types', () => {
-      expect(balanceTransactionTypeSchema.safeParse('refund').success).toBe(false);
-      expect(balanceTransactionTypeSchema.safeParse('withdrawal').success).toBe(false);
+      expect(ledgerEntryTypeSchema.safeParse('usage').success).toBe(false);
+      expect(ledgerEntryTypeSchema.safeParse('withdrawal').success).toBe(false);
+    });
+  });
+
+  describe('MEMBER_PRIVILEGES', () => {
+    it('contains all privilege levels in order', () => {
+      expect(MEMBER_PRIVILEGES).toEqual(['read', 'write', 'admin', 'owner']);
+    });
+
+    it('validates valid privileges', () => {
+      expect(memberPrivilegeSchema.safeParse('read').success).toBe(true);
+      expect(memberPrivilegeSchema.safeParse('write').success).toBe(true);
+      expect(memberPrivilegeSchema.safeParse('admin').success).toBe(true);
+      expect(memberPrivilegeSchema.safeParse('owner').success).toBe(true);
+    });
+
+    it('rejects invalid privileges', () => {
+      expect(memberPrivilegeSchema.safeParse('superadmin').success).toBe(false);
+      expect(memberPrivilegeSchema.safeParse('moderator').success).toBe(false);
+      expect(memberPrivilegeSchema.safeParse('').success).toBe(false);
+      expect(memberPrivilegeSchema.safeParse(null).success).toBe(false);
     });
   });
 });

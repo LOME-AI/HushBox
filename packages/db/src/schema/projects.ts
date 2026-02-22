@@ -1,5 +1,7 @@
 import { pgTable, text, timestamp, index } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
+import { bytea } from './bytea';
 import { users } from './users';
 
 export const projects = pgTable(
@@ -7,12 +9,12 @@ export const projects = pgTable(
   {
     id: text('id')
       .primaryKey()
-      .$defaultFn(() => crypto.randomUUID()),
+      .default(sql`uuidv7()`),
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    name: text('name').notNull(),
-    description: text('description'),
+    encryptedName: bytea('encrypted_name').notNull(),
+    encryptedDescription: bytea('encrypted_description'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

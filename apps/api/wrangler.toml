@@ -1,7 +1,7 @@
 # Wrangler configuration for Cloudflare Workers
 # Local dev requires no Cloudflare credentials
 
-name = "lome-chat-api"
+name = "hushbox-api"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
@@ -19,14 +19,23 @@ invocation_logs = true
 
 [limits]
 cpu_ms = 30000
+[durable_objects]
+bindings = [{ name = "CONVERSATION_ROOM", class_name = "ConversationRoom" }]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ConversationRoom"]
 [vars]
 NODE_ENV = "production"
-BETTER_AUTH_URL = "https://api.lome-chat.com"
-FRONTEND_URL = "https://lome-chat.com"
+API_URL = "https://api.hushbox.ai"
+FRONTEND_URL = "https://hushbox.ai"
 
 # Secrets deployed via CI (GitHub Secrets → wrangler secret put):
 # - DATABASE_URL
-# - BETTER_AUTH_SECRET
+# - UPSTASH_REDIS_REST_URL
+# - UPSTASH_REDIS_REST_TOKEN
+# - OPAQUE_MASTER_SECRET
+# - IRON_SESSION_SECRET
 # - RESEND_API_KEY
 # - OPENROUTER_API_KEY
 # - HELCIM_API_TOKEN

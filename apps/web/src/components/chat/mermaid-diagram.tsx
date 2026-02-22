@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cn } from '@lome-chat/ui';
+import { cn } from '@hushbox/ui';
 import mermaid from 'mermaid';
 
 interface MermaidDiagramProps {
@@ -77,7 +77,9 @@ export function MermaidDiagram({
         data-testid="mermaid-diagram"
         className={cn('bg-destructive/10 rounded-lg p-4', className)}
       >
-        <span className="text-destructive text-sm">Failed to render diagram: {error}</span>
+        <span className="text-destructive text-sm">
+          Could not render this diagram. Check the syntax and try again.
+        </span>
       </div>
     );
   }

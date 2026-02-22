@@ -1,25 +1,31 @@
 {
-  "name": "@lome-chat/api",
+  "name": "@hushbox/api",
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/app.ts"
+  },
   "scripts": {
     "dev": "wrangler dev",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test": "../../scripts/with-env vitest run",
+    "test:watch": "../../scripts/with-env vitest",
+    "test:coverage": "../../scripts/with-env vitest run --coverage",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@hono/zod-openapi": "^1.2.0",
-    "better-auth": "^1.4.7",
+    "@hono/zod-validator": "^0.7.6",
+    "@hushbox/crypto": "workspace:*",
+    "@hushbox/realtime": "workspace:*",
+    "@upstash/redis": "^1.36.1",
     "hono": "^4.11.1",
+    "iron-session": "^8.0.4",
     "zod": "^4.2.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260117.0",
-    "@lome-chat/config": "workspace:*",
+    "@hushbox/config": "workspace:*",
     "typescript": "^5.7.2",
     "vitest": "^4.0.17",
     "wrangler": "^4.59.2"

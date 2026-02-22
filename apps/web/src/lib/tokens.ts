@@ -1,4 +1,4 @@
-import { formatNumber } from '@lome-chat/shared';
+import { formatNumber } from '@hushbox/shared';
 
 // Re-export from shared - single source of truth
 
@@ -10,4 +10,4 @@ export function formatTokenCount(tokens: number): string {
   return formatNumber(tokens);
 }
 
-export { formatContextLength, estimateTokenCount } from '@lome-chat/shared';
+export { formatContextLength, estimateTokenCount } from '@hushbox/shared';

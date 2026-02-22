@@ -1,6 +1,9 @@
 // UI Components
+export { Alert, alertVariants } from './components/alert';
 export { Button, buttonVariants } from './components/button';
+export { IconButton } from './components/icon-button';
 export { Input, type InputProps } from './components/input';
+export { Logo, type LogoProps } from './components/logo';
 export { Textarea } from './components/textarea';
 export {
   Card,
@@ -73,6 +76,26 @@ export { toast } from 'sonner';
 export { Label } from './components/label';
 export { Checkbox } from './components/checkbox';
 export { ModalOverlay, type ModalOverlayProps } from './components/modal-overlay';
+export {
+  ModalActions,
+  type ModalActionsProps,
+  type ModalActionButton,
+} from './components/modal-actions';
+
+// Marketing Components
+export { Hero, type HeroProps } from './components/marketing/hero';
+export { ContentSection, type ContentSectionProps } from './components/marketing/content-section';
+export { Callout, type CalloutProps } from './components/marketing/callout';
+export { Accordion, type AccordionProps } from './components/marketing/accordion';
+export { StepFlow, type StepFlowProps, type Step } from './components/marketing/step-flow';
+export { DataGrid, type DataGridProps, type DataGridRow } from './components/marketing/data-grid';
+export { ScrollReveal, type ScrollRevealProps } from './components/marketing/scroll-reveal';
+export {
+  SectionNav,
+  type SectionNavProps,
+  type NavSection,
+} from './components/marketing/section-nav';
+export { EncryptionDemo, type EncryptionDemoProps } from './components/marketing/encryption-demo';
 
 // Utilities
 export { cn } from './lib/utilities';

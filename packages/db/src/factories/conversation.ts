@@ -2,13 +2,19 @@ import { Factory } from 'fishery';
 import { faker } from '@faker-js/faker';
 
 import type { conversations } from '../schema/conversations';
+import { placeholderBytes } from './helpers.js';
 
 type Conversation = typeof conversations.$inferSelect;
 
 export const conversationFactory = Factory.define<Conversation>(() => ({
   id: crypto.randomUUID(),
   userId: crypto.randomUUID(),
-  title: faker.lorem.sentence(),
+  title: placeholderBytes(32),
+  projectId: null,
+  titleEpochNumber: 1,
+  currentEpoch: 1,
+  nextSequence: 1,
+  conversationBudget: '0.00',
   createdAt: faker.date.recent(),
   updatedAt: faker.date.recent(),
 }));

@@ -62,5 +62,19 @@ describe('useUIStore', () => {
       setMobileSidebarOpen(false);
       expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
     });
+
+    it('forces sidebarOpen to true when opening mobile sidebar', () => {
+      useUIStore.setState({ sidebarOpen: false, mobileSidebarOpen: false });
+      const { setMobileSidebarOpen } = useUIStore.getState();
+      setMobileSidebarOpen(true);
+      expect(useUIStore.getState().sidebarOpen).toBe(true);
+    });
+
+    it('does not change sidebarOpen when closing mobile sidebar', () => {
+      useUIStore.setState({ sidebarOpen: false, mobileSidebarOpen: true });
+      const { setMobileSidebarOpen } = useUIStore.getState();
+      setMobileSidebarOpen(false);
+      expect(useUIStore.getState().sidebarOpen).toBe(false);
+    });
   });
 });

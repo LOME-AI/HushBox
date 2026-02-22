@@ -2,7 +2,7 @@ import {
   estimateTokenCount,
   estimateMessageCostDevelopment,
   calculateMessageCostFromOpenRouter,
-} from '@lome-chat/shared';
+} from '@hushbox/shared';
 
 export interface CalculateMessageCostParams {
   openrouter: {

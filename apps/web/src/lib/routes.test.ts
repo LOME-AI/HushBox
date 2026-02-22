@@ -1,45 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ROUTES, chatConversationRoute } from './routes.js';
+import { ROUTES } from '@hushbox/shared';
+import { chatConversationRoute, shareConversationRoute, shareMessageRoute } from './routes.js';
 
 describe('routes', () => {
-  describe('ROUTES constants', () => {
-    it('defines CHAT route', () => {
-      expect(ROUTES.CHAT).toBe('/chat');
-    });
-
-    it('defines CHAT_ID route with parameter placeholder', () => {
-      expect(ROUTES.CHAT_ID).toBe('/chat/$id');
-    });
-
-    it('defines CHAT_GUEST route', () => {
-      expect(ROUTES.CHAT_GUEST).toBe('/chat/guest');
-    });
-
-    it('defines PROJECTS route', () => {
-      expect(ROUTES.PROJECTS).toBe('/projects');
-    });
-
-    it('defines BILLING route', () => {
-      expect(ROUTES.BILLING).toBe('/billing');
-    });
-
-    it('defines LOGIN route', () => {
-      expect(ROUTES.LOGIN).toBe('/login');
-    });
-
-    it('defines SIGNUP route', () => {
-      expect(ROUTES.SIGNUP).toBe('/signup');
-    });
-
-    it('defines VERIFY route', () => {
-      expect(ROUTES.VERIFY).toBe('/verify');
-    });
-
-    it('defines DEV_PERSONAS route', () => {
-      expect(ROUTES.DEV_PERSONAS).toBe('/dev/personas');
-    });
-  });
-
   describe('chatConversationRoute', () => {
     it('returns correct route with conversation ID', () => {
       expect(chatConversationRoute('abc-123')).toBe('/chat/abc-123');
@@ -53,6 +16,28 @@ describe('routes', () => {
     it('uses ROUTES.CHAT as base path', () => {
       const result = chatConversationRoute('test-id');
       expect(result.startsWith(ROUTES.CHAT)).toBe(true);
+    });
+  });
+
+  describe('shareConversationRoute', () => {
+    it('returns URL with conversationId and key in fragment', () => {
+      expect(shareConversationRoute('conv-abc', 'key123')).toBe('/share/c/conv-abc#key123');
+    });
+
+    it('handles UUID-style conversation IDs', () => {
+      const uuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+      expect(shareConversationRoute(uuid, 'secretKey')).toBe(`/share/c/${uuid}#secretKey`);
+    });
+  });
+
+  describe('shareMessageRoute', () => {
+    it('returns URL with shareId and key in fragment', () => {
+      expect(shareMessageRoute('share-xyz', 'msgKey456')).toBe('/share/m/share-xyz#msgKey456');
+    });
+
+    it('handles UUID-style share IDs', () => {
+      const uuid = 'f1e2d3c4-b5a6-0987-fedc-ba0987654321';
+      expect(shareMessageRoute(uuid, 'anotherKey')).toBe(`/share/m/${uuid}#anotherKey`);
     });
   });
 });

@@ -3,13 +3,14 @@ import {
   calculateBudget,
   estimateTokensForTier,
   getEffectiveBalance,
-  generateBudgetErrors,
+  generateNotifications,
+  effectiveBudgetCents,
   type BudgetCalculationInput,
-  type BudgetCalculationResult,
+  type NotificationInput,
 } from './budget.js';
 import {
   MAX_ALLOWED_NEGATIVE_BALANCE_CENTS,
-  MAX_GUEST_MESSAGE_COST_CENTS,
+  MAX_TRIAL_MESSAGE_COST_CENTS,
   MINIMUM_OUTPUT_TOKENS,
   LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD,
   CHARS_PER_TOKEN_CONSERVATIVE,
@@ -43,14 +44,14 @@ describe('estimateTokensForTier', () => {
     });
   });
 
-  describe('guest users', () => {
+  describe('trial users', () => {
     it('uses conservative 2 chars/token ratio', () => {
-      expect(estimateTokensForTier('guest', 400)).toBe(200);
-      expect(estimateTokensForTier('guest', 1000)).toBe(500);
+      expect(estimateTokensForTier('trial', 400)).toBe(200);
+      expect(estimateTokensForTier('trial', 1000)).toBe(500);
     });
 
     it('rounds up partial tokens', () => {
-      expect(estimateTokensForTier('guest', 401)).toBe(201);
+      expect(estimateTokensForTier('trial', 401)).toBe(201);
     });
   });
 
@@ -58,7 +59,7 @@ describe('estimateTokensForTier', () => {
     it('handles zero characters', () => {
       expect(estimateTokensForTier('paid', 0)).toBe(0);
       expect(estimateTokensForTier('free', 0)).toBe(0);
-      expect(estimateTokensForTier('guest', 0)).toBe(0);
+      expect(estimateTokensForTier('trial', 0)).toBe(0);
     });
 
     it('handles large character counts', () => {
@@ -69,15 +70,15 @@ describe('estimateTokensForTier', () => {
 });
 
 describe('getEffectiveBalance', () => {
-  describe('guest users', () => {
+  describe('trial users', () => {
     it('returns fixed max cost per message', () => {
-      const result = getEffectiveBalance('guest', 0, 0);
-      expect(result).toBe(MAX_GUEST_MESSAGE_COST_CENTS / 100);
+      const result = getEffectiveBalance('trial', 0, 0);
+      expect(result).toBe(MAX_TRIAL_MESSAGE_COST_CENTS / 100);
     });
 
     it('ignores balance and allowance values', () => {
-      const result = getEffectiveBalance('guest', 10_000, 500);
-      expect(result).toBe(MAX_GUEST_MESSAGE_COST_CENTS / 100);
+      const result = getEffectiveBalance('trial', 10_000, 500);
+      expect(result).toBe(MAX_TRIAL_MESSAGE_COST_CENTS / 100);
     });
   });
 
@@ -178,60 +179,14 @@ describe('calculateBudget', () => {
       expect(result.effectiveBalance).toBe(5);
     });
 
-    it('calculates effective balance for guests', () => {
+    it('calculates effective balance for trial users', () => {
       const result = calculateBudget({
         ...baseInput,
-        tier: 'guest',
+        tier: 'trial',
         balanceCents: 0,
         freeAllowanceCents: 0,
       });
       expect(result.effectiveBalance).toBe(0.01);
-    });
-  });
-
-  describe('affordability check', () => {
-    it('returns canAfford=true when effective balance >= estimated minimum cost', () => {
-      const result = calculateBudget(baseInput);
-      expect(result.canAfford).toBe(true);
-    });
-
-    it('returns canAfford=false when effective balance < estimated minimum cost', () => {
-      const result = calculateBudget({
-        ...baseInput,
-        tier: 'free',
-        balanceCents: 0,
-        freeAllowanceCents: 1, // $0.01 - very low
-        promptCharacterCount: 100_000, // Very long prompt
-        modelInputPricePerToken: 0.0001, // Expensive model
-        modelOutputPricePerToken: 0.0002,
-      });
-      expect(result.canAfford).toBe(false);
-    });
-
-    it('guests cannot afford expensive messages', () => {
-      const result = calculateBudget({
-        ...baseInput,
-        tier: 'guest',
-        balanceCents: 0,
-        freeAllowanceCents: 0,
-        promptCharacterCount: 10_000, // Long prompt
-        modelInputPricePerToken: 0.0001, // Expensive
-        modelOutputPricePerToken: 0.0002,
-      });
-      expect(result.canAfford).toBe(false);
-    });
-
-    it('guests can afford cheap short messages', () => {
-      const result = calculateBudget({
-        ...baseInput,
-        tier: 'guest',
-        balanceCents: 0,
-        freeAllowanceCents: 0,
-        promptCharacterCount: 100, // Very short
-        modelInputPricePerToken: 0.000_000_1, // Very cheap
-        modelOutputPricePerToken: 0.000_000_1,
-      });
-      expect(result.canAfford).toBe(true);
     });
   });
 
@@ -245,14 +200,13 @@ describe('calculateBudget', () => {
       expect(result.maxOutputTokens).toBe(Math.floor(10.47 / 0.000_06));
     });
 
-    it('returns 0 max output tokens when cannot afford', () => {
+    it('returns 0 max output tokens when personal balance insufficient', () => {
       const result = calculateBudget({
         ...baseInput,
         tier: 'free',
         balanceCents: 0,
         freeAllowanceCents: 0, // No balance
       });
-      expect(result.canAfford).toBe(false);
       expect(result.maxOutputTokens).toBe(0);
     });
 
@@ -267,7 +221,6 @@ describe('calculateBudget', () => {
         modelInputPricePerToken: 0.000_01, // Cheap input
         modelOutputPricePerToken: 0.000_05, // Moderate output cost
       });
-      expect(result.canAfford).toBe(true);
       expect(result.maxOutputTokens).toBeGreaterThanOrEqual(MINIMUM_OUTPUT_TOKENS);
     });
   });
@@ -310,344 +263,20 @@ describe('calculateBudget', () => {
       // Capacity: 13500 / 10000 = 135%
       expect(result.capacityPercent).toBeGreaterThan(100);
     });
-  });
-});
 
-describe('generateBudgetErrors', () => {
-  const baseResult: Omit<BudgetCalculationResult, 'errors'> = {
-    canAfford: true,
-    maxOutputTokens: 50_000,
-    estimatedInputTokens: 1000,
-    estimatedInputCost: 0.03,
-    estimatedMinimumCost: 0.09,
-    effectiveBalance: 10.5,
-    currentUsage: 2000,
-    capacityPercent: 20,
-  };
-
-  describe('capacity_exceeded', () => {
-    it('shows error when capacity > 100%', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        capacityPercent: 101,
+    it('returns capacityPercent 0 when modelContextLength is 0', () => {
+      const result = calculateBudget({
+        ...baseInput,
+        promptCharacterCount: 100,
+        modelContextLength: 0,
       });
-      const error = errors.find((e) => e.id === 'capacity_exceeded');
-      expect(error).toBeDefined();
-      expect(error?.type).toBe('error');
-      expect(error?.message).toBe(
-        'Message exceeds model capacity. Shorten your message or start a new conversation.'
-      );
-    });
-
-    it('does not show when capacity <= 100%', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        capacityPercent: 100,
-      });
-      expect(errors.some((e) => e.id === 'capacity_exceeded')).toBe(false);
-    });
-
-    it('shows for all tiers', () => {
-      const overCapacity = { ...baseResult, capacityPercent: 150 };
-      expect(
-        generateBudgetErrors('paid', overCapacity).some((e) => e.id === 'capacity_exceeded')
-      ).toBe(true);
-      expect(
-        generateBudgetErrors('free', overCapacity).some((e) => e.id === 'capacity_exceeded')
-      ).toBe(true);
-      expect(
-        generateBudgetErrors('guest', overCapacity).some((e) => e.id === 'capacity_exceeded')
-      ).toBe(true);
-    });
-  });
-
-  describe('capacity_warning', () => {
-    it('shows warning when capacity >= 67% and <= 100%', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        capacityPercent: 67,
-      });
-      expect(errors.some((e) => e.id === 'capacity_warning')).toBe(true);
-    });
-
-    it('does not show warning when capacity < 67%', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        capacityPercent: 66,
-      });
-      expect(errors.some((e) => e.id === 'capacity_warning')).toBe(false);
-    });
-
-    it('does not show warning when capacity > 100% (capacity_exceeded shown instead)', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        capacityPercent: 110,
-      });
-      expect(errors.some((e) => e.id === 'capacity_warning')).toBe(false);
-      expect(errors.some((e) => e.id === 'capacity_exceeded')).toBe(true);
-    });
-
-    it('does not show warning when cannot afford (insufficient error shown instead)', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        capacityPercent: 80,
-        canAfford: false,
-      });
-      expect(errors.some((e) => e.id === 'capacity_warning')).toBe(false);
-      expect(errors.some((e) => e.id === 'insufficient_paid')).toBe(true);
-    });
-
-    it('does not show warning for guest when insufficient_guest is shown', () => {
-      const errors = generateBudgetErrors('guest', {
-        ...baseResult,
-        capacityPercent: 80,
-        canAfford: false,
-      });
-      expect(errors.some((e) => e.id === 'capacity_warning')).toBe(false);
-      expect(errors.some((e) => e.id === 'insufficient_guest')).toBe(true);
-    });
-
-    it('shows warning for all tiers when no blocking errors', () => {
-      const highCapacity = { ...baseResult, capacityPercent: 80, canAfford: true };
-      expect(
-        generateBudgetErrors('paid', highCapacity).some((e) => e.id === 'capacity_warning')
-      ).toBe(true);
-      expect(
-        generateBudgetErrors('free', highCapacity).some((e) => e.id === 'capacity_warning')
-      ).toBe(true);
-      expect(
-        generateBudgetErrors('guest', highCapacity).some((e) => e.id === 'capacity_warning')
-      ).toBe(true);
-    });
-  });
-
-  describe('low_balance warning', () => {
-    it('shows warning for paid users when maxOutputTokens < threshold and canAfford', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        maxOutputTokens: LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD - 1,
-        canAfford: true,
-      });
-      expect(errors.some((e) => e.id === 'low_balance')).toBe(true);
-    });
-
-    it('does not show warning when maxOutputTokens >= threshold', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        maxOutputTokens: LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD,
-        canAfford: true,
-      });
-      expect(errors.some((e) => e.id === 'low_balance')).toBe(false);
-    });
-
-    it('does not show warning for free users', () => {
-      const errors = generateBudgetErrors('free', {
-        ...baseResult,
-        maxOutputTokens: 100,
-        canAfford: true,
-      });
-      expect(errors.some((e) => e.id === 'low_balance')).toBe(false);
-    });
-
-    it('does not show warning when cannot afford', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        maxOutputTokens: 100,
-        canAfford: false,
-      });
-      expect(errors.some((e) => e.id === 'low_balance')).toBe(false);
-    });
-  });
-
-  describe('insufficient balance errors', () => {
-    it('shows insufficient_paid for paid users when cannot afford', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        canAfford: false,
-      });
-      const error = errors.find((e) => e.id === 'insufficient_paid');
-      expect(error).toBeDefined();
-      expect(error?.type).toBe('error');
-    });
-
-    it('shows insufficient_free for free users when cannot afford', () => {
-      const errors = generateBudgetErrors('free', {
-        ...baseResult,
-        canAfford: false,
-      });
-      const error = errors.find((e) => e.id === 'insufficient_free');
-      expect(error).toBeDefined();
-      expect(error?.type).toBe('error');
-    });
-
-    it('shows insufficient_guest for guests when cannot afford', () => {
-      const errors = generateBudgetErrors('guest', {
-        ...baseResult,
-        canAfford: false,
-      });
-      const error = errors.find((e) => e.id === 'insufficient_guest');
-      expect(error).toBeDefined();
-      expect(error?.type).toBe('error');
-    });
-
-    it('does not show insufficient errors when can afford', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        canAfford: true,
-      });
-      expect(errors.some((e) => e.id === 'insufficient_paid')).toBe(false);
-      expect(errors.some((e) => e.id === 'insufficient_free')).toBe(false);
-      expect(errors.some((e) => e.id === 'insufficient_guest')).toBe(false);
-    });
-  });
-
-  describe('tier info notices (always shown)', () => {
-    it('shows free_tier_notice for free users always', () => {
-      const errors = generateBudgetErrors('free', baseResult);
-      const notice = errors.find((e) => e.id === 'free_tier_notice');
-      expect(notice).toBeDefined();
-      expect(notice?.type).toBe('info');
-    });
-
-    it('shows guest_notice for guests always', () => {
-      const errors = generateBudgetErrors('guest', baseResult);
-      const notice = errors.find((e) => e.id === 'guest_notice');
-      expect(notice).toBeDefined();
-      expect(notice?.type).toBe('info');
-    });
-
-    it('does not show tier notices for paid users', () => {
-      const errors = generateBudgetErrors('paid', baseResult);
-      expect(errors.some((e) => e.id === 'free_tier_notice')).toBe(false);
-      expect(errors.some((e) => e.id === 'guest_notice')).toBe(false);
-    });
-  });
-
-  describe('error message content', () => {
-    it('capacity_warning has correct message', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        capacityPercent: 80,
-      });
-      const error = errors.find((e) => e.id === 'capacity_warning');
-      expect(error?.message).toBe(
-        "Your conversation is near this model's memory limit. Responses may be cut short."
-      );
-    });
-
-    it('low_balance has correct message', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        maxOutputTokens: 100,
-        canAfford: true,
-      });
-      const error = errors.find((e) => e.id === 'low_balance');
-      expect(error?.message).toBe('Low balance. Long responses may be shortened.');
-    });
-
-    it('insufficient errors have correct messages', () => {
-      const paidErrors = generateBudgetErrors('paid', { ...baseResult, canAfford: false });
-      expect(paidErrors.find((e) => e.id === 'insufficient_paid')?.message).toBe(
-        'Insufficient balance. Top up or try a more affordable model.'
-      );
-
-      const freeErrors = generateBudgetErrors('free', { ...baseResult, canAfford: false });
-      expect(freeErrors.find((e) => e.id === 'insufficient_free')?.message).toBe(
-        "Your free daily usage can't cover this message. Try a shorter conversation or more affordable model."
-      );
-
-      const guestErrors = generateBudgetErrors('guest', { ...baseResult, canAfford: false });
-      expect(guestErrors.find((e) => e.id === 'insufficient_guest')?.message).toBe(
-        'This message exceeds guest limits. Sign up for more capacity.'
-      );
-    });
-
-    it('insufficient_paid has correct segments with link', () => {
-      const errors = generateBudgetErrors('paid', { ...baseResult, canAfford: false });
-      const error = errors.find((e) => e.id === 'insufficient_paid');
-      expect(error?.segments).toEqual([
-        { text: 'Insufficient balance. ' },
-        { text: 'Top up', link: '/billing' },
-        { text: ' or try a more affordable model.' },
-      ]);
-    });
-
-    it('insufficient_guest has correct segments with link', () => {
-      const errors = generateBudgetErrors('guest', { ...baseResult, canAfford: false });
-      const error = errors.find((e) => e.id === 'insufficient_guest');
-      expect(error?.segments).toEqual([
-        { text: 'This message exceeds guest limits. ' },
-        { text: 'Sign up', link: '/signup' },
-        { text: ' for more capacity.' },
-      ]);
-    });
-
-    it('tier notices have correct positive messages', () => {
-      const freeErrors = generateBudgetErrors('free', baseResult);
-      expect(freeErrors.find((e) => e.id === 'free_tier_notice')?.message).toBe(
-        'Using free allowance. Top up for longer conversations.'
-      );
-
-      const guestErrors = generateBudgetErrors('guest', baseResult);
-      expect(guestErrors.find((e) => e.id === 'guest_notice')?.message).toBe(
-        'Free preview. Sign up for full access.'
-      );
-    });
-
-    it('free_tier_notice has correct segments with link', () => {
-      const errors = generateBudgetErrors('free', baseResult);
-      const error = errors.find((e) => e.id === 'free_tier_notice');
-      expect(error?.segments).toEqual([
-        { text: 'Using free allowance. ' },
-        { text: 'Top up', link: '/billing' },
-        { text: ' for longer conversations.' },
-      ]);
-    });
-
-    it('guest_notice has correct segments with link', () => {
-      const errors = generateBudgetErrors('guest', baseResult);
-      const error = errors.find((e) => e.id === 'guest_notice');
-      expect(error?.segments).toEqual([
-        { text: 'Free preview. ' },
-        { text: 'Sign up', link: '/signup' },
-        { text: ' for full access.' },
-      ]);
-    });
-  });
-
-  describe('multiple errors', () => {
-    it('can show multiple warnings simultaneously', () => {
-      const errors = generateBudgetErrors('paid', {
-        ...baseResult,
-        capacityPercent: 80,
-        maxOutputTokens: 100,
-        canAfford: true,
-      });
-      expect(errors.filter((e) => e.type === 'warning')).toHaveLength(2);
-    });
-
-    it('shows info notice alongside warnings for free users', () => {
-      const errors = generateBudgetErrors('free', {
-        ...baseResult,
-        capacityPercent: 80,
-      });
-      expect(errors.some((e) => e.id === 'capacity_warning')).toBe(true);
-      expect(errors.some((e) => e.id === 'free_tier_notice')).toBe(true);
-    });
-
-    it('shows info notice alongside error for guests', () => {
-      const errors = generateBudgetErrors('guest', {
-        ...baseResult,
-        canAfford: false,
-      });
-      expect(errors.some((e) => e.id === 'insufficient_guest')).toBe(true);
-      expect(errors.some((e) => e.id === 'guest_notice')).toBe(true);
+      expect(result.capacityPercent).toBe(0);
     });
   });
 });
 
 describe('calculateBudget integration', () => {
-  it('returns complete result with errors included', () => {
+  it('returns complete math-only result', () => {
     const result = calculateBudget({
       tier: 'free',
       balanceCents: 0,
@@ -658,7 +287,6 @@ describe('calculateBudget integration', () => {
       modelContextLength: 128_000,
     });
 
-    expect(result).toHaveProperty('canAfford');
     expect(result).toHaveProperty('maxOutputTokens');
     expect(result).toHaveProperty('estimatedInputTokens');
     expect(result).toHaveProperty('estimatedInputCost');
@@ -666,23 +294,1118 @@ describe('calculateBudget integration', () => {
     expect(result).toHaveProperty('effectiveBalance');
     expect(result).toHaveProperty('currentUsage');
     expect(result).toHaveProperty('capacityPercent');
-    expect(result).toHaveProperty('errors');
-    expect(Array.isArray(result.errors)).toBe(true);
+    // canAfford and errors are no longer in the return type
+    expect(result).not.toHaveProperty('canAfford');
+    expect(result).not.toHaveProperty('errors');
+  });
+});
+
+describe('effectiveBudgetCents', () => {
+  it('returns min of all three positive constraints', () => {
+    const result = effectiveBudgetCents({
+      conversationRemainingCents: 500,
+      memberRemainingCents: 300,
+      ownerRemainingCents: 1000,
+    });
+    expect(result).toBe(300);
   });
 
-  it('generates correct errors in result', () => {
-    const result = calculateBudget({
-      tier: 'guest',
-      balanceCents: 0,
-      freeAllowanceCents: 0,
-      promptCharacterCount: 100,
-      modelInputPricePerToken: 0.000_000_1,
-      modelOutputPricePerToken: 0.000_000_1,
-      modelContextLength: 10_000,
+  it('includes conversationRemainingCents when zero', () => {
+    const result = effectiveBudgetCents({
+      conversationRemainingCents: 0,
+      memberRemainingCents: 300,
+      ownerRemainingCents: 1000,
+    });
+    expect(result).toBe(0);
+  });
+
+  it('includes memberRemainingCents when zero (no budget row)', () => {
+    const result = effectiveBudgetCents({
+      conversationRemainingCents: 500,
+      memberRemainingCents: 0,
+      ownerRemainingCents: 1000,
+    });
+    expect(result).toBe(0);
+  });
+
+  it('includes memberRemainingCents when zero (budget exhausted)', () => {
+    const result = effectiveBudgetCents({
+      conversationRemainingCents: 500,
+      memberRemainingCents: 0,
+      ownerRemainingCents: 1000,
+    });
+    expect(result).toBe(0);
+  });
+
+  it('includes negative memberRemainingCents (budget over-spent)', () => {
+    const result = effectiveBudgetCents({
+      conversationRemainingCents: 500,
+      memberRemainingCents: -30,
+      ownerRemainingCents: 1000,
+    });
+    expect(result).toBe(-30);
+  });
+
+  it('returns zero when ownerRemainingCents is zero', () => {
+    const result = effectiveBudgetCents({
+      conversationRemainingCents: 500,
+      memberRemainingCents: 300,
+      ownerRemainingCents: 0,
+    });
+    expect(result).toBe(0);
+  });
+
+  it('returns negative when ownerRemainingCents is negative', () => {
+    const result = effectiveBudgetCents({
+      conversationRemainingCents: 500,
+      memberRemainingCents: 300,
+      ownerRemainingCents: -50,
+    });
+    expect(result).toBe(-50);
+  });
+
+  it('returns zero when all constraints are zero (default state)', () => {
+    const result = effectiveBudgetCents({
+      conversationRemainingCents: 0,
+      memberRemainingCents: 0,
+      ownerRemainingCents: 2000,
+    });
+    expect(result).toBe(0);
+  });
+
+  it('returns the single smallest constraint when one wins', () => {
+    const result = effectiveBudgetCents({
+      conversationRemainingCents: 100,
+      memberRemainingCents: 500,
+      ownerRemainingCents: 1000,
+    });
+    expect(result).toBe(100);
+  });
+
+  it('returns ownerRemainingCents when it is the smallest', () => {
+    const result = effectiveBudgetCents({
+      conversationRemainingCents: 1000,
+      memberRemainingCents: 500,
+      ownerRemainingCents: 50,
+    });
+    expect(result).toBe(50);
+  });
+
+  it('includes conversationRemainingCents when zero (budget exhausted)', () => {
+    const result = effectiveBudgetCents({
+      conversationRemainingCents: 0,
+      memberRemainingCents: 300,
+      ownerRemainingCents: 1000,
+    });
+    // conversationRemainingCents 0 is not null, so it is included → min(0, 300, 1000)
+    expect(result).toBe(0);
+  });
+
+  it('includes negative conversationRemainingCents (budget over-spent)', () => {
+    const result = effectiveBudgetCents({
+      conversationRemainingCents: -10,
+      memberRemainingCents: 300,
+      ownerRemainingCents: 1000,
+    });
+    // conversationRemainingCents -10 is not null, so it is included → min(-10, 300, 1000)
+    expect(result).toBe(-10);
+  });
+});
+
+// ============================================================================
+// generateNotifications() — maps resolveBilling() output to UI notifications
+// ============================================================================
+
+/** Helper to build NotificationInput with sensible defaults */
+function notifInput(overrides: Partial<NotificationInput> = {}): NotificationInput {
+  return {
+    billingResult: { fundingSource: 'personal_balance' },
+    capacityPercent: 20,
+    maxOutputTokens: 50_000,
+    ...overrides,
+  };
+}
+
+describe('generateNotifications', () => {
+  describe('denial notifications', () => {
+    it('returns error for premium_requires_balance', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'premium_requires_balance' },
+        })
+      );
+      const error = result.find((e) => e.id === 'premium_requires_balance');
+      expect(error).toBeDefined();
+      expect(error?.type).toBe('error');
+      expect(error?.message).toBe('This model requires a paid account.');
+      expect(error?.segments).toEqual([
+        { text: 'This model requires a paid account. ' },
+        { text: 'Top up', link: '/billing' },
+        { text: ' to use premium models.' },
+      ]);
     });
 
-    // Should have guest_notice info
-    expect(result.errors.some((e) => e.id === 'guest_notice')).toBe(true);
+    it('returns error for insufficient_balance', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_balance' },
+        })
+      );
+      const error = result.find((e) => e.id === 'insufficient_balance');
+      expect(error).toBeDefined();
+      expect(error?.type).toBe('error');
+      expect(error?.message).toBe('Insufficient balance. Top up or try a more affordable model.');
+    });
+
+    it('returns error for insufficient_free_allowance', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_free_allowance' },
+        })
+      );
+      const error = result.find((e) => e.id === 'insufficient_free_allowance');
+      expect(error).toBeDefined();
+      expect(error?.type).toBe('error');
+      expect(error?.message).toBe(
+        "Your free daily usage can't cover this message. Top up or try a shorter conversation."
+      );
+    });
+
+    it('returns error for guest_limit_exceeded', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+        })
+      );
+      const error = result.find((e) => e.id === 'guest_limit_exceeded');
+      expect(error).toBeDefined();
+      expect(error?.type).toBe('error');
+      expect(error?.message).toBe('This message exceeds the usage limit.');
+    });
+  });
+
+  describe('funding source info notices', () => {
+    it('shows free tier notice for free_allowance funding', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'free_allowance' },
+        })
+      );
+      const notice = result.find((e) => e.id === 'free_tier_notice');
+      expect(notice).toBeDefined();
+      expect(notice?.type).toBe('info');
+      expect(notice?.message).toBe('Using free allowance. Top up for longer conversations.');
+    });
+
+    it('shows trial notice for guest_fixed funding', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'guest_fixed' },
+        })
+      );
+      const notice = result.find((e) => e.id === 'trial_notice');
+      expect(notice).toBeDefined();
+      expect(notice?.type).toBe('info');
+      expect(notice?.message).toBe('Free preview. Sign up for full access.');
+    });
+
+    it('does not show tier notice for personal_balance funding', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+        })
+      );
+      expect(result.some((e) => e.id === 'free_tier_notice')).toBe(false);
+      expect(result.some((e) => e.id === 'trial_notice')).toBe(false);
+    });
+
+    it('does not show tier notice for owner_balance funding', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'owner_balance' },
+        })
+      );
+      expect(result.some((e) => e.id === 'free_tier_notice')).toBe(false);
+      expect(result.some((e) => e.id === 'trial_notice')).toBe(false);
+    });
+  });
+
+  describe('capacity notifications', () => {
+    it('shows capacity_exceeded when capacityPercent > 100', () => {
+      const result = generateNotifications(notifInput({ capacityPercent: 150 }));
+      const error = result.find((e) => e.id === 'capacity_exceeded');
+      expect(error).toBeDefined();
+      expect(error?.type).toBe('error');
+    });
+
+    it('does not show capacity_exceeded when capacityPercent <= 100', () => {
+      const result = generateNotifications(notifInput({ capacityPercent: 100 }));
+      expect(result.some((e) => e.id === 'capacity_exceeded')).toBe(false);
+    });
+
+    it('shows capacity_warning at red threshold when no blocking errors', () => {
+      const result = generateNotifications(
+        notifInput({
+          capacityPercent: CAPACITY_RED_THRESHOLD * 100,
+        })
+      );
+      expect(result.some((e) => e.id === 'capacity_warning')).toBe(true);
+    });
+
+    it('does not show capacity_warning below red threshold', () => {
+      const result = generateNotifications(
+        notifInput({
+          capacityPercent: CAPACITY_RED_THRESHOLD * 100 - 1,
+        })
+      );
+      expect(result.some((e) => e.id === 'capacity_warning')).toBe(false);
+    });
+
+    it('does not show capacity_warning when denied (blocking error present)', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_balance' },
+          capacityPercent: 80,
+        })
+      );
+      expect(result.some((e) => e.id === 'capacity_warning')).toBe(false);
+    });
+
+    it('does not show capacity_warning when over capacity (capacity_exceeded shown instead)', () => {
+      const result = generateNotifications(notifInput({ capacityPercent: 110 }));
+      expect(result.some((e) => e.id === 'capacity_warning')).toBe(false);
+      expect(result.some((e) => e.id === 'capacity_exceeded')).toBe(true);
+    });
+  });
+
+  describe('low balance warning', () => {
+    it('shows low_balance for personal_balance with low maxOutputTokens', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          maxOutputTokens: LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD - 1,
+        })
+      );
+      expect(result.some((e) => e.id === 'low_balance')).toBe(true);
+    });
+
+    it('does not show low_balance when maxOutputTokens >= threshold', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          maxOutputTokens: LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD,
+        })
+      );
+      expect(result.some((e) => e.id === 'low_balance')).toBe(false);
+    });
+
+    it('shows low_balance even when hasDelegatedBudget is true (budget exhausted, personal fallback)', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          maxOutputTokens: 100,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(result.some((e) => e.id === 'low_balance')).toBe(true);
+    });
+
+    it('does not show low_balance for non-personal_balance funding', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'free_allowance' },
+          maxOutputTokens: 100,
+        })
+      );
+      expect(result.some((e) => e.id === 'low_balance')).toBe(false);
+    });
+
+    it('does not show low_balance when denied', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_balance' },
+          maxOutputTokens: 100,
+        })
+      );
+      expect(result.some((e) => e.id === 'low_balance')).toBe(false);
+    });
+  });
+
+  describe('delegated budget notices', () => {
+    it('shows delegated_budget_notice when owner_balance and hasDelegatedBudget', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'owner_balance' },
+          hasDelegatedBudget: true,
+        })
+      );
+      const notice = result.find((e) => e.id === 'delegated_budget_notice');
+      expect(notice).toBeDefined();
+      expect(notice?.type).toBe('info');
+      expect(notice?.message).toBe(
+        "You won't be charged. The conversation owner has allocated budget for your messages."
+      );
+    });
+
+    it('does not show delegated_budget_notice without hasDelegatedBudget', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'owner_balance' },
+        })
+      );
+      expect(result.some((e) => e.id === 'delegated_budget_notice')).toBe(false);
+    });
+
+    it('shows delegated_budget_exhausted when hasDelegatedBudget but fell through to personal', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          hasDelegatedBudget: true,
+        })
+      );
+      const notice = result.find((e) => e.id === 'delegated_budget_exhausted');
+      expect(notice).toBeDefined();
+      expect(notice?.type).toBe('info');
+    });
+
+    it('shows delegated_budget_exhausted even when denied (provides context)', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_balance' },
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(result.some((e) => e.id === 'delegated_budget_exhausted')).toBe(true);
+    });
+  });
+
+  describe('privilege notifications', () => {
+    it('shows read_only_notice when privilege is read', () => {
+      const result = generateNotifications(notifInput({ privilege: 'read' }));
+      const notice = result.find((e) => e.id === 'read_only_notice');
+      expect(notice).toBeDefined();
+      expect(notice?.type).toBe('info');
+      expect(notice?.message).toBe('You have read-only access to this conversation.');
+    });
+
+    it('does not show read_only_notice for write privilege', () => {
+      const result = generateNotifications(notifInput({ privilege: 'write' }));
+      expect(result.some((e) => e.id === 'read_only_notice')).toBe(false);
+    });
+
+    it('does not show read_only_notice when no privilege specified', () => {
+      const result = generateNotifications(notifInput());
+      expect(result.some((e) => e.id === 'read_only_notice')).toBe(false);
+    });
+  });
+});
+
+// ============================================================================
+// Comprehensive notification state audit — 54 cases
+// Tests the CORRECTED behavior (Issues B, C, E, F)
+// ============================================================================
+
+describe('generateNotifications — comprehensive state audit', () => {
+  /** Extract notification IDs in order */
+  function ids(result: ReturnType<typeof generateNotifications>): string[] {
+    return result.map((n) => n.id);
+  }
+
+  // Capacity values
+  const CAP_NORMAL = 20;
+  const CAP_WARNING = 80;
+  const CAP_EXCEEDED = 150;
+  // MaxOutputTokens
+  const BAL_HIGH = 50_000;
+  const BAL_LOW = 5000;
+
+  // ────────────────────────────────────────────
+  // A. TRIAL USER — Solo Only
+  // ────────────────────────────────────────────
+
+  describe('A. Trial user — solo', () => {
+    it('T1: basic, normal capacity, within cap → [trial_notice]', () => {
+      const result = generateNotifications(
+        notifInput({ billingResult: { fundingSource: 'guest_fixed' }, capacityPercent: CAP_NORMAL })
+      );
+      expect(ids(result)).toEqual(['trial_notice']);
+    });
+
+    it('T2: basic, warning capacity, within cap → [capacity_warning, trial_notice]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'guest_fixed' },
+          capacityPercent: CAP_WARNING,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_warning', 'trial_notice']);
+    });
+
+    it('T3: basic, exceeded capacity, within cap → [capacity_exceeded, trial_notice]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'guest_fixed' },
+          capacityPercent: CAP_EXCEEDED,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_exceeded', 'trial_notice']);
+    });
+
+    it('T4: basic, normal capacity, over cap → [guest_limit_exceeded]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          capacityPercent: CAP_NORMAL,
+        })
+      );
+      expect(ids(result)).toEqual(['guest_limit_exceeded']);
+    });
+
+    it('T5: basic, warning capacity, over cap → [guest_limit_exceeded]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          capacityPercent: CAP_WARNING,
+        })
+      );
+      expect(ids(result)).toEqual(['guest_limit_exceeded']);
+    });
+
+    it('T6: basic, exceeded capacity, over cap → [capacity_exceeded, guest_limit_exceeded]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          capacityPercent: CAP_EXCEEDED,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_exceeded', 'guest_limit_exceeded']);
+    });
+
+    it('T7: premium, normal capacity → [premium_requires_balance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'premium_requires_balance' },
+          capacityPercent: CAP_NORMAL,
+        })
+      );
+      expect(ids(result)).toEqual(['premium_requires_balance']);
+    });
+
+    it('T8: premium, warning capacity → [premium_requires_balance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'premium_requires_balance' },
+          capacityPercent: CAP_WARNING,
+        })
+      );
+      expect(ids(result)).toEqual(['premium_requires_balance']);
+    });
+
+    it('T9: premium, exceeded capacity → [capacity_exceeded, premium_requires_balance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'premium_requires_balance' },
+          capacityPercent: CAP_EXCEEDED,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_exceeded', 'premium_requires_balance']);
+    });
+  });
+
+  // ────────────────────────────────────────────
+  // B. FREE USER — Solo / Group Owner
+  // ────────────────────────────────────────────
+
+  describe('B. Free user — solo/owner', () => {
+    it('F1: basic, normal, sufficient → [free_tier_notice]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'free_allowance' },
+          capacityPercent: CAP_NORMAL,
+        })
+      );
+      expect(ids(result)).toEqual(['free_tier_notice']);
+    });
+
+    it('F2: basic, warning, sufficient → [capacity_warning, free_tier_notice]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'free_allowance' },
+          capacityPercent: CAP_WARNING,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_warning', 'free_tier_notice']);
+    });
+
+    it('F3: basic, exceeded, sufficient → [capacity_exceeded, free_tier_notice]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'free_allowance' },
+          capacityPercent: CAP_EXCEEDED,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_exceeded', 'free_tier_notice']);
+    });
+
+    it('F4: basic, normal, insufficient → [insufficient_free_allowance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_free_allowance' },
+          capacityPercent: CAP_NORMAL,
+        })
+      );
+      expect(ids(result)).toEqual(['insufficient_free_allowance']);
+    });
+
+    it('F5: basic, warning, insufficient → [insufficient_free_allowance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_free_allowance' },
+          capacityPercent: CAP_WARNING,
+        })
+      );
+      expect(ids(result)).toEqual(['insufficient_free_allowance']);
+    });
+
+    it('F6: basic, exceeded, insufficient → [capacity_exceeded, insufficient_free_allowance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_free_allowance' },
+          capacityPercent: CAP_EXCEEDED,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_exceeded', 'insufficient_free_allowance']);
+    });
+
+    it('F7: premium, normal → [premium_requires_balance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'premium_requires_balance' },
+          capacityPercent: CAP_NORMAL,
+        })
+      );
+      expect(ids(result)).toEqual(['premium_requires_balance']);
+    });
+
+    it('F8: premium, warning → [premium_requires_balance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'premium_requires_balance' },
+          capacityPercent: CAP_WARNING,
+        })
+      );
+      expect(ids(result)).toEqual(['premium_requires_balance']);
+    });
+
+    it('F9: premium, exceeded → [capacity_exceeded, premium_requires_balance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'premium_requires_balance' },
+          capacityPercent: CAP_EXCEEDED,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_exceeded', 'premium_requires_balance']);
+    });
+  });
+
+  // ────────────────────────────────────────────
+  // C. PAID USER — Solo / Group Owner
+  // ────────────────────────────────────────────
+
+  describe('C. Paid user — solo/owner', () => {
+    it('P1: normal, high balance → []', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          capacityPercent: CAP_NORMAL,
+          maxOutputTokens: BAL_HIGH,
+        })
+      );
+      expect(ids(result)).toEqual([]);
+    });
+
+    it('P2: normal, low balance → [low_balance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          capacityPercent: CAP_NORMAL,
+          maxOutputTokens: BAL_LOW,
+        })
+      );
+      expect(ids(result)).toEqual(['low_balance']);
+    });
+
+    it('P3: warning, high balance → [capacity_warning]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          capacityPercent: CAP_WARNING,
+          maxOutputTokens: BAL_HIGH,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_warning']);
+    });
+
+    it('P4: warning, low balance → [capacity_warning, low_balance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          capacityPercent: CAP_WARNING,
+          maxOutputTokens: BAL_LOW,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_warning', 'low_balance']);
+    });
+
+    it('P5: exceeded, sufficient → [capacity_exceeded]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          capacityPercent: CAP_EXCEEDED,
+          maxOutputTokens: BAL_HIGH,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_exceeded']);
+    });
+
+    it('P6: normal, insufficient → [insufficient_balance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_balance' },
+          capacityPercent: CAP_NORMAL,
+        })
+      );
+      expect(ids(result)).toEqual(['insufficient_balance']);
+    });
+
+    it('P7: warning, insufficient → [insufficient_balance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_balance' },
+          capacityPercent: CAP_WARNING,
+        })
+      );
+      expect(ids(result)).toEqual(['insufficient_balance']);
+    });
+
+    it('P8: exceeded, insufficient → [capacity_exceeded, insufficient_balance]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_balance' },
+          capacityPercent: CAP_EXCEEDED,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_exceeded', 'insufficient_balance']);
+    });
+  });
+
+  // ────────────────────────────────────────────
+  // D. GROUP MEMBER — Budget Active (owner pays)
+  // ────────────────────────────────────────────
+
+  describe('D. Group member — budget active', () => {
+    it('GM1: normal → [delegated_budget_notice]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'owner_balance' },
+          capacityPercent: CAP_NORMAL,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['delegated_budget_notice']);
+    });
+
+    it('GM2: warning → [capacity_warning, delegated_budget_notice]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'owner_balance' },
+          capacityPercent: CAP_WARNING,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_warning', 'delegated_budget_notice']);
+    });
+
+    it('GM3: exceeded → [capacity_exceeded, delegated_budget_notice]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'owner_balance' },
+          capacityPercent: CAP_EXCEEDED,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_exceeded', 'delegated_budget_notice']);
+    });
+  });
+
+  // ────────────────────────────────────────────
+  // E. GROUP MEMBER — Budget Exhausted, Paid Member
+  // ────────────────────────────────────────────
+
+  describe('E. Group member — budget exhausted, paid', () => {
+    it('GMP1: normal, high → [delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          capacityPercent: CAP_NORMAL,
+          maxOutputTokens: BAL_HIGH,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['delegated_budget_exhausted']);
+    });
+
+    it('GMP2: normal, low → [low_balance, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          capacityPercent: CAP_NORMAL,
+          maxOutputTokens: BAL_LOW,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['low_balance', 'delegated_budget_exhausted']);
+    });
+
+    it('GMP3: warning, high → [capacity_warning, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          capacityPercent: CAP_WARNING,
+          maxOutputTokens: BAL_HIGH,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_warning', 'delegated_budget_exhausted']);
+    });
+
+    it('GMP4: warning, low → [capacity_warning, low_balance, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          capacityPercent: CAP_WARNING,
+          maxOutputTokens: BAL_LOW,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual([
+        'capacity_warning',
+        'low_balance',
+        'delegated_budget_exhausted',
+      ]);
+    });
+
+    it('GMP5: exceeded, sufficient → [capacity_exceeded, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'personal_balance' },
+          capacityPercent: CAP_EXCEEDED,
+          maxOutputTokens: BAL_HIGH,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['capacity_exceeded', 'delegated_budget_exhausted']);
+    });
+
+    it('GMP6: normal, insufficient → [insufficient_balance, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_balance' },
+          capacityPercent: CAP_NORMAL,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['insufficient_balance', 'delegated_budget_exhausted']);
+    });
+
+    it('GMP7: warning, insufficient → [insufficient_balance, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_balance' },
+          capacityPercent: CAP_WARNING,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['insufficient_balance', 'delegated_budget_exhausted']);
+    });
+
+    it('GMP8: exceeded, insufficient → [capacity_exceeded, insufficient_balance, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_balance' },
+          capacityPercent: CAP_EXCEEDED,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual([
+        'capacity_exceeded',
+        'insufficient_balance',
+        'delegated_budget_exhausted',
+      ]);
+    });
+  });
+
+  // ────────────────────────────────────────────
+  // F. GROUP MEMBER — Budget Exhausted, Free Member
+  // ────────────────────────────────────────────
+
+  describe('F. Group member — budget exhausted, free', () => {
+    it('GMF1: basic, normal, sufficient → [free_tier_notice, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'free_allowance' },
+          capacityPercent: CAP_NORMAL,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['free_tier_notice', 'delegated_budget_exhausted']);
+    });
+
+    it('GMF2: basic, warning, sufficient → [capacity_warning, free_tier_notice, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'free_allowance' },
+          capacityPercent: CAP_WARNING,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual([
+        'capacity_warning',
+        'free_tier_notice',
+        'delegated_budget_exhausted',
+      ]);
+    });
+
+    it('GMF3: basic, exceeded, sufficient → [capacity_exceeded, free_tier_notice, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'free_allowance' },
+          capacityPercent: CAP_EXCEEDED,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual([
+        'capacity_exceeded',
+        'free_tier_notice',
+        'delegated_budget_exhausted',
+      ]);
+    });
+
+    it('GMF4: basic, normal, insufficient → [insufficient_free_allowance, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_free_allowance' },
+          capacityPercent: CAP_NORMAL,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['insufficient_free_allowance', 'delegated_budget_exhausted']);
+    });
+
+    it('GMF5: basic, warning, insufficient → [insufficient_free_allowance, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_free_allowance' },
+          capacityPercent: CAP_WARNING,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['insufficient_free_allowance', 'delegated_budget_exhausted']);
+    });
+
+    it('GMF6: basic, exceeded, insufficient → [capacity_exceeded, insufficient_free_allowance, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_free_allowance' },
+          capacityPercent: CAP_EXCEEDED,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual([
+        'capacity_exceeded',
+        'insufficient_free_allowance',
+        'delegated_budget_exhausted',
+      ]);
+    });
+
+    it('GMF7: premium, normal → [premium_requires_balance, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'premium_requires_balance' },
+          capacityPercent: CAP_NORMAL,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['premium_requires_balance', 'delegated_budget_exhausted']);
+    });
+
+    it('GMF8: premium, exceeded → [capacity_exceeded, premium_requires_balance, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'premium_requires_balance' },
+          capacityPercent: CAP_EXCEEDED,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual([
+        'capacity_exceeded',
+        'premium_requires_balance',
+        'delegated_budget_exhausted',
+      ]);
+    });
+  });
+
+  // ────────────────────────────────────────────
+  // G. GROUP MEMBER — Budget Exhausted, Guest Member
+  // ────────────────────────────────────────────
+
+  describe('G. Group member — budget exhausted, guest', () => {
+    it('GMG1: basic, normal, within cap → [trial_notice, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'guest_fixed' },
+          capacityPercent: CAP_NORMAL,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['trial_notice', 'delegated_budget_exhausted']);
+    });
+
+    it('GMG2: basic, warning, within cap → [capacity_warning, trial_notice, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'guest_fixed' },
+          capacityPercent: CAP_WARNING,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual([
+        'capacity_warning',
+        'trial_notice',
+        'delegated_budget_exhausted',
+      ]);
+    });
+
+    it('GMG3: basic, exceeded, within cap → [capacity_exceeded, trial_notice, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'guest_fixed' },
+          capacityPercent: CAP_EXCEEDED,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual([
+        'capacity_exceeded',
+        'trial_notice',
+        'delegated_budget_exhausted',
+      ]);
+    });
+
+    it('GMG4: basic, normal, over cap → [guest_limit_exceeded, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          capacityPercent: CAP_NORMAL,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['guest_limit_exceeded', 'delegated_budget_exhausted']);
+    });
+
+    it('GMG5: basic, warning, over cap → [guest_limit_exceeded, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          capacityPercent: CAP_WARNING,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['guest_limit_exceeded', 'delegated_budget_exhausted']);
+    });
+
+    it('GMG6: basic, exceeded, over cap → [capacity_exceeded, guest_limit_exceeded, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          capacityPercent: CAP_EXCEEDED,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual([
+        'capacity_exceeded',
+        'guest_limit_exceeded',
+        'delegated_budget_exhausted',
+      ]);
+    });
+
+    it('GMG7: premium, normal → [premium_requires_balance, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'premium_requires_balance' },
+          capacityPercent: CAP_NORMAL,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual(['premium_requires_balance', 'delegated_budget_exhausted']);
+    });
+
+    it('GMG8: premium, exceeded → [capacity_exceeded, premium_requires_balance, delegated_budget_exhausted]', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'premium_requires_balance' },
+          capacityPercent: CAP_EXCEEDED,
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(ids(result)).toEqual([
+        'capacity_exceeded',
+        'premium_requires_balance',
+        'delegated_budget_exhausted',
+      ]);
+    });
+  });
+
+  // ────────────────────────────────────────────
+  // H. READ-ONLY MEMBER — early return
+  // ────────────────────────────────────────────
+
+  describe('H. Read-only member', () => {
+    it('RO1: read-only returns only read_only_notice regardless of billing state', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_balance' },
+          capacityPercent: CAP_EXCEEDED,
+          maxOutputTokens: BAL_LOW,
+          hasDelegatedBudget: true,
+          privilege: 'read',
+        })
+      );
+      expect(ids(result)).toEqual(['read_only_notice']);
+    });
+  });
+
+  // ────────────────────────────────────────────
+  // Issue E: insufficient_free_allowance has link
+  // ────────────────────────────────────────────
+
+  describe('Issue E: insufficient_free_allowance segments', () => {
+    it('includes Top up link to /billing', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'insufficient_free_allowance' },
+        })
+      );
+      const error = result.find((e) => e.id === 'insufficient_free_allowance');
+      expect(error).toBeDefined();
+      expect(error!.message).toBe(
+        "Your free daily usage can't cover this message. Top up or try a shorter conversation."
+      );
+      expect(error!.segments).toEqual([
+        { text: "Your free daily usage can't cover this message. " },
+        { text: 'Top up', link: '/billing' },
+        { text: ' or try a shorter conversation.' },
+      ]);
+    });
   });
 });
 
@@ -699,7 +1422,7 @@ describe('constants verification', () => {
 
   it('uses correct budget constants', () => {
     expect(MAX_ALLOWED_NEGATIVE_BALANCE_CENTS).toBe(50);
-    expect(MAX_GUEST_MESSAGE_COST_CENTS).toBe(1);
+    expect(MAX_TRIAL_MESSAGE_COST_CENTS).toBe(1);
     expect(MINIMUM_OUTPUT_TOKENS).toBe(1000);
     expect(LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD).toBe(10_000);
   });

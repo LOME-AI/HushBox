@@ -17,7 +17,7 @@ vi.mock('./seed.js', () => ({
 
 import { execa } from 'execa';
 import { seed } from './seed.js';
-import { startDocker, runMigrations, startTurbo, main, loadEnv } from './dev';
+import { startDocker, runMigrations, startDrizzleStudio, startTurbo, main } from './dev';
 
 const mockExeca = vi.mocked(execa);
 const mockSeed = vi.mocked(seed);
@@ -32,21 +32,22 @@ describe('dev script', () => {
     vi.restoreAllMocks();
   });
 
-  describe('loadEnv', () => {
-    it('loads environment variables from .env.development', () => {
-      const env = loadEnv();
-      expect(env).toBeDefined();
-      expect(typeof env).toBe('object');
-    });
-  });
-
   describe('startDocker', () => {
     it('calls docker compose up with correct arguments', async () => {
       await startDocker();
 
       expect(mockExeca).toHaveBeenCalledWith(
         'docker',
-        ['compose', 'up', '-d', '--wait', 'postgres', 'neon-proxy'],
+        [
+          'compose',
+          'up',
+          '-d',
+          '--wait',
+          'postgres',
+          'neon-proxy',
+          'redis',
+          'serverless-redis-http',
+        ],
         expect.objectContaining({
           stdio: 'inherit',
         })
@@ -66,7 +67,7 @@ describe('dev script', () => {
 
       expect(mockExeca).toHaveBeenCalledWith(
         'pnpm',
-        ['--filter', '@lome-chat/db', 'db:migrate'],
+        ['--filter', '@hushbox/db', 'db:migrate'],
         expect.objectContaining({
           stdio: 'inherit',
         })
@@ -77,6 +78,28 @@ describe('dev script', () => {
       mockExeca.mockRejectedValueOnce(new Error('Migration failed'));
 
       await expect(runMigrations()).rejects.toThrow('Migration failed');
+    });
+  });
+
+  describe('startDrizzleStudio', () => {
+    it('calls pnpm db:studio with correct arguments', () => {
+      startDrizzleStudio();
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        'pnpm',
+        ['--filter', '@hushbox/db', 'db:studio'],
+        expect.objectContaining({
+          stdio: 'ignore',
+        })
+      );
+    });
+
+    it('does not throw when execa rejects (non-fatal)', () => {
+      mockExeca.mockReturnValueOnce(Promise.reject(new Error('Studio failed')) as never);
+
+      expect(() => {
+        startDrizzleStudio();
+      }).not.toThrow();
     });
   });
 
@@ -101,12 +124,15 @@ describe('dev script', () => {
   });
 
   describe('main', () => {
-    it('executes steps in correct order: docker, migrations, seed, turbo', async () => {
+    it('executes steps in correct order: docker, migrations, studio, seed, turbo', async () => {
       const callOrder: string[] = [];
 
-      mockExeca.mockImplementation(((cmd: string | URL) => {
+      mockExeca.mockImplementation(((cmd: string | URL, args?: readonly string[]) => {
         if (cmd === 'docker') callOrder.push('docker');
-        if (cmd === 'pnpm') callOrder.push('migrations');
+        if (cmd === 'pnpm' && Array.isArray(args) && args.includes('db:migrate'))
+          callOrder.push('migrations');
+        if (cmd === 'pnpm' && Array.isArray(args) && args.includes('db:studio'))
+          callOrder.push('studio');
         if (cmd === 'turbo') callOrder.push('turbo');
         return Promise.resolve({} as never);
       }) as never);
@@ -118,7 +144,7 @@ describe('dev script', () => {
 
       await main();
 
-      expect(callOrder).toEqual(['docker', 'migrations', 'seed', 'turbo']);
+      expect(callOrder).toEqual(['docker', 'migrations', 'studio', 'seed', 'turbo']);
     });
 
     it('stops execution if docker fails', async () => {

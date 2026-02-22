@@ -16,7 +16,7 @@ export const useModelStore = create<ModelState>()(
         set({ selectedModelId: modelId, selectedModelName: modelName }),
     }),
     {
-      name: 'lome-model-storage',
+      name: 'hushbox-model-storage',
     }
   )
 );

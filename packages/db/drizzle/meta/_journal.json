@@ -57,6 +57,118 @@
       "when": 1769407451291,
       "tag": "0007_tiny_trauma",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1770508800000,
+      "tag": "0008_full_schema_overhaul",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1770595200000,
+      "tag": "0009_shared_links_display_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1770681600000,
+      "tag": "0010_add_message_cost",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1770780491827,
+      "tag": "0011_username_max_length",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1770940800000,
+      "tag": "0012_conversation_budget_not_null",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1771027200000,
+      "tag": "0013_member_budget_default_zero",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1771113600000,
+      "tag": "0014_drop_shared_links_visible_from_epoch",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1771200000000,
+      "tag": "0015_shared_links_unique_public_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1771286400000,
+      "tag": "0016_conversation_member_accepted",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1771372800000,
+      "tag": "0017_remove_rotation_infrastructure",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1771459200000,
+      "tag": "0018_drop_redundant_privilege",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1771545600000,
+      "tag": "0019_make_email_nullable",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1771632000000,
+      "tag": "0020_messages_cost_numeric",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1771718400000,
+      "tag": "0021_wallets_user_type_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1771804800000,
+      "tag": "0022_messages_conversation_epoch_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1771891200000,
+      "tag": "0023_budget_precision",
+      "breakpoints": true
     }
   ]
 }

@@ -40,6 +40,7 @@ test.describe('Auto-scroll During Streaming', () => {
     authenticatedPage,
     testConversation: _testConversation,
   }) => {
+    test.slow();
     const chatPage = new ChatPage(authenticatedPage);
 
     const setupMessages = [

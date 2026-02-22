@@ -1,107 +1,207 @@
-import { eq } from 'drizzle-orm';
-import { users, type Database } from '@lome-chat/db';
+import { and, eq, lt, max } from 'drizzle-orm';
+import { wallets, ledgerEntries, type Database } from '@hushbox/db';
 import {
   getUserTier,
-  FREE_ALLOWANCE_CENTS,
-  getUtcMidnight,
+  FREE_ALLOWANCE_DOLLARS,
   needsResetBeforeMidnight,
   type UserTierInfo,
-} from '@lome-chat/shared';
-import { fireAndForget } from '../../lib/fire-and-forget.js';
+} from '@hushbox/shared';
 
 export interface BalanceCheckResult {
   hasBalance: boolean;
   currentBalance: string;
+  freeAllowanceCents: number;
+}
+
+interface WalletRow {
+  type: string;
+  balance: string;
+  id: string;
+}
+
+/**
+ * Compute purchased balance sum and free tier balance from wallet rows.
+ * All wallet balances are stored as dollar strings in `numeric(20,8)` columns.
+ */
+function computeBalances(walletRows: WalletRow[]): {
+  purchasedBalance: number;
+  purchasedBalanceString: string;
+  freeAllowanceDollars: number;
+  freeTierWalletId: string | null;
+} {
+  let purchasedBalance = 0;
+  let freeAllowanceDollars = 0;
+  let freeTierWalletId: string | null = null;
+
+  for (const wallet of walletRows) {
+    const balance = Number.parseFloat(wallet.balance);
+    if (wallet.type === 'purchased') {
+      purchasedBalance += balance;
+    } else if (wallet.type === 'free_tier') {
+      freeAllowanceDollars = balance;
+      freeTierWalletId = wallet.id;
+    }
+  }
+
+  const purchasedBalanceString = purchasedBalance.toFixed(8);
+
+  return { purchasedBalance, purchasedBalanceString, freeAllowanceDollars, freeTierWalletId };
 }
 
 /**
  * Check if user has positive balance or free allowance.
  * Returns balance for display even if insufficient.
  *
- * With dual-balance system:
- * - Primary balance > 0: Can use any model
- * - Primary balance = 0 but free allowance > 0: Can use basic models
+ * With wallet-based system:
+ * - SUM(purchased wallets) > 0: Can use any model
+ * - free_tier wallet balance > 0: Can use basic models
  * - Both zero: No access
+ *
+ * Also triggers lazy renewal of free tier if needed.
  */
 export async function checkUserBalance(db: Database, userId: string): Promise<BalanceCheckResult> {
-  const [user] = await db
+  const walletRows = await db
     .select({
-      balance: users.balance,
-      freeAllowanceCents: users.freeAllowanceCents,
-      freeAllowanceResetAt: users.freeAllowanceResetAt,
+      type: wallets.type,
+      balance: wallets.balance,
+      id: wallets.id,
     })
-    .from(users)
-    .where(eq(users.id, userId));
+    .from(wallets)
+    .where(eq(wallets.userId, userId));
 
-  const balance = user?.balance ?? '0';
-  const balanceValue = Number.parseFloat(balance);
+  const {
+    purchasedBalance,
+    purchasedBalanceString,
+    freeAllowanceDollars: rawFreeAllowanceDollars,
+    freeTierWalletId,
+  } = computeBalances(walletRows as WalletRow[]);
 
-  // Check if free allowance needs reset (parse string to number for comparison)
-  let freeAllowanceCents = Number.parseFloat(user?.freeAllowanceCents ?? '0');
-  if (user && needsResetBeforeMidnight(user.freeAllowanceResetAt)) {
-    freeAllowanceCents = Number.parseFloat(FREE_ALLOWANCE_CENTS);
-  }
+  // Lazy renewal of free tier (returns dollars)
+  const freeAllowanceDollars = freeTierWalletId
+    ? await maybeRenewFreeAllowance(db, freeTierWalletId, rawFreeAllowanceDollars)
+    : rawFreeAllowanceDollars;
 
-  // User has balance if: primary balance > 0 OR free allowance > 0
-  const hasBalance = balanceValue > 0 || freeAllowanceCents > 0;
+  // Convert dollars to cents for the billing system
+  const freeAllowanceCents = freeAllowanceDollars * 100;
 
-  return { hasBalance, currentBalance: balance };
+  const hasBalance = purchasedBalance > 0 || freeAllowanceCents > 0;
+
+  return { hasBalance, currentBalance: purchasedBalanceString, freeAllowanceCents };
 }
 
 /**
- * Get user tier info with lazy reset of free allowance.
+ * Get user tier info with lazy renewal of free allowance.
  * Returns full tier information for authorization decisions.
  *
+ * Queries wallets table instead of users table.
+ * Free tier renewal is based on ledger entries, not a reset timestamp column.
+ *
  * @param db - Database connection
- * @param userId - User ID, or null for guest
+ * @param userId - User ID, or null for trial users
  * @returns Tier info with balances
  */
 export async function getUserTierInfo(db: Database, userId: string | null): Promise<UserTierInfo> {
-  // Guest users
   if (userId === null) {
     return getUserTier(null);
   }
 
-  // Fetch user with balance and free allowance
-  const [user] = await db
+  const walletRows = await db
     .select({
-      balance: users.balance,
-      freeAllowanceCents: users.freeAllowanceCents,
-      freeAllowanceResetAt: users.freeAllowanceResetAt,
+      type: wallets.type,
+      balance: wallets.balance,
+      id: wallets.id,
     })
-    .from(users)
-    .where(eq(users.id, userId));
+    .from(wallets)
+    .where(eq(wallets.userId, userId));
 
-  if (!user) {
-    // User not found, treat as guest
-    return getUserTier(null);
+  if (walletRows.length === 0) {
+    return getUserTier({ balanceCents: 0, freeAllowanceCents: 0 });
   }
 
-  // Check if free allowance needs reset (parse string to number)
-  let freeAllowanceCents = Number.parseFloat(user.freeAllowanceCents);
-  if (needsResetBeforeMidnight(user.freeAllowanceResetAt)) {
-    // Reset free allowance
-    freeAllowanceCents = Number.parseFloat(FREE_ALLOWANCE_CENTS);
+  const {
+    purchasedBalance,
+    freeAllowanceDollars: initialFreeAllowanceDollars,
+    freeTierWalletId,
+  } = computeBalances(walletRows as WalletRow[]);
 
-    // Update in database (fire-and-forget, don't block)
-    fireAndForget(
-      db
-        .update(users)
-        .set({
-          freeAllowanceCents: FREE_ALLOWANCE_CENTS,
-          freeAllowanceResetAt: getUtcMidnight(),
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, userId)),
-      'reset free allowance'
-    );
-  }
+  // Lazy renewal of free tier allowance (returns dollars)
+  const freeAllowanceDollars = freeTierWalletId
+    ? await maybeRenewFreeAllowance(db, freeTierWalletId, initialFreeAllowanceDollars)
+    : initialFreeAllowanceDollars;
 
-  // Convert balance from dollars to cents
-  const balanceCents = Math.round(Number.parseFloat(user.balance) * 100);
+  // Convert dollars to fractional cents — no Math.round, preserves full precision
+  const balanceCents = purchasedBalance * 100;
+  const freeAllowanceCents = freeAllowanceDollars * 100;
 
   return getUserTier({
     balanceCents,
     freeAllowanceCents,
   });
+}
+
+/**
+ * Check if free tier wallet needs renewal and perform atomic renewal if needed.
+ *
+ * Idempotency: The UPDATE uses WHERE balance < FREE_ALLOWANCE_DOLLARS.
+ * If two requests race, only the first succeeds (second finds balance >= and updates 0 rows).
+ * Ledger entry is only inserted inside the same transaction when the update succeeds.
+ *
+ * @param currentBalanceDollars - Current free tier wallet balance in dollars
+ * @returns The free allowance in dollars (either renewed or unchanged)
+ */
+async function maybeRenewFreeAllowance(
+  db: Database,
+  freeTierWalletId: string,
+  currentBalanceDollars: number
+): Promise<number> {
+  // Check last renewal timestamp from ledger entries
+  const [renewalResult] = await db
+    .select({ maxCreatedAt: max(ledgerEntries.createdAt) })
+    .from(ledgerEntries)
+    .where(
+      and(eq(ledgerEntries.walletId, freeTierWalletId), eq(ledgerEntries.entryType, 'renewal'))
+    );
+
+  const lastRenewalAt = renewalResult?.maxCreatedAt ?? null;
+
+  // If renewal is not needed, return current balance in dollars
+  if (!needsResetBeforeMidnight(lastRenewalAt)) {
+    return currentBalanceDollars;
+  }
+
+  // Atomic transaction: UPDATE wallet + INSERT ledger entry together.
+  // The WHERE clause IS the idempotency guard: if two requests race,
+  // only the first succeeds; the second finds balance >= FREE_ALLOWANCE_DOLLARS and updates 0 rows.
+  await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(wallets)
+      .set({ balance: FREE_ALLOWANCE_DOLLARS })
+      .where(
+        and(
+          eq(wallets.id, freeTierWalletId),
+          eq(wallets.type, 'free_tier'),
+          lt(wallets.balance, FREE_ALLOWANCE_DOLLARS)
+        )
+      )
+      .returning({ id: wallets.id, balance: wallets.balance });
+
+    // If update returned 0 rows, balance was already >= FREE_ALLOWANCE_DOLLARS (race or already full)
+    if (updated) {
+      // Amount is the delta: what was actually added to the wallet
+      const delta = (Number.parseFloat(FREE_ALLOWANCE_DOLLARS) - currentBalanceDollars).toFixed(8);
+
+      await tx
+        .insert(ledgerEntries)
+        .values({
+          walletId: freeTierWalletId,
+          amount: delta,
+          balanceAfter: FREE_ALLOWANCE_DOLLARS,
+          entryType: 'renewal',
+          sourceWalletId: freeTierWalletId,
+        })
+        .returning({ id: ledgerEntries.id });
+    }
+  });
+
+  return Number.parseFloat(FREE_ALLOWANCE_DOLLARS);
 }

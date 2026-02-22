@@ -1,26 +1,24 @@
 /**
  * Error response utilities for consistent API error handling.
+ *
+ * All error responses use `{ code, details? }` format.
+ * Frontend maps `code` → user-facing message via `friendlyErrorMessage()`.
  */
 
-import type { ErrorResponse } from '@lome-chat/shared';
+import type { ErrorResponse } from '@hushbox/shared';
 
 /**
  * Creates a standardized error response object.
  *
- * @param message - Human-readable error message
- * @param code - Optional machine-readable error code
+ * @param code - Machine-readable error code
  * @param details - Optional additional context
  * @returns ErrorResponse object
  */
 export function createErrorResponse(
-  message: string,
-  code?: string,
+  code: string,
   details?: Record<string, unknown>
 ): ErrorResponse {
-  const response: ErrorResponse = { error: message };
-  if (code !== undefined) {
-    response.code = code;
-  }
+  const response: ErrorResponse = { code };
   if (details !== undefined) {
     response.details = details;
   }
@@ -30,19 +28,13 @@ export function createErrorResponse(
 /**
  * Creates a JSON Response with standardized error format.
  *
- * @param message - Human-readable error message
- * @param code - Optional machine-readable error code
- * @param details - Optional additional context
+ * @param code - Machine-readable error code
  * @param status - HTTP status code (default: 400)
+ * @param details - Optional additional context
  * @returns Response object with JSON body
  */
-export function errorJson(
-  message: string,
-  code?: string,
-  details?: Record<string, unknown>,
-  status = 400
-): Response {
-  const body = createErrorResponse(message, code, details);
+export function errorJson(code: string, status = 400, details?: Record<string, unknown>): Response {
+  const body = createErrorResponse(code, details);
   return Response.json(body, {
     status,
     headers: { 'Content-Type': 'application/json' },

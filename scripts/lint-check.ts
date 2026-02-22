@@ -116,7 +116,7 @@ export function formatOutput(results: LintResult[]): string {
 
 /**
  * Extract JSON arrays from turbo output.
- * Turbo prefixes each line with package name, e.g., "@lome-chat/web:lint: [...]"
+ * Turbo prefixes each line with package name, e.g., "@hushbox/web:lint: [...]"
  */
 export function extractJsonFromTurboOutput(output: string): LintResult[] {
   const allResults: LintResult[] = [];

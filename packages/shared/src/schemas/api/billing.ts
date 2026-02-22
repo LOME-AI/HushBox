@@ -1,9 +1,5 @@
 import { z } from 'zod';
-import {
-  paymentStatusSchema,
-  balanceTransactionTypeSchema,
-  deductionSourceSchema,
-} from '../../enums.js';
+import { paymentStatusSchema, ledgerEntryTypeSchema, deductionSourceSchema } from '../../enums.js';
 
 // Re-export enums for API schema consumers
 
@@ -14,12 +10,14 @@ import {
 /**
  * Request schema for creating a payment.
  * Amount must be at least $5.00 (stored as decimal string with 8 decimal places).
+ * idempotencyKey enables safe retries - same key returns existing payment.
  */
 export const createPaymentRequestSchema = z.object({
   amount: z
     .string()
     .regex(/^\d+\.\d{8}$/, 'Amount must be a decimal with 8 decimal places (e.g., "10.00000000")')
     .refine((val) => Number.parseFloat(val) >= 5, 'Minimum deposit is $5.00'),
+  idempotencyKey: z.uuid('Idempotency key must be a valid UUID').optional(),
 });
 
 export type CreatePaymentRequest = z.infer<typeof createPaymentRequestSchema>;
@@ -42,7 +40,7 @@ export const listTransactionsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   cursor: z.string().optional(),
   offset: z.coerce.number().int().min(0).optional(),
-  type: balanceTransactionTypeSchema.optional(),
+  type: ledgerEntryTypeSchema.optional(),
 });
 
 export type ListTransactionsQuery = z.infer<typeof listTransactionsQuerySchema>;
@@ -89,7 +87,7 @@ export const balanceTransactionResponseSchema = z.object({
   id: z.string(),
   amount: z.string(), // Signed decimal string
   balanceAfter: z.string(),
-  type: balanceTransactionTypeSchema,
+  type: ledgerEntryTypeSchema,
   paymentId: z.string().nullable().optional(),
   // Usage transaction fields (null for deposit/adjustment)
   model: z.string().nullable().optional(),
@@ -116,7 +114,7 @@ export type CreatePaymentResponse = z.infer<typeof createPaymentResponseSchema>;
  */
 export const processPaymentResponseSchema = z.discriminatedUnion('status', [
   z.object({
-    status: z.literal('confirmed'),
+    status: z.literal('completed'),
     newBalance: z.string(),
     helcimTransactionId: z.string().optional(),
   }),
@@ -133,7 +131,7 @@ export type ProcessPaymentResponse = z.infer<typeof processPaymentResponseSchema
  */
 export const getPaymentStatusResponseSchema = z.discriminatedUnion('status', [
   z.object({
-    status: z.literal('confirmed'),
+    status: z.literal('completed'),
     newBalance: z.string(),
   }),
   z.object({
@@ -165,8 +163,8 @@ export type ListTransactionsResponse = z.infer<typeof listTransactionsResponseSc
 export {
   type PaymentStatus,
   type StoredDeductionSource,
-  type BalanceTransactionType,
+  type LedgerEntryType,
   paymentStatusSchema,
-  balanceTransactionTypeSchema,
+  ledgerEntryTypeSchema,
   deductionSourceSchema,
 } from '../../enums.js';

@@ -39,20 +39,31 @@ vi.mock('@/hooks/billing', () => ({
   },
 }));
 
-// Mock api module
+// Mock api module — `api` object was removed; module now exports getApiUrl + ApiError
 vi.mock('@/lib/api', () => ({
-  api: {
-    get: vi.fn().mockResolvedValue([
-      {
-        id: 'openai/gpt-4-turbo',
-        name: 'GPT-4 Turbo',
-        description: 'Test model',
-        context_length: 128_000,
-        pricing: { prompt: '0.00001', completion: '0.00003' },
-        supported_parameters: ['temperature'],
-      },
-    ]),
+  getApiUrl: vi.fn(() => 'http://localhost:8787'),
+  ApiError: class ApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public data?: unknown
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
   },
+}));
+
+// Mock chat error store
+const mockClearError = vi.fn();
+vi.mock('@/stores/chat-error', () => ({
+  useChatErrorStore: Object.assign(() => null, {
+    getState: () => ({
+      error: null,
+      setError: vi.fn(),
+      clearError: mockClearError,
+    }),
+  }),
 }));
 
 // Mock hooks used by PromptInput
@@ -89,17 +100,17 @@ vi.mock('@/hooks/models', async (importOriginal) => {
   };
 });
 
-vi.mock('@/hooks/use-budget-calculation', () => ({
-  useBudgetCalculation: () => ({
-    canAfford: true,
-    maxOutputTokens: 1000,
-    estimatedInputTokens: 100,
-    estimatedInputCost: 0.0001,
-    estimatedMinimumCost: 0.001,
-    effectiveBalance: 1,
-    currentUsage: 1100,
+vi.mock('@/hooks/use-prompt-budget', () => ({
+  usePromptBudget: (input: { value: string }) => ({
+    fundingSource: 'personal_balance',
+    notifications: [],
     capacityPercent: 5,
-    errors: [],
+    capacityCurrentUsage: 1100,
+    capacityMaxCapacity: 50_000,
+    estimatedCostCents: 0.1,
+    isOverCapacity: false,
+    hasBlockingError: false,
+    hasContent: input.value.trim().length > 0,
   }),
 }));
 
@@ -262,8 +273,8 @@ describe('ChatIndex', () => {
   });
 
   describe('premium click modal routing', () => {
-    it('renders SignupModal component for guests', () => {
-      // Guest: not authenticated
+    it('renders SignupModal component for trial users', () => {
+      // Trial: not authenticated
       mockUseStableSession.mockReturnValue({
         session: null,
         isAuthenticated: false,
@@ -297,6 +308,44 @@ describe('ChatIndex', () => {
       // PaymentModal component should be in the DOM (but closed)
       // The modal only renders when open=true, so it won't be there initially
       expect(screen.queryByTestId('payment-modal')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('error cleanup', () => {
+    it('clears chat error on mount', () => {
+      mockUseStableSession.mockReturnValue({
+        session: null,
+        isAuthenticated: false,
+        isStable: true,
+        isPending: false,
+      });
+
+      render(<ChatIndex />, { wrapper: createWrapper() });
+
+      expect(mockClearError).toHaveBeenCalled();
+    });
+
+    it('clears chat error when sending a message', async () => {
+      mockUseStableSession.mockReturnValue({
+        session: {
+          user: { email: 'test@example.com' },
+          session: { id: 'session-123' },
+        },
+        isAuthenticated: true,
+        isStable: true,
+        isPending: false,
+      });
+
+      render(<ChatIndex />, { wrapper: createWrapper() });
+
+      mockClearError.mockClear();
+
+      const textarea = screen.getByRole('textbox');
+      const userEventModule = await import('@testing-library/user-event');
+      const user = userEventModule.default;
+      await user.setup().type(textarea, 'Hello AI!{enter}');
+
+      expect(mockClearError).toHaveBeenCalled();
     });
   });
 });

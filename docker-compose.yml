@@ -1,13 +1,15 @@
+name: hushbox
+
 services:
   postgres:
-    image: postgres:17-alpine
-    command: postgres -c max_connections=300
+    image: postgres:18-alpine
+    command: postgres -c max_connections=1000
     ports:
       - '5432:5432'
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: lome_chat
+      POSTGRES_DB: hushbox
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -27,6 +29,37 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  serverless-redis-http:
+    image: hiett/serverless-redis-http:latest
+    ports:
+      - '8079:80'
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: local_dev_token
+      SRH_CONNECTION_STRING: 'redis://redis:6379'
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget -qO- --header="Authorization: Bearer local_dev_token" --header="Content-Type: application/json" --post-data=''["PING"]'' http://127.0.0.1:80/ || exit 1',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   postgres_data:

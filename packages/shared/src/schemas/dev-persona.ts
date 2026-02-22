@@ -8,10 +8,9 @@ export const devPersonaStatsSchema = z.object({
 
 export const devPersonaSchema = z.object({
   id: z.string(),
-  name: z.string(),
+  username: z.string(),
   email: z.email(),
   emailVerified: z.boolean(),
-  image: z.string().nullable(),
   stats: devPersonaStatsSchema,
   credits: z.string(),
 });

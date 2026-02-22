@@ -22,6 +22,14 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }));
 
+// Mock member hooks used by ChatItem
+vi.mock('@/hooks/use-conversation-members', () => ({
+  useLeaveConversation: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
+}));
+
 // Mock chat hooks used by ChatItem
 vi.mock('@/hooks/chat', () => ({
   useDeleteConversation: () => ({
@@ -32,13 +40,32 @@ vi.mock('@/hooks/chat', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+  DECRYPTING_TITLE: 'Decrypting...',
 }));
 
 describe('ChatList', () => {
   const mockConversations = [
-    { id: 'conv-1', title: 'First Conversation', updatedAt: new Date().toISOString() },
-    { id: 'conv-2', title: 'Second Conversation', updatedAt: new Date().toISOString() },
-    { id: 'conv-3', title: 'Third Conversation', updatedAt: new Date().toISOString() },
+    {
+      id: 'conv-1',
+      title: 'First Conversation',
+      currentEpoch: 1,
+      updatedAt: new Date().toISOString(),
+      privilege: 'owner',
+    },
+    {
+      id: 'conv-2',
+      title: 'Second Conversation',
+      currentEpoch: 1,
+      updatedAt: new Date().toISOString(),
+      privilege: 'owner',
+    },
+    {
+      id: 'conv-3',
+      title: 'Third Conversation',
+      currentEpoch: 1,
+      updatedAt: new Date().toISOString(),
+      privilege: 'owner',
+    },
   ];
 
   beforeEach(() => {
@@ -58,13 +85,13 @@ describe('ChatList', () => {
     expect(screen.getByText('No conversations yet')).toBeInTheDocument();
   });
 
-  it('renders signup prompt when no conversations for guests', () => {
+  it('renders signup prompt when no conversations for trial users', () => {
     render(<ChatList conversations={[]} isAuthenticated={false} />);
     expect(screen.getByText(/Sign up/)).toBeInTheDocument();
     expect(screen.getByText(/to save conversations/)).toBeInTheDocument();
   });
 
-  it('renders "Sign up" as a clickable link for guests', () => {
+  it('renders "Sign up" as a clickable link for trial users', () => {
     render(<ChatList conversations={[]} isAuthenticated={false} />);
     const signUpLink = screen.getByRole('link', { name: 'Sign up' });
     expect(signUpLink).toBeInTheDocument();
@@ -93,7 +120,7 @@ describe('ChatList', () => {
     render(<ChatList conversations={mockConversations} activeId="conv-2" />);
     const links = screen.getAllByTestId('chat-link');
     // The active styling is on the parent wrapper div, not the link
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const activeLink = links[1]!;
     expect(activeLink.parentElement).toHaveClass('bg-sidebar-border');
   });

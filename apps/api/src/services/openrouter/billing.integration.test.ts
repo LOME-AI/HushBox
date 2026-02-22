@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { createOpenRouterClient, clearModelCache } from './openrouter.js';
+import { createOpenRouterClient } from './openrouter.js';
 import { getPaidTestModel, clearTestModelCache } from './test-utilities.js';
 import type { OpenRouterClient } from './types.js';
-import { applyFees, TOTAL_FEE_RATE } from '@lome-chat/shared';
+import { applyFees, TOTAL_FEE_RATE } from '@hushbox/shared';
 
 /**
  * Billing integration tests for OpenRouter API.
@@ -51,7 +51,6 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
   let paidModel: string;
 
   beforeAll(async () => {
-    clearModelCache();
     clearTestModelCache();
 
     const apiKey = process.env['OPENROUTER_API_KEY'];

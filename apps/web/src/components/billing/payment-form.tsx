@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Button } from '@lome-chat/ui';
+import { Button, ModalActions } from '@hushbox/ui';
 import { DollarSign, CreditCard, Lock, MapPin, User, Home } from 'lucide-react';
 import { HelcimLogo } from './helcim-logo.js';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@lome-chat/ui';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@hushbox/ui';
 import { FormInput } from '@/components/shared/form-input';
 import { DevOnly } from '@/components/shared/dev-only';
 import { env } from '@/lib/env';
+import { useFormEnterNav } from '../../hooks/use-form-enter-nav.js';
 import {
   loadHelcimScript,
   readHelcimResult,
@@ -47,7 +48,7 @@ function handlePaymentStatusUpdate(
   status: PaymentStatusResult,
   callbacks: PaymentStatusCallbacks
 ): boolean {
-  if (status.status === 'confirmed') {
+  if (status.status === 'completed') {
     if (status.newBalance) {
       callbacks.onConfirmed(status.newBalance);
     }
@@ -82,9 +83,14 @@ function PaymentSuccessCard({
           </p>
           <p className="text-muted-foreground mt-2">Added to your balance</p>
         </div>
-        <Button onClick={onClose} className="w-full">
-          Close
-        </Button>
+        <ModalActions
+          primary={{
+            label: 'Close',
+            onClick: () => {
+              onClose?.();
+            },
+          }}
+        />
       </CardContent>
     </Card>
   );
@@ -118,16 +124,25 @@ function PaymentErrorCard({
             {errorMessage ?? 'An unexpected error occurred'}
           </p>
         </DevOnly>
-        <div className="flex gap-3">
-          {onCancel && (
-            <Button variant="outline" onClick={onCancel} className="flex-1">
-              Cancel
-            </Button>
-          )}
-          <Button onClick={onRetry} className="flex-1">
-            Try Again
-          </Button>
-        </div>
+        {onCancel ? (
+          <ModalActions
+            cancel={{
+              label: 'Cancel',
+              onClick: onCancel,
+            }}
+            primary={{
+              label: 'Try Again',
+              onClick: onRetry,
+            }}
+          />
+        ) : (
+          <ModalActions
+            primary={{
+              label: 'Try Again',
+              onClick: onRetry,
+            }}
+          />
+        )}
       </CardContent>
     </Card>
   );
@@ -177,7 +192,9 @@ function CardFormSection({
           }}
           maxLength={19}
           aria-invalid={!!form.cardValidation.cardNumber.error}
-          error={form.cardValidation.cardNumber.error ?? undefined}
+          {...(form.cardValidation.cardNumber.error != null && {
+            error: form.cardValidation.cardNumber.error,
+          })}
           success={form.cardValidation.cardNumber.success}
         />
 
@@ -195,7 +212,9 @@ function CardFormSection({
               }}
               maxLength={7}
               aria-invalid={!!form.cardValidation.expiry.error}
-              error={form.cardValidation.expiry.error ?? undefined}
+              {...(form.cardValidation.expiry.error != null && {
+                error: form.cardValidation.expiry.error,
+              })}
               success={form.cardValidation.expiry.success}
             />
           </div>
@@ -217,7 +236,9 @@ function CardFormSection({
               }}
               maxLength={4}
               aria-invalid={!!form.cardValidation.cvv.error}
-              error={form.cardValidation.cvv.error ?? undefined}
+              {...(form.cardValidation.cvv.error != null && {
+                error: form.cardValidation.cvv.error,
+              })}
               success={form.cardValidation.cvv.success}
             />
           </div>
@@ -235,7 +256,9 @@ function CardFormSection({
             form.handleFieldChange('cardHolderName', e.target.value);
           }}
           aria-invalid={!!form.cardValidation.cardHolderName.error}
-          error={form.cardValidation.cardHolderName.error ?? undefined}
+          {...(form.cardValidation.cardHolderName.error != null && {
+            error: form.cardValidation.cardHolderName.error,
+          })}
           success={form.cardValidation.cardHolderName.success}
         />
 
@@ -251,7 +274,9 @@ function CardFormSection({
             form.handleFieldChange('billingAddress', e.target.value);
           }}
           aria-invalid={!!form.cardValidation.billingAddress.error}
-          error={form.cardValidation.billingAddress.error ?? undefined}
+          {...(form.cardValidation.billingAddress.error != null && {
+            error: form.cardValidation.billingAddress.error,
+          })}
           success={form.cardValidation.billingAddress.success}
         />
 
@@ -267,7 +292,9 @@ function CardFormSection({
           }}
           maxLength={10}
           aria-invalid={!!form.cardValidation.zipCode.error}
-          error={form.cardValidation.zipCode.error ?? undefined}
+          {...(form.cardValidation.zipCode.error != null && {
+            error: form.cardValidation.zipCode.error,
+          })}
           success={form.cardValidation.zipCode.success}
         />
 
@@ -306,18 +333,30 @@ function PaymentFormActions({
 }: Readonly<PaymentFormActionsProps>): React.JSX.Element {
   const isProcessing = paymentState === 'processing' || isPaymentPending;
 
-  return (
-    <div className="flex gap-3">
-      {onCancel && (
-        <Button type="button" variant="outline" onClick={onCancel} className="flex-1">
-          Cancel
-        </Button>
-      )}
-      <Button type="submit" disabled={!scriptLoaded || isProcessing} className="flex-1">
-        {isProcessing ? 'Processing...' : 'Purchase'}
-      </Button>
-    </div>
-  );
+  const primary = {
+    label: 'Purchase',
+    onClick: () => {
+      /* noop — form uses type="submit" */
+    },
+    type: 'submit' as const,
+    disabled: !scriptLoaded || isProcessing,
+    loading: isProcessing,
+    loadingLabel: 'Processing...',
+  };
+
+  if (onCancel) {
+    return (
+      <ModalActions
+        cancel={{
+          label: 'Cancel',
+          onClick: onCancel,
+        }}
+        primary={primary}
+      />
+    );
+  }
+
+  return <ModalActions primary={primary} />;
 }
 
 interface PaymentFormProps {
@@ -345,6 +384,8 @@ export function PaymentForm({
   const observerRef = useRef<MutationObserver | null>(null);
   const paymentIdRef = useRef<string | null>(null);
   const expectingTokenizationRef = useRef(false);
+  const paymentFormRef = useRef<HTMLFormElement>(null);
+  useFormEnterNav(paymentFormRef);
 
   const queryClient = useQueryClient();
   const createPayment = useCreatePayment();
@@ -425,7 +466,7 @@ export function PaymentForm({
           customerCode: result.customerCode,
         });
 
-        if (response.status === 'confirmed') {
+        if (response.status === 'completed') {
           setPaymentState('success');
           onSuccess?.(response.newBalance);
         } else {
@@ -613,6 +654,7 @@ export function PaymentForm({
       </CardHeader>
       <CardContent>
         <form
+          ref={paymentFormRef}
           id="helcimForm"
           onSubmit={(e) => {
             void handleSubmit(e);

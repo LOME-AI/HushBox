@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import type { Model, ModelsListResponse } from '@lome-chat/shared';
-import { STRONGEST_MODEL_ID, VALUE_MODEL_ID, getModelCostPer1k } from '@lome-chat/shared';
-import { api } from '../lib/api.js';
+import type { Model, ModelsListResponse } from '@hushbox/shared';
+import { STRONGEST_MODEL_ID, VALUE_MODEL_ID, getModelCostPer1k } from '@hushbox/shared';
+import { client, fetchJson } from '../lib/api-client.js';
 
 export interface ModelsData {
   models: Model[];
@@ -18,7 +18,7 @@ export function useModels(): ReturnType<typeof useQuery<ModelsData, Error>> {
   return useQuery({
     queryKey: modelKeys.list(),
     queryFn: async (): Promise<ModelsData> => {
-      const response = await api.get<ModelsListResponse>('/api/models');
+      const response = await fetchJson<ModelsListResponse>(client.api.models.$get());
       return {
         models: response.models,
         premiumIds: new Set(response.premiumModelIds),

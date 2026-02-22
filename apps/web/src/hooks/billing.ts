@@ -5,9 +5,10 @@ import type {
   CreatePaymentResponse,
   ProcessPaymentResponse,
   GetPaymentStatusResponse,
-  BalanceTransactionType,
-} from '@lome-chat/shared';
-import { api } from '../lib/api.js';
+  LedgerEntryType,
+} from '@hushbox/shared';
+import { useSession } from '@/lib/auth';
+import { client, fetchJson } from '../lib/api-client.js';
 
 export const billingKeys = {
   all: ['billing'] as const,
@@ -20,11 +21,16 @@ export const billingKeys = {
 
 /**
  * Hook to fetch user's current balance.
+ * Skips the API call for trial (unauthenticated) users.
  */
 export function useBalance(): ReturnType<typeof useQuery<GetBalanceResponse, Error>> {
+  const { data: session } = useSession();
+  const isAuthenticated = Boolean(session?.user);
+
   return useQuery({
     queryKey: billingKeys.balance(),
-    queryFn: () => api.get<GetBalanceResponse>('/api/billing/balance'),
+    queryFn: () => fetchJson<GetBalanceResponse>(client.api.billing.balance.$get()),
+    enabled: isAuthenticated,
   });
 }
 
@@ -32,7 +38,7 @@ interface TransactionsOptions {
   cursor?: string;
   limit?: number;
   offset?: number;
-  type?: BalanceTransactionType;
+  type?: LedgerEntryType;
   enabled?: boolean;
 }
 
@@ -47,16 +53,12 @@ export function useTransactions(
   return useQuery({
     queryKey: [...billingKeys.transactions(), { cursor, limit, offset, type }] as const,
     queryFn: () => {
-      const params = new URLSearchParams();
-      if (cursor) params.set('cursor', cursor);
-      if (limit) params.set('limit', String(limit));
-      if (offset !== undefined) params.set('offset', String(offset));
-      if (type) params.set('type', type);
-
-      const queryString = params.toString();
-      const suffix = queryString ? `?${queryString}` : '';
-      const url = `/api/billing/transactions${suffix}`;
-      return api.get<ListTransactionsResponse>(url);
+      const query: Record<string, string> = {};
+      if (cursor) query['cursor'] = cursor;
+      if (limit) query['limit'] = String(limit);
+      if (offset !== undefined) query['offset'] = String(offset);
+      if (type) query['type'] = type;
+      return fetchJson<ListTransactionsResponse>(client.api.billing.transactions.$get({ query }));
     },
     enabled,
   });
@@ -71,7 +73,7 @@ export function useCreatePayment(): ReturnType<
 > {
   return useMutation({
     mutationFn: ({ amount }: { amount: string }) =>
-      api.post<CreatePaymentResponse>('/api/billing/payments', { amount }),
+      fetchJson<CreatePaymentResponse>(client.api.billing.payments.$post({ json: { amount } })),
   });
 }
 
@@ -98,13 +100,15 @@ export function useProcessPayment(): ReturnType<
       cardToken: string;
       customerCode: string;
     }) =>
-      api.post<ProcessPaymentResponse>(`/api/billing/payments/${paymentId}/process`, {
-        cardToken,
-        customerCode,
-      }),
+      fetchJson<ProcessPaymentResponse>(
+        client.api.billing.payments[':id'].process.$post({
+          param: { id: paymentId },
+          json: { cardToken, customerCode },
+        })
+      ),
     onSuccess: async (data) => {
-      // Invalidate balance when payment is confirmed
-      if (data.status === 'confirmed') {
+      // Invalidate balance when payment is completed
+      if (data.status === 'completed') {
         await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
         await queryClient.invalidateQueries({ queryKey: billingKeys.transactions() });
       }
@@ -128,7 +132,9 @@ export function usePaymentStatus(
       if (!paymentId) {
         throw new Error('Payment ID is required');
       }
-      return api.get<GetPaymentStatusResponse>(`/api/billing/payments/${paymentId}`);
+      return fetchJson<GetPaymentStatusResponse>(
+        client.api.billing.payments[':id'].$get({ param: { id: paymentId } })
+      );
     },
     enabled: enabled && !!paymentId,
     refetchInterval,

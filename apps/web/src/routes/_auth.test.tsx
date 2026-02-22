@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { redirect } from '@tanstack/react-router';
 import { authClient } from '@/lib/auth';
 
@@ -25,6 +25,11 @@ vi.mock('@/lib/auth', () => ({
   },
 }));
 
+// Mock CipherWall to avoid Canvas API in JSDOM
+vi.mock('@/components/auth/cipher-wall', () => ({
+  CipherWall: () => <div data-testid="cipher-wall">cipher wall</div>,
+}));
+
 describe('AuthLayout component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -35,7 +40,9 @@ describe('AuthLayout component', () => {
 
     render(<AuthLayout />);
 
-    expect(screen.getByTestId('theme-toggle')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('theme-toggle')).toBeInTheDocument();
+    });
   });
 
   it('renders logo as a link to /chat in top-left', async () => {
@@ -43,20 +50,19 @@ describe('AuthLayout component', () => {
 
     render(<AuthLayout />);
 
-    const logoLink = screen.getByRole('link', { name: /lome/i });
-    expect(logoLink).toBeInTheDocument();
-    expect(logoLink).toHaveAttribute('href', '/chat');
+    await waitFor(() => {
+      const logoLink = screen.getByRole('link', { name: /hushbox/i });
+      expect(logoLink).toBeInTheDocument();
+      expect(logoLink).toHaveAttribute('href', '/chat');
+    });
   });
 
-  it('renders split-screen layout with decorative header image', async () => {
+  it('renders split-screen layout', async () => {
     const { AuthLayout } = await import('./_auth');
 
-    const { container } = render(<AuthLayout />);
+    render(<AuthLayout />);
 
     expect(screen.getByTestId('auth-layout')).toBeInTheDocument();
-    // FlowerBox is decorative (empty alt), verify it exists by src
-    const flowerBox = container.querySelector('img[src*="FlowerBoxHD"]');
-    expect(flowerBox).toBeInTheDocument();
   });
 
   it('renders outlet for child content', async () => {
@@ -75,6 +81,14 @@ describe('AuthLayout component', () => {
     const container = screen.getByTestId('auth-layout');
     expect(container).toHaveClass('min-h-dvh');
     expect(container).toHaveClass('flex');
+  });
+
+  it('renders cipher wall in right column', async () => {
+    const { AuthLayout } = await import('./_auth');
+
+    render(<AuthLayout />);
+
+    expect(screen.getByTestId('cipher-wall')).toBeInTheDocument();
   });
 
   it('allows vertical scrolling when content exceeds viewport', async () => {
@@ -97,8 +111,16 @@ describe('Auth route beforeLoad', () => {
 
   it('redirects to /chat when user is authenticated', async () => {
     vi.mocked(authClient.getSession).mockResolvedValue({
-      data: { user: { id: 'user-1' }, session: { id: 'session-1' } },
-      error: null,
+      data: {
+        user: {
+          id: 'user-1',
+          email: 'test@example.com',
+          username: 'test_user',
+          emailVerified: true,
+          totpEnabled: false,
+          hasAcknowledgedPhrase: false,
+        },
+      },
     });
 
     const { Route } = await import('./_auth');
@@ -113,7 +135,6 @@ describe('Auth route beforeLoad', () => {
   it('does not redirect when user is not authenticated', async () => {
     vi.mocked(authClient.getSession).mockResolvedValue({
       data: null,
-      error: null,
     });
 
     const { Route } = await import('./_auth');

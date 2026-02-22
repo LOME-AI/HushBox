@@ -7,24 +7,17 @@ import {
   LOCAL_NEON_DEV_CONFIG,
   users,
   payments,
-  balanceTransactions,
-  accounts,
-  sessions,
-} from '@lome-chat/db';
-import { createWebhooksRoutes } from './webhooks.js';
-import { createAuthRoutes } from './auth.js';
-import { createBillingRoutes } from './billing.js';
-import { createAuth } from '../auth/index.js';
-import { createMockEmailClient } from '../services/email/index.js';
+  wallets,
+  ledgerEntries,
+} from '@hushbox/db';
+import { userFactory } from '@hushbox/db/factories';
+import { webhooksRoute } from './webhooks.js';
+import { billingRoute } from './billing.js';
 import { createMockHelcimClient } from '../services/helcim/index.js';
-import { sessionMiddleware } from '../middleware/dependencies.js';
 import type { AppEnv } from '../types.js';
+import type { SessionData } from '../lib/session.js';
 
 // Response types for type-safe JSON parsing
-interface SignupResponse {
-  user?: { id: string };
-}
-
 interface WebhookResponse {
   received: boolean;
 }
@@ -39,21 +32,24 @@ if (!DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is required for tests');
 }
 
+function getAuthHeaders(userId: string): Record<string, string> {
+  return { 'X-Test-User-Id': userId };
+}
+
 describe('webhooks routes', () => {
   const connectionString = DATABASE_URL;
   let db: ReturnType<typeof createDb>;
   let app: Hono<AppEnv>;
   let testUserId: string;
-  let authCookie: string;
   let helcimClient: ReturnType<typeof createMockHelcimClient>;
 
-  const TEST_EMAIL = `test-webhook-${String(Date.now())}@example.com`;
-  const TEST_PASSWORD = 'TestPassword123!';
-  const TEST_NAME = 'Test Webhook User';
+  const TEST_SUFFIX = String(Date.now());
+  const TEST_EMAIL = `test-webhook-${TEST_SUFFIX}@example.com`;
+  const TEST_USERNAME = `twh_${TEST_SUFFIX}`;
 
   // Track created IDs for cleanup
   const createdPaymentIds: string[] = [];
-  const createdTransactionIds: string[] = [];
+  let testWalletId: string;
 
   beforeAll(async () => {
     db = createDb({ connectionString, neonDev: LOCAL_NEON_DEV_CONFIG });
@@ -62,21 +58,34 @@ describe('webhooks routes', () => {
       webhookVerifier: 'dGVzdC12ZXJpZmllcg==', // gitleaks:allow
     });
 
-    const emailClient = createMockEmailClient();
-    const auth = createAuth({
-      db,
-      emailClient,
-      baseUrl: 'http://localhost:8787',
-      secret: 'test-secret-key-at-least-32-characters-long', // gitleaks:allow
-      frontendUrl: 'http://localhost:5173',
-    });
+    // Create test user directly in database
+    testUserId = crypto.randomUUID();
+    await db.insert(users).values(
+      userFactory.build({
+        id: testUserId,
+        email: TEST_EMAIL,
+        username: TEST_USERNAME,
+        emailVerified: true,
+      })
+    );
 
-    // Create the app with auth, billing, and webhook routes
+    // Create a purchased wallet for the test user (wallet-based balance system)
+    const [createdWallet] = await db
+      .insert(wallets)
+      .values({
+        userId: testUserId,
+        type: 'purchased',
+        balance: '0.00000000',
+        priority: 0,
+      })
+      .returning();
+    if (!createdWallet) throw new Error('Failed to create test wallet');
+    testWalletId = createdWallet.id;
+
+    // Create the app with billing and webhook routes
     app = new Hono<AppEnv>();
-    // Set db, auth, and helcim on context for all routes
     app.use('*', async (c, next) => {
       c.set('db', db);
-      c.set('auth', auth);
       c.set('helcim', helcimClient);
       c.set('envUtils', {
         isCI: false,
@@ -88,74 +97,57 @@ describe('webhooks routes', () => {
       });
       // Set env bindings - DATABASE_URL required, HELCIM_WEBHOOK_VERIFIER empty to skip signature verification
       c.env = { DATABASE_URL: connectionString, HELCIM_WEBHOOK_VERIFIER: '' };
+      // Conditionally set user/session based on X-Test-User-Id header
+      const testUserIdHeader = c.req.header('X-Test-User-Id');
+      if (testUserIdHeader) {
+        c.set('user', {
+          id: testUserIdHeader,
+          email: TEST_EMAIL,
+          username: TEST_USERNAME,
+          emailVerified: true,
+          totpEnabled: false,
+          hasAcknowledgedPhrase: true,
+          publicKey: new Uint8Array(32),
+        });
+        const sessionData: SessionData = {
+          sessionId: `test-session-${testUserIdHeader}`,
+          userId: testUserIdHeader,
+          email: TEST_EMAIL,
+          username: TEST_USERNAME,
+          emailVerified: true,
+          totpEnabled: false,
+          hasAcknowledgedPhrase: false,
+          pending2FA: false,
+          pending2FAExpiresAt: 0,
+          createdAt: Date.now(),
+        };
+        c.set('session', sessionData);
+        c.set('sessionData', sessionData);
+      }
       await next();
     });
-    app.use('*', sessionMiddleware());
-    app.route('/api/auth', createAuthRoutes(auth));
-    app.route('/billing', createBillingRoutes());
-    app.route('/webhooks', createWebhooksRoutes());
-
-    // Create user via HTTP request to auth endpoint
-    const signupRes = await app.request('/api/auth/sign-up/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: TEST_EMAIL,
-        password: TEST_PASSWORD,
-        name: TEST_NAME,
-      }),
-    });
-
-    if (!signupRes.ok) {
-      throw new Error(`Signup failed: ${await signupRes.text()}`);
-    }
-
-    const signupData = (await signupRes.json()) as SignupResponse;
-    testUserId = signupData.user?.id ?? '';
-    if (!testUserId) {
-      throw new Error('Signup failed - no user ID returned');
-    }
-
-    // Mark email as verified (bypass email verification for testing)
-    await db.update(users).set({ emailVerified: true }).where(eq(users.id, testUserId));
-
-    // Now sign in to get a session cookie
-    const signinRes = await app.request('/api/auth/sign-in/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: TEST_EMAIL,
-        password: TEST_PASSWORD,
-      }),
-    });
-
-    if (!signinRes.ok) {
-      throw new Error(`Signin failed: ${await signinRes.text()}`);
-    }
-
-    const setCookie = signinRes.headers.get('set-cookie');
-    if (setCookie) {
-      authCookie = setCookie.split(';')[0] ?? '';
-    } else {
-      throw new Error('Signin succeeded but no session cookie returned');
-    }
+    app.route('/billing', billingRoute);
+    app.route('/webhooks', webhooksRoute);
   });
 
   afterAll(async () => {
-    // Clean up created records
-    if (createdTransactionIds.length > 0) {
-      await db
-        .delete(balanceTransactions)
-        .where(inArray(balanceTransactions.id, createdTransactionIds));
+    // Delete ledger entries FIRST — the check constraint requires exactly one source
+    // (paymentId or usageRecordId), so setting paymentId to NULL on cascade would violate it.
+    if (testWalletId) {
+      await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, testWalletId));
     }
+
     if (createdPaymentIds.length > 0) {
       await db.delete(payments).where(inArray(payments.id, createdPaymentIds));
     }
 
+    // Clean up wallet
+    if (testWalletId) {
+      await db.delete(wallets).where(eq(wallets.id, testWalletId));
+    }
+
     // Clean up test user
     if (testUserId) {
-      await db.delete(sessions).where(eq(sessions.userId, testUserId));
-      await db.delete(accounts).where(eq(accounts.userId, testUserId));
       await db.delete(users).where(eq(users.id, testUserId));
     }
   });
@@ -191,7 +183,7 @@ describe('webhooks routes', () => {
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount: '50.00000000' }),
@@ -212,7 +204,7 @@ describe('webhooks routes', () => {
 
       // Get initial balance
       const balanceRes1 = await app.request('/billing/balance', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
       const initialBalance = Number.parseFloat(
         ((await balanceRes1.json()) as { balance: string }).balance
@@ -232,7 +224,7 @@ describe('webhooks routes', () => {
 
       // Check balance was updated
       const balanceRes2 = await app.request('/billing/balance', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
       const newBalance = Number.parseFloat(
         ((await balanceRes2.json()) as { balance: string }).balance
@@ -240,13 +232,13 @@ describe('webhooks routes', () => {
 
       expect(newBalance).toBeCloseTo(initialBalance + 50, 2);
 
-      // Check payment status is now confirmed
+      // Check payment status is now completed
       const [payment] = await db
         .select()
         .from(payments)
         .where(eq(payments.id, createData.paymentId));
 
-      expect(payment?.status).toBe('confirmed');
+      expect(payment?.status).toBe('completed');
       expect(payment?.webhookReceivedAt).not.toBeNull();
     });
 
@@ -255,7 +247,7 @@ describe('webhooks routes', () => {
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount: '25.00000000' }),
@@ -276,7 +268,7 @@ describe('webhooks routes', () => {
 
       // Get initial balance
       const balanceRes1 = await app.request('/billing/balance', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
       const initialBalance = Number.parseFloat(
         ((await balanceRes1.json()) as { balance: string }).balance
@@ -303,7 +295,7 @@ describe('webhooks routes', () => {
 
       // Check balance was only credited once
       const balanceRes2 = await app.request('/billing/balance', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
       const newBalance = Number.parseFloat(
         ((await balanceRes2.json()) as { balance: string }).balance
@@ -318,7 +310,7 @@ describe('webhooks routes', () => {
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount: '10.00000000' }),
@@ -338,7 +330,7 @@ describe('webhooks routes', () => {
 
       // Get initial balance
       const balanceRes1 = await app.request('/billing/balance', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
       const initialBalance = Number.parseFloat(
         ((await balanceRes1.json()) as { balance: string }).balance
@@ -358,7 +350,7 @@ describe('webhooks routes', () => {
 
       // Check balance was NOT updated
       const balanceRes2 = await app.request('/billing/balance', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
       const newBalance = Number.parseFloat(
         ((await balanceRes2.json()) as { balance: string }).balance
@@ -381,16 +373,16 @@ describe('webhooks routes', () => {
 
       // Expects 500 after retries exhausted (new behavior)
       expect(res.status).toBe(500);
-      const data = (await res.json()) as { error: string };
-      expect(data.error).toContain('Payment not found');
+      const data = (await res.json()) as { code: string };
+      expect(data.code).toBe('PAYMENT_NOT_FOUND');
     }, 60_000); // 60 second timeout for retries
 
-    it('returns 200 immediately for already-confirmed payments (duplicate webhook)', async () => {
+    it('returns 200 immediately for already-completed payments (duplicate webhook)', async () => {
       // Create payment
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
-          Cookie: authCookie,
+          ...getAuthHeaders(testUserId),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount: '15.00000000' }),
@@ -399,25 +391,25 @@ describe('webhooks routes', () => {
       const createData = (await createRes.json()) as CreatePaymentResponse;
       createdPaymentIds.push(createData.paymentId);
 
-      // Set payment to CONFIRMED (simulating already-processed webhook)
+      // Set payment to completed (simulating already-processed webhook)
       const transactionId = `test-txn-duplicate-${String(Date.now())}`;
       await db
         .update(payments)
         .set({
-          status: 'confirmed',
+          status: 'completed',
           helcimTransactionId: transactionId,
         })
         .where(eq(payments.id, createData.paymentId));
 
       // Get balance before duplicate webhook
       const balanceRes1 = await app.request('/billing/balance', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
       const balanceBefore = Number.parseFloat(
         ((await balanceRes1.json()) as { balance: string }).balance
       );
 
-      // Send duplicate webhook for already-confirmed payment
+      // Send duplicate webhook for already-completed payment
       const webhookRes = await app.request('/webhooks/payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -434,7 +426,7 @@ describe('webhooks routes', () => {
 
       // Balance should NOT change
       const balanceRes2 = await app.request('/billing/balance', {
-        headers: { Cookie: authCookie },
+        headers: getAuthHeaders(testUserId),
       });
       const balanceAfter = Number.parseFloat(
         ((await balanceRes2.json()) as { balance: string }).balance
@@ -455,7 +447,7 @@ describe('webhooks routes', () => {
         };
         await next();
       });
-      productionApp.route('/webhooks', createWebhooksRoutes());
+      productionApp.route('/webhooks', webhooksRoute);
 
       const res = await productionApp.request('/webhooks/payment', {
         method: 'POST',
@@ -467,8 +459,8 @@ describe('webhooks routes', () => {
       });
 
       expect(res.status).toBe(500);
-      const data = (await res.json()) as { error: string };
-      expect(data.error).toContain('not configured');
+      const data = (await res.json()) as { code: string };
+      expect(data.code).toBe('WEBHOOK_VERIFIER_MISSING');
     });
   });
 });

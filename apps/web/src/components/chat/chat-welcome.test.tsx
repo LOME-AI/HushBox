@@ -4,21 +4,20 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { ChatWelcome } from './chat-welcome';
-import type { BudgetCalculationResult } from '@lome-chat/shared';
+import type { PromptBudgetResult } from '@/hooks/use-prompt-budget';
 
-// Mock the api module
+// Mock the api module — `api` object was removed; module now exports getApiUrl + ApiError
 vi.mock('@/lib/api', () => ({
-  api: {
-    get: vi.fn().mockResolvedValue([
-      {
-        id: 'openai/gpt-4-turbo',
-        name: 'GPT-4 Turbo',
-        description: 'Test model',
-        context_length: 128_000,
-        pricing: { prompt: '0.00001', completion: '0.00003' },
-        supported_parameters: ['temperature'],
-      },
-    ]),
+  getApiUrl: vi.fn(() => 'http://localhost:8787'),
+  ApiError: class ApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public data?: unknown
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
   },
 }));
 
@@ -70,21 +69,19 @@ vi.mock('@/hooks/use-stable-balance', () => ({
   })),
 }));
 
-// Default budget result - can afford, no errors
-const defaultBudgetResult: BudgetCalculationResult = {
-  canAfford: true,
-  maxOutputTokens: 1000,
-  estimatedInputTokens: 100,
-  estimatedInputCost: 0.0001,
-  estimatedMinimumCost: 0.001,
-  effectiveBalance: 1,
-  currentUsage: 1100,
-  capacityPercent: 5,
-  errors: [],
-};
-
-vi.mock('@/hooks/use-budget-calculation', () => ({
-  useBudgetCalculation: () => defaultBudgetResult,
+// Mock usePromptBudget directly — PromptInput's only budget dependency
+vi.mock('@/hooks/use-prompt-budget', () => ({
+  usePromptBudget: (input: { value: string }): PromptBudgetResult => ({
+    fundingSource: 'personal_balance',
+    notifications: [],
+    capacityPercent: 5,
+    capacityCurrentUsage: 1100,
+    capacityMaxCapacity: 50_000,
+    estimatedCostCents: 0.1,
+    isOverCapacity: false,
+    hasBlockingError: false,
+    hasContent: input.value.trim().length > 0,
+  }),
 }));
 
 // Mock framer-motion to avoid animation issues in tests
@@ -182,7 +179,7 @@ describe('ChatWelcome', () => {
     const sendButton = screen.getByRole('button', { name: /send/i });
     await user.click(sendButton);
 
-    expect(mockOnSend).toHaveBeenCalledWith('Hello world');
+    expect(mockOnSend).toHaveBeenCalledWith('Hello world', expect.any(String));
   });
 
   it('fills prompt input when suggestion chip is clicked', async () => {
@@ -248,5 +245,25 @@ describe('ChatWelcome', () => {
       wrapper: createWrapper(),
     });
     expect(screen.getByTestId('chat-header')).toBeInTheDocument();
+  });
+
+  it('renders privacy tagline for authenticated users', () => {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
+      wrapper: createWrapper(),
+    });
+
+    const tagline = screen.getByTestId('privacy-tagline');
+    expect(tagline).toHaveTextContent('Encrypted storage');
+    expect(tagline).toHaveTextContent('AI providers retain nothing');
+  });
+
+  it('renders privacy tagline with sign-up prompt for unauthenticated users', () => {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
+      wrapper: createWrapper(),
+    });
+
+    const tagline = screen.getByTestId('privacy-tagline');
+    expect(tagline).toHaveTextContent('AI providers retain nothing');
+    expect(tagline).toHaveTextContent('Sign up for encrypted storage');
   });
 });

@@ -2,18 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import type { AppEnv } from '../types.js';
 
-vi.mock('@lome-chat/db', () => ({
+/** Type-safe JSON response parser for test assertions. */
+async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> {
+  return (await res.json()) as T;
+}
+
+vi.mock('@hushbox/db', () => ({
   createDb: vi.fn(() => ({ mocked: 'db' })),
   LOCAL_NEON_DEV_CONFIG: { mocked: 'config' },
-}));
-
-vi.mock('../auth/index.js', () => ({
-  createAuth: vi.fn(() => ({
-    mocked: 'auth',
-    api: {
-      getSession: vi.fn(),
-    },
-  })),
 }));
 
 vi.mock('../services/email/index.js', () => ({
@@ -28,19 +24,44 @@ vi.mock('../services/helcim/index.js', () => ({
   getHelcimClient: vi.fn(() => ({ type: 'helcim', isMock: false })),
 }));
 
+function createMockRedisInstance(): Record<string, unknown> {
+  const store = new Map<string, unknown>();
+  return {
+    mocked: 'redis',
+    get: vi.fn((key: string) => Promise.resolve(store.get(key) ?? null)),
+    set: vi.fn((key: string, value: unknown) => {
+      store.set(key, value);
+      return Promise.resolve('OK');
+    }),
+    del: vi.fn((key: string) => {
+      store.delete(key);
+      return Promise.resolve(1);
+    }),
+    _store: store,
+  };
+}
+
+vi.mock('../lib/redis.js', () => ({
+  createRedisClient: vi.fn(() => createMockRedisInstance()),
+}));
+
+vi.mock('iron-session', () => ({
+  getIronSession: vi.fn(),
+}));
+
 import {
   dbMiddleware,
-  authMiddleware,
+  redisMiddleware,
   sessionMiddleware,
   openRouterMiddleware,
   helcimMiddleware,
   envMiddleware,
+  ironSessionMiddleware,
 } from './dependencies.js';
-import { createDb, LOCAL_NEON_DEV_CONFIG } from '@lome-chat/db';
-import { createAuth } from '../auth/index.js';
-import { getEmailClient } from '../services/email/index.js';
+import { createDb, LOCAL_NEON_DEV_CONFIG } from '@hushbox/db';
 import { getOpenRouterClient } from '../services/openrouter/index.js';
 import { getHelcimClient } from '../services/helcim/index.js';
+import { createRedisClient } from '../lib/redis.js';
 
 describe('dbMiddleware', () => {
   beforeEach(() => {
@@ -114,100 +135,7 @@ describe('dbMiddleware', () => {
   });
 });
 
-describe('authMiddleware', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  afterEach(() => {
-    vi.resetAllMocks();
-  });
-
-  it('sets auth on context', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', envMiddleware());
-    app.use('*', dbMiddleware());
-    app.use('*', authMiddleware());
-    app.get('/', (c) => {
-      c.get('auth');
-      return c.json({ hasAuth: true });
-    });
-
-    const res = await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toEqual({ hasAuth: true });
-  });
-
-  it('passes env to getEmailClient factory', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', envMiddleware());
-    app.use('*', dbMiddleware());
-    app.use('*', authMiddleware());
-    app.get('/', (c) => c.json({ ok: true }));
-
-    const env = {
-      DATABASE_URL: 'postgres://test',
-      RESEND_API_KEY: 'test-key',
-      NODE_ENV: 'production',
-    };
-    await app.request('/', {}, env);
-
-    expect(getEmailClient).toHaveBeenCalledWith(env);
-  });
-
-  it('uses default auth URL when BETTER_AUTH_URL not set', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', envMiddleware());
-    app.use('*', dbMiddleware());
-    app.use('*', authMiddleware());
-    app.get('/', (c) => c.json({ ok: true }));
-
-    await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
-
-    expect(createAuth).toHaveBeenCalledWith(
-      expect.objectContaining({
-        baseUrl: 'http://localhost:8787',
-      })
-    );
-  });
-
-  it('uses custom auth URL when BETTER_AUTH_URL is set', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', envMiddleware());
-    app.use('*', dbMiddleware());
-    app.use('*', authMiddleware());
-    app.get('/', (c) => c.json({ ok: true }));
-
-    await app.request(
-      '/',
-      {},
-      { DATABASE_URL: 'postgres://test', BETTER_AUTH_URL: 'https://api.example.com' }
-    );
-
-    expect(createAuth).toHaveBeenCalledWith(
-      expect.objectContaining({
-        baseUrl: 'https://api.example.com',
-      })
-    );
-  });
-
-  it('uses default secret when BETTER_AUTH_SECRET not set', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', envMiddleware());
-    app.use('*', dbMiddleware());
-    app.use('*', authMiddleware());
-    app.get('/', (c) => c.json({ ok: true }));
-
-    await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
-
-    expect(createAuth).toHaveBeenCalledWith(
-      expect.objectContaining({
-        secret: 'dev-secret-minimum-32-characters-long',
-      })
-    );
-  });
-});
+// OPAQUE-MIGRATION: authMiddleware tests removed - auth has been migrated to OPAQUE (Phase 9)
 
 describe('sessionMiddleware', () => {
   beforeEach(() => {
@@ -218,86 +146,100 @@ describe('sessionMiddleware', () => {
     vi.resetAllMocks();
   });
 
-  it('sets user and session on context when authenticated', async () => {
-    const mockUser = { id: 'user-1', email: 'test@example.com', name: 'Test User' };
-    const mockSession = { id: 'session-1', userId: 'user-1', expiresAt: new Date() };
-
-    vi.mocked(createAuth).mockReturnValue({
-      mocked: 'auth',
-      api: {
-        getSession: vi.fn().mockResolvedValue({ user: mockUser, session: mockSession }),
-      },
-    } as unknown as ReturnType<typeof createAuth>);
-
+  it('returns 401 when no session exists (OPAQUE auth gate)', async () => {
     const app = new Hono<AppEnv>();
     app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
-    app.use('*', authMiddleware());
     app.use('*', sessionMiddleware());
     app.get('/', (c) => {
-      const user = c.get('user');
-      const session = c.get('session');
-      return c.json({ userId: user?.id, sessionId: session?.id });
+      return c.json({ message: 'should not reach here' });
     });
 
     const res = await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
     const body = await res.json();
-    expect(body).toEqual({ userId: 'user-1', sessionId: 'session-1' });
+    expect(body).toEqual({ code: 'NOT_AUTHENTICATED' });
   });
 
-  it('sets user and session to null when not authenticated', async () => {
-    vi.mocked(createAuth).mockReturnValue({
-      mocked: 'auth',
-      api: {
-        getSession: vi.fn().mockResolvedValue(null),
-      },
-    } as unknown as ReturnType<typeof createAuth>);
-
+  it('returns 401 when session is not active in Redis', async () => {
     const app = new Hono<AppEnv>();
     app.use('*', envMiddleware());
     app.use('*', dbMiddleware());
-    app.use('*', authMiddleware());
+    app.use('*', redisMiddleware());
+    app.use('*', (c, next) => {
+      c.set('sessionData', {
+        sessionId: 'test-session-id',
+        userId: 'test-user-id',
+        email: 'test@example.com',
+        username: 'test_user',
+        emailVerified: true,
+        totpEnabled: false,
+        hasAcknowledgedPhrase: false,
+        pending2FA: false,
+        pending2FAExpiresAt: 0,
+        createdAt: Date.now(),
+      });
+      return next();
+    });
     app.use('*', sessionMiddleware());
     app.get('/', (c) => {
-      const user = c.get('user');
-      const session = c.get('session');
-      return c.json({ user, session });
+      return c.json({ message: 'should not reach here' });
     });
 
-    const res = await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toEqual({ user: null, session: null });
-  });
-
-  it('passes request headers to getSession', async () => {
-    const mockGetSession = vi.fn().mockResolvedValue(null);
-    vi.mocked(createAuth).mockReturnValue({
-      mocked: 'auth',
-      api: {
-        getSession: mockGetSession,
-      },
-    } as unknown as ReturnType<typeof createAuth>);
-
-    const app = new Hono<AppEnv>();
-    app.use('*', envMiddleware());
-    app.use('*', dbMiddleware());
-    app.use('*', authMiddleware());
-    app.use('*', sessionMiddleware());
-    app.get('/', (c) => c.json({ ok: true }));
-
-    await app.request(
+    const res = await app.request(
       '/',
-      { headers: { Cookie: 'session=abc123' } },
-      { DATABASE_URL: 'postgres://test' }
+      {},
+      {
+        DATABASE_URL: 'postgres://test',
+        UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+        UPSTASH_REDIS_REST_TOKEN: 'test-token',
+      }
     );
+    expect(res.status).toBe(401);
+  });
 
-    expect(mockGetSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        headers: expect.any(Headers) as object,
-      })
+  it('returns 401 when session predates password change', async () => {
+    const app = new Hono<AppEnv>();
+    const createdAt = Date.now() - 10_000;
+    const passwordChangedAt = Date.now();
+
+    app.use('*', envMiddleware());
+    app.use('*', dbMiddleware());
+    app.use('*', redisMiddleware());
+    app.use('*', async (c, next) => {
+      const redis = c.get('redis');
+      const { redisSet } = await import('../lib/redis-registry.js');
+      await redisSet(redis, 'sessionActive', '1', 'test-user-id', 'test-session-id');
+      await redisSet(redis, 'passwordChangedAt', passwordChangedAt, 'test-user-id');
+      c.set('sessionData', {
+        sessionId: 'test-session-id',
+        userId: 'test-user-id',
+        email: 'test@example.com',
+        username: 'test_user',
+        emailVerified: true,
+        totpEnabled: false,
+        hasAcknowledgedPhrase: false,
+        pending2FA: false,
+        pending2FAExpiresAt: 0,
+        createdAt,
+      });
+      return next();
+    });
+    app.use('*', sessionMiddleware());
+    app.get('/', (c) => {
+      return c.json({ message: 'should not reach here' });
+    });
+
+    const res = await app.request(
+      '/',
+      {},
+      {
+        DATABASE_URL: 'postgres://test',
+        UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+        UPSTASH_REDIS_REST_TOKEN: 'test-token',
+      }
     );
+    expect(res.status).toBe(401);
   });
 });
 
@@ -321,11 +263,7 @@ describe('openRouterMiddleware', () => {
       return c.json({ hasOpenRouter: true });
     });
 
-    const res = await app.request(
-      '/',
-      {},
-      { DATABASE_URL: process.env['DATABASE_URL'] ?? 'postgres://test' }
-    );
+    const res = await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ hasOpenRouter: true });
@@ -341,7 +279,7 @@ describe('openRouterMiddleware', () => {
     const env = {
       OPENROUTER_API_KEY: 'test-key',
       NODE_ENV: 'production',
-      DATABASE_URL: process.env['DATABASE_URL'] ?? 'postgres://test',
+      DATABASE_URL: 'postgres://test',
     };
     await app.request('/', {}, env);
 
@@ -360,7 +298,7 @@ describe('openRouterMiddleware', () => {
     });
     app.get('/', (c) => c.json({ ok: true }));
 
-    await app.request('/', {}, { DATABASE_URL: process.env['DATABASE_URL'] ?? 'postgres://test' });
+    await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
 
     expect(nextCalled).toHaveBeenCalled();
   });
@@ -506,6 +444,143 @@ describe('envMiddleware', () => {
     app.get('/', (c) => c.json({ ok: true }));
 
     await app.request('/', {}, { NODE_ENV: 'development' });
+
+    expect(nextCalled).toHaveBeenCalled();
+  });
+});
+
+describe('redisMiddleware', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('sets redis on context', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', redisMiddleware());
+    app.get('/', (c) => {
+      c.get('redis');
+      return c.json({ hasRedis: true });
+    });
+
+    const res = await app.request(
+      '/',
+      {},
+      { UPSTASH_REDIS_REST_URL: 'http://localhost:8079', UPSTASH_REDIS_REST_TOKEN: 'test-token' }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ hasRedis: true });
+  });
+
+  it('passes env config to createRedisClient factory', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', redisMiddleware());
+    app.get('/', (c) => c.json({ ok: true }));
+
+    const env = {
+      UPSTASH_REDIS_REST_URL: 'https://redis.upstash.io',
+      UPSTASH_REDIS_REST_TOKEN: 'prod-token',
+    };
+    await app.request('/', {}, env);
+
+    expect(createRedisClient).toHaveBeenCalledWith('https://redis.upstash.io', 'prod-token');
+  });
+
+  it('throws when UPSTASH_REDIS_REST_URL is missing', async () => {
+    const app = new Hono<AppEnv>();
+    app.onError((err, c) => c.json({ error: (err as Error).message }, 500));
+    app.use('*', redisMiddleware());
+    app.get('/', (c) => c.json({ ok: true }));
+
+    const res = await app.request('/', {}, { UPSTASH_REDIS_REST_TOKEN: 'test-token' });
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body).toEqual({
+      error: 'UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required',
+    });
+  });
+
+  it('throws when UPSTASH_REDIS_REST_TOKEN is missing', async () => {
+    const app = new Hono<AppEnv>();
+    app.onError((err, c) => c.json({ error: (err as Error).message }, 500));
+    app.use('*', redisMiddleware());
+    app.get('/', (c) => c.json({ ok: true }));
+
+    const res = await app.request('/', {}, { UPSTASH_REDIS_REST_URL: 'http://localhost:8079' });
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body).toEqual({
+      error: 'UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required',
+    });
+  });
+
+  it('calls next() to continue middleware chain', async () => {
+    const app = new Hono<AppEnv>();
+    const nextCalled = vi.fn();
+    app.use('*', redisMiddleware());
+    app.use('*', async (_, next) => {
+      nextCalled();
+      await next();
+    });
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request(
+      '/',
+      {},
+      { UPSTASH_REDIS_REST_URL: 'http://localhost:8079', UPSTASH_REDIS_REST_TOKEN: 'test-token' }
+    );
+
+    expect(nextCalled).toHaveBeenCalled();
+  });
+});
+
+describe('ironSessionMiddleware', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('returns a middleware function', () => {
+    const middleware = ironSessionMiddleware();
+
+    expect(middleware).toBeDefined();
+    expect(typeof middleware).toBe('function');
+  });
+
+  it('sets sessionData to null when no IRON_SESSION_SECRET', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', ironSessionMiddleware());
+    app.get('/', (c) => {
+      const sessionData = c.get('sessionData');
+      return c.json({ sessionData });
+    });
+
+    const res = await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
+    expect(res.status).toBe(200);
+    const body = await jsonBody<{ sessionData: unknown }>(res);
+    expect(body.sessionData).toBeNull();
+  });
+
+  it('calls next() to continue middleware chain', async () => {
+    const app = new Hono<AppEnv>();
+    const nextCalled = vi.fn();
+    app.use('*', ironSessionMiddleware());
+    app.use('*', async (_, next) => {
+      nextCalled();
+      await next();
+    });
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
 
     expect(nextCalled).toHaveBeenCalled();
   });

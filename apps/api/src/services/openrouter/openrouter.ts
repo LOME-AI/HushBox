@@ -1,4 +1,5 @@
-import { recordServiceEvidence, SERVICE_NAMES, type Database } from '@lome-chat/db';
+import { recordServiceEvidence, SERVICE_NAMES, type Database } from '@hushbox/db';
+import { safeJsonParse } from '../../lib/safe-json.js';
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -7,8 +8,26 @@ import type {
   OpenRouterClient,
   GenerationStats,
   StreamToken,
+  ZdrEndpoint,
 } from './types.js';
 import { parseContextLengthError } from './context-error.js';
+
+/** Minimum output tokens to justify a retry after context length error. */
+export const MINIMUM_OUTPUT_TOKENS = 1000;
+
+/**
+ * Error thrown when the model's context is too full to produce useful output.
+ * The corrected max_tokens after subtracting actual text input falls below
+ * MINIMUM_OUTPUT_TOKENS, meaning a retry would produce negligible content.
+ */
+export class ContextCapacityError extends Error {
+  constructor() {
+    super(
+      "This conversation exceeds the model's memory limit. Start a new conversation or switch to a model with a larger context window."
+    );
+    this.name = 'ContextCapacityError';
+  }
+}
 
 export interface EvidenceConfig {
   db: Database;
@@ -17,41 +36,44 @@ export interface EvidenceConfig {
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1';
 
-// Model cache (shared across all clients since models are the same regardless of API key)
-let modelCache: { models: ModelInfo[]; fetchedAt: number } | null = null;
-const MODEL_CACHE_TTL = 3_600_000; // 1 hour in milliseconds
-
-/**
- * Clear the model cache. Exposed for testing purposes.
- */
-export function clearModelCache(): void {
-  modelCache = null;
-}
+/** Force Zero Data Retention — routes to providers that do not store/train on data. */
+const ZDR_PROVIDER = {
+  provider: { data_collection: 'deny' as const, zdr: true },
+} as const;
 
 /**
  * Fetch models from OpenRouter API without authentication.
  * The /models endpoint is public and does not require an API key.
- * Uses shared cache with 1 hour TTL.
  */
 export async function fetchModels(): Promise<ModelInfo[]> {
-  if (modelCache && Date.now() - modelCache.fetchedAt < MODEL_CACHE_TTL) {
-    return modelCache.models;
-  }
-
   const response = await fetch(`${OPENROUTER_API_URL}/models`);
 
   if (!response.ok) {
     throw new Error('Failed to fetch models');
   }
 
-  const data: { data: ModelInfo[] } = await response.json();
-  modelCache = { models: data.data, fetchedAt: Date.now() };
+  const data = await safeJsonParse<{ data: ModelInfo[] }>(response, 'OpenRouter models');
   return data.data;
 }
 
 /**
+ * Fetch ZDR-compliant model IDs from OpenRouter.
+ * The /endpoints/zdr endpoint is public — no API key required.
+ * Works identically in dev, CI, and production.
+ */
+export async function fetchZdrModelIds(): Promise<Set<string>> {
+  const response = await fetch(`${OPENROUTER_API_URL}/endpoints/zdr`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch ZDR endpoints');
+  }
+
+  const data = await safeJsonParse<{ data: ZdrEndpoint[] }>(response, 'OpenRouter ZDR endpoints');
+  return new Set(data.data.map((ep) => ep.model_id));
+}
+
+/**
  * Get a specific model by ID from OpenRouter API without authentication.
- * Uses the shared model cache.
  */
 export async function getModel(modelId: string): Promise<ModelInfo> {
   const models = await fetchModels();
@@ -253,6 +275,9 @@ async function makeRequestWithContextRetry(
     }
 
     const correctedMaxTokens = contextError.maxContext - contextError.textInput;
+    if (correctedMaxTokens < MINIMUM_OUTPUT_TOKENS) {
+      return { success: false, error: new ContextCapacityError() };
+    }
     const reader = await makeRequest({ ...request, max_tokens: correctedMaxTokens });
     return { success: true, reader };
   }
@@ -269,8 +294,8 @@ export function createOpenRouterClient(
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
-    'HTTP-Referer': 'https://lome-chat.com',
-    'X-Title': 'LOME-CHAT',
+    'HTTP-Referer': 'https://hushbox.ai',
+    'X-Title': 'HushBox',
   };
 
   const recordEvidence = async (): Promise<void> => {
@@ -286,28 +311,34 @@ export function createOpenRouterClient(
       const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
         method: 'POST',
         headers,
-        body: JSON.stringify(request),
+        body: JSON.stringify({ ...request, ...ZDR_PROVIDER }),
       });
       await recordEvidence();
 
       if (!response.ok) {
-        const error: OpenRouterErrorResponse = await response.json();
+        const error = await safeJsonParse<OpenRouterErrorResponse>(
+          response,
+          'OpenRouter chat completion error'
+        );
         throw new Error(`OpenRouter error: ${error.error?.message ?? response.statusText}`);
       }
 
-      return response.json();
+      return safeJsonParse<ChatCompletionResponse>(response, 'OpenRouter chat completion');
     },
 
     async *chatCompletionStream(request: ChatCompletionRequest): AsyncIterable<string> {
       const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ ...request, stream: true }),
+        body: JSON.stringify({ ...request, stream: true, ...ZDR_PROVIDER }),
       });
       await recordEvidence();
 
       if (!response.ok) {
-        const error: OpenRouterErrorResponse = await response.json();
+        const error = await safeJsonParse<OpenRouterErrorResponse>(
+          response,
+          'OpenRouter stream error'
+        );
         throw new Error(`OpenRouter error: ${error.error?.message ?? response.statusText}`);
       }
 
@@ -328,12 +359,15 @@ export function createOpenRouterClient(
         const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
           method: 'POST',
           headers,
-          body: JSON.stringify({ ...req, stream: true }),
+          body: JSON.stringify({ ...req, stream: true, ...ZDR_PROVIDER }),
         });
         await recordEvidence();
 
         if (!response.ok) {
-          const error: OpenRouterErrorResponse = await response.json();
+          const error = await safeJsonParse<OpenRouterErrorResponse>(
+            response,
+            'OpenRouter stream metadata error'
+          );
           const message = error.error?.message ?? response.statusText;
           throw new Error(`OpenRouter error: ${message}`);
         }
@@ -354,10 +388,6 @@ export function createOpenRouterClient(
     },
 
     async listModels(): Promise<ModelInfo[]> {
-      if (modelCache && Date.now() - modelCache.fetchedAt < MODEL_CACHE_TTL) {
-        return modelCache.models;
-      }
-
       const response = await fetch(`${OPENROUTER_API_URL}/models`, { headers });
       await recordEvidence();
 
@@ -365,8 +395,7 @@ export function createOpenRouterClient(
         throw new Error('Failed to fetch models');
       }
 
-      const data: { data: ModelInfo[] } = await response.json();
-      modelCache = { models: data.data, fetchedAt: Date.now() };
+      const data = await safeJsonParse<{ data: ModelInfo[] }>(response, 'OpenRouter models');
       return data.data;
     },
 
@@ -389,13 +418,19 @@ export function createOpenRouterClient(
       await recordEvidence();
 
       if (!response.ok) {
-        const error: OpenRouterErrorResponse = await response.json();
+        const error = await safeJsonParse<OpenRouterErrorResponse>(
+          response,
+          'OpenRouter generation stats error'
+        );
         throw new Error(
           `Failed to get generation stats: ${error.error?.message ?? response.statusText}`
         );
       }
 
-      const responseData: { data: GenerationStats } = await response.json();
+      const responseData = await safeJsonParse<{ data: GenerationStats }>(
+        response,
+        'OpenRouter generation stats'
+      );
       return responseData.data;
     },
   };

@@ -13,11 +13,9 @@ vi.mock('@/hooks/use-model-validation', () => ({
 
 // Mock the chat hooks
 vi.mock('@/hooks/chat', () => ({
-  useConversations: vi.fn(() => ({
+  useDecryptedConversations: vi.fn(() => ({
     data: [],
     isLoading: false,
-    isError: false,
-    error: null,
   })),
   useDeleteConversation: () => ({
     mutate: vi.fn(),
@@ -27,11 +25,13 @@ vi.mock('@/hooks/chat', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+  DECRYPTING_TITLE: 'Decrypting...',
 }));
 
 // Mock router for Sidebar children
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
+  useLocation: () => ({ pathname: '/' }),
   Link: ({
     children,
     to,
@@ -158,6 +158,18 @@ describe('AppShell', () => {
     );
     const main = screen.getByRole('main');
     expect(main).toHaveClass('overflow-hidden');
+  });
+
+  it('renders portal target for right sidebar', () => {
+    render(
+      <AppShell>
+        <div>Content</div>
+      </AppShell>,
+      { wrapper: createWrapper() }
+    );
+    const portalTarget = document.querySelector('#right-sidebar-portal');
+    expect(portalTarget).toBeInTheDocument();
+    expect(portalTarget).toHaveClass('contents');
   });
 
   it('calls useModelValidation to validate cached model selection', () => {

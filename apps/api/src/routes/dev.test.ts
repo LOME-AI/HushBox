@@ -1,17 +1,35 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
-import { createDevRoute } from './dev.js';
-import { WELCOME_CREDIT_BALANCE } from '@lome-chat/shared';
-import type { DevPersonasResponse } from '@lome-chat/shared';
+import { devRoute } from './dev.js';
+import { WELCOME_CREDIT_BALANCE } from '@hushbox/shared';
+import type { DevPersonasResponse } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
+
+/** Type-safe JSON response parser for test assertions. */
+async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> {
+  return (await res.json()) as T;
+}
+
+// Mock checkUserBalance used by listDevPersonas (wallet-based balance)
+const mockCheckUserBalance = vi.fn();
+vi.mock('../services/billing/index.js', () => ({
+  checkUserBalance: (...args: unknown[]) => mockCheckUserBalance(...args),
+}));
+
+const mockCreateDevGroupChat = vi.fn();
+vi.mock('../services/dev/index.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../services/dev/index.js')>();
+  return {
+    ...original,
+    createDevGroupChat: (...args: unknown[]) => mockCreateDevGroupChat(...args),
+  };
+});
 
 interface MockUser {
   id: string;
-  name: string;
+  username: string;
   email: string;
   emailVerified: boolean;
-  image: string | null;
-  balance: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -21,7 +39,7 @@ interface TestDataDeleteResponse {
   deleted: { conversations: number; messages: number };
 }
 
-interface GuestUsageResetResponse {
+interface TrialUsageResetResponse {
   success: boolean;
   deleted: number;
 }
@@ -62,25 +80,27 @@ function createTestAppWithMockDb(mockDb: unknown): Hono<AppEnv> {
     c.set('db', mockDb as AppEnv['Variables']['db']);
     await next();
   });
-  app.route('/dev', createDevRoute());
+  app.route('/dev', devRoute);
   return app;
 }
 
-describe('createDevRoute', () => {
+describe('devRoute', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   describe('GET /personas', () => {
     it('returns 200 with personas array', async () => {
+      mockCheckUserBalance.mockResolvedValue({
+        hasBalance: true,
+        currentBalance: WELCOME_CREDIT_BALANCE,
+      });
       const mockDb = createMockDb([
         {
           id: 'user-1',
-          name: 'Alice Developer',
-          email: 'alice@dev.lome-chat.com',
+          username: 'alice_developer',
+          email: 'alice@dev.hushbox.ai',
           emailVerified: true,
-          image: null,
-          balance: WELCOME_CREDIT_BALANCE,
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -106,14 +126,16 @@ describe('createDevRoute', () => {
     });
 
     it('includes user fields in response', async () => {
+      mockCheckUserBalance.mockResolvedValue({
+        hasBalance: true,
+        currentBalance: WELCOME_CREDIT_BALANCE,
+      });
       const mockDb = createMockDb([
         {
           id: 'user-1',
-          name: 'Alice Developer',
-          email: 'alice@dev.lome-chat.com',
+          username: 'alice_developer',
+          email: 'alice@dev.hushbox.ai',
           emailVerified: true,
-          image: 'https://example.com/alice.png',
-          balance: WELCOME_CREDIT_BALANCE,
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -125,22 +147,20 @@ describe('createDevRoute', () => {
 
       expect(body.personas[0]).toMatchObject({
         id: 'user-1',
-        name: 'Alice Developer',
-        email: 'alice@dev.lome-chat.com',
+        username: 'alice_developer',
+        email: 'alice@dev.hushbox.ai',
         emailVerified: true,
-        image: 'https://example.com/alice.png',
       });
     });
 
-    it('returns credits based on actual user balance', async () => {
+    it('returns credits based on wallet balance', async () => {
+      mockCheckUserBalance.mockResolvedValue({ hasBalance: true, currentBalance: '1.50000000' });
       const mockDb = createMockDb([
         {
           id: 'user-1',
-          name: 'Alice',
-          email: 'alice@dev.lome-chat.com',
+          username: 'alice',
+          email: 'alice@dev.hushbox.ai',
           emailVerified: true,
-          image: null,
-          balance: '1.50000000',
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -154,14 +174,13 @@ describe('createDevRoute', () => {
     });
 
     it('returns $0.00 for users with zero balance', async () => {
+      mockCheckUserBalance.mockResolvedValue({ hasBalance: false, currentBalance: '0.00000000' });
       const mockDb = createMockDb([
         {
           id: 'user-1',
-          name: 'Bob',
-          email: 'bob@dev.lome-chat.com',
+          username: 'bob',
+          email: 'bob@dev.hushbox.ai',
           emailVerified: true,
-          image: null,
-          balance: '0.00000000',
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -175,14 +194,16 @@ describe('createDevRoute', () => {
     });
 
     it('returns default welcome credits for new users', async () => {
+      mockCheckUserBalance.mockResolvedValue({
+        hasBalance: true,
+        currentBalance: WELCOME_CREDIT_BALANCE,
+      });
       const mockDb = createMockDb([
         {
           id: 'user-1',
-          name: 'NewUser',
-          email: 'newuser@dev.lome-chat.com',
+          username: 'newuser',
+          email: 'newuser@dev.hushbox.ai',
           emailVerified: true,
-          image: null,
-          balance: WELCOME_CREDIT_BALANCE, // Default welcome credit
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -196,15 +217,17 @@ describe('createDevRoute', () => {
     });
 
     it('includes stats for each persona', async () => {
+      mockCheckUserBalance.mockResolvedValue({
+        hasBalance: true,
+        currentBalance: WELCOME_CREDIT_BALANCE,
+      });
       const mockDb = createMockDb(
         [
           {
             id: 'user-1',
-            name: 'Alice',
-            email: 'alice@dev.lome-chat.com',
+            username: 'alice',
+            email: 'alice@dev.hushbox.ai',
             emailVerified: true,
-            image: null,
-            balance: WELCOME_CREDIT_BALANCE,
             createdAt: new Date(),
             updatedAt: new Date(),
           },
@@ -224,24 +247,21 @@ describe('createDevRoute', () => {
     });
 
     it('handles multiple personas', async () => {
+      mockCheckUserBalance.mockResolvedValue({ hasBalance: true, currentBalance: '1.50000000' });
       const mockDb = createMockDb([
         {
           id: 'user-1',
-          name: 'Alice',
-          email: 'alice@dev.lome-chat.com',
+          username: 'alice',
+          email: 'alice@dev.hushbox.ai',
           emailVerified: true,
-          image: null,
-          balance: '1.50000000',
           createdAt: new Date(),
           updatedAt: new Date(),
         },
         {
           id: 'user-2',
-          name: 'Bob',
-          email: 'bob@dev.lome-chat.com',
+          username: 'bob',
+          email: 'bob@dev.hushbox.ai',
           emailVerified: true,
-          image: null,
-          balance: '0.00000000',
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -255,14 +275,16 @@ describe('createDevRoute', () => {
     });
 
     it('filters by type=dev (default)', async () => {
+      mockCheckUserBalance.mockResolvedValue({
+        hasBalance: true,
+        currentBalance: WELCOME_CREDIT_BALANCE,
+      });
       const mockDb = createMockDb([
         {
           id: 'user-1',
-          name: 'Alice',
-          email: 'alice@dev.lome-chat.com',
+          username: 'alice',
+          email: 'alice@dev.hushbox.ai',
           emailVerified: true,
-          image: null,
-          balance: WELCOME_CREDIT_BALANCE,
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -274,18 +296,20 @@ describe('createDevRoute', () => {
 
       expect(res.status).toBe(200);
       expect(body.personas).toHaveLength(1);
-      expect(body.personas[0]?.email).toContain('@dev.lome-chat.com');
+      expect(body.personas[0]?.email).toContain('@dev.hushbox.ai');
     });
 
     it('filters by type=test to get test personas', async () => {
+      mockCheckUserBalance.mockResolvedValue({
+        hasBalance: true,
+        currentBalance: WELCOME_CREDIT_BALANCE,
+      });
       const mockDb = createMockDb([
         {
           id: 'test-user-1',
-          name: 'Test Alice',
-          email: 'test-alice@test.lome-chat.com',
+          username: 'test_alice',
+          email: 'test-alice@test.hushbox.ai',
           emailVerified: true,
-          image: null,
-          balance: WELCOME_CREDIT_BALANCE,
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -297,18 +321,20 @@ describe('createDevRoute', () => {
 
       expect(res.status).toBe(200);
       expect(body.personas).toHaveLength(1);
-      expect(body.personas[0]?.email).toContain('@test.lome-chat.com');
+      expect(body.personas[0]?.email).toContain('@test.hushbox.ai');
     });
 
     it('returns dev personas by default when no type param', async () => {
+      mockCheckUserBalance.mockResolvedValue({
+        hasBalance: true,
+        currentBalance: WELCOME_CREDIT_BALANCE,
+      });
       const mockDb = createMockDb([
         {
           id: 'user-1',
-          name: 'Alice',
-          email: 'alice@dev.lome-chat.com',
+          username: 'alice',
+          email: 'alice@dev.hushbox.ai',
           emailVerified: true,
-          image: null,
-          balance: WELCOME_CREDIT_BALANCE,
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -320,6 +346,15 @@ describe('createDevRoute', () => {
       expect(res.status).toBe(200);
       // Default behavior should query dev domain
       expect(mockDb.select).toHaveBeenCalled();
+    });
+
+    it('returns 400 for invalid type query parameter', async () => {
+      const mockDb = createMockDb([]);
+      const app = createTestAppWithMockDb(mockDb);
+
+      const res = await app.request('/dev/personas?type=invalid');
+
+      expect(res.status).toBe(400);
     });
   });
 
@@ -446,7 +481,7 @@ describe('createDevRoute', () => {
         c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
         await next();
       });
-      app.route('/dev', createDevRoute());
+      app.route('/dev', devRoute);
 
       await app.request('/dev/test-data', { method: 'DELETE' });
 
@@ -456,39 +491,238 @@ describe('createDevRoute', () => {
     });
   });
 
-  describe('DELETE /guest-usage', () => {
-    function createGuestUsageMockDb(recordsToDelete: { id: string }[]) {
-      const mockDelete = vi.fn();
-      const mockReturning = vi.fn();
+  describe('GET /verify-token/:email', () => {
+    function createVerifyTokenMockDb(user: { emailVerifyToken: string | null } | null) {
+      const mockSelect = vi.fn();
+      const mockFrom = vi.fn();
+      const mockWhere = vi.fn();
 
-      mockDelete.mockReturnValue({ returning: mockReturning });
-      mockReturning.mockResolvedValue(recordsToDelete);
+      mockSelect.mockReturnValue({ from: mockFrom });
+      mockFrom.mockReturnValue({ where: mockWhere });
+      mockWhere.mockResolvedValue(user ? [user] : []);
 
-      return { delete: mockDelete };
+      return { select: mockSelect };
     }
 
-    it('returns success with count of deleted records', async () => {
-      const mockDb = createGuestUsageMockDb([{ id: 'record-1' }, { id: 'record-2' }]);
-
+    it('returns token for user with pending verification', async () => {
+      const mockDb = createVerifyTokenMockDb({ emailVerifyToken: 'test-token-123' });
       const app = createTestAppWithMockDb(mockDb);
-      const res = await app.request('/dev/guest-usage', { method: 'DELETE' });
+
+      const res = await app.request('/dev/verify-token/test@example.com');
 
       expect(res.status).toBe(200);
-      const body: GuestUsageResetResponse = await res.json();
+      const body = await jsonBody<{ token: string }>(res);
+      expect(body.token).toBe('test-token-123');
+    });
+
+    it('returns 404 when user not found', async () => {
+      const mockDb = createVerifyTokenMockDb(null);
+      const app = createTestAppWithMockDb(mockDb);
+
+      const res = await app.request('/dev/verify-token/nonexistent@example.com');
+
+      expect(res.status).toBe(404);
+      const body = await jsonBody<{ code: string }>(res);
+      expect(body.code).toBe('NOT_FOUND');
+    });
+
+    it('returns 404 when user has no verify token', async () => {
+      const mockDb = createVerifyTokenMockDb({ emailVerifyToken: null });
+      const app = createTestAppWithMockDb(mockDb);
+
+      const res = await app.request('/dev/verify-token/verified@example.com');
+
+      expect(res.status).toBe(404);
+      const body = await jsonBody<{ code: string }>(res);
+      expect(body.code).toBe('NOT_FOUND');
+    });
+
+    it('returns 400 for invalid email format', async () => {
+      const mockDb = createVerifyTokenMockDb(null);
+      const app = createTestAppWithMockDb(mockDb);
+
+      const res = await app.request('/dev/verify-token/not-an-email');
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('DELETE /trial-usage', () => {
+    function createTrialUsageApp(keys: string[]) {
+      const mockRedis = {
+        scan: vi.fn().mockResolvedValue(['0', keys]),
+        del: vi.fn().mockResolvedValue(keys.length),
+      };
+
+      const app = new Hono<AppEnv>();
+      app.use('*', async (c, next) => {
+        c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
+        c.set('db', {} as unknown as AppEnv['Variables']['db']);
+        await next();
+      });
+      app.route('/dev', devRoute);
+      return app;
+    }
+
+    it('returns success with count of deleted keys', async () => {
+      const app = createTrialUsageApp(['trial:token:abc', 'trial:ip:hash1']);
+      const res = await app.request('/dev/trial-usage', { method: 'DELETE' });
+
+      expect(res.status).toBe(200);
+      const body: TrialUsageResetResponse = await res.json();
       expect(body.success).toBe(true);
       expect(body.deleted).toBe(2);
     });
 
-    it('returns success with zero when no records exist', async () => {
-      const mockDb = createGuestUsageMockDb([]);
-
-      const app = createTestAppWithMockDb(mockDb);
-      const res = await app.request('/dev/guest-usage', { method: 'DELETE' });
+    it('returns success with zero when no keys exist', async () => {
+      const app = createTrialUsageApp([]);
+      const res = await app.request('/dev/trial-usage', { method: 'DELETE' });
 
       expect(res.status).toBe(200);
-      const body: GuestUsageResetResponse = await res.json();
+      const body: TrialUsageResetResponse = await res.json();
       expect(body.success).toBe(true);
       expect(body.deleted).toBe(0);
+    });
+  });
+
+  describe('DELETE /auth-rate-limits', () => {
+    function createAuthRateLimitsApp(keys: string[]) {
+      const mockRedis = {
+        scan: vi.fn().mockResolvedValue(['0', keys]),
+        del: vi.fn().mockResolvedValue(keys.length),
+      };
+
+      const app = new Hono<AppEnv>();
+      app.use('*', async (c, next) => {
+        c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
+        c.set('db', {} as unknown as AppEnv['Variables']['db']);
+        await next();
+      });
+      app.route('/dev', devRoute);
+      return { app, mockRedis };
+    }
+
+    it('returns success with count of deleted keys', async () => {
+      const { app } = createAuthRateLimitsApp([
+        'login:user:ratelimit:alice',
+        'login:lockout:alice',
+      ]);
+      const res = await app.request('/dev/auth-rate-limits', { method: 'DELETE' });
+
+      expect(res.status).toBe(200);
+      const body: TrialUsageResetResponse = await res.json();
+      expect(body.success).toBe(true);
+      expect(typeof body.deleted).toBe('number');
+    });
+
+    it('returns success with zero when no keys exist', async () => {
+      const { app } = createAuthRateLimitsApp([]);
+      const res = await app.request('/dev/auth-rate-limits', { method: 'DELETE' });
+
+      expect(res.status).toBe(200);
+      const body: TrialUsageResetResponse = await res.json();
+      expect(body.success).toBe(true);
+      expect(body.deleted).toBe(0);
+    });
+  });
+
+  describe('POST /group-chat', () => {
+    function createGroupChatApp() {
+      const app = new Hono<AppEnv>();
+      app.use('*', async (c, next) => {
+        c.set('db', {} as AppEnv['Variables']['db']);
+        await next();
+      });
+      app.route('/dev', devRoute);
+      return app;
+    }
+
+    beforeEach(() => {
+      mockCreateDevGroupChat.mockReset();
+    });
+
+    it('returns 201 with conversationId and members on success', async () => {
+      mockCreateDevGroupChat.mockResolvedValue({
+        conversationId: 'conv-123',
+        members: [
+          { userId: 'alice-id', username: 'alice', email: 'alice@test.hushbox.ai' },
+          { userId: 'bob-id', username: 'bob', email: 'bob@test.hushbox.ai' },
+        ],
+      });
+
+      const app = createGroupChatApp();
+      const res = await app.request('/dev/group-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ownerEmail: 'alice@test.hushbox.ai',
+          memberEmails: ['bob@test.hushbox.ai'],
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = await jsonBody<{ conversationId: string; members: unknown[] }>(res);
+      expect(body.conversationId).toBe('conv-123');
+      expect(body.members).toHaveLength(2);
+    });
+
+    it('passes messages to service when provided', async () => {
+      mockCreateDevGroupChat.mockResolvedValue({
+        conversationId: 'conv-456',
+        members: [],
+      });
+
+      const app = createGroupChatApp();
+      await app.request('/dev/group-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ownerEmail: 'alice@test.hushbox.ai',
+          memberEmails: ['bob@test.hushbox.ai'],
+          messages: [
+            { senderEmail: 'alice@test.hushbox.ai', content: 'Hello', senderType: 'user' },
+            { content: 'Echo: Hello', senderType: 'ai' },
+          ],
+        }),
+      });
+
+      expect(mockCreateDevGroupChat).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          ownerEmail: 'alice@test.hushbox.ai',
+          memberEmails: ['bob@test.hushbox.ai'],
+          messages: [
+            { senderEmail: 'alice@test.hushbox.ai', content: 'Hello', senderType: 'user' },
+            { content: 'Echo: Hello', senderType: 'ai' },
+          ],
+        })
+      );
+    });
+
+    it('returns 400 when ownerEmail is missing', async () => {
+      const app = createGroupChatApp();
+      const res = await app.request('/dev/group-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          memberEmails: ['bob@test.hushbox.ai'],
+        }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when memberEmails is missing', async () => {
+      const app = createGroupChatApp();
+      const res = await app.request('/dev/group-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ownerEmail: 'alice@test.hushbox.ai',
+        }),
+      });
+
+      expect(res.status).toBe(400);
     });
   });
 });

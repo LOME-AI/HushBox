@@ -73,7 +73,7 @@ describe('MermaidDiagram', () => {
     render(<MermaidDiagram chart={invalidChart} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/failed to render diagram/i)).toBeInTheDocument();
+      expect(screen.getByText(/could not render this diagram/i)).toBeInTheDocument();
     });
   });
 

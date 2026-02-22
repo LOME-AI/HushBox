@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Button } from '@lome-chat/ui';
+import { Button } from '@hushbox/ui';
 import { Menu } from 'lucide-react';
 import { useUIStore } from '@/stores/ui';
 

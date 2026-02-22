@@ -18,15 +18,23 @@ describe('requireAuth middleware', () => {
     const res = await app.request('/protected');
 
     expect(res.status).toBe(401);
-    const data: { error: string } = await res.json();
-    expect(data.error).toBe('Unauthorized');
+    const data: { code: string } = await res.json();
+    expect(data.code).toBe('NOT_AUTHENTICATED');
   });
 
   it('allows request when user exists', async () => {
     const app = new Hono<AppEnv>();
 
     app.use('*', async (c, next) => {
-      c.set('user', { id: 'user-123', email: 'test@example.com', name: 'Test User' });
+      c.set('user', {
+        id: 'user-123',
+        email: 'test@example.com',
+        username: 'test_user',
+        emailVerified: true,
+        totpEnabled: false,
+        hasAcknowledgedPhrase: false,
+        publicKey: new Uint8Array(32),
+      });
       await next();
     });
 

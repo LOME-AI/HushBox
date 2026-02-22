@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import type { Model } from '@lome-chat/shared';
+import type { Model } from '@hushbox/shared';
 import { useUIModalsStore } from '@/stores/ui-modals';
 
 /**

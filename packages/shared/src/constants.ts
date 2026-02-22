@@ -6,19 +6,19 @@ export { MESSAGE_ROLES, type MessageRole } from './enums.js';
 export const DEV_PASSWORD = 'password123';
 
 /** Email domain for development personas */
-export const DEV_EMAIL_DOMAIN = 'dev.lome-chat.com';
+export const DEV_EMAIL_DOMAIN = 'dev.hushbox.ai';
 
 /** Email domain for test personas (used by E2E tests) */
-export const TEST_EMAIL_DOMAIN = 'test.lome-chat.com';
+export const TEST_EMAIL_DOMAIN = 'test.hushbox.ai';
 
 /** Model ID for the "Strongest" quick-select button */
-export const STRONGEST_MODEL_ID = 'anthropic/claude-opus-4.5';
+export const STRONGEST_MODEL_ID = 'anthropic/claude-opus-4.6';
 
 /** Model ID for the "Value" quick-select button */
 export const VALUE_MODEL_ID = 'deepseek/deepseek-r1';
 
-/** LOME's profit margin on AI model usage (5%) */
-export const LOME_FEE_RATE = 0.05;
+/** HushBox's profit margin on AI model usage (5%) */
+export const HUSHBOX_FEE_RATE = 0.05;
 
 /** Credit card processing fee (4.5%) */
 export const CREDIT_CARD_FEE_RATE = 0.045;
@@ -29,10 +29,10 @@ export const PROVIDER_FEE_RATE = 0.055;
 /**
  * Total combined fee rate applied to all model usage.
  * SINGLE SOURCE OF TRUTH for fee calculations.
- * = LOME_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE
+ * = HUSHBOX_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE
  * = 0.05 + 0.045 + 0.055 = 0.15 (15%)
  */
-export const TOTAL_FEE_RATE = LOME_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE;
+export const TOTAL_FEE_RATE = HUSHBOX_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE;
 
 /**
  * Threshold per 1k tokens (input + output combined, with fees) above which
@@ -85,11 +85,11 @@ export const PAYMENT_EXPIRATION_MS = 30 * 60 * 1000;
 export const MAX_ALLOWED_NEGATIVE_BALANCE_CENTS = 50;
 
 /**
- * Maximum estimated cost per message for guest users in cents.
- * Guests are limited to cheap messages to prevent abuse.
+ * Maximum estimated cost per message for trial users in cents.
+ * Trial users are limited to cheap messages to prevent abuse.
  * $0.01 = 1 cent
  */
-export const MAX_GUEST_MESSAGE_COST_CENTS = 1;
+export const MAX_TRIAL_MESSAGE_COST_CENTS = 1;
 
 /**
  * Minimum output tokens to reserve for AI response.
@@ -108,9 +108,9 @@ export const LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD = 10_000;
 // ============================================================================
 
 /**
- * Conservative character-per-token ratio for free/guest users.
+ * Conservative character-per-token ratio for free/trial users.
  * Lower value = more tokens estimated = more conservative cost estimate.
- * We overestimate for free/guest users because we absorb cost overruns.
+ * We overestimate for free/trial users because we absorb cost overruns.
  */
 export const CHARS_PER_TOKEN_CONSERVATIVE = 2;
 
@@ -147,5 +147,24 @@ interface FeatureFlags {
 
 export const FEATURE_FLAGS: FeatureFlags = {
   PROJECTS_ENABLED: false,
-  SETTINGS_ENABLED: false,
+  SETTINGS_ENABLED: true,
 };
+
+/** Maximum number of members (users + link guests) allowed in a single conversation */
+export const MAX_CONVERSATION_MEMBERS = 100;
+
+// ============================================================================
+// Legal Constants
+// ============================================================================
+
+/** Effective date for the Privacy Policy (YYYY-MM-DD) */
+export const PRIVACY_POLICY_EFFECTIVE_DATE = '2026-03-15';
+
+/** Effective date for the Terms of Service (YYYY-MM-DD) */
+export const TERMS_OF_SERVICE_EFFECTIVE_DATE = '2026-03-15';
+
+/** Contact email for billing-related inquiries */
+export const BILLING_CONTACT_EMAIL = 'billing@hushbox.ai';
+
+/** Contact email for privacy-related inquiries */
+export const PRIVACY_CONTACT_EMAIL = 'privacy@hushbox.ai';

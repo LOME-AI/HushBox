@@ -5,13 +5,27 @@
 
 /**
  * Get the start of the current UTC day (midnight).
- * Used for daily reset logic (free allowance, guest usage, etc.)
+ * Used for daily reset logic (free allowance, trial usage, etc.)
  *
  * @returns Date object representing 00:00:00.000 UTC of the current day
  */
 export function getUtcMidnight(): Date {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+/**
+ * Calculate seconds remaining until the next UTC midnight.
+ * Used as TTL for Redis keys that should expire at daily reset.
+ *
+ * @returns Number of seconds until 00:00:00.000 UTC of the next day (always >= 1)
+ */
+export function secondsUntilNextUtcMidnight(): number {
+  const now = new Date();
+  const tomorrow = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
+  );
+  return Math.ceil((tomorrow.getTime() - now.getTime()) / 1000);
 }
 
 /**

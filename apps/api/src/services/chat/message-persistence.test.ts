@@ -4,403 +4,1278 @@ import {
   createDb,
   LOCAL_NEON_DEV_CONFIG,
   users,
-  balanceTransactions,
   messages,
   conversations,
+  conversationMembers,
+  conversationSpending,
+  memberBudgets,
+  epochs,
+  wallets,
+  usageRecords,
+  ledgerEntries,
+  llmCompletions,
   type Database,
-} from '@lome-chat/db';
-import { userFactory, conversationFactory } from '@lome-chat/db/factories';
-import { saveMessageWithBilling } from './message-persistence.js';
+} from '@hushbox/db';
+import {
+  userFactory,
+  conversationFactory,
+  conversationMemberFactory,
+  walletFactory,
+} from '@hushbox/db/factories';
+import { createFirstEpoch, decryptMessage, generateKeyPair } from '@hushbox/crypto';
+import { saveChatTurn, saveUserOnlyMessage } from './message-persistence.js';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
 if (!DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is required for tests');
 }
 
-describe('saveMessageWithBilling', () => {
+interface TestSetup {
+  user: typeof users.$inferSelect;
+  conversation: typeof conversations.$inferSelect;
+  epoch: typeof epochs.$inferSelect;
+  wallet: typeof wallets.$inferSelect;
+  epochPrivateKey: Uint8Array;
+}
+
+async function createTestSetup(db: Database, balance = '10.00000000'): Promise<TestSetup> {
+  // Create user with a real keypair so we can decrypt epoch keys
+  const accountKeyPair = generateKeyPair();
+  const userData = userFactory.build({ publicKey: accountKeyPair.publicKey });
+  const [createdUser] = await db.insert(users).values(userData).returning();
+  if (!createdUser) throw new Error('Failed to create test user');
+
+  const convData = conversationFactory.build({ userId: createdUser.id });
+  const [createdConv] = await db.insert(conversations).values(convData).returning();
+  if (!createdConv) throw new Error('Failed to create test conversation');
+
+  // Create epoch 1 with a real keypair for testing decryption
+  const epochResult = createFirstEpoch([accountKeyPair.publicKey]);
+  const [createdEpoch] = await db
+    .insert(epochs)
+    .values({
+      conversationId: createdConv.id,
+      epochNumber: 1,
+      epochPublicKey: epochResult.epochPublicKey,
+      confirmationHash: epochResult.confirmationHash,
+    })
+    .returning();
+  if (!createdEpoch) throw new Error('Failed to create test epoch');
+
+  // Create wallet with specified balance
+  const walletData = walletFactory.build({
+    userId: createdUser.id,
+    type: 'purchased',
+    balance,
+    priority: 0,
+  });
+  const [createdWallet] = await db.insert(wallets).values(walletData).returning();
+  if (!createdWallet) throw new Error('Failed to create test wallet');
+
+  return {
+    user: createdUser,
+    conversation: createdConv,
+    epoch: createdEpoch,
+    wallet: createdWallet,
+    epochPrivateKey: epochResult.epochPrivateKey,
+  };
+}
+
+describe('saveChatTurn', () => {
   let db: Database;
   const createdUserIds: string[] = [];
-  const createdConversationIds: string[] = [];
-  const createdMessageIds: string[] = [];
 
   beforeAll(() => {
     db = createDb({ connectionString: DATABASE_URL, neonDev: LOCAL_NEON_DEV_CONFIG });
   });
 
   afterEach(async () => {
-    // Clean up in reverse order of dependencies
-    if (createdMessageIds.length > 0) {
-      await db.delete(messages).where(inArray(messages.id, createdMessageIds));
-      createdMessageIds.length = 0;
+    // Clean up in reverse FK order. ledger_entries has a check constraint
+    // requiring exactly one of (payment_id, usage_record_id, source_wallet_id)
+    // to be NOT NULL, so we must delete ledger_entries before their parents.
+    for (const userId of createdUserIds) {
+      // Get wallet IDs for this user to delete their ledger entries
+      const userWallets = await db
+        .select({ id: wallets.id })
+        .from(wallets)
+        .where(eq(wallets.userId, userId));
+      if (userWallets.length > 0) {
+        await db.delete(ledgerEntries).where(
+          inArray(
+            ledgerEntries.walletId,
+            userWallets.map((w) => w.id)
+          )
+        );
+      }
+      await db.delete(usageRecords).where(eq(usageRecords.userId, userId));
+      await db.delete(wallets).where(eq(wallets.userId, userId));
+      // Conversations cascade to messages and epochs
+      await db.delete(conversations).where(eq(conversations.userId, userId));
+      await db.delete(users).where(eq(users.id, userId));
     }
-    if (createdConversationIds.length > 0) {
-      await db.delete(conversations).where(inArray(conversations.id, createdConversationIds));
-      createdConversationIds.length = 0;
-    }
-    if (createdUserIds.length > 0) {
-      await db
-        .delete(balanceTransactions)
-        .where(inArray(balanceTransactions.userId, createdUserIds));
-      await db.delete(users).where(inArray(users.id, createdUserIds));
-      createdUserIds.length = 0;
-    }
+    createdUserIds.length = 0;
   });
 
-  async function createTestUser(balance: string) {
-    const userData = userFactory.build({ balance });
-    const result = await db.insert(users).values(userData).returning();
-    const user = result[0];
-    if (!user) throw new Error('Failed to create test user');
-    createdUserIds.push(user.id);
-    return user;
-  }
+  it('inserts both user and AI messages atomically', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
 
-  async function createTestConversation(userId: string) {
-    const convData = conversationFactory.build({ userId });
-    const result = await db.insert(conversations).values(convData).returning();
-    const conversation = result[0];
-    if (!conversation) throw new Error('Failed to create test conversation');
-    createdConversationIds.push(conversation.id);
-    return conversation;
-  }
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
 
-  describe('atomic message + billing', () => {
-    it('inserts message with cost in single transaction', async () => {
-      const user = await createTestUser('10.00000000');
-      const conversation = await createTestConversation(user.id);
-      const messageId = crypto.randomUUID();
-      createdMessageIds.push(messageId);
-
-      const result = await saveMessageWithBilling(db, {
-        messageId,
-        conversationId: conversation.id,
-        content: 'Hello from AI!',
-        model: 'openai/gpt-4o-mini',
-        userId: user.id,
-        totalCost: 0.001_36, // Pre-calculated cost
-        inputCharacters: 500,
-        outputCharacters: 200,
-      });
-
-      // Message exists with cost set
-      const [msg] = await db.select().from(messages).where(eq(messages.id, messageId));
-      if (!msg) throw new Error('Message not found');
-      expect(msg.content).toBe('Hello from AI!');
-      expect(msg.cost).toBeDefined();
-      if (!msg.cost) throw new Error('Cost not found');
-      expect(Number.parseFloat(msg.cost)).toBeCloseTo(0.001_36, 5);
-      expect(result.totalCharge).toBeCloseTo(0.001_36, 5);
+    const result = await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId,
+      userContent: 'Hello from user',
+      assistantMessageId,
+      assistantContent: 'Hello from AI!',
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0.001_36,
+      inputTokens: 100,
+      outputTokens: 50,
     });
 
-    it('deducts cost from user balance', async () => {
-      const user = await createTestUser('10.00000000');
-      const conversation = await createTestConversation(user.id);
-      const messageId = crypto.randomUUID();
-      createdMessageIds.push(messageId);
+    // User message exists with correct fields
+    const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
+    if (!userMsg) throw new Error('User message not found');
+    expect(userMsg.senderType).toBe('user');
+    expect(userMsg.senderId).toBe(setup.user.id);
+    expect(userMsg.encryptedBlob).toBeInstanceOf(Uint8Array);
+    expect(userMsg.epochNumber).toBe(1);
 
-      const result = await saveMessageWithBilling(db, {
-        messageId,
-        conversationId: conversation.id,
-        content: 'Test response',
+    // AI message exists with correct fields
+    const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
+    if (!aiMsg) throw new Error('AI message not found');
+    expect(aiMsg.senderType).toBe('ai');
+    expect(aiMsg.payerId).toBe(setup.user.id);
+    expect(aiMsg.encryptedBlob).toBeInstanceOf(Uint8Array);
+    expect(aiMsg.epochNumber).toBe(1);
+    expect(aiMsg.cost).toBe('0.00136000');
+
+    // User message should not have cost
+    expect(userMsg.cost).toBeNull();
+
+    expect(result.epochNumber).toBe(1);
+  });
+
+  it('encrypts messages with epoch public key', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+    const userText = 'Hello user message';
+    const aiText = 'Hello AI response';
+
+    await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId,
+      userContent: userText,
+      assistantMessageId,
+      assistantContent: aiText,
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0.001,
+      inputTokens: 50,
+      outputTokens: 30,
+    });
+
+    // Decrypt user message with epoch private key
+    const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
+    if (!userMsg) throw new Error('User message not found');
+    const decryptedUser = decryptMessage(setup.epochPrivateKey, userMsg.encryptedBlob);
+    expect(decryptedUser).toBe(userText);
+
+    // Decrypt AI message with epoch private key
+    const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
+    if (!aiMsg) throw new Error('AI message not found');
+    const decryptedAi = decryptMessage(setup.epochPrivateKey, aiMsg.encryptedBlob);
+    expect(decryptedAi).toBe(aiText);
+  });
+
+  it('assigns sequential sequence numbers', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    // Conversation starts with nextSequence = 1
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+
+    const result = await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId,
+      userContent: 'First user message',
+      assistantMessageId,
+      assistantContent: 'First AI response',
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0.001,
+      inputTokens: 50,
+      outputTokens: 30,
+    });
+
+    expect(result.userSequence).toBe(1);
+    expect(result.aiSequence).toBe(2);
+
+    // Verify messages have correct sequence numbers
+    const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
+    if (!userMsg) throw new Error('User message not found');
+    expect(userMsg.sequenceNumber).toBe(1);
+
+    const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
+    if (!aiMsg) throw new Error('AI message not found');
+    expect(aiMsg.sequenceNumber).toBe(2);
+
+    // Conversation nextSequence updated to 3
+    const [updatedConv] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, setup.conversation.id));
+    if (!updatedConv) throw new Error('Conversation not found');
+    expect(updatedConv.nextSequence).toBe(3);
+  });
+
+  it('charges wallet via chargeForUsage', async () => {
+    const setup = await createTestSetup(db, '10.00000000');
+    createdUserIds.push(setup.user.id);
+
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+
+    const result = await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId,
+      userContent: 'User message',
+      assistantMessageId,
+      assistantContent: 'AI response',
+      model: 'anthropic/claude-3-opus',
+      totalCost: 0.05,
+      inputTokens: 200,
+      outputTokens: 100,
+      cachedTokens: 10,
+    });
+
+    expect(result.cost).toBe('0.05000000');
+    expect(result.usageRecordId).toBeDefined();
+
+    // Wallet balance decreased
+    const [updatedWallet] = await db.select().from(wallets).where(eq(wallets.id, setup.wallet.id));
+    if (!updatedWallet) throw new Error('Wallet not found');
+    expect(Number.parseFloat(updatedWallet.balance)).toBeCloseTo(10 - 0.05, 5);
+
+    // Usage record created
+    const [usageRecord] = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.id, result.usageRecordId));
+    if (!usageRecord) throw new Error('Usage record not found');
+    expect(usageRecord.status).toBe('completed');
+    expect(usageRecord.sourceType).toBe('message');
+    expect(usageRecord.sourceId).toBe(assistantMessageId);
+
+    // Ledger entry created
+    const [ledger] = await db
+      .select()
+      .from(ledgerEntries)
+      .where(eq(ledgerEntries.usageRecordId, result.usageRecordId));
+    if (!ledger) throw new Error('Ledger entry not found');
+    expect(ledger.entryType).toBe('usage_charge');
+
+    // LLM completion created
+    const [completion] = await db
+      .select()
+      .from(llmCompletions)
+      .where(eq(llmCompletions.usageRecordId, result.usageRecordId));
+    if (!completion) throw new Error('LLM completion not found');
+    expect(completion.model).toBe('anthropic/claude-3-opus');
+    expect(completion.inputTokens).toBe(200);
+    expect(completion.outputTokens).toBe(100);
+    expect(completion.cachedTokens).toBe(10);
+  });
+
+  it('rolls back everything if charging fails', async () => {
+    // Create user without any wallets
+    const userData = userFactory.build();
+    const [createdUser] = await db.insert(users).values(userData).returning();
+    if (!createdUser) throw new Error('Failed to create test user');
+    createdUserIds.push(createdUser.id);
+
+    const convData = conversationFactory.build({ userId: createdUser.id });
+    const [createdConv] = await db.insert(conversations).values(convData).returning();
+    if (!createdConv) throw new Error('Failed to create test conversation');
+
+    const epochResult = createFirstEpoch([createdUser.publicKey]);
+    await db.insert(epochs).values({
+      conversationId: createdConv.id,
+      epochNumber: 1,
+      epochPublicKey: epochResult.epochPublicKey,
+      confirmationHash: epochResult.confirmationHash,
+    });
+
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+
+    // Should fail because no wallets exist
+    await expect(
+      saveChatTurn(db, {
+        conversationId: createdConv.id,
+        userId: createdUser.id,
+        userMessageId,
+        userContent: 'Should not persist',
+        assistantMessageId,
+        assistantContent: 'Should not persist either',
         model: 'openai/gpt-4o-mini',
-        userId: user.id,
         totalCost: 0.001,
-        inputCharacters: 100,
-        outputCharacters: 50,
-      });
+        inputTokens: 50,
+        outputTokens: 30,
+      })
+    ).rejects.toThrow();
 
-      const [updatedUser] = await db.select().from(users).where(eq(users.id, user.id));
-      if (!updatedUser) throw new Error('User not found');
-      expect(Number.parseFloat(updatedUser.balance)).toBeCloseTo(10 - 0.001, 5);
-      expect(Number.parseFloat(result.newBalance)).toBeCloseTo(10 - 0.001, 5);
+    // No messages should exist after rollback
+    const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
+    expect(userMsg).toBeUndefined();
+    const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
+    expect(aiMsg).toBeUndefined();
+
+    // No usage records should exist
+    const userUsageRecords = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.userId, createdUser.id));
+    expect(userUsageRecords).toHaveLength(0);
+
+    // Conversation nextSequence should be unchanged
+    const [conv] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, createdConv.id));
+    if (!conv) throw new Error('Conversation not found');
+    expect(conv.nextSequence).toBe(1);
+  });
+
+  it('rolls back on duplicate user message ID', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId1 = crypto.randomUUID();
+    const assistantMessageId2 = crypto.randomUUID();
+
+    // First insert succeeds
+    await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId,
+      userContent: 'First attempt',
+      assistantMessageId: assistantMessageId1,
+      assistantContent: 'First response',
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0.001,
+      inputTokens: 50,
+      outputTokens: 30,
     });
 
-    it('creates balance transaction', async () => {
-      const user = await createTestUser('10.00000000');
-      const conversation = await createTestConversation(user.id);
-      const messageId = crypto.randomUUID();
-      createdMessageIds.push(messageId);
+    const [walletAfterFirst] = await db
+      .select()
+      .from(wallets)
+      .where(eq(wallets.id, setup.wallet.id));
+    if (!walletAfterFirst) throw new Error('Wallet not found');
+    const balanceAfterFirst = walletAfterFirst.balance;
 
-      const result = await saveMessageWithBilling(db, {
-        messageId,
-        conversationId: conversation.id,
-        content: 'Test response',
-        model: 'anthropic/claude-3-opus',
-        userId: user.id,
+    // Second insert with same userMessageId should fail
+    await expect(
+      saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        userMessageId, // same user message ID
+        userContent: 'Duplicate attempt',
+        assistantMessageId: assistantMessageId2,
+        assistantContent: 'Duplicate response',
+        model: 'openai/gpt-4o-mini',
+        totalCost: 0.001,
+        inputTokens: 50,
+        outputTokens: 30,
+      })
+    ).rejects.toThrow();
+
+    // Balance should not have been double-charged
+    const [walletAfterDuplicate] = await db
+      .select()
+      .from(wallets)
+      .where(eq(wallets.id, setup.wallet.id));
+    if (!walletAfterDuplicate) throw new Error('Wallet not found');
+    expect(walletAfterDuplicate.balance).toBe(balanceAfterFirst);
+
+    // Second assistant message should not exist
+    const [dupAiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId2));
+    expect(dupAiMsg).toBeUndefined();
+  });
+
+  it('handles zero cost', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+
+    const result = await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId,
+      userContent: 'Free message',
+      assistantMessageId,
+      assistantContent: 'Free response',
+      model: 'meta/llama-3-8b',
+      totalCost: 0,
+      inputTokens: 50,
+      outputTokens: 30,
+    });
+
+    expect(result.cost).toBe('0.00000000');
+
+    // Messages still saved
+    const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
+    expect(userMsg).toBeDefined();
+    const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
+    expect(aiMsg).toBeDefined();
+
+    // Wallet balance unchanged
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.id, setup.wallet.id));
+    if (!wallet) throw new Error('Wallet not found');
+    expect(wallet.balance).toBe('10.00000000');
+  });
+
+  it('continues sequence numbers across consecutive chat turns', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    // First turn: sequences 1, 2
+    const result1 = await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId: crypto.randomUUID(),
+      userContent: 'First user message',
+      assistantMessageId: crypto.randomUUID(),
+      assistantContent: 'First AI response',
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0.001,
+      inputTokens: 50,
+      outputTokens: 30,
+    });
+
+    expect(result1.userSequence).toBe(1);
+    expect(result1.aiSequence).toBe(2);
+
+    // Second turn: sequences 3, 4
+    const result2 = await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId: crypto.randomUUID(),
+      userContent: 'Second user message',
+      assistantMessageId: crypto.randomUUID(),
+      assistantContent: 'Second AI response',
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0.002,
+      inputTokens: 60,
+      outputTokens: 40,
+    });
+
+    expect(result2.userSequence).toBe(3);
+    expect(result2.aiSequence).toBe(4);
+
+    // Conversation nextSequence should be 5
+    const [conv] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, setup.conversation.id));
+    if (!conv) throw new Error('Conversation not found');
+    expect(conv.nextSequence).toBe(5);
+  });
+
+  it('falls back to lower-priority wallet when primary is insufficient', async () => {
+    // Create user with two wallets: purchased (priority 0, low balance) and free_tier (priority 1, enough)
+    const accountKeyPair = generateKeyPair();
+    const userData = userFactory.build({ publicKey: accountKeyPair.publicKey });
+    const [createdUser] = await db.insert(users).values(userData).returning();
+    if (!createdUser) throw new Error('Failed to create test user');
+    createdUserIds.push(createdUser.id);
+
+    const convData = conversationFactory.build({ userId: createdUser.id });
+    const [createdConv] = await db.insert(conversations).values(convData).returning();
+    if (!createdConv) throw new Error('Failed to create test conversation');
+
+    const epochResult = createFirstEpoch([accountKeyPair.publicKey]);
+    await db.insert(epochs).values({
+      conversationId: createdConv.id,
+      epochNumber: 1,
+      epochPublicKey: epochResult.epochPublicKey,
+      confirmationHash: epochResult.confirmationHash,
+    });
+
+    // Purchased wallet: only $0.01 (insufficient for $0.05 charge)
+    const [purchasedWallet] = await db
+      .insert(wallets)
+      .values(
+        walletFactory.build({
+          userId: createdUser.id,
+          type: 'purchased',
+          balance: '0.01000000',
+          priority: 0,
+        })
+      )
+      .returning();
+    if (!purchasedWallet) throw new Error('Failed to create purchased wallet');
+
+    // Free tier wallet: $5.00 (sufficient)
+    const [freeTierWallet] = await db
+      .insert(wallets)
+      .values(
+        walletFactory.build({
+          userId: createdUser.id,
+          type: 'free_tier',
+          balance: '5.00000000',
+          priority: 1,
+        })
+      )
+      .returning();
+    if (!freeTierWallet) throw new Error('Failed to create free_tier wallet');
+
+    const result = await saveChatTurn(db, {
+      conversationId: createdConv.id,
+      userId: createdUser.id,
+      userMessageId: crypto.randomUUID(),
+      userContent: 'Message with wallet fallback',
+      assistantMessageId: crypto.randomUUID(),
+      assistantContent: 'AI response',
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0.05,
+      inputTokens: 100,
+      outputTokens: 50,
+    });
+
+    expect(result.cost).toBe('0.05000000');
+
+    // Purchased wallet balance unchanged (was insufficient)
+    const [updatedPurchased] = await db
+      .select()
+      .from(wallets)
+      .where(eq(wallets.id, purchasedWallet.id));
+    if (!updatedPurchased) throw new Error('Purchased wallet not found');
+    expect(updatedPurchased.balance).toBe('0.01000000');
+
+    // Free tier wallet charged instead
+    const [updatedFreeTier] = await db
+      .select()
+      .from(wallets)
+      .where(eq(wallets.id, freeTierWallet.id));
+    if (!updatedFreeTier) throw new Error('Free tier wallet not found');
+    expect(Number.parseFloat(updatedFreeTier.balance)).toBeCloseTo(5 - 0.05, 5);
+  });
+
+  it('rolls back when all wallets have insufficient balance', async () => {
+    // Wallet exists but balance is too low
+    const setup = await createTestSetup(db, '0.00100000');
+    createdUserIds.push(setup.user.id);
+
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+
+    await expect(
+      saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        userMessageId,
+        userContent: 'Should not persist',
+        assistantMessageId,
+        assistantContent: 'Should not persist',
+        model: 'openai/gpt-4o-mini',
+        totalCost: 1, // way more than 0.001 balance
+        inputTokens: 500,
+        outputTokens: 500,
+      })
+    ).rejects.toThrow('Insufficient balance');
+
+    // Verify full rollback: no messages
+    const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
+    expect(userMsg).toBeUndefined();
+
+    // Wallet balance unchanged
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.id, setup.wallet.id));
+    if (!wallet) throw new Error('Wallet not found');
+    expect(wallet.balance).toBe('0.00100000');
+
+    // Sequence not incremented
+    const [conv] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, setup.conversation.id));
+    if (!conv) throw new Error('Conversation not found');
+    expect(conv.nextSequence).toBe(1);
+  });
+
+  it('encrypts and decrypts long messages with compression', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    // Generate a long message that triggers compression (>128 bytes)
+    const longUserContent = 'This is a detailed question about quantum computing. '.repeat(50);
+    const longAiContent =
+      'Here is a comprehensive answer about quantum mechanics and computing principles. '.repeat(
+        100
+      );
+
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+
+    await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId,
+      userContent: longUserContent,
+      assistantMessageId,
+      assistantContent: longAiContent,
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0.01,
+      inputTokens: 2000,
+      outputTokens: 4000,
+    });
+
+    // Decrypt and verify exact content roundtrip
+    const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
+    if (!userMsg) throw new Error('User message not found');
+    const decryptedUser = decryptMessage(setup.epochPrivateKey, userMsg.encryptedBlob);
+    expect(decryptedUser).toBe(longUserContent);
+
+    const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
+    if (!aiMsg) throw new Error('AI message not found');
+    const decryptedAi = decryptMessage(setup.epochPrivateKey, aiMsg.encryptedBlob);
+    expect(decryptedAi).toBe(longAiContent);
+
+    // Encrypted blob should be smaller than plaintext (compression working)
+    expect(aiMsg.encryptedBlob.length).toBeLessThan(Buffer.from(longAiContent).length);
+  });
+
+  it('throws when conversation does not exist', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    await expect(
+      saveChatTurn(db, {
+        conversationId: crypto.randomUUID(), // non-existent conversation
+        userId: setup.user.id,
+        userMessageId: crypto.randomUUID(),
+        userContent: 'Should fail',
+        assistantMessageId: crypto.randomUUID(),
+        assistantContent: 'Should fail',
+        model: 'openai/gpt-4o-mini',
+        totalCost: 0.001,
+        inputTokens: 50,
+        outputTokens: 30,
+      })
+    ).rejects.toThrow('Conversation not found');
+  });
+
+  it('throws when epoch does not exist for conversation', async () => {
+    // Create conversation but no epoch
+    const accountKeyPair = generateKeyPair();
+    const userData = userFactory.build({ publicKey: accountKeyPair.publicKey });
+    const [createdUser] = await db.insert(users).values(userData).returning();
+    if (!createdUser) throw new Error('Failed to create test user');
+    createdUserIds.push(createdUser.id);
+
+    const convData = conversationFactory.build({ userId: createdUser.id });
+    const [createdConv] = await db.insert(conversations).values(convData).returning();
+    if (!createdConv) throw new Error('Failed to create test conversation');
+
+    // Wallet exists but no epoch — should fail at epoch lookup
+    await db.insert(wallets).values(
+      walletFactory.build({
+        userId: createdUser.id,
+        type: 'purchased',
+        balance: '10.00000000',
+        priority: 0,
+      })
+    );
+
+    await expect(
+      saveChatTurn(db, {
+        conversationId: createdConv.id,
+        userId: createdUser.id,
+        userMessageId: crypto.randomUUID(),
+        userContent: 'Should fail',
+        assistantMessageId: crypto.randomUUID(),
+        assistantContent: 'Should fail',
+        model: 'openai/gpt-4o-mini',
+        totalCost: 0.001,
+        inputTokens: 50,
+        outputTokens: 30,
+      })
+    ).rejects.toThrow('Epoch not found');
+  });
+
+  it('works with currentEpoch greater than 1', async () => {
+    const accountKeyPair = generateKeyPair();
+    const userData = userFactory.build({ publicKey: accountKeyPair.publicKey });
+    const [createdUser] = await db.insert(users).values(userData).returning();
+    if (!createdUser) throw new Error('Failed to create test user');
+    createdUserIds.push(createdUser.id);
+
+    // Conversation at epoch 3
+    const convData = conversationFactory.build({ userId: createdUser.id, currentEpoch: 3 });
+    const [createdConv] = await db.insert(conversations).values(convData).returning();
+    if (!createdConv) throw new Error('Failed to create test conversation');
+
+    // Create epoch 3 (the current epoch)
+    const epochResult = createFirstEpoch([accountKeyPair.publicKey]);
+    await db.insert(epochs).values({
+      conversationId: createdConv.id,
+      epochNumber: 3,
+      epochPublicKey: epochResult.epochPublicKey,
+      confirmationHash: epochResult.confirmationHash,
+    });
+
+    await db.insert(wallets).values(
+      walletFactory.build({
+        userId: createdUser.id,
+        type: 'purchased',
+        balance: '10.00000000',
+        priority: 0,
+      })
+    );
+
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+
+    const result = await saveChatTurn(db, {
+      conversationId: createdConv.id,
+      userId: createdUser.id,
+      userMessageId,
+      userContent: 'Message in epoch 3',
+      assistantMessageId,
+      assistantContent: 'Response in epoch 3',
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0.001,
+      inputTokens: 50,
+      outputTokens: 30,
+    });
+
+    expect(result.epochNumber).toBe(3);
+
+    // Messages stored with correct epoch number
+    const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
+    if (!userMsg) throw new Error('User message not found');
+    expect(userMsg.epochNumber).toBe(3);
+
+    // Can decrypt with the epoch 3 private key
+    const decrypted = decryptMessage(epochResult.epochPrivateKey, userMsg.encryptedBlob);
+    expect(decrypted).toBe('Message in epoch 3');
+  });
+
+  it('encrypts and decrypts empty string content', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+
+    await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId,
+      userContent: '',
+      assistantMessageId,
+      assistantContent: '',
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+
+    const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
+    if (!userMsg) throw new Error('User message not found');
+    const decryptedUser = decryptMessage(setup.epochPrivateKey, userMsg.encryptedBlob);
+    expect(decryptedUser).toBe('');
+
+    const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
+    if (!aiMsg) throw new Error('AI message not found');
+    const decryptedAi = decryptMessage(setup.epochPrivateKey, aiMsg.encryptedBlob);
+    expect(decryptedAi).toBe('');
+  });
+
+  it('stores provider as openrouter in LLM completion', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    const result = await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId: crypto.randomUUID(),
+      userContent: 'Check provider',
+      assistantMessageId: crypto.randomUUID(),
+      assistantContent: 'Provider response',
+      model: 'google/gemini-2.0-flash',
+      totalCost: 0.003,
+      inputTokens: 80,
+      outputTokens: 60,
+    });
+
+    const [completion] = await db
+      .select()
+      .from(llmCompletions)
+      .where(eq(llmCompletions.usageRecordId, result.usageRecordId));
+    if (!completion) throw new Error('LLM completion not found');
+    expect(completion.provider).toBe('openrouter');
+    expect(completion.model).toBe('google/gemini-2.0-flash');
+  });
+
+  it('updates conversation updatedAt', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    const originalUpdatedAt = setup.conversation.updatedAt;
+
+    // Small delay to ensure timestamp difference
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+
+    await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId,
+      userContent: 'User message',
+      assistantMessageId,
+      assistantContent: 'AI response',
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0.001,
+      inputTokens: 50,
+      outputTokens: 30,
+    });
+
+    const [updatedConv] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, setup.conversation.id));
+    if (!updatedConv) throw new Error('Conversation not found');
+    expect(updatedConv.updatedAt.getTime()).toBeGreaterThan(originalUpdatedAt.getTime());
+  });
+
+  describe('with groupBillingContext', () => {
+    interface GroupTestSetup extends TestSetup {
+      memberUser: typeof users.$inferSelect;
+      member: typeof conversationMembers.$inferSelect;
+    }
+
+    async function createGroupTestSetup(
+      database: Database,
+      balance = '10.00000000'
+    ): Promise<GroupTestSetup> {
+      const setup = await createTestSetup(database, balance);
+
+      // Create member user
+      const memberUserData = userFactory.build();
+      const [memberUser] = await database.insert(users).values(memberUserData).returning();
+      if (!memberUser) throw new Error('Failed to create member user');
+
+      // Create conversation_members row linking member to conversation
+      const memberData = conversationMemberFactory.build({
+        conversationId: setup.conversation.id,
+        userId: memberUser.id,
+        privilege: 'write',
+        visibleFromEpoch: 1,
+      });
+      const [member] = await database.insert(conversationMembers).values(memberData).returning();
+      if (!member) throw new Error('Failed to create conversation member');
+
+      return { ...setup, memberUser, member };
+    }
+
+    it('creates conversation_spending when groupBillingContext provided', async () => {
+      const setup = await createGroupTestSetup(db);
+      createdUserIds.push(setup.user.id, setup.memberUser.id);
+
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        userMessageId: crypto.randomUUID(),
+        userContent: 'Group message',
+        assistantMessageId: crypto.randomUUID(),
+        assistantContent: 'Group response',
+        model: 'openai/gpt-4o-mini',
         totalCost: 0.05,
-        inputCharacters: 1000,
-        outputCharacters: 500,
+        inputTokens: 100,
+        outputTokens: 50,
+        groupBillingContext: { memberId: setup.member.id },
       });
 
-      const [tx] = await db
+      const [spending] = await db
         .select()
-        .from(balanceTransactions)
-        .where(eq(balanceTransactions.id, result.transactionId));
-      if (!tx) throw new Error('Transaction not found');
-      expect(tx.type).toBe('usage');
-      expect(Number.parseFloat(tx.amount)).toBeLessThan(0);
-      expect(tx.userId).toBe(user.id);
-      expect(tx.model).toBe('anthropic/claude-3-opus');
-      expect(tx.inputCharacters).toBe(1000);
-      expect(tx.outputCharacters).toBe(500);
+        .from(conversationSpending)
+        .where(eq(conversationSpending.conversationId, setup.conversation.id));
+      expect(spending).toBeDefined();
+      expect(spending!.totalSpent).toBe('0.05000000');
     });
 
-    it('links message to balance transaction', async () => {
-      const user = await createTestUser('10.00000000');
-      const conversation = await createTestConversation(user.id);
-      const messageId = crypto.randomUUID();
-      createdMessageIds.push(messageId);
+    it('creates member_budgets spent when groupBillingContext provided', async () => {
+      const setup = await createGroupTestSetup(db);
+      createdUserIds.push(setup.user.id, setup.memberUser.id);
 
-      const result = await saveMessageWithBilling(db, {
-        messageId,
-        conversationId: conversation.id,
-        content: 'Test response',
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        userMessageId: crypto.randomUUID(),
+        userContent: 'Group message',
+        assistantMessageId: crypto.randomUUID(),
+        assistantContent: 'Group response',
         model: 'openai/gpt-4o-mini',
-        userId: user.id,
-        totalCost: 0.001,
-        inputCharacters: 100,
-        outputCharacters: 50,
+        totalCost: 0.05,
+        inputTokens: 100,
+        outputTokens: 50,
+        groupBillingContext: { memberId: setup.member.id },
       });
 
-      const [msg] = await db.select().from(messages).where(eq(messages.id, messageId));
-      if (!msg) throw new Error('Message not found');
-      expect(msg.balanceTransactionId).toBe(result.transactionId);
-    });
-  });
-
-  describe('transaction rollback', () => {
-    it('rolls back message if balance update fails', async () => {
-      // Create user with no ID in DB to simulate failure
-      const messageId = crypto.randomUUID();
-      const conversationId = crypto.randomUUID();
-      const fakeUserId = crypto.randomUUID();
-
-      await expect(
-        saveMessageWithBilling(db, {
-          messageId,
-          conversationId,
-          content: 'Should not exist',
-          model: 'openai/gpt-4o-mini',
-          userId: fakeUserId, // Non-existent user
-          totalCost: 0.001,
-          inputCharacters: 100,
-          outputCharacters: 50,
-        })
-      ).rejects.toThrow();
-
-      // Message should not exist after rollback
-      const [msg] = await db.select().from(messages).where(eq(messages.id, messageId));
-      expect(msg).toBeUndefined();
+      const [budget] = await db
+        .select()
+        .from(memberBudgets)
+        .where(eq(memberBudgets.memberId, setup.member.id));
+      expect(budget).toBeDefined();
+      expect(budget!.spent).toBe('0.05000000');
     });
 
-    it('fails on duplicate message ID (idempotency)', async () => {
-      const user = await createTestUser('10.00000000');
-      const conversation = await createTestConversation(user.id);
-      const messageId = crypto.randomUUID();
-      createdMessageIds.push(messageId);
+    it('accumulates spending across sequential group messages', async () => {
+      const setup = await createGroupTestSetup(db);
+      createdUserIds.push(setup.user.id, setup.memberUser.id);
 
-      // First insert succeeds
-      await saveMessageWithBilling(db, {
-        messageId,
-        conversationId: conversation.id,
-        content: 'First response',
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        userMessageId: crypto.randomUUID(),
+        userContent: 'First',
+        assistantMessageId: crypto.randomUUID(),
+        assistantContent: 'Response 1',
         model: 'openai/gpt-4o-mini',
-        userId: user.id,
-        totalCost: 0.001,
-        inputCharacters: 100,
-        outputCharacters: 50,
+        totalCost: 0.03,
+        inputTokens: 100,
+        outputTokens: 50,
+        groupBillingContext: { memberId: setup.member.id },
       });
 
-      // Second insert with same ID fails
-      await expect(
-        saveMessageWithBilling(db, {
-          messageId, // Same ID
-          conversationId: conversation.id,
-          content: 'Duplicate attempt',
-          model: 'openai/gpt-4o-mini',
-          userId: user.id,
-          totalCost: 0.001,
-          inputCharacters: 100,
-          outputCharacters: 50,
-        })
-      ).rejects.toThrow();
-
-      // Original message unchanged
-      const [msg] = await db.select().from(messages).where(eq(messages.id, messageId));
-      if (!msg) throw new Error('Message not found');
-      expect(msg.content).toBe('First response');
-    });
-  });
-
-  describe('negative balance handling', () => {
-    it('allows balance to go negative', async () => {
-      const user = await createTestUser('0.00010000'); // Very small balance
-      const conversation = await createTestConversation(user.id);
-      const messageId = crypto.randomUUID();
-      createdMessageIds.push(messageId);
-
-      const result = await saveMessageWithBilling(db, {
-        messageId,
-        conversationId: conversation.id,
-        content: 'Expensive response',
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        userMessageId: crypto.randomUUID(),
+        userContent: 'Second',
+        assistantMessageId: crypto.randomUUID(),
+        assistantContent: 'Response 2',
         model: 'openai/gpt-4o-mini',
-        userId: user.id,
-        totalCost: 0.05, // More than balance
-        inputCharacters: 1000,
-        outputCharacters: 500,
-      });
-
-      expect(Number.parseFloat(result.newBalance)).toBeLessThan(0);
-
-      // Message still saved
-      const [msg] = await db.select().from(messages).where(eq(messages.id, messageId));
-      expect(msg).toBeDefined();
-    });
-  });
-
-  describe('deductionSource', () => {
-    it('deducts from balance by default', async () => {
-      const user = await createTestUser('10.00000000');
-      // Set free allowance
-      await db
-        .update(users)
-        .set({ freeAllowanceCents: '500.00000000' }) // $5.00
-        .where(eq(users.id, user.id));
-
-      const conversation = await createTestConversation(user.id);
-      const messageId = crypto.randomUUID();
-      createdMessageIds.push(messageId);
-
-      await saveMessageWithBilling(db, {
-        messageId,
-        conversationId: conversation.id,
-        content: 'Test response',
-        model: 'openai/gpt-4o-mini',
-        userId: user.id,
-        totalCost: 0.01,
-        inputCharacters: 100,
-        outputCharacters: 50,
-        // No deductionSource - should default to 'balance'
-      });
-
-      const [updatedUser] = await db.select().from(users).where(eq(users.id, user.id));
-      if (!updatedUser) throw new Error('User not found');
-      expect(Number.parseFloat(updatedUser.balance)).toBeCloseTo(10 - 0.01, 5);
-      expect(updatedUser.freeAllowanceCents).toBe('500.00000000'); // Unchanged
-    });
-
-    it('deducts from freeAllowance when specified', async () => {
-      const user = await createTestUser('10.00000000');
-      // Set free allowance
-      await db
-        .update(users)
-        .set({ freeAllowanceCents: '500.00000000' }) // $5.00 = 500 cents
-        .where(eq(users.id, user.id));
-
-      const conversation = await createTestConversation(user.id);
-      const messageId = crypto.randomUUID();
-      createdMessageIds.push(messageId);
-
-      await saveMessageWithBilling(db, {
-        messageId,
-        conversationId: conversation.id,
-        content: 'Test response',
-        model: 'openai/gpt-4o-mini',
-        userId: user.id,
-        totalCost: 0.01, // 1 cent
-        inputCharacters: 100,
-        outputCharacters: 50,
-        deductionSource: 'freeAllowance',
-      });
-
-      const [updatedUser] = await db.select().from(users).where(eq(users.id, user.id));
-      if (!updatedUser) throw new Error('User not found');
-      expect(Number.parseFloat(updatedUser.balance)).toBe(10); // Unchanged
-      expect(Number.parseFloat(updatedUser.freeAllowanceCents)).toBeCloseTo(499, 5); // Reduced by 1 cent
-    });
-
-    it('stores deductionSource in transaction', async () => {
-      const user = await createTestUser('10.00000000');
-      await db
-        .update(users)
-        .set({ freeAllowanceCents: '500.00000000' })
-        .where(eq(users.id, user.id));
-
-      const conversation = await createTestConversation(user.id);
-      const messageId = crypto.randomUUID();
-      createdMessageIds.push(messageId);
-
-      const result = await saveMessageWithBilling(db, {
-        messageId,
-        conversationId: conversation.id,
-        content: 'Test response',
-        model: 'openai/gpt-4o-mini',
-        userId: user.id,
         totalCost: 0.02,
-        inputCharacters: 100,
-        outputCharacters: 50,
-        deductionSource: 'freeAllowance',
+        inputTokens: 80,
+        outputTokens: 40,
+        groupBillingContext: { memberId: setup.member.id },
       });
 
-      const [tx] = await db
+      const [spending] = await db
         .select()
-        .from(balanceTransactions)
-        .where(eq(balanceTransactions.id, result.transactionId));
-      if (!tx) throw new Error('Transaction not found');
-      expect(tx.deductionSource).toBe('freeAllowance');
+        .from(conversationSpending)
+        .where(eq(conversationSpending.conversationId, setup.conversation.id));
+      expect(spending).toBeDefined();
+      expect(spending!.totalSpent).toBe('0.05000000');
+
+      const [budget] = await db
+        .select()
+        .from(memberBudgets)
+        .where(eq(memberBudgets.memberId, setup.member.id));
+      expect(budget).toBeDefined();
+      expect(budget!.spent).toBe('0.05000000');
+    });
+
+    it('does not update spending tables without groupBillingContext', async () => {
+      const setup = await createGroupTestSetup(db);
+      createdUserIds.push(setup.user.id, setup.memberUser.id);
+
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        userMessageId: crypto.randomUUID(),
+        userContent: 'Solo message',
+        assistantMessageId: crypto.randomUUID(),
+        assistantContent: 'Solo response',
+        model: 'openai/gpt-4o-mini',
+        totalCost: 0.05,
+        inputTokens: 100,
+        outputTokens: 50,
+      });
+
+      const spending = await db
+        .select()
+        .from(conversationSpending)
+        .where(eq(conversationSpending.conversationId, setup.conversation.id));
+      expect(spending).toHaveLength(0);
+
+      const budgets = await db
+        .select()
+        .from(memberBudgets)
+        .where(eq(memberBudgets.memberId, setup.member.id));
+      expect(budgets).toHaveLength(0);
+    });
+
+    it('rejects when memberId has no conversation_members row', async () => {
+      const setup = await createGroupTestSetup(db);
+      createdUserIds.push(setup.user.id, setup.memberUser.id);
+
+      await expect(
+        saveChatTurn(db, {
+          conversationId: setup.conversation.id,
+          userId: setup.user.id,
+          userMessageId: crypto.randomUUID(),
+          userContent: 'Bad member',
+          assistantMessageId: crypto.randomUUID(),
+          assistantContent: 'Should fail',
+          model: 'openai/gpt-4o-mini',
+          totalCost: 0.05,
+          inputTokens: 100,
+          outputTokens: 50,
+          groupBillingContext: { memberId: 'nonexistent-member-id' },
+        })
+      ).rejects.toThrow();
+
+      // Verify transaction rolled back — no partial spending rows
+      const spending = await db
+        .select()
+        .from(conversationSpending)
+        .where(eq(conversationSpending.conversationId, setup.conversation.id));
+      expect(spending).toHaveLength(0);
+    });
+
+    it('rolls back spending tables when charge fails', async () => {
+      // Create group setup with zero balance so chargeForUsage fails
+      const setup = await createGroupTestSetup(db, '0.00000000');
+      createdUserIds.push(setup.user.id, setup.memberUser.id);
+
+      await expect(
+        saveChatTurn(db, {
+          conversationId: setup.conversation.id,
+          userId: setup.user.id,
+          userMessageId: crypto.randomUUID(),
+          userContent: 'Should fail',
+          assistantMessageId: crypto.randomUUID(),
+          assistantContent: 'Should fail',
+          model: 'openai/gpt-4o-mini',
+          totalCost: 1,
+          inputTokens: 500,
+          outputTokens: 500,
+          groupBillingContext: { memberId: setup.member.id },
+        })
+      ).rejects.toThrow();
+
+      // No spending records should exist after rollback
+      const spending = await db
+        .select()
+        .from(conversationSpending)
+        .where(eq(conversationSpending.conversationId, setup.conversation.id));
+      expect(spending).toHaveLength(0);
+
+      const budgets = await db
+        .select()
+        .from(memberBudgets)
+        .where(eq(memberBudgets.memberId, setup.member.id));
+      expect(budgets).toHaveLength(0);
     });
   });
+});
 
-  describe('edge cases', () => {
-    it('handles zero cost', async () => {
-      const user = await createTestUser('10.00000000');
-      const conversation = await createTestConversation(user.id);
-      const messageId = crypto.randomUUID();
-      createdMessageIds.push(messageId);
+describe('saveUserOnlyMessage', () => {
+  let db: Database;
+  const createdUserIds: string[] = [];
 
-      const result = await saveMessageWithBilling(db, {
-        messageId,
-        conversationId: conversation.id,
-        content: 'Free response',
-        model: 'meta/llama-3-8b',
-        userId: user.id,
-        totalCost: 0,
-        inputCharacters: 50,
-        outputCharacters: 20,
-      });
+  beforeAll(() => {
+    db = createDb({ connectionString: DATABASE_URL, neonDev: LOCAL_NEON_DEV_CONFIG });
+  });
 
-      expect(result.totalCharge).toBe(0);
+  afterEach(async () => {
+    for (const userId of createdUserIds) {
+      await db.delete(conversations).where(eq(conversations.userId, userId));
+      await db.delete(users).where(eq(users.id, userId));
+    }
+    createdUserIds.length = 0;
+  });
 
-      // Message saved even with zero cost
-      const [msg] = await db.select().from(messages).where(eq(messages.id, messageId));
-      if (!msg) throw new Error('Message not found');
-      expect(msg.cost).toBe('0.00000000');
+  it('inserts a single encrypted user message with no cost', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    const messageId = crypto.randomUUID();
+
+    const result = await saveUserOnlyMessage(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      messageId,
+      content: 'Hello from user only',
     });
 
-    it('stores character counts in transaction', async () => {
-      const user = await createTestUser('10.00000000');
-      const conversation = await createTestConversation(user.id);
-      const messageId = crypto.randomUUID();
-      createdMessageIds.push(messageId);
+    // Message exists with correct fields
+    const [msg] = await db.select().from(messages).where(eq(messages.id, messageId));
+    if (!msg) throw new Error('Message not found');
+    expect(msg.senderType).toBe('user');
+    expect(msg.senderId).toBe(setup.user.id);
+    expect(msg.cost).toBeNull();
+    expect(msg.epochNumber).toBe(1);
+    expect(msg.encryptedBlob).toBeInstanceOf(Uint8Array);
 
-      const result = await saveMessageWithBilling(db, {
-        messageId,
-        conversationId: conversation.id,
-        content: 'Test response',
-        model: 'openai/gpt-4o-mini',
-        userId: user.id,
-        totalCost: 0.001,
-        inputCharacters: 500,
-        outputCharacters: 200,
-      });
+    // Can decrypt
+    const decrypted = decryptMessage(setup.epochPrivateKey, msg.encryptedBlob);
+    expect(decrypted).toBe('Hello from user only');
 
-      const [tx] = await db
-        .select()
-        .from(balanceTransactions)
-        .where(eq(balanceTransactions.id, result.transactionId));
-      if (!tx) throw new Error('Transaction not found');
-      expect(tx.inputCharacters).toBe(500);
-      expect(tx.outputCharacters).toBe(200);
+    expect(result.sequenceNumber).toBeDefined();
+    expect(result.epochNumber).toBe(1);
+  });
+
+  it('assigns a single sequence number (increments by 1)', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    const result1 = await saveUserOnlyMessage(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      messageId: crypto.randomUUID(),
+      content: 'First user-only message',
     });
+
+    expect(result1.sequenceNumber).toBe(1);
+
+    const result2 = await saveUserOnlyMessage(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      messageId: crypto.randomUUID(),
+      content: 'Second user-only message',
+    });
+
+    expect(result2.sequenceNumber).toBe(2);
+
+    // nextSequence should be 3
+    const [conv] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, setup.conversation.id));
+    if (!conv) throw new Error('Conversation not found');
+    expect(conv.nextSequence).toBe(3);
+  });
+
+  it('does not create any billing records', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    await saveUserOnlyMessage(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      messageId: crypto.randomUUID(),
+      content: 'Free message',
+    });
+
+    // No usage records
+    const records = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.userId, setup.user.id));
+    expect(records).toHaveLength(0);
+
+    // No LLM completions
+    const completions = await db
+      .select()
+      .from(llmCompletions)
+      .where(eq(llmCompletions.usageRecordId, setup.user.id));
+    expect(completions).toHaveLength(0);
+
+    // Wallet balance unchanged
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.id, setup.wallet.id));
+    if (!wallet) throw new Error('Wallet not found');
+    expect(wallet.balance).toBe('10.00000000');
+  });
+
+  it('throws when conversation does not exist', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    await expect(
+      saveUserOnlyMessage(db, {
+        conversationId: crypto.randomUUID(),
+        userId: setup.user.id,
+        messageId: crypto.randomUUID(),
+        content: 'Should fail',
+      })
+    ).rejects.toThrow('Conversation not found');
+  });
+
+  it('interleaves correctly with saveChatTurn sequences', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    // User-only message gets sequence 1
+    const result1 = await saveUserOnlyMessage(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      messageId: crypto.randomUUID(),
+      content: 'User-only first',
+    });
+    expect(result1.sequenceNumber).toBe(1);
+
+    // Chat turn gets sequences 2, 3
+    const result2 = await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      userMessageId: crypto.randomUUID(),
+      userContent: 'User message with AI',
+      assistantMessageId: crypto.randomUUID(),
+      assistantContent: 'AI response',
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0.001,
+      inputTokens: 50,
+      outputTokens: 30,
+    });
+    expect(result2.userSequence).toBe(2);
+    expect(result2.aiSequence).toBe(3);
+
+    // Another user-only message gets sequence 4
+    const result3 = await saveUserOnlyMessage(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      messageId: crypto.randomUUID(),
+      content: 'User-only after AI',
+    });
+    expect(result3.sequenceNumber).toBe(4);
+  });
+
+  it('rolls back on duplicate message ID', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    const messageId = crypto.randomUUID();
+
+    await saveUserOnlyMessage(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      messageId,
+      content: 'First attempt',
+    });
+
+    await expect(
+      saveUserOnlyMessage(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        messageId, // duplicate
+        content: 'Duplicate attempt',
+      })
+    ).rejects.toThrow();
+
+    // nextSequence should be 2 (only first message counted)
+    const [conv] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, setup.conversation.id));
+    if (!conv) throw new Error('Conversation not found');
+    expect(conv.nextSequence).toBe(2);
   });
 });

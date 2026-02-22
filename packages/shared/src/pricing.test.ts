@@ -98,10 +98,10 @@ describe('estimateMessageCostDevelopment', () => {
     it('calculates model cost from tokens and prices', () => {
       const result = estimateMessageCostDevelopment(baseParams);
       const expectedModelCost = 100 * 0.000_01 + 200 * 0.000_03; // 0.007
-      const expectedLomeFee = expectedModelCost * TOTAL_FEE_RATE;
+      const expectedHushboxFee = expectedModelCost * TOTAL_FEE_RATE;
       const expectedStorageFee = (400 + 800) * STORAGE_COST_PER_CHARACTER;
 
-      expect(result).toBeCloseTo(expectedModelCost + expectedLomeFee + expectedStorageFee, 10);
+      expect(result).toBeCloseTo(expectedModelCost + expectedHushboxFee + expectedStorageFee, 10);
     });
 
     it('handles zero tokens', () => {
@@ -127,7 +127,7 @@ describe('estimateMessageCostDevelopment', () => {
     });
   });
 
-  describe('LOME fee calculation', () => {
+  describe('HushBox fee calculation', () => {
     it('applies TOTAL_FEE_RATE to model cost only', () => {
       const paramsNoStorage: MessageCostParams = {
         ...baseParams,
@@ -140,7 +140,7 @@ describe('estimateMessageCostDevelopment', () => {
       expect(result).toBeCloseTo(modelCost * (1 + TOTAL_FEE_RATE), 10);
     });
 
-    it('does not apply LOME fee to storage fee', () => {
+    it('does not apply HushBox fee to storage fee', () => {
       const modelOnlyResult = estimateMessageCostDevelopment({
         ...baseParams,
         inputCharacters: 0,
@@ -149,7 +149,7 @@ describe('estimateMessageCostDevelopment', () => {
       const fullResult = estimateMessageCostDevelopment(baseParams);
       const storageFee = (400 + 800) * STORAGE_COST_PER_CHARACTER;
 
-      // Full result should be model cost with LOME fee + raw storage fee (no LOME fee on storage)
+      // Full result should be model cost with HushBox fee + raw storage fee (no HushBox fee on storage)
       expect(fullResult).toBeCloseTo(modelOnlyResult + storageFee, 10);
     });
   });
@@ -205,14 +205,14 @@ describe('estimateMessageCostDevelopment', () => {
   });
 
   describe('combined calculation', () => {
-    it('sums model cost, LOME fee, and storage fee', () => {
+    it('sums model cost, HushBox fee, and storage fee', () => {
       const result = estimateMessageCostDevelopment(baseParams);
 
       const modelCost = 100 * 0.000_01 + 200 * 0.000_03;
-      const lomeFee = modelCost * TOTAL_FEE_RATE;
+      const hushboxFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = (400 + 800) * STORAGE_COST_PER_CHARACTER;
 
-      expect(result).toBeCloseTo(modelCost + lomeFee + storageFee, 10);
+      expect(result).toBeCloseTo(modelCost + hushboxFee + storageFee, 10);
     });
 
     it('returns correct result with real-world pricing', () => {
@@ -228,10 +228,10 @@ describe('estimateMessageCostDevelopment', () => {
       const result = estimateMessageCostDevelopment(gpt4Params);
 
       const modelCost = 1000 * 0.000_03 + 500 * 0.000_06; // 0.03 + 0.03 = 0.06
-      const lomeFee = modelCost * TOTAL_FEE_RATE; // 0.06 * 0.15 = 0.009
+      const hushboxFee = modelCost * TOTAL_FEE_RATE; // 0.06 * 0.15 = 0.009
       const storageFee = (4000 + 2000) * STORAGE_COST_PER_CHARACTER;
 
-      expect(result).toBeCloseTo(modelCost + lomeFee + storageFee, 10);
+      expect(result).toBeCloseTo(modelCost + hushboxFee + storageFee, 10);
     });
 
     it('handles very large messages', () => {
@@ -292,10 +292,10 @@ describe('estimateMessageCostDevelopment', () => {
       const result = estimateMessageCostDevelopment(inputOnlyParams);
 
       const modelCost = 100 * 0.000_01;
-      const lomeFee = modelCost * TOTAL_FEE_RATE;
+      const hushboxFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = 400 * STORAGE_COST_PER_CHARACTER;
 
-      expect(result).toBeCloseTo(modelCost + lomeFee + storageFee, 10);
+      expect(result).toBeCloseTo(modelCost + hushboxFee + storageFee, 10);
     });
 
     it('correctly handles output-only messages', () => {
@@ -310,10 +310,10 @@ describe('estimateMessageCostDevelopment', () => {
       const result = estimateMessageCostDevelopment(outputOnlyParams);
 
       const modelCost = 200 * 0.000_03;
-      const lomeFee = modelCost * TOTAL_FEE_RATE;
+      const hushboxFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = 800 * STORAGE_COST_PER_CHARACTER;
 
-      expect(result).toBeCloseTo(modelCost + lomeFee + storageFee, 10);
+      expect(result).toBeCloseTo(modelCost + hushboxFee + storageFee, 10);
     });
   });
 });

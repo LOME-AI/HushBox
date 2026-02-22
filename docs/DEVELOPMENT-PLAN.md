@@ -1,6 +1,6 @@
 # Development Plan
 
-Complete phased development plan for LOME-CHAT. Each phase builds on the previous and introduces new tech stack components gradually.
+Complete phased development plan for HushBox. Each phase builds on the previous and introduces new tech stack components gradually.
 For AI agents: If anything ever seems uncertain or could be improved, ask the human and present your reasoning.
 
 ---
@@ -769,7 +769,7 @@ After Phase 22, the product has all MVP features:
 **Human Setup Required:**
 
 1. Go to Cloudflare Dashboard → R2
-2. Create a new bucket named `lome-chat-files`
+2. Create a new bucket named `hushbox-files`
 3. Generate R2 API tokens
 4. Add `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` to `.env.local`
 

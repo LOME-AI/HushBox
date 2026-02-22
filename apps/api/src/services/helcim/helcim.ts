@@ -1,4 +1,6 @@
 import type { HelcimClient, ProcessPaymentRequest, ProcessPaymentResponse } from './types.js';
+import { verifyHmacSha256Webhook } from '@hushbox/crypto';
+import { safeJsonParse } from '../../lib/safe-json.js';
 
 const HELCIM_API_URL = 'https://api.helcim.com/v2/payment/purchase';
 
@@ -75,7 +77,7 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
         body: JSON.stringify(requestBody),
       });
 
-      const data: HelcimApiResponse = await response.json();
+      const data = await safeJsonParse<HelcimApiResponse>(response, 'Helcim payment');
 
       if (response.ok && data.approvalCode) {
         return {
@@ -103,35 +105,6 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
   };
 }
 
-// eslint-disable-next-line no-secrets/no-secrets -- Documentation example format, not a real key
-/**
- * Parse versioned signature header from Helcim.
- * Helcim sends signatures in formats like:
- * - "v1,signature_base64"
- * - "v1,sig1 v2,sig2" (multiple signatures)
- * - "raw_signature" (plain base64, for backwards compatibility)
- */
-function parseSignatures(signatureHeader: string): string[] {
-  const signatures: string[] = [];
-
-  // Split by space for multiple signatures
-  const parts = signatureHeader.split(' ');
-
-  for (const part of parts) {
-    // Check for versioned format "v1,signature"
-    const commaIndex = part.indexOf(',');
-    if (commaIndex > 0 && part.startsWith('v')) {
-      // Extract signature after the version prefix
-      signatures.push(part.slice(commaIndex + 1));
-    } else {
-      // Plain signature without version
-      signatures.push(part);
-    }
-  }
-
-  return signatures;
-}
-
 export interface WebhookVerificationParams {
   webhookVerifier: string;
   payload: string;
@@ -140,55 +113,14 @@ export interface WebhookVerificationParams {
   webhookId: string;
 }
 
-// Async version for proper webhook verification
 export async function verifyWebhookSignatureAsync(
   params: WebhookVerificationParams
 ): Promise<boolean> {
-  const { webhookVerifier, payload, signatureHeader, timestamp, webhookId } = params;
-  try {
-    const encoder = new TextEncoder();
-    const message = `${webhookId}.${timestamp}.${payload}`;
-
-    // Decode the base64 verifier
-    const secretBytes = Uint8Array.from(atob(webhookVerifier), (c) => c.codePointAt(0) ?? 0);
-
-    // Import the key for HMAC-SHA256
-    const key = await crypto.subtle.importKey(
-      'raw',
-      secretBytes,
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
-    );
-
-    // Compute the signature
-    const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-    const computedSignature = btoa(String.fromCodePoint(...new Uint8Array(signatureBuffer)));
-
-    // Parse potentially versioned signature header
-    const signatures = parseSignatures(signatureHeader);
-
-    // Check if any signature matches (timing-safe comparison for each)
-    for (const signature of signatures) {
-      if (timingSafeEqual(computedSignature, signature)) {
-        return true;
-      }
-    }
-
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-
-  let result = 0;
-  for (let index = 0; index < a.length; index++) {
-    result |= (a.codePointAt(index) ?? 0) ^ (b.codePointAt(index) ?? 0);
-  }
-  return result === 0;
+  return verifyHmacSha256Webhook({
+    secret: params.webhookVerifier,
+    payload: params.payload,
+    signatureHeader: params.signatureHeader,
+    timestamp: params.timestamp,
+    webhookId: params.webhookId,
+  });
 }

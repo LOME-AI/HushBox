@@ -26,20 +26,20 @@ describe('useTierInfo', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns guest tier when not authenticated', () => {
+  it('returns trial tier when not authenticated', () => {
     mockedUseSession.mockReturnValue({ data: null } as unknown as ReturnType<typeof useSession>);
     mockedUseBalance.mockReturnValue({ data: null } as unknown as ReturnType<typeof useBalance>);
 
     const { result } = renderHook(() => useTierInfo());
 
-    expect(result.current.tier).toBe('guest');
-    expect(result.current.canAccessPremium).toBe(false);
-    expect(result.current.balanceCents).toBe(0);
-    expect(result.current.freeAllowanceCents).toBe(0);
+    expect(result.current!.tier).toBe('trial');
+    expect(result.current!.canAccessPremium).toBe(false);
+    expect(result.current!.balanceCents).toBe(0);
+    expect(result.current!.freeAllowanceCents).toBe(0);
   });
 
-  it('returns guest tier when session is loading', () => {
-    mockedUseSession.mockReturnValue({ data: undefined } as unknown as ReturnType<
+  it('returns null when session is loading', () => {
+    mockedUseSession.mockReturnValue({ data: null, isPending: true } as unknown as ReturnType<
       typeof useSession
     >);
     mockedUseBalance.mockReturnValue({ data: undefined } as unknown as ReturnType<
@@ -48,8 +48,7 @@ describe('useTierInfo', () => {
 
     const { result } = renderHook(() => useTierInfo());
 
-    expect(result.current.tier).toBe('guest');
-    expect(result.current.canAccessPremium).toBe(false);
+    expect(result.current).toBeNull();
   });
 
   it('returns free tier when authenticated with zero balance', () => {
@@ -62,10 +61,10 @@ describe('useTierInfo', () => {
 
     const { result } = renderHook(() => useTierInfo());
 
-    expect(result.current.tier).toBe('free');
-    expect(result.current.canAccessPremium).toBe(false);
-    expect(result.current.balanceCents).toBe(0);
-    expect(result.current.freeAllowanceCents).toBe(100);
+    expect(result.current!.tier).toBe('free');
+    expect(result.current!.canAccessPremium).toBe(false);
+    expect(result.current!.balanceCents).toBe(0);
+    expect(result.current!.freeAllowanceCents).toBe(100);
   });
 
   it('returns paid tier when authenticated with positive balance', () => {
@@ -78,18 +77,18 @@ describe('useTierInfo', () => {
 
     const { result } = renderHook(() => useTierInfo());
 
-    expect(result.current.tier).toBe('paid');
-    expect(result.current.canAccessPremium).toBe(true);
-    expect(result.current.balanceCents).toBe(1050);
-    expect(result.current.freeAllowanceCents).toBe(0);
+    expect(result.current!.tier).toBe('paid');
+    expect(result.current!.canAccessPremium).toBe(true);
+    expect(result.current!.balanceCents).toBe(1050);
+    expect(result.current!.freeAllowanceCents).toBe(0);
   });
 
   it('returns canAccessPremium: true only for paid tier', () => {
-    // Guest
+    // Trial
     mockedUseSession.mockReturnValue({ data: null } as unknown as ReturnType<typeof useSession>);
     mockedUseBalance.mockReturnValue({ data: null } as unknown as ReturnType<typeof useBalance>);
-    const { result: guestResult } = renderHook(() => useTierInfo());
-    expect(guestResult.current.canAccessPremium).toBe(false);
+    const { result: trialResult } = renderHook(() => useTierInfo());
+    expect(trialResult.current!.canAccessPremium).toBe(false);
 
     // Free
     mockedUseSession.mockReturnValue({
@@ -99,17 +98,17 @@ describe('useTierInfo', () => {
       data: { balance: '0.00', freeAllowanceCents: 100 },
     } as unknown as ReturnType<typeof useBalance>);
     const { result: freeResult } = renderHook(() => useTierInfo());
-    expect(freeResult.current.canAccessPremium).toBe(false);
+    expect(freeResult.current!.canAccessPremium).toBe(false);
 
     // Paid
     mockedUseBalance.mockReturnValue({
       data: { balance: '5.00', freeAllowanceCents: 0 },
     } as unknown as ReturnType<typeof useBalance>);
     const { result: paidResult } = renderHook(() => useTierInfo());
-    expect(paidResult.current.canAccessPremium).toBe(true);
+    expect(paidResult.current!.canAccessPremium).toBe(true);
   });
 
-  it('treats authenticated user without balance data as guest', () => {
+  it('returns null when authenticated but balance not loaded', () => {
     mockedUseSession.mockReturnValue({
       data: { user: { id: 'user-123' } },
     } as unknown as ReturnType<typeof useSession>);
@@ -119,9 +118,8 @@ describe('useTierInfo', () => {
 
     const { result } = renderHook(() => useTierInfo());
 
-    // While balance is loading, treat as guest (conservative approach)
-    expect(result.current.tier).toBe('guest');
-    expect(result.current.canAccessPremium).toBe(false);
+    // While balance is loading, return null — don't guess the tier
+    expect(result.current).toBeNull();
   });
 
   it('correctly converts balance string to cents', () => {
@@ -134,7 +132,7 @@ describe('useTierInfo', () => {
 
     const { result } = renderHook(() => useTierInfo());
 
-    expect(result.current.balanceCents).toBe(12_345);
-    expect(result.current.freeAllowanceCents).toBe(50);
+    expect(result.current!.balanceCents).toBe(12_345);
+    expect(result.current!.freeAllowanceCents).toBe(50);
   });
 });

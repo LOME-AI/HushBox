@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { authClient } from '@/lib/auth';
-import { toast } from '@lome-chat/ui';
+import { toast } from '@hushbox/ui';
 import { useSearch } from '@tanstack/react-router';
 
 const mockNavigate = vi.fn();
@@ -21,7 +21,7 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 // Mock UI components
-vi.mock('@lome-chat/ui', () => ({
+vi.mock('@hushbox/ui', () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
@@ -37,7 +37,7 @@ describe('VerifyPage', () => {
   it('shows loading state initially', async () => {
     vi.mocked(authClient.verifyEmail).mockImplementation(
       // Promise that never resolves to keep loading state
-      () => new Promise<{ data: null; error: null }>(() => {})
+      () => new Promise(() => {})
     );
     const { VerifyPage } = await import('./verify');
 
@@ -47,10 +47,7 @@ describe('VerifyPage', () => {
   });
 
   it('redirects to /chat on successful verification', async () => {
-    vi.mocked(authClient.verifyEmail).mockResolvedValue({
-      data: {},
-      error: null,
-    });
+    vi.mocked(authClient.verifyEmail).mockResolvedValue({});
     const { VerifyPage } = await import('./verify');
 
     render(<VerifyPage />);
@@ -63,7 +60,6 @@ describe('VerifyPage', () => {
 
   it('shows error state on verification failure', async () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({
-      data: null,
       error: { message: 'Invalid or expired token' },
     });
     const { VerifyPage } = await import('./verify');
@@ -77,8 +73,7 @@ describe('VerifyPage', () => {
 
   it('shows default error message when no specific message', async () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({
-      data: null,
-      error: {},
+      error: { message: 'Verification failed' },
     });
     const { VerifyPage } = await import('./verify');
 

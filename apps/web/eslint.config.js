@@ -3,7 +3,7 @@ import {
   reactConfig,
   testConfig,
   prettierConfig,
-} from '@lome-chat/config/eslint';
+} from '@hushbox/config/eslint';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [

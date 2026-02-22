@@ -3,7 +3,7 @@
  * Service Evidence Verification Script
  *
  * Verifies that required external services were actually called during CI.
- * Works with recordServiceEvidence() from @lome-chat/db.
+ * Works with recordServiceEvidence() from @hushbox/db.
  *
  * Usage:
  *   pnpm verify:evidence --require=openrouter
@@ -15,7 +15,7 @@ import {
   verifyServiceEvidence,
   SERVICE_NAMES,
   type ServiceName,
-} from '@lome-chat/db';
+} from '@hushbox/db';
 
 const VALID_SERVICES = Object.values(SERVICE_NAMES);
 

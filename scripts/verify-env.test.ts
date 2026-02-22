@@ -98,12 +98,13 @@ DATABASE_URL=postgres://localhost
 
   describe('parseWranglerToml', () => {
     it('parses NODE_ENV from [vars] section', async () => {
-      const content = `name = "lome-chat-api"
+      const content = `name = "hushbox-api"
 main = "src/index.ts"
 
 [vars]
 NODE_ENV = "production"
-BETTER_AUTH_URL = "https://api.lome-chat.com"
+API_URL = "https://api.hushbox.ai"
+FRONTEND_URL = "https://hushbox.ai"
 `;
       await writeFile(path.join(TEST_DIR, 'wrangler.toml'), content);
 
@@ -121,7 +122,7 @@ BETTER_AUTH_URL = "https://api.lome-chat.com"
     });
 
     it('returns undefined values when no [vars] section exists', async () => {
-      const content = `name = "lome-chat-api"
+      const content = `name = "hushbox-api"
 main = "src/index.ts"
 `;
       await writeFile(path.join(TEST_DIR, 'wrangler.toml'), content);
@@ -286,7 +287,7 @@ DATABASE_URL=postgres://localhost
     });
 
     it('returns success when env matches expectations for production', async () => {
-      const content = `name = "lome-chat-api"
+      const content = `name = "hushbox-api"
 
 [vars]
 NODE_ENV = "production"

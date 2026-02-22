@@ -10,16 +10,9 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mockNavigate,
 }));
 
-// Mock useIsMobile hook
-let mockIsMobile = false;
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: () => mockIsMobile,
-}));
-
 describe('NewChatButton', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockIsMobile = false;
     useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false });
   });
 
@@ -74,32 +67,6 @@ describe('NewChatButton', () => {
 
       await user.click(screen.getByRole('button'));
       expect(mockNavigate).toHaveBeenCalledWith({ to: '/chat' });
-    });
-  });
-
-  describe('mobile sidebar behavior', () => {
-    it('closes mobile sidebar when clicking on mobile', async () => {
-      mockIsMobile = true;
-      useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: true });
-
-      const user = userEvent.setup();
-      render(<NewChatButton />);
-
-      await user.click(screen.getByRole('button'));
-
-      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
-    });
-
-    it('does not close mobile sidebar when clicking on desktop', async () => {
-      mockIsMobile = false;
-      useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: true });
-
-      const user = userEvent.setup();
-      render(<NewChatButton />);
-
-      await user.click(screen.getByRole('button'));
-
-      expect(useUIStore.getState().mobileSidebarOpen).toBe(true);
     });
   });
 });

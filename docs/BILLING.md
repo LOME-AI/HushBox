@@ -1,6 +1,6 @@
 # Billing System
 
-This document describes how billing, user tiers, and model access work in LOME-CHAT.
+This document describes how billing, user tiers, and model access work in HushBox.
 
 ---
 
@@ -8,13 +8,13 @@ This document describes how billing, user tiers, and model access work in LOME-C
 
 | Tier      | Model Access | Persistence      | Balance Source                           |
 | --------- | ------------ | ---------------- | ---------------------------------------- |
-| **Guest** | Basic only   | None (ephemeral) | N/A - message count limit                |
+| **Trial** | Basic only   | None (ephemeral) | N/A - message count limit                |
 | **Free**  | Basic only   | Full             | Daily allowance (resets at UTC midnight) |
 | **Paid**  | All models   | Full             | Prepaid balance                          |
 
 **Tier derivation:**
 
-- Guest: No authenticated user
+- Trial: No authenticated user
 - Free: Authenticated user with `balance = 0`
 - Paid: Authenticated user with `balance > 0`
 
@@ -49,6 +49,22 @@ The free allowance:
 - Only applies to basic models
 
 See `getDeductionSource()` in `packages/shared/src/tiers.ts`.
+
+---
+
+## Funding Decision Matrix
+
+When a message is sent, the system determines who pays using this priority:
+
+| Priority | Condition                                          | Who Pays             | Notes                                                                                    |
+| :------: | -------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------- |
+|    1     | Group chat with budget > 0 and owner can use model | Conversation owner   | Falls through to personal billing if budget is exhausted or owner can't access the model |
+|    2     | Paid user, premium model, sufficient balance       | User's balance       | Premium models require a positive balance (paid tier)                                    |
+|    3     | Paid user, basic model, sufficient balance         | User's balance       |                                                                                          |
+|    4     | Free user, basic model, sufficient allowance       | Free daily allowance | Premium models are not available on the free tier                                        |
+|    5     | Trial user, basic model, within cost cap           | Absorbed (no charge) | Limited messages per day, no persistence                                                 |
+
+If no row matches, the message is denied with a tier-appropriate reason (e.g. insufficient balance, model requires paid tier, trial limit exceeded).
 
 ---
 
@@ -110,20 +126,20 @@ See `packages/shared/src/constants.ts` for storage fee constants and derivation.
 
 ---
 
-## Guest Usage
+## Trial Usage
 
-Guests (unauthenticated users) can use the chat with limitations:
+Trial users (unauthenticated) can use the chat with limitations:
 
 - Basic models only
 - Limited messages per day
 - No persistence (messages exist only in browser memory)
 
-Guest identity is tracked via:
+Trial identity is tracked via:
 
-- Primary: `guestToken` stored in localStorage
+- Primary: `trialToken` stored in localStorage
 - Backstop: IP address hash (catches localStorage clearing)
 
-See `packages/db/src/schema/guest-usage.ts` for the tracking table.
+Trial usage is tracked via Redis with dual-identity rate limiting (token + IP hash).
 
 ---
 
@@ -152,14 +168,17 @@ See:
 
 ## Configuration Reference
 
-| Configuration          | Location                                         |
-| ---------------------- | ------------------------------------------------ |
-| Fee rates              | `packages/shared/src/constants.ts`               |
-| Storage costs          | `packages/shared/src/constants.ts`               |
-| Pricing functions      | `packages/shared/src/pricing.ts`                 |
-| Tier logic & constants | `packages/shared/src/tiers.ts`                   |
-| Model classification   | `packages/shared/src/models.ts`                  |
-| Welcome credit         | `packages/db/src/schema/users.ts`                |
-| Guest limits           | `packages/shared/src/tiers.ts`                   |
-| Payment schemas        | `packages/db/src/schema/payments.ts`             |
-| Balance transactions   | `packages/db/src/schema/balance-transactions.ts` |
+| Configuration          | Location                                          |
+| ---------------------- | ------------------------------------------------- |
+| Fee rates              | `packages/shared/src/constants.ts`                |
+| Storage costs          | `packages/shared/src/constants.ts`                |
+| Pricing functions      | `packages/shared/src/pricing.ts`                  |
+| Tier logic & constants | `packages/shared/src/tiers.ts`                    |
+| Model classification   | `packages/shared/src/models.ts`                   |
+| Welcome credit         | `packages/db/src/schema/users.ts`                 |
+| Trial limits           | `packages/shared/src/tiers.ts`                    |
+| Payment schemas        | `packages/db/src/schema/payments.ts`              |
+| Wallets                | `packages/db/src/schema/wallets.ts`               |
+| Ledger entries         | `packages/db/src/schema/ledger-entries.ts`        |
+| Conversation spending  | `packages/db/src/schema/conversation-spending.ts` |
+| Member budgets         | `packages/db/src/schema/member-budgets.ts`        |

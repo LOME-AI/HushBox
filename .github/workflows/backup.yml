@@ -11,6 +11,7 @@ jobs:
   backup-database:
     name: Backup Database
     runs-on: ubuntu-latest
+    environment: backup
     if: github.event.schedule == '0 2 * * *' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v6
@@ -34,6 +35,7 @@ jobs:
   backup-storage:
     name: Backup Storage
     runs-on: ubuntu-latest
+    environment: backup
     if: github.event.schedule == '0 3 * * *' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v6

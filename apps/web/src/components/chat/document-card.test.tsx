@@ -29,6 +29,7 @@ describe('DocumentCard', () => {
       isPanelOpen: false,
       panelWidth: 400,
       activeDocumentId: null,
+      activeDocument: null,
     });
   });
 
@@ -137,11 +138,13 @@ describe('DocumentCard', () => {
   describe('interaction', () => {
     it('sets active document when clicked', async () => {
       const user = userEvent.setup();
-      render(<DocumentCard document={createDocument({ id: 'doc-clicked' })} />);
+      const document_ = createDocument({ id: 'doc-clicked' });
+      render(<DocumentCard document={document_} />);
 
       await user.click(screen.getByTestId('document-card'));
 
       expect(useDocumentStore.getState().activeDocumentId).toBe('doc-clicked');
+      expect(useDocumentStore.getState().activeDocument).toBe(document_);
     });
 
     it('opens panel when clicked', async () => {

@@ -35,7 +35,7 @@ describe('ErrorBoundary', () => {
     );
 
     expect(screen.queryByTestId('child')).not.toBeInTheDocument();
-    expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /something went wrong/i })).toBeInTheDocument();
   });
 
   it('displays error message in fallback UI', () => {
@@ -45,7 +45,7 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>
     );
 
-    expect(screen.getByText('Test error')).toBeInTheDocument();
+    expect(screen.getByText('Something went wrong. Please try again.')).toBeInTheDocument();
   });
 
   it('provides retry button that resets error state', () => {
@@ -65,7 +65,7 @@ describe('ErrorBoundary', () => {
     );
 
     // Should show error UI
-    expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /something went wrong/i })).toBeInTheDocument();
 
     // Fix the error condition
     shouldThrow = false;

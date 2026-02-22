@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Button, cn } from '@lome-chat/ui';
+import { Button, cn } from '@hushbox/ui';
 
 type ButtonProps = React.ComponentProps<typeof Button>;
 

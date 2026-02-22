@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CREDIT_CARD_FEE_RATE,
-  LOME_FEE_RATE,
+  HUSHBOX_FEE_RATE,
   PROVIDER_FEE_RATE,
   STORAGE_COST_PER_1K_CHARS,
   STORAGE_COST_PER_CHARACTER,
@@ -17,7 +17,7 @@ describe('getTemplateValues', () => {
     const values = getTemplateValues();
 
     expect(values['TOTAL_FEE_PERCENT']).toBe(`${String(TOTAL_FEE_RATE * 100)}%`);
-    expect(values['LOME_FEE_PERCENT']).toBe(`${String(LOME_FEE_RATE * 100)}%`);
+    expect(values['HUSHBOX_FEE_PERCENT']).toBe(`${String(HUSHBOX_FEE_RATE * 100)}%`);
     expect(values['CC_FEE_PERCENT']).toBe(`${String(CREDIT_CARD_FEE_RATE * 100)}%`);
     expect(values['PROVIDER_FEE_PERCENT']).toBe(`${String(PROVIDER_FEE_RATE * 100)}%`);
   });
@@ -137,7 +137,7 @@ Storage: {{STORAGE_COST_PER_1K}} per 1k chars
   });
 
   it('succeeds when all variables are matched', () => {
-    const template = `{{TOTAL_FEE_PERCENT}} {{LOME_FEE_PERCENT}} {{CC_FEE_PERCENT}} {{PROVIDER_FEE_PERCENT}} {{STORAGE_COST_PER_1K}} {{MESSAGES_PER_DOLLAR}}`;
+    const template = `{{TOTAL_FEE_PERCENT}} {{HUSHBOX_FEE_PERCENT}} {{CC_FEE_PERCENT}} {{PROVIDER_FEE_PERCENT}} {{STORAGE_COST_PER_1K}} {{MESSAGES_PER_DOLLAR}}`;
     writeFileSync(path.join(temporaryDir, 'README.template.md'), template);
 
     const mockExit = vi.spyOn(process, 'exit');

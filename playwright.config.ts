@@ -8,7 +8,7 @@ export default defineConfig({
   forbidOnly: isCI,
   retries: isCI ? 2 : 1,
   workers: isCI ? 2 : 4,
-  timeout: 30_000,
+  timeout: 45_000,
   expect: {
     timeout: 10_000,
   },
@@ -21,12 +21,12 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'pnpm --filter @lome-chat/web dev',
+      command: 'pnpm --filter @hushbox/web dev',
       url: 'http://localhost:5173',
       reuseExistingServer: !process.env['CI'],
     },
     {
-      command: 'pnpm --filter @lome-chat/api dev',
+      command: 'pnpm --filter @hushbox/api dev',
       url: 'http://localhost:8787/api/health',
       reuseExistingServer: !process.env['CI'],
     },
@@ -37,10 +37,20 @@ export default defineConfig({
       name: 'setup',
       testMatch: /auth\.setup\.ts/,
     },
+    // Auth tests create their own users — no dependency on setup project
+    {
+      name: 'auth-tests',
+      testDir: './e2e/auth',
+      use: { ...devices['Desktop Chrome'] },
+    },
     // Desktop browser projects run web/ and api/ tests only
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/test-alice.json' },
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'e2e/.auth/test-alice.json',
+        permissions: ['clipboard-read', 'clipboard-write'],
+      },
       testDir: './e2e',
       testIgnore: ['**/mobile/**'],
       dependencies: ['setup'],

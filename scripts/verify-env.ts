@@ -12,7 +12,7 @@
  *   pnpm verify:env --mode=production
  */
 import { readFile } from 'node:fs/promises';
-import { createEnvUtilities, type EnvContext, type EnvUtilities } from '@lome-chat/shared';
+import { createEnvUtilities, type EnvContext, type EnvUtilities } from '@hushbox/shared';
 
 export type Mode = 'development' | 'ciVitest' | 'ciE2E' | 'production';
 

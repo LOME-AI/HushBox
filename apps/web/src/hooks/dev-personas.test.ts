@@ -1,19 +1,27 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { devPersonaKeys, useDevPersonas } from './dev-personas';
-import type { DevPersonasResponse } from '@lome-chat/shared';
+import type { DevPersonasResponse } from '@hushbox/shared';
 
-const mockFetch = vi.fn();
-globalThis.fetch = mockFetch;
-
-vi.stubGlobal('import.meta', {
-  env: {
-    DEV: true,
-    VITE_API_URL: 'http://localhost:8787',
+// Mock the api-client module (same pattern as models.test.ts)
+vi.mock('../lib/api-client.js', () => ({
+  client: {
+    api: {
+      dev: {
+        personas: {
+          $get: vi.fn(() => Promise.resolve(new Response())),
+        },
+      },
+    },
   },
-});
+  fetchJson: vi.fn(),
+}));
+
+import { fetchJson } from '../lib/api-client.js';
+
+const mockFetchJson = vi.mocked(fetchJson);
 
 function createWrapper(): React.FC<{ children: React.ReactNode }> {
   const queryClient = new QueryClient({
@@ -48,7 +56,11 @@ describe('devPersonaKeys', () => {
 
 describe('useDevPersonas', () => {
   beforeEach(() => {
-    mockFetch.mockReset();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('fetches dev personas by default', async () => {
@@ -56,20 +68,16 @@ describe('useDevPersonas', () => {
       personas: [
         {
           id: 'user-1',
-          name: 'Alice Developer',
-          email: 'alice@dev.lome-chat.com',
+          username: 'alice_developer',
+          email: 'alice@dev.hushbox.ai',
           emailVerified: true,
-          image: null,
           stats: { conversationCount: 3, messageCount: 12, projectCount: 2 },
           credits: '$0.00',
         },
       ],
     };
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve(mockResponse),
-    });
+    mockFetchJson.mockResolvedValueOnce(mockResponse);
 
     const { result } = renderHook(() => useDevPersonas(), {
       wrapper: createWrapper(),
@@ -80,7 +88,7 @@ describe('useDevPersonas', () => {
     });
 
     expect(result.current.data).toEqual(mockResponse);
-    expect(mockFetch).toHaveBeenCalledWith('http://localhost:8787/api/dev/personas?type=dev');
+    expect(mockFetchJson).toHaveBeenCalledTimes(1);
   });
 
   it('fetches test personas when type=test', async () => {
@@ -88,20 +96,16 @@ describe('useDevPersonas', () => {
       personas: [
         {
           id: 'test-user-1',
-          name: 'Test Alice',
-          email: 'test-alice@test.lome-chat.com',
+          username: 'test_alice',
+          email: 'test-alice@test.hushbox.ai',
           emailVerified: true,
-          image: null,
           stats: { conversationCount: 0, messageCount: 0, projectCount: 0 },
           credits: '$0.00',
         },
       ],
     };
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve(mockResponse),
-    });
+    mockFetchJson.mockResolvedValueOnce(mockResponse);
 
     const { result } = renderHook(() => useDevPersonas('test'), {
       wrapper: createWrapper(),
@@ -112,16 +116,13 @@ describe('useDevPersonas', () => {
     });
 
     expect(result.current.data).toEqual(mockResponse);
-    expect(mockFetch).toHaveBeenCalledWith('http://localhost:8787/api/dev/personas?type=test');
+    expect(mockFetchJson).toHaveBeenCalledTimes(1);
   });
 
   it('returns empty array when no personas', async () => {
     const mockResponse: DevPersonasResponse = { personas: [] };
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve(mockResponse),
-    });
+    mockFetchJson.mockResolvedValueOnce(mockResponse);
 
     const { result } = renderHook(() => useDevPersonas(), {
       wrapper: createWrapper(),

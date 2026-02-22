@@ -28,7 +28,6 @@ export const LOCAL_NEON_DEV_CONFIG: NeonDevConfig = {
 };
 
 export function createDb(config: DbConfig) {
-  // Apply neon dev config if provided (must happen before Pool creation)
   if (config.neonDev) {
     neonConfig.wsProxy = config.neonDev.wsProxy;
     neonConfig.useSecureWebSocket = config.neonDev.useSecureWebSocket;
@@ -36,8 +35,14 @@ export function createDb(config: DbConfig) {
     neonConfig.pipelineConnect = config.neonDev.pipelineConnect;
   }
 
-  const pool = new Pool({ connectionString: config.connectionString });
+  const pool = new Pool({ connectionString: config.connectionString, max: 1 });
   return drizzle(pool, { schema });
 }
 
 export type Database = ReturnType<typeof createDb>;
+
+/**
+ * Narrowed type that works for both Database and PgTransaction.
+ * Use this for functions called within db.transaction() callbacks.
+ */
+export type DatabaseClient = Pick<Database, 'select' | 'insert' | 'update' | 'delete'>;

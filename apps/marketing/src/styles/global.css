@@ -1,0 +1,94 @@
+@import '../../../../packages/config/tailwind/index.css';
+
+@source '../../../../packages/ui/src/components/marketing/**/*.tsx';
+
+/* ScrollReveal animations */
+[data-slot='scroll-reveal'][data-visible='false'] {
+  opacity: 0;
+}
+
+[data-slot='scroll-reveal'][data-visible='false'][data-animation='fade-up'] {
+  transform: translateY(2rem);
+}
+
+[data-slot='scroll-reveal'][data-visible='false'][data-animation='fade-in'] {
+  transform: none;
+}
+
+[data-slot='scroll-reveal'][data-visible='false'][data-animation='slide-left'] {
+  transform: translateX(-2rem);
+}
+
+[data-slot='scroll-reveal'][data-visible='false'][data-animation='slide-right'] {
+  transform: translateX(2rem);
+}
+
+[data-slot='scroll-reveal'][data-visible='true'] {
+  opacity: 1;
+  transform: none;
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+/* DataGrid row stagger */
+[data-slot='data-grid'][data-animated][data-visible='false'] tbody tr {
+  opacity: 0;
+  transform: translateY(1rem);
+}
+
+[data-slot='data-grid'][data-animated][data-visible='true'] tbody tr {
+  animation: rowReveal 0.5s ease-out forwards;
+  animation-delay: var(--row-delay, 0ms);
+}
+
+/* StepFlow connecting lines */
+[data-slot='step-flow'][data-connected] [data-slot='step-item'] {
+  position: relative;
+}
+
+[data-slot='step-flow'][data-connected] [data-slot='step-item']:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 2rem;
+  width: 2px;
+  height: calc(100% + 0.5rem);
+  background: var(--color-border);
+}
+
+/* StepFlow animated lines */
+[data-slot='step-flow'][data-animated][data-visible='true'] [data-slot='step-item']::after {
+  animation: lineGrow 0.4s ease-out forwards;
+  animation-delay: calc(var(--step-delay, 0ms) + 0.3s);
+  transform-origin: top;
+}
+
+/* StepFlow step stagger */
+[data-slot='step-flow'][data-animated][data-visible='false'] [data-slot='step-item'] {
+  opacity: 0;
+  transform: translateY(1rem);
+}
+
+[data-slot='step-flow'][data-animated][data-visible='true'] [data-slot='step-item'] {
+  animation: rowReveal 0.6s ease-out forwards;
+  animation-delay: var(--step-delay, 0ms);
+}
+
+@keyframes rowReveal {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes lineGrow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}

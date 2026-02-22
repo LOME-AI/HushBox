@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ModelSelectorButton } from './model-selector-button';
-import type { Model } from '@lome-chat/shared';
+import type { Model } from '@hushbox/shared';
 
 const mockModels: Model[] = [
   {

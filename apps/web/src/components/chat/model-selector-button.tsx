@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { Button } from '@lome-chat/ui';
-import type { Model } from '@lome-chat/shared';
-import { shortenModelName } from '@lome-chat/shared';
+import { Button } from '@hushbox/ui';
+import type { Model } from '@hushbox/shared';
+import { shortenModelName } from '@hushbox/shared';
 import { ModelSelectorModal } from './model-selector-modal';
 
 interface ModelSelectorButtonProps {
@@ -61,9 +61,9 @@ export function ModelSelectorButton({
         disabled={disabled}
         aria-label="Select model"
         data-testid="model-selector-button"
-        className="bg-secondary hover:bg-secondary/80 mx-2 w-[250px] justify-center"
+        className="bg-secondary hover:bg-secondary/80 mx-2 justify-center px-6"
       >
-        <span className="truncate">{displayText}</span>
+        <span>{displayText}</span>
       </Button>
 
       <ModelSelectorModal

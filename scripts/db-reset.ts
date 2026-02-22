@@ -1,5 +1,8 @@
 import { execa } from 'execa';
-import { loadEnv, startDocker, runMigrations, runSeed } from './dev.js';
+import { config } from 'dotenv';
+import path from 'node:path';
+import { generateEnvFiles } from './generate-env.js';
+import { startDocker, runMigrations, runSeed } from './dev.js';
 
 interface DockerContainer {
   Service: string;
@@ -26,7 +29,9 @@ async function isPostgresRunning(): Promise<boolean> {
 }
 
 async function resetDatabase(): Promise<void> {
-  loadEnv();
+  generateEnvFiles(process.cwd());
+  config({ path: path.resolve(process.cwd(), '.env.development') });
+  config({ path: path.resolve(process.cwd(), '.env.scripts') });
 
   const wasRunning = await isPostgresRunning();
   console.log(`Database was ${wasRunning ? 'running' : 'not running'}`);

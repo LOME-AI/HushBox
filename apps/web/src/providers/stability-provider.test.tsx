@@ -12,17 +12,19 @@ import { StabilityProvider, useStability } from './stability-provider';
 // Mock dependencies
 vi.mock('@/lib/auth', () => ({
   useSession: vi.fn(),
+  initAuth: vi.fn().mockImplementation(() => Promise.resolve()),
 }));
 
 vi.mock('@/hooks/billing', () => ({
   useBalance: vi.fn(),
 }));
 
-import { useSession } from '@/lib/auth';
+import { useSession, initAuth } from '@/lib/auth';
 import { useBalance } from '@/hooks/billing';
 
 const mockedUseSession = vi.mocked(useSession);
 const mockedUseBalance = vi.mocked(useBalance);
+const mockedInitAuth = vi.mocked(initAuth);
 
 function createWrapper(): ({ children }: Readonly<{ children: ReactNode }>) => ReactNode {
   // eslint-disable-next-line sonarjs/function-return-type -- test wrapper returns children
@@ -59,6 +61,25 @@ describe('StabilityProvider', () => {
 
     expect(screen.getByTestId('child')).toBeInTheDocument();
     expect(screen.getByText('Hello')).toBeInTheDocument();
+  });
+
+  it('calls initAuth on mount to restore session', () => {
+    mockedUseSession.mockReturnValue({
+      data: null,
+      isPending: true,
+    } as unknown as ReturnType<typeof useSession>);
+    mockedUseBalance.mockReturnValue({
+      data: null,
+      isPending: false,
+    } as unknown as ReturnType<typeof useBalance>);
+
+    render(
+      <StabilityProvider>
+        <div>child</div>
+      </StabilityProvider>
+    );
+
+    expect(mockedInitAuth).toHaveBeenCalledTimes(1);
   });
 
   it('throws error when useStability is used outside provider', () => {
@@ -100,7 +121,7 @@ describe('useStability', () => {
       expect(result.current.isAuthStable).toBe(false);
     });
 
-    it('returns true when session query completes (guest)', () => {
+    it('returns true when session query completes (trial)', () => {
       mockedUseSession.mockReturnValue({
         data: null,
         isPending: false,
@@ -136,7 +157,7 @@ describe('useStability', () => {
   });
 
   describe('isBalanceStable', () => {
-    it('returns true for guests (no balance to load)', () => {
+    it('returns true for trial users (no balance to load)', () => {
       mockedUseSession.mockReturnValue({
         data: null,
         isPending: false,
@@ -153,8 +174,8 @@ describe('useStability', () => {
       expect(result.current.isBalanceStable).toBe(true);
     });
 
-    it('returns true for guests even while balance is pending', () => {
-      // Guests don't need to wait for balance
+    it('returns true for trial users even while balance is pending', () => {
+      // Trial users don't need to wait for balance
       mockedUseSession.mockReturnValue({
         data: null,
         isPending: false,
@@ -260,7 +281,7 @@ describe('useStability', () => {
       expect(result.current.isAppStable).toBe(false);
     });
 
-    it('returns true when both auth and balance are stable (guest)', () => {
+    it('returns true when both auth and balance are stable (trial)', () => {
       mockedUseSession.mockReturnValue({
         data: null,
         isPending: false,

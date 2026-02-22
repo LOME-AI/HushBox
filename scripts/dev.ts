@@ -4,13 +4,7 @@ import path from 'node:path';
 import { generateEnvFiles } from './generate-env.js';
 import { seed } from './seed.js';
 
-const DOCKER_SERVICES = ['postgres', 'neon-proxy'];
-
-export function loadEnv(): NodeJS.ProcessEnv {
-  const envPath = path.resolve(process.cwd(), '.env.development');
-  config({ path: envPath });
-  return process.env;
-}
+const DOCKER_SERVICES = ['postgres', 'neon-proxy', 'redis', 'serverless-redis-http'];
 
 export async function startDocker(): Promise<void> {
   console.log('Starting Docker services...');
@@ -23,11 +17,24 @@ export async function startDocker(): Promise<void> {
 
 export async function runMigrations(): Promise<void> {
   console.log('Running database migrations...');
-  await execa('pnpm', ['--filter', '@lome-chat/db', 'db:migrate'], {
+  await execa('pnpm', ['--filter', '@hushbox/db', 'db:migrate'], {
     stdio: 'inherit',
     env: process.env,
   });
   console.log('Migrations complete');
+}
+
+export function startDrizzleStudio(): void {
+  console.log('Starting Drizzle Studio...');
+  const subprocess = execa('pnpm', ['--filter', '@hushbox/db', 'db:studio'], {
+    stdio: 'ignore',
+    env: process.env,
+  });
+  // eslint-disable-next-line promise/prefer-await-to-then -- fire-and-forget subprocess, function must stay synchronous
+  subprocess.catch(() => {
+    console.warn('Drizzle Studio failed to start (non-fatal)');
+  });
+  console.log('Drizzle Studio available at https://local.drizzle.studio');
 }
 
 export async function runSeed(): Promise<void> {
@@ -45,9 +52,11 @@ export async function startTurbo(): Promise<void> {
 
 export async function main(): Promise<void> {
   generateEnvFiles(process.cwd());
-  loadEnv();
+  config({ path: path.resolve(process.cwd(), '.env.development') });
+  config({ path: path.resolve(process.cwd(), '.env.scripts') });
   await startDocker();
   await runMigrations();
+  startDrizzleStudio();
   await runSeed();
   await startTurbo();
 }

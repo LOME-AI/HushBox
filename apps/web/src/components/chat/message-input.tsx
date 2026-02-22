@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Button, Textarea } from '@lome-chat/ui';
+import { Button, Textarea } from '@hushbox/ui';
 import { Send, Square } from 'lucide-react';
 
 interface MessageInputProps {

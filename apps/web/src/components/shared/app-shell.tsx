@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { Sidebar } from '@/components/sidebar/sidebar';
-import { MobileSidebar } from '@/components/sidebar/mobile-sidebar';
 import { useModelValidation } from '@/hooks/use-model-validation';
 
 interface AppShellProps {
@@ -13,14 +12,14 @@ export function AppShell({ children }: Readonly<AppShellProps>): React.JSX.Eleme
 
   return (
     <div data-testid="app-shell" className="bg-background flex h-dvh">
-      {/* Desktop sidebar */}
+      {/* Unified sidebar (handles desktop and mobile) */}
       <Sidebar />
-
-      {/* Mobile sidebar overlay */}
-      <MobileSidebar />
 
       {/* Main content area */}
       <main className="flex flex-1 flex-col overflow-hidden">{children}</main>
+
+      {/* Portal target for right sidebar — display:contents makes it invisible to flex layout */}
+      <div id="right-sidebar-portal" className="contents" />
     </div>
   );
 }

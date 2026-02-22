@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatHeader } from './chat-header';
-import type { Model } from '@lome-chat/shared';
+import type { Model } from '@hushbox/shared';
 
 // Mock the theme provider
 vi.mock('../providers/theme-provider', () => ({
@@ -10,6 +10,36 @@ vi.mock('../providers/theme-provider', () => ({
     mode: 'light',
     triggerTransition: vi.fn(),
   }),
+}));
+
+// Mock models hook to break the import chain that requires VITE_API_URL
+vi.mock('@/hooks/models', () => ({
+  useModels: () => ({
+    data: { models: [], premiumIds: new Set() },
+    isLoading: false,
+  }),
+  getAccessibleModelIds: (
+    _models: unknown[],
+    _premiumIds: Set<string>,
+    _canAccessPremium: boolean
+  ) => ({
+    strongestId: 'openai/gpt-4-turbo',
+    valueId: 'openai/gpt-4-turbo',
+  }),
+}));
+
+// Mock useHeaderLayout (ResizeObserver not available in jsdom)
+vi.mock('@/hooks/use-header-layout', () => ({
+  useHeaderLayout: () => 1,
+}));
+
+// Mock Link component used by EncryptionBadge
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children, to, ...props }: { children: React.ReactNode; to: string }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
 }));
 
 const mockModels: Model[] = [
@@ -60,6 +90,17 @@ describe('ChatHeader', () => {
     expect(screen.getByRole('button', { name: /switch to dark mode/i })).toBeInTheDocument();
   });
 
+  it('renders encryption badge', () => {
+    render(
+      <ChatHeader
+        models={mockModels}
+        selectedModelId="openai/gpt-4-turbo"
+        onModelSelect={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId('encryption-badge')).toBeInTheDocument();
+  });
+
   it('has sticky positioning', () => {
     render(
       <ChatHeader
@@ -95,7 +136,7 @@ describe('ChatHeader', () => {
     );
     const header = screen.getByTestId('chat-header');
     expect(header).toHaveClass('px-4');
-    expect(header).toHaveClass('h-[53px]');
+    expect(header).toHaveClass('min-h-[53px]');
   });
 
   describe('model selector', () => {
@@ -149,7 +190,7 @@ describe('ChatHeader', () => {
       );
     });
 
-    it('centers model selector in header', () => {
+    it('centers model selector via CSS Grid columns', () => {
       render(
         <ChatHeader
           models={mockModels}
@@ -157,9 +198,9 @@ describe('ChatHeader', () => {
           onModelSelect={vi.fn()}
         />
       );
-      // The header should use flex with justify-center for the model selector
-      const header = screen.getByTestId('chat-header');
-      expect(header).toHaveClass('justify-center');
+      // Centering is via CSS Grid 1fr auto 1fr — center column in the grid
+      const grid = screen.getByTestId('chat-header-grid');
+      expect(grid.style.gridTemplateColumns).toBe('1fr auto 1fr');
     });
   });
 
@@ -239,6 +280,113 @@ describe('ChatHeader', () => {
       );
       const title = screen.getByTestId('chat-title');
       expect(title).toHaveClass('text-primary');
+    });
+  });
+
+  describe('group chat features', () => {
+    const groupMembers = [
+      { id: 'user-1', username: 'alice' },
+      { id: 'user-2', username: 'bob' },
+    ];
+
+    describe('facepile', () => {
+      it('renders facepile when members are provided', () => {
+        render(
+          <ChatHeader
+            models={mockModels}
+            selectedModelId="openai/gpt-4-turbo"
+            onModelSelect={vi.fn()}
+            members={groupMembers}
+            onlineMemberIds={new Set()}
+            onFacepileClick={vi.fn()}
+          />
+        );
+        expect(screen.getByTestId('member-facepile')).toBeInTheDocument();
+      });
+
+      it('does not render facepile when members is undefined', () => {
+        render(
+          <ChatHeader
+            models={mockModels}
+            selectedModelId="openai/gpt-4-turbo"
+            onModelSelect={vi.fn()}
+          />
+        );
+        expect(screen.queryByTestId('member-facepile')).not.toBeInTheDocument();
+      });
+
+      it('does not render facepile when members is empty', () => {
+        render(
+          <ChatHeader
+            models={mockModels}
+            selectedModelId="openai/gpt-4-turbo"
+            onModelSelect={vi.fn()}
+            members={[]}
+            onlineMemberIds={new Set()}
+            onFacepileClick={vi.fn()}
+          />
+        );
+        expect(screen.queryByTestId('member-facepile')).not.toBeInTheDocument();
+      });
+
+      it('calls onFacepileClick when facepile is clicked', async () => {
+        const user = userEvent.setup();
+        const onFacepileClick = vi.fn();
+        render(
+          <ChatHeader
+            models={mockModels}
+            selectedModelId="openai/gpt-4-turbo"
+            onModelSelect={vi.fn()}
+            members={groupMembers}
+            onlineMemberIds={new Set()}
+            onFacepileClick={onFacepileClick}
+          />
+        );
+        await user.click(screen.getByTestId('member-facepile'));
+        expect(onFacepileClick).toHaveBeenCalledOnce();
+      });
+    });
+
+    describe('icon ordering', () => {
+      it('renders EncryptionBadge, ThemeToggle, and Facepile in correct order', () => {
+        render(
+          <ChatHeader
+            models={mockModels}
+            selectedModelId="openai/gpt-4-turbo"
+            onModelSelect={vi.fn()}
+            members={groupMembers}
+            onlineMemberIds={new Set()}
+            onFacepileClick={vi.fn()}
+          />
+        );
+        const encBadge = screen.getByTestId('encryption-badge');
+        const themeButton = screen.getByRole('button', { name: /switch to dark mode/i });
+        const facepile = screen.getByTestId('member-facepile');
+
+        // Encryption badge and theme toggle should come before facepile
+        const parent = encBadge.parentElement!;
+        const children = [...parent.children];
+        const encIndex = children.indexOf(encBadge);
+        const themeIndex = children.indexOf(themeButton);
+        const facepileIndex = children.indexOf(facepile);
+
+        expect(encIndex).toBeLessThan(facepileIndex);
+        expect(themeIndex).toBeLessThan(facepileIndex);
+      });
+
+      it('does not render add dropdown', () => {
+        render(
+          <ChatHeader
+            models={mockModels}
+            selectedModelId="openai/gpt-4-turbo"
+            onModelSelect={vi.fn()}
+            members={groupMembers}
+            onlineMemberIds={new Set()}
+            onFacepileClick={vi.fn()}
+          />
+        );
+        expect(screen.queryByTestId('header-add-dropdown-trigger')).not.toBeInTheDocument();
+      });
     });
   });
 });

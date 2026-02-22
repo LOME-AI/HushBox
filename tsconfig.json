@@ -3,10 +3,10 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@lome-chat/config/*": ["./packages/config/*"],
-      "@lome-chat/shared/*": ["./packages/shared/*"],
-      "@lome-chat/ui/*": ["./packages/ui/*"],
-      "@lome-chat/db/*": ["./packages/db/*"]
+      "@hushbox/config/*": ["./packages/config/*"],
+      "@hushbox/shared/*": ["./packages/shared/*"],
+      "@hushbox/ui/*": ["./packages/ui/*"],
+      "@hushbox/db/*": ["./packages/db/*"]
     }
   },
   "include": ["*.config.ts", "*.config.js", "*.workspace.ts", ".lintstagedrc.js"],

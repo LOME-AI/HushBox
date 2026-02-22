@@ -12,7 +12,7 @@ export interface Workspace {
   name: string;
   /** Relative path from root (e.g., "apps/web", "packages/ui") */
   path: string;
-  /** Full package name from package.json (e.g., "@lome-chat/web") */
+  /** Full package name from package.json (e.g., "@hushbox/web") */
   fullName: string;
 }
 
@@ -81,7 +81,7 @@ export function expandGlobPattern(pattern: string, rootDirectory: string): strin
 
 /**
  * Extract short name from package name or path.
- * "@lome-chat/web" -> "web"
+ * "@hushbox/web" -> "web"
  * "myapp" -> "myapp"
  */
 function extractShortName(packageName: string, directoryPath: string): string {

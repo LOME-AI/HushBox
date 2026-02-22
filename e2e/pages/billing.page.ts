@@ -50,7 +50,7 @@ export class BillingPage {
     this.simulateFailureButton = page.getByTestId('simulate-failure-btn');
     this.paymentSuccessCard = page.getByText('Payment Successful');
     this.paymentErrorCard = page.getByText('Payment Failed');
-    this.closeButton = page.getByRole('button', { name: 'Close' });
+    this.closeButton = this.paymentModal.getByRole('button', { name: 'Close' });
     this.tryAgainButton = page.getByRole('button', { name: 'Try Again' });
     this.processingIndicator = page.getByText('Processing payment...');
   }
@@ -161,7 +161,21 @@ export class BillingPage {
 
     while (Date.now() - startTime < timeout) {
       await this.page.reload({ waitUntil: 'networkidle' });
-      await this.balanceDisplay.waitFor({ state: 'visible', timeout: 5000 });
+
+      // Detect session loss — fail fast instead of waiting for timeout
+      if (this.page.url().includes('/login')) {
+        throw new Error('Session lost — redirected to login during webhook confirmation polling');
+      }
+
+      // Wait for balance to stabilize (skeleton disappears, real balance shows)
+      await this.page
+        .locator('.animate-pulse')
+        .first()
+        .waitFor({ state: 'hidden', timeout: 10_000 })
+        .catch(() => {
+          // Ignore — skeleton may not appear
+        });
+      await this.balanceDisplay.waitFor({ state: 'visible', timeout: 10_000 });
       const currentBalance = await this.getBalance();
 
       if (currentBalance >= initialBalance + expectedIncrease) {

@@ -1,12 +1,11 @@
 import * as React from 'react';
 import { useState } from 'react';
 import { createFileRoute, useNavigate, redirect, useSearch } from '@tanstack/react-router';
-import { DEV_PASSWORD } from '@lome-chat/shared';
-import type { DevPersona } from '@lome-chat/shared';
+import { DEV_PASSWORD, displayUsername, ROUTES } from '@hushbox/shared';
+import type { DevPersona } from '@hushbox/shared';
 import { signIn, signOutAndClearCache } from '@/lib/auth';
-import { toast } from '@lome-chat/ui';
+import { toast } from '@hushbox/ui';
 import { useDevPersonas, type PersonaType } from '@/hooks/dev-personas';
-import { ROUTES } from '@/lib/routes';
 
 export interface PersonasSearch {
   type: string | undefined;
@@ -51,12 +50,13 @@ export function PersonasPage(): React.JSX.Element {
       await signOutAndClearCache();
 
       const response = await signIn.email({
-        email: persona.email,
+        identifier: persona.email,
         password: DEV_PASSWORD,
+        keepSignedIn: true,
       });
 
       if (response.error) {
-        toast.error(response.error.message ?? 'Authentication failed');
+        toast.error(response.error.message);
         return;
       }
 
@@ -119,10 +119,12 @@ export function PersonasPage(): React.JSX.Element {
             className="bg-card hover:bg-accent border-border flex min-w-[240px] flex-col items-center rounded-lg border p-6 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
             <div className="bg-primary text-primary-foreground mb-4 flex h-16 w-16 items-center justify-center rounded-full text-2xl font-bold">
-              {persona.name.charAt(0)}
+              {displayUsername(persona.username).charAt(0)}
             </div>
 
-            <span className="text-foreground mb-1 text-lg font-semibold">{persona.name}</span>
+            <span className="text-foreground mb-1 text-lg font-semibold">
+              {displayUsername(persona.username)}
+            </span>
 
             <span className="text-muted-foreground mb-3 text-sm">{persona.email}</span>
 

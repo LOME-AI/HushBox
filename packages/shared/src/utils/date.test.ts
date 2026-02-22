@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { getUtcMidnight, needsResetBeforeMidnight } from './date';
+import { getUtcMidnight, needsResetBeforeMidnight, secondsUntilNextUtcMidnight } from './date';
 
 describe('date utilities', () => {
   beforeEach(() => {
@@ -54,6 +54,41 @@ describe('date utilities', () => {
       const midnight = getUtcMidnight();
 
       expect(midnight.toISOString()).toBe('2024-01-01T00:00:00.000Z');
+    });
+  });
+
+  describe('secondsUntilNextUtcMidnight', () => {
+    it('returns seconds remaining until next midnight', () => {
+      // Current time: 2024-01-15 14:30:00 UTC → 9.5 hours = 34200 seconds
+      vi.setSystemTime(new Date('2024-01-15T14:30:00.000Z'));
+
+      expect(secondsUntilNextUtcMidnight()).toBe(34_200);
+    });
+
+    it('returns full day at exactly midnight', () => {
+      vi.setSystemTime(new Date('2024-01-15T00:00:00.000Z'));
+
+      expect(secondsUntilNextUtcMidnight()).toBe(86_400);
+    });
+
+    it('returns 1 second just before midnight', () => {
+      vi.setSystemTime(new Date('2024-01-15T23:59:59.000Z'));
+
+      expect(secondsUntilNextUtcMidnight()).toBe(1);
+    });
+
+    it('handles sub-second precision by rounding up', () => {
+      // 23:59:59.500 → 0.5 seconds left → ceil to 1
+      vi.setSystemTime(new Date('2024-01-15T23:59:59.500Z'));
+
+      expect(secondsUntilNextUtcMidnight()).toBe(1);
+    });
+
+    it('handles month boundaries', () => {
+      // Jan 31 at 23:00:00 → 3600 seconds until Feb 1 midnight
+      vi.setSystemTime(new Date('2024-01-31T23:00:00.000Z'));
+
+      expect(secondsUntilNextUtcMidnight()).toBe(3600);
     });
   });
 

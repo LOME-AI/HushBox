@@ -1,7 +1,14 @@
 import { z } from 'zod';
+import { USERNAME_REGEX, normalizeUsername, isReservedUsername } from '@hushbox/shared';
 
 export const nameSchema = z.string().min(1, 'Name is required');
 export const emailSchema = z.email('Please enter a valid email');
+export const identifierSchema = z
+  .string()
+  .refine(
+    (val) => z.email().safeParse(val).success || USERNAME_REGEX.test(normalizeUsername(val)),
+    'Please enter a valid email or username'
+  );
 export const passwordSchema = z.string().min(8, 'Password must be at least 8 characters');
 
 export interface ValidationResult {
@@ -38,7 +45,27 @@ export function createValidator<T>(
 }
 
 export const validateName = createValidator(nameSchema, 'Looks good!');
+
+export function validateUsername(rawInput: string): ValidationResult {
+  if (!rawInput) return { isValid: false };
+
+  const normalized = normalizeUsername(rawInput);
+
+  if (!USERNAME_REGEX.test(normalized)) {
+    return {
+      isValid: false,
+      error: '3-20 chars, starts with a letter. Letters, numbers, spaces only.',
+    };
+  }
+
+  if (isReservedUsername(normalized)) {
+    return { isValid: false, error: 'This username is not available.' };
+  }
+
+  return { isValid: true, success: 'Looks good!' };
+}
 export const validateEmail = createValidator(emailSchema, 'Valid email');
+export const validateIdentifier = createValidator(identifierSchema, 'Valid');
 export const validatePassword = createValidator(passwordSchema, 'Password meets requirements');
 
 export function validateConfirmPassword(
@@ -50,4 +77,13 @@ export function validateConfirmPassword(
     return { isValid: false, error: 'Passwords do not match' };
   }
   return { isValid: true, success: 'Passwords match' };
+}
+
+export function validateRecoveryPhrase(phrase: string): ValidationResult {
+  if (!phrase.trim()) return { isValid: false };
+  const words = phrase.trim().split(/\s+/);
+  if (words.length !== 12) {
+    return { isValid: false, error: 'Recovery phrase must be exactly 12 words' };
+  }
+  return { isValid: true, success: '12 words entered' };
 }

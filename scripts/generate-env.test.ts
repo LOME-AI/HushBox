@@ -56,10 +56,11 @@ port = 8787
 
       const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf8');
       expect(content).toContain('NODE_ENV="development"');
-      expect(content).toContain('BETTER_AUTH_URL="http://localhost:8787"');
+      expect(content).toContain('API_URL="http://localhost:8787"');
       expect(content).toContain('FRONTEND_URL="http://localhost:5173"');
       expect(content).toContain('DATABASE_URL="');
-      expect(content).toContain('BETTER_AUTH_SECRET="');
+      expect(content).toContain('OPAQUE_MASTER_SECRET="');
+      expect(content).toContain('IRON_SESSION_SECRET="');
     });
 
     it('does not include CI/prod secrets in development mode', () => {
@@ -113,11 +114,11 @@ port = 8787
 
       const content = readFileSync(path.join(TEST_DIR_ENV, '.env.development'), 'utf8');
       expect(content).not.toContain('NODE_ENV=');
-      expect(content).not.toContain('BETTER_AUTH_URL=');
       expect(content).not.toContain('FRONTEND_URL=');
       // Use regex to check DATABASE_URL is not a standalone var
       expect(content).not.toMatch(/^DATABASE_URL=/m);
-      expect(content).not.toContain('BETTER_AUTH_SECRET=');
+      expect(content).not.toContain('OPAQUE_MASTER_SECRET=');
+      expect(content).not.toContain('IRON_SESSION_SECRET=');
     });
 
     it('does not include CI/prod secrets', () => {
@@ -157,7 +158,7 @@ port = 8787
 
       const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
       expect(content).toContain(
-        'MIGRATION_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/lome_chat"'
+        'MIGRATION_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/hushbox"'
       );
     });
 
@@ -189,8 +190,8 @@ port = 8787
 
       const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf8');
       expect(content).toContain('NODE_ENV = "production"');
-      expect(content).toContain('BETTER_AUTH_URL = "https://api.lome-chat.com"');
-      expect(content).toContain('FRONTEND_URL = "https://lome-chat.com"');
+      expect(content).toContain('API_URL = "https://api.hushbox.ai"');
+      expect(content).toContain('FRONTEND_URL = "https://hushbox.ai"');
     });
 
     it('includes comments about backend secrets', () => {
@@ -199,7 +200,8 @@ port = 8787
       const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf8');
       expect(content).toContain('Secrets deployed via CI');
       expect(content).toContain('DATABASE_URL');
-      expect(content).toContain('BETTER_AUTH_SECRET');
+      expect(content).toContain('OPAQUE_MASTER_SECRET');
+      expect(content).toContain('IRON_SESSION_SECRET');
       expect(content).toContain('RESEND_API_KEY');
       expect(content).toContain('OPENROUTER_API_KEY');
       expect(content).toContain('HELCIM_API_TOKEN');
@@ -377,7 +379,7 @@ old content
       updateCiWorkflow(TEST_DIR_CI);
 
       const content = readCiYml();
-      expect(content).toContain('VITE_API_URL: https://api.lome-chat.com');
+      expect(content).toContain('VITE_API_URL: https://api.hushbox.ai');
     });
 
     it('uses production secret names for frontend secrets', () => {
@@ -409,13 +411,16 @@ old content
         'echo "${{ secrets.DATABASE_URL }}" | pnpm exec wrangler secret put DATABASE_URL'
       );
       expect(content).toContain(
-        'echo "${{ secrets.BETTER_AUTH_SECRET }}" | pnpm exec wrangler secret put BETTER_AUTH_SECRET'
+        'echo "${{ secrets.OPAQUE_MASTER_SECRET }}" | pnpm exec wrangler secret put OPAQUE_MASTER_SECRET'
+      );
+      expect(content).toContain(
+        'echo "${{ secrets.IRON_SESSION_SECRET }}" | pnpm exec wrangler secret put IRON_SESSION_SECRET'
       );
       expect(content).toContain(
         'echo "${{ secrets.RESEND_API_KEY }}" | pnpm exec wrangler secret put RESEND_API_KEY'
       );
       expect(content).toContain(
-        'echo "${{ secrets.OPENROUTER_API_KEY }}" | pnpm exec wrangler secret put OPENROUTER_API_KEY'
+        'echo "${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}" | pnpm exec wrangler secret put OPENROUTER_API_KEY'
       );
     });
 
@@ -448,7 +453,7 @@ old content
 
       const content = readCiYml();
       expect(content).toContain(
-        'for secret in DATABASE_URL BETTER_AUTH_SECRET RESEND_API_KEY OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do'
+        'for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET RESEND_API_KEY OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do'
       );
     });
   });

@@ -4,6 +4,8 @@
  * to test the full payment flow without real Helcim.
  */
 
+import { signHmacSha256Webhook } from '@hushbox/crypto';
+
 const WEBHOOK_PAYMENT_PATH = '/api/webhooks/payment';
 const MOCK_WEBHOOK_DELAY_MS = 1000;
 
@@ -17,36 +19,6 @@ export interface MockWebhookConfig {
 interface MockWebhookPayload {
   type: 'cardTransaction';
   id: string;
-}
-
-// eslint-disable-next-line no-secrets/no-secrets -- Function name reference, not a secret
-/**
- * Generate HMAC-SHA256 signature matching Helcim's webhook format.
- * Uses the same algorithm as verifyWebhookSignatureAsync in helcim.ts.
- */
-export async function generateWebhookSignature(
-  webhookVerifier: string,
-  payload: string,
-  timestamp: string,
-  webhookId: string
-): Promise<string> {
-  const encoder = new TextEncoder();
-  const message = `${webhookId}.${timestamp}.${payload}`;
-
-  const secretBytes = Uint8Array.from(atob(webhookVerifier), (c) => c.codePointAt(0) ?? 0);
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    secretBytes,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-
-  const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-  const signature = btoa(String.fromCodePoint(...new Uint8Array(signatureBuffer)));
-
-  return `v1,${signature}`;
 }
 
 /**
@@ -74,12 +46,12 @@ async function sendMockWebhook(
   const timestamp = String(Math.floor(Date.now() / 1000));
   const webhookId = `mock-webhook-${crypto.randomUUID()}`;
 
-  const signature = await generateWebhookSignature(
-    webhookVerifier,
-    payloadString,
+  const signature = await signHmacSha256Webhook({
+    secret: webhookVerifier,
+    payload: payloadString,
     timestamp,
-    webhookId
-  );
+    webhookId,
+  });
 
   try {
     const response = await fetch(webhookUrl, {

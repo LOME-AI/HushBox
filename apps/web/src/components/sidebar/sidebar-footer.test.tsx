@@ -20,7 +20,7 @@ const {
   mockUseStableBalance: vi.fn(),
   mockFeatureFlags: {
     PROJECTS_ENABLED: false,
-    SETTINGS_ENABLED: false,
+    SETTINGS_ENABLED: true,
   },
   mockEnv: {
     isDev: true,
@@ -33,8 +33,8 @@ const {
   mockUseIsMobile: vi.fn(),
 }));
 
-vi.mock('@lome-chat/shared', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@lome-chat/shared')>();
+vi.mock('@hushbox/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/shared')>();
   return {
     ...actual,
     FEATURE_FLAGS: mockFeatureFlags,
@@ -76,7 +76,7 @@ describe('SidebarFooter', () => {
     useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false });
     mockUseSession.mockReturnValue({
       data: {
-        user: { email: 'test@example.com' },
+        user: { email: 'test@example.com', username: 'test_user' },
         session: { id: 'session-123' },
       },
     });
@@ -93,14 +93,14 @@ describe('SidebarFooter', () => {
       expect(screen.getByTestId('user-avatar-icon')).toBeInTheDocument();
     });
 
-    it('renders user email when expanded', () => {
+    it('renders user username when expanded', () => {
       render(<SidebarFooter />);
-      expect(screen.getByTestId('user-email')).toHaveTextContent('test@example.com');
+      expect(screen.getByText('Test User')).toBeInTheDocument();
     });
 
     it('renders credits display when expanded with 4 decimal places', () => {
       render(<SidebarFooter />);
-      expect(screen.getByTestId('user-credits')).toHaveTextContent('$12.3457');
+      expect(screen.getByText('$12.3457')).toBeInTheDocument();
     });
 
     it('shows loading placeholder when balance is not stable', () => {
@@ -109,7 +109,7 @@ describe('SidebarFooter', () => {
         isStable: false,
       });
       render(<SidebarFooter />);
-      expect(screen.getByTestId('user-credits')).toHaveTextContent('$...');
+      expect(screen.getByText('$...')).toBeInTheDocument();
     });
 
     it('shows zero balance when balance is zero', () => {
@@ -118,14 +118,14 @@ describe('SidebarFooter', () => {
         isStable: true,
       });
       render(<SidebarFooter />);
-      expect(screen.getByTestId('user-credits')).toHaveTextContent('$0.0000');
+      expect(screen.getByText('$0.0000')).toBeInTheDocument();
     });
 
     it('shows dropdown menu on click', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByRole('menu')).toBeInTheDocument();
     });
 
@@ -134,7 +134,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-settings')).toBeInTheDocument();
     });
 
@@ -142,7 +142,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-add-credits')).toBeInTheDocument();
     });
 
@@ -150,37 +150,9 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       await user.click(screen.getByTestId('menu-add-credits'));
 
-      expect(mockNavigate).toHaveBeenCalledWith({ to: '/billing' });
-    });
-
-    it('closes mobile sidebar before navigating to billing on mobile', async () => {
-      mockUseIsMobile.mockReturnValue(true);
-      useUIStore.setState({ mobileSidebarOpen: true });
-
-      const user = userEvent.setup();
-      render(<SidebarFooter />);
-
-      await user.click(screen.getByTestId('user-menu-trigger'));
-      await user.click(screen.getByTestId('menu-add-credits'));
-
-      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
-      expect(mockNavigate).toHaveBeenCalledWith({ to: '/billing' });
-    });
-
-    it('does not modify mobile sidebar state on desktop', async () => {
-      mockUseIsMobile.mockReturnValue(false);
-      useUIStore.setState({ mobileSidebarOpen: true });
-
-      const user = userEvent.setup();
-      render(<SidebarFooter />);
-
-      await user.click(screen.getByTestId('user-menu-trigger'));
-      await user.click(screen.getByTestId('menu-add-credits'));
-
-      expect(useUIStore.getState().mobileSidebarOpen).toBe(true);
       expect(mockNavigate).toHaveBeenCalledWith({ to: '/billing' });
     });
 
@@ -188,10 +160,10 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       const githubLink = screen.getByTestId('menu-github');
       expect(githubLink).toBeInTheDocument();
-      expect(githubLink).toHaveAttribute('href', 'https://github.com/lome-ai/lome-chat');
+      expect(githubLink).toHaveAttribute('href', 'https://github.com/lome-ai/hushbox');
       expect(githubLink).toHaveAttribute('target', '_blank');
     });
 
@@ -199,7 +171,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-logout')).toBeInTheDocument();
     });
 
@@ -207,10 +179,20 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       await user.click(screen.getByTestId('menu-logout'));
 
       expect(mockSignOutAndClearCache).toHaveBeenCalled();
+    });
+
+    it('renders chevron up indicator', () => {
+      render(<SidebarFooter />);
+
+      const trigger = screen.getByTestId('sidebar-trigger');
+      // ChevronUp is rendered as an svg inside the trigger
+      const svgs = trigger.querySelectorAll('svg');
+      // Should have at least 2 svgs: User icon + ChevronUp
+      expect(svgs.length).toBeGreaterThanOrEqual(2);
     });
   });
 
@@ -224,14 +206,14 @@ describe('SidebarFooter', () => {
       expect(screen.getByTestId('user-avatar-icon')).toBeInTheDocument();
     });
 
-    it('does not render email when collapsed', () => {
+    it('does not render username when collapsed', () => {
       render(<SidebarFooter />);
-      expect(screen.queryByTestId('user-email')).not.toBeInTheDocument();
+      expect(screen.queryByText('Test User')).not.toBeInTheDocument();
     });
 
     it('does not render credits when collapsed', () => {
       render(<SidebarFooter />);
-      expect(screen.queryByTestId('user-credits')).not.toBeInTheDocument();
+      expect(screen.queryByText('$12.3457')).not.toBeInTheDocument();
     });
 
     it('has justify-center layout when collapsed', () => {
@@ -244,7 +226,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByRole('menu')).toBeInTheDocument();
     });
   });
@@ -268,7 +250,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-personas')).toBeInTheDocument();
     });
 
@@ -277,7 +259,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-personas')).toBeInTheDocument();
     });
 
@@ -285,13 +267,40 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       await user.click(screen.getByTestId('menu-personas'));
 
       expect(mockNavigate).toHaveBeenCalledWith({
         to: '/dev/personas',
         search: { type: undefined },
       });
+    });
+
+    it('shows Database Studio option in dev mode when authenticated', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      expect(screen.getByTestId('menu-db-studio')).toBeInTheDocument();
+    });
+
+    it('shows Database Studio option in dev mode when unauthenticated', async () => {
+      mockUseSession.mockReturnValue({ data: null });
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      expect(screen.getByTestId('menu-db-studio')).toBeInTheDocument();
+    });
+
+    it('Database Studio links to Drizzle Studio URL in new tab', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      const studioLink = screen.getByTestId('menu-db-studio');
+      expect(studioLink).toHaveAttribute('href', 'https://local.drizzle.studio');
+      expect(studioLink).toHaveAttribute('target', '_blank');
     });
 
     it('uses env.isLocalDev for conditional rendering', () => {
@@ -307,16 +316,16 @@ describe('SidebarFooter', () => {
       mockUseSession.mockReturnValue({ data: null });
     });
 
-    it('renders Guest User when no session', () => {
+    it('renders Trial User when no session', () => {
       render(<SidebarFooter />);
-      expect(screen.getByTestId('user-email')).toHaveTextContent('Guest User');
+      expect(screen.getByText('Trial User')).toBeInTheDocument();
     });
 
     it('shows Log In option instead of Log Out', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-login')).toBeInTheDocument();
       expect(screen.queryByTestId('menu-logout')).not.toBeInTheDocument();
     });
@@ -325,7 +334,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-signup')).toBeInTheDocument();
     });
 
@@ -333,7 +342,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       await user.click(screen.getByTestId('menu-login'));
 
       expect(mockNavigate).toHaveBeenCalledWith({ to: '/login' });
@@ -343,7 +352,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       await user.click(screen.getByTestId('menu-signup'));
 
       expect(mockNavigate).toHaveBeenCalledWith({ to: '/signup' });
@@ -353,7 +362,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.queryByTestId('menu-settings')).not.toBeInTheDocument();
     });
 
@@ -361,7 +370,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.queryByTestId('menu-add-credits')).not.toBeInTheDocument();
     });
 
@@ -369,7 +378,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-github')).toBeInTheDocument();
     });
   });
@@ -378,7 +387,7 @@ describe('SidebarFooter', () => {
     beforeEach(() => {
       mockUseSession.mockReturnValue({
         data: {
-          user: { email: 'test@example.com' },
+          user: { email: 'test@example.com', username: 'test_user' },
           session: { id: 'session-123' },
         },
       });
@@ -389,7 +398,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.queryByTestId('menu-settings')).not.toBeInTheDocument();
     });
 
@@ -398,7 +407,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('user-menu-trigger'));
+      await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-settings')).toBeInTheDocument();
     });
   });

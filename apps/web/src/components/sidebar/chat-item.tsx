@@ -2,29 +2,29 @@ import * as React from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import {
   cn,
-  Button,
+  IconButton,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Input,
-} from '@lome-chat/ui';
-import { MessageSquare, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+} from '@hushbox/ui';
+import { Lock, LogOut, MessageSquare, MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import { encryptMessageForStorage, getPublicKeyFromPrivate } from '@hushbox/crypto';
+import { toBase64, ROUTES } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
-import { useDeleteConversation, useUpdateConversation } from '@/hooks/chat';
-import { useIsMobile } from '@/hooks/use-is-mobile';
-import { ROUTES } from '@/lib/routes';
+import { useDeleteConversation, useUpdateConversation, DECRYPTING_TITLE } from '@/hooks/chat';
+import { useLeaveConversation } from '@/hooks/use-conversation-members';
+import { getEpochKey } from '@/lib/epoch-key-cache';
+import { LeaveConfirmationModal } from '@/components/chat/leave-confirmation-modal';
+import { DeleteConversationDialog } from './delete-conversation-dialog';
+import { RenameConversationDialog } from './rename-conversation-dialog';
 
 interface Conversation {
   id: string;
   title: string;
+  currentEpoch: number;
   updatedAt: string;
+  privilege: string;
 }
 
 interface ChatItemProps {
@@ -32,119 +32,18 @@ interface ChatItemProps {
   isActive?: boolean;
 }
 
-interface DeleteConversationDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  title: string;
-  isPending: boolean;
-  onConfirm: () => void;
-}
-
-function DeleteConversationDialog({
-  open,
-  onOpenChange,
-  title,
-  isPending,
-  onConfirm,
-}: Readonly<DeleteConversationDialogProps>): React.JSX.Element {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Delete conversation?</DialogTitle>
-          <DialogDescription>
-            This will permanently delete &quot;{title}&quot;. This action cannot be undone.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => {
-              onOpenChange(false);
-            }}
-            data-testid="cancel-delete-button"
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={onConfirm}
-            disabled={isPending}
-            data-testid="confirm-delete-button"
-          >
-            {isPending ? 'Deleting...' : 'Delete'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-interface RenameConversationDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  value: string;
-  onValueChange: (value: string) => void;
-  isPending: boolean;
-  onConfirm: () => void;
-}
-
-function RenameConversationDialog({
-  open,
-  onOpenChange,
-  value,
-  onValueChange,
-  isPending,
-  onConfirm,
-}: Readonly<RenameConversationDialogProps>): React.JSX.Element {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Rename conversation</DialogTitle>
-          <DialogDescription>Enter a new name for this conversation.</DialogDescription>
-        </DialogHeader>
-        <Input
-          value={value}
-          onChange={(e) => {
-            onValueChange(e.target.value);
-          }}
-          placeholder="Conversation title"
-          autoFocus
-        />
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => {
-              onOpenChange(false);
-            }}
-            data-testid="cancel-rename-button"
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={onConfirm}
-            disabled={!value.trim() || isPending}
-            data-testid="save-rename-button"
-          >
-            {isPending ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): React.JSX.Element {
   const navigate = useNavigate();
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
-  const setMobileSidebarOpen = useUIStore((state) => state.setMobileSidebarOpen);
-  const isMobile = useIsMobile();
   const deleteConversation = useDeleteConversation();
   const updateConversation = useUpdateConversation();
+  const leaveConversation = useLeaveConversation();
+
+  const isOwner = conversation.privilege === 'owner';
 
   const [showDeleteDialog, setShowDeleteDialog] = React.useState(false);
   const [showRenameDialog, setShowRenameDialog] = React.useState(false);
+  const [showLeaveDialog, setShowLeaveDialog] = React.useState(false);
   const [renameValue, setRenameValue] = React.useState(conversation.title);
 
   const handleDeleteClick = (): void => {
@@ -165,23 +64,46 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
     });
   };
 
-  const handleConfirmRename = (): void => {
-    if (renameValue.trim()) {
-      updateConversation.mutate(
-        { conversationId: conversation.id, data: { title: renameValue.trim() } },
-        {
-          onSuccess: () => {
-            setShowRenameDialog(false);
-          },
-        }
-      );
-    }
+  const handleLeaveClick = (): void => {
+    setShowLeaveDialog(true);
   };
 
-  const handleLinkClick = (): void => {
-    if (isMobile) {
-      setMobileSidebarOpen(false);
-    }
+  const handleConfirmLeave = (): void => {
+    leaveConversation.mutate(
+      { conversationId: conversation.id },
+      {
+        onSuccess: () => {
+          setShowLeaveDialog(false);
+          void navigate({ to: ROUTES.CHAT });
+        },
+      }
+    );
+  };
+
+  const handleConfirmRename = (): void => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) return;
+
+    const epochPrivateKey = getEpochKey(conversation.id, conversation.currentEpoch);
+    if (!epochPrivateKey) return;
+
+    const epochPublicKey = getPublicKeyFromPrivate(epochPrivateKey);
+    const encryptedBytes = encryptMessageForStorage(epochPublicKey, trimmed);
+
+    updateConversation.mutate(
+      {
+        conversationId: conversation.id,
+        data: {
+          title: toBase64(encryptedBytes),
+          titleEpochNumber: conversation.currentEpoch,
+        },
+      },
+      {
+        onSuccess: () => {
+          setShowRenameDialog(false);
+        },
+      }
+    );
   };
 
   return (
@@ -189,7 +111,7 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
       <div
         className={cn(
           'group relative flex items-center overflow-hidden rounded-md',
-          'hover:bg-sidebar-border/50 transition-colors',
+          '[&:hover:not(:has(button:hover))]:bg-sidebar-border/50 transition-colors',
           isActive && 'bg-sidebar-border',
           !sidebarOpen && 'justify-center'
         )}
@@ -198,7 +120,6 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
           to={ROUTES.CHAT_ID}
           params={{ id: conversation.id }}
           data-testid="chat-link"
-          onClick={handleLinkClick}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-sm',
             !sidebarOpen && 'justify-center px-0',
@@ -212,34 +133,52 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
               aria-hidden="true"
             />
           )}
-          {sidebarOpen && <span className="truncate">{conversation.title}</span>}
+          {sidebarOpen &&
+            (conversation.title === DECRYPTING_TITLE ? (
+              <span
+                className="text-muted-foreground flex items-center gap-1.5 truncate text-xs"
+                data-testid="decrypting-title"
+              >
+                <Lock className="h-3 w-3 shrink-0" />
+                Decrypting...
+              </span>
+            ) : (
+              <span className="truncate">{conversation.title}</span>
+            ))}
         </Link>
 
         {sidebarOpen && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 h-6 w-6 shrink-0"
+              <IconButton
+                className="absolute right-1"
                 data-testid="chat-item-more-button"
                 onClick={(e) => {
                   e.preventDefault();
                 }}
               >
-                <MoreHorizontal className="h-4 w-4" />
+                <MoreVertical className="h-4 w-4" />
                 <span className="sr-only">More options</span>
-              </Button>
+              </IconButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={handleRenameClick}>
-                <Pencil className="mr-2 h-4 w-4" />
-                Rename
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={handleDeleteClick} className="text-destructive">
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
+              {isOwner ? (
+                <>
+                  <DropdownMenuItem onSelect={handleRenameClick}>
+                    <Pencil />
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={handleDeleteClick} className="text-destructive">
+                    <Trash2 />
+                    Delete
+                  </DropdownMenuItem>
+                </>
+              ) : (
+                <DropdownMenuItem onSelect={handleLeaveClick} className="text-destructive">
+                  <LogOut />
+                  Leave
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -249,7 +188,6 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
         open={showDeleteDialog}
         onOpenChange={setShowDeleteDialog}
         title={conversation.title}
-        isPending={deleteConversation.isPending}
         onConfirm={handleConfirmDelete}
       />
 
@@ -258,8 +196,14 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
         onOpenChange={setShowRenameDialog}
         value={renameValue}
         onValueChange={setRenameValue}
-        isPending={updateConversation.isPending}
         onConfirm={handleConfirmRename}
+      />
+
+      <LeaveConfirmationModal
+        open={showLeaveDialog}
+        onOpenChange={setShowLeaveDialog}
+        isOwner={false}
+        onConfirm={handleConfirmLeave}
       />
     </>
   );

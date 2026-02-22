@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cn } from '@lome-chat/ui';
+import { cn } from '@hushbox/ui';
 
 interface StableContentProps {
   /** When false, shows skeleton or hidden content */

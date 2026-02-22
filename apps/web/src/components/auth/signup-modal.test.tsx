@@ -98,29 +98,4 @@ describe('SignupModal', () => {
     // Check for the specific description text (not the heading)
     expect(screen.getByText(/access premium models including/i)).toBeInTheDocument();
   });
-
-  describe('variant="rate-limit"', () => {
-    it('shows rate limit heading instead of premium heading', () => {
-      render(<SignupModal open={true} onOpenChange={vi.fn()} variant="rate-limit" />);
-
-      const modal = screen.getByTestId('signup-modal');
-      expect(within(modal).getByRole('heading')).toHaveTextContent(/continue chatting/i);
-      expect(screen.queryByText(/premium/i)).not.toBeInTheDocument();
-    });
-
-    it('shows rate limit description about free messages', () => {
-      render(<SignupModal open={true} onOpenChange={vi.fn()} variant="rate-limit" />);
-
-      expect(screen.getByText(/5 free messages/i)).toBeInTheDocument();
-      expect(screen.getByText(/save your conversation history/i)).toBeInTheDocument();
-    });
-
-    it('ignores modelName when variant is rate-limit', () => {
-      render(
-        <SignupModal open={true} onOpenChange={vi.fn()} variant="rate-limit" modelName="GPT-4" />
-      );
-
-      expect(screen.queryByText(/GPT-4/)).not.toBeInTheDocument();
-    });
-  });
 });

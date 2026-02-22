@@ -16,8 +16,8 @@ describe('errorHandler middleware', () => {
     const res = await app.request('/throw');
 
     expect(res.status).toBe(500);
-    const body: { error: string } = await res.json();
-    expect(body.error).toBe('Internal Server Error');
+    const body: { code: string } = await res.json();
+    expect(body.code).toBe('INTERNAL');
     expect(consoleSpy).toHaveBeenCalled();
 
     consoleSpy.mockRestore();

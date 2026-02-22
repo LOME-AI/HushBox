@@ -7,7 +7,7 @@
 
 import {
   MAX_ALLOWED_NEGATIVE_BALANCE_CENTS,
-  MAX_GUEST_MESSAGE_COST_CENTS,
+  MAX_TRIAL_MESSAGE_COST_CENTS,
   MINIMUM_OUTPUT_TOKENS,
   LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD,
   CHARS_PER_TOKEN_CONSERVATIVE,
@@ -15,13 +15,22 @@ import {
   CAPACITY_RED_THRESHOLD,
 } from './constants.js';
 import type { UserTier } from './tiers.js';
+import type { FundingSource, ResolveBillingResult, DenialReason } from './resolve-billing.js';
 
 // ============================================================================
 // Types
 // ============================================================================
 
+export interface NotificationInput {
+  billingResult: ResolveBillingResult;
+  capacityPercent: number;
+  maxOutputTokens: number;
+  privilege?: 'read' | 'write' | 'admin' | 'owner';
+  hasDelegatedBudget?: boolean;
+}
+
 export interface BudgetCalculationInput {
-  /** User's tier: 'guest', 'free', or 'paid' */
+  /** User's tier: 'trial', 'guest', 'free', or 'paid' */
   tier: UserTier;
   /** User's primary balance in cents */
   balanceCents: number;
@@ -38,9 +47,7 @@ export interface BudgetCalculationInput {
 }
 
 export interface BudgetCalculationResult {
-  /** Whether the user can afford to send this message */
-  canAfford: boolean;
-  /** Maximum output tokens based on budget (0 if cannot afford) */
+  /** Maximum output tokens based on personal budget (0 if personal balance insufficient) */
   maxOutputTokens: number;
   /** Estimated input tokens based on tier */
   estimatedInputTokens: number;
@@ -54,8 +61,6 @@ export interface BudgetCalculationResult {
   currentUsage: number;
   /** Capacity percentage (currentUsage / modelContextLength * 100) */
   capacityPercent: number;
-  /** Array of error/warning/info messages to display */
-  errors: BudgetError[];
 }
 
 /**
@@ -85,7 +90,7 @@ export interface BudgetError {
 
 /**
  * Estimate token count based on user tier.
- * Uses conservative (2 chars/token) for free/guest users since we absorb overruns.
+ * Uses conservative (2 chars/token) for free/trial users since we absorb overruns.
  * Uses standard (4 chars/token) for paid users.
  */
 export function estimateTokensForTier(tier: UserTier, characterCount: number): number {
@@ -101,7 +106,8 @@ export function estimateTokensForTier(tier: UserTier, characterCount: number): n
 
 /**
  * Calculate effective balance based on tier.
- * - Guest: Fixed max cost per message ($0.01)
+ * - Trial: Fixed max cost per message ($0.01)
+ * - Guest: Fixed max cost per message ($0.01) — guests use delegated budget
  * - Free: Free allowance only, no cushion
  * - Paid: Balance + $0.50 cushion
  *
@@ -113,8 +119,9 @@ export function getEffectiveBalance(
   freeAllowanceCents: number
 ): number {
   switch (tier) {
+    case 'trial':
     case 'guest': {
-      return MAX_GUEST_MESSAGE_COST_CENTS / 100;
+      return MAX_TRIAL_MESSAGE_COST_CENTS / 100;
     }
     case 'free': {
       return freeAllowanceCents / 100;
@@ -126,12 +133,22 @@ export function getEffectiveBalance(
 }
 
 // ============================================================================
-// Error Generation
+// Notification Generation (new — driven by resolveBilling() result)
 // ============================================================================
 
-const INSUFFICIENT_BALANCE_ERRORS: Record<UserTier, BudgetError> = {
-  paid: {
-    id: 'insufficient_paid',
+const DENIAL_NOTIFICATIONS: Record<DenialReason, BudgetError> = {
+  premium_requires_balance: {
+    id: 'premium_requires_balance',
+    type: 'error',
+    message: 'This model requires a paid account.',
+    segments: [
+      { text: 'This model requires a paid account. ' },
+      { text: 'Top up', link: '/billing' },
+      { text: ' to use premium models.' },
+    ],
+  },
+  insufficient_balance: {
+    id: 'insufficient_balance',
     type: 'error',
     message: 'Insufficient balance. Top up or try a more affordable model.',
     segments: [
@@ -140,26 +157,31 @@ const INSUFFICIENT_BALANCE_ERRORS: Record<UserTier, BudgetError> = {
       { text: ' or try a more affordable model.' },
     ],
   },
-  free: {
-    id: 'insufficient_free',
+  insufficient_free_allowance: {
+    id: 'insufficient_free_allowance',
     type: 'error',
     message:
-      "Your free daily usage can't cover this message. Try a shorter conversation or more affordable model.",
-  },
-  guest: {
-    id: 'insufficient_guest',
-    type: 'error',
-    message: 'This message exceeds guest limits. Sign up for more capacity.',
+      "Your free daily usage can't cover this message. Top up or try a shorter conversation.",
     segments: [
-      { text: 'This message exceeds guest limits. ' },
+      { text: "Your free daily usage can't cover this message. " },
+      { text: 'Top up', link: '/billing' },
+      { text: ' or try a shorter conversation.' },
+    ],
+  },
+  guest_limit_exceeded: {
+    id: 'guest_limit_exceeded',
+    type: 'error',
+    message: 'This message exceeds the usage limit.',
+    segments: [
+      { text: 'This message exceeds the usage limit. ' },
       { text: 'Sign up', link: '/signup' },
       { text: ' for more capacity.' },
     ],
   },
 };
 
-const TIER_INFO_NOTICES: Partial<Record<UserTier, BudgetError>> = {
-  free: {
+const FUNDING_SOURCE_NOTICES: Partial<Record<FundingSource, BudgetError>> = {
+  free_allowance: {
     id: 'free_tier_notice',
     type: 'info',
     message: 'Using free allowance. Top up for longer conversations.',
@@ -169,8 +191,8 @@ const TIER_INFO_NOTICES: Partial<Record<UserTier, BudgetError>> = {
       { text: ' for longer conversations.' },
     ],
   },
-  guest: {
-    id: 'guest_notice',
+  guest_fixed: {
+    id: 'trial_notice',
     type: 'info',
     message: 'Free preview. Sign up for full access.',
     segments: [
@@ -181,59 +203,119 @@ const TIER_INFO_NOTICES: Partial<Record<UserTier, BudgetError>> = {
   },
 };
 
-function shouldShowLowBalanceWarning(
-  tier: UserTier,
-  canAfford: boolean,
+const DELEGATED_BUDGET_ACTIVE: BudgetError = {
+  id: 'delegated_budget_notice',
+  type: 'info',
+  message: "You won't be charged. The conversation owner has allocated budget for your messages.",
+  segments: [
+    {
+      text: "You won't be charged. The conversation owner has allocated budget for your messages.",
+    },
+  ],
+};
+
+const DELEGATED_BUDGET_EXHAUSTED: BudgetError = {
+  id: 'delegated_budget_exhausted',
+  type: 'info',
+  message: 'Allocated budget used up. Your personal balance will be used.',
+  segments: [{ text: 'Allocated budget used up. Your personal balance will be used.' }],
+};
+
+/** Push non-blocking warning notifications (capacity + low balance). */
+function pushWarningNotifications(
+  notifications: BudgetError[],
+  capacityPercent: number,
+  fundingSource: FundingSource | 'denied',
   maxOutputTokens: number
-): boolean {
-  return tier === 'paid' && canAfford && maxOutputTokens < LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD;
-}
-
-/**
- * Generate appropriate error/warning/info messages based on budget result.
- */
-export function generateBudgetErrors(
-  tier: UserTier,
-  result: Omit<BudgetCalculationResult, 'errors'>
-): BudgetError[] {
-  const errors: BudgetError[] = [];
-  const isOverCapacity = result.capacityPercent > 100;
-  const hasBlockingError = isOverCapacity || !result.canAfford;
-
-  if (isOverCapacity) {
-    errors.push({
-      id: 'capacity_exceeded',
-      type: 'error',
-      message: 'Message exceeds model capacity. Shorten your message or start a new conversation.',
-    });
-  }
-
-  if (!result.canAfford) {
-    errors.push(INSUFFICIENT_BALANCE_ERRORS[tier]);
-  }
-
-  if (!hasBlockingError && result.capacityPercent >= CAPACITY_RED_THRESHOLD * 100) {
-    errors.push({
+): void {
+  if (capacityPercent >= CAPACITY_RED_THRESHOLD * 100) {
+    notifications.push({
       id: 'capacity_warning',
       type: 'warning',
       message: "Your conversation is near this model's memory limit. Responses may be cut short.",
     });
   }
-
-  if (shouldShowLowBalanceWarning(tier, result.canAfford, result.maxOutputTokens)) {
-    errors.push({
+  if (
+    fundingSource === 'personal_balance' &&
+    maxOutputTokens < LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD
+  ) {
+    notifications.push({
       id: 'low_balance',
       type: 'warning',
       message: 'Low balance. Long responses may be shortened.',
     });
   }
+}
 
-  const tierNotice = TIER_INFO_NOTICES[tier];
-  if (tierNotice) {
-    errors.push(tierNotice);
+/** Push info-level notifications (funding source + delegated budget). */
+function pushInfoNotifications(
+  notifications: BudgetError[],
+  fundingSource: FundingSource | 'denied',
+  isDenied: boolean,
+  hasDelegatedBudget: boolean | undefined
+): void {
+  if (!isDenied) {
+    const notice = FUNDING_SOURCE_NOTICES[fundingSource as FundingSource];
+    if (notice) notifications.push(notice);
+  }
+  if (hasDelegatedBudget === true) {
+    notifications.push(
+      fundingSource === 'owner_balance' ? DELEGATED_BUDGET_ACTIVE : DELEGATED_BUDGET_EXHAUSTED
+    );
+  }
+}
+
+/**
+ * Generate notification messages based on a billing decision and context.
+ *
+ * Maps the output of `resolveBilling()` plus capacity/privilege context
+ * into an array of user-facing notification messages.
+ */
+export function generateNotifications(input: NotificationInput): BudgetError[] {
+  const { billingResult, capacityPercent, maxOutputTokens, privilege, hasDelegatedBudget } = input;
+
+  // Read-only members can't send — only show privilege notice
+  if (privilege === 'read') {
+    return [
+      {
+        id: 'read_only_notice',
+        type: 'info' as const,
+        message: 'You have read-only access to this conversation.',
+        segments: [{ text: 'You have read-only access to this conversation.' }],
+      },
+    ];
   }
 
-  return errors;
+  const notifications: BudgetError[] = [];
+  const isDenied = billingResult.fundingSource === 'denied';
+  const isOverCapacity = capacityPercent > 100;
+
+  // 1. Blocking errors
+  if (isOverCapacity) {
+    notifications.push({
+      id: 'capacity_exceeded',
+      type: 'error',
+      message: 'Message exceeds model capacity. Shorten your message or start a new conversation.',
+    });
+  }
+  if (isDenied) {
+    notifications.push(DENIAL_NOTIFICATIONS[billingResult.reason]);
+  }
+
+  // 2. Non-blocking warnings (only when no blocking errors)
+  if (!isDenied && !isOverCapacity) {
+    pushWarningNotifications(
+      notifications,
+      capacityPercent,
+      billingResult.fundingSource,
+      maxOutputTokens
+    );
+  }
+
+  // 3. Info notices (always, even with blocking errors)
+  pushInfoNotifications(notifications, billingResult.fundingSource, isDenied, hasDelegatedBudget);
+
+  return notifications;
 }
 
 // ============================================================================
@@ -241,11 +323,15 @@ export function generateBudgetErrors(
 // ============================================================================
 
 /**
- * Calculate budget for a message.
- * Used by frontend for real-time UI and backend for pre-send validation.
+ * Calculate budget math for a message.
+ * Pure math only — no billing decisions or notifications.
+ * Used by frontend for real-time UI and backend for cost estimation.
+ *
+ * Billing decisions (can you send? who pays?) are handled by `resolveBilling()`.
+ * Notifications (what to show the user) are handled by `generateNotifications()`.
  *
  * @param input - All inputs needed for budget calculation
- * @returns Complete budget result including affordability, limits, and errors
+ * @returns Math results: tokens, costs, capacity, max output tokens
  */
 export function calculateBudget(input: BudgetCalculationInput): BudgetCalculationResult {
   const {
@@ -269,24 +355,20 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
   // 3. Determine effective balance
   const effectiveBalance = getEffectiveBalance(tier, balanceCents, freeAllowanceCents);
 
-  // 4. Check affordability
-  const canAfford = effectiveBalance >= estimatedMinimumCost;
-
-  // 5. Calculate max output tokens (only meaningful if can afford)
+  // 4. Calculate max output tokens from personal balance
+  const personalCanAfford = effectiveBalance >= estimatedMinimumCost;
   let maxOutputTokens = 0;
-  if (canAfford) {
+  if (personalCanAfford) {
     const remainingBudget = effectiveBalance - estimatedInputCost;
     maxOutputTokens = Math.floor(remainingBudget / modelOutputPricePerToken);
   }
 
-  // 6. Calculate capacity (always use standard 4 chars/token - model context is fixed regardless of tier)
+  // 5. Calculate capacity (always use standard 4 chars/token - model context is fixed regardless of tier)
   const capacityInputTokens = Math.ceil(promptCharacterCount / CHARS_PER_TOKEN_STANDARD);
   const currentUsage = capacityInputTokens + MINIMUM_OUTPUT_TOKENS;
-  const capacityPercent = (currentUsage / modelContextLength) * 100;
+  const capacityPercent = modelContextLength > 0 ? (currentUsage / modelContextLength) * 100 : 0;
 
-  // Build result without errors first
-  const resultWithoutErrors: Omit<BudgetCalculationResult, 'errors'> = {
-    canAfford,
+  return {
     maxOutputTokens,
     estimatedInputTokens,
     estimatedInputCost,
@@ -295,12 +377,30 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
     currentUsage,
     capacityPercent,
   };
+}
 
-  // 7. Generate errors
-  const errors = generateBudgetErrors(tier, resultWithoutErrors);
+// ============================================================================
+// Effective Budget (multi-constraint)
+// ============================================================================
 
-  return {
-    ...resultWithoutErrors,
-    errors,
-  };
+export interface EffectiveBudgetParams {
+  /** conversationBudget - conversationSpent - conversationReserved. */
+  conversationRemainingCents: number;
+  /** memberBudget - memberSpent - memberReserved. 0 when no member_budgets row exists. */
+  memberRemainingCents: number;
+  /** ownerBalance - ownerReserved. */
+  ownerRemainingCents: number;
+}
+
+/**
+ * Calculates the effective remaining budget a member can spend.
+ * All inputs should be NET values (raw budget minus spent minus reserved).
+ * Returns min of all constraints.
+ */
+export function effectiveBudgetCents(params: EffectiveBudgetParams): number {
+  return Math.min(
+    params.conversationRemainingCents,
+    params.memberRemainingCents,
+    params.ownerRemainingCents
+  );
 }

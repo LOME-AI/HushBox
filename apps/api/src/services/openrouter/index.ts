@@ -1,4 +1,4 @@
-import { createEnvUtilities, type EnvContext } from '@lome-chat/shared';
+import { createEnvUtilities, type EnvContext } from '@hushbox/shared';
 import type { OpenRouterClient } from './types.js';
 import { createMockOpenRouterClient } from './mock.js';
 import { createOpenRouterClient, type EvidenceConfig } from './openrouter.js';
@@ -13,12 +13,13 @@ export type {
   OpenRouterClient,
   ToolCall,
   ToolDefinition,
+  ZdrEndpoint,
 } from './types.js';
 
 export type { EvidenceConfig } from './openrouter.js';
 
 export { createMockOpenRouterClient } from './mock.js';
-export { createOpenRouterClient, clearModelCache, fetchModels, getModel } from './openrouter.js';
+export { createOpenRouterClient, fetchModels, fetchZdrModelIds, getModel } from './openrouter.js';
 
 interface OpenRouterEnv extends EnvContext {
   OPENROUTER_API_KEY?: string;

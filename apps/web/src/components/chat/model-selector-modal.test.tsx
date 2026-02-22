@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ModelSelectorModal } from './model-selector-modal';
-import type { Model } from '@lome-chat/shared';
+import type { Model } from '@hushbox/shared';
 
 // Mock Link component
 vi.mock('@tanstack/react-router', () => ({
@@ -190,6 +190,46 @@ describe('ModelSelectorModal', () => {
     expect(screen.getAllByText(/quick select model/i).length).toBeGreaterThan(0);
   });
 
+  it('renders sections in order: Quick Select, Sort By, Search', () => {
+    render(
+      <ModelSelectorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        models={mockModels}
+        selectedId="openai/gpt-4-turbo"
+        onSelect={vi.fn()}
+      />
+    );
+
+    const quickSelectHeader = first(screen.getAllByText(/quick select model/i));
+    const sortByHeader = first(screen.getAllByText(/sort by/i));
+    const searchInput = first(screen.getAllByPlaceholderText('Search models'));
+
+    // Quick Select should come before Sort By in the DOM
+    expect(
+      quickSelectHeader.compareDocumentPosition(sortByHeader) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    // Sort By should come before Search in the DOM
+    expect(
+      sortByHeader.compareDocumentPosition(searchInput) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('displays Memory capacity prefix with context length in model rows', () => {
+    render(
+      <ModelSelectorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        models={mockModels}
+        selectedId="openai/gpt-4-turbo"
+        onSelect={vi.fn()}
+      />
+    );
+
+    const gpt4Item = screen.getByTestId('model-item-openai/gpt-4-turbo');
+    expect(gpt4Item).toHaveTextContent('Capacity: 128k');
+  });
+
   it('renders Strongest button', () => {
     render(
       <ModelSelectorModal
@@ -234,7 +274,7 @@ describe('ModelSelectorModal', () => {
 
     await user.click(first(screen.getAllByRole('button', { name: /strongest/i })));
 
-    expect(onSelect).toHaveBeenCalledWith('anthropic/claude-opus-4.5');
+    expect(onSelect).toHaveBeenCalledWith('anthropic/claude-opus-4.6');
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -316,7 +356,7 @@ describe('ModelSelectorModal', () => {
     expect(screen.getByText(/128,000 tokens/)).toBeInTheDocument();
   });
 
-  it('displays prices with LOME fee applied (15% markup)', () => {
+  it('displays prices with HushBox fee applied (15% markup)', () => {
     render(
       <ModelSelectorModal
         open={true}
@@ -599,7 +639,7 @@ describe('ModelSelectorModal', () => {
       expect(gpt4Item.querySelector('[data-testid="lock-icon"]')).not.toBeInTheDocument();
     });
 
-    it('shows "Sign up to access" for guest users on premium models', () => {
+    it('shows "Sign up to access" for trial users on premium models', () => {
       render(
         <ModelSelectorModal
           open={true}
@@ -618,7 +658,7 @@ describe('ModelSelectorModal', () => {
       expect(gpt4Item).toHaveTextContent('to access');
     });
 
-    it('renders "Sign up" as a clickable link for guest users', () => {
+    it('renders "Sign up" as a clickable link for trial users', () => {
       render(
         <ModelSelectorModal
           open={true}
@@ -1076,7 +1116,7 @@ describe('ModelSelectorModal', () => {
 
         await user.click(first(screen.getAllByRole('button', { name: /strongest/i })));
 
-        expect(onSelect).toHaveBeenCalledWith('anthropic/claude-opus-4.5');
+        expect(onSelect).toHaveBeenCalledWith('anthropic/claude-opus-4.6');
         expect(onOpenChange).toHaveBeenCalledWith(false);
       });
 

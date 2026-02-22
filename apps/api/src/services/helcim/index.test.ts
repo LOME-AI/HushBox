@@ -7,34 +7,34 @@ describe('getHelcimClient', () => {
     it('returns mock client with webhook config', () => {
       const client = getHelcimClient({
         NODE_ENV: 'development',
-        BETTER_AUTH_URL: 'http://localhost:8787',
+        API_URL: 'http://localhost:8787',
         HELCIM_WEBHOOK_VERIFIER: 'mock-verifier',
       });
       expect(client.isMock).toBe(true);
     });
 
-    it('throws if BETTER_AUTH_URL is missing', () => {
+    it('throws if API_URL is missing', () => {
       expect(() =>
         getHelcimClient({
           NODE_ENV: 'development',
           HELCIM_WEBHOOK_VERIFIER: 'verifier',
         })
-      ).toThrow('BETTER_AUTH_URL and HELCIM_WEBHOOK_VERIFIER required for local dev');
+      ).toThrow('API_URL and HELCIM_WEBHOOK_VERIFIER required for local dev');
     });
 
     it('throws if HELCIM_WEBHOOK_VERIFIER is missing', () => {
       expect(() =>
         getHelcimClient({
           NODE_ENV: 'development',
-          BETTER_AUTH_URL: 'http://localhost:8787',
+          API_URL: 'http://localhost:8787',
         })
-      ).toThrow('BETTER_AUTH_URL and HELCIM_WEBHOOK_VERIFIER required for local dev');
+      ).toThrow('API_URL and HELCIM_WEBHOOK_VERIFIER required for local dev');
     });
 
     it('returns mock client even if API credentials are provided in local dev', () => {
       const client = getHelcimClient({
         NODE_ENV: 'development',
-        BETTER_AUTH_URL: 'http://localhost:8787',
+        API_URL: 'http://localhost:8787',
         HELCIM_API_TOKEN: 'token',
         HELCIM_WEBHOOK_VERIFIER: 'verifier',
       });
@@ -46,7 +46,7 @@ describe('getHelcimClient', () => {
 
       getHelcimClient({
         NODE_ENV: 'development',
-        BETTER_AUTH_URL: 'http://localhost:8787',
+        API_URL: 'http://localhost:8787',
         HELCIM_WEBHOOK_VERIFIER: 'mock-verifier',
       });
 

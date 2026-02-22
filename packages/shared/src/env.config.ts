@@ -27,7 +27,7 @@ export const envConfig = {
   DATABASE_URL: {
     to: [Destination.Backend],
     [Mode.Development]: {
-      value: 'postgres://postgres:postgres@localhost:4444/lome_chat',
+      value: 'postgres://postgres:postgres@localhost:4444/hushbox',
       to: [Destination.Backend, Destination.Scripts],
     },
     [Mode.CiVitest]: ref(Mode.Development), // Backend only (uses default `to`)
@@ -44,12 +44,12 @@ export const envConfig = {
     [Mode.Production]: 'production',
   },
 
-  BETTER_AUTH_URL: {
+  API_URL: {
     to: [Destination.Backend],
     [Mode.Development]: 'http://localhost:8787',
     [Mode.CiVitest]: ref(Mode.Development),
     [Mode.CiE2E]: ref(Mode.Development),
-    [Mode.Production]: 'https://api.lome-chat.com',
+    [Mode.Production]: 'https://api.hushbox.ai',
   },
 
   FRONTEND_URL: {
@@ -57,7 +57,7 @@ export const envConfig = {
     [Mode.Development]: 'http://localhost:5173',
     [Mode.CiVitest]: ref(Mode.Development),
     [Mode.CiE2E]: ref(Mode.Development),
-    [Mode.Production]: 'https://lome-chat.com',
+    [Mode.Production]: 'https://hushbox.ai',
   },
 
   CI: {
@@ -71,12 +71,39 @@ export const envConfig = {
     [Mode.CiE2E]: 'true',
   },
 
-  BETTER_AUTH_SECRET: {
+  // Redis (Upstash in prod, SRH locally)
+  UPSTASH_REDIS_REST_URL: {
     to: [Destination.Backend],
-    [Mode.Development]: 'dev-secret-minimum-32-characters-long',
+    [Mode.Development]: 'http://localhost:8079',
     [Mode.CiVitest]: ref(Mode.Development),
     [Mode.CiE2E]: ref(Mode.Development),
-    [Mode.Production]: secret('BETTER_AUTH_SECRET'),
+    [Mode.Production]: secret('UPSTASH_REDIS_REST_URL'),
+  },
+
+  UPSTASH_REDIS_REST_TOKEN: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'local_dev_token',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.Production]: secret('UPSTASH_REDIS_REST_TOKEN'),
+  },
+
+  // OPAQUE master secret (derives OPRF seed, AKE keypair, TOTP encryption key)
+  OPAQUE_MASTER_SECRET: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'dev-opaque-master-secret-32-bytes-minimum',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.Production]: secret('OPAQUE_MASTER_SECRET'),
+  },
+
+  // iron-session secret for encrypted cookies
+  IRON_SESSION_SECRET: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'dev-iron-session-secret-32-bytes-min',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.Production]: secret('IRON_SESSION_SECRET'),
   },
 
   RESEND_API_KEY: {
@@ -87,8 +114,8 @@ export const envConfig = {
 
   OPENROUTER_API_KEY: {
     to: [Destination.Backend],
-    [Mode.CiVitest]: secret('OPENROUTER_API_KEY'),
-    [Mode.Production]: ref(Mode.CiVitest),
+    [Mode.CiVitest]: secret('OPENROUTER_API_KEY_RESTRICTED'),
+    [Mode.Production]: secret('OPENROUTER_API_KEY_PRODUCTION'),
     // NOT in ciE2E - E2E tests don't need OpenRouter
   },
 
@@ -112,7 +139,7 @@ export const envConfig = {
     [Mode.Development]: 'http://localhost:8787',
     [Mode.CiVitest]: ref(Mode.Development),
     [Mode.CiE2E]: ref(Mode.Development),
-    [Mode.Production]: 'https://api.lome-chat.com',
+    [Mode.Production]: 'https://api.hushbox.ai',
   },
 
   VITE_HELCIM_JS_TOKEN: {
@@ -135,7 +162,7 @@ export const envConfig = {
   // Scripts only
   MIGRATION_DATABASE_URL: {
     to: [Destination.Scripts],
-    [Mode.Development]: 'postgresql://postgres:postgres@localhost:5432/lome_chat',
+    [Mode.Development]: 'postgresql://postgres:postgres@localhost:5432/hushbox',
     [Mode.CiVitest]: ref(Mode.Development),
     [Mode.CiE2E]: ref(Mode.Development),
   },
@@ -147,14 +174,19 @@ export type EnvKey = keyof EnvConfig;
 // Zod schemas for validation
 export const backendEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']),
-  BETTER_AUTH_URL: z.string().url(),
+  API_URL: z.string().url(),
   FRONTEND_URL: z.string().url(),
   DATABASE_URL: z.string().min(1),
-  BETTER_AUTH_SECRET: z.string().min(32),
   RESEND_API_KEY: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
   HELCIM_API_TOKEN: z.string().optional(),
   HELCIM_WEBHOOK_VERIFIER: z.string().optional(),
+  // Redis
+  UPSTASH_REDIS_REST_URL: z.string().url(),
+  UPSTASH_REDIS_REST_TOKEN: z.string().min(1),
+  // Auth secrets
+  OPAQUE_MASTER_SECRET: z.string().min(32),
+  IRON_SESSION_SECRET: z.string().min(32),
 });
 
 export type BackendEnv = z.infer<typeof backendEnvSchema>;

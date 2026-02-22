@@ -47,10 +47,9 @@ describe('devPersonaStatsSchema', () => {
 describe('devPersonaSchema', () => {
   const validPersona = {
     id: 'abc123',
-    name: 'Alice Developer',
-    email: 'alice@dev.lome-chat.com',
+    username: 'alice_developer',
+    email: 'alice@dev.hushbox.ai',
     emailVerified: true,
-    image: null,
     stats: {
       conversationCount: 5,
       messageCount: 20,
@@ -63,11 +62,6 @@ describe('devPersonaSchema', () => {
     expect(() => devPersonaSchema.parse(validPersona)).not.toThrow();
   });
 
-  it('validates persona with image URL', () => {
-    const withImage = { ...validPersona, image: 'https://example.com/avatar.png' };
-    expect(() => devPersonaSchema.parse(withImage)).not.toThrow();
-  });
-
   it('requires valid email', () => {
     const invalid = { ...validPersona, email: 'not-an-email' };
     expect(() => devPersonaSchema.parse(invalid)).toThrow();
@@ -77,10 +71,9 @@ describe('devPersonaSchema', () => {
     // Omit required field to test validation
     const missing = {
       id: validPersona.id,
-      name: validPersona.name,
+      username: validPersona.username,
       email: validPersona.email,
       emailVerified: validPersona.emailVerified,
-      image: validPersona.image,
       stats: validPersona.stats,
       // credits intentionally omitted
     };
@@ -98,19 +91,17 @@ describe('devPersonasResponseSchema', () => {
       personas: [
         {
           id: 'abc123',
-          name: 'Alice',
-          email: 'alice@dev.lome-chat.com',
+          username: 'alice',
+          email: 'alice@dev.hushbox.ai',
           emailVerified: true,
-          image: null,
           stats: { conversationCount: 0, messageCount: 0, projectCount: 0 },
           credits: '$0.00',
         },
         {
           id: 'def456',
-          name: 'Bob',
-          email: 'bob@dev.lome-chat.com',
+          username: 'bob',
+          email: 'bob@dev.hushbox.ai',
           emailVerified: true,
-          image: null,
           stats: { conversationCount: 3, messageCount: 15, projectCount: 1 },
           credits: '$5.00',
         },

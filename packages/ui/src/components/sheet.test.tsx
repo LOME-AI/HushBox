@@ -66,6 +66,26 @@ describe('Sheet', () => {
     });
   });
 
+  it('has cursor-pointer on close button', async () => {
+    const user = userEvent.setup();
+    render(
+      <Sheet>
+        <SheetTrigger>Open Sheet</SheetTrigger>
+        <SheetContent>
+          <SheetTitle>Sheet Title</SheetTitle>
+        </SheetContent>
+      </Sheet>
+    );
+
+    await user.click(screen.getByText('Open Sheet'));
+    await waitFor(() => {
+      expect(screen.getByText('Sheet Title')).toBeInTheDocument();
+    });
+
+    const closeButton = screen.getByRole('button', { name: /close/i });
+    expect(closeButton).toHaveClass('cursor-pointer');
+  });
+
   it('renders with different sides', async () => {
     const user = userEvent.setup();
     render(
@@ -81,6 +101,24 @@ describe('Sheet', () => {
     await waitFor(() => {
       expect(screen.getByText('Left Sheet')).toBeInTheDocument();
     });
+  });
+
+  it('can hide close button', async () => {
+    const user = userEvent.setup();
+    render(
+      <Sheet>
+        <SheetTrigger>Open Sheet</SheetTrigger>
+        <SheetContent showCloseButton={false}>
+          <SheetTitle>Sheet Title</SheetTitle>
+        </SheetContent>
+      </Sheet>
+    );
+
+    await user.click(screen.getByText('Open Sheet'));
+    await waitFor(() => {
+      expect(screen.getByText('Sheet Title')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument();
   });
 
   it('renders controlled sheet', () => {

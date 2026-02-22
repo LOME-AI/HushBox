@@ -128,6 +128,7 @@ test.describe('Chat Functionality', () => {
       await chatPage.waitForAIResponse(testMessage);
 
       await chatPage.expectAssistantMessageContains('Echo:');
+      await chatPage.expectMessageCostVisible();
     });
   });
 

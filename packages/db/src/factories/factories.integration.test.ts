@@ -82,22 +82,4 @@ describe('factory integration', () => {
     const conv = conversationFactory.build();
     await expect(db.insert(conversations).values(conv)).rejects.toThrow();
   });
-
-  it('stores fractional freeAllowanceCents values', async () => {
-    // This test verifies that freeAllowanceCents can store fractional values
-    // Required for accurate cost tracking (e.g., $0.001234 cost)
-    const fractionalValue = '0.00123456';
-
-    const [user] = await db
-      .insert(users)
-      .values(userFactory.build({ freeAllowanceCents: fractionalValue }))
-      .returning();
-    if (user === undefined) {
-      throw new Error('User insert failed - no record returned');
-    }
-    createdUserIds.push(user.id);
-
-    // Verify the fractional value was stored accurately
-    expect(user.freeAllowanceCents).toBe(fractionalValue);
-  });
 });

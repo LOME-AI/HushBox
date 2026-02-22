@@ -2,14 +2,18 @@ import * as React from 'react';
 import { useState } from 'react';
 import { Lock, Eye, EyeOff } from 'lucide-react';
 import { FormInput, type FormInputProps } from '@/components/shared/form-input';
+import { PasswordStrength } from '@/components/auth/PasswordStrength';
 
 interface AuthPasswordInputProps extends Omit<FormInputProps, 'type' | 'icon' | 'suffix'> {
   label: string;
+  showStrength?: boolean;
 }
 
 export function AuthPasswordInput({
   label,
   className,
+  showStrength = false,
+  value,
   ...props
 }: Readonly<AuthPasswordInputProps>): React.JSX.Element {
   const [showPassword, setShowPassword] = useState(false);
@@ -34,13 +38,17 @@ export function AuthPasswordInput({
   );
 
   return (
-    <FormInput
-      type={showPassword ? 'text' : 'password'}
-      label={label}
-      icon={<Lock className="h-5 w-5" aria-hidden="true" />}
-      suffix={visibilityToggle}
-      className={className}
-      {...props}
-    />
+    <div>
+      <FormInput
+        type={showPassword ? 'text' : 'password'}
+        label={label}
+        icon={<Lock className="h-5 w-5" aria-hidden="true" />}
+        suffix={visibilityToggle}
+        className={className}
+        value={value}
+        {...props}
+      />
+      {showStrength && <PasswordStrength password={String(value ?? '')} />}
+    </div>
   );
 }

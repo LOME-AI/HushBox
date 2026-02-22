@@ -1,55 +1,68 @@
-import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
+import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
 import { streamSSE } from 'hono/streaming';
-import { eq, asc } from 'drizzle-orm';
-import { conversations, messages, type Database } from '@lome-chat/db';
+import { and, eq, isNull } from 'drizzle-orm';
+import { conversations, conversationMembers, type Database } from '@hushbox/db';
 import {
-  errorResponseSchema,
-  ERROR_CODE_NOT_FOUND,
-  ERROR_CODE_VALIDATION,
-  ERROR_CODE_PAYMENT_REQUIRED,
+  streamChatRequestSchema,
+  userOnlyMessageSchema,
   ERROR_CODE_INSUFFICIENT_BALANCE,
   ERROR_CODE_UNAUTHORIZED,
+  ERROR_CODE_BILLING_MISMATCH,
+  ERROR_CODE_CONVERSATION_NOT_FOUND,
+  ERROR_CODE_LAST_MESSAGE_NOT_USER,
+  ERROR_CODE_PREMIUM_REQUIRES_BALANCE,
+  ERROR_CODE_BALANCE_RESERVED,
+  ERROR_CODE_PRIVILEGE_INSUFFICIENT,
   calculateBudget,
   applyFees,
   buildSystemPrompt,
-} from '@lome-chat/shared';
-import type { AppEnv } from '../types.js';
+  estimateTokenCount,
+  estimateTokensForTier,
+  effectiveBudgetCents,
+  resolveBilling,
+  canSendMessages,
+  MINIMUM_OUTPUT_TOKENS,
+} from '@hushbox/shared';
+import type { FundingSource, DenialReason, ResolveBillingInput } from '@hushbox/shared';
+import type { AppEnv, Bindings } from '../types.js';
 import { buildPrompt } from '../services/prompt/builder.js';
-import {
-  getUserTierInfo,
-  calculateMessageCost,
-  canUserSendMessage,
-} from '../services/billing/index.js';
+import { buildBillingInput, calculateMessageCost } from '../services/billing/index.js';
+import type { MemberContext } from '../services/billing/index.js';
 import { fetchModels } from '../services/openrouter/index.js';
-import { processModels } from '../services/models.js';
+import { ContextCapacityError } from '../services/openrouter/openrouter.js';
 import {
   validateLastMessageIsFromUser,
   buildOpenRouterMessages,
-  saveMessageWithBilling,
+  saveChatTurn,
+  saveUserOnlyMessage,
 } from '../services/chat/index.js';
+import type { SaveChatTurnResult } from '../services/chat/index.js';
 import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { createSSEEventWriter } from '../lib/stream-handler.js';
 import { requireAuth } from '../middleware/require-auth.js';
+import { broadcastToRoom } from '../lib/broadcast.js';
+import { createEvent } from '@hushbox/realtime/events';
 import {
-  ERROR_CONVERSATION_NOT_FOUND,
-  ERROR_LAST_MESSAGE_NOT_USER,
-  ERROR_INSUFFICIENT_BALANCE,
-  ERROR_PREMIUM_REQUIRES_BALANCE,
-  ERROR_UNAUTHORIZED,
-} from '../constants/errors.js';
+  calculateWorstCaseCostCents,
+  reserveBudget,
+  releaseBudget,
+  reserveGroupBudget,
+  releaseGroupBudget,
+  type GroupBudgetReservation,
+} from '../lib/speculative-balance.js';
+import { MAX_ALLOWED_NEGATIVE_BALANCE_CENTS } from '@hushbox/shared';
 import type { Context } from 'hono';
 
-const errorSchema = errorResponseSchema;
-
-type Message = typeof messages.$inferSelect;
-type Conversation = typeof conversations.$inferSelect;
+interface MessageForInference {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
 
 interface ChatValidationSuccess {
   success: true;
-  conversation: Conversation;
-  messageHistory: Message[];
-  lastMessage: Message;
+  memberContext?: MemberContext;
 }
 
 interface ChatValidationFailure {
@@ -57,67 +70,90 @@ interface ChatValidationFailure {
   response: Response;
 }
 
+interface ChatValidationOptions {
+  c: Context<AppEnv>;
+  conversationId: string;
+  userId: string;
+  messagesForInference: MessageForInference[];
+}
+
 async function validateChatRequest(
-  c: Context<AppEnv>,
-  conversationId: string,
-  userId: string
+  options: ChatValidationOptions
 ): Promise<ChatValidationSuccess | ChatValidationFailure> {
+  const { c, conversationId, userId, messagesForInference } = options;
   const db = c.get('db');
 
   const conversation = await db
-    .select()
+    .select({
+      userId: conversations.userId,
+    })
     .from(conversations)
     .where(eq(conversations.id, conversationId))
     .limit(1)
     .then((rows) => rows[0]);
 
-  if (conversation?.userId !== userId) {
+  if (!conversation) {
     return {
       success: false,
-      response: c.json(
-        createErrorResponse(ERROR_CONVERSATION_NOT_FOUND, ERROR_CODE_NOT_FOUND),
-        404
-      ),
+      response: c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404),
     };
   }
 
-  const messageHistory = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt));
+  // Determine access: owner or active member
+  let memberContext: MemberContext | undefined;
+  if (conversation.userId !== userId) {
+    const member = await db
+      .select({
+        id: conversationMembers.id,
+        privilege: conversationMembers.privilege,
+      })
+      .from(conversationMembers)
+      .where(
+        and(
+          eq(conversationMembers.conversationId, conversationId),
+          eq(conversationMembers.userId, userId),
+          isNull(conversationMembers.leftAt)
+        )
+      )
+      .limit(1)
+      .then((rows) => rows[0]);
 
-  if (!validateLastMessageIsFromUser(messageHistory)) {
+    if (!member) {
+      return {
+        success: false,
+        response: c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404),
+      };
+    }
+
+    if (!canSendMessages(member.privilege)) {
+      return {
+        success: false,
+        response: c.json(createErrorResponse(ERROR_CODE_PRIVILEGE_INSUFFICIENT), 403),
+      };
+    }
+
+    memberContext = { memberId: member.id, ownerId: conversation.userId };
+  }
+
+  if (!validateLastMessageIsFromUser(messagesForInference)) {
     return {
       success: false,
-      response: c.json(
-        createErrorResponse(ERROR_LAST_MESSAGE_NOT_USER, ERROR_CODE_VALIDATION),
-        400
-      ),
+      response: c.json(createErrorResponse(ERROR_CODE_LAST_MESSAGE_NOT_USER), 400),
     };
   }
 
-  const lastMessage = messageHistory.at(-1);
-  if (!lastMessage) {
-    return {
-      success: false,
-      response: c.json(
-        createErrorResponse(ERROR_LAST_MESSAGE_NOT_USER, ERROR_CODE_VALIDATION),
-        400
-      ),
-    };
-  }
-
-  return { success: true, conversation, messageHistory, lastMessage };
+  return { success: true, ...(memberContext !== undefined && { memberContext }) };
 }
 
 interface BillingValidationSuccess {
   success: true;
-  tierInfo: Awaited<ReturnType<typeof getUserTierInfo>>;
-  deductionSource: 'balance' | 'freeAllowance';
+  billingInput: ResolveBillingInput;
   budgetResult: ReturnType<typeof calculateBudget>;
   safeMaxTokens: number | undefined;
   openrouterModels: Awaited<ReturnType<typeof fetchModels>>;
+  worstCaseCents: number;
+  groupBudget?: GroupBudgetReservation;
+  billingUserId: string;
 }
 
 interface BillingValidationFailure {
@@ -125,55 +161,47 @@ interface BillingValidationFailure {
   response: Response;
 }
 
-function checkPremiumModelAccess(
+function handleBillingDenial(
   c: Context<AppEnv>,
-  tierInfo: Awaited<ReturnType<typeof getUserTierInfo>>,
-  isPremiumModel: boolean
-): Response | null {
-  const sendCheck = canUserSendMessage(tierInfo, isPremiumModel);
-  if (!sendCheck.canSend) {
-    return c.json(
-      createErrorResponse(ERROR_PREMIUM_REQUIRES_BALANCE, ERROR_CODE_PAYMENT_REQUIRED, {
-        currentBalance: (tierInfo.balanceCents / 100).toFixed(2),
-      }),
-      402
-    );
-  }
-  return null;
-}
-
-type BalanceCheckResult =
-  | { hasAccess: true; deductionSource: 'balance' | 'freeAllowance' }
-  | { hasAccess: false; errorResponse: Response };
-
-function checkBalanceOrAllowance(
-  c: Context<AppEnv>,
-  tierInfo: Awaited<ReturnType<typeof getUserTierInfo>>,
-  isPremiumModel: boolean
-): BalanceCheckResult {
-  const canUseFreeAllowance =
-    tierInfo.balanceCents <= 0 && !isPremiumModel && tierInfo.freeAllowanceCents > 0;
-  const deductionSource: 'balance' | 'freeAllowance' =
-    tierInfo.balanceCents > 0 ? 'balance' : 'freeAllowance';
-
-  if (tierInfo.balanceCents <= 0 && !canUseFreeAllowance) {
-    return {
-      hasAccess: false,
-      errorResponse: c.json(
-        createErrorResponse(ERROR_INSUFFICIENT_BALANCE, ERROR_CODE_INSUFFICIENT_BALANCE, {
-          currentBalance: '0.00',
+  reason: DenialReason,
+  billingInput: ResolveBillingInput
+): Response {
+  switch (reason) {
+    case 'premium_requires_balance': {
+      return c.json(
+        createErrorResponse(ERROR_CODE_PREMIUM_REQUIRES_BALANCE, {
+          currentBalance: (billingInput.balanceCents / 100).toFixed(2),
         }),
         402
-      ),
-    };
+      );
+    }
+    case 'insufficient_balance': {
+      return c.json(
+        createErrorResponse(ERROR_CODE_INSUFFICIENT_BALANCE, {
+          currentBalance: (billingInput.balanceCents / 100).toFixed(2),
+        }),
+        402
+      );
+    }
+    case 'insufficient_free_allowance': {
+      return c.json(
+        createErrorResponse(ERROR_CODE_INSUFFICIENT_BALANCE, {
+          currentBalance: (billingInput.freeAllowanceCents / 100).toFixed(2),
+        }),
+        402
+      );
+    }
+    case 'guest_limit_exceeded': {
+      return c.json(createErrorResponse(ERROR_CODE_INSUFFICIENT_BALANCE), 402);
+    }
   }
-
-  return { hasAccess: true, deductionSource };
 }
 
 interface ModelPricing {
   inputPricePerToken: number;
   outputPricePerToken: number;
+  rawInputPricePerToken: number;
+  rawOutputPricePerToken: number;
   contextLength: number;
 }
 
@@ -182,54 +210,110 @@ function getModelPricing(
   modelId: string
 ): ModelPricing {
   const modelInfo = models.find((m) => m.id === modelId);
-  const inputPricePerToken = applyFees(modelInfo ? Number.parseFloat(modelInfo.pricing.prompt) : 0);
-  const outputPricePerToken = applyFees(
-    modelInfo ? Number.parseFloat(modelInfo.pricing.completion) : 0
-  );
+  const rawInputPricePerToken = modelInfo ? Number.parseFloat(modelInfo.pricing.prompt) : 0;
+  const rawOutputPricePerToken = modelInfo ? Number.parseFloat(modelInfo.pricing.completion) : 0;
+  const inputPricePerToken = applyFees(rawInputPricePerToken);
+  const outputPricePerToken = applyFees(rawOutputPricePerToken);
   const contextLength = modelInfo?.context_length ?? 128_000;
 
-  return { inputPricePerToken, outputPricePerToken, contextLength };
+  return {
+    inputPricePerToken,
+    outputPricePerToken,
+    rawInputPricePerToken,
+    rawOutputPricePerToken,
+    contextLength,
+  };
 }
 
-type AffordabilityResult =
-  | {
-      canAfford: true;
-      budgetResult: ReturnType<typeof calculateBudget>;
-      safeMaxTokens: number | undefined;
-    }
-  | { canAfford: false; errorResponse: Response };
+interface ValidateBillingInput {
+  userId: string;
+  model: string;
+  messagesForInference: MessageForInference[];
+  clientFundingSource: FundingSource;
+  memberContext?: MemberContext;
+  conversationId?: string;
+}
 
-function checkAffordability(
+// eslint-disable-next-line complexity, sonarjs/cognitive-complexity -- billing validation has inherent branching (denial, mismatch, budget computation, reservation)
+async function validateBilling(
   c: Context<AppEnv>,
-  tierInfo: Awaited<ReturnType<typeof getUserTierInfo>>,
-  pricing: ModelPricing,
-  messageHistory: Message[]
-): AffordabilityResult {
+  input: ValidateBillingInput
+): Promise<BillingValidationSuccess | BillingValidationFailure> {
+  const {
+    userId,
+    model,
+    messagesForInference,
+    clientFundingSource,
+    memberContext,
+    conversationId,
+  } = input;
+  const db = c.get('db');
+  const redis = c.get('redis');
+
+  // 1. Fetch models for pricing (cached — no extra cost even though buildBillingInput also calls it)
+  const openrouterModels = await fetchModels();
+  const pricing = getModelPricing(openrouterModels, model);
+
+  // 2. Compute estimated minimum cost for resolveBilling affordability check
   const systemPromptForBudget = buildSystemPrompt([]);
-  const historyCharacters = messageHistory.reduce((sum, m) => sum + m.content.length, 0);
+  const historyCharacters = messagesForInference.reduce((sum, m) => sum + m.content.length, 0);
   const promptCharacterCount = systemPromptForBudget.length + historyCharacters;
+  const estimatedInputTokens = estimateTokensForTier('paid', promptCharacterCount);
+  const estimatedMinimumCostCents = Math.ceil(
+    (estimatedInputTokens * pricing.inputPricePerToken +
+      MINIMUM_OUTPUT_TOKENS * pricing.outputPricePerToken) *
+      100
+  );
+
+  // 3. Gather all billing data and resolve billing decision
+  const billingResult = await buildBillingInput(db, redis, {
+    userId,
+    model,
+    estimatedMinimumCostCents,
+    ...(memberContext !== undefined && { memberContext }),
+    ...(conversationId !== undefined && { conversationId }),
+  });
+  const billingDecision = resolveBilling(billingResult.input);
+
+  // 4. Handle denial — return 402 before checking mismatch
+  if (billingDecision.fundingSource === 'denied') {
+    return {
+      success: false,
+      response: handleBillingDenial(c, billingDecision.reason, billingResult.input),
+    };
+  }
+
+  // 5. Handle mismatch — 409 when client and server disagree on funding source
+  if (clientFundingSource !== billingDecision.fundingSource) {
+    return {
+      success: false,
+      response: c.json(
+        createErrorResponse(ERROR_CODE_BILLING_MISMATCH, {
+          serverFundingSource: billingDecision.fundingSource,
+        }),
+        409
+      ),
+    };
+  }
+
+  // 6. Compute budget for maxOutputTokens based on payer
+  const isGroupBilling =
+    billingDecision.fundingSource === 'owner_balance' && billingResult.input.group !== undefined;
+  const group = billingResult.input.group;
+  const payerTier = isGroupBilling && group ? group.ownerTier : billingResult.input.tier;
+  const payerBalanceCents =
+    isGroupBilling && group ? group.ownerBalanceCents : billingResult.input.balanceCents;
+  const payerFreeAllowanceCents = isGroupBilling ? 0 : billingResult.input.freeAllowanceCents;
 
   const budgetResult = calculateBudget({
-    tier: tierInfo.tier,
-    balanceCents: tierInfo.balanceCents,
-    freeAllowanceCents: tierInfo.freeAllowanceCents,
+    tier: payerTier,
+    balanceCents: payerBalanceCents,
+    freeAllowanceCents: payerFreeAllowanceCents,
     promptCharacterCount,
     modelInputPricePerToken: pricing.inputPricePerToken,
     modelOutputPricePerToken: pricing.outputPricePerToken,
     modelContextLength: pricing.contextLength,
   });
-
-  if (!budgetResult.canAfford) {
-    return {
-      canAfford: false,
-      errorResponse: c.json(
-        createErrorResponse(ERROR_INSUFFICIENT_BALANCE, ERROR_CODE_INSUFFICIENT_BALANCE, {
-          currentBalance: (tierInfo.balanceCents / 100).toFixed(2),
-        }),
-        402
-      ),
-    };
-  }
 
   const safeMaxTokens = computeSafeMaxTokens({
     budgetMaxTokens: budgetResult.maxOutputTokens,
@@ -237,45 +321,82 @@ function checkAffordability(
     estimatedInputTokens: budgetResult.estimatedInputTokens,
   });
 
-  return { canAfford: true, budgetResult, safeMaxTokens };
-}
+  // 7. Calculate worst case cost for reservation
+  const effectiveMaxOutputTokens =
+    safeMaxTokens ?? pricing.contextLength - budgetResult.estimatedInputTokens;
+  const inputCharacters = messagesForInference.reduce((sum, m) => sum + m.content.length, 0);
+  const worstCaseCents = calculateWorstCaseCostCents({
+    estimatedInputTokens: budgetResult.estimatedInputTokens,
+    effectiveMaxOutputTokens,
+    pricePerInputToken: pricing.rawInputPricePerToken,
+    pricePerOutputToken: pricing.rawOutputPricePerToken,
+    inputCharacters,
+  });
 
-async function validateBilling(
-  c: Context<AppEnv>,
-  userId: string,
-  model: string,
-  messageHistory: Message[]
-): Promise<BillingValidationSuccess | BillingValidationFailure> {
-  const db = c.get('db');
+  // 8. Reserve budget
+  if (isGroupBilling && memberContext && conversationId) {
+    const groupReservation: GroupBudgetReservation = {
+      conversationId,
+      memberId: memberContext.memberId,
+      payerId: memberContext.ownerId,
+      costCents: worstCaseCents,
+    };
+    const reservedTotals = await reserveGroupBudget(redis, groupReservation);
 
-  const tierInfo = await getUserTierInfo(db, userId);
-  const openrouterModels = await fetchModels();
-  const { premiumIds } = processModels(openrouterModels);
-  const isPremiumModel = premiumIds.includes(model);
+    // Post-reservation race guard: re-check effective after reservation
+    const ctx = billingResult.groupBudgetContext;
+    if (!ctx) throw new Error('invariant: groupBudgetContext required for group billing');
+    const postReservationEffective = effectiveBudgetCents({
+      conversationRemainingCents:
+        Number.parseFloat(ctx.conversationBudget) * 100 -
+        Number.parseFloat(ctx.conversationSpent) * 100 -
+        reservedTotals.conversationTotal,
+      memberRemainingCents:
+        Number.parseFloat(ctx.memberBudget) * 100 -
+        Number.parseFloat(ctx.memberSpent) * 100 -
+        reservedTotals.memberTotal,
+      ownerRemainingCents: ctx.ownerBalanceCents - reservedTotals.payerTotal,
+    });
 
-  const premiumError = checkPremiumModelAccess(c, tierInfo, isPremiumModel);
-  if (premiumError) {
-    return { success: false, response: premiumError };
+    if (postReservationEffective < -MAX_ALLOWED_NEGATIVE_BALANCE_CENTS) {
+      await releaseGroupBudget(redis, groupReservation);
+      return {
+        success: false,
+        response: c.json(createErrorResponse(ERROR_CODE_BALANCE_RESERVED), 402),
+      };
+    }
+
+    return {
+      success: true,
+      billingInput: billingResult.input,
+      budgetResult,
+      safeMaxTokens,
+      openrouterModels,
+      worstCaseCents,
+      groupBudget: groupReservation,
+      billingUserId: memberContext.ownerId,
+    };
   }
 
-  const balanceResult = checkBalanceOrAllowance(c, tierInfo, isPremiumModel);
-  if (!balanceResult.hasAccess) {
-    return { success: false, response: balanceResult.errorResponse };
-  }
-
-  const pricing = getModelPricing(openrouterModels, model);
-  const affordability = checkAffordability(c, tierInfo, pricing, messageHistory);
-  if (!affordability.canAfford) {
-    return { success: false, response: affordability.errorResponse };
+  // Personal budget reservation with race guard
+  const newTotalReserved = await reserveBudget(redis, userId, worstCaseCents);
+  const finalEffective = billingResult.rawUserBalanceCents - newTotalReserved;
+  if (finalEffective < -MAX_ALLOWED_NEGATIVE_BALANCE_CENTS) {
+    await releaseBudget(redis, userId, worstCaseCents);
+    return {
+      success: false,
+      response: c.json(createErrorResponse(ERROR_CODE_BALANCE_RESERVED), 402),
+    };
   }
 
   return {
     success: true,
-    tierInfo,
-    deductionSource: balanceResult.deductionSource,
-    budgetResult: affordability.budgetResult,
-    safeMaxTokens: affordability.safeMaxTokens,
+    billingInput: billingResult.input,
+    budgetResult,
+    safeMaxTokens,
     openrouterModels,
+    worstCaseCents,
+    billingUserId: userId,
   };
 }
 
@@ -285,18 +406,27 @@ interface StreamResult {
   error: Error | null;
 }
 
-type OpenRouterClient = ReturnType<
-  typeof import('../services/openrouter/index.js').createOpenRouterClient
->;
 type SSEEventWriter = ReturnType<typeof createSSEEventWriter>;
 
+interface BroadcastContext {
+  env: Bindings;
+  conversationId: string;
+  assistantMessageId: string;
+}
+
+const BATCH_INTERVAL_MS = 100;
+
+// eslint-disable-next-line sonarjs/cognitive-complexity -- streaming loop with broadcast batching is inherently nested
 async function collectStreamTokens(
   tokenStream: AsyncIterable<{ content: string; generationId?: string }>,
-  writer: SSEEventWriter
+  writer: SSEEventWriter,
+  broadcast?: BroadcastContext
 ): Promise<StreamResult> {
   let fullContent = '';
   let generationId: string | undefined;
   let error: Error | null = null;
+  let tokenBuffer = '';
+  let lastBroadcastTime = Date.now();
 
   try {
     for await (const token of tokenStream) {
@@ -305,66 +435,129 @@ async function collectStreamTokens(
       }
       fullContent += token.content;
       await writer.writeToken(token.content);
+
+      if (broadcast) {
+        tokenBuffer += token.content;
+        if (Date.now() - lastBroadcastTime >= BATCH_INTERVAL_MS) {
+          void broadcastToRoom(
+            broadcast.env,
+            broadcast.conversationId,
+            createEvent('message:stream', {
+              messageId: broadcast.assistantMessageId,
+              token: tokenBuffer,
+            })
+          );
+          tokenBuffer = '';
+          lastBroadcastTime = Date.now();
+        }
+      }
     }
   } catch (error_) {
     error = error_ instanceof Error ? error_ : new Error('Unknown error');
+  }
+
+  // Flush remaining buffered tokens
+  if (broadcast && tokenBuffer) {
+    void broadcastToRoom(
+      broadcast.env,
+      broadcast.conversationId,
+      createEvent('message:stream', {
+        messageId: broadcast.assistantMessageId,
+        token: tokenBuffer,
+      })
+    );
   }
 
   return { fullContent, generationId, error };
 }
 
 interface BillingOptions {
-  openrouter: OpenRouterClient;
+  openrouter: AppEnv['Variables']['openrouter'];
   openrouterModels: Awaited<ReturnType<typeof fetchModels>>;
   model: string;
   generationId: string | undefined;
-  lastMessageContent: string;
+  lastUserMessageContent: string;
   fullContent: string;
   db: Database;
+  userMessageId: string;
+  userContent: string;
   assistantMessageId: string;
   conversationId: string;
   userId: string;
-  inputCharacters: number;
-  deductionSource: 'balance' | 'freeAllowance';
+  /** conversation_members.id — present only when a member uses the owner's balance. */
+  groupMemberId?: string;
 }
 
-async function processBillingAfterStream(options: BillingOptions): Promise<void> {
+async function processBillingAfterStream(options: BillingOptions): Promise<SaveChatTurnResult> {
   const {
     openrouter,
     openrouterModels,
     model,
     generationId,
-    lastMessageContent,
+    lastUserMessageContent,
     fullContent,
     db,
+    userMessageId,
+    userContent,
     assistantMessageId,
     conversationId,
     userId,
-    inputCharacters,
-    deductionSource,
+    groupMemberId,
   } = options;
 
-  try {
-    const modelInfo = openrouterModels.find((m) => m.id === model);
-    const totalCost = await calculateMessageCost({
-      openrouter,
-      modelInfo,
-      generationId,
-      inputContent: lastMessageContent,
-      outputContent: fullContent,
-    });
+  const modelInfo = openrouterModels.find((m) => m.id === model);
+  const totalCost = await calculateMessageCost({
+    openrouter,
+    modelInfo,
+    generationId,
+    inputContent: lastUserMessageContent,
+    outputContent: fullContent,
+  });
 
-    await saveMessageWithBilling(db, {
-      messageId: assistantMessageId,
-      conversationId,
-      content: fullContent,
-      model,
-      userId,
-      totalCost,
-      inputCharacters,
-      outputCharacters: fullContent.length,
-      deductionSource,
-    });
+  const inputTokens = estimateTokenCount(lastUserMessageContent);
+  const outputTokens = estimateTokenCount(fullContent);
+
+  return saveChatTurn(db, {
+    userMessageId,
+    userContent,
+    assistantMessageId,
+    assistantContent: fullContent,
+    conversationId,
+    model,
+    userId,
+    totalCost,
+    inputTokens,
+    outputTokens,
+    ...(groupMemberId !== undefined && {
+      groupBillingContext: { memberId: groupMemberId },
+    }),
+  });
+}
+
+interface HandleBillingOptions {
+  c: Context<AppEnv>;
+  billingPromise: Promise<SaveChatTurnResult>;
+  assistantMessageId: string;
+  userId: string;
+  model: string;
+  generationId: string | undefined;
+}
+
+async function handleBillingResult(
+  options: HandleBillingOptions
+): Promise<SaveChatTurnResult | null> {
+  const { c, billingPromise, assistantMessageId, userId, model, generationId } = options;
+
+  // Ensure billing completes even if client disconnects (Workers only)
+  try {
+    // eslint-disable-next-line promise/prefer-await-to-then -- waitUntil requires a non-awaited promise; catch prevents unhandled rejection
+    c.executionCtx.waitUntil(billingPromise.catch(() => null));
+  } catch {
+    // executionCtx unavailable outside Cloudflare Workers runtime
+  }
+
+  try {
+    return await billingPromise;
   } catch (billingError) {
     console.error(
       JSON.stringify({
@@ -377,79 +570,94 @@ async function processBillingAfterStream(options: BillingOptions): Promise<void>
         timestamp: new Date().toISOString(),
       })
     );
+    return null;
   }
 }
 
-const insufficientBalanceSchema = z.object({
-  error: z.literal('Insufficient balance'),
-  currentBalance: z.string(),
-});
+interface BroadcastAndFinishOptions {
+  c: Context<AppEnv>;
+  conversationId: string;
+  userMessageId: string;
+  assistantMessageId: string;
+  billingResult: SaveChatTurnResult;
+  writer: SSEEventWriter;
+}
 
-const streamChatRequestSchema = z.object({
-  conversationId: z.string(),
-  model: z.string(),
-});
+async function broadcastAndFinish(options: BroadcastAndFinishOptions): Promise<void> {
+  const { c, conversationId, userMessageId, assistantMessageId, billingResult, writer } = options;
 
-const streamChatRoute = createRoute({
-  method: 'post',
-  path: '/stream',
-  request: {
-    body: {
-      content: {
-        'application/json': {
-          schema: streamChatRequestSchema,
-        },
-      },
-    },
-  },
-  responses: {
-    200: {
-      description: 'SSE stream of chat response tokens',
-    },
-    400: {
-      content: { 'application/json': { schema: errorSchema } },
-      description: 'Invalid request (e.g., last message not from user)',
-    },
-    401: {
-      content: { 'application/json': { schema: errorSchema } },
-      description: 'Unauthorized',
-    },
-    402: {
-      content: { 'application/json': { schema: insufficientBalanceSchema } },
-      description: 'Insufficient balance - user needs to add credits',
-    },
-    404: {
-      content: { 'application/json': { schema: errorSchema } },
-      description: 'Conversation not found',
-    },
-  },
-});
+  const broadcastPromise = broadcastToRoom(
+    c.env,
+    conversationId,
+    createEvent('message:complete', {
+      messageId: assistantMessageId,
+      conversationId,
+      sequenceNumber: billingResult.aiSequence,
+      epochNumber: billingResult.epochNumber,
+    })
+  );
 
-export function createChatRoutes(): OpenAPIHono<AppEnv> {
-  const app = new OpenAPIHono<AppEnv>();
+  // Best-effort: don't fail the SSE response if broadcast fails
+  try {
+    // eslint-disable-next-line promise/prefer-await-to-then -- waitUntil requires a non-awaited promise; catch prevents unhandled rejection
+    c.executionCtx.waitUntil(broadcastPromise.catch(() => null));
+  } catch {
+    // executionCtx unavailable outside Workers runtime
+  }
 
-  app.use('*', requireAuth());
+  await writer.writeDone({
+    userMessageId,
+    assistantMessageId,
+    userSequence: billingResult.userSequence,
+    aiSequence: billingResult.aiSequence,
+    epochNumber: billingResult.epochNumber,
+    cost: billingResult.cost,
+  });
+}
 
-  app.openapi(streamChatRoute, async (c) => {
+export const chatRoute = new Hono<AppEnv>()
+  .use('*', requireAuth())
+  .post('/stream', zValidator('json', streamChatRequestSchema), async (c) => {
     const user = c.get('user');
     if (!user) {
-      return c.json(createErrorResponse(ERROR_UNAUTHORIZED, ERROR_CODE_UNAUTHORIZED), 401);
+      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
     }
-    const { conversationId, model } = c.req.valid('json');
+    const { conversationId, model, userMessage, messagesForInference, fundingSource } =
+      c.req.valid('json');
     const db = c.get('db');
     const openrouter = c.get('openrouter');
 
-    const chatValidation = await validateChatRequest(c, conversationId, user.id);
+    const chatValidation = await validateChatRequest({
+      c,
+      conversationId,
+      userId: user.id,
+      messagesForInference,
+    });
     if (!chatValidation.success) {
       return chatValidation.response;
     }
-    const { messageHistory, lastMessage } = chatValidation;
 
-    const billingValidation = await validateBilling(c, user.id, model, messageHistory);
+    const billingValidation = await validateBilling(c, {
+      userId: user.id,
+      model,
+      messagesForInference,
+      clientFundingSource: fundingSource,
+      ...(chatValidation.memberContext !== undefined && {
+        memberContext: chatValidation.memberContext,
+      }),
+      conversationId,
+    });
     if (!billingValidation.success) {
       return billingValidation.response;
     }
-    const { deductionSource, safeMaxTokens, openrouterModels } = billingValidation;
+    const { safeMaxTokens, openrouterModels, worstCaseCents, groupBudget, billingUserId } =
+      billingValidation;
+    const redis = c.get('redis');
+
+    // Build the appropriate release function for this request
+    const releaseReservation = groupBudget
+      ? (): Promise<void> => releaseGroupBudget(redis, groupBudget)
+      : (): Promise<void> => releaseBudget(redis, user.id, worstCaseCents);
 
     const assistantMessageId = crypto.randomUUID();
 
@@ -458,14 +666,29 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
       supportedCapabilities: [],
     });
 
-    const openRouterMessages = buildOpenRouterMessages(systemPrompt, messageHistory);
-    const inputCharacters = lastMessage.content.length;
+    const openRouterMessages = buildOpenRouterMessages(systemPrompt, messagesForInference);
+    const lastInferenceMessage = messagesForInference.at(-1);
+
+    // Early broadcast: notify other group members of user's message (fire-and-forget)
+    // Content is plaintext from inference messages — server already has it for LLM
+    const lastContent = lastInferenceMessage?.content ?? '';
+    void broadcastToRoom(
+      c.env,
+      conversationId,
+      createEvent('message:new', {
+        messageId: userMessage.id,
+        conversationId,
+        senderType: 'user',
+        senderId: user.id,
+        content: lastContent,
+      })
+    );
 
     return streamSSE(c, async (stream) => {
       const writer = createSSEEventWriter(stream);
 
       await writer.writeStart({
-        userMessageId: lastMessage.id,
+        userMessageId: userMessage.id,
         assistantMessageId,
       });
 
@@ -475,34 +698,149 @@ export function createChatRoutes(): OpenAPIHono<AppEnv> {
         ...(safeMaxTokens !== undefined && { max_tokens: safeMaxTokens }),
       });
 
-      const result = await collectStreamTokens(tokenStream, writer);
-
-      if (result.fullContent.length > 0 && !result.error) {
-        await processBillingAfterStream({
-          openrouter,
-          openrouterModels,
-          model,
-          generationId: result.generationId,
-          lastMessageContent: lastMessage.content,
-          fullContent: result.fullContent,
-          db,
-          assistantMessageId,
-          conversationId,
-          userId: user.id,
-          inputCharacters,
-          deductionSource,
-        });
-      }
+      const result = await collectStreamTokens(tokenStream, writer, {
+        env: c.env,
+        conversationId,
+        assistantMessageId,
+      });
 
       if (result.error) {
-        await writer.writeError({ message: result.error.message, code: 'STREAM_ERROR' });
+        await releaseReservation();
+        const code =
+          result.error instanceof ContextCapacityError ? 'context_length_exceeded' : 'STREAM_ERROR';
+        await writer.writeError({ message: result.error.message, code });
+        return;
+      }
+
+      if (result.fullContent.length === 0) {
+        await releaseReservation();
+        await writer.writeError({ message: 'No content generated', code: 'STREAM_ERROR' });
+        return;
+      }
+
+      const billingPromise = processBillingAfterStream({
+        openrouter,
+        openrouterModels,
+        model,
+        generationId: result.generationId,
+        lastUserMessageContent: lastInferenceMessage?.content ?? '',
+        fullContent: result.fullContent,
+        db,
+        userMessageId: userMessage.id,
+        userContent: userMessage.content,
+        assistantMessageId,
+        conversationId,
+        userId: billingUserId,
+        ...(chatValidation.memberContext !== undefined &&
+          billingValidation.groupBudget !== undefined && {
+            groupMemberId: chatValidation.memberContext.memberId,
+          }),
+      });
+
+      const billingResult = await handleBillingResult({
+        c,
+        billingPromise,
+        assistantMessageId,
+        userId: billingUserId,
+        model,
+        generationId: result.generationId,
+      });
+
+      await releaseReservation();
+
+      if (billingResult) {
+        await broadcastAndFinish({
+          c,
+          conversationId,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          billingResult,
+          writer,
+        });
       } else {
-        await writer.writeDone();
+        await writer.writeError({ message: 'Failed to save message', code: 'BILLING_ERROR' });
       }
     });
+  })
+  .post('/message', zValidator('json', userOnlyMessageSchema), async (c) => {
+    const user = c.get('user');
+    if (!user) {
+      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
+    }
+
+    const { conversationId, messageId, content } = c.req.valid('json');
+    const db = c.get('db');
+
+    // Validate conversation access (owner or active member with write privilege)
+    const conversation = await db
+      .select({
+        userId: conversations.userId,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!conversation) {
+      return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
+    }
+
+    if (conversation.userId !== user.id) {
+      const member = await db
+        .select({
+          id: conversationMembers.id,
+          privilege: conversationMembers.privilege,
+        })
+        .from(conversationMembers)
+        .where(
+          and(
+            eq(conversationMembers.conversationId, conversationId),
+            eq(conversationMembers.userId, user.id),
+            isNull(conversationMembers.leftAt)
+          )
+        )
+        .limit(1)
+        .then((rows) => rows[0]);
+
+      if (!member) {
+        return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
+      }
+
+      if (!canSendMessages(member.privilege)) {
+        return c.json(createErrorResponse(ERROR_CODE_PRIVILEGE_INSUFFICIENT), 403);
+      }
+    }
+
+    // Save message — free, no billing
+    const result = await saveUserOnlyMessage(db, {
+      conversationId,
+      userId: user.id,
+      messageId,
+      content,
+    });
+
+    // Broadcast to group chat members
+    const broadcastPromise = broadcastToRoom(
+      c.env,
+      conversationId,
+      createEvent('message:new', {
+        messageId,
+        conversationId,
+        senderType: 'user',
+        senderId: user.id,
+      })
+    );
+
+    try {
+      // eslint-disable-next-line promise/prefer-await-to-then -- waitUntil requires a non-awaited promise; catch prevents unhandled rejection
+      c.executionCtx.waitUntil(broadcastPromise.catch(() => null));
+    } catch {
+      // executionCtx unavailable outside Workers runtime
+    }
+
+    return c.json({
+      messageId,
+      sequenceNumber: result.sequenceNumber,
+      epochNumber: result.epochNumber,
+    });
   });
-
-  return app;
-}
-
-export const chatRoute = createChatRoutes();

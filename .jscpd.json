@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/jscpd.json",
-  "threshold": 3,
+  "threshold": 2,
   "minLines": 5,
   "minTokens": 50,
   "reporters": ["console", "json"],

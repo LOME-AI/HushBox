@@ -1,6 +1,6 @@
 # Contributor License Agreement
 
-Thank you for your interest in contributing to LOME-CHAT, a project of LOME-AI LLC ("Company", "we", "us").
+Thank you for your interest in contributing to HushBox, a project of LOME-AI LLC ("Company", "we", "us").
 
 This Contributor License Agreement ("Agreement") clarifies the terms under which you ("Contributor", "you") may contribute code, documentation, or other materials ("Contributions") to our project.
 
@@ -58,9 +58,9 @@ Your agreement will be recorded automatically. You only need to do this once.
 
 ## Questions
 
-If you have questions about this Agreement, please contact us at legal@lome-chat.com before submitting a Contribution.
+If you have questions about this Agreement, please contact us at legal@hushbox.ai before submitting a Contribution.
 
 ---
 
 LOME-AI LLC  
-https://lome-chat.com
+https://hushbox.ai

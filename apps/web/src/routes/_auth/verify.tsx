@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { useEffect, useState } from 'react';
 import { createFileRoute, useSearch, useNavigate } from '@tanstack/react-router';
-import { toast } from '@lome-chat/ui';
+import { toast } from '@hushbox/ui';
 import { authClient } from '@/lib/auth';
-import { ROUTES } from '@/lib/routes';
+import { ROUTES } from '@hushbox/shared';
 
 type VerifyState = 'loading' | 'success' | 'error';
 
@@ -32,7 +32,7 @@ export function VerifyPage(): React.JSX.Element {
         });
         if (response.error) {
           setState('error');
-          setErrorMessage(response.error.message ?? 'Verification failed. Please try again.');
+          setErrorMessage(response.error.message);
           return;
         }
         setState('success');

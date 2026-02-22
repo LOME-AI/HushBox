@@ -25,8 +25,17 @@ export class ChatPage {
     await this.page.goto('/chat');
   }
 
-  async gotoGuestChat(): Promise<void> {
-    await this.page.goto('/chat/guest');
+  async waitForAppStable(timeout = 15_000): Promise<void> {
+    await this.page.locator('[data-app-stable="true"]').waitFor({ state: 'visible', timeout });
+  }
+
+  /** Wait for a conversation page to load (message list visible). Use instead of waitForAppStable on conversation pages. */
+  async waitForConversationLoaded(timeout = 15_000): Promise<void> {
+    await this.messageList.waitFor({ state: 'visible', timeout });
+  }
+
+  async gotoTrialChat(): Promise<void> {
+    await this.page.goto('/chat/trial');
   }
 
   async gotoConversation(conversationId: string): Promise<void> {
@@ -34,15 +43,16 @@ export class ChatPage {
   }
 
   async sendNewChatMessage(message: string): Promise<void> {
+    await this.waitForAppStable();
     await this.promptInput.fill(message);
-    await expect(this.sendButton).toBeEnabled();
+    await expect(this.sendButton).toBeEnabled({ timeout: 15_000 });
     await this.sendButton.click();
   }
 
   async sendFollowUpMessage(message: string): Promise<void> {
     await this.messageInput.fill(message);
     // Wait for streaming to complete (button enabled means canSubmit = true)
-    await expect(this.sendButton).toBeEnabled();
+    await expect(this.sendButton).toBeEnabled({ timeout: 15_000 });
     await this.messageInput.press('Enter');
     await expect(this.messageInput).toHaveValue('');
   }
@@ -86,6 +96,28 @@ export class ChatPage {
 
   async expectAssistantMessageContains(text: string): Promise<void> {
     await expect(this.messageList.getByText(text).first()).toBeVisible();
+  }
+
+  async expectMessageCostVisible(): Promise<void> {
+    await expect(this.messageList.locator('[data-testid="message-cost"]').first()).toBeVisible();
+  }
+
+  // --- Group chat locators ---
+
+  getSenderLabels(): Locator {
+    return this.messageList.locator('[data-testid="sender-label"]');
+  }
+
+  getAiToggleButton(): Locator {
+    return this.page.getByRole('button', { name: /AI response/ });
+  }
+
+  getTypingIndicator(): Locator {
+    return this.page.getByTestId('typing-indicator');
+  }
+
+  getMessageGroups(): Locator {
+    return this.messageList.locator('[data-testid="message-item"]');
   }
 
   async getScrollPosition(): Promise<{
@@ -186,7 +218,7 @@ export class ChatPage {
   private getConversationIdFromUrl(): string {
     const url = new URL(this.page.url());
     const id = url.pathname.split('/').pop();
-    if (!id || id === 'chat' || id === 'guest') {
+    if (!id || id === 'chat' || id === 'trial') {
       throw new Error('Not on a conversation page');
     }
     return id;

@@ -127,7 +127,7 @@ export function redisMiddleware(): MiddlewareHandler<AppEnv> {
 ### 1.5 Packages to Install
 
 ```bash
-pnpm --filter @lome-chat/api add @upstash/redis iron-session otplib @noble/ciphers @noble/hashes
+pnpm --filter @hushbox/api add @upstash/redis iron-session otplib @noble/ciphers @noble/hashes
 ```
 
 ---
@@ -257,7 +257,7 @@ Create `packages/crypto/package.json`:
 
 ```json
 {
-  "name": "@lome-chat/crypto",
+  "name": "@hushbox/crypto",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -505,7 +505,7 @@ export function createOpaqueServer(
   const config = getOpaqueConfig(OpaqueID.OPAQUE_P256_SHA256);
 
   // Note: AKE public key derived from private key by the library
-  // serverIdentifier comes from env (FRONTEND_URL) - e.g., 'lome-chat.com' or 'localhost:5173'
+  // serverIdentifier comes from env (FRONTEND_URL) - e.g., 'hushbox.ai' or 'localhost:5173'
   return new OpaqueServer(
     config,
     Array.from(oprfSeed),
@@ -516,7 +516,7 @@ export function createOpaqueServer(
 
 // Usage in middleware:
 // const url = new URL(c.env.FRONTEND_URL);
-// const serverIdentifier = url.host; // 'lome-chat.com' or 'localhost:5173'
+// const serverIdentifier = url.host; // 'hushbox.ai' or 'localhost:5173'
 // const opaqueServer = createOpaqueServer(masterSecret, serverIdentifier);
 ```
 
@@ -619,7 +619,7 @@ export function generateTotpSecret(): string {
 }
 
 export function generateTotpUri(email: string, secret: string): string {
-  return authenticator.keyuri(email, 'LOME-CHAT', secret);
+  return authenticator.keyuri(email, 'HushBox', secret);
 }
 
 export function verifyTotpCode(code: string, secret: string): boolean {
@@ -952,7 +952,7 @@ DEK stored in memory only (React context / Zustand store)
 ```bash
 # Client only displays QR codes (URI from server) and sends user-entered codes
 # otplib stays on server — client never generates or verifies TOTP
-pnpm --filter @lome-chat/web add input-otp react-qrcode-logo
+pnpm --filter @hushbox/web add input-otp react-qrcode-logo
 ```
 
 ---
@@ -975,9 +975,9 @@ pnpm --filter @lome-chat/web add input-otp react-qrcode-logo
 ### 9.2 Packages to Remove
 
 ```bash
-pnpm --filter @lome-chat/api remove better-auth
-pnpm --filter @lome-chat/web remove better-auth
-pnpm --filter @lome-chat/db remove better-auth
+pnpm --filter @hushbox/api remove better-auth
+pnpm --filter @hushbox/web remove better-auth
+pnpm --filter @hushbox/db remove better-auth
 ```
 
 ---
@@ -998,7 +998,7 @@ ChatGPT, Claude, and Gemini can read your conversations. We can't.
 
 **Only you hold the keys.** Your encryption keys are derived from your password on your device. Without your password (or recovery phrase), your data is cryptographically inaccessible — to everyone, including us.
 
-| | ChatGPT | Claude | Gemini | LOME-CHAT |
+| | ChatGPT | Claude | Gemini | HushBox |
 |---|:---:|:---:|:---:|:---:|
 | E2E Encrypted | No | No | No | **Yes** |
 | Provider can read chats | Yes | Yes | Yes | **No** |

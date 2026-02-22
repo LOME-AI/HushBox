@@ -8,14 +8,23 @@ describe('projectFactory', () => {
 
     expect(project.id).toMatch(/^[0-9a-f-]{36}$/i);
     expect(project.userId).toMatch(/^[0-9a-f-]{36}$/i);
-    expect(project.name).toBeTruthy();
+    expect(project.encryptedName).toBeInstanceOf(Uint8Array);
+    expect(project.encryptedName.length).toBeGreaterThan(0);
     expect(project.createdAt).toBeInstanceOf(Date);
     expect(project.updatedAt).toBeInstanceOf(Date);
   });
 
+  it('generates encryptedDescription as nullable', () => {
+    const projects = projectFactory.buildList(20);
+    const hasNull = projects.some((p) => p.encryptedDescription === null);
+    const hasValue = projects.some((p) => p.encryptedDescription instanceof Uint8Array);
+    expect(hasNull || hasValue).toBe(true);
+  });
+
   it('allows field overrides', () => {
-    const project = projectFactory.build({ name: 'Custom Project' });
-    expect(project.name).toBe('Custom Project');
+    const customName = new TextEncoder().encode('Custom Project');
+    const project = projectFactory.build({ encryptedName: customName });
+    expect(project.encryptedName).toEqual(customName);
   });
 
   it('builds a list with unique IDs', () => {

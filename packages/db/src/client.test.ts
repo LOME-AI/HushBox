@@ -1,11 +1,39 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { Pool } from '@neondatabase/serverless';
 
-import { createDb, LOCAL_NEON_DEV_CONFIG, type Database } from './client';
+import { createDb, LOCAL_NEON_DEV_CONFIG } from './client';
 
-const DATABASE_URL = process.env['DATABASE_URL'];
-if (!DATABASE_URL) {
-  throw new Error('DATABASE_URL environment variable is required for tests');
-}
+const { MockPool } = vi.hoisted(() => ({
+  MockPool: vi.fn(function (this: Record<string, unknown>) {
+    this['query'] = vi.fn();
+  }),
+}));
+
+vi.mock('@neondatabase/serverless', () => ({
+  Pool: MockPool,
+  neonConfig: {
+    webSocketConstructor: null,
+    wsProxy: undefined,
+    useSecureWebSocket: true,
+    pipelineTLS: true,
+    pipelineConnect: 'password' as const,
+  },
+}));
+
+vi.mock('drizzle-orm/neon-serverless', () => ({
+  drizzle: vi.fn(() => ({
+    select: vi.fn(),
+    insert: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  })),
+}));
+
+const DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('LOCAL_NEON_DEV_CONFIG', () => {
   it('has correct wsProxy function with string port', () => {
@@ -32,20 +60,30 @@ describe('LOCAL_NEON_DEV_CONFIG', () => {
 });
 
 describe('createDb', () => {
-  let db: Database;
-
-  beforeAll(() => {
-    db = createDb({
+  it('creates a database instance with expected methods', () => {
+    const db = createDb({
       connectionString: DATABASE_URL,
       neonDev: LOCAL_NEON_DEV_CONFIG,
     });
-  });
-
-  it('creates a database instance', () => {
     expect(db).toBeDefined();
     expect(typeof db.select).toBe('function');
     expect(typeof db.insert).toBe('function');
     expect(typeof db.update).toBe('function');
     expect(typeof db.delete).toBe('function');
+  });
+
+  it('creates Pool with max: 1 per request', () => {
+    createDb({ connectionString: DATABASE_URL, neonDev: LOCAL_NEON_DEV_CONFIG });
+    expect(Pool).toHaveBeenCalledWith({
+      connectionString: DATABASE_URL,
+      max: 1,
+    });
+  });
+
+  it('creates a new Pool on every call (no caching)', () => {
+    createDb({ connectionString: DATABASE_URL, neonDev: LOCAL_NEON_DEV_CONFIG });
+    createDb({ connectionString: DATABASE_URL, neonDev: LOCAL_NEON_DEV_CONFIG });
+    createDb({ connectionString: DATABASE_URL, neonDev: LOCAL_NEON_DEV_CONFIG });
+    expect(Pool).toHaveBeenCalledTimes(3);
   });
 });

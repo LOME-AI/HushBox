@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, Info } from 'lucide-react';
-import { cn } from '@lome-chat/ui';
-import type { BudgetError, MessageSegment } from '@lome-chat/shared';
+import { AlertTriangle, Info, X } from 'lucide-react';
+import { cn, IconButton } from '@hushbox/ui';
+import type { BudgetError, MessageSegment } from '@hushbox/shared';
 
 interface BudgetMessagesProps {
   /** Array of budget errors/warnings/info to display */
@@ -52,6 +52,10 @@ function getIcon(type: BudgetError['type']): React.ComponentType<{ className?: s
   }
 }
 
+function isDismissible(type: BudgetError['type']): boolean {
+  return type !== 'error';
+}
+
 function renderMessageContent(error: BudgetError): React.JSX.Element {
   if (!error.segments || error.segments.length === 0) {
     return <>{error.message}</>;
@@ -77,8 +81,32 @@ export function BudgetMessages({
   errors,
   className,
 }: Readonly<BudgetMessagesProps>): React.JSX.Element {
+  const [dismissedIds, setDismissedIds] = React.useState<Set<string>>(new Set());
+  const previousErrorIds = React.useRef<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    const currentIds = new Set(errors.map((e) => e.id));
+    const removedIds = [...previousErrorIds.current].filter((id) => !currentIds.has(id));
+    if (removedIds.length > 0) {
+      setDismissedIds((previous) => {
+        const next = new Set(previous);
+        for (const id of removedIds) {
+          next.delete(id);
+        }
+        return next.size === previous.size ? previous : next;
+      });
+    }
+    previousErrorIds.current = currentIds;
+  }, [errors]);
+
   if (errors.length === 0) {
     return <></>;
+  }
+
+  const visibleErrors = errors.filter((e) => !dismissedIds.has(e.id));
+
+  function handleDismiss(id: string): void {
+    setDismissedIds((previous) => new Set(previous).add(id));
   }
 
   return (
@@ -89,8 +117,9 @@ export function BudgetMessages({
       aria-live="polite"
     >
       <AnimatePresence>
-        {errors.map((error) => {
+        {visibleErrors.map((error) => {
           const Icon = getIcon(error.type);
+          const canDismiss = isDismissible(error.type);
           return (
             <motion.div
               key={error.id}
@@ -113,7 +142,18 @@ export function BudgetMessages({
                   data-testid={`budget-message-icon-${error.id}`}
                   className={cn('h-4 w-4 shrink-0', getIconColor(error.type))}
                 />
-                <span>{renderMessageContent(error)}</span>
+                <span className="flex-1">{renderMessageContent(error)}</span>
+                {canDismiss && (
+                  <IconButton
+                    data-testid={`budget-dismiss-${error.id}`}
+                    aria-label="Dismiss notification"
+                    onClick={() => {
+                      handleDismiss(error.id);
+                    }}
+                  >
+                    <X className="h-3 w-3" aria-hidden="true" />
+                  </IconButton>
+                )}
               </div>
             </motion.div>
           );

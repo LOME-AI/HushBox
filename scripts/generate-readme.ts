@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   TOTAL_FEE_RATE,
-  LOME_FEE_RATE,
+  HUSHBOX_FEE_RATE,
   CREDIT_CARD_FEE_RATE,
   PROVIDER_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
@@ -21,7 +21,7 @@ export function getTemplateValues(): Record<string, string> {
 
   return {
     TOTAL_FEE_PERCENT: `${String(TOTAL_FEE_RATE * 100)}%`,
-    LOME_FEE_PERCENT: `${String(LOME_FEE_RATE * 100)}%`,
+    HUSHBOX_FEE_PERCENT: `${String(HUSHBOX_FEE_RATE * 100)}%`,
     CC_FEE_PERCENT: `${String(CREDIT_CARD_FEE_RATE * 100)}%`,
     PROVIDER_FEE_PERCENT: `${String(PROVIDER_FEE_RATE * 100)}%`,
     STORAGE_COST_PER_1K: `$${String(STORAGE_COST_PER_1K_CHARS)}`,

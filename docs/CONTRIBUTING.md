@@ -1,6 +1,6 @@
 # Contributing
 
-Guide for contributing to LOME-CHAT.
+Guide for contributing to HushBox.
 
 ---
 
@@ -15,8 +15,8 @@ Guide for contributing to LOME-CHAT.
 ## Quick Start
 
 ```bash
-git clone https://github.com/LOME-AI/LOME-CHAT.git
-cd lome-chat
+git clone https://github.com/LOME-AI/HushBox.git
+cd hushbox
 pnpm install
 pnpm dev
 ```
@@ -40,7 +40,7 @@ This starts Docker services, runs migrations, and launches all dev servers.
 3. Ensure all checks pass (`pnpm lint && pnpm typecheck && pnpm test`)
 4. Submit PR with clear description
 5. Address review feedback
-6. LOME team runs "pr test" for integration tests
+6. HushBox team runs "pr test" for integration tests
 7. Merge when approved
 
 ---
@@ -54,4 +54,4 @@ All contributors must agree to our [CLA](../CLA.md) before PRs can be merged. A 
 ## Questions?
 
 - Open an issue for bugs or feature requests
-- Email hello@lome-chat.com for other inquiries
+- Email hello@hushbox.ai for other inquiries

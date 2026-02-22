@@ -1,20 +1,23 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { Document } from '@/lib/document-parser';
 
 const MIN_PANEL_WIDTH = 300;
-const MAX_PANEL_WIDTH = 800;
 const DEFAULT_PANEL_WIDTH = 400;
 
 interface DocumentState {
   isPanelOpen: boolean;
   panelWidth: number;
   activeDocumentId: string | null;
+  activeDocument: Document | null;
+  isFullscreen: boolean;
 
   openPanel: () => void;
   closePanel: () => void;
   togglePanel: () => void;
-  setActiveDocument: (id: string) => void;
-  setPanelWidth: (width: number) => void;
+  setActiveDocument: (document: Document) => void;
+  setPanelWidth: (width: number, maxWidth: number) => void;
+  toggleFullscreen: () => void;
 }
 
 export const useDocumentStore = create<DocumentState>()(
@@ -23,26 +26,37 @@ export const useDocumentStore = create<DocumentState>()(
       isPanelOpen: false,
       panelWidth: DEFAULT_PANEL_WIDTH,
       activeDocumentId: null,
+      activeDocument: null,
+      isFullscreen: false,
 
       openPanel: () => set({ isPanelOpen: true }),
 
-      closePanel: () => set({ isPanelOpen: false, activeDocumentId: null }),
+      closePanel: () =>
+        set({
+          isPanelOpen: false,
+          activeDocumentId: null,
+          activeDocument: null,
+          isFullscreen: false,
+        }),
 
       togglePanel: () =>
         set((state) => ({
           isPanelOpen: !state.isPanelOpen,
-          activeDocumentId: state.isPanelOpen ? null : state.activeDocumentId,
+          ...(state.isPanelOpen ? { activeDocumentId: null, activeDocument: null } : {}),
         })),
 
-      setActiveDocument: (id) => set({ activeDocumentId: id, isPanelOpen: true }),
+      setActiveDocument: (document) =>
+        set({ activeDocumentId: document.id, activeDocument: document, isPanelOpen: true }),
 
-      setPanelWidth: (width) =>
+      setPanelWidth: (width, maxWidth) =>
         set({
-          panelWidth: Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, width)),
+          panelWidth: Math.min(maxWidth, Math.max(MIN_PANEL_WIDTH, width)),
         }),
+
+      toggleFullscreen: () => set((state) => ({ isFullscreen: !state.isFullscreen })),
     }),
     {
-      name: 'lome-document-storage',
+      name: 'hushbox-document-storage',
       partialize: (state) => ({ panelWidth: state.panelWidth }),
     }
   )

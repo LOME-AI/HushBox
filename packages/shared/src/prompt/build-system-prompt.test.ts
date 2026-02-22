@@ -12,9 +12,9 @@ describe('buildSystemPrompt', () => {
   });
 
   describe('base module', () => {
-    it('always includes LOME-CHAT assistant identity', () => {
+    it('always includes HushBox assistant identity', () => {
       const prompt = buildSystemPrompt([]);
-      expect(prompt).toContain('LOME-CHAT');
+      expect(prompt).toContain('HushBox');
       expect(prompt).toContain('helpful');
     });
 
@@ -71,7 +71,7 @@ describe('buildSystemPrompt', () => {
   describe('multiple capabilities', () => {
     it('includes all sections for multiple capabilities', () => {
       const prompt = buildSystemPrompt(['python-execution', 'javascript-execution']);
-      expect(prompt).toContain('LOME-CHAT');
+      expect(prompt).toContain('HushBox');
       expect(prompt).toContain('Python Code Execution');
       expect(prompt).toContain('JavaScript Code Execution');
     });
@@ -79,7 +79,7 @@ describe('buildSystemPrompt', () => {
     it('joins sections with double newlines', () => {
       const prompt = buildSystemPrompt(['python-execution']);
       // Base and Python sections should be separated by double newline
-      expect(prompt).toMatch(/LOME-CHAT[\s\S]*\n\n[\s\S]*Python/);
+      expect(prompt).toMatch(/HushBox[\s\S]*\n\n[\s\S]*Python/);
     });
   });
 

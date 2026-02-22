@@ -2,20 +2,25 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement } from 'react';
-import type { Model } from '@lome-chat/shared';
-import { STRONGEST_MODEL_ID, VALUE_MODEL_ID } from '@lome-chat/shared';
+import type { Model } from '@hushbox/shared';
+import { STRONGEST_MODEL_ID, VALUE_MODEL_ID } from '@hushbox/shared';
 import { useModels, getAccessibleModelIds } from './models.js';
 
-// Mock the api module
-vi.mock('../lib/api.js', () => ({
-  api: {
-    get: vi.fn(),
+// Mock the api-client module
+vi.mock('../lib/api-client.js', () => ({
+  client: {
+    api: {
+      models: {
+        $get: vi.fn(() => Promise.resolve(new Response())),
+      },
+    },
   },
+  fetchJson: vi.fn(),
 }));
 
-import { api } from '../lib/api.js';
+import { fetchJson } from '../lib/api-client.js';
 
-const mockedApi = vi.mocked(api);
+const mockFetchJson = vi.mocked(fetchJson);
 
 // Mock transformed Model objects (as returned by the API)
 const MOCK_MODELS: Model[] = [
@@ -75,7 +80,7 @@ describe('useModels', () => {
   });
 
   it('fetches models from API', async () => {
-    mockedApi.get.mockResolvedValueOnce(MOCK_API_RESPONSE);
+    mockFetchJson.mockResolvedValueOnce(MOCK_API_RESPONSE);
 
     const { result } = renderHook(() => useModels(), {
       wrapper: createWrapper(),
@@ -85,13 +90,12 @@ describe('useModels', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    // eslint-disable-next-line @typescript-eslint/unbound-method -- mock method doesn't rely on this
-    expect(mockedApi.get).toHaveBeenCalledWith('/api/models');
+    expect(mockFetchJson).toHaveBeenCalledTimes(1);
     expect(result.current.data?.models).toHaveLength(2);
   });
 
   it('returns models with correct structure', async () => {
-    mockedApi.get.mockResolvedValueOnce(MOCK_API_RESPONSE);
+    mockFetchJson.mockResolvedValueOnce(MOCK_API_RESPONSE);
 
     const { result } = renderHook(() => useModels(), {
       wrapper: createWrapper(),
@@ -112,7 +116,7 @@ describe('useModels', () => {
   });
 
   it('returns premiumIds as a Set', async () => {
-    mockedApi.get.mockResolvedValueOnce(MOCK_API_RESPONSE);
+    mockFetchJson.mockResolvedValueOnce(MOCK_API_RESPONSE);
 
     const { result } = renderHook(() => useModels(), {
       wrapper: createWrapper(),
@@ -128,7 +132,7 @@ describe('useModels', () => {
   });
 
   it('handles API errors', async () => {
-    mockedApi.get.mockRejectedValueOnce(new Error('Network error'));
+    mockFetchJson.mockRejectedValueOnce(new Error('Network error'));
 
     const { result } = renderHook(() => useModels(), {
       wrapper: createWrapper(),
@@ -142,7 +146,7 @@ describe('useModels', () => {
   });
 
   it('returns empty data when API returns empty models', async () => {
-    mockedApi.get.mockResolvedValueOnce({ models: [], premiumModelIds: [] });
+    mockFetchJson.mockResolvedValueOnce({ models: [], premiumModelIds: [] });
 
     const { result } = renderHook(() => useModels(), {
       wrapper: createWrapper(),

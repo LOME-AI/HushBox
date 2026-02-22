@@ -16,10 +16,13 @@ import { Route as DevPersonasRouteImport } from './routes/dev.personas'
 import { Route as AuthVerifyRouteImport } from './routes/_auth/verify'
 import { Route as AuthSignupRouteImport } from './routes/_auth/signup'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppProjectsRouteImport } from './routes/_app/projects'
 import { Route as AppBillingRouteImport } from './routes/_app/billing'
 import { Route as AppChatIndexRouteImport } from './routes/_app/chat.index'
-import { Route as AppChatGuestRouteImport } from './routes/_app/chat.guest'
+import { Route as ShareMShareIdRouteImport } from './routes/share.m.$shareId'
+import { Route as ShareCConversationIdRouteImport } from './routes/share.c.$conversationId'
+import { Route as AppChatTrialRouteImport } from './routes/_app/chat.trial'
 import { Route as AppChatIdRouteImport } from './routes/_app/chat.$id'
 
 const AuthRoute = AuthRouteImport.update({
@@ -55,6 +58,11 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
   path: '/login',
   getParentRoute: () => AuthRoute,
 } as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppProjectsRoute = AppProjectsRouteImport.update({
   id: '/projects',
   path: '/projects',
@@ -70,9 +78,19 @@ const AppChatIndexRoute = AppChatIndexRouteImport.update({
   path: '/chat/',
   getParentRoute: () => AppRoute,
 } as any)
-const AppChatGuestRoute = AppChatGuestRouteImport.update({
-  id: '/chat/guest',
-  path: '/chat/guest',
+const ShareMShareIdRoute = ShareMShareIdRouteImport.update({
+  id: '/share/m/$shareId',
+  path: '/share/m/$shareId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShareCConversationIdRoute = ShareCConversationIdRouteImport.update({
+  id: '/share/c/$conversationId',
+  path: '/share/c/$conversationId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppChatTrialRoute = AppChatTrialRouteImport.update({
+  id: '/chat/trial',
+  path: '/chat/trial',
   getParentRoute: () => AppRoute,
 } as any)
 const AppChatIdRoute = AppChatIdRouteImport.update({
@@ -85,24 +103,30 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/billing': typeof AppBillingRoute
   '/projects': typeof AppProjectsRoute
+  '/settings': typeof AppSettingsRoute
   '/login': typeof AuthLoginRoute
   '/signup': typeof AuthSignupRoute
   '/verify': typeof AuthVerifyRoute
   '/dev/personas': typeof DevPersonasRoute
   '/chat/$id': typeof AppChatIdRoute
-  '/chat/guest': typeof AppChatGuestRoute
+  '/chat/trial': typeof AppChatTrialRoute
+  '/share/c/$conversationId': typeof ShareCConversationIdRoute
+  '/share/m/$shareId': typeof ShareMShareIdRoute
   '/chat/': typeof AppChatIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/billing': typeof AppBillingRoute
   '/projects': typeof AppProjectsRoute
+  '/settings': typeof AppSettingsRoute
   '/login': typeof AuthLoginRoute
   '/signup': typeof AuthSignupRoute
   '/verify': typeof AuthVerifyRoute
   '/dev/personas': typeof DevPersonasRoute
   '/chat/$id': typeof AppChatIdRoute
-  '/chat/guest': typeof AppChatGuestRoute
+  '/chat/trial': typeof AppChatTrialRoute
+  '/share/c/$conversationId': typeof ShareCConversationIdRoute
+  '/share/m/$shareId': typeof ShareMShareIdRoute
   '/chat': typeof AppChatIndexRoute
 }
 export interface FileRoutesById {
@@ -112,12 +136,15 @@ export interface FileRoutesById {
   '/_auth': typeof AuthRouteWithChildren
   '/_app/billing': typeof AppBillingRoute
   '/_app/projects': typeof AppProjectsRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/signup': typeof AuthSignupRoute
   '/_auth/verify': typeof AuthVerifyRoute
   '/dev/personas': typeof DevPersonasRoute
   '/_app/chat/$id': typeof AppChatIdRoute
-  '/_app/chat/guest': typeof AppChatGuestRoute
+  '/_app/chat/trial': typeof AppChatTrialRoute
+  '/share/c/$conversationId': typeof ShareCConversationIdRoute
+  '/share/m/$shareId': typeof ShareMShareIdRoute
   '/_app/chat/': typeof AppChatIndexRoute
 }
 export interface FileRouteTypes {
@@ -126,24 +153,30 @@ export interface FileRouteTypes {
     | '/'
     | '/billing'
     | '/projects'
+    | '/settings'
     | '/login'
     | '/signup'
     | '/verify'
     | '/dev/personas'
     | '/chat/$id'
-    | '/chat/guest'
+    | '/chat/trial'
+    | '/share/c/$conversationId'
+    | '/share/m/$shareId'
     | '/chat/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/billing'
     | '/projects'
+    | '/settings'
     | '/login'
     | '/signup'
     | '/verify'
     | '/dev/personas'
     | '/chat/$id'
-    | '/chat/guest'
+    | '/chat/trial'
+    | '/share/c/$conversationId'
+    | '/share/m/$shareId'
     | '/chat'
   id:
     | '__root__'
@@ -152,12 +185,15 @@ export interface FileRouteTypes {
     | '/_auth'
     | '/_app/billing'
     | '/_app/projects'
+    | '/_app/settings'
     | '/_auth/login'
     | '/_auth/signup'
     | '/_auth/verify'
     | '/dev/personas'
     | '/_app/chat/$id'
-    | '/_app/chat/guest'
+    | '/_app/chat/trial'
+    | '/share/c/$conversationId'
+    | '/share/m/$shareId'
     | '/_app/chat/'
   fileRoutesById: FileRoutesById
 }
@@ -166,6 +202,8 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
   DevPersonasRoute: typeof DevPersonasRoute
+  ShareCConversationIdRoute: typeof ShareCConversationIdRoute
+  ShareMShareIdRoute: typeof ShareMShareIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -219,6 +257,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof AuthRoute
     }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/projects': {
       id: '/_app/projects'
       path: '/projects'
@@ -240,11 +285,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppChatIndexRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/chat/guest': {
-      id: '/_app/chat/guest'
-      path: '/chat/guest'
-      fullPath: '/chat/guest'
-      preLoaderRoute: typeof AppChatGuestRouteImport
+    '/share/m/$shareId': {
+      id: '/share/m/$shareId'
+      path: '/share/m/$shareId'
+      fullPath: '/share/m/$shareId'
+      preLoaderRoute: typeof ShareMShareIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/share/c/$conversationId': {
+      id: '/share/c/$conversationId'
+      path: '/share/c/$conversationId'
+      fullPath: '/share/c/$conversationId'
+      preLoaderRoute: typeof ShareCConversationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/chat/trial': {
+      id: '/_app/chat/trial'
+      path: '/chat/trial'
+      fullPath: '/chat/trial'
+      preLoaderRoute: typeof AppChatTrialRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/chat/$id': {
@@ -260,16 +319,18 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppBillingRoute: typeof AppBillingRoute
   AppProjectsRoute: typeof AppProjectsRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppChatIdRoute: typeof AppChatIdRoute
-  AppChatGuestRoute: typeof AppChatGuestRoute
+  AppChatTrialRoute: typeof AppChatTrialRoute
   AppChatIndexRoute: typeof AppChatIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppBillingRoute: AppBillingRoute,
   AppProjectsRoute: AppProjectsRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppChatIdRoute: AppChatIdRoute,
-  AppChatGuestRoute: AppChatGuestRoute,
+  AppChatTrialRoute: AppChatTrialRoute,
   AppChatIndexRoute: AppChatIndexRoute,
 }
 
@@ -294,6 +355,8 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
   DevPersonasRoute: DevPersonasRoute,
+  ShareCConversationIdRoute: ShareCConversationIdRoute,
+  ShareMShareIdRoute: ShareMShareIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { cn } from '@lome-chat/ui';
-import { Button } from '@lome-chat/ui';
-import { getSecureRandomIndex } from '@lome-chat/shared';
+import { cn } from '@hushbox/ui';
+import { Button } from '@hushbox/ui';
+import { getSecureRandomIndex } from '@hushbox/shared';
 import { Dices } from 'lucide-react';
 import { promptSuggestions } from '@/lib/prompt-suggestions';
 

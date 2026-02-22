@@ -82,7 +82,7 @@ describe('createResendEmailClient', () => {
     const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(options.body as string) as { from: string };
 
-    expect(body.from).toBe('LOME-CHAT <noreply@mail.lome-chat.com>');
+    expect(body.from).toBe('HushBox <noreply@mail.hushbox.ai>');
   });
 
   it('allows custom from address', async () => {
@@ -114,6 +114,21 @@ describe('createResendEmailClient', () => {
 
     await expect(client.sendEmail(testEmail)).rejects.toThrow(
       'Failed to send email: Invalid API key'
+    );
+  });
+
+  it('throws descriptive error when error response is not JSON', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('<html>Bad Gateway</html>', {
+        status: 502,
+        headers: { 'Content-Type': 'text/html' },
+      })
+    );
+
+    const client = createResendEmailClient('re_test_key');
+
+    await expect(client.sendEmail(testEmail)).rejects.toThrow(
+      'Resend email: expected JSON but received unparseable body (HTTP 502)'
     );
   });
 

@@ -15,7 +15,7 @@ export function estimateTokenCount(text: string): number {
 }
 
 /**
- * Apply all fees (LOME + CC + Provider) to a base price.
+ * Apply all fees (HushBox + CC + Provider) to a base price.
  * SINGLE SOURCE OF TRUTH for fee application.
  *
  * Used by:
@@ -23,7 +23,7 @@ export function estimateTokenCount(text: string): number {
  * - calculateTokenCostWithFees as building block
  *
  * Fee breakdown (15% total):
- * - 5% LOME profit margin
+ * - 5% HushBox profit margin
  * - 4.5% credit card processing
  * - 5.5% AI provider overhead
  */
@@ -116,7 +116,7 @@ export interface MessageCostFromOpenRouterParams {
  * 2. Storage fee: (inputCharacters + outputCharacters) × STORAGE_COST_PER_CHARACTER
  *
  * The 15% fee covers:
- * - 5% LOME profit margin
+ * - 5% HushBox profit margin
  * - 4.5% credit card processing
  * - 5.5% AI provider overhead
  */

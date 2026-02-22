@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitForElementToBeRemoved } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { BudgetMessages } from './budget-messages';
-import type { BudgetError } from '@lome-chat/shared';
+import type { BudgetError } from '@hushbox/shared';
 
 // Mock Link component
 vi.mock('@tanstack/react-router', () => ({
@@ -394,6 +395,113 @@ describe('BudgetMessages', () => {
 
       const link = screen.getByRole('link', { name: 'Sign up' });
       expect(link).toHaveAttribute('href', '/signup');
+    });
+  });
+
+  describe('dismiss', () => {
+    it('does not show dismiss button for error type', () => {
+      const errors: BudgetError[] = [{ id: 'err', type: 'error', message: 'Error' }];
+      render(<BudgetMessages errors={errors} />);
+
+      expect(screen.queryByTestId('budget-dismiss-err')).not.toBeInTheDocument();
+    });
+
+    it('shows dismiss button for warning type', () => {
+      const errors: BudgetError[] = [{ id: 'warn', type: 'warning', message: 'Warning' }];
+      render(<BudgetMessages errors={errors} />);
+
+      expect(screen.getByTestId('budget-dismiss-warn')).toBeInTheDocument();
+    });
+
+    it('shows dismiss button for info type', () => {
+      const errors: BudgetError[] = [{ id: 'info', type: 'info', message: 'Info' }];
+      render(<BudgetMessages errors={errors} />);
+
+      expect(screen.getByTestId('budget-dismiss-info')).toBeInTheDocument();
+    });
+
+    it('hides warning message when dismiss is clicked', async () => {
+      const user = userEvent.setup();
+      const errors: BudgetError[] = [{ id: 'warn', type: 'warning', message: 'Warning' }];
+      render(<BudgetMessages errors={errors} />);
+
+      await user.click(screen.getByTestId('budget-dismiss-warn'));
+
+      await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-warn'));
+      expect(screen.queryByTestId('budget-message-warn')).not.toBeInTheDocument();
+    });
+
+    it('hides info message when dismiss is clicked', async () => {
+      const user = userEvent.setup();
+      const errors: BudgetError[] = [{ id: 'info', type: 'info', message: 'Info' }];
+      render(<BudgetMessages errors={errors} />);
+
+      await user.click(screen.getByTestId('budget-dismiss-info'));
+
+      await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-info'));
+      expect(screen.queryByTestId('budget-message-info')).not.toBeInTheDocument();
+    });
+
+    it('reappears after condition cycles off then on', async () => {
+      const user = userEvent.setup();
+      const errors: BudgetError[] = [{ id: 'low_balance', type: 'warning', message: 'Low' }];
+      const { rerender } = render(<BudgetMessages errors={errors} />);
+
+      await user.click(screen.getByTestId('budget-dismiss-low_balance'));
+      await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-low_balance'));
+
+      // Condition clears (error leaves the array)
+      rerender(<BudgetMessages errors={[]} />);
+
+      // Condition re-triggers (error comes back)
+      rerender(<BudgetMessages errors={errors} />);
+
+      expect(screen.getByTestId('budget-message-low_balance')).toBeInTheDocument();
+    });
+
+    it('dismissing one message does not hide others', async () => {
+      const user = userEvent.setup();
+      const errors: BudgetError[] = [
+        { id: 'w1', type: 'warning', message: 'W1' },
+        { id: 'w2', type: 'warning', message: 'W2' },
+      ];
+      render(<BudgetMessages errors={errors} />);
+
+      await user.click(screen.getByTestId('budget-dismiss-w1'));
+      await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-w1'));
+
+      expect(screen.getByTestId('budget-message-w2')).toBeInTheDocument();
+    });
+
+    it('error stays visible when warning is dismissed', async () => {
+      const user = userEvent.setup();
+      const errors: BudgetError[] = [
+        { id: 'err', type: 'error', message: 'Error' },
+        { id: 'warn', type: 'warning', message: 'Warning' },
+      ];
+      render(<BudgetMessages errors={errors} />);
+
+      await user.click(screen.getByTestId('budget-dismiss-warn'));
+      await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-warn'));
+
+      expect(screen.getByTestId('budget-message-err')).toBeInTheDocument();
+    });
+
+    it('dismiss button has accessible aria-label', () => {
+      const errors: BudgetError[] = [{ id: 'warn', type: 'warning', message: 'Warning' }];
+      render(<BudgetMessages errors={errors} />);
+
+      const button = screen.getByTestId('budget-dismiss-warn');
+      expect(button).toHaveAttribute('aria-label', 'Dismiss notification');
+    });
+
+    it('dismiss button icon is aria-hidden', () => {
+      const errors: BudgetError[] = [{ id: 'warn', type: 'warning', message: 'Warning' }];
+      render(<BudgetMessages errors={errors} />);
+
+      const button = screen.getByTestId('budget-dismiss-warn');
+      const icon = button.querySelector('svg');
+      expect(icon).toHaveAttribute('aria-hidden', 'true');
     });
   });
 });

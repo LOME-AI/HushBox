@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getOwnedConversation, getOwnedPayment, ResourceNotFoundError } from './db-helpers';
+import {
+  getOwnedConversation,
+  getOwnedPayment,
+  ResourceNotFoundError,
+  findActiveMember,
+  findActiveSharedLink,
+} from './db-helpers';
 
 describe('db-helpers', () => {
   describe('ResourceNotFoundError', () => {
@@ -97,6 +103,69 @@ describe('db-helpers', () => {
       await expect(getOwnedPayment(mockDb as never, 'payment-123', 'user-123')).rejects.toThrow(
         'Payment not found'
       );
+    });
+  });
+
+  describe('findActiveMember', () => {
+    it('returns member when found and active', async () => {
+      const mockMember = {
+        id: 'member-1',
+        privilege: 'admin',
+        userId: 'user-1',
+      };
+
+      const mockDb = {
+        select: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([mockMember]),
+      };
+
+      const result = await findActiveMember(mockDb as never, 'member-1', 'conv-1');
+      expect(result).toEqual(mockMember);
+    });
+
+    it('returns undefined when member not found', async () => {
+      const mockDb = {
+        select: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([]),
+      };
+
+      const result = await findActiveMember(mockDb as never, 'member-1', 'conv-1');
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('findActiveSharedLink', () => {
+    it('returns shared link when found and not revoked', async () => {
+      const mockLink = {
+        id: 'link-1',
+        privilege: 'read',
+      };
+
+      const mockDb = {
+        select: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([mockLink]),
+      };
+
+      const result = await findActiveSharedLink(mockDb as never, 'conv-1', new Uint8Array(32));
+      expect(result).toEqual(mockLink);
+    });
+
+    it('returns undefined when link not found', async () => {
+      const mockDb = {
+        select: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([]),
+      };
+
+      const result = await findActiveSharedLink(mockDb as never, 'conv-1', new Uint8Array(32));
+      expect(result).toBeUndefined();
     });
   });
 });

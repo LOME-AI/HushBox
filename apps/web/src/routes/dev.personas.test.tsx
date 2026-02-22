@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { DEV_PASSWORD } from '@lome-chat/shared';
-import type { DevPersona } from '@lome-chat/shared';
+import { DEV_PASSWORD } from '@hushbox/shared';
+import type { DevPersona } from '@hushbox/shared';
 import { signIn } from '@/lib/auth';
-import { toast } from '@lome-chat/ui';
+import { toast } from '@hushbox/ui';
 
 class RedirectError extends Error {
   to: string;
@@ -38,7 +38,7 @@ vi.mock('@/lib/auth', () => ({
   signOutAndClearCache: mockSignOutAndClearCache,
 }));
 
-vi.mock('@lome-chat/ui', () => ({
+vi.mock('@hushbox/ui', () => ({
   toast: {
     error: vi.fn(),
   },
@@ -60,28 +60,28 @@ vi.mock('@/hooks/dev-personas', () => ({
 const mockPersonas: DevPersona[] = [
   {
     id: 'user-1',
-    name: 'Alice Developer',
-    email: 'alice@dev.lome-chat.com',
+    username: 'alice_developer',
+    email: 'alice@dev.hushbox.ai',
     emailVerified: true,
-    image: null,
+
     stats: { conversationCount: 3, messageCount: 12, projectCount: 2 },
     credits: '$0.00',
   },
   {
     id: 'user-2',
-    name: 'Bob Tester',
-    email: 'bob@dev.lome-chat.com',
+    username: 'bob_tester',
+    email: 'bob@dev.hushbox.ai',
     emailVerified: true,
-    image: null,
+
     stats: { conversationCount: 0, messageCount: 0, projectCount: 0 },
     credits: '$0.00',
   },
   {
     id: 'user-3',
-    name: 'Charlie Unverified',
-    email: 'charlie@dev.lome-chat.com',
+    username: 'charlie_unverified',
+    email: 'charlie@dev.hushbox.ai',
     emailVerified: false,
-    image: null,
+
     stats: { conversationCount: 0, messageCount: 0, projectCount: 0 },
     credits: '$0.00',
   },
@@ -135,11 +135,12 @@ describe('PersonasPage', () => {
 
   describe('personas display', () => {
     it('renders a card for each persona', async () => {
+      const { displayUsername } = await import('@hushbox/shared');
       const { PersonasPage } = await import('./dev.personas');
       render(<PersonasPage />);
 
       for (const persona of mockPersonas) {
-        expect(screen.getByText(persona.name)).toBeInTheDocument();
+        expect(screen.getByText(displayUsername(persona.username))).toBeInTheDocument();
         expect(screen.getByText(persona.email)).toBeInTheDocument();
       }
     });
@@ -244,7 +245,7 @@ describe('PersonasPage', () => {
 
   describe('authentication', () => {
     it('calls signOutAndClearCache before signIn.email on click', async () => {
-      vi.mocked(signIn.email).mockResolvedValue({ data: {}, error: null });
+      vi.mocked(signIn.email).mockResolvedValue({});
       const user = userEvent.setup();
       const { PersonasPage } = await import('./dev.personas');
 
@@ -255,8 +256,9 @@ describe('PersonasPage', () => {
       // Verify signOutAndClearCache is called first
       expect(mockSignOutAndClearCache).toHaveBeenCalled();
       expect(signIn.email).toHaveBeenCalledWith({
-        email: 'alice@dev.lome-chat.com',
+        identifier: 'alice@dev.hushbox.ai',
         password: DEV_PASSWORD,
+        keepSignedIn: true,
       });
       // Verify order: signOutAndClearCache before signIn
       const signOutCallOrder = mockSignOutAndClearCache.mock.invocationCallOrder[0];
@@ -268,7 +270,7 @@ describe('PersonasPage', () => {
     });
 
     it('navigates to /chat on successful login', async () => {
-      vi.mocked(signIn.email).mockResolvedValue({ data: {}, error: null });
+      vi.mocked(signIn.email).mockResolvedValue({});
       const user = userEvent.setup();
       const { PersonasPage } = await import('./dev.personas');
 
@@ -283,7 +285,6 @@ describe('PersonasPage', () => {
 
     it('shows error toast on login failure', async () => {
       vi.mocked(signIn.email).mockResolvedValue({
-        data: null,
         error: { message: 'Email not verified' },
       });
       const user = userEvent.setup();
@@ -348,7 +349,7 @@ describe('PersonasPage', () => {
 
       expect(screen.getByTestId('persona-card-alice')).toHaveAttribute('aria-busy', 'true');
 
-      if (resolveSignIn) resolveSignIn({ data: {}, error: null });
+      if (resolveSignIn) resolveSignIn({});
 
       await waitFor(() => {
         expect(screen.getByTestId('persona-card-alice')).toHaveAttribute('aria-busy', 'false');
@@ -378,7 +379,7 @@ describe('PersonasPage', () => {
         );
       }
 
-      if (resolveSignIn) resolveSignIn({ data: {}, error: null });
+      if (resolveSignIn) resolveSignIn({});
     });
   });
 

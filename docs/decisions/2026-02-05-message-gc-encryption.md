@@ -124,19 +124,19 @@ This is an AI chat application. The full stack is TypeScript — React on the fr
 
 ### Algorithm Table
 
-| Purpose | Algorithm | Library | Package Location |
-|---|---|---|---|
-| Asymmetric key exchange | X25519 | `@noble/curves` | packages/crypto |
-| Symmetric AEAD | XChaCha20-Poly1305 | `@noble/ciphers` | packages/crypto |
-| Key derivation | HKDF-SHA-256 | `@noble/hashes` | packages/crypto |
-| General hashing | SHA-256 | `@noble/hashes` | packages/crypto (expose utility methods for any hashing needs in other packages) |
-| Password authentication | OPAQUE | `@cloudflare/opaque-ts` | packages/crypto (exposes both client-side and server-side OPAQUE helpers; apps/api calls the server-side helpers) |
-| Recovery phrase KDF | Argon2id | `hash-wasm` | packages/crypto |
-| Recovery phrase generation | BIP-39 | `@scure/bip39` | packages/crypto |
-| TOTP 2FA | TOTP | `otplib` | apps/api |
-| Message signing (future) | Ed25519 | `@noble/curves` | packages/crypto (not implemented in v1) |
-| Pre-encryption compression | Deflate | `fflate` | packages/crypto |
-| Session management | Encrypted cookies | `iron-session` | apps/api |
+| Purpose                    | Algorithm          | Library                 | Package Location                                                                                                  |
+| -------------------------- | ------------------ | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Asymmetric key exchange    | X25519             | `@noble/curves`         | packages/crypto                                                                                                   |
+| Symmetric AEAD             | XChaCha20-Poly1305 | `@noble/ciphers`        | packages/crypto                                                                                                   |
+| Key derivation             | HKDF-SHA-256       | `@noble/hashes`         | packages/crypto                                                                                                   |
+| General hashing            | SHA-256            | `@noble/hashes`         | packages/crypto (expose utility methods for any hashing needs in other packages)                                  |
+| Password authentication    | OPAQUE             | `@cloudflare/opaque-ts` | packages/crypto (exposes both client-side and server-side OPAQUE helpers; apps/api calls the server-side helpers) |
+| Recovery phrase KDF        | Argon2id           | `hash-wasm`             | packages/crypto                                                                                                   |
+| Recovery phrase generation | BIP-39             | `@scure/bip39`          | packages/crypto                                                                                                   |
+| TOTP 2FA                   | TOTP               | `otplib`                | apps/api                                                                                                          |
+| Message signing (future)   | Ed25519            | `@noble/curves`         | packages/crypto (not implemented in v1)                                                                           |
+| Pre-encryption compression | Deflate            | `fflate`                | packages/crypto                                                                                                   |
+| Session management         | Encrypted cookies  | `iron-session`          | apps/api                                                                                                          |
 
 ### Why Each Algorithm
 
@@ -196,11 +196,11 @@ Every encrypted blob in this system — messages, key wraps, chain links, share 
 
 ### Per-Blob Overhead: 49 bytes
 
-| Component | Size |
-|---|---|
-| Version byte | 1 byte |
-| Ephemeral public key | 32 bytes |
-| Poly1305 auth tag | 16 bytes |
+| Component                | Size         |
+| ------------------------ | ------------ |
+| Version byte             | 1 byte       |
+| Ephemeral public key     | 32 bytes     |
+| Poly1305 auth tag        | 16 bytes     |
 | **Total fixed overhead** | **49 bytes** |
 
 ### Why Zero Nonce is Safe
@@ -246,13 +246,13 @@ Password
 
 ### Server-Stored Account Data
 
-| Field | Approx Size | Encrypted? |
-|---|---|---|
-| account_id (UUID) | 16B | No |
-| account_public_key | 32B | No |
-| password_wrapped_private_key | ~81B | ECIES blob |
-| recovery_wrapped_private_key | ~81B | ECIES blob |
-| OPAQUE server state | ~200B | Per OPAQUE spec |
+| Field                        | Approx Size | Encrypted?      |
+| ---------------------------- | ----------- | --------------- |
+| account_id (UUID)            | 16B         | No              |
+| account_public_key           | 32B         | No              |
+| password_wrapped_private_key | ~81B        | ECIES blob      |
+| recovery_wrapped_private_key | ~81B        | ECIES blob      |
+| OPAQUE server state          | ~200B       | Per OPAQUE spec |
 
 ### Login
 
@@ -298,6 +298,7 @@ Each conversation has a sequence of epochs. Each epoch has its own X25519 key pa
 ### Epoch Rotation Triggers
 
 A new epoch is created **only** when:
+
 - A member is removed (including via voluntary leave)
 - A shared link is revoked
 
@@ -330,6 +331,7 @@ chain_link_N = ECIES_Encrypt(epoch_N_public_key, epoch_(N-1)_private_key)
 ```
 
 To read a message from epoch 1 when the current epoch is 5:
+
 1. Unwrap epoch 5 private key from your member wrap (using account private key).
 2. Decrypt chain link at epoch 5 → epoch 4 private key.
 3. Decrypt chain link at epoch 4 → epoch 3 private key.
@@ -373,23 +375,23 @@ When a write-capable client detects `rotation_pending` and sends a message:
 6. `chain_link = ECIES_Encrypt(new_epoch_public_key, old_epoch_private_key)`
 7. Client encrypts their message under the NEW epoch public key.
 8. Client sends atomically to server:
-    - New epoch public key
-    - New epoch confirmation hash
-    - All member wraps
-    - Chain link
-    - IDs of removed members/links
-    - The encrypted message
+   - New epoch public key
+   - New epoch confirmation hash
+   - All member wraps
+   - Chain link
+   - IDs of removed members/links
+   - The encrypted message
 9. Server in one transaction:
-    - Creates new epoch row
-    - Stores all member wraps in `epochMembers`
-    - Stores chain link on the epoch row
-    - Deletes old epoch's `epochMembers` wraps
-    - Deletes `pendingRemovals` rows for this conversation
-    - Sets `leftAt` on `conversationMembers` rows for removed members (if not already set)
-    - Updates conversation's `currentEpoch` pointer
-    - Clears `rotationPending`
-    - Re-encrypts conversation title under new epoch key, updates `titleEpochNumber`
-    - Stores the message
+   - Creates new epoch row
+   - Stores all member wraps in `epochMembers`
+   - Stores chain link on the epoch row
+   - Deletes old epoch's `epochMembers` wraps
+   - Deletes `pendingRemovals` rows for this conversation
+   - Sets `leftAt` on `conversationMembers` rows for removed members (if not already set)
+   - Updates conversation's `currentEpoch` pointer
+   - Clears `rotationPending`
+   - Re-encrypts conversation title under new epoch key, updates `titleEpochNumber`
+   - Stores the message
 
 ### Adding a Member
 
@@ -403,11 +405,11 @@ No rotation. Any admin/owner client:
 
 ### Storage Per Conversation
 
-| Component | Count | Size Each | Accumulates? |
-|---|---|---|---|
-| Epoch rows | E (one per rotation + 1) | ~182B (32B pubkey + 32B confirmation hash + 80B chain link + overhead) | Yes, bounded by human actions |
-| Current member wraps | N (current members + active links) | ~81B | No — replaced on rotation |
-| Messages | M | 49B overhead + compressed plaintext + metadata | Yes, inherent to chat |
+| Component            | Count                              | Size Each                                                              | Accumulates?                  |
+| -------------------- | ---------------------------------- | ---------------------------------------------------------------------- | ----------------------------- |
+| Epoch rows           | E (one per rotation + 1)           | ~182B (32B pubkey + 32B confirmation hash + 80B chain link + overhead) | Yes, bounded by human actions |
+| Current member wraps | N (current members + active links) | ~81B                                                                   | No — replaced on rotation     |
+| Messages             | M                                  | 49B overhead + compressed plaintext + metadata                         | Yes, inherent to chat         |
 
 For a conversation with 10 members, 20 removals, 50,000 messages averaging 300B: key management overhead is ~5.6KB. Messages are ~15MB. Key overhead is 0.037% of message storage.
 
@@ -437,17 +439,17 @@ The server already receives the plaintext for AI invocation. Having the client a
 
 ### Message Metadata (Plaintext, Not in Blob)
 
-| Field | Purpose |
-|---|---|
-| message_id (UUID) | Unique identifier, replay protection |
-| conversation_id | Routing |
-| epoch_number | Which epoch key decrypts this message |
-| sender_type ('user' or 'ai') | Display |
-| sender_id (UUID, nullable) | Who sent it (null for AI, null for anonymous guests) |
-| sender_display_name (nullable) | Guest display name |
-| payer_id (UUID, nullable) | Who paid for this message |
-| sequence_number (integer) | Deterministic ordering per conversation |
-| created_at (timestamp) | Ordering and display |
+| Field                          | Purpose                                              |
+| ------------------------------ | ---------------------------------------------------- |
+| message_id (UUID)              | Unique identifier, replay protection                 |
+| conversation_id                | Routing                                              |
+| epoch_number                   | Which epoch key decrypts this message                |
+| sender_type ('user' or 'ai')   | Display                                              |
+| sender_id (UUID, nullable)     | Who sent it (null for AI, null for anonymous guests) |
+| sender_display_name (nullable) | Guest display name                                   |
+| payer_id (UUID, nullable)      | Who paid for this message                            |
+| sequence_number (integer)      | Deterministic ordering per conversation              |
+| created_at (timestamp)         | Ordering and display                                 |
 
 Cost and model information are not stored on the message. They live in `usage_records` linked via `sourceType = 'message'` and `sourceId = message.id`. A single message can have multiple usage records (e.g., text + image in one reply).
 
@@ -457,12 +459,12 @@ This metadata is needed by the server for routing, billing, real-time delivery, 
 
 For a typical 200-character message:
 
-| Component | Size |
-|---|---|
-| Row metadata | ~81B |
-| ECIES overhead | 49B |
+| Component                     | Size                      |
+| ----------------------------- | ------------------------- |
+| Row metadata                  | ~81B                      |
+| ECIES overhead                | 49B                       |
 | Compressed message ciphertext | ~150B (compression helps) |
-| **Total** | **~280 bytes** |
+| **Total**                     | **~280 bytes**            |
 
 ### Message Deletion
 
@@ -476,12 +478,12 @@ Clients track received `message_id` values in a set during the session. Duplicat
 
 ## Part 6: Privilege Levels
 
-| Level | Decrypt | Send Messages | Add Members | Remove Members | Manage Links | Perform Rotation |
-|---|---|---|---|---|---|---|
-| Read | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Write | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ (only when rotation_pending during message send) |
-| Admin | ✓ | ✓ | ✓ | ✓ (not owner) | ✓ | ✓ |
-| Owner | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Level | Decrypt | Send Messages | Add Members | Remove Members | Manage Links | Perform Rotation                                   |
+| ----- | ------- | ------------- | ----------- | -------------- | ------------ | -------------------------------------------------- |
+| Read  | ✓       | ✗             | ✗           | ✗              | ✗            | ✗                                                  |
+| Write | ✓       | ✓             | ✗           | ✗              | ✗            | ✓ (only when rotation_pending during message send) |
+| Admin | ✓       | ✓             | ✓           | ✓ (not owner)  | ✓            | ✓                                                  |
+| Owner | ✓       | ✓             | ✓           | ✓              | ✓            | ✓                                                  |
 
 Privilege enforcement is server-side. All privilege levels share the same cryptographic key material (the epoch private key). A malicious server could theoretically allow a read-only member to submit a message, but since read-only members already have the decryption key, this is not a meaningful escalation. Cryptographic write enforcement (e.g., signing keys) can be added later via Ed25519 without changing the core architecture.
 
@@ -523,6 +525,7 @@ Revoking a link triggers lazy epoch rotation, same as removing any member. The l
 ### Guest Messaging via Links
 
 If a link has write privilege and the owner's budget allows it:
+
 - Guest sends plaintext to server.
 - Server debits owner's wallets (within budget limits), creates usage_record and ledger_entries.
 - `payerId = owner`. `senderId = null`. `senderDisplayName` = whatever name the guest entered.
@@ -643,14 +646,14 @@ Client setup:
 
 ```typescript
 // apps/web/src/lib/api-client.ts
-import { hc } from 'hono/client'
-import type { AppType } from '@lome-chat/api'
+import { hc } from 'hono/client';
+import type { AppType } from '@hushbox/api';
 
-export const client = hc<AppType>(getApiUrl(), { init: { credentials: 'include' } })
+export const client = hc<AppType>(getApiUrl(), { init: { credentials: 'include' } });
 
 // Usage — fully typed, compile error if schema changes:
-const conversations = await client.api.conversations.$get()
-const result = await client.api.keys.submitRotation.$post({ json: rotationData })
+const conversations = await client.api.conversations.$get();
+const result = await client.api.keys.submitRotation.$post({ json: rotationData });
 ```
 
 #### Route Structure
@@ -730,19 +733,19 @@ One Durable Object instance per group conversation. All members of a group conne
 
 #### Events the DO Broadcasts
 
-| Event | Payload | Trigger |
-|---|---|---|
-| `message:new` | encrypted blob + metadata | User message stored |
-| `message:stream` | plaintext token | AI generating (ephemeral) |
-| `message:complete` | encrypted blob + metadata | AI response stored |
-| `message:deleted` | message_id | Message hard-deleted |
-| `member:added` | member_id, privilege | New member added |
-| `member:removed` | member_id | Member removed |
-| `rotation:pending` | (empty) | Tells next sender to rotate |
-| `rotation:complete` | new_epoch_number | Clients re-fetch keys |
-| `typing:start` | member_id | Ephemeral, never stored |
-| `typing:stop` | member_id | Ephemeral, never stored |
-| `presence:update` | member_id, status | Ephemeral, never stored |
+| Event               | Payload                   | Trigger                     |
+| ------------------- | ------------------------- | --------------------------- |
+| `message:new`       | encrypted blob + metadata | User message stored         |
+| `message:stream`    | plaintext token           | AI generating (ephemeral)   |
+| `message:complete`  | encrypted blob + metadata | AI response stored          |
+| `message:deleted`   | message_id                | Message hard-deleted        |
+| `member:added`      | member_id, privilege      | New member added            |
+| `member:removed`    | member_id                 | Member removed              |
+| `rotation:pending`  | (empty)                   | Tells next sender to rotate |
+| `rotation:complete` | new_epoch_number          | Clients re-fetch keys       |
+| `typing:start`      | member_id                 | Ephemeral, never stored     |
+| `typing:stop`       | member_id                 | Ephemeral, never stored     |
+| `presence:update`   | member_id, status         | Ephemeral, never stored     |
 
 #### Communication Flow: API Worker → Durable Object
 
@@ -765,11 +768,11 @@ The API Worker calls the DO via a Durable Object binding (stub). The DO is not c
 
 1. Client sends `POST /api/chat` with plaintext, conversation_id, model.
    2–3. Same validation and rotation check as individual.
-4. Server encrypts user message, notifies DO with encrypted blob. DO broadcasts `message:new` to other connected members.
-5. Server invokes AI, streams tokens. Each token batch sent to DO for `message:stream` broadcast.
-6. On AI completion: single atomic transaction — same as individual.
-7. Server sends final blob to DO. DO broadcasts `message:complete`.
-8. SSE stream to the sending client closes. Other members receive the final message via WebSocket.
+2. Server encrypts user message, notifies DO with encrypted blob. DO broadcasts `message:new` to other connected members.
+3. Server invokes AI, streams tokens. Each token batch sent to DO for `message:stream` broadcast.
+4. On AI completion: single atomic transaction — same as individual.
+5. Server sends final blob to DO. DO broadcasts `message:complete`.
+6. SSE stream to the sending client closes. Other members receive the final message via WebSocket.
 
 #### Concurrency
 
@@ -783,12 +786,12 @@ The payment processor webhook is a plain Hono POST route. It verifies the webhoo
 
 ### What Redis Is Used For
 
-| Purpose | Why Redis, Not DO? |
-|---|---|
-| Rate limiting | Global across all Workers, not per-conversation |
-| Session tokens | Shared state across all Worker instances |
+| Purpose                            | Why Redis, Not DO?                                |
+| ---------------------------------- | ------------------------------------------------- |
+| Rate limiting                      | Global across all Workers, not per-conversation   |
+| Session tokens                     | Shared state across all Worker instances          |
 | Cache (user profiles, public keys) | Avoid DB round-trips for frequently accessed data |
-| Budget enforcement cache | Hot path during message sends |
+| Budget enforcement cache           | Hot path during message sends                     |
 
 Redis is for cross-request, cross-conversation shared state. DOs are for per-conversation real-time coordination.
 
@@ -813,6 +816,7 @@ The crypto package must expose methods with names so explicit that misuse is imp
 Examples of the kinds of method names the crypto package should expose (these are illustrative, not prescriptive — adapt to the codebase's conventions):
 
 **Account operations:**
+
 - `createAccount()` → returns { publicKey, passwordWrappedBlob, recoveryWrappedBlob, mnemonic }
 - `loginUnwrapAccountKey(exportKey, passwordWrappedBlob)` → returns accountPrivateKey
 - `recoverAccountFromMnemonic(mnemonic, recoveryWrappedBlob)` → returns accountPrivateKey
@@ -820,6 +824,7 @@ Examples of the kinds of method names the crypto package should expose (these ar
 - `regenerateRecoveryPhrase(accountPrivateKey)` → returns { mnemonic, recoveryWrappedBlob }
 
 **Epoch operations:**
+
 - `createFirstEpochForConversation(memberPublicKeys[])` → returns { epochPublicKey, confirmationHash, memberWraps[] }
 - `performEpochRotation(oldEpochPrivateKey, remainingMemberPublicKeys[])` → returns { newEpochPublicKey, confirmationHash, memberWraps[], chainLink }
 - `unwrapEpochKey(accountPrivateKey, memberWrap)` → returns epochPrivateKey
@@ -827,18 +832,22 @@ Examples of the kinds of method names the crypto package should expose (these ar
 - `verifyEpochKeyConfirmation(epochPrivateKey, expectedHash)` → returns boolean
 
 **Message operations (server-side):**
+
 - `encryptMessageForStorage(epochPublicKey, plaintext)` → returns encryptedBlob
 - `decryptMessage(epochPrivateKey, encryptedBlob)` → returns plaintext
 
 **Member operations:**
+
 - `wrapEpochKeyForNewMember(epochPrivateKey, newMemberPublicKey)` → returns memberWrap
 
 **Link operations:**
+
 - `createSharedLink(epochPrivateKey)` → returns { linkSecret, linkPublicKey, memberWrap }
 - `deriveKeysFromLinkSecret(linkSecret)` → returns linkKeyPair
 - `accessConversationViaLink(linkSecret, memberWrap, chainLinks[], encryptedMessages[])` → returns decryptedMessages[]
 
 **Message sharing:**
+
 - `createMessageShare(plaintext)` → returns { shareSecret, shareBlob }
 - `decryptMessageShare(shareSecret, shareBlob)` → returns plaintext
 
@@ -856,12 +865,12 @@ This eliminates the split between "tRPC routes" and "plain Hono routes." Every r
 
 ### Packages
 
-| Package | Where | Purpose |
-|---|---|---|
-| `hono` | apps/api | Already installed — server framework |
-| `hono/client` | apps/web | Typed RPC client (ships with `hono`, zero additional dependencies) |
-| `@hono/zod-validator` | apps/api | Zod-based input validation middleware |
-| `@tanstack/react-query` | apps/web | Already installed — caching, revalidation, loading states |
+| Package                 | Where    | Purpose                                                            |
+| ----------------------- | -------- | ------------------------------------------------------------------ |
+| `hono`                  | apps/api | Already installed — server framework                               |
+| `hono/client`           | apps/web | Typed RPC client (ships with `hono`, zero additional dependencies) |
+| `@hono/zod-validator`   | apps/api | Zod-based input validation middleware                              |
+| `@tanstack/react-query` | apps/web | Already installed — caching, revalidation, loading states          |
 
 No new dependencies beyond `@hono/zod-validator`. `hono/client` is a subpath export of the existing `hono` package.
 
@@ -871,16 +880,16 @@ No new dependencies beyond `@hono/zod-validator`. `hono/client` is a subpath exp
 // apps/api/src/routes/conversations.ts
 const conversations = new Hono<AppEnv>()
   .get('/', sessionRequired, async (c) => {
-    const conversations = await listConversations(c.var.db, c.var.user.id)
-    return c.json(conversations)
+    const conversations = await listConversations(c.var.db, c.var.user.id);
+    return c.json(conversations);
   })
   .post('/', sessionRequired, zValidator('json', createConversationSchema), async (c) => {
-    const input = c.req.valid('json')
-    const conversation = await createConversation(c.var.db, c.var.user.id, input)
-    return c.json(conversation)
-  })
+    const input = c.req.valid('json');
+    const conversation = await createConversation(c.var.db, c.var.user.id, input);
+    return c.json(conversation);
+  });
 
-export { conversations }
+export { conversations };
 
 // apps/api/src/app.ts
 const app = new Hono<AppEnv>()
@@ -899,21 +908,21 @@ const app = new Hono<AppEnv>()
   .post('/api/chat', sessionRequired, chatHandler)
   .post('/api/trial', rateLimited('trial', { windowMs: 60000, max: 5 }), trialHandler)
   .get('/api/ws/:conversationId', wsUpgradeHandler)
-  .post('/api/webhooks/payments', webhookHandler)
+  .post('/api/webhooks/payments', webhookHandler);
 
-export type AppType = typeof app
+export type AppType = typeof app;
 ```
 
 ### Client Setup
 
 ```typescript
 // apps/web/src/lib/api-client.ts
-import { hc } from 'hono/client'
-import type { AppType } from '@lome-chat/api'
+import { hc } from 'hono/client';
+import type { AppType } from '@hushbox/api';
 
 export const client = hc<AppType>(getApiUrl(), {
-  init: { credentials: 'include' }
-})
+  init: { credentials: 'include' },
+});
 ```
 
 ### React Query Integration
@@ -922,37 +931,37 @@ Wrap Hono RPC calls in TanStack React Query hooks for caching, revalidation, and
 
 ```typescript
 // apps/web/src/hooks/use-conversations.ts
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { client } from '../lib/api-client'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { client } from '../lib/api-client';
 
 export function useConversations() {
   return useQuery({
     queryKey: ['conversations'],
-    queryFn: () => client.api.conversations.$get().then(r => r.json()),
-  })
+    queryFn: () => client.api.conversations.$get().then((r) => r.json()),
+  });
 }
 
 export function useCreateConversation() {
-  const queryClient = useQueryClient()
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input) => client.api.conversations.$post({ json: input }).then(r => r.json()),
+    mutationFn: (input) => client.api.conversations.$post({ json: input }).then((r) => r.json()),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['conversations'] }),
-  })
+  });
 }
 ```
 
 ### What Changes, What Doesn't
 
-| Aspect | Before (REST) | After (Hono RPC) |
-|---|---|---|
-| Server handler logic | Same | Same |
-| Input validation | Manual or middleware | `zValidator('json', schema)` |
-| Response typing | Manual interfaces | Inferred from `c.json()` return type |
-| Client calls | `fetch()` + manual typing | `client.api.route.$method()` (typed) |
-| Error handling | HTTP status codes | HTTP status codes (unchanged) |
-| Auth middleware | Hono middleware | Hono middleware (unchanged) |
-| Streaming routes | Hono SSE | Hono SSE (unchanged) |
-| Webhook | Hono route | Hono route (unchanged) |
+| Aspect               | Before (REST)             | After (Hono RPC)                     |
+| -------------------- | ------------------------- | ------------------------------------ |
+| Server handler logic | Same                      | Same                                 |
+| Input validation     | Manual or middleware      | `zValidator('json', schema)`         |
+| Response typing      | Manual interfaces         | Inferred from `c.json()` return type |
+| Client calls         | `fetch()` + manual typing | `client.api.route.$method()` (typed) |
+| Error handling       | HTTP status codes         | HTTP status codes (unchanged)        |
+| Auth middleware      | Hono middleware           | Hono middleware (unchanged)          |
+| Streaming routes     | Hono SSE                  | Hono SSE (unchanged)                 |
+| Webhook              | Hono route                | Hono route (unchanged)               |
 
 ### Migration Steps
 
@@ -995,6 +1004,7 @@ Test the full flow locally: client opens WebSocket → Worker upgrades → route
 ### Durable Object Design Principles
 
 The DO is a pure broadcast hub. It must NOT:
+
 - Access the database directly
 - Perform any cryptographic operations
 - Hold any encryption keys
@@ -1002,6 +1012,7 @@ The DO is a pure broadcast hub. It must NOT:
 - Implement any business logic beyond connection management and fan-out
 
 The DO SHOULD:
+
 - Maintain a map of connected WebSockets (member_id → socket)
 - Track ephemeral state (typing indicators, presence)
 - Accept events from the API Worker (via HTTP fetch on the DO stub) and broadcast to connected sockets
@@ -1009,6 +1020,7 @@ The DO SHOULD:
 - Use Durable Object Hibernation to reduce costs when a conversation has connected clients but no activity
 
 The DO receives events from two sources:
+
 1. **API Worker** (via stub fetch): message:new, message:complete, message:deleted, member changes, rotation events. These are the result of Hono route handlers that the API Worker has already processed and committed to the database.
 2. **Client WebSockets** (via WebSocket messages): typing:start, typing:stop, presence:update. These are ephemeral and never touch the database or API Worker.
 
@@ -1101,6 +1113,7 @@ UNIQUE: email, username
 ```
 
 **Notes:**
+
 - `publicKey`: 32-byte X25519 public key, stored plaintext. Used by other members to wrap epoch keys for this user.
 - `passwordWrappedPrivateKey`: ~81-byte ECIES blob. Account private key encrypted under the wrapping key pair derived from the OPAQUE export key. NOT NULL — both wraps are generated atomically during registration.
 - `recoveryWrappedPrivateKey`: ~81-byte ECIES blob. Account private key encrypted under the recovery key pair derived from the BIP-39 mnemonic seed via Argon2id. NOT NULL — same reason.
@@ -1131,6 +1144,7 @@ INDEX: wallets(userId)
 ```
 
 **Notes:**
+
 - `type`: Discriminator string. Initial types: `purchased` (priority 0, full access to all models/features), `free_tier` (priority 1, restricted models/features). Future types added by creating rows, never schema changes: `promotional`, `referral`, `enterprise`, `compensation`.
 - `priority`: Lower number = debited first. Purchased balance (priority 0) is consumed before free tier (priority 1) because purchased grants full access while free tier has restrictions. The user stays in "full access" as long as purchased balance remains.
 - `balance`: Cached counter. Updated atomically in the same transaction as the corresponding `ledger_entries` insert. Source of truth for reconciliation is `SUM(amount) FROM ledger_entries WHERE walletId = ?`.
@@ -1170,13 +1184,14 @@ INDEX: ledger_entries(usageRecordId) WHERE usageRecordId IS NOT NULL
 ```
 
 **Notes:**
+
 - `amount`: Positive = credit (deposit, refund, renewal, welcome credit). Negative = debit (usage charge).
 - `balanceAfter`: The wallet's balance after this entry. Enables point-in-time balance reconstruction without aggregation.
 - `entryType`: `deposit`, `usage_charge`, `refund`, `adjustment`, `renewal`, `welcome_credit`.
 - Three nullable FK columns replace the old polymorphic `referenceType + referenceId` pattern. Exactly one must be non-null (enforced by CHECK constraint). Full referential integrity — no typos, no orphaned references:
-    - `paymentId`: Set for `deposit` entries (user added funds).
-    - `usageRecordId`: Set for `usage_charge` and `refund` entries (AI operation charged or refunded).
-    - `sourceWalletId`: Set for `renewal`, `welcome_credit`, and `adjustment` entries (internal money creation/movement — the wallet itself is the reason).
+  - `paymentId`: Set for `deposit` entries (user added funds).
+  - `usageRecordId`: Set for `usage_charge` and `refund` entries (AI operation charged or refunded).
+  - `sourceWalletId`: Set for `renewal`, `welcome_credit`, and `adjustment` entries (internal money creation/movement — the wallet itself is the reason).
 - This is a stable set of three categories: money comes in (payment), money goes out (usage), money is created/adjusted internally (wallet). There is no realistic fourth category.
 - One usage record can produce multiple ledger entries over its lifetime: the original `usage_charge` and a later `refund`. This is a normal one-to-many relationship via `usageRecordId`.
 - This table is append-only. Rows are never updated or deleted. Corrections are made by inserting new entries (e.g., a refund is a positive `refund` entry, not a deletion of the original charge).
@@ -1209,6 +1224,7 @@ INDEX: usage_records(sourceType, sourceId)
 ```
 
 **Notes:**
+
 - `type`: Discriminator telling you which child table holds the details. Initial type: `llm_completion`. Future types: `image_generation`, `video_generation`, `tts`, `stt`, `code_execution`. Adding a new AI capability = one new child table, zero changes to this table or any existing child table.
 - `status`: `pending` → `completed` or `failed`. Failed operations with `cost > 0` can trigger automatic refund ledger entries.
 - `sourceType` + `sourceId`: Polymorphic reference to what triggered the operation. `sourceType = 'message'`, `sourceId = message.id` for chat operations. `sourceType = 'standalone'` for direct generations not tied to chat. A single message can have multiple usage records (e.g., text response + image generation in one reply).
@@ -1241,6 +1257,7 @@ INDEX: llmCompletions(model)
 ```
 
 **Notes:**
+
 - Every column is NOT NULL, properly typed, indexable, and self-documenting. No JSONB parsing, no Zod runtime validation needed.
 - `usageRecordId` is UNIQUE — one-to-one with the parent record. The FK is the join path: `SELECT * FROM usage_records JOIN llmCompletions USING (usageRecordId) WHERE ...`.
 - `model`: e.g., `claude-sonnet-4-20250514`. Indexed for "cost by model" analytics.
@@ -1248,10 +1265,10 @@ INDEX: llmCompletions(model)
 - `cachedTokens`: Tokens served from prompt cache. Default 0.
 - ON DELETE CASCADE: if the parent usage record is deleted (account deletion), the child goes with it.
 - **Future child tables follow the same pattern.** Each new AI capability gets its own table with properly typed, NOT NULL columns:
-    - `imageGenerations`: `usageRecordId, model, resolution, count, style, seed`
-    - `videoGenerations`: `usageRecordId, model, durationSeconds, resolution, fps`
-    - `ttsGenerations`: `usageRecordId, model, voiceId, durationSeconds, characterCount`
-    - Each is one migration creating one table. No changes to `usage_records` or existing child tables.
+  - `imageGenerations`: `usageRecordId, model, resolution, count, style, seed`
+  - `videoGenerations`: `usageRecordId, model, durationSeconds, resolution, fps`
+  - `ttsGenerations`: `usageRecordId, model, voiceId, durationSeconds, characterCount`
+  - Each is one migration creating one table. No changes to `usage_records` or existing child tables.
 
 ---
 
@@ -1276,6 +1293,7 @@ INDEX: projects(userId)
 ```
 
 **Notes:**
+
 - `encryptedName` and `encryptedDescription` are ECIES blobs encrypted under the user's account public key. The server cannot read folder names or descriptions. The client decrypts them alongside conversation titles.
 - Since project metadata is encrypted, the server cannot sort by project name. Sorting and grouping happens client-side after decryption.
 - Projects are single-owner. Group conversations belong to the conversation owner's project structure. Other members do not see the owner's project organization.
@@ -1311,6 +1329,7 @@ INDEX: conversations(projectId) WHERE projectId IS NOT NULL
 ```
 
 **Notes:**
+
 - `userId`: The owner. FK to users. Owner leaving deletes the entire conversation (cascade).
 - `projectId`: Nullable FK to projects. A conversation can be unfiled (no project). Users can organize later.
 - `title`: ECIES blob encrypted under the epoch public key indicated by `titleEpochNumber`. Decrypted client-side the same way as messages — fetch epoch wrap, unwrap, decrypt. This means the conversation list page requires epoch key resolution for each conversation. Security over convenience.
@@ -1347,6 +1366,7 @@ INDEX: pendingRemovals(conversationId)
 ```
 
 **Notes:**
+
 - `memberId`: FK to `conversationMembers.id`. Since `conversationMembers` already unifies users and links, this provides proper referential integrity without polymorphic guessing.
 - `requestedBy`: Who initiated the removal. NULL for voluntary leaves or link revocations triggered by the system. `ON DELETE SET NULL` because the audit trail should survive even if the requesting admin's account is later deleted.
 - Rows are deleted atomically when the epoch rotation is committed. The rotating client fetches all pending removal IDs, excludes them from the new epoch's member wraps, and the server deletes these rows in the same transaction.
@@ -1383,6 +1403,7 @@ INDEX: conversationMembers(userId) WHERE leftAt IS NULL
 ```
 
 **Notes:**
+
 - This is the application-layer membership table. `epochMembers` is the crypto-layer membership table. They serve different purposes and both exist.
 - **The owner gets a `conversationMembers` row on conversation creation** with `privilege = 'owner'`, `visibleFromEpoch = 1`. This ensures "list all members" queries include the owner, and the owner is part of the same membership abstraction as everyone else. Without this, queries and budget logic would need special-case handling for the owner.
 - When adding a member: create a `conversationMembers` row (application access) AND an `epochMembers` row (key distribution).
@@ -1419,6 +1440,7 @@ INDEX: epochs(conversationId, epochNumber)
 ```
 
 **Notes:**
+
 - `epochPublicKey`: 32-byte X25519 public key. Stored plaintext so the server can encrypt AI responses and user messages under it.
 - `confirmationHash`: 32-byte SHA-256 hash of the epoch private key. After unwrapping, the client hashes the result and compares. Fast failure on corrupted wraps or wrong keys.
 - `chainLink`: ECIES blob (~81 bytes). Contains the PREVIOUS epoch's private key encrypted under THIS epoch's public key. NULL for the first epoch (nothing to chain to). Enables backward traversal: unwrap current epoch key → decrypt chain link → get previous epoch key → repeat.
@@ -1449,6 +1471,7 @@ INDEX: epochMembers(memberPublicKey)
 ```
 
 **Notes:**
+
 - `memberPublicKey`: The 32-byte X25519 public key of the member (account or link virtual member). Used to look up wraps for a given user's public key.
 - `wrap`: ~81-byte ECIES blob. The epoch private key encrypted under this member's public key. The member decrypts using their account private key (or link-derived private key).
 - This table stores wraps ONLY for the current epoch. On rotation, old wraps are deleted and new wraps are created for remaining members. Historical epoch access is via chain links, not retained wraps.
@@ -1479,6 +1502,7 @@ INDEX: sharedLinks(conversationId) WHERE revokedAt IS NULL
 ```
 
 **Notes:**
+
 - `linkPublicKey`: 32-byte X25519 public key derived from the link secret via HKDF. The server never sees the link secret (it's in the URL fragment).
 - No `linkWrap` or `epochNumber` column. Wraps for the link's public key are stored in `epochMembers` uniformly, same as account member wraps. One code path for all wraps.
 - No `expiresAt`. Links are valid until revoked. Expiry can be added later.
@@ -1514,6 +1538,7 @@ CHECK: senderType IN ('user', 'ai')
 ```
 
 **Notes:**
+
 - `encryptedBlob`: ECIES blob. Version byte (1B) + ephemeral public key (32B) + ciphertext + Poly1305 tag (16B). 49 bytes overhead + compressed plaintext.
 - `senderType`: `user` or `ai`.
 - `senderId`: User ID of the sender. NULL for AI messages and anonymous guests.
@@ -1544,6 +1569,7 @@ FK: messageId → messages(id) ON DELETE CASCADE
 ```
 
 **Notes:**
+
 - `shareBlob`: ECIES blob encrypted under a key pair derived from a random share secret. The secret is in the URL fragment, never sent to server.
 - URL format: `https://app.com/m/{shareId}#{shareSecretBase64url}`
 - Each share is cryptographically independent. Different random secret per share, even for the same message shared twice. Access to one share reveals nothing about the conversation or other shares.
@@ -1571,6 +1597,7 @@ FK: memberId → conversationMembers(id) ON DELETE CASCADE
 ```
 
 **Notes:**
+
 - Keyed to `conversationMembers.id`, not to `conversationId + userId`. Since `conversationMembers` already unifies users and links, this gives full parity: both authenticated users and guest link virtual members get budget tracking through the same table with the same code path.
 - `conversationId` and `userId` are not stored here — derivable from the `conversationMembers` row.
 - Only used when `conversations.perPersonBudget` is NULL (individual budgets mode). If `perPersonBudget` is non-null, that value applies to everyone and this table tracks only `spent`.
@@ -1598,6 +1625,7 @@ UNIQUE: conversationId
 ```
 
 **Notes:**
+
 - `totalSpent`: Cached counter. Updated atomically in the same transaction as the usage record insert when the owner is charged. Checked against `conversations.conversationBudget`.
 - Created lazily when the first member (non-owner) sends a message that charges the owner.
 - **Budget race condition:** Two members sending simultaneously can both pass the budget check before either commits. The existing Redis-based speculative budget enforcement system handles this — it speculatively reserves budget in Redis before the database transaction, preventing concurrent overshoots. This system must be expanded from its current single-user scope to cover group conversations: reserve against both `memberBudgets.spent` (per-member cap) and `conversationSpending.totalSpent` (conversation-wide cap) in Redis before committing to the database. Redis is the fast-path gate; the database is the source of truth reconciled after commit.
@@ -1632,6 +1660,7 @@ INDEX: payments(userId)
 ```
 
 **Notes:**
+
 - When a payment completes, a `ledger_entries` row is created with `entryType = 'deposit'`, `paymentId = payment.id`, and the user's `purchased` wallet balance is incremented atomically.
 - `status`: `pending`, `completed`, `failed`, `refunded`.
 
@@ -1721,26 +1750,26 @@ INDEX ON payments(userId)
 
 ### Tables Summary
 
-| Table | Purpose | Rows Grow With |
-|---|---|---|
-| users | Account identity + encrypted keys | User signups |
-| wallets | Multi-source credit pools | Wallet types per user (typically 2) |
-| ledger_entries | Append-only financial audit trail | Every money movement |
-| usage_records | Parent table for AI operation facts | Every AI invocation |
-| llmCompletions | LLM-specific operation details (child of usage_records) | Every LLM invocation |
-| projects | Encrypted conversation folders | User-created folders |
-| conversations | Chat containers (solo + group) | User-created conversations |
-| pendingRemovals | Queued member removals | Removals between rotations (transient) |
-| conversationMembers | Application-layer membership | Member joins (soft-deleted on leave) |
-| epochs | Cryptographic epoch keys | Member removals (bounded by human actions) |
-| epochMembers | Per-member epoch key wraps | Current members × current epoch only |
-| sharedLinks | Public link metadata | Link creation |
-| messages | Encrypted message content | Every message (primary storage) |
-| sharedMessages | Isolated single-message shares | User-created shares |
-| memberBudgets | Per-member conversation spending limits | Owner-configured budgets |
-| conversationSpending | Cached conversation-wide spending | One per conversation with budget |
-| payments | Payment processor records | User purchases |
-| serviceEvidence | Testing/audit log | Service interactions |
+| Table                | Purpose                                                 | Rows Grow With                             |
+| -------------------- | ------------------------------------------------------- | ------------------------------------------ |
+| users                | Account identity + encrypted keys                       | User signups                               |
+| wallets              | Multi-source credit pools                               | Wallet types per user (typically 2)        |
+| ledger_entries       | Append-only financial audit trail                       | Every money movement                       |
+| usage_records        | Parent table for AI operation facts                     | Every AI invocation                        |
+| llmCompletions       | LLM-specific operation details (child of usage_records) | Every LLM invocation                       |
+| projects             | Encrypted conversation folders                          | User-created folders                       |
+| conversations        | Chat containers (solo + group)                          | User-created conversations                 |
+| pendingRemovals      | Queued member removals                                  | Removals between rotations (transient)     |
+| conversationMembers  | Application-layer membership                            | Member joins (soft-deleted on leave)       |
+| epochs               | Cryptographic epoch keys                                | Member removals (bounded by human actions) |
+| epochMembers         | Per-member epoch key wraps                              | Current members × current epoch only       |
+| sharedLinks          | Public link metadata                                    | Link creation                              |
+| messages             | Encrypted message content                               | Every message (primary storage)            |
+| sharedMessages       | Isolated single-message shares                          | User-created shares                        |
+| memberBudgets        | Per-member conversation spending limits                 | Owner-configured budgets                   |
+| conversationSpending | Cached conversation-wide spending                       | One per conversation with budget           |
+| payments             | Payment processor records                               | User purchases                             |
+| serviceEvidence      | Testing/audit log                                       | Service interactions                       |
 
 ---
 
@@ -1767,15 +1796,15 @@ INDEX ON payments(userId)
 
 ### Accepted Tradeoffs
 
-| Tradeoff | Severity | Rationale |
-|---|---|---|
-| Server sees AI plaintext | Accepted | Fundamental to the product |
-| No message signatures in v1 | Medium | Ed25519 can be added later |
-| Server-enforced privileges | Low | Cryptographic enforcement adds no real value against the stated threat model |
-| Metadata visible | Medium | Standard for all E2EE systems |
-| No per-message PFS | Low | Server already sees plaintext during AI invocation |
-| Race window on revocation | Low | Explicitly accepted, bounded by lazy rotation |
-| History visibility is server-enforced | Low | New members never had old keys; same trust boundary as AI plaintext |
+| Tradeoff                              | Severity | Rationale                                                                    |
+| ------------------------------------- | -------- | ---------------------------------------------------------------------------- |
+| Server sees AI plaintext              | Accepted | Fundamental to the product                                                   |
+| No message signatures in v1           | Medium   | Ed25519 can be added later                                                   |
+| Server-enforced privileges            | Low      | Cryptographic enforcement adds no real value against the stated threat model |
+| Metadata visible                      | Medium   | Standard for all E2EE systems                                                |
+| No per-message PFS                    | Low      | Server already sees plaintext during AI invocation                           |
+| Race window on revocation             | Low      | Explicitly accepted, bounded by lazy rotation                                |
+| History visibility is server-enforced | Low      | New members never had old keys; same trust boundary as AI plaintext          |
 
 ### Full Decryption Chain
 

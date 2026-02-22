@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import * as React from 'react';
 import type { VirtuosoHandle } from 'react-virtuoso';
 import { MessageList } from './message-list';
+import type { Message } from '@/lib/api';
 
 // Mock mermaid to avoid actual rendering
 vi.mock('mermaid', () => ({
@@ -129,36 +130,143 @@ describe('MessageList', () => {
     });
   });
 
-  describe('document extraction', () => {
-    it('calls onDocumentsExtracted when assistant message has documents', () => {
-      const largeCode = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `const line${String(index)} = ${String(index)};`)
-        .join('\n');
-      const messagesWithCode = [
+  describe('error message identification', () => {
+    it('passes isError to MessageItem when errorMessageId matches', () => {
+      const errorMessages = [
         {
-          id: 'msg-with-code',
+          id: 'err-1',
           conversationId: 'conv-1',
           role: 'assistant' as const,
-          content: `\`\`\`typescript\n${largeCode}\n\`\`\``,
+          content: 'You ran out of messages. [Sign up](/signup) to continue!',
           createdAt: '2024-01-01T00:00:00Z',
         },
       ];
-      const onDocumentsExtracted = vi.fn();
+      render(<MessageList messages={errorMessages} errorMessageId="err-1" />);
 
+      const messageItem = screen.getByTestId('message-item');
+      expect(messageItem).toHaveAttribute('data-error', 'true');
+    });
+
+    it('does not pass isError when errorMessageId does not match', () => {
+      render(<MessageList messages={messages} errorMessageId="nonexistent" />);
+
+      const messageItems = screen.getAllByTestId('message-item');
+      for (const item of messageItems) {
+        expect(item).not.toHaveAttribute('data-error');
+      }
+    });
+  });
+
+  describe('onShare', () => {
+    it('passes onShare to assistant message items', () => {
+      const onShare = vi.fn();
+      render(<MessageList messages={messages} onShare={onShare} />);
+
+      const shareButtons = screen.getAllByLabelText('Share');
+      expect(shareButtons).toHaveLength(1);
+    });
+
+    it('does not render share buttons when onShare is not provided', () => {
+      render(<MessageList messages={messages} />);
+
+      expect(screen.queryByLabelText('Share')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('group chat mode', () => {
+    const members = [
+      { id: 'member-1', userId: 'user-1', username: 'alice', privilege: 'owner' },
+      { id: 'member-2', userId: 'user-2', username: 'bob', privilege: 'admin' },
+    ];
+
+    const groupMessages: Message[] = [
+      {
+        id: 'a1',
+        conversationId: 'conv-1',
+        role: 'user',
+        content: 'Hello from Alice',
+        createdAt: '2024-01-01T00:00:00Z',
+        senderId: 'user-1',
+      },
+      {
+        id: 'a2',
+        conversationId: 'conv-1',
+        role: 'user',
+        content: 'Second from Alice',
+        createdAt: '2024-01-01T00:00:01Z',
+        senderId: 'user-1',
+      },
+      {
+        id: 'b1',
+        conversationId: 'conv-1',
+        role: 'user',
+        content: 'Hi from Bob',
+        createdAt: '2024-01-01T00:00:02Z',
+        senderId: 'user-2',
+      },
+      {
+        id: 'ai1',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'AI response',
+        createdAt: '2024-01-01T00:00:03Z',
+      },
+    ];
+
+    it('groups consecutive same-sender messages into fewer Virtuoso rows', () => {
       render(
-        <MessageList messages={messagesWithCode} onDocumentsExtracted={onDocumentsExtracted} />
+        <MessageList
+          messages={groupMessages}
+          isGroupChat
+          currentUserId="user-1"
+          members={members}
+        />
       );
 
-      act(() => {
-        vi.runAllTimers();
-      });
+      // 4 messages should produce 3 groups: alice×2, bob×1, AI×1
+      const messageItems = screen.getAllByTestId('message-item');
+      expect(messageItems).toHaveLength(3);
+    });
 
-      expect(onDocumentsExtracted).toHaveBeenCalled();
+    it('shows sender labels in group chat mode', () => {
+      render(
+        <MessageList
+          messages={groupMessages}
+          isGroupChat
+          currentUserId="user-1"
+          members={members}
+        />
+      );
 
-      const [messageId, documents] = onDocumentsExtracted.mock.calls[0] as [string, unknown[]];
-      expect(messageId).toBe('msg-with-code');
-      expect(documents).toHaveLength(1);
+      const labels = screen.getAllByTestId('sender-label');
+      // Should have labels for: alice group ("You"), bob group ("bob")
+      // AI messages don't have labels
+      expect(labels).toHaveLength(2);
+      expect(labels[0]).toHaveTextContent('You');
+      expect(labels[1]).toHaveTextContent('bob');
+    });
+
+    it('does not group messages when not in group chat mode', () => {
+      render(<MessageList messages={groupMessages} />);
+
+      // Without group chat mode, each message is a separate row
+      const messageItems = screen.getAllByTestId('message-item');
+      expect(messageItems).toHaveLength(4);
+    });
+
+    it('renders both messages within a grouped bubble', () => {
+      render(
+        <MessageList
+          messages={groupMessages}
+          isGroupChat
+          currentUserId="user-1"
+          members={members}
+        />
+      );
+
+      // Both alice messages should be visible
+      expect(screen.getByText('Hello from Alice')).toBeInTheDocument();
+      expect(screen.getByText('Second from Alice')).toBeInTheDocument();
     });
   });
 });

@@ -1,583 +1,191 @@
 import { describe, it, expect } from 'vitest';
-import { extractDocuments } from './document-parser';
+import {
+  getLanguageDisplayName,
+  getFileExtension,
+  extractTitle,
+  generateDocumentId,
+  getDocumentType,
+  shouldExtractAsDocument,
+  MIN_LINES_FOR_DOCUMENT,
+} from './document-parser';
 
-describe('extractDocuments', () => {
-  describe('returns empty documents for content without code blocks', () => {
-    it('handles plain text', () => {
-      const content = 'This is just some plain text.';
-      const result = extractDocuments(content);
-
-      expect(result.documents).toEqual([]);
-      expect(result.inlineContent).toBe(content);
-    });
-
-    it('handles markdown with headers and lists', () => {
-      const content = `# Title
-
-- Item 1
-- Item 2
-
-Some paragraph text.`;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toEqual([]);
-      expect(result.inlineContent).toBe(content);
-    });
-
-    it('handles inline code', () => {
-      const content = 'Use the `useState` hook for state management.';
-      const result = extractDocuments(content);
-
-      expect(result.documents).toEqual([]);
-      expect(result.inlineContent).toBe(content);
-    });
+describe('getLanguageDisplayName', () => {
+  it('returns proper capitalization for JavaScript', () => {
+    expect(getLanguageDisplayName('javascript')).toBe('JavaScript');
   });
 
-  describe('keeps short code blocks inline', () => {
-    it('keeps code blocks under 15 lines inline', () => {
-      const content = `Here's an example:
-
-\`\`\`typescript
-function hello() {
-  return 'world';
-}
-\`\`\`
-
-That's it!`;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toEqual([]);
-      expect(result.inlineContent).toBe(content);
-    });
-
-    it('keeps code blocks without language inline regardless of length', () => {
-      const longCode = Array.from({ length: 20 }).fill('line').join('\n');
-      const content = `\`\`\`
-${longCode}
-\`\`\``;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toEqual([]);
-      expect(result.inlineContent).toBe(content);
-    });
+  it('returns proper capitalization for TypeScript', () => {
+    expect(getLanguageDisplayName('typescript')).toBe('TypeScript');
   });
 
-  describe('extracts code blocks with language ≥15 lines', () => {
-    it('extracts a 15-line TypeScript code block', () => {
-      const codeContent = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `const line${String(index)} = ${String(index)};`)
-        .join('\n');
-      const content = `Here's the code:
-
-\`\`\`typescript
-${codeContent}
-\`\`\`
-
-Done!`;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toHaveLength(1);
-      const document = result.documents[0];
-      expect(document).toBeDefined();
-      if (document) {
-        expect(document.type).toBe('code');
-        expect(document.language).toBe('typescript');
-        expect(document.content).toBe(codeContent);
-        expect(document.lineCount).toBe(15);
-      }
-    });
-
-    it('extracts a 20-line Python code block', () => {
-      const codeContent = Array.from({ length: 20 })
-        .fill(null)
-        .map((_, index) => `x${String(index)} = ${String(index)}`)
-        .join('\n');
-      const content = `\`\`\`python
-${codeContent}
-\`\`\``;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toHaveLength(1);
-      const document = result.documents[0];
-      expect(document).toBeDefined();
-      if (document) {
-        expect(document.type).toBe('code');
-        expect(document.language).toBe('python');
-        expect(document.lineCount).toBe(20);
-      }
-    });
-
-    it('replaces extracted code with placeholder in inline content', () => {
-      const codeContent = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `line ${String(index)}`)
-        .join('\n');
-      const content = `Before
-
-\`\`\`javascript
-${codeContent}
-\`\`\`
-
-After`;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toHaveLength(1);
-      const document = result.documents[0];
-      expect(document).toBeDefined();
-      if (document) {
-        expect(result.inlineContent).toContain(`<!--doc:${document.id}-->`);
-        expect(result.inlineContent).not.toContain(codeContent);
-      }
-    });
+  it('returns acronym-style for CSS', () => {
+    expect(getLanguageDisplayName('css')).toBe('CSS');
   });
 
-  describe('extracts mermaid diagrams regardless of size', () => {
-    it('extracts a small mermaid diagram', () => {
-      const content = `\`\`\`mermaid
-flowchart TD
-    A --> B
-\`\`\``;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toHaveLength(1);
-      const document = result.documents[0];
-      expect(document).toBeDefined();
-      if (document) {
-        expect(document.type).toBe('mermaid');
-        expect(document.content).toBe('flowchart TD\n    A --> B');
-      }
-    });
-
-    it('extracts a large mermaid diagram', () => {
-      const diagram = `flowchart TD
-${Array.from({ length: 20 })
-  .fill(null)
-  .map((_, index) => `    N${String(index)} --> N${String(index + 1)}`)
-  .join('\n')}`;
-      const content = `\`\`\`mermaid
-${diagram}
-\`\`\``;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toHaveLength(1);
-      const document = result.documents[0];
-      expect(document).toBeDefined();
-      if (document) {
-        expect(document.type).toBe('mermaid');
-      }
-    });
+  it('returns acronym-style for HTML', () => {
+    expect(getLanguageDisplayName('html')).toBe('HTML');
   });
 
-  describe('extracts HTML/JSX/TSX blocks ≥15 lines', () => {
-    it('extracts a 15-line HTML block', () => {
-      const htmlContent = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `<div>Line ${String(index)}</div>`)
-        .join('\n');
-      const content = `\`\`\`html
-${htmlContent}
-\`\`\``;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toHaveLength(1);
-      const document = result.documents[0];
-      expect(document).toBeDefined();
-      if (document) {
-        expect(document.type).toBe('html');
-        expect(document.language).toBe('html');
-      }
-    });
-
-    it('extracts a 15-line JSX block as react type', () => {
-      const jsxContent = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `  <div key={${String(index)}}>{${String(index)}}</div>`)
-        .join('\n');
-      const content = `\`\`\`jsx
-function Component() {
-  return (
-${jsxContent}
-  );
-}
-\`\`\``;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toHaveLength(1);
-      const document = result.documents[0];
-      expect(document).toBeDefined();
-      if (document) {
-        expect(document.type).toBe('react');
-        expect(document.language).toBe('jsx');
-      }
-    });
-
-    it('extracts a 15-line TSX block as react type', () => {
-      const tsxContent = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `  <span>{${String(index)}}</span>`)
-        .join('\n');
-      const content = `\`\`\`tsx
-export function Component(): JSX.Element {
-  return (
-${tsxContent}
-  );
-}
-\`\`\``;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toHaveLength(1);
-      const document = result.documents[0];
-      expect(document).toBeDefined();
-      if (document) {
-        expect(document.type).toBe('react');
-        expect(document.language).toBe('tsx');
-      }
-    });
-
-    it('keeps short HTML blocks inline', () => {
-      const content = `\`\`\`html
-<div>
-  <p>Hello</p>
-</div>
-\`\`\``;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toEqual([]);
-      expect(result.inlineContent).toBe(content);
-    });
+  it('returns acronym-style for JSON', () => {
+    expect(getLanguageDisplayName('json')).toBe('JSON');
   });
 
-  describe('handles multiple documents in one message', () => {
-    it('extracts multiple code blocks', () => {
-      const code1 = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `// Line ${String(index)}`)
-        .join('\n');
-      const code2 = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `# Line ${String(index)}`)
-        .join('\n');
-      const content = `First file:
-
-\`\`\`typescript
-${code1}
-\`\`\`
-
-Second file:
-
-\`\`\`python
-${code2}
-\`\`\``;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toHaveLength(2);
-      expect(result.documents[0]?.language).toBe('typescript');
-      expect(result.documents[1]?.language).toBe('python');
-    });
-
-    it('extracts mixed document types', () => {
-      const code = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `x = ${String(index)}`)
-        .join('\n');
-      const content = `Code:
-
-\`\`\`python
-${code}
-\`\`\`
-
-Diagram:
-
-\`\`\`mermaid
-flowchart TD
-    A --> B
-\`\`\``;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toHaveLength(2);
-      expect(result.documents[0]?.type).toBe('code');
-      expect(result.documents[1]?.type).toBe('mermaid');
-    });
+  it('returns proper name for Python', () => {
+    expect(getLanguageDisplayName('python')).toBe('Python');
   });
 
-  describe('document ID generation', () => {
-    it('generates stable IDs based on content hash', () => {
-      const code = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `line ${String(index)}`)
-        .join('\n');
-      const content = `\`\`\`javascript
-${code}
-\`\`\``;
-
-      const result1 = extractDocuments(content);
-      const result2 = extractDocuments(content);
-
-      expect(result1.documents[0]?.id).toBe(result2.documents[0]?.id);
-    });
-
-    it('generates different IDs for different content', () => {
-      const code1 = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `a${String(index)}`)
-        .join('\n');
-      const code2 = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `b${String(index)}`)
-        .join('\n');
-
-      const result1 = extractDocuments(`\`\`\`javascript\n${code1}\n\`\`\``);
-      const result2 = extractDocuments(`\`\`\`javascript\n${code2}\n\`\`\``);
-
-      expect(result1.documents[0]?.id).not.toBe(result2.documents[0]?.id);
-    });
-
-    it('identical content blocks share the same ID (content-based hashing)', () => {
-      const code = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `x = ${String(index)}`)
-        .join('\n');
-      const content = `\`\`\`python
-${code}
-\`\`\`
-
-\`\`\`python
-${code}
-\`\`\``;
-      const result = extractDocuments(content);
-
-      expect(result.documents).toHaveLength(2);
-      // Identical content produces identical IDs (content-based hashing)
-      expect(result.documents[0]?.id).toBe(result.documents[1]?.id);
-    });
+  it('handles special display names like C++', () => {
+    expect(getLanguageDisplayName('cpp')).toBe('C++');
   });
 
-  describe('title generation', () => {
-    it('generates title from first meaningful line of code', () => {
-      const code = `function calculateTotal(items) {
-${Array.from({ length: 14 })
-  .fill(null)
-  .map(() => '  // implementation')
-  .join('\n')}
-}`;
-      const content = `\`\`\`javascript
-${code}
-\`\`\``;
-      const result = extractDocuments(content);
+  it('handles special display names like C#', () => {
+    expect(getLanguageDisplayName('csharp')).toBe('C#');
+  });
 
-      const document = result.documents[0];
-      expect(document).toBeDefined();
-      if (document) {
-        expect(document.title).toContain('calculateTotal');
-      }
-    });
+  it('capitalizes first letter for unknown languages', () => {
+    expect(getLanguageDisplayName('obscurelang')).toBe('Obscurelang');
+  });
 
-    it('generates title for mermaid from diagram type', () => {
-      const content = `\`\`\`mermaid
-sequenceDiagram
-    Alice->>Bob: Hello
-\`\`\``;
-      const result = extractDocuments(content);
+  it('handles single-character languages', () => {
+    expect(getLanguageDisplayName('r')).toBe('R');
+    expect(getLanguageDisplayName('c')).toBe('C');
+  });
 
-      const document = result.documents[0];
-      expect(document).toBeDefined();
-      if (document) {
-        expect(document.title.toLowerCase()).toContain('sequence');
-      }
-    });
+  it('resolves alias js to JavaScript', () => {
+    expect(getLanguageDisplayName('js')).toBe('JavaScript');
+  });
 
-    it('generates title for class diagram', () => {
-      const content = `\`\`\`mermaid
-classDiagram
-    Animal <|-- Duck
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('Class Diagram');
-    });
+  it('resolves alias ts to TypeScript', () => {
+    expect(getLanguageDisplayName('ts')).toBe('TypeScript');
+  });
 
-    it('generates title for state diagram', () => {
-      const content = `\`\`\`mermaid
-stateDiagram
-    [*] --> Still
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('State Diagram');
-    });
+  it('resolves alias py to Python', () => {
+    expect(getLanguageDisplayName('py')).toBe('Python');
+  });
 
-    it('generates title for ER diagram', () => {
-      const content = `\`\`\`mermaid
-erDiagram
-    CUSTOMER ||--o{ ORDER : places
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('ER Diagram');
-    });
+  it('resolves alias objc to Objective-C', () => {
+    expect(getLanguageDisplayName('objc')).toBe('Objective-C');
+  });
 
-    it('generates title for gantt chart', () => {
-      const content = `\`\`\`mermaid
-gantt
-    title A Gantt Diagram
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('Gantt Chart');
-    });
+  it('resolves hyphenated ID objective-c', () => {
+    expect(getLanguageDisplayName('objective-c')).toBe('Objective-C');
+  });
+});
 
-    it('generates title for pie chart', () => {
-      const content = `\`\`\`mermaid
-pie
-    "Dogs" : 386
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('Pie Chart');
-    });
+describe('getFileExtension', () => {
+  it('returns js for javascript', () => {
+    expect(getFileExtension('javascript')).toBe('js');
+  });
 
-    it('generates title for graph diagram', () => {
-      const content = `\`\`\`mermaid
-graph TD
-    A --> B
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('Graph Diagram');
-    });
+  it('returns ts for typescript', () => {
+    expect(getFileExtension('typescript')).toBe('ts');
+  });
 
-    it('generates fallback title for unknown mermaid type', () => {
-      const content = `\`\`\`mermaid
-unknownDiagram
-    something
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('Mermaid Diagram');
-    });
+  it('returns py for python', () => {
+    expect(getFileExtension('python')).toBe('py');
+  });
 
-    it('falls back to language name when no meaningful title found', () => {
-      const code = Array.from({ length: 15 })
-        .fill(null)
-        .map((_, index) => `// comment ${String(index)}`)
-        .join('\n');
-      const content = `\`\`\`typescript
-${code}
-\`\`\``;
-      const result = extractDocuments(content);
+  it('returns rs for rust', () => {
+    expect(getFileExtension('rust')).toBe('rs');
+  });
 
-      const document = result.documents[0];
-      expect(document).toBeDefined();
-      if (document) {
-        expect(document.title.toLowerCase()).toContain('typescript');
-      }
-    });
+  it('returns cs for csharp (filters c# alias)', () => {
+    expect(getFileExtension('csharp')).toBe('cs');
+  });
 
-    it('extracts title from class definition', () => {
-      const code = `class UserService {
-${Array.from({ length: 14 })
-  .fill(null)
-  .map(() => '  // implementation')
-  .join('\n')}
-}`;
-      const content = `\`\`\`typescript
-${code}
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('UserService');
-    });
+  it('falls back to language ID for go', () => {
+    expect(getFileExtension('go')).toBe('go');
+  });
 
-    it('extracts title from interface definition', () => {
-      const code = `interface ApiResponse {
-${Array.from({ length: 14 })
-  .fill(null)
-  .map(() => '  field: string;')
-  .join('\n')}
-}`;
-      const content = `\`\`\`typescript
-${code}
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('ApiResponse');
-    });
+  it('falls back to language ID for java', () => {
+    expect(getFileExtension('java')).toBe('java');
+  });
 
-    it('extracts title from type definition', () => {
-      const code = `type ConfigOptions = {
-${Array.from({ length: 14 })
-  .fill(null)
-  .map(() => '  option: boolean;')
-  .join('\n')}
-};`;
-      const content = `\`\`\`typescript
-${code}
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('ConfigOptions');
-    });
+  it('falls back to language ID lowercase for unknown', () => {
+    expect(getFileExtension('UnknownLang')).toBe('unknownlang');
+  });
+});
 
-    it('extracts title from enum definition', () => {
-      const code = `enum Status {
-${Array.from({ length: 14 })
-  .fill(null)
-  .map((_, index) => `  Value${String(index)},`)
-  .join('\n')}
-}`;
-      const content = `\`\`\`typescript
-${code}
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('Status');
-    });
+describe('generateDocumentId', () => {
+  it('returns string starting with doc-', () => {
+    expect(generateDocumentId('hello')).toMatch(/^doc-/);
+  });
 
-    it('extracts title from Python def', () => {
-      const code = `def process_data(items):
-${Array.from({ length: 14 })
-  .fill(null)
-  .map(() => '    pass')
-  .join('\n')}`;
-      const content = `\`\`\`python
-${code}
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('process_data');
-    });
+  it('is deterministic for same content', () => {
+    const id1 = generateDocumentId('const x = 1;');
+    const id2 = generateDocumentId('const x = 1;');
+    expect(id1).toBe(id2);
+  });
 
-    it('extracts title from Python class', () => {
-      const code = `class DataProcessor:
-${Array.from({ length: 14 })
-  .fill(null)
-  .map(() => '    pass')
-  .join('\n')}`;
-      const content = `\`\`\`python
-${code}
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('DataProcessor');
-    });
+  it('returns different IDs for different content', () => {
+    const id1 = generateDocumentId('const x = 1;');
+    const id2 = generateDocumentId('const y = 2;');
+    expect(id1).not.toBe(id2);
+  });
+});
 
-    it('skips Python comments when finding title', () => {
-      const code = `# This is a comment
-def helper_function():
-${Array.from({ length: 13 })
-  .fill(null)
-  .map(() => '    pass')
-  .join('\n')}`;
-      const content = `\`\`\`python
-${code}
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('helper_function');
-    });
+describe('getDocumentType', () => {
+  it('returns mermaid for mermaid language', () => {
+    expect(getDocumentType('mermaid')).toBe('mermaid');
+  });
 
-    it('skips multiline comments when finding title', () => {
-      const code = `/* This is a
- * multiline comment
- */
-function realFunction() {
-${Array.from({ length: 11 })
-  .fill(null)
-  .map(() => '  // impl')
-  .join('\n')}
-}`;
-      const content = `\`\`\`javascript
-${code}
-\`\`\``;
-      const result = extractDocuments(content);
-      expect(result.documents[0]?.title).toBe('realFunction');
-    });
+  it('returns html for html language', () => {
+    expect(getDocumentType('html')).toBe('html');
+  });
+
+  it('returns react for jsx language', () => {
+    expect(getDocumentType('jsx')).toBe('react');
+  });
+
+  it('returns react for tsx language', () => {
+    expect(getDocumentType('tsx')).toBe('react');
+  });
+
+  it('returns code for other languages', () => {
+    expect(getDocumentType('typescript')).toBe('code');
+    expect(getDocumentType('python')).toBe('code');
+    expect(getDocumentType('go')).toBe('code');
+  });
+});
+
+describe('shouldExtractAsDocument', () => {
+  it('returns false when language is undefined', () => {
+    expect(shouldExtractAsDocument(undefined, 20)).toBe(false);
+  });
+
+  it('returns true for mermaid regardless of line count', () => {
+    expect(shouldExtractAsDocument('mermaid', 1)).toBe(true);
+    expect(shouldExtractAsDocument('mermaid', 3)).toBe(true);
+  });
+
+  it('returns false for code with fewer than MIN_LINES_FOR_DOCUMENT lines', () => {
+    expect(shouldExtractAsDocument('typescript', MIN_LINES_FOR_DOCUMENT - 1)).toBe(false);
+  });
+
+  it('returns true for code with MIN_LINES_FOR_DOCUMENT or more lines', () => {
+    expect(shouldExtractAsDocument('typescript', MIN_LINES_FOR_DOCUMENT)).toBe(true);
+    expect(shouldExtractAsDocument('python', MIN_LINES_FOR_DOCUMENT + 5)).toBe(true);
+  });
+});
+
+describe('extractTitle', () => {
+  it('returns function name from code content', () => {
+    const content = 'function processData() {\n  return 1;\n}';
+    expect(extractTitle(content, 'javascript', 'code')).toBe('processData');
+  });
+
+  it('returns display name when no code title found', () => {
+    const content = '// just a comment\n// another comment';
+    expect(extractTitle(content, 'typescript', 'code')).toBe('TypeScript');
+  });
+
+  it('returns mermaid diagram type for mermaid content', () => {
+    const content = 'flowchart TD\n    A --> B';
+    expect(extractTitle(content, 'mermaid', 'mermaid')).toBe('Flowchart Diagram');
+  });
+
+  it('returns class name from class definition', () => {
+    const content = 'class UserService {\n  constructor() {}\n}';
+    expect(extractTitle(content, 'typescript', 'code')).toBe('UserService');
   });
 });

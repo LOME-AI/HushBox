@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { FeeBreakdown } from './fee-breakdown';
 import {
-  LOME_FEE_RATE,
+  HUSHBOX_FEE_RATE,
   CREDIT_CARD_FEE_RATE,
   PROVIDER_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
-} from '@lome-chat/shared';
+} from '@hushbox/shared';
 
 describe('FeeBreakdown', () => {
   describe('rendering', () => {
@@ -86,11 +86,11 @@ describe('FeeBreakdown', () => {
   });
 
   describe('Platform Fee items', () => {
-    it('shows LOME margin with percentage', () => {
+    it('shows HushBox margin with percentage', () => {
       render(<FeeBreakdown depositAmount={100} />);
-      expect(screen.getByTestId('item-lome-margin')).toBeInTheDocument();
-      const expectedPct = (LOME_FEE_RATE * 100).toFixed(1);
-      expect(screen.getByTestId('item-lome-margin-pct')).toHaveTextContent(`${expectedPct}%`);
+      expect(screen.getByTestId('item-hushbox-margin')).toBeInTheDocument();
+      const expectedPct = (HUSHBOX_FEE_RATE * 100).toFixed(1);
+      expect(screen.getByTestId('item-hushbox-margin-pct')).toHaveTextContent(`${expectedPct}%`);
     });
   });
 
@@ -98,10 +98,10 @@ describe('FeeBreakdown', () => {
     it('calculates Service Value percentage correctly', () => {
       const depositAmount = 100;
       const storageFee = 1_000_000 * STORAGE_COST_PER_CHARACTER;
-      const lomeFee = depositAmount * LOME_FEE_RATE;
+      const hushboxFee = depositAmount * HUSHBOX_FEE_RATE;
       const ccFee = depositAmount * CREDIT_CARD_FEE_RATE;
       const providerFee = depositAmount * PROVIDER_FEE_RATE;
-      const modelUsage = depositAmount - lomeFee - ccFee - providerFee - storageFee;
+      const modelUsage = depositAmount - hushboxFee - ccFee - providerFee - storageFee;
       const serviceValuePct = ((modelUsage + storageFee) / depositAmount) * 100;
 
       render(<FeeBreakdown depositAmount={depositAmount} />);
@@ -117,7 +117,7 @@ describe('FeeBreakdown', () => {
     });
 
     it('calculates Platform Fee percentage correctly', () => {
-      const platformFeePct = LOME_FEE_RATE * 100;
+      const platformFeePct = HUSHBOX_FEE_RATE * 100;
       // Should be 5%
       expect(platformFeePct).toBe(5);
     });

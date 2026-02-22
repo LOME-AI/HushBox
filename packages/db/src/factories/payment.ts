@@ -8,21 +8,22 @@ type Payment = typeof payments.$inferSelect;
 const CARD_TYPES = ['Visa', 'Mastercard', 'Amex', 'Discover'];
 
 export const paymentFactory = Factory.define<Payment>(({ params }) => {
-  const status = params.status ?? 'confirmed';
+  const status = params.status ?? 'completed';
   const now = faker.date.recent();
-  const isConfirmed = status === 'confirmed';
+  const isCompleted = status === 'completed';
 
   return {
     id: crypto.randomUUID(),
     userId: crypto.randomUUID(),
     amount: faker.number.float({ min: 10, max: 500, fractionDigits: 8 }).toFixed(8),
     status,
-    helcimTransactionId: isConfirmed ? faker.string.uuid() : null,
-    cardType: isConfirmed ? faker.helpers.arrayElement(CARD_TYPES) : null,
-    cardLastFour: isConfirmed ? faker.string.numeric(4) : null,
+    idempotencyKey: null,
+    helcimTransactionId: isCompleted ? faker.string.uuid() : null,
+    cardType: isCompleted ? faker.helpers.arrayElement(CARD_TYPES) : null,
+    cardLastFour: isCompleted ? faker.string.numeric(4) : null,
     errorMessage: status === 'failed' ? faker.lorem.sentence() : null,
     createdAt: now,
     updatedAt: now,
-    webhookReceivedAt: isConfirmed ? faker.date.recent({ refDate: now }) : null,
+    webhookReceivedAt: isCompleted ? faker.date.recent({ refDate: now }) : null,
   };
 });

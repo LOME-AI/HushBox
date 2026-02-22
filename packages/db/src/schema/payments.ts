@@ -1,27 +1,22 @@
-import { pgTable, text, timestamp, index, pgEnum, numeric } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, index, numeric, unique } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 import { users } from './users';
-
-export const paymentStatusEnum = pgEnum('payment_status', [
-  'pending', // Created, awaiting card submission
-  'awaiting_webhook', // Helcim approved synchronously, waiting for webhook
-  'confirmed', // Webhook received, balance credited
-  'failed', // Payment failed or declined
-]);
 
 export const payments = pgTable(
   'payments',
   {
     id: text('id')
       .primaryKey()
-      .$defaultFn(() => crypto.randomUUID()),
-    userId: text('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+      .default(sql`uuidv7()`),
+    userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
 
     // Amount in USD with 8 decimal precision (e.g., "10.00000000")
     amount: numeric('amount', { precision: 20, scale: 8 }).notNull(),
-    status: paymentStatusEnum('status').notNull().default('pending'),
+    status: text('status').notNull().default('pending'),
+
+    // Client-provided idempotency key for safe retries
+    idempotencyKey: text('idempotency_key'),
 
     // Helcim identifiers
     helcimTransactionId: text('helcim_transaction_id').unique(),
@@ -38,5 +33,6 @@ export const payments = pgTable(
   (table) => [
     index('payments_user_id_idx').on(table.userId),
     index('payments_helcim_transaction_id_idx').on(table.helcimTransactionId),
+    unique('payments_user_idempotency_key').on(table.userId, table.idempotencyKey),
   ]
 );

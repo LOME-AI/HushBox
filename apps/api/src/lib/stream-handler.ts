@@ -19,11 +19,20 @@ export interface ErrorEventData {
   code?: string;
 }
 
+export interface DoneEventData {
+  userMessageId: string;
+  assistantMessageId: string;
+  userSequence: number;
+  aiSequence: number;
+  epochNumber: number;
+  cost: string;
+}
+
 export interface SSEEventWriter {
   writeStart: (data: StartEventData) => Promise<void>;
   writeToken: (content: string) => Promise<void>;
   writeError: (data: ErrorEventData) => Promise<void>;
-  writeDone: () => Promise<void>;
+  writeDone: (data?: DoneEventData) => Promise<void>;
   isConnected: () => boolean;
 }
 
@@ -67,8 +76,8 @@ export function createSSEEventWriter(stream: SSEStream): SSEEventWriter {
       await writeIfConnected('error', data);
     },
 
-    writeDone: async () => {
-      await writeIfConnected('done', {});
+    writeDone: async (data?: DoneEventData) => {
+      await writeIfConnected('done', data ?? {});
     },
 
     isConnected: () => connected,
