@@ -344,6 +344,9 @@ importers:
       '@hushbox/crypto':
         specifier: workspace:*
         version: link:../packages/crypto
+      '@hushbox/shared':
+        specifier: workspace:*
+        version: link:../packages/shared
       '@playwright/test':
         specifier: ^1.57.0
         version: 1.58.2

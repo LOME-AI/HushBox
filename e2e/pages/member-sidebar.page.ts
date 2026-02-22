@@ -1,4 +1,5 @@
 import { type Page, type Locator, expect } from '@playwright/test';
+import { normalizeUsername, displayUsername } from '@hushbox/shared';
 
 export class MemberSidebarPage {
   readonly page: Page;
@@ -159,11 +160,7 @@ export class MemberSidebarPage {
    * conversation member ID upfront (it's a UUID generated at group creation).
    */
   findMemberByUsername(username: string): Locator {
-    // Convert stored format (test_alice) to display format (Test Alice)
-    const displayName = username
-      .split('_')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+    const displayName = displayUsername(normalizeUsername(username));
     return this.content.locator('[data-testid^="member-item-"]').filter({ hasText: displayName });
   }
 

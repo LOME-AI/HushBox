@@ -222,7 +222,7 @@ test.describe('Group Chat Admin', () => {
     await test.step('sidebar updates with new member', async () => {
       await sidebar.expectMemberCount(3);
       await sidebar.expectSectionVisible('write');
-      await expect(sidebar.findMemberByUsername('test_dave')).toBeVisible();
+      await expect(sidebar.findMemberByUsername('test dave')).toBeVisible();
     });
 
     await test.step('Dave can access conversation and sees full history', async () => {
@@ -247,7 +247,7 @@ test.describe('Group Chat Admin', () => {
     await sidebar.openViaFacepile();
     await sidebar.waitForLoaded();
 
-    const daveMemberId = await sidebar.getMemberIdByUsername('test_dave');
+    const daveMemberId = await sidebar.getMemberIdByUsername('test dave');
 
     await test.step('change Dave to read privilege', async () => {
       await sidebar.openMemberActions(daveMemberId);
@@ -572,7 +572,7 @@ test.describe('Group Chat Admin', () => {
     await sidebar.openViaFacepile();
     await sidebar.waitForLoaded();
 
-    const bobMemberId = await sidebar.getMemberIdByUsername('test_bob');
+    const bobMemberId = await sidebar.getMemberIdByUsername('test bob');
 
     await test.step('cancel remove keeps member', async () => {
       await sidebar.openMemberActions(bobMemberId);
@@ -588,7 +588,7 @@ test.describe('Group Chat Admin', () => {
       await expect(sidebar.memberRow(bobMemberId)).toBeVisible();
     });
 
-    const daveMemberId = await sidebar.getMemberIdByUsername('test_dave');
+    const daveMemberId = await sidebar.getMemberIdByUsername('test dave');
 
     await test.step('remove Dave with confirmation', async () => {
       await sidebar.openMemberActions(daveMemberId);
