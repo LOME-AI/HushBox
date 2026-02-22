@@ -136,7 +136,7 @@ See [docs/FEATURES.md](./docs/FEATURES.md) for the complete feature list and dev
 
 See [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md) for development setup and contribution guidelines.
 
-All contributors must agree to our [Contributor License Agreement](./CLA.md).
+All contributors must agree to our [Contributor Assignment Agreement](https://gist.github.com/ctf05/24b91cac419a904919d1ad30eb14b9cd).
 
 ---
 

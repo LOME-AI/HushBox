@@ -188,7 +188,7 @@ test.describe('Document Panel', () => {
       await expect(documentPanel.panel).not.toBeVisible();
 
       await chatPage.sendFollowUpMessage(SMALL_CODE_BLOCK);
-      await chatPage.waitForAIResponse('add', 20_000);
+      await chatPage.waitForAIResponse();
 
       // The echo of the small code block should NOT contain a document card
       // (5 lines is below MIN_LINES_FOR_DOCUMENT threshold)

@@ -95,8 +95,6 @@ test.describe('Group Chat Billing', () => {
       await helper.setConversationBudget(groupConversation.id, 1000);
     });
 
-    const initialBalance = await helper.getBalance();
-
     await test.step('Bob navigates and sees free_tier_notice', async () => {
       const chatPage = new ChatPage(testBobPage);
       await chatPage.gotoConversation(groupConversation.id);
@@ -110,6 +108,8 @@ test.describe('Group Chat Billing', () => {
 
     await test.step('Bob sends and owner is NOT charged', async () => {
       const chatPage = new ChatPage(testBobPage);
+      // Snapshot balance right before send to minimize cross-test contamination window
+      const initialBalance = await helper.getBalance();
       await chatPage.sendFollowUpMessage(`Member exhausted ${String(Date.now())}`);
       await chatPage.waitForAIResponse('Member exhausted');
 
@@ -140,8 +140,6 @@ test.describe('Group Chat Billing', () => {
       await helper.setMemberBudget(groupConversation.id, bobMemberId, 500);
     });
 
-    const initialBalance = await helper.getBalance();
-
     await test.step('Bob navigates and sees free_tier_notice', async () => {
       const chatPage = new ChatPage(testBobPage);
       await chatPage.gotoConversation(groupConversation.id);
@@ -155,6 +153,8 @@ test.describe('Group Chat Billing', () => {
 
     await test.step('Bob sends and owner is NOT charged', async () => {
       const chatPage = new ChatPage(testBobPage);
+      // Snapshot balance right before send to minimize cross-test contamination window
+      const initialBalance = await helper.getBalance();
       await chatPage.sendFollowUpMessage(`Conv exhausted ${String(Date.now())}`);
       await chatPage.waitForAIResponse('Conv exhausted');
 
