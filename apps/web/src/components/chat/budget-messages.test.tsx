@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitForElementToBeRemoved } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BudgetMessages } from './budget-messages';
 import type { BudgetError } from '@hushbox/shared';
@@ -275,7 +275,9 @@ describe('BudgetMessages', () => {
       expect(screen.getByTestId('budget-message-first')).toBeInTheDocument();
 
       // Second message should animate out
-      await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-second'));
+      await waitFor(() => {
+        expect(screen.queryByTestId('budget-message-second')).not.toBeInTheDocument();
+      });
     });
   });
 
@@ -427,8 +429,9 @@ describe('BudgetMessages', () => {
 
       await user.click(screen.getByTestId('budget-dismiss-warn'));
 
-      await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-warn'));
-      expect(screen.queryByTestId('budget-message-warn')).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.queryByTestId('budget-message-warn')).not.toBeInTheDocument();
+      });
     });
 
     it('hides info message when dismiss is clicked', async () => {
@@ -438,8 +441,9 @@ describe('BudgetMessages', () => {
 
       await user.click(screen.getByTestId('budget-dismiss-info'));
 
-      await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-info'));
-      expect(screen.queryByTestId('budget-message-info')).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.queryByTestId('budget-message-info')).not.toBeInTheDocument();
+      });
     });
 
     it('reappears after condition cycles off then on', async () => {
@@ -448,7 +452,9 @@ describe('BudgetMessages', () => {
       const { rerender } = render(<BudgetMessages errors={errors} />);
 
       await user.click(screen.getByTestId('budget-dismiss-low_balance'));
-      await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-low_balance'));
+      await waitFor(() => {
+        expect(screen.queryByTestId('budget-message-low_balance')).not.toBeInTheDocument();
+      });
 
       // Condition clears (error leaves the array)
       rerender(<BudgetMessages errors={[]} />);
@@ -468,7 +474,9 @@ describe('BudgetMessages', () => {
       render(<BudgetMessages errors={errors} />);
 
       await user.click(screen.getByTestId('budget-dismiss-w1'));
-      await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-w1'));
+      await waitFor(() => {
+        expect(screen.queryByTestId('budget-message-w1')).not.toBeInTheDocument();
+      });
 
       expect(screen.getByTestId('budget-message-w2')).toBeInTheDocument();
     });
@@ -482,7 +490,9 @@ describe('BudgetMessages', () => {
       render(<BudgetMessages errors={errors} />);
 
       await user.click(screen.getByTestId('budget-dismiss-warn'));
-      await waitForElementToBeRemoved(() => screen.queryByTestId('budget-message-warn'));
+      await waitFor(() => {
+        expect(screen.queryByTestId('budget-message-warn')).not.toBeInTheDocument();
+      });
 
       expect(screen.getByTestId('budget-message-err')).toBeInTheDocument();
     });
