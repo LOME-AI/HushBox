@@ -211,7 +211,7 @@ test.describe('Group Chat Admin', () => {
       await privilegeSelect.selectOption('write');
 
       const historyCheckbox = authenticatedPage.getByTestId('add-member-history-checkbox');
-      await historyCheckbox.check();
+      await historyCheckbox.getByRole('checkbox').check();
 
       await authenticatedPage.getByTestId('add-member-submit-button').click();
 
