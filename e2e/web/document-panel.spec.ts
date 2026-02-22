@@ -168,7 +168,9 @@ test.describe('Document Panel', () => {
       await documentPanel.waitForPanelOpen();
 
       // Should show rendered diagram (toggle resets on doc switch)
-      await documentPanel.waitForMermaidRendered();
+      // After close+reopen, mermaid remounts from scratch (async import + SVG render).
+      // Under CI load on iPad Pro WebKit this can exceed the default 15s timeout.
+      await documentPanel.waitForMermaidRendered(30_000);
       await expect(documentPanel.showRawButton()).toBeVisible();
     });
 

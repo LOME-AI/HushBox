@@ -108,16 +108,29 @@ test.describe('Group Chat Billing', () => {
 
     await test.step('Bob sends and owner is NOT charged', async () => {
       const chatPage = new ChatPage(testBobPage);
-      // Snapshot balance right before send to minimize cross-test contamination window
-      const initialBalance = await helper.getBalance();
       await chatPage.sendFollowUpMessage(`Member exhausted ${String(Date.now())}`);
       await chatPage.waitForAIResponse('Member exhausted');
 
-      // Alice's balance unchanged (owner not charged)
-      const finalBalance = await helper.getBalance();
-      expect(Number.parseFloat(finalBalance.balance)).toBe(
-        Number.parseFloat(initialBalance.balance)
-      );
+      // Verify Bob (not Alice) was charged — per-message payerId check,
+      // immune to parallel test pollution (unlike Alice's global balance)
+      const bobUser = groupConversation.members.find(
+        (m) => m.email === 'test-bob@test.hushbox.ai'
+      )!;
+      await expect
+        .poll(
+          async () => {
+            const convResponse = await authenticatedRequest.get(
+              `/api/conversations/${groupConversation.id}`
+            );
+            const convData = (await convResponse.json()) as {
+              messages: { senderType: string; payerId: string | null }[];
+            };
+            const aiMessages = convData.messages.filter((m) => m.senderType === 'ai');
+            return aiMessages.at(-1)?.payerId;
+          },
+          { timeout: 10_000, message: 'last AI message payerId should be Bob (personal billing)' }
+        )
+        .toBe(bobUser.userId);
 
       // Group spending NOT incremented (free_allowance → owner didn't pay)
       const budgets = await helper.getBudgets(groupConversation.id);
@@ -153,16 +166,26 @@ test.describe('Group Chat Billing', () => {
 
     await test.step('Bob sends and owner is NOT charged', async () => {
       const chatPage = new ChatPage(testBobPage);
-      // Snapshot balance right before send to minimize cross-test contamination window
-      const initialBalance = await helper.getBalance();
       await chatPage.sendFollowUpMessage(`Conv exhausted ${String(Date.now())}`);
       await chatPage.waitForAIResponse('Conv exhausted');
 
-      // Alice's balance unchanged
-      const finalBalance = await helper.getBalance();
-      expect(Number.parseFloat(finalBalance.balance)).toBe(
-        Number.parseFloat(initialBalance.balance)
-      );
+      // Verify Bob (not Alice) was charged — per-message payerId check,
+      // immune to parallel test pollution (unlike Alice's global balance)
+      await expect
+        .poll(
+          async () => {
+            const convResponse = await authenticatedRequest.get(
+              `/api/conversations/${groupConversation.id}`
+            );
+            const convData = (await convResponse.json()) as {
+              messages: { senderType: string; payerId: string | null }[];
+            };
+            const aiMessages = convData.messages.filter((m) => m.senderType === 'ai');
+            return aiMessages.at(-1)?.payerId;
+          },
+          { timeout: 10_000, message: 'last AI message payerId should be Bob (personal billing)' }
+        )
+        .toBe(bobUser.userId);
 
       // Group spending NOT incremented (free_allowance → owner didn't pay)
       const budgets = await helper.getBudgets(groupConversation.id);
