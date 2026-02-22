@@ -298,10 +298,17 @@ describe('dev service', () => {
         }),
       }));
 
-      const txMock = { select: mockSelect, insert: mockInsert };
+      const mockUpdate = vi.fn().mockImplementation(() => ({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(null),
+        }),
+      }));
+
+      const txMock = { select: mockSelect, insert: mockInsert, update: mockUpdate };
       return {
         select: mockSelect,
         insert: mockInsert,
+        update: mockUpdate,
         transaction: vi
           .fn()
           .mockImplementation(async (function_: (tx: typeof txMock) => Promise<void>) =>

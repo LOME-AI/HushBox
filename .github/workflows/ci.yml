@@ -170,7 +170,19 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        project: [chromium, firefox, webkit, iphone-15, pixel-7, ipad-pro]
+        include:
+          - project: chromium
+            browser: chromium
+          - project: firefox
+            browser: firefox
+          - project: webkit
+            browser: webkit
+          - project: iphone-15
+            browser: webkit
+          - project: pixel-7
+            browser: chromium
+          - project: ipad-pro
+            browser: webkit
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
@@ -179,7 +191,7 @@ jobs:
         uses: useblacksmith/cache@v5
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          key: playwright-${{ matrix.browser }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Cache Docker images
         uses: useblacksmith/stickydisk@v1
@@ -208,7 +220,7 @@ jobs:
         run: pnpm verify:env --mode=ciE2E
 
       - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps
+        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
 
       - name: Install Hookdeck CLI
         run: |

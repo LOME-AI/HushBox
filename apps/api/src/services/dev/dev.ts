@@ -306,6 +306,12 @@ export async function createDevGroupChat(
           };
         })
       );
+
+      // Keep nextSequence in sync so saveChatTurn assigns non-overlapping sequences
+      await tx
+        .update(conversations)
+        .set({ nextSequence: params.messages.length + 1 })
+        .where(eq(conversations.id, conversationId));
     }
   });
 

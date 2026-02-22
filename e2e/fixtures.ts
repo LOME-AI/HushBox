@@ -191,7 +191,10 @@ export const test = base.extend<CustomFixtures>({
     await context.dispose();
   },
 
-  testConversation: async ({ authenticatedPage, authenticatedRequest }, use) => {
+  testConversation: async (
+    { authenticatedPage, authenticatedRequest: _authenticatedRequest },
+    use
+  ) => {
     const page = authenticatedPage;
     await page.goto('/chat');
 
@@ -217,12 +220,8 @@ export const test = base.extend<CustomFixtures>({
     const id = url.pathname.split('/').pop() ?? '';
 
     await use({ id, url: page.url() });
-
-    try {
-      await authenticatedRequest.delete(`/api/conversations/${id}`);
-    } catch {
-      // Cleanup failures are acceptable - test may have already cleaned up
-    }
+    // No cleanup — CI database is ephemeral. Deleting here races with deferred
+    // saveChatTurn() running via Wrangler's waitUntil(), producing billing_failed errors.
   },
 });
 

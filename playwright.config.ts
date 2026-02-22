@@ -32,10 +32,22 @@ export default defineConfig({
     },
   ],
   projects: [
-    // Setup project authenticates as each persona and saves storage state
+    // Per-browser setup projects — each authenticates personas using its own engine,
+    // so CI jobs only need to install one browser (no chromium dependency on all jobs)
     {
-      name: 'setup',
+      name: 'setup-chromium',
       testMatch: /auth\.setup\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'setup-firefox',
+      testMatch: /auth\.setup\.ts/,
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'setup-webkit',
+      testMatch: /auth\.setup\.ts/,
+      use: { ...devices['Desktop Safari'] },
     },
     // Auth tests create their own users — no dependency on setup project
     {
@@ -52,37 +64,37 @@ export default defineConfig({
       },
       testDir: './e2e',
       testIgnore: ['**/mobile/**'],
-      dependencies: ['setup'],
+      dependencies: ['setup-chromium'],
     },
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'], storageState: 'e2e/.auth/test-alice.json' },
       testDir: './e2e',
       testIgnore: ['**/mobile/**'],
-      dependencies: ['setup'],
+      dependencies: ['setup-firefox'],
     },
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'], storageState: 'e2e/.auth/test-alice.json' },
       testDir: './e2e',
       testIgnore: ['**/mobile/**'],
-      dependencies: ['setup'],
+      dependencies: ['setup-webkit'],
     },
     // Mobile device projects run all tests (including mobile-specific)
     {
       name: 'iphone-15',
       use: { ...devices['iPhone 15'], storageState: 'e2e/.auth/test-alice.json' },
-      dependencies: ['setup'],
+      dependencies: ['setup-webkit'],
     },
     {
       name: 'pixel-7',
       use: { ...devices['Pixel 7'], storageState: 'e2e/.auth/test-alice.json' },
-      dependencies: ['setup'],
+      dependencies: ['setup-chromium'],
     },
     {
       name: 'ipad-pro',
       use: { ...devices['iPad Pro 11'], storageState: 'e2e/.auth/test-alice.json' },
-      dependencies: ['setup'],
+      dependencies: ['setup-webkit'],
     },
   ],
 });
