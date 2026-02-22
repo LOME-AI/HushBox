@@ -134,6 +134,7 @@ export function SidebarPanel({
           side={side}
           className="bg-sidebar text-sidebar-foreground flex w-72 flex-col p-0"
           showCloseButton={false}
+          {...(testId === undefined ? {} : { 'data-testid': testId })}
         >
           {content}
         </SheetContent>

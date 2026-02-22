@@ -270,6 +270,7 @@ test.describe('Group Chat Billing', () => {
       await sidebar.waitForLoaded();
 
       await expect(sidebar.budgetFooter).toBeVisible();
+      await sidebar.closeSidebar();
     });
 
     await test.step('no free_tier_notice when owner-funded', async () => {

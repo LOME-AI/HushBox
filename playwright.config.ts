@@ -18,6 +18,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    permissions: ['clipboard-read', 'clipboard-write'],
   },
   webServer: [
     {
@@ -49,7 +50,6 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         storageState: 'e2e/.auth/test-alice.json',
-        permissions: ['clipboard-read', 'clipboard-write'],
       },
       testDir: './e2e',
       testIgnore: ['**/mobile/**'],

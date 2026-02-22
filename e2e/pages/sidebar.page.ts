@@ -3,14 +3,12 @@ import { type Page, type Locator, expect } from '@playwright/test';
 export class SidebarPage {
   readonly page: Page;
   readonly hamburgerButton: Locator;
-  readonly mobileSidebar: Locator;
-  readonly desktopSidebar: Locator;
+  readonly sidebar: Locator;
 
   constructor(page: Page) {
     this.page = page;
     this.hamburgerButton = page.getByTestId('hamburger-button');
-    this.mobileSidebar = page.getByTestId('mobile-sidebar');
-    this.desktopSidebar = page.locator('aside');
+    this.sidebar = page.getByTestId('sidebar');
   }
 
   private isMobileViewport(): boolean {
@@ -21,21 +19,14 @@ export class SidebarPage {
   private async openMobileSidebarIfNeeded(): Promise<void> {
     if (!this.isMobileViewport()) return;
 
-    if (await this.mobileSidebar.isVisible()) return;
+    if (await this.sidebar.isVisible()) return;
 
     await this.hamburgerButton.click();
-    await expect(this.mobileSidebar).toBeVisible();
-  }
-
-  private getSidebarContainer(): Locator {
-    if (this.isMobileViewport()) {
-      return this.mobileSidebar;
-    }
-    return this.desktopSidebar;
+    await expect(this.sidebar).toBeVisible();
   }
 
   getChatLink(conversationId: string): Locator {
-    return this.getSidebarContainer().locator(`a[href="/chat/${conversationId}"]`);
+    return this.sidebar.locator(`a[href="/chat/${conversationId}"]`);
   }
 
   getChatItemContainer(conversationId: string): Locator {
@@ -93,8 +84,7 @@ export class SidebarPage {
 
   async countConversationsWithText(text: string): Promise<number> {
     await this.openMobileSidebarIfNeeded();
-    const container = this.getSidebarContainer();
-    const matchingLinks = container.locator('a[href^="/chat/"]').filter({ hasText: text });
+    const matchingLinks = this.sidebar.locator('a[href^="/chat/"]').filter({ hasText: text });
     return matchingLinks.count();
   }
 }

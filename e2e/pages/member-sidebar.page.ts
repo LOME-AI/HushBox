@@ -143,6 +143,12 @@ export class MemberSidebarPage {
     await this.searchInput.clear();
   }
 
+  // --- Close ---
+
+  async closeSidebar(): Promise<void> {
+    await this.page.getByRole('button', { name: 'Close sidebar' }).click();
+  }
+
   // --- Budget ---
 
   async clickBudgetSettings(): Promise<void> {
