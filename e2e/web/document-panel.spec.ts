@@ -1,3 +1,5 @@
+import { isMobileWidth } from '@hushbox/shared';
+
 import { test, expect } from '../fixtures.js';
 import { ChatPage, DocumentPanelPage } from '../pages/index.js';
 
@@ -179,6 +181,10 @@ test.describe('Document Panel', () => {
     });
 
     await test.step('fullscreen toggle', async () => {
+      // Fullscreen is desktop-only (useIsMobile() hides it on mobile viewports)
+      const viewport = authenticatedPage.viewportSize();
+      if (viewport && isMobileWidth(viewport.width)) return;
+
       const initialWidth = await documentPanel.getPanelWidth();
 
       await documentPanel.fullscreenButton().click();

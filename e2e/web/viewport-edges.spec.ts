@@ -1,4 +1,5 @@
 import { type Locator, type Page } from '@playwright/test';
+import { isMobileWidth } from '@hushbox/shared';
 
 import { test, expect } from '../fixtures.js';
 
@@ -81,7 +82,7 @@ test.describe('Viewport edge visibility', () => {
     const viewportSize = page.viewportSize();
     if (!viewportSize) throw new Error('Viewport size not available');
 
-    const isDesktop = viewportSize.width >= 768;
+    const isDesktop = !isMobileWidth(viewportSize.width);
     const sidebarHeader = page.getByTestId('sidebar-header');
     const sidebarFooter = page.getByTestId('sidebar-footer');
 

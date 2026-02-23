@@ -1,6 +1,5 @@
 import * as React from 'react';
-
-const MOBILE_BREAKPOINT = 768; // Tailwind md: breakpoint
+import { MOBILE_BREAKPOINT } from '@hushbox/shared';
 
 /**
  * Hook to detect if viewport is mobile (<768px).

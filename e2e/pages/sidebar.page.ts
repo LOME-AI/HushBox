@@ -1,4 +1,5 @@
 import { type Page, type Locator, expect } from '@playwright/test';
+import { isMobileWidth } from '@hushbox/shared';
 
 export class SidebarPage {
   readonly page: Page;
@@ -13,7 +14,7 @@ export class SidebarPage {
 
   private isMobileViewport(): boolean {
     const viewport = this.page.viewportSize();
-    return viewport !== null && viewport.width < 768;
+    return viewport !== null && isMobileWidth(viewport.width);
   }
 
   private async openMobileSidebarIfNeeded(): Promise<void> {
