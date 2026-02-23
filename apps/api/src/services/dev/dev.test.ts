@@ -574,6 +574,7 @@ describe('dev service', () => {
       expect(ledgerValues['walletId']).toBe('wallet-1');
       expect(ledgerValues['balanceAfter']).toBe('10.00000000');
       expect(ledgerValues['entryType']).toBe('adjustment');
+      expect(ledgerValues['sourceWalletId']).toBe('wallet-1');
     });
 
     it('throws when user not found', async () => {
