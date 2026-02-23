@@ -1,6 +1,8 @@
-import { like, eq, count, inArray } from 'drizzle-orm';
+import { like, eq, count, inArray, and } from 'drizzle-orm';
 import {
   users,
+  wallets,
+  ledgerEntries,
   conversations,
   messages,
   projects,
@@ -323,4 +325,54 @@ export async function createDevGroupChat(
       email: u.email ?? '', // Dev users always have email (looked up by email)
     })),
   };
+}
+
+export interface SetWalletBalanceParams {
+  email: string;
+  walletType: 'purchased' | 'free_tier';
+  balance: string;
+}
+
+export interface SetWalletBalanceResult {
+  newBalance: string;
+}
+
+/**
+ * Set a user's wallet balance to an exact value.
+ * Dev/test only — used by E2E tests to manipulate wallet state.
+ */
+export async function setWalletBalance(
+  db: Database,
+  params: SetWalletBalanceParams
+): Promise<SetWalletBalanceResult> {
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, params.email.toLowerCase()));
+
+  if (!user) {
+    throw new Error(`User not found: ${params.email}`);
+  }
+
+  const [updated] = await db
+    .update(wallets)
+    .set({ balance: params.balance })
+    .where(and(eq(wallets.userId, user.id), eq(wallets.type, params.walletType)))
+    .returning({ id: wallets.id, balance: wallets.balance });
+
+  if (!updated) {
+    throw new Error(`Wallet not found: ${params.walletType} for ${params.email}`);
+  }
+
+  await db
+    .insert(ledgerEntries)
+    .values({
+      walletId: updated.id,
+      amount: params.balance,
+      balanceAfter: updated.balance,
+      entryType: 'dev_adjustment',
+    })
+    .returning({ id: ledgerEntries.id });
+
+  return { newBalance: updated.balance };
 }

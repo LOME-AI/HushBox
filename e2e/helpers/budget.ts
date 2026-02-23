@@ -92,3 +92,23 @@ export class BudgetHelper {
     return member.memberId;
   }
 }
+
+/**
+ * Set a user's wallet balance via the dev endpoint.
+ * Used in E2E tests to manipulate wallet state for tier-switching scenarios.
+ */
+export async function setWalletBalance(
+  request: APIRequestContext,
+  email: string,
+  walletType: 'purchased' | 'free_tier',
+  balance: string
+): Promise<void> {
+  const response = await request.post(`${API_BASE}/api/dev/wallet-balance`, {
+    data: { email, walletType, balance },
+  });
+  if (!response.ok()) {
+    throw new Error(
+      `setWalletBalance failed: ${String(response.status())} ${await response.text()}`
+    );
+  }
+}

@@ -10,6 +10,7 @@ import {
   resetTrialUsage,
   resetAuthRateLimits,
   createDevGroupChat,
+  setWalletBalance,
 } from '../services/dev/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import type { AppEnv } from '../types.js';
@@ -87,5 +88,30 @@ export const devRoute = new Hono<AppEnv>()
         }),
       });
       return c.json(result, 201);
+    }
+  )
+  .post(
+    '/wallet-balance',
+    zValidator(
+      'json',
+      z.object({
+        email: z.email(),
+        walletType: z.enum(['purchased', 'free_tier']),
+        balance: z.string(),
+      })
+    ),
+    async (c) => {
+      const db = c.get('db');
+      const params = c.req.valid('json');
+      try {
+        const result = await setWalletBalance(db, params);
+        return c.json({ success: true, newBalance: result.newBalance });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        if (message.includes('not found')) {
+          return c.json(createErrorResponse(ERROR_CODE_NOT_FOUND), 404);
+        }
+        throw error;
+      }
     }
   );

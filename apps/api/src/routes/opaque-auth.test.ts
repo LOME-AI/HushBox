@@ -79,6 +79,12 @@ vi.mock('../services/email/index.js', async () => {
   };
 });
 
+// Mock ensureWalletsExist to verify it's called during registration
+const mockEnsureWalletsExist = vi.fn<[], Promise<void>>().mockResolvedValue();
+vi.mock('../services/billing/wallet-provisioning.js', () => ({
+  ensureWalletsExist: (...args: unknown[]) => mockEnsureWalletsExist(...args),
+}));
+
 // Mock database
 function createMockDb() {
   const users = new Map<string, Record<string, unknown>>();
@@ -129,6 +135,7 @@ describe('OPAQUE auth routes', () => {
     mockDb = createMockDb();
     mockRedis = createMockRedis();
     mockEmailClient = createMockEmailClient();
+    mockEnsureWalletsExist.mockClear();
 
     const routes = opaqueAuthRoute;
     app = new Hono<AppEnv>();
@@ -459,6 +466,10 @@ describe('OPAQUE auth routes', () => {
       const finishBody = await jsonBody<RegistrationFinishResponse>(finishRes);
       expect(finishBody.success).toBe(true);
       expect(finishBody.userId).toBeDefined();
+
+      // Wallet provisioning must happen after user creation
+      expect(mockEnsureWalletsExist).toHaveBeenCalledOnce();
+      expect(mockEnsureWalletsExist).toHaveBeenCalledWith(expect.anything(), 'test-user-id');
     });
 
     it('returns 201 but does not create user when email already exists', async () => {
@@ -506,6 +517,8 @@ describe('OPAQUE auth routes', () => {
       expect(finishBody.userId).toBeDefined();
       // Critical: verify no INSERT was attempted
       expect(insertSpy).not.toHaveBeenCalled();
+      // No wallets created for existing email (fake registration)
+      expect(mockEnsureWalletsExist).not.toHaveBeenCalled();
     });
   });
 

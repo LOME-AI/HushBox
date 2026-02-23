@@ -37,7 +37,7 @@ export function VerifyPage(): React.JSX.Element {
         }
         setState('success');
         toast.success('Email verified successfully!');
-        void navigate({ to: ROUTES.CHAT });
+        void navigate({ to: ROUTES.LOGIN });
       } catch {
         setState('error');
         setErrorMessage('Verification failed. Please try again.');

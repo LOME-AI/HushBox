@@ -4,6 +4,7 @@ export {
   resetTrialUsage,
   resetAuthRateLimits,
   createDevGroupChat,
+  setWalletBalance,
 } from './dev.js';
 export type {
   CleanupResult,
@@ -11,4 +12,6 @@ export type {
   ResetAuthRateLimitsResult,
   CreateDevGroupChatParams,
   CreateDevGroupChatResult,
+  SetWalletBalanceParams,
+  SetWalletBalanceResult,
 } from './dev.js';

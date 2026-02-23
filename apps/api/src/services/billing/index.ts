@@ -15,5 +15,6 @@ export type {
   ChargeForUsageParams,
   ChargeResult,
 } from './transaction-writer.js';
+export { ensureWalletsExist } from './wallet-provisioning.js';
 export { getConversationBudgets, updateMemberBudget, updateGroupSpending } from './budgets.js';
 export type { ConversationBudgetsResult, UpdateGroupSpendingParams } from './budgets.js';

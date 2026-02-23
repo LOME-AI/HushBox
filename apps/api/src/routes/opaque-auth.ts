@@ -73,6 +73,7 @@ import {
 import { getClientIp, hashIp } from '../lib/client-ip.js';
 import { redisGet, redisSet, redisDel, REDIS_REGISTRY } from '../lib/redis-registry.js';
 import { getEmailClient } from '../services/email/index.js';
+import { ensureWalletsExist } from '../services/billing/wallet-provisioning.js';
 import {
   verificationEmail,
   passwordChangedEmail,
@@ -492,6 +493,9 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     if (!newUser) {
       return c.json(createErrorResponse(ERROR_CODE_USER_CREATION_FAILED), 500);
     }
+
+    // Provision wallets (purchased with welcome credit + free tier with daily allowance)
+    await ensureWalletsExist(db, newUser.id);
 
     // Clean up pending registration
     await redisDel(redis, 'opaquePendingRegistration', email);

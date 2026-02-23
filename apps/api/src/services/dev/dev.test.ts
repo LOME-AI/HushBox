@@ -6,6 +6,7 @@ import {
   resetTrialUsage,
   resetAuthRateLimits,
   createDevGroupChat,
+  setWalletBalance,
 } from './dev.js';
 
 vi.mock('../billing/index.js', () => ({
@@ -514,6 +515,95 @@ describe('dev service', () => {
           memberEmails: ['bob@test.hushbox.ai'],
         })
       ).rejects.toThrow('Owner not found');
+    });
+  });
+
+  describe('setWalletBalance', () => {
+    function createSetWalletMockDb(options: {
+      userRows: { id: string }[];
+      updateRows: { id: string; balance: string }[];
+    }) {
+      const mockSelect = vi.fn();
+      const mockUpdate = vi.fn();
+      const mockInsert = vi.fn();
+
+      mockSelect.mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(options.userRows),
+        }),
+      });
+
+      mockUpdate.mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue(options.updateRows),
+          }),
+        }),
+      });
+
+      const insertValuesSpy = vi.fn().mockReturnValue({
+        returning: vi.fn().mockResolvedValue([{ id: 'ledger-1' }]),
+      });
+      mockInsert.mockReturnValue({
+        values: insertValuesSpy,
+      });
+
+      return {
+        db: { select: mockSelect, update: mockUpdate, insert: mockInsert },
+        insertValuesSpy,
+      };
+    }
+
+    it('updates wallet balance and creates ledger entry', async () => {
+      const { db, insertValuesSpy } = createSetWalletMockDb({
+        userRows: [{ id: 'user-1' }],
+        updateRows: [{ id: 'wallet-1', balance: '10.00000000' }],
+      });
+
+      const result = await setWalletBalance(db as never, {
+        email: 'test@test.hushbox.ai',
+        walletType: 'purchased',
+        balance: '10.00000000',
+      });
+
+      expect(result).toEqual({ newBalance: '10.00000000' });
+      expect(db.update).toHaveBeenCalled();
+      expect(db.insert).toHaveBeenCalled();
+
+      const ledgerValues = insertValuesSpy.mock.calls[0]![0] as Record<string, unknown>;
+      expect(ledgerValues['walletId']).toBe('wallet-1');
+      expect(ledgerValues['balanceAfter']).toBe('10.00000000');
+      expect(ledgerValues['entryType']).toBe('dev_adjustment');
+    });
+
+    it('throws when user not found', async () => {
+      const { db } = createSetWalletMockDb({
+        userRows: [],
+        updateRows: [],
+      });
+
+      await expect(
+        setWalletBalance(db as never, {
+          email: 'unknown@test.hushbox.ai',
+          walletType: 'purchased',
+          balance: '10.00000000',
+        })
+      ).rejects.toThrow('User not found');
+    });
+
+    it('throws when wallet not found', async () => {
+      const { db } = createSetWalletMockDb({
+        userRows: [{ id: 'user-1' }],
+        updateRows: [], // UPDATE returns 0 rows
+      });
+
+      await expect(
+        setWalletBalance(db as never, {
+          email: 'test@test.hushbox.ai',
+          walletType: 'purchased',
+          balance: '10.00000000',
+        })
+      ).rejects.toThrow('Wallet not found');
     });
   });
 });
