@@ -143,6 +143,8 @@ test.describe('Document Panel', () => {
       // On mobile, panel covers the message list — close first so cards are clickable
       await documentPanel.closePanel();
       await expect(documentPanel.panel).not.toBeVisible();
+      // Allow Virtuoso to recalculate layout after panel close (mobile = 100% width panel)
+      await authenticatedPage.waitForTimeout(500);
 
       await documentPanel.clickCard(0);
       await documentPanel.waitForPanelOpen();
@@ -158,6 +160,8 @@ test.describe('Document Panel', () => {
       // Close panel so message list cards are accessible (mobile = 100% width panel)
       await documentPanel.closePanel();
       await expect(documentPanel.panel).not.toBeVisible();
+      // Allow Virtuoso to recalculate layout after panel close (mobile = 100% width panel)
+      await authenticatedPage.waitForTimeout(500);
 
       // Scroll to bring mermaid card into DOM (Virtuoso may have removed it)
       await chatPage.scrollToBottom();

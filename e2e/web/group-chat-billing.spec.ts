@@ -308,6 +308,10 @@ test.describe('Group Chat Billing', () => {
 
     await test.step('Bob budget modal shows spending', async () => {
       const sidebar = new MemberSidebarPage(testBobPage);
+      // Reopen sidebar — on mobile (pixel-7) the Sheet is fully closed,
+      // so member-budget-trigger is not in the DOM
+      await sidebar.openViaFacepile();
+      await sidebar.waitForLoaded();
       await sidebar.clickBudgetSettings();
 
       const modal = testBobPage.getByTestId('budget-settings-modal');
