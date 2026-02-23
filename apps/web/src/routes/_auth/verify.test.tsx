@@ -53,7 +53,7 @@ describe('VerifyPage', () => {
     render(<VerifyPage />);
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith({ to: '/chat' });
+      expect(mockNavigate).toHaveBeenCalledWith({ to: '/login' });
     });
     expect(toast.success).toHaveBeenCalledWith('Email verified successfully!');
   });

@@ -573,7 +573,7 @@ describe('dev service', () => {
       const ledgerValues = insertValuesSpy.mock.calls[0]![0] as Record<string, unknown>;
       expect(ledgerValues['walletId']).toBe('wallet-1');
       expect(ledgerValues['balanceAfter']).toBe('10.00000000');
-      expect(ledgerValues['entryType']).toBe('dev_adjustment');
+      expect(ledgerValues['entryType']).toBe('adjustment');
     });
 
     it('throws when user not found', async () => {

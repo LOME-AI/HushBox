@@ -370,7 +370,7 @@ export async function setWalletBalance(
       walletId: updated.id,
       amount: params.balance,
       balanceAfter: updated.balance,
-      entryType: 'dev_adjustment',
+      entryType: 'adjustment',
     })
     .returning({ id: ledgerEntries.id });
 
