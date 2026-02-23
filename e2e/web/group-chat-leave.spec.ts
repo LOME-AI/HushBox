@@ -100,8 +100,8 @@ test.describe('Group Chat Leave', () => {
     // Close sidebar so message list is accessible on mobile
     await sidebar.closeSidebar();
 
-    // Scroll to bottom so Virtuoso renders messages after layout reflow (Sheet close on mobile)
-    await chatPage.scrollToBottom();
+    // Scroll to top so first messages are in Virtuoso render range after Sheet close
+    await chatPage.scrollToTop();
 
     // Still on conversation page with messages visible
     await expect(testBobPage).toHaveURL(new RegExp(groupConversation.id));
