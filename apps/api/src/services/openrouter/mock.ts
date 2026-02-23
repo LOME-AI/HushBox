@@ -12,7 +12,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const STREAM_DELAY_MS = 10;
+const STREAM_DELAY_MS = 5;
 
 /** Characters per token approximation */
 const CHARS_PER_TOKEN = 4;

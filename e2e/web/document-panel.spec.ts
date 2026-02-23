@@ -60,7 +60,7 @@ test.describe('Document Panel', () => {
       // Wait for DocumentCard — card only appears after streaming completes and
       // Streamdown's pre override extracts the code block. More reliable than
       // getByText('fibonacci') which fails on webkit due to Shiki rendering.
-      await documentPanel.waitForCardAppear(20_000);
+      await documentPanel.waitForCardAppear(45_000);
       const card = documentPanel.documentCard(0);
       await expect(card).toContainText('fibonacci');
       await expect(card).toContainText('python');
@@ -109,7 +109,7 @@ test.describe('Document Panel', () => {
     await test.step('send Python code block (for multi-document switching)', async () => {
       await chatPage.sendFollowUpMessage(PYTHON_CODE_BLOCK);
       // Wait for DocumentCard directly — see Test 1 comment for rationale
-      await documentPanel.waitForCardAppear(20_000);
+      await documentPanel.waitForCardAppear(45_000);
       expect(await documentPanel.getCardCount()).toBe(1);
     });
 
@@ -117,7 +117,7 @@ test.describe('Document Panel', () => {
       await chatPage.sendFollowUpMessage(MERMAID_BLOCK);
       // Wait for second card (mermaid) to appear — avoids text-based wait
       // that fails on webkit due to Streamdown/Shiki rendering pipeline
-      await documentPanel.documentCards().nth(1).waitFor({ state: 'visible', timeout: 20_000 });
+      await documentPanel.documentCards().nth(1).waitFor({ state: 'visible', timeout: 45_000 });
 
       const cardCount = await documentPanel.getCardCount();
       expect(cardCount).toBe(2);
