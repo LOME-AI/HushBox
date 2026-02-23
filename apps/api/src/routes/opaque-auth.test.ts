@@ -80,7 +80,7 @@ vi.mock('../services/email/index.js', async () => {
 });
 
 // Mock ensureWalletsExist to verify it's called during registration
-const mockEnsureWalletsExist = vi.fn<[], Promise<void>>().mockResolvedValue();
+const mockEnsureWalletsExist = vi.fn().mockImplementation(() => Promise.resolve());
 vi.mock('../services/billing/wallet-provisioning.js', () => ({
   ensureWalletsExist: (...args: unknown[]) => mockEnsureWalletsExist(...args),
 }));
