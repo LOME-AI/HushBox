@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from './tooltip';
 
 describe('Tooltip', () => {
@@ -76,5 +77,118 @@ describe('TooltipProvider', () => {
       </TooltipProvider>
     );
     expect(screen.getByText('Hover')).toBeInTheDocument();
+  });
+});
+
+describe('Tooltip (touch mode)', () => {
+  const originalMatchMedia = globalThis.matchMedia;
+
+  const enableTouchMode = (): void => {
+    Object.defineProperty(globalThis, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query === '(pointer: coarse)',
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+  };
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'matchMedia', {
+      writable: true,
+      value: originalMatchMedia,
+    });
+    vi.restoreAllMocks();
+  });
+
+  it('opens tooltip on trigger click', async () => {
+    enableTouchMode();
+    const user = userEvent.setup();
+
+    render(
+      <Tooltip>
+        <TooltipTrigger>Tap me</TooltipTrigger>
+        <TooltipContent data-testid="content">Tooltip text</TooltipContent>
+      </Tooltip>
+    );
+
+    expect(screen.queryByTestId('content')).not.toBeInTheDocument();
+
+    await user.click(screen.getByText('Tap me'));
+
+    expect(screen.getByTestId('content')).toBeInTheDocument();
+  });
+
+  it('closes tooltip on second trigger click (toggle)', async () => {
+    enableTouchMode();
+    const user = userEvent.setup();
+
+    render(
+      <Tooltip>
+        <TooltipTrigger>Tap me</TooltipTrigger>
+        <TooltipContent data-testid="content">Tooltip text</TooltipContent>
+      </Tooltip>
+    );
+
+    await user.click(screen.getByText('Tap me'));
+    expect(screen.getByTestId('content')).toBeInTheDocument();
+
+    await user.click(screen.getByText('Tap me'));
+    expect(screen.queryByTestId('content')).not.toBeInTheDocument();
+  });
+
+  it('preserves data-slot attribute on trigger in touch mode', () => {
+    enableTouchMode();
+
+    render(
+      <Tooltip>
+        <TooltipTrigger data-testid="trigger">Tap me</TooltipTrigger>
+        <TooltipContent>Tooltip text</TooltipContent>
+      </Tooltip>
+    );
+
+    expect(screen.getByTestId('trigger')).toHaveAttribute('data-slot', 'tooltip-trigger');
+  });
+
+  it('fires child onClick alongside tooltip toggle with asChild', async () => {
+    enableTouchMode();
+    const user = userEvent.setup();
+    const childOnClick = vi.fn();
+
+    render(
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button onClick={childOnClick}>Action</button>
+        </TooltipTrigger>
+        <TooltipContent data-testid="content">Tooltip text</TooltipContent>
+      </Tooltip>
+    );
+
+    await user.click(screen.getByText('Action'));
+
+    expect(childOnClick).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('content')).toBeInTheDocument();
+  });
+
+  it('renders trigger correctly with asChild span', () => {
+    enableTouchMode();
+
+    render(
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span data-testid="badge">Icon</span>
+        </TooltipTrigger>
+        <TooltipContent>Badge info</TooltipContent>
+      </Tooltip>
+    );
+
+    expect(screen.getByTestId('badge')).toBeInTheDocument();
+    expect(screen.getByTestId('badge').tagName).toBe('SPAN');
   });
 });

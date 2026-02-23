@@ -412,6 +412,29 @@ describe('getUserTierInfo', () => {
       expect(mockInsert).toHaveBeenCalledTimes(1);
     });
 
+    it('does not renew for new user with welcome_credit on same day', async () => {
+      // A brand-new user who signed up today has a welcome_credit entry but no renewal entry.
+      // The welcome_credit should count as the initial provisioning marker — no renewal today.
+      mockSelect.mockReturnValueOnce({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue([
+            { type: 'purchased', balance: '0.00000000', id: 'wallet-1' },
+            { type: 'free_tier', balance: '0.04000000', id: 'wallet-2' },
+          ]),
+        }),
+      });
+
+      // Second select: welcome_credit entry from today (no renewal entries, but welcome_credit counts)
+      mockMaxSelectChain(mockSelect, [{ maxCreatedAt: new Date() }]);
+
+      const result = await getUserTierInfo(db as never, 'user-123');
+
+      // Should NOT be renewed — welcome_credit from today prevents renewal
+      expect(result.freeAllowanceCents).toBe(4);
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
     it('handles idempotent renewal when race condition prevents update', async () => {
       const yesterday = new Date();
       yesterday.setUTCDate(yesterday.getUTCDate() - 1);

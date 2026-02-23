@@ -1,12 +1,20 @@
 import * as React from 'react';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 
+import { useIsTouchDevice } from '../hooks/use-is-touch-device';
 import { cn } from '../lib/utilities';
+
+// Context for touch-mode communication between Tooltip root and TooltipTrigger
+interface TouchTooltipContextValue {
+  toggle: () => void;
+}
+
+const TouchTooltipContext = React.createContext<TouchTooltipContextValue | null>(null);
 
 function TooltipProvider({
   delayDuration = 0,
   ...props
-}: Readonly<React.ComponentProps<typeof TooltipPrimitive.Provider>>) {
+}: Readonly<React.ComponentProps<typeof TooltipPrimitive.Provider>>): React.JSX.Element {
   return (
     <TooltipPrimitive.Provider
       data-slot="tooltip-provider"
@@ -16,7 +24,52 @@ function TooltipProvider({
   );
 }
 
-function Tooltip({ ...props }: Readonly<React.ComponentProps<typeof TooltipPrimitive.Root>>) {
+// Touch-mode controlled wrapper — manages open state via click-to-toggle
+function TouchTooltipRoot({
+  children,
+  open: controlledOpen,
+  defaultOpen,
+  onOpenChange: controlledOnOpenChange,
+  ...rest
+}: Readonly<React.ComponentProps<typeof TooltipPrimitive.Root>>): React.JSX.Element {
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = React.useState(defaultOpen ?? false);
+  const open = isControlled ? controlledOpen : internalOpen;
+
+  const setOpen = React.useCallback(
+    (value: boolean) => {
+      if (!isControlled) setInternalOpen(value);
+      controlledOnOpenChange?.(value);
+    },
+    [isControlled, controlledOnOpenChange]
+  );
+
+  const toggle = React.useCallback(() => {
+    setOpen(!open);
+  }, [open, setOpen]);
+
+  const contextValue = React.useMemo(() => ({ toggle }), [toggle]);
+
+  return (
+    <TouchTooltipContext.Provider value={contextValue}>
+      <TooltipProvider>
+        <TooltipPrimitive.Root data-slot="tooltip" open={open} onOpenChange={setOpen} {...rest}>
+          {children}
+        </TooltipPrimitive.Root>
+      </TooltipProvider>
+    </TouchTooltipContext.Provider>
+  );
+}
+
+function Tooltip(
+  props: Readonly<React.ComponentProps<typeof TooltipPrimitive.Root>>
+): React.JSX.Element {
+  const isTouch = useIsTouchDevice();
+
+  if (isTouch) {
+    return <TouchTooltipRoot {...props} />;
+  }
+
   return (
     <TooltipProvider>
       <TooltipPrimitive.Root data-slot="tooltip" {...props} />
@@ -25,9 +78,61 @@ function Tooltip({ ...props }: Readonly<React.ComponentProps<typeof TooltipPrimi
 }
 
 function TooltipTrigger({
+  onClick,
+  onPointerDown,
+  onPointerMove,
+  onPointerLeave,
+  onBlur,
   ...props
-}: Readonly<React.ComponentProps<typeof TooltipPrimitive.Trigger>>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+}: Readonly<React.ComponentProps<typeof TooltipPrimitive.Trigger>>): React.JSX.Element {
+  const touchContext = React.useContext(TouchTooltipContext);
+
+  if (!touchContext) {
+    return (
+      <TooltipPrimitive.Trigger
+        data-slot="tooltip-trigger"
+        onClick={onClick}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerLeave={onPointerLeave}
+        onBlur={onBlur}
+        {...props}
+      />
+    );
+  }
+
+  // Touch mode: intercept all hover/focus events so only click toggles open state.
+  // preventDefault() blocks Radix's composeEventHandlers from calling internal handlers.
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      {...props}
+      onPointerMove={(event: React.PointerEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        onPointerMove?.(event);
+      }}
+      onPointerLeave={(event: React.PointerEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        onPointerLeave?.(event);
+      }}
+      onPointerDown={(event: React.PointerEvent<HTMLButtonElement>) => {
+        // stopPropagation prevents DismissableLayer's document listener
+        // from closing the tooltip before our onClick toggle fires
+        event.preventDefault();
+        event.stopPropagation();
+        onPointerDown?.(event);
+      }}
+      onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        touchContext.toggle();
+        onClick?.(event);
+      }}
+      onBlur={(event: React.FocusEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        onBlur?.(event);
+      }}
+    />
+  );
 }
 
 function TooltipContent({
@@ -35,7 +140,7 @@ function TooltipContent({
   sideOffset = 0,
   children,
   ...props
-}: Readonly<React.ComponentProps<typeof TooltipPrimitive.Content>>) {
+}: Readonly<React.ComponentProps<typeof TooltipPrimitive.Content>>): React.JSX.Element {
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content

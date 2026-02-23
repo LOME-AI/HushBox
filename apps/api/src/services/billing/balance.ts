@@ -1,4 +1,4 @@
-import { and, eq, lt, max } from 'drizzle-orm';
+import { and, eq, inArray, lt, max } from 'drizzle-orm';
 import { wallets, ledgerEntries, type Database } from '@hushbox/db';
 import {
   getUserTier,
@@ -159,7 +159,10 @@ async function maybeRenewFreeAllowance(
     .select({ maxCreatedAt: max(ledgerEntries.createdAt) })
     .from(ledgerEntries)
     .where(
-      and(eq(ledgerEntries.walletId, freeTierWalletId), eq(ledgerEntries.entryType, 'renewal'))
+      and(
+        eq(ledgerEntries.walletId, freeTierWalletId),
+        inArray(ledgerEntries.entryType, ['renewal', 'welcome_credit'])
+      )
     );
 
   const lastRenewalAt = renewalResult?.maxCreatedAt ?? null;
