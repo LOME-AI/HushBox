@@ -383,7 +383,7 @@ function ChatMainContent({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      {messages.length > 0 && (
+      {!showDecrypting && (
         <MessageList
           ref={virtuosoRef}
           messages={messages}

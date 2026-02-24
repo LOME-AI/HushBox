@@ -1414,6 +1414,85 @@ describe('chat routes', () => {
         expect(text).toContain('event: done');
       });
 
+      it('allows free tier user with free_allowance funding through race guard', async () => {
+        vi.useRealTimers();
+
+        // Override fetchMock: two models so the cheap one falls below the 75th-percentile premium threshold
+        const cheapModel = {
+          id: 'openai/gpt-3.5-turbo',
+          name: 'GPT-3.5 Turbo',
+          description: 'Basic model',
+          context_length: 16_000,
+          pricing: { prompt: '0.0000005', completion: '0.0000015' },
+          supported_parameters: ['temperature'],
+          created: Math.floor(Date.now() / 1000) - 2 * 365 * 24 * 60 * 60,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        };
+        const expensiveModel = {
+          ...mockModels[0],
+          created: Math.floor(Date.now() / 1000) - 2 * 365 * 24 * 60 * 60,
+        };
+        const allModels = [cheapModel, expensiveModel];
+        fetchMock.mockImplementation((url: string) => {
+          const zdrEndpoints = allModels.map((m) => ({
+            model_id: m.id,
+            model_name: m.name,
+            provider_name: 'Provider',
+            context_length: m.context_length,
+            pricing: m.pricing,
+          }));
+          if (url.includes('/endpoints/zdr')) {
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve({ data: zdrEndpoints }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: allModels }),
+          });
+        });
+
+        const mockRedis = createMockRedis('5');
+        // Free tier: balance $0, free_tier wallet with $0.05 allowance
+        const app = createTestApp(
+          {
+            conversations: [
+              {
+                id: TEST_CONVERSATION_ID,
+                userId: TEST_USER_ID,
+                title: 'Test Conversation',
+                currentEpoch: 1,
+                nextSequence: 1,
+                conversationBudget: '100.00',
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              },
+            ],
+            users: [{ id: TEST_USER_ID, balance: '0.00000000' }],
+            wallets: [
+              {
+                id: 'wallet-free',
+                userId: TEST_USER_ID,
+                type: 'free_tier',
+                balance: '0.05000000',
+              },
+            ],
+          },
+          mockRedis
+        );
+
+        const res = await app.request('/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ model: 'openai/gpt-3.5-turbo', fundingSource: 'free_allowance' }),
+        });
+
+        expect(res.status).toBe(200);
+        const text = await res.text();
+        expect(text).toContain('event: done');
+      });
+
       it('releases reservation after successful stream', async () => {
         vi.useRealTimers();
 

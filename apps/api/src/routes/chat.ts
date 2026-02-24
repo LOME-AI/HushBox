@@ -384,8 +384,13 @@ async function validateBilling(
   }
 
   // Personal budget reservation with race guard
+  // Free tier uses freeAllowanceCents (not wallet balance) — these are mutually exclusive
   const newTotalReserved = await reserveBudget(redis, userId, worstCaseCents);
-  const finalEffective = billingResult.rawUserBalanceCents - newTotalReserved;
+  const availableCents =
+    billingDecision.fundingSource === 'free_allowance'
+      ? billingResult.input.freeAllowanceCents
+      : billingResult.rawUserBalanceCents;
+  const finalEffective = availableCents - newTotalReserved;
   const cushionCents = getCushionCents(payerTier);
   if (finalEffective < -cushionCents) {
     await releaseBudget(redis, userId, worstCaseCents);

@@ -96,6 +96,13 @@ describe('MessageList', () => {
     expect(screen.getByTestId('message-list-empty')).toBeInTheDocument();
   });
 
+  it('renders role="log" on empty state so waitForConversationLoaded works', () => {
+    render(<MessageList messages={[]} />);
+    const emptyState = screen.getByTestId('message-list-empty');
+    expect(emptyState).toHaveAttribute('role', 'log');
+    expect(emptyState).toHaveAttribute('aria-label', 'Chat messages');
+  });
+
   it('renders container with correct test id', () => {
     render(<MessageList messages={messages} />);
     expect(screen.getByTestId('message-list')).toBeInTheDocument();

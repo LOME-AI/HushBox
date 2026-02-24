@@ -260,10 +260,10 @@ describe('ChatLayout', () => {
     expect(screen.getByText('1 messages')).toBeInTheDocument();
   });
 
-  it('hides message list when no messages', () => {
+  it('renders message list even when no messages (empty state has role="log")', () => {
     render(<ChatLayout {...defaultProps} messages={[]} />);
 
-    expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
+    expect(screen.getByTestId('message-list')).toBeInTheDocument();
   });
 
   it('shows decrypting indicator when isDecrypting and no messages', () => {
