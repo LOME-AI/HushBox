@@ -3,6 +3,8 @@ import {
   STORAGE_COST_PER_CHARACTER,
   EXPENSIVE_MODEL_THRESHOLD_PER_1K,
 } from './constants.js';
+import { charsPerTokenForTier } from './budget.js';
+import type { UserTier } from './tiers.js';
 
 /**
  * Estimate token count from text using character-based heuristic.
@@ -161,4 +163,16 @@ export function isExpensiveModel(pricePerInputToken: number, pricePerOutputToken
   return (
     getModelCostPer1k(pricePerInputToken, pricePerOutputToken) >= EXPENSIVE_MODEL_THRESHOLD_PER_1K
   );
+}
+
+/**
+ * Effective cost per output token: model cost + estimated storage cost.
+ * Storage is per-character; uses tier-aware chars-per-token ratio for the estimation.
+ */
+export function effectiveOutputCostPerToken(
+  modelOutputPricePerToken: number,
+  tier: UserTier
+): number {
+  const estimatedStorageCostPerToken = charsPerTokenForTier(tier) * STORAGE_COST_PER_CHARACTER;
+  return modelOutputPricePerToken + estimatedStorageCostPerToken;
 }

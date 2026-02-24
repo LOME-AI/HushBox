@@ -980,6 +980,41 @@ describe('AuthenticatedChatPage', () => {
       );
     });
 
+    it('deduplicates phantom messages whose IDs already exist in API messages', () => {
+      const phantomMap = new Map([
+        ['m1', { content: 'Hello from Bob', senderType: 'user' as const, senderId: 'u2' }],
+        ['phantom-ai-1', { content: 'Echo: Hello', senderType: 'ai' as const }],
+      ]);
+
+      mockUseGroupChat.mockReturnValue({
+        conversationId: 'conv-456',
+        members: [
+          { id: 'm1', userId: 'u1', username: 'alice', privilege: 'owner' },
+          { id: 'm2', userId: 'u2', username: 'bob', privilege: 'write' },
+        ],
+        links: [],
+        onlineMemberIds: new Set<string>(),
+        currentUserId: 'u1',
+        currentUserPrivilege: 'owner',
+        currentEpochPrivateKey: new Uint8Array(32),
+        currentEpochNumber: 1,
+        remoteStreamingMessages: phantomMap,
+      });
+
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test Chat' },
+        messagesData: [
+          { id: 'm1', conversationId: 'conv-456', role: 'user', content: 'Hi', createdAt: '' },
+        ],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      // phantom 'm1' should be deduped (already in API messages), only phantom-ai-1 remains
+      expect(screen.getByTestId('message-count')).toHaveTextContent('2');
+      expect(screen.getByTestId('message-ids')).toHaveTextContent('m1,phantom-ai-1');
+    });
+
     it('does not append phantom messages when remoteStreamingMessages is empty', () => {
       mockUseGroupChat.mockReturnValue({
         conversationId: 'conv-456',

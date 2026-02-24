@@ -26,7 +26,8 @@
  * after concurrent streams complete and reservations release.
  */
 
-import { MAX_ALLOWED_NEGATIVE_BALANCE_CENTS, MAX_TRIAL_MESSAGE_COST_CENTS } from './constants.js';
+import { MAX_TRIAL_MESSAGE_COST_CENTS } from './constants.js';
+import { getCushionCents } from './budget.js';
 import { canUseModel, type UserTier, type UserTierInfo } from './tiers.js';
 
 // ============================================================================
@@ -123,7 +124,7 @@ export function resolveBilling(input: ResolveBillingInput): ResolveBillingResult
 
   // 3. Paid tier with sufficient balance
   if (tier === 'paid') {
-    const effectiveBalanceCents = balanceCents + MAX_ALLOWED_NEGATIVE_BALANCE_CENTS;
+    const effectiveBalanceCents = balanceCents + getCushionCents(tier);
     if (effectiveBalanceCents >= estimatedMinimumCostCents) {
       return { fundingSource: 'personal_balance' };
     }

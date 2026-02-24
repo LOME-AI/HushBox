@@ -22,7 +22,10 @@ import {
   effectiveBudgetCents,
   resolveBilling,
   canSendMessages,
+  getCushionCents,
+  charsPerTokenForTier,
   MINIMUM_OUTPUT_TOKENS,
+  STORAGE_COST_PER_CHARACTER,
 } from '@hushbox/shared';
 import type { FundingSource, DenialReason, ResolveBillingInput } from '@hushbox/shared';
 import type { AppEnv, Bindings } from '../types.js';
@@ -45,14 +48,12 @@ import { requireAuth } from '../middleware/require-auth.js';
 import { broadcastToRoom } from '../lib/broadcast.js';
 import { createEvent } from '@hushbox/realtime/events';
 import {
-  calculateWorstCaseCostCents,
   reserveBudget,
   releaseBudget,
   reserveGroupBudget,
   releaseGroupBudget,
   type GroupBudgetReservation,
 } from '../lib/speculative-balance.js';
-import { MAX_ALLOWED_NEGATIVE_BALANCE_CENTS } from '@hushbox/shared';
 import type { Context } from 'hono';
 
 interface MessageForInference {
@@ -255,14 +256,21 @@ async function validateBilling(
   const pricing = getModelPricing(openrouterModels, model);
 
   // 2. Compute estimated minimum cost for resolveBilling affordability check
+  // Uses 'paid' tier for optimistic lower bound — if even this can't be afforded, deny early
   const systemPromptForBudget = buildSystemPrompt([]);
   const historyCharacters = messagesForInference.reduce((sum, m) => sum + m.content.length, 0);
   const promptCharacterCount = systemPromptForBudget.length + historyCharacters;
   const estimatedInputTokens = estimateTokensForTier('paid', promptCharacterCount);
+  const preCheckCharsPerToken = charsPerTokenForTier('paid');
+  const inputStorageCostCents = promptCharacterCount * STORAGE_COST_PER_CHARACTER * 100;
+  const outputStorageCostCents =
+    MINIMUM_OUTPUT_TOKENS * preCheckCharsPerToken * STORAGE_COST_PER_CHARACTER * 100;
   const estimatedMinimumCostCents = Math.ceil(
     (estimatedInputTokens * pricing.inputPricePerToken +
       MINIMUM_OUTPUT_TOKENS * pricing.outputPricePerToken) *
-      100
+      100 +
+      inputStorageCostCents +
+      outputStorageCostCents
   );
 
   // 3. Gather all billing data and resolve billing decision
@@ -321,17 +329,13 @@ async function validateBilling(
     estimatedInputTokens: budgetResult.estimatedInputTokens,
   });
 
-  // 7. Calculate worst case cost for reservation
+  // 7. Calculate worst case cost for reservation (derived from budget — single source of truth)
   const effectiveMaxOutputTokens =
     safeMaxTokens ?? pricing.contextLength - budgetResult.estimatedInputTokens;
-  const inputCharacters = messagesForInference.reduce((sum, m) => sum + m.content.length, 0);
-  const worstCaseCents = calculateWorstCaseCostCents({
-    estimatedInputTokens: budgetResult.estimatedInputTokens,
-    effectiveMaxOutputTokens,
-    pricePerInputToken: pricing.rawInputPricePerToken,
-    pricePerOutputToken: pricing.rawOutputPricePerToken,
-    inputCharacters,
-  });
+  const worstCaseCents = Math.ceil(
+    (budgetResult.estimatedInputCost + effectiveMaxOutputTokens * budgetResult.outputCostPerToken) *
+      100
+  );
 
   // 8. Reserve budget
   if (isGroupBilling && memberContext && conversationId) {
@@ -358,7 +362,8 @@ async function validateBilling(
       ownerRemainingCents: ctx.ownerBalanceCents - reservedTotals.payerTotal,
     });
 
-    if (postReservationEffective < -MAX_ALLOWED_NEGATIVE_BALANCE_CENTS) {
+    const cushionCents = getCushionCents(payerTier);
+    if (postReservationEffective < -cushionCents) {
       await releaseGroupBudget(redis, groupReservation);
       return {
         success: false,
@@ -381,7 +386,8 @@ async function validateBilling(
   // Personal budget reservation with race guard
   const newTotalReserved = await reserveBudget(redis, userId, worstCaseCents);
   const finalEffective = billingResult.rawUserBalanceCents - newTotalReserved;
-  if (finalEffective < -MAX_ALLOWED_NEGATIVE_BALANCE_CENTS) {
+  const cushionCents = getCushionCents(payerTier);
+  if (finalEffective < -cushionCents) {
     await releaseBudget(redis, userId, worstCaseCents);
     return {
       success: false,
@@ -686,79 +692,80 @@ export const chatRoute = new Hono<AppEnv>()
 
     return streamSSE(c, async (stream) => {
       const writer = createSSEEventWriter(stream);
-
-      await writer.writeStart({
-        userMessageId: userMessage.id,
-        assistantMessageId,
-      });
-
-      const tokenStream = openrouter.chatCompletionStreamWithMetadata({
-        model,
-        messages: openRouterMessages,
-        ...(safeMaxTokens !== undefined && { max_tokens: safeMaxTokens }),
-      });
-
-      const result = await collectStreamTokens(tokenStream, writer, {
-        env: c.env,
-        conversationId,
-        assistantMessageId,
-      });
-
-      if (result.error) {
-        await releaseReservation();
-        const code =
-          result.error instanceof ContextCapacityError ? 'context_length_exceeded' : 'STREAM_ERROR';
-        await writer.writeError({ message: result.error.message, code });
-        return;
-      }
-
-      if (result.fullContent.length === 0) {
-        await releaseReservation();
-        await writer.writeError({ message: 'No content generated', code: 'STREAM_ERROR' });
-        return;
-      }
-
-      const billingPromise = processBillingAfterStream({
-        openrouter,
-        openrouterModels,
-        model,
-        generationId: result.generationId,
-        lastUserMessageContent: lastInferenceMessage?.content ?? '',
-        fullContent: result.fullContent,
-        db,
-        userMessageId: userMessage.id,
-        userContent: userMessage.content,
-        assistantMessageId,
-        conversationId,
-        userId: billingUserId,
-        ...(chatValidation.memberContext !== undefined &&
-          billingValidation.groupBudget !== undefined && {
-            groupMemberId: chatValidation.memberContext.memberId,
-          }),
-      });
-
-      const billingResult = await handleBillingResult({
-        c,
-        billingPromise,
-        assistantMessageId,
-        userId: billingUserId,
-        model,
-        generationId: result.generationId,
-      });
-
-      await releaseReservation();
-
-      if (billingResult) {
-        await broadcastAndFinish({
-          c,
-          conversationId,
+      try {
+        await writer.writeStart({
           userMessageId: userMessage.id,
           assistantMessageId,
-          billingResult,
-          writer,
         });
-      } else {
-        await writer.writeError({ message: 'Failed to save message', code: 'BILLING_ERROR' });
+
+        const tokenStream = openrouter.chatCompletionStreamWithMetadata({
+          model,
+          messages: openRouterMessages,
+          ...(safeMaxTokens !== undefined && { max_tokens: safeMaxTokens }),
+        });
+
+        const result = await collectStreamTokens(tokenStream, writer, {
+          env: c.env,
+          conversationId,
+          assistantMessageId,
+        });
+
+        if (result.error) {
+          const code =
+            result.error instanceof ContextCapacityError
+              ? 'context_length_exceeded'
+              : 'STREAM_ERROR';
+          await writer.writeError({ message: result.error.message, code });
+          return;
+        }
+
+        if (result.fullContent.length === 0) {
+          await writer.writeError({ message: 'No content generated', code: 'STREAM_ERROR' });
+          return;
+        }
+
+        const billingPromise = processBillingAfterStream({
+          openrouter,
+          openrouterModels,
+          model,
+          generationId: result.generationId,
+          lastUserMessageContent: lastInferenceMessage?.content ?? '',
+          fullContent: result.fullContent,
+          db,
+          userMessageId: userMessage.id,
+          userContent: userMessage.content,
+          assistantMessageId,
+          conversationId,
+          userId: billingUserId,
+          ...(chatValidation.memberContext !== undefined &&
+            billingValidation.groupBudget !== undefined && {
+              groupMemberId: chatValidation.memberContext.memberId,
+            }),
+        });
+
+        const billingResult = await handleBillingResult({
+          c,
+          billingPromise,
+          assistantMessageId,
+          userId: billingUserId,
+          model,
+          generationId: result.generationId,
+        });
+
+        if (billingResult) {
+          await broadcastAndFinish({
+            c,
+            conversationId,
+            userMessageId: userMessage.id,
+            assistantMessageId,
+            billingResult,
+            writer,
+          });
+        } else {
+          await writer.writeError({ message: 'Failed to save message', code: 'BILLING_ERROR' });
+        }
+      } finally {
+        await releaseReservation();
       }
     });
   })

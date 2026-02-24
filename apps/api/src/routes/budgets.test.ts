@@ -390,6 +390,57 @@ describe('budgets route', () => {
       expect(body.memberBudgets[1]?.spent).toBe('0');
     });
 
+    it('returns memberBudgetDollars for the requesting member', async () => {
+      const app = createGetTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'write' },
+          memberBudgets: [
+            {
+              memberId: 'member-1',
+              userId: TEST_USER_ID,
+              linkId: null,
+              privilege: 'write',
+              budget: '10.00',
+              spent: '3.00000000',
+            },
+          ],
+          totalSpent: '3.00000000',
+          conversationBudget: '50.00',
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}`);
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{ memberBudgetDollars: number }>();
+      expect(body.memberBudgetDollars).toBe(10);
+    });
+
+    it('returns memberBudgetDollars 0 when requesting member has no budget row', async () => {
+      const app = createGetTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'write' },
+          memberBudgets: [
+            {
+              memberId: 'member-1',
+              userId: TEST_USER_ID,
+              linkId: null,
+              privilege: 'write',
+              budget: null,
+              spent: null,
+            },
+          ],
+          totalSpent: null,
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}`);
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{ memberBudgetDollars: number }>();
+      expect(body.memberBudgetDollars).toBe(0);
+    });
+
     it('excludes conversation owner from memberBudgets response', async () => {
       const app = createGetTestApp({
         dbConfig: {

@@ -238,87 +238,6 @@ describe('useRemoteStreaming', () => {
     });
   });
 
-  it('message:complete removes ALL entries from the map', () => {
-    const mockWs = createMockWs();
-
-    const { result } = renderHook(() =>
-      useRemoteStreaming(mockWs as unknown as ConversationWebSocket, 'current-user')
-    );
-
-    // Add an AI phantom
-    act(() => {
-      mockWs.emit('message:stream', {
-        type: 'message:stream',
-        timestamp: Date.now(),
-        messageId: 'ai-msg-1',
-        token: 'Some AI content',
-      });
-    });
-
-    expect(result.current.size).toBe(1);
-
-    // Complete clears everything
-    act(() => {
-      mockWs.emit('message:complete', {
-        type: 'message:complete',
-        timestamp: Date.now(),
-        messageId: 'ai-msg-1',
-        conversationId: 'conv-1',
-        sequenceNumber: 1,
-        epochNumber: 1,
-      });
-    });
-
-    expect(result.current.size).toBe(0);
-  });
-
-  it('both user phantom and AI phantom cleared on message:complete', () => {
-    const mockWs = createMockWs();
-
-    const { result } = renderHook(() =>
-      useRemoteStreaming(mockWs as unknown as ConversationWebSocket, 'current-user')
-    );
-
-    // Add user phantom
-    act(() => {
-      mockWs.emit('message:new', {
-        type: 'message:new',
-        timestamp: Date.now(),
-        messageId: 'user-msg-1',
-        conversationId: 'conv-1',
-        senderType: 'user',
-        senderId: 'other-user',
-        content: 'User message',
-      });
-    });
-
-    // Add AI phantom
-    act(() => {
-      mockWs.emit('message:stream', {
-        type: 'message:stream',
-        timestamp: Date.now(),
-        messageId: 'ai-msg-1',
-        token: 'AI response',
-      });
-    });
-
-    expect(result.current.size).toBe(2);
-
-    // Complete clears both
-    act(() => {
-      mockWs.emit('message:complete', {
-        type: 'message:complete',
-        timestamp: Date.now(),
-        messageId: 'ai-msg-1',
-        conversationId: 'conv-1',
-        sequenceNumber: 1,
-        epochNumber: 1,
-      });
-    });
-
-    expect(result.current.size).toBe(0);
-  });
-
   it('multiple concurrent streams are tracked independently', () => {
     const mockWs = createMockWs();
 
@@ -381,26 +300,125 @@ describe('useRemoteStreaming', () => {
       useRemoteStreaming(mockWs as unknown as ConversationWebSocket, 'current-user')
     );
 
-    // Three event types registered
-    expect(mockWs.on).toHaveBeenCalledTimes(3);
+    // Two event types registered
+    expect(mockWs.on).toHaveBeenCalledTimes(2);
     expect(mockWs.on).toHaveBeenCalledWith('message:new', expect.any(Function));
     expect(mockWs.on).toHaveBeenCalledWith('message:stream', expect.any(Function));
-    expect(mockWs.on).toHaveBeenCalledWith('message:complete', expect.any(Function));
 
     // Verify listeners are registered
     const newListeners = mockWs.listeners.get('message:new');
     const streamListeners = mockWs.listeners.get('message:stream');
-    const completeListeners = mockWs.listeners.get('message:complete');
     expect(newListeners?.size).toBe(1);
     expect(streamListeners?.size).toBe(1);
-    expect(completeListeners?.size).toBe(1);
 
     unmount();
 
     // After unmount, all listeners should be removed
     expect(newListeners?.size).toBe(0);
     expect(streamListeners?.size).toBe(0);
-    expect(completeListeners?.size).toBe(0);
+  });
+
+  it('message:stream matching local streaming ID is skipped', () => {
+    const mockWs = createMockWs();
+    const localStreamingIdRef = { current: 'ai-msg-1' };
+
+    const { result } = renderHook(() =>
+      useRemoteStreaming(
+        mockWs as unknown as ConversationWebSocket,
+        'current-user',
+        localStreamingIdRef
+      )
+    );
+
+    act(() => {
+      mockWs.emit('message:stream', {
+        type: 'message:stream',
+        timestamp: Date.now(),
+        messageId: 'ai-msg-1',
+        token: 'Hello',
+      });
+    });
+
+    expect(result.current.size).toBe(0);
+  });
+
+  it('message:stream with different ID than local streaming is processed', () => {
+    const mockWs = createMockWs();
+    const localStreamingIdRef = { current: 'ai-msg-1' };
+
+    const { result } = renderHook(() =>
+      useRemoteStreaming(
+        mockWs as unknown as ConversationWebSocket,
+        'current-user',
+        localStreamingIdRef
+      )
+    );
+
+    act(() => {
+      mockWs.emit('message:stream', {
+        type: 'message:stream',
+        timestamp: Date.now(),
+        messageId: 'ai-msg-2',
+        token: 'Hello from other stream',
+      });
+    });
+
+    expect(result.current.size).toBe(1);
+    expect(result.current.get('ai-msg-2')).toEqual({
+      content: 'Hello from other stream',
+      senderType: 'ai',
+    });
+  });
+
+  it('message:stream with null ref is processed normally', () => {
+    const mockWs = createMockWs();
+    const localStreamingIdRef = { current: null };
+
+    const { result } = renderHook(() =>
+      useRemoteStreaming(
+        mockWs as unknown as ConversationWebSocket,
+        'current-user',
+        localStreamingIdRef
+      )
+    );
+
+    act(() => {
+      mockWs.emit('message:stream', {
+        type: 'message:stream',
+        timestamp: Date.now(),
+        messageId: 'ai-msg-1',
+        token: 'Hello',
+      });
+    });
+
+    expect(result.current.size).toBe(1);
+    expect(result.current.get('ai-msg-1')).toEqual({
+      content: 'Hello',
+      senderType: 'ai',
+    });
+  });
+
+  it('message:stream without ref passed is processed normally', () => {
+    const mockWs = createMockWs();
+
+    const { result } = renderHook(() =>
+      useRemoteStreaming(mockWs as unknown as ConversationWebSocket, 'current-user')
+    );
+
+    act(() => {
+      mockWs.emit('message:stream', {
+        type: 'message:stream',
+        timestamp: Date.now(),
+        messageId: 'ai-msg-1',
+        token: 'Hello',
+      });
+    });
+
+    expect(result.current.size).toBe(1);
+    expect(result.current.get('ai-msg-1')).toEqual({
+      content: 'Hello',
+      senderType: 'ai',
+    });
   });
 
   it('message:new phantom includes senderId when present', () => {

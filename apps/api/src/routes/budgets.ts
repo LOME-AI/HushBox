@@ -76,6 +76,7 @@ export const budgetsRoute = new Hono<AppEnv>()
           effectiveDollars: effective / 100,
           ownerTier: ownerTierInfo.tier,
           ownerBalanceDollars: ownerTierInfo.balanceCents / 100,
+          memberBudgetDollars: Number.parseFloat(currentMemberBudget?.budget ?? '0.00'),
         },
         200
       );

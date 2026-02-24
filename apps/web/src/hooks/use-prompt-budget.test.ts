@@ -80,6 +80,7 @@ describe('usePromptBudget', () => {
     effectiveBalance: 10,
     currentUsage: 1100,
     capacityPercent: 1,
+    outputCostPerToken: 0.000_001,
     isBalanceLoading: false,
   };
 
@@ -216,6 +217,7 @@ describe('usePromptBudget', () => {
           conversationBudgetCents: 1000,
           totalSpentCents: 200,
           memberBudgets: [],
+          memberBudgetDollars: 5,
         },
         isLoading: false,
       });
@@ -234,6 +236,36 @@ describe('usePromptBudget', () => {
         (n: { id: string }) => n.id === 'delegated_budget_notice'
       );
       expect(hasDelegatedNotice).toBe(true);
+    });
+
+    it('does not show delegated_budget_exhausted when memberBudgetDollars is 0', () => {
+      mockUseConversationBudgets.mockReturnValue({
+        data: {
+          effectiveDollars: 0,
+          ownerTier: 'paid',
+          ownerBalanceDollars: 50,
+          conversationBudget: '10.00',
+          totalSpent: '0.00',
+          memberBudgets: [],
+          memberBudgetDollars: 0,
+        },
+        isPending: false,
+        isLoading: false,
+      });
+      mockUseResolveBilling.mockReturnValue({ fundingSource: 'personal_balance' });
+
+      const { result } = renderHook(() =>
+        usePromptBudget({
+          ...defaultInput,
+          conversationId: 'conv-1',
+          currentUserPrivilege: 'write',
+        })
+      );
+
+      const hasExhausted = result.current.notifications.some(
+        (n: { id: string }) => n.id === 'delegated_budget_exhausted'
+      );
+      expect(hasExhausted).toBe(false);
     });
   });
 

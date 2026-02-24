@@ -4,13 +4,13 @@ import { useUIStore } from './ui';
 describe('useUIStore', () => {
   beforeEach(() => {
     // Reset store state before each test
-    useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false });
+    useUIStore.setState({ sidebarOpen: false, mobileSidebarOpen: false });
   });
 
   describe('initial state', () => {
-    it('has sidebar open by default', () => {
+    it('has sidebar closed by default', () => {
       const state = useUIStore.getState();
-      expect(state.sidebarOpen).toBe(true);
+      expect(state.sidebarOpen).toBe(false);
     });
 
     it('has mobile sidebar closed by default', () => {
@@ -35,17 +35,17 @@ describe('useUIStore', () => {
   });
 
   describe('toggleSidebar', () => {
-    it('toggles sidebar from open to closed', () => {
-      const { toggleSidebar } = useUIStore.getState();
-      toggleSidebar();
-      expect(useUIStore.getState().sidebarOpen).toBe(false);
-    });
-
     it('toggles sidebar from closed to open', () => {
-      useUIStore.setState({ sidebarOpen: false });
       const { toggleSidebar } = useUIStore.getState();
       toggleSidebar();
       expect(useUIStore.getState().sidebarOpen).toBe(true);
+    });
+
+    it('toggles sidebar from open to closed', () => {
+      useUIStore.setState({ sidebarOpen: true });
+      const { toggleSidebar } = useUIStore.getState();
+      toggleSidebar();
+      expect(useUIStore.getState().sidebarOpen).toBe(false);
     });
   });
 

@@ -13,7 +13,9 @@ import {
   CHARS_PER_TOKEN_CONSERVATIVE,
   CHARS_PER_TOKEN_STANDARD,
   CAPACITY_RED_THRESHOLD,
+  STORAGE_COST_PER_CHARACTER,
 } from './constants.js';
+import { effectiveOutputCostPerToken } from './pricing.js';
 import type { UserTier } from './tiers.js';
 import type { FundingSource, ResolveBillingResult, DenialReason } from './resolve-billing.js';
 
@@ -51,12 +53,15 @@ export interface BudgetCalculationResult {
   maxOutputTokens: number;
   /** Estimated input tokens based on tier */
   estimatedInputTokens: number;
-  /** Estimated input cost in dollars */
+  /** Estimated input cost in dollars (model cost + storage cost) */
   estimatedInputCost: number;
   /** Estimated minimum total cost (input + min output) in dollars */
   estimatedMinimumCost: number;
   /** Effective balance including any cushion, in dollars */
   effectiveBalance: number;
+  /** Effective cost per output token used by this calculation (model + storage).
+   *  Downstream code MUST use this for worst-case cost to maintain the budget invariant. */
+  outputCostPerToken: number;
   /** Current usage in tokens (input + min output) */
   currentUsage: number;
   /** Capacity percentage (currentUsage / modelContextLength * 100) */
@@ -89,20 +94,36 @@ export interface BudgetError {
 // ============================================================================
 
 /**
+ * Characters-per-token ratio for a given tier.
+ * Single source of truth for token↔character conversion.
+ * Conservative (2) for free/trial/guest since we absorb overruns.
+ * Standard (4) for paid users.
+ */
+export function charsPerTokenForTier(tier: UserTier): number {
+  return tier === 'paid' ? CHARS_PER_TOKEN_STANDARD : CHARS_PER_TOKEN_CONSERVATIVE;
+}
+
+/**
  * Estimate token count based on user tier.
  * Uses conservative (2 chars/token) for free/trial users since we absorb overruns.
  * Uses standard (4 chars/token) for paid users.
  */
 export function estimateTokensForTier(tier: UserTier, characterCount: number): number {
   if (characterCount === 0) return 0;
-
-  const charsPerToken = tier === 'paid' ? CHARS_PER_TOKEN_STANDARD : CHARS_PER_TOKEN_CONSERVATIVE;
-  return Math.ceil(characterCount / charsPerToken);
+  return Math.ceil(characterCount / charsPerTokenForTier(tier));
 }
 
 // ============================================================================
 // Effective Balance
 // ============================================================================
+
+/**
+ * Negative-balance cushion by tier. Only paid users get the $0.50 cushion.
+ * Single source of truth — used by getEffectiveBalance and race guards in chat.ts.
+ */
+export function getCushionCents(tier: UserTier): number {
+  return tier === 'paid' ? MAX_ALLOWED_NEGATIVE_BALANCE_CENTS : 0;
+}
 
 /**
  * Calculate effective balance based on tier.
@@ -127,7 +148,7 @@ export function getEffectiveBalance(
       return freeAllowanceCents / 100;
     }
     case 'paid': {
-      return (balanceCents + MAX_ALLOWED_NEGATIVE_BALANCE_CENTS) / 100;
+      return (balanceCents + getCushionCents('paid')) / 100;
     }
   }
 }
@@ -347,9 +368,11 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
   // 1. Estimate input tokens based on tier
   const estimatedInputTokens = estimateTokensForTier(tier, promptCharacterCount);
 
-  // 2. Calculate costs
-  const estimatedInputCost = estimatedInputTokens * modelInputPricePerToken;
-  const minimumOutputCost = MINIMUM_OUTPUT_TOKENS * modelOutputPricePerToken;
+  // 2. Calculate costs (model + storage)
+  const inputStorageCost = promptCharacterCount * STORAGE_COST_PER_CHARACTER;
+  const estimatedInputCost = estimatedInputTokens * modelInputPricePerToken + inputStorageCost;
+  const outputCostPerToken = effectiveOutputCostPerToken(modelOutputPricePerToken, tier);
+  const minimumOutputCost = MINIMUM_OUTPUT_TOKENS * outputCostPerToken;
   const estimatedMinimumCost = estimatedInputCost + minimumOutputCost;
 
   // 3. Determine effective balance
@@ -360,7 +383,7 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
   let maxOutputTokens = 0;
   if (personalCanAfford) {
     const remainingBudget = effectiveBalance - estimatedInputCost;
-    maxOutputTokens = Math.floor(remainingBudget / modelOutputPricePerToken);
+    maxOutputTokens = Math.floor(remainingBudget / outputCostPerToken);
   }
 
   // 5. Calculate capacity (always use standard 4 chars/token - model context is fixed regardless of tier)
@@ -374,9 +397,42 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
     estimatedInputCost,
     estimatedMinimumCost,
     effectiveBalance,
+    outputCostPerToken,
     currentUsage,
     capacityPercent,
   };
+}
+
+// ============================================================================
+// Safe Max Tokens
+// ============================================================================
+
+/** 5% safety margin to account for token estimation inaccuracy */
+const MAX_TOKENS_HEADROOM = 0.95;
+
+export interface ComputeMaxTokensParams {
+  /** Max output tokens based on user's budget */
+  budgetMaxTokens: number;
+  /** Model's maximum context length in tokens */
+  modelContextLength: number;
+  /** Estimated input tokens (system prompt + history + user message) */
+  estimatedInputTokens: number;
+}
+
+/**
+ * Compute safe max_tokens value for OpenRouter request.
+ *
+ * @returns undefined if budget exceeds remaining context (omit max_tokens, let model use default)
+ * @returns budget * 0.95 if budget is the limiting factor (5% headroom for estimation error)
+ */
+export function computeSafeMaxTokens(params: ComputeMaxTokensParams): number | undefined {
+  const remainingContext = params.modelContextLength - params.estimatedInputTokens;
+
+  if (params.budgetMaxTokens >= remainingContext) {
+    return undefined;
+  }
+
+  return Math.floor(params.budgetMaxTokens * MAX_TOKENS_HEADROOM);
 }
 
 // ============================================================================

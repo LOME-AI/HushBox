@@ -28,7 +28,8 @@ import type { GroupChatProps } from '../components/chat/chat-layout.js';
 
 export function useGroupChat(
   conversationId: string | null,
-  plaintextTitle?: string
+  plaintextTitle?: string,
+  localStreamingIdRef?: React.RefObject<string | null>
 ): GroupChatProps | undefined {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
@@ -41,7 +42,7 @@ export function useGroupChat(
   const ws = useConversationWebSocket(isGroup ? conversationId : null);
   const presenceMap = usePresence(ws);
   useRealtimeSync(ws, conversationId, user?.id ?? null);
-  const remoteStreamingMessages = useRemoteStreaming(ws, user?.id ?? null);
+  const remoteStreamingMessages = useRemoteStreaming(ws, user?.id ?? null, localStreamingIdRef);
   const typingUserIds = useTypingIndicators(ws);
 
   const removeMember = useRemoveMember();

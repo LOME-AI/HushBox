@@ -7,12 +7,15 @@ import {
   estimateTokenCount,
   getModelCostPer1k,
   isExpensiveModel,
+  effectiveOutputCostPerToken,
 } from './pricing.js';
 import type { MessageCostParams, MessageCostFromOpenRouterParams } from './pricing.js';
 import {
   TOTAL_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
   EXPENSIVE_MODEL_THRESHOLD_PER_1K,
+  CHARS_PER_TOKEN_STANDARD,
+  CHARS_PER_TOKEN_CONSERVATIVE,
 } from './constants.js';
 
 describe('applyFees', () => {
@@ -560,5 +563,45 @@ describe('isExpensiveModel', () => {
   it('uses EXPENSIVE_MODEL_THRESHOLD_PER_1K constant', () => {
     // Verify the threshold constant is $0.10
     expect(EXPENSIVE_MODEL_THRESHOLD_PER_1K).toBe(0.1);
+  });
+});
+
+describe('effectiveOutputCostPerToken', () => {
+  it('adds tier-aware storage cost to model price for paid tier', () => {
+    const modelPrice = 0.000_075; // Claude Opus-level
+    const expected = modelPrice + CHARS_PER_TOKEN_STANDARD * STORAGE_COST_PER_CHARACTER;
+    expect(effectiveOutputCostPerToken(modelPrice, 'paid')).toBeCloseTo(expected, 15);
+  });
+
+  it('adds tier-aware storage cost to model price for free tier', () => {
+    const modelPrice = 0.000_075;
+    const expected = modelPrice + CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
+    expect(effectiveOutputCostPerToken(modelPrice, 'free')).toBeCloseTo(expected, 15);
+  });
+
+  it('adds tier-aware storage cost to model price for trial tier', () => {
+    const modelPrice = 0.000_01;
+    const expected = modelPrice + CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
+    expect(effectiveOutputCostPerToken(modelPrice, 'trial')).toBeCloseTo(expected, 15);
+  });
+
+  it('adds tier-aware storage cost to model price for guest tier', () => {
+    const modelPrice = 0.000_01;
+    const expected = modelPrice + CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
+    expect(effectiveOutputCostPerToken(modelPrice, 'guest')).toBeCloseTo(expected, 15);
+  });
+
+  it('returns positive value for zero model price', () => {
+    const result = effectiveOutputCostPerToken(0, 'paid');
+    expect(result).toBeGreaterThan(0);
+    expect(result).toBe(CHARS_PER_TOKEN_STANDARD * STORAGE_COST_PER_CHARACTER);
+  });
+
+  it('uses different storage cost for paid vs free', () => {
+    const modelPrice = 0.000_01;
+    const paidResult = effectiveOutputCostPerToken(modelPrice, 'paid');
+    const freeResult = effectiveOutputCostPerToken(modelPrice, 'free');
+    // Paid uses 4 chars/token, free uses 2 chars/token — paid storage > free storage
+    expect(paidResult).toBeGreaterThan(freeResult);
   });
 });

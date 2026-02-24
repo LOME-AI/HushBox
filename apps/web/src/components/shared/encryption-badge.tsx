@@ -11,7 +11,12 @@ interface EncryptionBadgeProps {
 export function EncryptionBadge({
   isAuthenticated,
 }: Readonly<EncryptionBadgeProps>): React.JSX.Element {
-  const zdrLine = 'We only partner with AI providers that never store or train on your data.';
+  const zdrLine = (
+    <>
+      <span className="block">We only partner with AI providers that</span>
+      <span className="block">never store or train on your data.</span>
+    </>
+  );
 
   const message = isAuthenticated ? (
     <>

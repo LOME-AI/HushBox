@@ -645,7 +645,7 @@ describe('useGroupChat', () => {
 
     renderHook(() => useGroupChat('conv-1'));
 
-    expect(useRemoteStreaming).toHaveBeenCalledWith(mockWs, 'u1');
+    expect(useRemoteStreaming).toHaveBeenCalledWith(mockWs, 'u1', undefined);
   });
 
   it('calls useTypingIndicators with ws', () => {
