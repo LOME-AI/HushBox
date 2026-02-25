@@ -30,6 +30,11 @@ export default defineConfig({
       url: 'http://localhost:8787/api/health',
       reuseExistingServer: !process.env['CI'],
     },
+    {
+      command: 'pnpm --filter @hushbox/web build && pnpm --filter @hushbox/web preview --port 4173',
+      url: 'http://localhost:4173',
+      reuseExistingServer: !process.env['CI'],
+    },
   ],
   projects: [
     // Per-browser setup projects — each authenticates personas using its own engine,
@@ -95,6 +100,18 @@ export default defineConfig({
       name: 'ipad-pro',
       use: { ...devices['iPad Pro 11'], storageState: 'e2e/.auth/test-alice.json' },
       dependencies: ['setup-webkit'],
+    },
+    // Production build smoke test — catches build-only issues (Vite plugins, Rollup config)
+    // that dev-mode tests miss
+    {
+      name: 'production-smoke',
+      testMatch: /smoke\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: 'http://localhost:4173',
+        storageState: 'e2e/.auth/test-alice.json',
+      },
+      dependencies: ['setup-chromium'],
     },
   ],
 });

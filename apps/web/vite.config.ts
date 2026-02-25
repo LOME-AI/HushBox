@@ -4,7 +4,6 @@ import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { createReadStream, readFileSync } from 'node:fs';
 import { resolve } from 'path';
-import { transformStreamdownSource } from './src/lib/inline-streamdown-lazy-imports';
 
 const envDir = resolve(__dirname, '../..');
 
@@ -52,18 +51,6 @@ function marketingRedirectPlugin(): Plugin {
   };
 }
 
-function inlineStreamdownLazyImports(): Plugin {
-  return {
-    name: 'inline-streamdown-lazy-imports',
-    apply: 'build',
-    transform(code, id) {
-      if (!id.includes('node_modules') || !id.includes('streamdown')) return null;
-      const result = transformStreamdownSource(code);
-      return result ? { code: result, map: null } : null;
-    },
-  };
-}
-
 function sharedFaviconPlugin(): Plugin {
   const faviconPath = resolve(__dirname, '../../packages/ui/src/assets/favicon.ico');
   return {
@@ -97,10 +84,21 @@ export default defineConfig(({ mode }) => {
       }),
       react(),
       apiPreconnectPlugin(env['VITE_API_URL']),
-      inlineStreamdownLazyImports(),
       sharedFaviconPlugin(),
       marketingRedirectPlugin(),
     ],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id): string | undefined {
+            if (id.includes('node_modules') && id.includes('streamdown')) {
+              return 'streamdown';
+            }
+            return undefined;
+          },
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': resolve(__dirname, './src'),
