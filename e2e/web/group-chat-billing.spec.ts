@@ -1,6 +1,19 @@
+import type { APIRequestContext } from '@playwright/test';
 import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { BudgetHelper } from '../helpers/budget.js';
+
+async function getLastAiPayerId(
+  request: APIRequestContext,
+  conversationId: string
+): Promise<string | null | undefined> {
+  const convResponse = await request.get(`/api/conversations/${conversationId}`);
+  const convData = (await convResponse.json()) as {
+    messages: { senderType: string; payerId: string | null }[];
+  };
+  const aiMessages = convData.messages.filter((m) => m.senderType === 'ai');
+  return aiMessages.at(-1)?.payerId;
+}
 
 /**
  * Group Chat Billing E2E Tests
@@ -82,114 +95,105 @@ test.describe('Group Chat Billing', () => {
     });
   });
 
-  test('member budget exhausted: falls through to free allowance', async ({
-    authenticatedPage: _alice,
-    testBobPage,
-    authenticatedRequest,
-    groupConversation,
-  }) => {
-    const helper = new BudgetHelper(authenticatedRequest);
+  // Both tests below fall through to Bob's personal free_allowance billing,
+  // reserving against the same Redis key (chatReservedBalance:{bobUserId}).
+  // Serial mode prevents concurrent reservations from exceeding Bob's 5¢ allowance.
+  test.describe('personal free-allowance fallthrough', () => {
+    test.describe.configure({ mode: 'serial' });
 
-    await test.step('setup: conv=$10, member=$0 (default)', async () => {
-      // Set high conversation budget but do NOT set Bob's member budget (stays 0)
-      await helper.setConversationBudget(groupConversation.id, 1000);
-    });
+    test('member budget exhausted: falls through to free allowance', async ({
+      authenticatedPage: _alice,
+      testBobPage,
+      authenticatedRequest,
+      groupConversation,
+    }) => {
+      const helper = new BudgetHelper(authenticatedRequest);
 
-    await test.step('Bob navigates and sees free_tier_notice', async () => {
-      const chatPage = new ChatPage(testBobPage);
-      await chatPage.gotoConversation(groupConversation.id);
-      await chatPage.waitForConversationLoaded();
+      await test.step('setup: conv=$10, member=$0 (default)', async () => {
+        // Set high conversation budget but do NOT set Bob's member budget (stays 0)
+        await helper.setConversationBudget(groupConversation.id, 1000);
+      });
 
-      // memberRemaining = 0 → effectiveCents = 0 → personal → free_allowance
-      await expect(testBobPage.getByTestId('budget-message-free_tier_notice')).toBeVisible({
-        timeout: 10_000,
+      await test.step('Bob navigates and sees free_tier_notice', async () => {
+        const chatPage = new ChatPage(testBobPage);
+        await chatPage.gotoConversation(groupConversation.id);
+        await chatPage.waitForConversationLoaded();
+
+        // memberRemaining = 0 → effectiveCents = 0 → personal → free_allowance
+        await expect(testBobPage.getByTestId('budget-message-free_tier_notice')).toBeVisible({
+          timeout: 10_000,
+        });
+      });
+
+      await test.step('Bob sends and owner is NOT charged', async () => {
+        const chatPage = new ChatPage(testBobPage);
+        await chatPage.sendFollowUpMessage(`Member exhausted ${String(Date.now())}`);
+        await chatPage.waitForAIResponse('Member exhausted');
+
+        // Verify Bob (not Alice) was charged — per-message payerId check,
+        // immune to parallel test pollution (unlike Alice's global balance)
+        const bobUser = groupConversation.members.find(
+          (m) => m.email === 'test-bob@test.hushbox.ai'
+        )!;
+        await expect
+          .poll(() => getLastAiPayerId(authenticatedRequest, groupConversation.id), {
+            timeout: 10_000,
+            message: 'last AI message payerId should be Bob (personal billing)',
+          })
+          .toBe(bobUser.userId);
+
+        // Group spending NOT incremented (free_allowance → owner didn't pay)
+        const budgets = await helper.getBudgets(groupConversation.id);
+        expect(Number.parseFloat(budgets.totalSpent)).toBe(0);
       });
     });
 
-    await test.step('Bob sends and owner is NOT charged', async () => {
-      const chatPage = new ChatPage(testBobPage);
-      await chatPage.sendFollowUpMessage(`Member exhausted ${String(Date.now())}`);
-      await chatPage.waitForAIResponse('Member exhausted');
-
-      // Verify Bob (not Alice) was charged — per-message payerId check,
-      // immune to parallel test pollution (unlike Alice's global balance)
+    test('conversation budget exhausted: falls through to free allowance', async ({
+      authenticatedPage: _alice,
+      testBobPage,
+      authenticatedRequest,
+      groupConversation,
+    }) => {
+      const helper = new BudgetHelper(authenticatedRequest);
       const bobUser = groupConversation.members.find(
         (m) => m.email === 'test-bob@test.hushbox.ai'
       )!;
-      await expect
-        .poll(
-          async () => {
-            const convResponse = await authenticatedRequest.get(
-              `/api/conversations/${groupConversation.id}`
-            );
-            const convData = (await convResponse.json()) as {
-              messages: { senderType: string; payerId: string | null }[];
-            };
-            const aiMessages = convData.messages.filter((m) => m.senderType === 'ai');
-            return aiMessages.at(-1)?.payerId;
-          },
-          { timeout: 10_000, message: 'last AI message payerId should be Bob (personal billing)' }
-        )
-        .toBe(bobUser.userId);
 
-      // Group spending NOT incremented (free_allowance → owner didn't pay)
-      const budgets = await helper.getBudgets(groupConversation.id);
-      expect(Number.parseFloat(budgets.totalSpent)).toBe(0);
-    });
-  });
-
-  test('conversation budget exhausted: falls through to free allowance', async ({
-    authenticatedPage: _alice,
-    testBobPage,
-    authenticatedRequest,
-    groupConversation,
-  }) => {
-    const helper = new BudgetHelper(authenticatedRequest);
-    const bobUser = groupConversation.members.find((m) => m.email === 'test-bob@test.hushbox.ai')!;
-
-    await test.step('setup: conv=$0 (default), member=$5', async () => {
-      // Set high member budget but do NOT set conversation budget (stays 0)
-      const bobMemberId = await helper.findMemberId(groupConversation.id, bobUser.userId);
-      await helper.setMemberBudget(groupConversation.id, bobMemberId, 500);
-    });
-
-    await test.step('Bob navigates and sees free_tier_notice', async () => {
-      const chatPage = new ChatPage(testBobPage);
-      await chatPage.gotoConversation(groupConversation.id);
-      await chatPage.waitForConversationLoaded();
-
-      // conversationRemaining = 0 → effectiveCents = 0 → personal → free_allowance
-      await expect(testBobPage.getByTestId('budget-message-free_tier_notice')).toBeVisible({
-        timeout: 10_000,
+      await test.step('setup: conv=$0 (default), member=$5', async () => {
+        // Set high member budget but do NOT set conversation budget (stays 0)
+        const bobMemberId = await helper.findMemberId(groupConversation.id, bobUser.userId);
+        await helper.setMemberBudget(groupConversation.id, bobMemberId, 500);
       });
-    });
 
-    await test.step('Bob sends and owner is NOT charged', async () => {
-      const chatPage = new ChatPage(testBobPage);
-      await chatPage.sendFollowUpMessage(`Conv exhausted ${String(Date.now())}`);
-      await chatPage.waitForAIResponse('Conv exhausted');
+      await test.step('Bob navigates and sees free_tier_notice', async () => {
+        const chatPage = new ChatPage(testBobPage);
+        await chatPage.gotoConversation(groupConversation.id);
+        await chatPage.waitForConversationLoaded();
 
-      // Verify Bob (not Alice) was charged — per-message payerId check,
-      // immune to parallel test pollution (unlike Alice's global balance)
-      await expect
-        .poll(
-          async () => {
-            const convResponse = await authenticatedRequest.get(
-              `/api/conversations/${groupConversation.id}`
-            );
-            const convData = (await convResponse.json()) as {
-              messages: { senderType: string; payerId: string | null }[];
-            };
-            const aiMessages = convData.messages.filter((m) => m.senderType === 'ai');
-            return aiMessages.at(-1)?.payerId;
-          },
-          { timeout: 10_000, message: 'last AI message payerId should be Bob (personal billing)' }
-        )
-        .toBe(bobUser.userId);
+        // conversationRemaining = 0 → effectiveCents = 0 → personal → free_allowance
+        await expect(testBobPage.getByTestId('budget-message-free_tier_notice')).toBeVisible({
+          timeout: 10_000,
+        });
+      });
 
-      // Group spending NOT incremented (free_allowance → owner didn't pay)
-      const budgets = await helper.getBudgets(groupConversation.id);
-      expect(Number.parseFloat(budgets.totalSpent)).toBe(0);
+      await test.step('Bob sends and owner is NOT charged', async () => {
+        const chatPage = new ChatPage(testBobPage);
+        await chatPage.sendFollowUpMessage(`Conv exhausted ${String(Date.now())}`);
+        await chatPage.waitForAIResponse('Conv exhausted');
+
+        // Verify Bob (not Alice) was charged — per-message payerId check,
+        // immune to parallel test pollution (unlike Alice's global balance)
+        await expect
+          .poll(() => getLastAiPayerId(authenticatedRequest, groupConversation.id), {
+            timeout: 10_000,
+            message: 'last AI message payerId should be Bob (personal billing)',
+          })
+          .toBe(bobUser.userId);
+
+        // Group spending NOT incremented (free_allowance → owner didn't pay)
+        const budgets = await helper.getBudgets(groupConversation.id);
+        expect(Number.parseFloat(budgets.totalSpent)).toBe(0);
+      });
     });
   });
 

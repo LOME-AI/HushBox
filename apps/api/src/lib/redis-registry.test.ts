@@ -428,6 +428,12 @@ describe('redis-registry', () => {
     });
   });
 
+  describe('totpUsedCode TTL covers epochTolerance window', () => {
+    it('has TTL >= 120 seconds to cover ±30s tolerance (3 time steps × 30s + buffer)', () => {
+      expect(REDIS_REGISTRY.totpUsedCode.ttl).toBeGreaterThanOrEqual(120);
+    });
+  });
+
   describe('totpUsedCode key handles Upstash type coercion', () => {
     it('handles numeric value from Upstash REST API deserialization', async () => {
       const key = REDIS_REGISTRY.totpUsedCode.buildKey('user-123', '654321');

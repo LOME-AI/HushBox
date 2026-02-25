@@ -147,6 +147,10 @@ export function SettingsPage(): React.JSX.Element {
 
   const handleRecoverySuccess = useCallback(() => {
     setShowRecoveryPhrase(false);
+    const currentUser = useAuthStore.getState().user;
+    if (currentUser) {
+      useAuthStore.getState().setUser({ ...currentUser, hasAcknowledgedPhrase: true });
+    }
   }, []);
 
   const handleChangePasswordSubmit = useCallback(

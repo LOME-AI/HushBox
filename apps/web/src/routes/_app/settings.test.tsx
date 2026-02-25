@@ -450,6 +450,69 @@ describe('SettingsPage', () => {
       });
     });
 
+    it('updates user state with hasAcknowledgedPhrase after recovery phrase success', async () => {
+      // Mock crypto.getRandomValues for deterministic verification indices (0, 1, 2)
+      let callCount = 0;
+      vi.spyOn(globalThis.crypto, 'getRandomValues').mockImplementation(
+        <T extends ArrayBufferView>(array: T): T => {
+          if (array instanceof Uint8Array && array.length === 1) {
+            array[0] = callCount++;
+          }
+          return array;
+        }
+      );
+
+      // Mock fetch for recovery save endpoint
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true }),
+      });
+
+      setMockUser({ hasAcknowledgedPhrase: false });
+      const user = userEvent.setup();
+      render(<SettingsPage />);
+
+      // Open recovery phrase modal
+      await user.click(screen.getByRole('button', { name: /recovery phrase.*protect/i }));
+
+      // Wait for phrase to be displayed
+      await waitFor(() => {
+        expect(screen.getByTestId('word-grid')).toBeInTheDocument();
+      });
+
+      // Click "I've saved it"
+      await user.click(screen.getByRole('button', { name: /i've saved it/i }));
+
+      // Wait for verify step
+      await waitFor(() => {
+        expect(screen.getByText('Verify Your Phrase')).toBeInTheDocument();
+      });
+
+      // Enter the 3 verification words (indices 0, 1, 2 = apple, brave, candy)
+      const inputs = screen.getAllByRole('textbox');
+      await user.type(inputs[0]!, 'apple');
+      await user.type(inputs[1]!, 'brave');
+      await user.type(inputs[2]!, 'candy');
+
+      // Click Verify
+      await user.click(screen.getByRole('button', { name: /verify/i }));
+
+      // Wait for success step
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument();
+      });
+
+      // Click Done
+      await user.click(screen.getByRole('button', { name: /done/i }));
+
+      // Verify user state was updated with hasAcknowledgedPhrase: true
+      await waitFor(() => {
+        expect(useAuthStoreMock.getState().setUser).toHaveBeenCalledWith(
+          expect.objectContaining({ hasAcknowledgedPhrase: true })
+        );
+      });
+    }, 15_000);
+
     it('opens recovery phrase modal when Generate New is clicked', async () => {
       setMockUser({ hasAcknowledgedPhrase: true });
       const user = userEvent.setup();

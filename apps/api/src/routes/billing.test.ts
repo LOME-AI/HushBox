@@ -84,8 +84,9 @@ describe('billing routes', () => {
   let testUserId: string;
   let helcimClient: ReturnType<typeof createMockHelcimClient>;
 
-  const TEST_EMAIL = `test-billing-${String(Date.now())}@example.com`;
-  const TEST_USERNAME = 'test_billing_user';
+  const testSuffix = String(Date.now());
+  const TEST_EMAIL = `test-billing-${testSuffix}@example.com`;
+  const TEST_USERNAME = `test_billing_user_${testSuffix}`;
 
   // Toggle for phrase guard tests — defaults to true so most tests pass the guard
   let mockHasAcknowledgedPhrase = true;
@@ -105,7 +106,7 @@ describe('billing routes', () => {
     // Create test user using factory (provides all required bytea columns)
     const userData = userFactory.build({
       email: TEST_EMAIL,
-      username: 'test_billing_user',
+      username: TEST_USERNAME,
       emailVerified: true,
     });
     const [createdUser] = await db.insert(users).values(userData).returning();
