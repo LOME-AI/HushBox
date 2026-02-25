@@ -22,7 +22,7 @@ export function QueryProvider({ children }: Readonly<QueryProviderProps>): React
   return (
     <QueryClientProvider client={queryClient}>
       {children}
-      {env.isLocalDev && <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />}
+      {env.isLocalDev && <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-right" />}
     </QueryClientProvider>
   );
 }
