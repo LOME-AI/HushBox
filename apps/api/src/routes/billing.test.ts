@@ -84,9 +84,9 @@ describe('billing routes', () => {
   let testUserId: string;
   let helcimClient: ReturnType<typeof createMockHelcimClient>;
 
-  const testSuffix = String(Date.now());
+  const testSuffix = String(Date.now()).slice(-8);
   const TEST_EMAIL = `test-billing-${testSuffix}@example.com`;
-  const TEST_USERNAME = `test_billing_user_${testSuffix}`;
+  const TEST_USERNAME = `tb_${testSuffix}`;
 
   // Toggle for phrase guard tests — defaults to true so most tests pass the guard
   let mockHasAcknowledgedPhrase = true;
