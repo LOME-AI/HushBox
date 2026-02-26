@@ -446,10 +446,12 @@ describe('useLeaveConversation', () => {
     expect(mockedFetchJson).toHaveBeenCalled();
   });
 
-  it('invalidates member list and budget cache on success', async () => {
+  it('invalidates conversations list, member list, and budget cache on success', async () => {
     const invalidateQueries = vi.fn();
+    const removeQueries = vi.fn();
     mockedUseQueryClient.mockReturnValue({
       invalidateQueries,
+      removeQueries,
     } as unknown as ReturnType<typeof useQueryClient>);
     mockedUseMutation.mockReturnValue({} as ReturnType<typeof useMutation>);
 
@@ -465,10 +467,38 @@ describe('useLeaveConversation', () => {
     await onSuccess({}, { conversationId: 'conv-1' }, undefined);
 
     expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: chatKeys.conversations(),
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: memberKeys.list('conv-1'),
     });
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: budgetKeys.conversation('conv-1'),
+    });
+  });
+
+  it('removes conversation and messages from cache on success', async () => {
+    const invalidateQueries = vi.fn();
+    const removeQueries = vi.fn();
+    mockedUseQueryClient.mockReturnValue({
+      invalidateQueries,
+      removeQueries,
+    } as unknown as ReturnType<typeof useQueryClient>);
+    mockedUseMutation.mockReturnValue({} as ReturnType<typeof useMutation>);
+
+    renderHook(() => useLeaveConversation());
+
+    const onSuccess = mockedUseMutation.mock.calls[0]![0].onSuccess as (
+      data: unknown,
+      variables: { conversationId: string },
+      context: unknown
+    ) => Promise<void>;
+
+    // eslint-disable-next-line unicorn/no-useless-undefined -- onSuccess requires three arguments
+    await onSuccess({}, { conversationId: 'conv-1' }, undefined);
+
+    expect(removeQueries).toHaveBeenCalledWith({
+      queryKey: chatKeys.conversation('conv-1'),
     });
   });
 });

@@ -138,6 +138,9 @@ export function useLeaveConversation() {
       await queryClient.invalidateQueries({
         queryKey: chatKeys.conversations(),
       });
+      queryClient.removeQueries({
+        queryKey: chatKeys.conversation(variables.conversationId),
+      });
       void queryClient.invalidateQueries({
         queryKey: memberKeys.list(variables.conversationId),
       });

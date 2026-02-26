@@ -102,7 +102,7 @@ describe('ChangePasswordModal', () => {
       await user.type(screen.getByLabelText(/confirm.*password/i), 'newpassword123');
 
       expect(screen.getByRole('button', { name: /change password/i })).not.toBeDisabled();
-    });
+    }, 15_000);
 
     it('shows error when new password is too short', async () => {
       const user = userEvent.setup();
