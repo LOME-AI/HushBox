@@ -706,6 +706,63 @@ describe('ChatLayout', () => {
       }).not.toThrow();
       expect(mockWs.send).not.toHaveBeenCalled();
     });
+
+    it('renders data-ws-connected="true" when ws is connected', () => {
+      const mockWs = {
+        send: vi.fn(),
+        on: vi.fn(),
+        close: vi.fn(),
+        connected: true,
+      } as unknown as ConversationWebSocket;
+      const groupChatWithWs = {
+        ...defaultGroupChat,
+        ws: mockWs,
+      };
+
+      const { container } = render(
+        <ChatLayout {...defaultProps} conversationId="conv-123" groupChat={groupChatWithWs} />
+      );
+
+      expect(container.querySelector('[data-ws-connected="true"]')).toBeInTheDocument();
+    });
+
+    it('does not render data-ws-connected when ws is not connected', () => {
+      const mockWs = {
+        send: vi.fn(),
+        on: vi.fn(),
+        close: vi.fn(),
+        connected: false,
+      } as unknown as ConversationWebSocket;
+      const groupChatWithWs = {
+        ...defaultGroupChat,
+        ws: mockWs,
+      };
+
+      const { container } = render(
+        <ChatLayout {...defaultProps} conversationId="conv-123" groupChat={groupChatWithWs} />
+      );
+
+      expect(container.querySelector('[data-ws-connected]')).not.toBeInTheDocument();
+    });
+
+    it('does not render data-ws-connected without groupChat', () => {
+      const { container } = render(
+        <ChatLayout
+          {...defaultProps}
+          messages={[
+            {
+              id: 'm1',
+              conversationId: 'conv-1',
+              role: 'user' as const,
+              content: 'Hi',
+              createdAt: '',
+            },
+          ]}
+        />
+      );
+
+      expect(container.querySelector('[data-ws-connected]')).not.toBeInTheDocument();
+    });
   });
 
   it('always renders share message modal', () => {

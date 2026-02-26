@@ -23,9 +23,10 @@ import {
   resolveBilling,
   canSendMessages,
   getCushionCents,
-  charsPerTokenForTier,
   MINIMUM_OUTPUT_TOKENS,
   STORAGE_COST_PER_CHARACTER,
+  CHARS_PER_TOKEN_CONSERVATIVE,
+  CHARS_PER_TOKEN_STANDARD,
 } from '@hushbox/shared';
 import type { FundingSource, DenialReason, ResolveBillingInput } from '@hushbox/shared';
 import type { AppEnv, Bindings } from '../types.js';
@@ -146,6 +147,19 @@ async function validateChatRequest(
   return { success: true, ...(memberContext !== undefined && { memberContext }) };
 }
 
+/**
+ * Worst-case cost for a message reservation in cents.
+ * No Math.ceil — floor() in calculateBudget already guarantees worstCaseCents ≤ availableCents.
+ * Redis INCRBYFLOAT handles floats natively.
+ */
+export function computeWorstCaseCents(
+  estimatedInputCost: number,
+  effectiveMaxOutputTokens: number,
+  outputCostPerToken: number
+): number {
+  return (estimatedInputCost + effectiveMaxOutputTokens * outputCostPerToken) * 100;
+}
+
 interface BillingValidationSuccess {
   success: true;
   billingInput: ResolveBillingInput;
@@ -255,35 +269,40 @@ async function validateBilling(
   const openrouterModels = await fetchModels();
   const pricing = getModelPricing(openrouterModels, model);
 
-  // 2. Compute estimated minimum cost for resolveBilling affordability check
-  // Uses 'paid' tier for optimistic lower bound — if even this can't be afforded, deny early
+  // 2. Character count for budget computation
   const systemPromptForBudget = buildSystemPrompt([]);
   const historyCharacters = messagesForInference.reduce((sum, m) => sum + m.content.length, 0);
   const promptCharacterCount = systemPromptForBudget.length + historyCharacters;
-  const estimatedInputTokens = estimateTokensForTier('paid', promptCharacterCount);
-  const preCheckCharsPerToken = charsPerTokenForTier('paid');
-  const inputStorageCostCents = promptCharacterCount * STORAGE_COST_PER_CHARACTER * 100;
-  const outputStorageCostCents =
-    MINIMUM_OUTPUT_TOKENS * preCheckCharsPerToken * STORAGE_COST_PER_CHARACTER * 100;
-  const estimatedMinimumCostCents = Math.ceil(
-    (estimatedInputTokens * pricing.inputPricePerToken +
-      MINIMUM_OUTPUT_TOKENS * pricing.outputPricePerToken) *
-      100 +
-      inputStorageCostCents +
-      outputStorageCostCents
-  );
 
-  // 3. Gather all billing data and resolve billing decision
+  // 3. Gather all billing data (tier resolved here)
   const billingResult = await buildBillingInput(db, redis, {
     userId,
     model,
-    estimatedMinimumCostCents,
     ...(memberContext !== undefined && { memberContext }),
     ...(conversationId !== undefined && { conversationId }),
   });
+
+  // 4. Compute estimated minimum cost with actual tier (known after buildBillingInput)
+  // Input: tier-aware token estimation (free=conservative/2, paid=standard/4)
+  // Output storage: INVERTED (free=standard/4 pessimistic, paid=conservative/2 optimistic)
+  const actualTier = billingResult.input.tier;
+  const estimatedInputTokens = estimateTokensForTier(actualTier, promptCharacterCount);
+  const outputCharsPerToken =
+    actualTier === 'paid' ? CHARS_PER_TOKEN_CONSERVATIVE : CHARS_PER_TOKEN_STANDARD;
+  const inputStorageCostCents = promptCharacterCount * STORAGE_COST_PER_CHARACTER * 100;
+  const outputStorageCostCents =
+    MINIMUM_OUTPUT_TOKENS * outputCharsPerToken * STORAGE_COST_PER_CHARACTER * 100;
+  const estimatedMinimumCostCents =
+    (estimatedInputTokens * pricing.inputPricePerToken +
+      MINIMUM_OUTPUT_TOKENS * pricing.outputPricePerToken) *
+      100 +
+    inputStorageCostCents +
+    outputStorageCostCents;
+
+  billingResult.input.estimatedMinimumCostCents = estimatedMinimumCostCents;
   const billingDecision = resolveBilling(billingResult.input);
 
-  // 4. Handle denial — return 402 before checking mismatch
+  // 5. Handle denial — return 402 before checking mismatch
   if (billingDecision.fundingSource === 'denied') {
     return {
       success: false,
@@ -291,7 +310,7 @@ async function validateBilling(
     };
   }
 
-  // 5. Handle mismatch — 409 when client and server disagree on funding source
+  // 6. Handle mismatch — 409 when client and server disagree on funding source
   if (clientFundingSource !== billingDecision.fundingSource) {
     return {
       success: false,
@@ -304,7 +323,7 @@ async function validateBilling(
     };
   }
 
-  // 6. Compute budget for maxOutputTokens based on payer
+  // 7. Compute budget for maxOutputTokens based on payer
   const isGroupBilling =
     billingDecision.fundingSource === 'owner_balance' && billingResult.input.group !== undefined;
   const group = billingResult.input.group;
@@ -329,15 +348,16 @@ async function validateBilling(
     estimatedInputTokens: budgetResult.estimatedInputTokens,
   });
 
-  // 7. Calculate worst case cost for reservation (derived from budget — single source of truth)
+  // 8. Calculate worst case cost for reservation (derived from budget — single source of truth)
   const effectiveMaxOutputTokens =
     safeMaxTokens ?? pricing.contextLength - budgetResult.estimatedInputTokens;
-  const worstCaseCents = Math.ceil(
-    (budgetResult.estimatedInputCost + effectiveMaxOutputTokens * budgetResult.outputCostPerToken) *
-      100
+  const worstCaseCents = computeWorstCaseCents(
+    budgetResult.estimatedInputCost,
+    effectiveMaxOutputTokens,
+    budgetResult.outputCostPerToken
   );
 
-  // 8. Reserve budget
+  // 9. Reserve budget
   if (isGroupBilling && memberContext && conversationId) {
     const groupReservation: GroupBudgetReservation = {
       conversationId,
@@ -384,11 +404,12 @@ async function validateBilling(
   }
 
   // Personal budget reservation with race guard
-  // Free tier uses freeAllowanceCents (not wallet balance) — these are mutually exclusive
+  // Free tier uses rawFreeAllowanceCents (DB value, not reservation-adjusted) — the race guard
+  // compares total reservations against raw balance to catch TOCTOU races
   const newTotalReserved = await reserveBudget(redis, userId, worstCaseCents);
   const availableCents =
     billingDecision.fundingSource === 'free_allowance'
-      ? billingResult.input.freeAllowanceCents
+      ? billingResult.rawFreeAllowanceCents
       : billingResult.rawUserBalanceCents;
   const finalEffective = availableCents - newTotalReserved;
   const cushionCents = getCushionCents(payerTier);

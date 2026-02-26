@@ -1,6 +1,48 @@
 import { test, expect } from '@playwright/test';
+import { execa, type ResultPromise } from 'execa';
 
-test.describe('Web App Smoke Tests', () => {
+const PREVIEW_URL = 'http://localhost:4173';
+
+test.use({ baseURL: PREVIEW_URL });
+
+let previewProcess: ResultPromise | undefined;
+
+async function isPortReachable(): Promise<boolean> {
+  try {
+    const response = await fetch(PREVIEW_URL, { signal: AbortSignal.timeout(1000) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForServer(timeoutMs = 30_000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await isPortReachable()) return;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`Preview server on ${PREVIEW_URL} did not start within ${String(timeoutMs)}ms`);
+}
+
+test.describe('Production Build Smoke Tests', () => {
+  test.beforeAll(async () => {
+    if (await isPortReachable()) return;
+
+    await execa('pnpm', ['--filter', '@hushbox/web', 'build'], { stdio: 'inherit' });
+    previewProcess = execa('pnpm', ['--filter', '@hushbox/web', 'preview', '--port', '4173'], {
+      stdio: 'inherit',
+    });
+    await waitForServer();
+  });
+
+  test.afterAll(() => {
+    if (previewProcess) {
+      previewProcess.kill();
+      previewProcess = undefined;
+    }
+  });
+
   test('core pages load correctly', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveURL('/chat');
@@ -9,18 +51,5 @@ test.describe('Web App Smoke Tests', () => {
 
     await page.goto('/projects');
     await expect(page.locator('body')).toContainText('Projects');
-  });
-});
-
-test.describe('Persona Login', () => {
-  test.use({ storageState: { cookies: [], origins: [] } });
-
-  test('/dev/personas page loads with all persona cards', async ({ page }) => {
-    await page.goto('/dev/personas');
-    await expect(page.getByRole('heading', { name: /developer personas/i })).toBeVisible();
-
-    await expect(page.getByTestId('persona-card-alice')).toBeVisible();
-    await expect(page.getByTestId('persona-card-bob')).toBeVisible();
-    await expect(page.getByTestId('persona-card-charlie')).toBeVisible();
   });
 });

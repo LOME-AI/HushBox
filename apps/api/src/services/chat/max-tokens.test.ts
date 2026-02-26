@@ -27,26 +27,24 @@ describe('computeSafeMaxTokens', () => {
   });
 
   describe('when budget is less than remaining context', () => {
-    it('returns budget with 5% headroom reduction', () => {
+    it('returns full budget tokens (no headroom reduction)', () => {
       const result = computeSafeMaxTokens({
         budgetMaxTokens: 10_000,
         modelContextLength: 128_000,
         estimatedInputTokens: 1000,
       });
 
-      // 10_000 * 0.95 = 9_500
-      expect(result).toBe(9500);
+      expect(result).toBe(10_000);
     });
 
-    it('floors the result to avoid fractional tokens', () => {
+    it('returns exact budget for odd values', () => {
       const result = computeSafeMaxTokens({
         budgetMaxTokens: 10_001,
         modelContextLength: 128_000,
         estimatedInputTokens: 1000,
       });
 
-      // 10_001 * 0.95 = 9_500.95 → floor to 9_500
-      expect(result).toBe(9500);
+      expect(result).toBe(10_001);
     });
 
     it('handles small budget values', () => {
@@ -56,8 +54,7 @@ describe('computeSafeMaxTokens', () => {
         estimatedInputTokens: 1000,
       });
 
-      // 100 * 0.95 = 95
-      expect(result).toBe(95);
+      expect(result).toBe(100);
     });
   });
 
@@ -92,8 +89,7 @@ describe('computeSafeMaxTokens', () => {
         estimatedInputTokens: 10_000,
       });
 
-      // 50_000 * 0.95 = 47_500
-      expect(result).toBe(47_500);
+      expect(result).toBe(50_000);
     });
   });
 });

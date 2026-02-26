@@ -1,7 +1,7 @@
 import type { APIRequestContext } from '@playwright/test';
 import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
-import { BudgetHelper } from '../helpers/budget.js';
+import { BudgetHelper, setWalletBalance } from '../helpers/budget.js';
 
 async function getLastAiPayerId(
   request: APIRequestContext,
@@ -98,8 +98,18 @@ test.describe('Group Chat Billing', () => {
   // Both tests below fall through to Bob's personal free_allowance billing,
   // reserving against the same Redis key (chatReservedBalance:{bobUserId}).
   // Serial mode prevents concurrent reservations from exceeding Bob's 5¢ allowance.
+  // beforeEach resets Bob's wallet to ensure each test starts with a clean 5¢ balance.
   test.describe('personal free-allowance fallthrough', () => {
     test.describe.configure({ mode: 'serial' });
+
+    test.beforeEach(async ({ authenticatedRequest }) => {
+      await setWalletBalance(
+        authenticatedRequest,
+        'test-bob@test.hushbox.ai',
+        'free_tier',
+        '0.05000000'
+      );
+    });
 
     test('member budget exhausted: falls through to free allowance', async ({
       authenticatedPage: _alice,

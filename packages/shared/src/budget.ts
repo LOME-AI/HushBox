@@ -407,9 +407,6 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
 // Safe Max Tokens
 // ============================================================================
 
-/** 5% safety margin to account for token estimation inaccuracy */
-const MAX_TOKENS_HEADROOM = 0.95;
-
 export interface ComputeMaxTokensParams {
   /** Max output tokens based on user's budget */
   budgetMaxTokens: number;
@@ -422,8 +419,11 @@ export interface ComputeMaxTokensParams {
 /**
  * Compute safe max_tokens value for OpenRouter request.
  *
+ * No headroom reduction — `calculateBudget` uses `Math.floor` on the token
+ * calculation which already guarantees `worstCaseCents ≤ availableCents`.
+ *
  * @returns undefined if budget exceeds remaining context (omit max_tokens, let model use default)
- * @returns budget * 0.95 if budget is the limiting factor (5% headroom for estimation error)
+ * @returns budgetMaxTokens if budget is the limiting factor
  */
 export function computeSafeMaxTokens(params: ComputeMaxTokensParams): number | undefined {
   const remainingContext = params.modelContextLength - params.estimatedInputTokens;
@@ -432,7 +432,7 @@ export function computeSafeMaxTokens(params: ComputeMaxTokensParams): number | u
     return undefined;
   }
 
-  return Math.floor(params.budgetMaxTokens * MAX_TOKENS_HEADROOM);
+  return params.budgetMaxTokens;
 }
 
 // ============================================================================

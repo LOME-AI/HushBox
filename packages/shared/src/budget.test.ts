@@ -165,14 +165,16 @@ describe('calculateBudget', () => {
     it('calculates estimated minimum cost (input + min output) including storage', () => {
       const result = calculateBudget(baseInput);
       // Input cost: $0.0312 (model + storage)
-      // Output cost per token: $0.00006 + 4 * $0.0000003 = $0.0000612
-      // Min output: 1000 * $0.0000612 = $0.0612
-      // Total: $0.0312 + $0.0612 = $0.0924
+      // Output storage: paid tier → CONSERVATIVE (2) chars/tok (optimistic, inverted from input)
+      // Output cost per token: $0.00006 + 2 * $0.0000003 = $0.0000606
+      // Min output: 1000 * $0.0000606 = $0.0606
+      // Total: $0.0312 + $0.0606 = $0.0918
       const expectedInputCost =
         1000 * baseInput.modelInputPricePerToken +
         baseInput.promptCharacterCount * STORAGE_COST_PER_CHARACTER;
       const outputCostPerToken =
-        baseInput.modelOutputPricePerToken + CHARS_PER_TOKEN_STANDARD * STORAGE_COST_PER_CHARACTER;
+        baseInput.modelOutputPricePerToken +
+        CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
       const expectedMinCost = expectedInputCost + MINIMUM_OUTPUT_TOKENS * outputCostPerToken;
       expect(result.estimatedMinimumCost).toBeCloseTo(expectedMinCost, 10);
     });
@@ -212,13 +214,14 @@ describe('calculateBudget', () => {
       // Effective balance: $10.50
       // Input cost: 1000 * $0.00003 + 4000 * $0.0000003 = $0.0312
       // Remaining: $10.50 - $0.0312 = $10.4688
-      // Output cost/token: $0.00006 + 4 * $0.0000003 = $0.0000612
-      // Max output tokens: $10.4688 / $0.0000612 = 171058
+      // Output storage: paid tier → CONSERVATIVE (2) chars/tok (optimistic, inverted from input)
+      // Output cost/token: $0.00006 + 2 * $0.0000003 = $0.0000606
       const expectedInputCost =
         1000 * baseInput.modelInputPricePerToken +
         baseInput.promptCharacterCount * STORAGE_COST_PER_CHARACTER;
       const outputCostPerToken =
-        baseInput.modelOutputPricePerToken + CHARS_PER_TOKEN_STANDARD * STORAGE_COST_PER_CHARACTER;
+        baseInput.modelOutputPricePerToken +
+        CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
       const remaining = 10.5 - expectedInputCost;
       expect(result.maxOutputTokens).toBe(Math.floor(remaining / outputCostPerToken));
     });
@@ -340,10 +343,13 @@ describe('calculateBudget outputCostPerToken', () => {
     expect(result.outputCostPerToken).toBeGreaterThan(baseInput.modelOutputPricePerToken);
   });
 
-  it('outputCostPerToken includes tier-aware storage cost', () => {
+  it('outputCostPerToken includes inverted tier-aware storage cost', () => {
+    // Output is tokens→chars: inverted from input (chars→tokens).
+    // Paid: CONSERVATIVE (2) = optimistic. Free: STANDARD (4) = pessimistic.
     const paidResult = calculateBudget(baseInput);
     const expectedPaid =
-      baseInput.modelOutputPricePerToken + CHARS_PER_TOKEN_STANDARD * STORAGE_COST_PER_CHARACTER;
+      baseInput.modelOutputPricePerToken +
+      CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
     expect(paidResult.outputCostPerToken).toBeCloseTo(expectedPaid, 15);
 
     const freeResult = calculateBudget({
@@ -353,8 +359,7 @@ describe('calculateBudget outputCostPerToken', () => {
       freeAllowanceCents: 50_000,
     });
     const expectedFree =
-      baseInput.modelOutputPricePerToken +
-      CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
+      baseInput.modelOutputPricePerToken + CHARS_PER_TOKEN_STANDARD * STORAGE_COST_PER_CHARACTER;
     expect(freeResult.outputCostPerToken).toBeCloseTo(expectedFree, 15);
   });
 });

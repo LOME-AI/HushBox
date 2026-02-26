@@ -94,15 +94,14 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
       });
 
       expect(result.input).toEqual<ResolveBillingInput>({
         tier: 'paid',
         balanceCents: 800, // 1000 - 200 reserved
-        freeAllowanceCents: 0,
+        freeAllowanceCents: -200, // 0 - 200 reserved (unused for paid tier billing)
         isPremiumModel: false,
-        estimatedMinimumCostCents: 10,
+        estimatedMinimumCostCents: 0, // Set by caller after tier-aware computation
       });
     });
 
@@ -112,7 +111,6 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
       });
 
       expect(result.input.balanceCents).toBe(200);
@@ -124,7 +122,6 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'expensive/model',
-        estimatedMinimumCostCents: 10,
       });
 
       expect(result.input.isPremiumModel).toBe(true);
@@ -136,7 +133,6 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
       });
 
       expect(result.input.isPremiumModel).toBe(false);
@@ -148,22 +144,20 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
       });
 
       expect(result.input.freeAllowanceCents).toBe(50);
     });
 
-    it('passes estimatedMinimumCostCents through', async () => {
+    it('sets estimatedMinimumCostCents to 0 (caller computes with actual tier)', async () => {
       setupPersonalMocks({});
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 42,
       });
 
-      expect(result.input.estimatedMinimumCostCents).toBe(42);
+      expect(result.input.estimatedMinimumCostCents).toBe(0);
     });
 
     it('does not include group when no memberContext', async () => {
@@ -172,7 +166,6 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
       });
 
       expect(result.input.group).toBeUndefined();
@@ -228,7 +221,6 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -286,7 +278,6 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -345,7 +336,6 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -393,7 +383,6 @@ describe('buildBillingInput', () => {
       await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -454,7 +443,6 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -516,7 +504,6 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -532,7 +519,6 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
       });
 
       expect(result.groupBudgetContext).toBeUndefined();
@@ -544,12 +530,29 @@ describe('buildBillingInput', () => {
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
       });
 
       // rawUserBalanceCents is the DB balance (1000), NOT the adjusted balance (700)
       expect(result.rawUserBalanceCents).toBe(1000);
       expect(result.input.balanceCents).toBe(700); // adjusted
+    });
+
+    it('includes rawFreeAllowanceCents for free-tier race guard', async () => {
+      setupPersonalMocks({
+        tier: 'free',
+        balanceCents: 0,
+        freeAllowanceCents: 500,
+        reservedCents: 200,
+      });
+
+      const result = await buildBillingInput(mockDb, mockRedis, {
+        userId: 'user-1',
+        model: 'cheap/model',
+      });
+
+      // rawFreeAllowanceCents is the DB value (500), NOT the adjusted value (300)
+      expect(result.rawFreeAllowanceCents).toBe(500);
+      expect(result.input.freeAllowanceCents).toBe(300); // adjusted
     });
 
     it('calls getUserTierInfo twice: once for user, once for owner', async () => {
@@ -590,7 +593,6 @@ describe('buildBillingInput', () => {
       await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
         model: 'cheap/model',
-        estimatedMinimumCostCents: 10,
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });

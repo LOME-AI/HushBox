@@ -564,6 +564,7 @@ export function ChatLayout({
     <div
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
       style={{ height: `${String(viewportHeight)}px` }}
+      data-ws-connected={groupChat?.ws?.connected === true ? 'true' : undefined}
     >
       <div data-chat-header>
         <ChatHeader

@@ -29,6 +29,11 @@ export class ChatPage {
     await this.page.locator('[data-app-stable="true"]').waitFor({ state: 'visible', timeout });
   }
 
+  /** Wait for the group chat WebSocket to be connected. Use before actions that send events via WebSocket. */
+  async waitForWebSocketConnected(timeout = 15_000): Promise<void> {
+    await this.page.locator('[data-ws-connected="true"]').waitFor({ state: 'visible', timeout });
+  }
+
   /** Wait for a conversation page to load (message list visible). Use instead of waitForAppStable on conversation pages. */
   async waitForConversationLoaded(timeout = 15_000): Promise<void> {
     await this.messageList.waitFor({ state: 'visible', timeout });

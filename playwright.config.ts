@@ -30,11 +30,6 @@ export default defineConfig({
       url: 'http://localhost:8787/api/health',
       reuseExistingServer: !process.env['CI'],
     },
-    {
-      command: 'pnpm --filter @hushbox/web build && pnpm --filter @hushbox/web preview --port 4173',
-      url: 'http://localhost:4173',
-      reuseExistingServer: !process.env['CI'],
-    },
   ],
   projects: [
     // Per-browser setup projects — each authenticates personas using its own engine,
@@ -75,43 +70,34 @@ export default defineConfig({
       name: 'firefox',
       use: { ...devices['Desktop Firefox'], storageState: 'e2e/.auth/test-alice.json' },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**'],
+      testIgnore: ['**/mobile/**', '**/smoke.spec.ts'],
       dependencies: ['setup-firefox'],
     },
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'], storageState: 'e2e/.auth/test-alice.json' },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**'],
+      testIgnore: ['**/mobile/**', '**/smoke.spec.ts'],
       dependencies: ['setup-webkit'],
     },
     // Mobile device projects run all tests (including mobile-specific)
     {
       name: 'iphone-15',
       use: { ...devices['iPhone 15'], storageState: 'e2e/.auth/test-alice.json' },
+      testIgnore: ['**/smoke.spec.ts'],
       dependencies: ['setup-webkit'],
     },
     {
       name: 'pixel-7',
       use: { ...devices['Pixel 7'], storageState: 'e2e/.auth/test-alice.json' },
+      testIgnore: ['**/smoke.spec.ts'],
       dependencies: ['setup-chromium'],
     },
     {
       name: 'ipad-pro',
       use: { ...devices['iPad Pro 11'], storageState: 'e2e/.auth/test-alice.json' },
+      testIgnore: ['**/smoke.spec.ts'],
       dependencies: ['setup-webkit'],
-    },
-    // Production build smoke test — catches build-only issues (Vite plugins, Rollup config)
-    // that dev-mode tests miss
-    {
-      name: 'production-smoke',
-      testMatch: /smoke\.spec\.ts/,
-      use: {
-        ...devices['Desktop Chrome'],
-        baseURL: 'http://localhost:4173',
-        storageState: 'e2e/.auth/test-alice.json',
-      },
-      dependencies: ['setup-chromium'],
     },
   ],
 });

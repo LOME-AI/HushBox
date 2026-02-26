@@ -317,10 +317,11 @@ describe('useBudgetCalculation', () => {
       // 4000 chars / 4 chars per token (paid) = 1000 input tokens
       // inputStorageCost = 4000 * 0.0000003 = 0.0012
       // estimatedInputCost = 1000 * 0.00001 + 0.0012 = 0.0112
-      // outputCostPerToken = 0.00003 + 4 * 0.0000003 = 0.0000312
-      // minimumOutputCost = 1000 * 0.0000312 = 0.0312
-      // estimatedMinimumCost = 0.0112 + 0.0312 = 0.0424
-      expect(result.current.estimatedMinimumCost).toBeCloseTo(0.0424, 5);
+      // Output storage: paid tier → CONSERVATIVE (2) chars/tok (optimistic, inverted from input)
+      // outputCostPerToken = 0.00003 + 2 * 0.0000003 = 0.0000306
+      // minimumOutputCost = 1000 * 0.0000306 = 0.0306
+      // estimatedMinimumCost = 0.0112 + 0.0306 = 0.0418
+      expect(result.current.estimatedMinimumCost).toBeCloseTo(0.0418, 5);
     });
   });
 });

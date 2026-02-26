@@ -91,6 +91,10 @@ test.describe('Real-time WebSocket events', () => {
     await aliceChatPage.waitForConversationLoaded();
     await bobChatPage.waitForConversationLoaded();
 
+    // Wait for WebSocket connections (both must be connected for typing events to flow)
+    await aliceChatPage.waitForWebSocketConnected();
+    await bobChatPage.waitForWebSocketConnected();
+
     // Alice starts typing (fill but don't submit)
     await aliceChatPage.messageInput.fill('typing test');
 
