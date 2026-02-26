@@ -39,9 +39,10 @@ test.describe('Production Build Smoke Tests', () => {
     await waitForServer();
   });
 
-  test.afterAll(() => {
+  test.afterAll(async () => {
     if (previewProcess) {
       previewProcess.kill();
+      await previewProcess.catch(() => {});
       previewProcess = undefined;
     }
   });
