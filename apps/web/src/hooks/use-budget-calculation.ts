@@ -91,6 +91,15 @@ export function useBudgetCalculation(
   const [debouncedResult, setDebouncedResult] =
     React.useState<BudgetCalculationResult>(computeResult);
 
+  // Synchronously flush result when tier changes (e.g., balance loaded).
+  // Prevents flash of stale "Low Balance" notification when StableContent
+  // renders before the debounced effect fires.
+  const [previousTierInfo, setPreviousTierInfo] = React.useState(tierInfo);
+  if (previousTierInfo !== tierInfo) {
+    setPreviousTierInfo(tierInfo);
+    setDebouncedResult(computeResult());
+  }
+
   // Debounced calculation effect - runs on mount and when inputs change
   React.useEffect(() => {
     const timer = setTimeout(() => {

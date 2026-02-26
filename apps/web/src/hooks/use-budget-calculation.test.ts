@@ -3,7 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useBudgetCalculation } from './use-budget-calculation';
 import * as billingHooks from './billing';
 import type { UseQueryResult } from '@tanstack/react-query';
-import type { GetBalanceResponse } from '@hushbox/shared';
+import { type GetBalanceResponse, LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD } from '@hushbox/shared';
 
 // Hoist mock functions for vi.mock factories
 const { mockUseStability } = vi.hoisted(() => ({
@@ -185,6 +185,44 @@ describe('useBudgetCalculation', () => {
     });
   });
 
+  describe('synchronous tier flush', () => {
+    it('synchronously updates result when balance data loads without waiting for debounce', () => {
+      // Start with no balance data (authenticated but balance not yet loaded → trial tier)
+      mockUseBalance.mockReturnValue({
+        data: undefined,
+        isPending: true,
+      } as UseQueryResult<GetBalanceResponse>);
+      mockUseStability.mockReturnValue({
+        isAuthStable: true,
+        isBalanceStable: false,
+        isAppStable: false,
+      });
+
+      const { result, rerender } = renderHook(() => useBudgetCalculation(defaultInput));
+
+      // Initial: trial tier, low maxOutputTokens (this is the stale state that causes the flash)
+      expect(result.current.maxOutputTokens).toBeLessThan(LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD);
+
+      // Simulate balance data arriving (same render cycle as stability changing)
+      mockUseBalance.mockReturnValue({
+        data: { balance: '10.00000000', freeAllowanceCents: 500 },
+        isPending: false,
+      } as UseQueryResult<GetBalanceResponse>);
+      mockUseStability.mockReturnValue({
+        isAuthStable: true,
+        isBalanceStable: true,
+        isAppStable: true,
+      });
+
+      // Rerender WITHOUT advancing timers — debounce has NOT fired
+      rerender();
+
+      // maxOutputTokens must reflect paid tier IMMEDIATELY (no 150ms lag)
+      // This prevents the "Low Balance" notification flash
+      expect(result.current.maxOutputTokens).toBeGreaterThan(LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD);
+    });
+  });
+
   describe('debouncing', () => {
     it('debounces calculation by 150ms', () => {
       const { result, rerender } = renderHook(
@@ -211,6 +249,33 @@ describe('useBudgetCalculation', () => {
 
       // Now result should be updated
       expect(result.current.estimatedInputTokens).toBeGreaterThan(0);
+    });
+
+    it('still debounces when only promptCharacterCount changes', () => {
+      const { result, rerender } = renderHook(
+        ({ count }: { count: number }) =>
+          useBudgetCalculation({
+            ...defaultInput,
+            promptCharacterCount: count,
+          }),
+        { initialProps: { count: 1000 } }
+      );
+
+      const initialTokens = result.current.estimatedInputTokens;
+
+      // Change character count (simulates typing) — tier unchanged
+      rerender({ count: 5000 });
+
+      // Without advancing timer, result should NOT have updated (debounce in effect)
+      expect(result.current.estimatedInputTokens).toBe(initialTokens);
+
+      // Advance past debounce
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      // Now it should update
+      expect(result.current.estimatedInputTokens).toBeGreaterThan(initialTokens);
     });
   });
 

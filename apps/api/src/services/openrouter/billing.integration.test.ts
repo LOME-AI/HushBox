@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createOpenRouterClient } from './openrouter.js';
-import { getPaidTestModel, clearTestModelCache } from './test-utilities.js';
+import { getPaidTestModel, clearTestModelCache, retryWithBackoff } from './test-utilities.js';
 import type { OpenRouterClient } from './types.js';
 import { applyFees, TOTAL_FEE_RATE } from '@hushbox/shared';
 
@@ -22,31 +22,8 @@ if (isCI && !hasApiKey) {
   );
 }
 
-/**
- * Wait for generation stats to become available.
- * OpenRouter's /generation endpoint has variable indexing latency (typically 1-3s,
- * occasionally 10-15s+ under load). Uses exponential backoff: 1s, 2s, 4s, 4s, ...
- * Total polling window: ~39s (well within 60s test timeout).
- */
-async function waitForGenerationStats(
-  client: OpenRouterClient,
-  generationId: string,
-  maxAttempts = 12,
-  initialDelayMs = 1000
-): Promise<ReturnType<OpenRouterClient['getGenerationStats']>> {
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      return await client.getGenerationStats(generationId);
-    } catch (error) {
-      if (attempt === maxAttempts - 1) {
-        throw error;
-      }
-      const delay = Math.min(initialDelayMs * 2 ** attempt, 4000);
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-  }
-  throw new Error('Failed to get generation stats after max attempts');
-}
+/** Generation stats retry config: 1s, 2s, 4s, 4s, ... (~39s total, within 60s timeout) */
+const GENERATION_STATS_RETRY = { maxAttempts: 12, initialDelayMs: 1000 } as const;
 
 describe.skipIf(!hasApiKey)('Billing Integration', () => {
   let client: OpenRouterClient;
@@ -80,7 +57,10 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
       expect(generationId).toBeDefined();
 
       // Get generation stats (may need to wait for availability)
-      const stats = await waitForGenerationStats(client, generationId);
+      const stats = await retryWithBackoff(
+        () => client.getGenerationStats(generationId),
+        GENERATION_STATS_RETRY
+      );
 
       // Verify stats structure
       expect(stats.id).toBe(generationId);
@@ -98,7 +78,10 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
       });
 
       // Get exact cost from OpenRouter
-      const stats = await waitForGenerationStats(client, response.id);
+      const stats = await retryWithBackoff(
+        () => client.getGenerationStats(response.id),
+        GENERATION_STATS_RETRY
+      );
 
       // Calculate what we would charge the user
       const openRouterCost = stats.total_cost;
@@ -128,7 +111,10 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
         max_tokens: 10,
       });
 
-      const stats = await waitForGenerationStats(client, response.id);
+      const stats = await retryWithBackoff(
+        () => client.getGenerationStats(response.id),
+        GENERATION_STATS_RETRY
+      );
 
       // Native tokens should be positive integers
       expect(Number.isInteger(stats.native_tokens_prompt)).toBe(true);
