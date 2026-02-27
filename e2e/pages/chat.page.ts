@@ -140,6 +140,7 @@ export class ChatPage {
   async scrollToTop(): Promise<void> {
     await this.viewport.evaluate((el) => {
       el.scrollTop = 0;
+      el.dispatchEvent(new Event('scroll', { bubbles: true }));
     });
   }
 
@@ -205,6 +206,7 @@ export class ChatPage {
   async scrollToBottom(): Promise<void> {
     await this.viewport.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
+      el.dispatchEvent(new Event('scroll', { bubbles: true }));
     });
   }
 
