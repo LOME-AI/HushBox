@@ -384,6 +384,7 @@ export function PaymentForm({
   const observerRef = useRef<MutationObserver | null>(null);
   const paymentIdRef = useRef<string | null>(null);
   const expectingTokenizationRef = useRef(false);
+  const simulateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const paymentFormRef = useRef<HTMLFormElement>(null);
   useFormEnterNav(paymentFormRef);
 
@@ -504,6 +505,14 @@ export function PaymentForm({
     };
   }, [isDevMode]);
 
+  useEffect(() => {
+    return () => {
+      if (simulateTimerRef.current !== null) {
+        clearTimeout(simulateTimerRef.current);
+      }
+    };
+  }, []);
+
   // Set up MutationObserver to detect Helcim response
   useEffect(() => {
     if (!scriptLoaded) return;
@@ -570,7 +579,7 @@ export function PaymentForm({
     form.handleFieldChange('billingAddress', '123 Test St');
     form.handleFieldChange('zipCode', '12345');
 
-    setTimeout(() => {
+    simulateTimerRef.current = setTimeout(() => {
       const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
       formEl?.requestSubmit();
     }, 100);
@@ -588,7 +597,7 @@ export function PaymentForm({
     form.handleFieldChange('billingAddress', '123 Test St');
     form.handleFieldChange('zipCode', '12345');
 
-    setTimeout(() => {
+    simulateTimerRef.current = setTimeout(() => {
       const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
       formEl?.requestSubmit();
     }, 100);

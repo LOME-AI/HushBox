@@ -451,6 +451,12 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('maps CHAT_STREAM_FAILED to user-facing message', () => {
+    expect(friendlyErrorMessage('CHAT_STREAM_FAILED')).toBe(
+      'Something went wrong. Please try again or try a different model.'
+    );
+  });
+
   it('maps CONTEXT_LENGTH_EXCEEDED to user-facing message', () => {
     expect(friendlyErrorMessage('CONTEXT_LENGTH_EXCEEDED')).toBe(
       'This conversation is too long for the selected model. Try a model with a larger context window.'

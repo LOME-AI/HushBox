@@ -18,6 +18,7 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
 // Mock router
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
+  useLocation: () => ({ pathname: '/chat/some-id' }),
   Link: ({
     children,
     to,
@@ -32,6 +33,11 @@ vi.mock('@tanstack/react-router', () => ({
     </a>
   ),
   useParams: () => ({ conversationId: undefined }),
+}));
+
+// Mock useIsMobile (used by NewChatButton)
+vi.mock('@/hooks/use-is-mobile', () => ({
+  useIsMobile: () => false,
 }));
 
 // Mock chat hooks used by ChatItem

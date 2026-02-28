@@ -1,8 +1,9 @@
 import * as React from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
 import { Lock } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useUIStore } from '@/stores/ui';
-import { useDecryptedConversations } from '@/hooks/chat';
+import { useDecryptedConversations, chatKeys } from '@/hooks/chat';
 import { useSession } from '@/lib/auth';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { SidebarPanel } from '@/components/shared/sidebar-panel';
@@ -39,6 +40,14 @@ export function Sidebar(): React.JSX.Element {
   const isAuthenticated = !isSessionPending && Boolean(session?.user);
   const collapsed = !isMobile && !sidebarOpen;
 
+  // Clear stale conversation cache when session expires
+  const queryClient = useQueryClient();
+  React.useEffect(() => {
+    if (!isAuthenticated && !isSessionPending) {
+      queryClient.removeQueries({ queryKey: chatKeys.conversations() });
+    }
+  }, [isAuthenticated, isSessionPending, queryClient]);
+
   // Auto-close mobile sidebar on navigation
   const { pathname } = useLocation();
   const previousPathnameRef = React.useRef(pathname);
@@ -58,6 +67,18 @@ export function Sidebar(): React.JSX.Element {
       delete document.body.dataset['scrollLocked'];
     };
   }, []);
+
+  function renderSidebarBody(): React.JSX.Element | null {
+    if (isAuthenticated && isLoading) {
+      return <SidebarLoadingIndicator collapsed={collapsed} />;
+    }
+    return (
+      <SidebarContent
+        conversations={isAuthenticated ? (conversations ?? []) : []}
+        isAuthenticated={isAuthenticated}
+      />
+    );
+  }
 
   return (
     <SidebarPanel
@@ -86,11 +107,7 @@ export function Sidebar(): React.JSX.Element {
       footer={<SidebarFooter />}
       testId="sidebar"
     >
-      {isLoading ? (
-        <SidebarLoadingIndicator collapsed={collapsed} />
-      ) : (
-        <SidebarContent conversations={conversations ?? []} isAuthenticated={isAuthenticated} />
-      )}
+      {renderSidebarBody()}
     </SidebarPanel>
   );
 }

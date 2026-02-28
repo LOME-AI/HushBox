@@ -39,22 +39,18 @@ function SettingItem({
   return (
     <Button
       variant="ghost"
-      className="h-auto w-full justify-between p-4 text-left"
+      className="h-auto w-full justify-between gap-3 p-4 text-left whitespace-normal"
       onClick={onClick}
     >
-      <div className="flex items-center gap-4">
-        <div className="bg-muted flex h-10 w-10 items-center justify-center rounded-lg">
-          <Icon className="h-5 w-5" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <Icon className="text-muted-foreground h-4 w-4 shrink-0" />
+          <span className="min-w-0 truncate font-medium">{title}</span>
+          {statusBadge}
         </div>
-        <div>
-          <p className="font-medium">{title}</p>
-          <p className="text-muted-foreground text-sm">{description}</p>
-        </div>
+        <p className="text-muted-foreground mt-0.5 text-sm">{description}</p>
       </div>
-      <div className="flex items-center gap-3">
-        {statusBadge}
-        <ChevronRight className="text-muted-foreground h-5 w-5" />
-      </div>
+      <ChevronRight className="text-muted-foreground h-5 w-5 shrink-0" />
     </Button>
   );
 }
@@ -187,8 +183,8 @@ export function SettingsPage(): React.JSX.Element {
             <CardDescription>Your account information</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-between">
-              <p className="text-lg font-medium">{user?.email}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="min-w-0 text-lg font-medium break-all">{user?.email}</p>
               {user?.emailVerified ? (
                 <StatusBadge label="Verified" variant="green" />
               ) : (

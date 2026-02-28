@@ -7,17 +7,10 @@
 
 <script is:inline>
   (function () {
-    const stored = localStorage.getItem('ui-store');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        if (parsed.state && parsed.state.theme === 'dark') {
-          document.documentElement.classList.add('dark');
-        }
-      } catch {
-        /* ignore */
-      }
-    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    var saved = localStorage.getItem('themeMode');
+    if (saved === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else if (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches) {
       document.documentElement.classList.add('dark');
     }
   })();

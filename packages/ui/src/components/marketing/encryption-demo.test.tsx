@@ -17,7 +17,7 @@ describe('EncryptionDemo', () => {
   it('renders text input with default value', () => {
     render(<EncryptionDemo />);
     const input = screen.getByRole('textbox');
-    expect(input).toHaveValue('Hello, this is a private message.');
+    expect(input).toHaveValue('This is private.');
   });
 
   it('renders toggle button', () => {
@@ -27,7 +27,7 @@ describe('EncryptionDemo', () => {
 
   it('shows readable text by default', () => {
     render(<EncryptionDemo />);
-    expect(screen.getByText('Hello, this is a private message.')).toBeInTheDocument();
+    expect(screen.getByText('This is private.')).toBeInTheDocument();
   });
 
   it('does not show explanation text by default', () => {

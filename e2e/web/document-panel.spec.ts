@@ -151,11 +151,11 @@ test.describe('Document Panel', () => {
       // Allow Virtuoso to recalculate layout after panel close (mobile = 100% width panel)
       await authenticatedPage.waitForTimeout(500);
 
-      // Scroll to bring Python card into DOM (Virtuoso may have removed it)
-      await chatPage.scrollToTop();
-      await expect(documentPanel.documentCards().first()).toBeVisible();
-
-      await documentPanel.clickCard(0);
+      // Virtuoso may temporarily remove cards during layout recalculation
+      // (notification animation + panel close resize). Retry until stable.
+      await expect(async () => {
+        await documentPanel.clickCard(0);
+      }).toPass({ timeout: 10_000 });
       await documentPanel.waitForPanelOpen();
 
       await expect(documentPanel.documentCard(0)).toHaveAttribute('data-active', 'true');

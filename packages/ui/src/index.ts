@@ -81,6 +81,7 @@ export {
   type ModalActionsProps,
   type ModalActionButton,
 } from './components/modal-actions';
+export { ThemeToggle, type ThemeToggleProps } from './components/theme-toggle';
 
 // Marketing Components
 export { Hero, type HeroProps } from './components/marketing/hero';
@@ -99,3 +100,4 @@ export { EncryptionDemo, type EncryptionDemoProps } from './components/marketing
 
 // Utilities
 export { cn } from './lib/utilities';
+export { triggerViewTransition } from './lib/trigger-view-transition';

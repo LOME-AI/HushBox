@@ -5,7 +5,7 @@ import { buttonVariants } from '../button';
 type EncryptionDemoProps = React.ComponentProps<'div'>;
 
 function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>): React.JSX.Element {
-  const [text, setText] = React.useState('Hello, this is a private message.');
+  const [text, setText] = React.useState('This is private.');
   const [showEncrypted, setShowEncrypted] = React.useState(false);
 
   const cipherText = React.useMemo(() => {
@@ -19,7 +19,7 @@ function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>):
   return (
     <div
       data-slot="encryption-demo"
-      className={cn('space-y-4 rounded-lg border p-6', className)}
+      className={cn('space-y-4 overflow-hidden rounded-lg border p-4 sm:p-6', className)}
       {...props}
     >
       <h3 className="text-sm font-semibold">See it for yourself</h3>
@@ -49,7 +49,7 @@ function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>):
         {showEncrypted ? 'Show readable' : "Show what's stored"}
       </button>
 
-      <div className="bg-muted/30 relative min-h-[3rem] rounded-md px-4 py-3">
+      <div className="bg-muted/30 relative min-h-[3rem] rounded-md px-3 py-2 sm:px-4 sm:py-3">
         <div
           className={cn(
             'transition-opacity duration-300',
@@ -60,7 +60,7 @@ function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>):
         </div>
         <div
           className={cn(
-            'bg-muted absolute inset-0 rounded-md px-4 py-3 transition-opacity duration-300',
+            'bg-muted absolute inset-0 rounded-md px-3 py-2 transition-opacity duration-300 sm:px-4 sm:py-3',
             showEncrypted ? 'opacity-100' : 'pointer-events-none opacity-0'
           )}
         >

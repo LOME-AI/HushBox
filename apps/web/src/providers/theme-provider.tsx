@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { triggerViewTransition } from '@hushbox/ui';
 
 type ThemeMode = 'light' | 'dark';
 
@@ -22,14 +23,6 @@ export function useTheme(): ThemeContextType {
 
 interface ThemeProviderProps {
   children: React.ReactNode;
-}
-
-/**
- * Check if View Transitions API is supported.
- * Returns true for Chrome 111+, Edge 111+, Safari 18+
- */
-function supportsViewTransitions(): boolean {
-  return typeof document !== 'undefined' && 'startViewTransition' in document;
 }
 
 export function ThemeProvider({
@@ -76,52 +69,18 @@ export function ThemeProvider({
    */
   const triggerTransition = React.useCallback(
     (origin: { x: number; y: number }) => {
-      // Prevent triggering if already transitioning
       if (isTransitioning.current) return;
-
-      const newMode = mode === 'light' ? 'dark' : 'light';
-
-      // If View Transitions API is not supported, just change theme instantly
-      if (!supportsViewTransitions()) {
-        applyTheme(newMode);
-        return;
-      }
-
       isTransitioning.current = true;
 
-      // Calculate the maximum radius needed to cover the entire viewport
-      // Add 15% buffer to account for mobile viewport changes (address bar, safe areas)
-      const maxRadius =
-        Math.max(
-          Math.hypot(origin.x, origin.y),
-          Math.hypot(window.innerWidth - origin.x, origin.y),
-          Math.hypot(origin.x, window.innerHeight - origin.y),
-          Math.hypot(window.innerWidth - origin.x, window.innerHeight - origin.y)
-        ) * 1.15;
-
-      // Set CSS custom properties for the animation origin and radius
-      document.documentElement.style.setProperty('--transition-x', `${String(origin.x)}px`);
-      document.documentElement.style.setProperty('--transition-y', `${String(origin.y)}px`);
-      document.documentElement.style.setProperty('--transition-radius', `${String(maxRadius)}px`);
-
-      // Use View Transitions API
-      const transition = document.startViewTransition(() => {
+      const newMode = mode === 'light' ? 'dark' : 'light';
+      triggerViewTransition(origin, () => {
         applyTheme(newMode);
       });
 
-      // Clean up after transition
-      void (async () => {
-        try {
-          await transition.finished;
-        } catch {
-          // Transition may be skipped or aborted
-        } finally {
-          isTransitioning.current = false;
-          document.documentElement.style.removeProperty('--transition-x');
-          document.documentElement.style.removeProperty('--transition-y');
-          document.documentElement.style.removeProperty('--transition-radius');
-        }
-      })();
+      // Reset transitioning flag after animation duration
+      setTimeout(() => {
+        isTransitioning.current = false;
+      }, 1500);
     },
     [mode, applyTheme]
   );

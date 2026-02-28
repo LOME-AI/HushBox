@@ -14,8 +14,20 @@ describe('buildSystemPrompt', () => {
   describe('base module', () => {
     it('always includes HushBox assistant identity', () => {
       const prompt = buildSystemPrompt([]);
-      expect(prompt).toContain('HushBox');
-      expect(prompt).toContain('helpful');
+      expect(prompt).toContain('You are a helpful AI assistant powered by HushBox.');
+    });
+
+    it('includes HushBox product description', () => {
+      const prompt = buildSystemPrompt([]);
+      expect(prompt).toContain('unified AI chat interface');
+      expect(prompt).toContain('multiple AI models');
+      expect(prompt).toContain('switch models mid-conversation');
+    });
+
+    it('includes encryption notice', () => {
+      const prompt = buildSystemPrompt([]);
+      expect(prompt).toContain('All conversations are encrypted');
+      expect(prompt).toContain('only the user can decrypt them');
     });
 
     it('includes current date', () => {

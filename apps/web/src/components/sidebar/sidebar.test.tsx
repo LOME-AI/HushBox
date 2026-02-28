@@ -17,6 +17,13 @@ vi.mock('@/hooks/chat', () => ({
     isPending: false,
   }),
   DECRYPTING_TITLE: 'Decrypting...',
+  chatKeys: {
+    all: ['chat'] as const,
+    conversations: () => ['chat', 'conversations'] as const,
+    conversation: (id: string) => ['chat', 'conversations', id] as const,
+    messages: (conversationId: string) =>
+      ['chat', 'conversations', conversationId, 'messages'] as const,
+  },
 }));
 
 import { useDecryptedConversations } from '@/hooks/chat';
@@ -51,7 +58,12 @@ vi.mock('@/lib/auth', () => ({
     },
     isPending: false,
   })),
+  signOutAndClearCache: vi.fn(),
 }));
+
+import { useSession } from '@/lib/auth';
+
+const mockUseSession = vi.mocked(useSession);
 
 // Mock router for SidebarContent children
 vi.mock('@tanstack/react-router', () => ({
@@ -113,6 +125,21 @@ function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
 describe('Sidebar', () => {
   beforeEach(() => {
     useUIStore.setState({ sidebarOpen: true });
+    // Default mock: authenticated user
+    mockUseSession.mockReturnValue({
+      data: {
+        user: {
+          id: 'user-1',
+          email: 'test@example.com',
+          username: 'test_user',
+          emailVerified: true,
+          totpEnabled: false,
+          hasAcknowledgedPhrase: false,
+        },
+        session: { id: 'session-1' },
+      },
+      isPending: false,
+    });
     // Default mock: return conversations
     mockUseDecryptedConversations.mockReturnValue({
       data: [
@@ -293,6 +320,126 @@ describe('Sidebar', () => {
       render(<Sidebar />, { wrapper: createWrapper() });
       expect(screen.getByText('First Chat')).toBeInTheDocument();
       expect(screen.getByText('Second Chat')).toBeInTheDocument();
+    });
+  });
+
+  describe('session expiry', () => {
+    it('does not render conversations when session is null', () => {
+      mockUseSession.mockReturnValue({
+        data: null,
+        isPending: false,
+      });
+      mockUseDecryptedConversations.mockReturnValue({
+        data: [
+          {
+            id: 'conv-1',
+            userId: 'user-1',
+            title: 'Stale Chat',
+            currentEpoch: 1,
+            titleEpochNumber: 1,
+            nextSequence: 1,
+            createdAt: '2024-01-01',
+            updatedAt: '2024-01-01',
+            accepted: true,
+            invitedByUsername: null,
+            privilege: 'owner',
+          },
+        ],
+        isLoading: false,
+      });
+
+      render(<Sidebar />, { wrapper: createWrapper() });
+      expect(screen.queryByText('Stale Chat')).not.toBeInTheDocument();
+    });
+
+    it('does not show Decrypting indicator when session is null', () => {
+      mockUseSession.mockReturnValue({
+        data: null,
+        isPending: false,
+      });
+      mockUseDecryptedConversations.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+      });
+
+      render(<Sidebar />, { wrapper: createWrapper() });
+      expect(screen.queryByText('Decrypting...')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('decrypting-indicator')).not.toBeInTheDocument();
+    });
+
+    it('shows NewChatButton when session is null', () => {
+      mockUseSession.mockReturnValue({
+        data: null,
+        isPending: false,
+      });
+      mockUseDecryptedConversations.mockReturnValue({
+        data: [],
+        isLoading: false,
+      });
+
+      render(<Sidebar />, { wrapper: createWrapper() });
+      expect(screen.getByRole('button', { name: /new chat/i })).toBeInTheDocument();
+    });
+
+    it('shows signup message when session is null', () => {
+      mockUseSession.mockReturnValue({
+        data: null,
+        isPending: false,
+      });
+      mockUseDecryptedConversations.mockReturnValue({
+        data: [],
+        isLoading: false,
+      });
+
+      render(<Sidebar />, { wrapper: createWrapper() });
+      expect(screen.getByText('Sign up')).toBeInTheDocument();
+      expect(screen.getByText(/to save conversations/)).toBeInTheDocument();
+    });
+
+    it('clears conversations query cache when session becomes unauthenticated', () => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      // Pre-populate the cache with stale conversation data
+      queryClient.setQueryData(
+        ['chat', 'conversations'],
+        [
+          {
+            id: 'conv-1',
+            userId: 'user-1',
+            title: 'Cached Chat',
+            currentEpoch: 1,
+            titleEpochNumber: 1,
+            nextSequence: 1,
+            createdAt: '2024-01-01',
+            updatedAt: '2024-01-01',
+            accepted: true,
+            invitedByUsername: null,
+            privilege: 'owner',
+          },
+        ]
+      );
+
+      mockUseSession.mockReturnValue({
+        data: null,
+        isPending: false,
+      });
+      mockUseDecryptedConversations.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+      });
+
+      // eslint-disable-next-line sonarjs/function-return-type -- test wrapper returns children
+      function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
+        return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+      }
+      Wrapper.displayName = 'TestWrapper';
+
+      render(<Sidebar />, { wrapper: Wrapper });
+
+      // The conversations query cache should have been removed
+      const cachedData = queryClient.getQueryData(['chat', 'conversations']);
+      expect(cachedData).toBeUndefined();
     });
   });
 });

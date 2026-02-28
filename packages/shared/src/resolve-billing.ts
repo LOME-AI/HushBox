@@ -30,6 +30,14 @@ import { MAX_TRIAL_MESSAGE_COST_CENTS } from './constants.js';
 import { getCushionCents } from './budget.js';
 import { canUseModel, type UserTier, type UserTierInfo } from './tiers.js';
 
+/**
+ * Floating-point tolerance for free tier balance comparison.
+ * The wallet balance round-trip (numeric(20,8) → parseFloat → *100) can lose
+ * sub-cent precision vs the independently computed estimatedMinimumCostCents.
+ * 1e-6 cents = $0.00000001 — negligible for real money, absorbs float errors.
+ */
+const FREE_TIER_FLOAT_TOLERANCE_CENTS = 1e-6;
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -133,7 +141,7 @@ export function resolveBilling(input: ResolveBillingInput): ResolveBillingResult
 
   // 4. Free tier with allowance (non-premium only — premium already gated above)
   if (tier === 'free') {
-    if (freeAllowanceCents >= estimatedMinimumCostCents) {
+    if (freeAllowanceCents + FREE_TIER_FLOAT_TOLERANCE_CENTS >= estimatedMinimumCostCents) {
       return { fundingSource: 'free_allowance' };
     }
     return { fundingSource: 'denied', reason: 'insufficient_free_allowance' };
