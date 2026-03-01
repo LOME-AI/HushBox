@@ -13,7 +13,7 @@
     "@hushbox/config": "workspace:*",
     "@hushbox/db": "workspace:*",
     "@hushbox/shared": "workspace:*",
-    "@types/node": "^22.13.14",
+    "@types/node": "^25.3.3",
     "typescript": "^5.7.2"
   }
 }

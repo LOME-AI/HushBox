@@ -11,7 +11,7 @@
     "@hushbox/config": "workspace:*",
     "@hushbox/shared": "workspace:*",
     "@playwright/test": "^1.57.0",
-    "@types/node": "^22.13.14",
+    "@types/node": "^25.3.3",
     "@hushbox/crypto": "workspace:*",
     "typescript": "^5.7.2"
   }
