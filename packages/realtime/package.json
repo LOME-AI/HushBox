@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260117.0",
+    "@cloudflare/workers-types": "^4.20260301.1",
     "@hushbox/config": "workspace:*",
     "typescript": "^5.7.2"
   },

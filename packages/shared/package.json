@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@hushbox/config": "workspace:*",
-    "jsdom": "^27.4.0",
+    "jsdom": "^28.1.0",
     "typescript": "^5.7.2"
   },
   "dependencies": {

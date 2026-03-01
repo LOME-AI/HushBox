@@ -28,13 +28,13 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@faker-js/faker": "^10.2.0",
+    "@faker-js/faker": "^10.3.0",
     "@hushbox/config": "workspace:*",
     "@types/ws": "^8.18.1",
-    "drizzle-kit": "^0.31.0",
+    "drizzle-kit": "^0.31.9",
     "fishery": "^2.4.0",
-    "pg": "^8.17.1",
+    "pg": "^8.19.0",
     "typescript": "^5.7.2",
-    "vitest": "^4.0.17"
+    "vitest": "^4.0.18"
   }
 }
