@@ -17,20 +17,20 @@
     "@astrojs/react": "^4.3.0",
     "@hushbox/shared": "workspace:*",
     "@hushbox/ui": "workspace:*",
-    "astro": "^5.10.1",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "astro": "^5.18.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.4",
     "@hushbox/config": "workspace:*",
     "@tailwindcss/vite": "^4.1.18",
     "@testing-library/jest-dom": "^6.9.1",
-    "@types/react": "^19.2.8",
+    "@types/react": "^19.2.14",
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^5.1.2",
     "jsdom": "^27.4.0",
-    "tailwindcss": "^4.1.18",
+    "tailwindcss": "^4.2.1",
     "vitest": "^4.0.17"
   }
 }
