@@ -157,7 +157,7 @@ jobs:
         run: cp -r apps/marketing/dist/* apps/web/dist/
 
       - name: Upload web build artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: web-dist
           path: apps/web/dist
@@ -284,7 +284,7 @@ jobs:
         run: pnpm verify:evidence --require=hookdeck
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report-${{ matrix.project }}
@@ -306,7 +306,7 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Download web build artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: web-dist
           path: apps/web/dist
