@@ -18,10 +18,10 @@
     "@hono/zod-validator": "^0.7.6",
     "@hushbox/crypto": "workspace:*",
     "@hushbox/realtime": "workspace:*",
-    "@upstash/redis": "^1.36.1",
-    "hono": "^4.11.1",
+    "@upstash/redis": "^1.36.3",
+    "hono": "^4.12.3",
     "iron-session": "^8.0.4",
-    "zod": "^4.2.1"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260117.0",
