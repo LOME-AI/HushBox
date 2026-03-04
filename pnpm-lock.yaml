@@ -203,6 +203,9 @@ importers:
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1
+      '@types/node':
+        specifier: ^22.13.14
+        version: 22.19.3
       '@types/react':
         specifier: ^19.2.8
         version: 19.2.8
