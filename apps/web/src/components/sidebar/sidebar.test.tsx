@@ -350,6 +350,7 @@ describe('Sidebar', () => {
             accepted: true,
             invitedByUsername: null,
             privilege: 'owner',
+            muted: false,
           },
         ],
         isLoading: false,
@@ -423,6 +424,7 @@ describe('Sidebar', () => {
             accepted: true,
             invitedByUsername: null,
             privilege: 'owner',
+            muted: false,
           },
         ]
       );
