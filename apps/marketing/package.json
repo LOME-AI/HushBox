@@ -8,7 +8,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "lint": "eslint .",
-    "typecheck": "astro check",
+    "typecheck": "astro check && tsc --noEmit -p tsconfig.tests.json",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

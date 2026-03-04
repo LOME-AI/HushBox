@@ -32,6 +32,7 @@ vi.mock('../lib/api-client.js', () => ({
           privilege: { $patch: vi.fn() },
           leave: { $post: vi.fn() },
           accept: { $patch: vi.fn() },
+          mute: { $patch: vi.fn() },
         },
       },
     },
@@ -60,6 +61,7 @@ import {
   useChangePrivilege,
   useLeaveConversation,
   useAcceptMembership,
+  useMuteConversation,
 } from './use-conversation-members.js';
 import { budgetKeys } from './use-conversation-budgets.js';
 import { chatKeys } from './chat.js';
@@ -519,6 +521,91 @@ describe('useAcceptMembership', () => {
 
     // eslint-disable-next-line unicorn/no-useless-undefined -- onSuccess requires three arguments
     await onSuccess({}, { conversationId: 'conv-1' }, undefined);
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: chatKeys.conversations(),
+    });
+  });
+});
+
+describe('useMuteConversation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedUseQueryClient.mockReturnValue({
+      invalidateQueries: vi.fn(),
+    } as unknown as ReturnType<typeof useQueryClient>);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('calls useMutation with correct mutationFn', () => {
+    mockedUseMutation.mockReturnValue({} as ReturnType<typeof useMutation>);
+
+    renderHook(() => useMuteConversation());
+
+    expect(mockedUseMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mutationFn: expect.any(Function),
+      })
+    );
+  });
+
+  it('passes correct parameters to mute endpoint', async () => {
+    mockedUseMutation.mockReturnValue({} as ReturnType<typeof useMutation>);
+
+    renderHook(() => useMuteConversation());
+
+    const mutationFunction = mockedUseMutation.mock.calls[0]![0].mutationFn as (args: {
+      conversationId: string;
+      muted: boolean;
+    }) => Promise<unknown>;
+
+    await mutationFunction({ conversationId: 'conv-1', muted: true });
+
+    expect(mockedClient.api.members[':conversationId'].mute.$patch).toHaveBeenCalledWith({
+      param: { conversationId: 'conv-1' },
+      json: { muted: true },
+    });
+    expect(mockedFetchJson).toHaveBeenCalled();
+  });
+
+  it('passes muted: false to unmute', async () => {
+    mockedUseMutation.mockReturnValue({} as ReturnType<typeof useMutation>);
+
+    renderHook(() => useMuteConversation());
+
+    const mutationFunction = mockedUseMutation.mock.calls[0]![0].mutationFn as (args: {
+      conversationId: string;
+      muted: boolean;
+    }) => Promise<unknown>;
+
+    await mutationFunction({ conversationId: 'conv-1', muted: false });
+
+    expect(mockedClient.api.members[':conversationId'].mute.$patch).toHaveBeenCalledWith({
+      param: { conversationId: 'conv-1' },
+      json: { muted: false },
+    });
+  });
+
+  it('invalidates conversations list on success', async () => {
+    const invalidateQueries = vi.fn();
+    mockedUseQueryClient.mockReturnValue({
+      invalidateQueries,
+    } as unknown as ReturnType<typeof useQueryClient>);
+    mockedUseMutation.mockReturnValue({} as ReturnType<typeof useMutation>);
+
+    renderHook(() => useMuteConversation());
+
+    const onSuccess = mockedUseMutation.mock.calls[0]![0].onSuccess as (
+      data: unknown,
+      variables: { conversationId: string; muted: boolean },
+      context: unknown
+    ) => Promise<void>;
+
+    // eslint-disable-next-line unicorn/no-useless-undefined -- onSuccess requires three arguments
+    await onSuccess({}, { conversationId: 'conv-1', muted: true }, undefined);
 
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: chatKeys.conversations(),

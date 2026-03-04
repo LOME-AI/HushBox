@@ -25,6 +25,9 @@ bindings = [{ name = "CONVERSATION_ROOM", class_name = "ConversationRoom" }]
 [[migrations]]
 tag = "v1"
 new_classes = ["ConversationRoom"]
+[[r2_buckets]]
+binding = "APP_BUILDS"
+bucket_name = "hushbox-app-builds"
 [vars]
 NODE_ENV = "production"
 API_URL = "https://api.hushbox.ai"
@@ -36,7 +39,10 @@ FRONTEND_URL = "https://hushbox.ai"
 # - UPSTASH_REDIS_REST_TOKEN
 # - OPAQUE_MASTER_SECRET
 # - IRON_SESSION_SECRET
+# - APP_VERSION
 # - RESEND_API_KEY
+# - FCM_PROJECT_ID
+# - FCM_SERVICE_ACCOUNT_JSON
 # - OPENROUTER_API_KEY
 # - HELCIM_API_TOKEN
 # - HELCIM_WEBHOOK_VERIFIER

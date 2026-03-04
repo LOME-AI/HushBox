@@ -10,8 +10,10 @@ import { formatBalance } from '@/lib/format';
 import { PageHeader } from '@/components/shared/page-header';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { PaymentModal } from '@/components/billing/payment-modal';
+import { ManageOnlineButton } from '@/components/billing/manage-online-button';
 import { FeeBreakdown } from '@/components/billing/fee-breakdown';
 import { CostPieChart } from '@/components/billing/cost-pie-chart';
+import { isPaymentDisabled } from '@/capacitor/platform';
 
 const TRANSACTIONS_PER_PAGE = 5;
 
@@ -43,6 +45,7 @@ export const Route = createFileRoute('/_app/billing')({
 });
 
 export function BillingPage(): React.JSX.Element {
+  const paymentDisabled = isPaymentDisabled();
   const [showPaymentModal, setShowPaymentModal] = React.useState(false);
   const [page, setPage] = React.useState(0);
   const { displayBalance, isStable: isBalanceStable, refetch: refetchBalance } = useStableBalance();
@@ -158,14 +161,18 @@ export function BillingPage(): React.JSX.Element {
                   <div className="bg-muted h-10 w-48 animate-pulse rounded" />
                 )}
               </div>
-              <Button
-                onClick={() => {
-                  setShowPaymentModal(true);
-                }}
-                size="lg"
-              >
-                Add Credits
-              </Button>
+              {paymentDisabled ? (
+                <ManageOnlineButton />
+              ) : (
+                <Button
+                  onClick={() => {
+                    setShowPaymentModal(true);
+                  }}
+                  size="lg"
+                >
+                  Add Credits
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -228,12 +235,14 @@ export function BillingPage(): React.JSX.Element {
         </Card>
       </div>
 
-      {/* Payment Modal */}
-      <PaymentModal
-        open={showPaymentModal}
-        onOpenChange={setShowPaymentModal}
-        onSuccess={handlePaymentSuccess}
-      />
+      {/* Payment Modal — hidden when in-app payments are disabled */}
+      {!paymentDisabled && (
+        <PaymentModal
+          open={showPaymentModal}
+          onOpenChange={setShowPaymentModal}
+          onSuccess={handlePaymentSuccess}
+        />
+      )}
     </div>
   );
 }

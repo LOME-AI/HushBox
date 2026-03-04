@@ -36,16 +36,16 @@ describe('session', () => {
       expect(options.cookieOptions?.['httpOnly']).toBe(true);
     });
 
-    it('sets sameSite to lax', () => {
+    it('sets sameSite to none for Capacitor WebView compatibility', () => {
       const options = getSessionOptions(testSecret, false);
 
-      expect(options.cookieOptions?.['sameSite']).toBe('lax');
+      expect(options.cookieOptions?.['sameSite']).toBe('none');
     });
 
-    it('sets secure to false in development', () => {
+    it('sets secure to true in development (localhost is a secure context)', () => {
       const options = getSessionOptions(testSecret, false);
 
-      expect(options.cookieOptions?.['secure']).toBe(false);
+      expect(options.cookieOptions?.['secure']).toBe(true);
     });
 
     it('sets secure to true in production', () => {

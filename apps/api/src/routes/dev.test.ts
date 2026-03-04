@@ -1,13 +1,25 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import { devRoute } from './dev.js';
 import { WELCOME_CREDIT_BALANCE } from '@hushbox/shared';
+import { getVersionOverride, clearVersionOverride } from '../lib/version-override.js';
 import type { DevPersonasResponse } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 
 /** Type-safe JSON response parser for test assertions. */
 async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> {
   return (await res.json()) as T;
+}
+
+/** Shared test app factory for dev routes that only need a db stub. */
+function createDevApp(): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
+  app.use('*', async (c, next) => {
+    c.set('db', {} as AppEnv['Variables']['db']);
+    await next();
+  });
+  app.route('/dev', devRoute);
+  return app;
 }
 
 // Mock checkUserBalance used by listDevPersonas (wallet-based balance)
@@ -626,15 +638,137 @@ describe('devRoute', () => {
     });
   });
 
-  describe('POST /group-chat', () => {
-    function createGroupChatApp() {
-      const app = new Hono<AppEnv>();
-      app.use('*', async (c, next) => {
-        c.set('db', {} as AppEnv['Variables']['db']);
-        await next();
+  describe('POST /set-version', () => {
+    afterEach(() => {
+      clearVersionOverride();
+    });
+
+    function createSetVersionApp(): Hono<AppEnv> {
+      return createDevApp();
+    }
+
+    it('sets version override and returns 200', async () => {
+      const app = createSetVersionApp();
+
+      const res = await app.request('/dev/set-version', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: 'dev-update-12345' }),
       });
-      app.route('/dev', devRoute);
-      return app;
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{ success: boolean; version: string }>(res);
+      expect(body.success).toBe(true);
+      expect(body.version).toBe('dev-update-12345');
+      expect(getVersionOverride()).toBe('dev-update-12345');
+    });
+
+    it('returns 400 when version is missing', async () => {
+      const app = createSetVersionApp();
+
+      const res = await app.request('/dev/set-version', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when version is empty', async () => {
+      const app = createSetVersionApp();
+
+      const res = await app.request('/dev/set-version', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: '' }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('overwrites previous override', async () => {
+      const app = createSetVersionApp();
+
+      await app.request('/dev/set-version', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: 'v1' }),
+      });
+
+      await app.request('/dev/set-version', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: 'v2' }),
+      });
+
+      expect(getVersionOverride()).toBe('v2');
+    });
+  });
+
+  describe('GET /emails', () => {
+    function createEmailsApp(): Hono<AppEnv> {
+      return createDevApp();
+    }
+
+    it('returns 200 with templates array', async () => {
+      const app = createEmailsApp();
+
+      const res = await app.request('/dev/emails');
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{ templates: unknown[] }>(res);
+      expect(Array.isArray(body.templates)).toBe(true);
+      expect(body.templates.length).toBeGreaterThan(0);
+    });
+
+    it('includes all 6 email templates', async () => {
+      const app = createEmailsApp();
+
+      const res = await app.request('/dev/emails');
+      const body = await jsonBody<{ templates: { name: string }[] }>(res);
+
+      const names = body.templates.map((t) => t.name);
+      expect(names).toContain('verification');
+      expect(names).toContain('password-changed');
+      expect(names).toContain('two-factor-enabled');
+      expect(names).toContain('two-factor-disabled');
+      expect(names).toContain('account-locked');
+      expect(names).toContain('welcome');
+    });
+
+    it('returns name, label, and html for each template', async () => {
+      const app = createEmailsApp();
+
+      const res = await app.request('/dev/emails');
+      const body = await jsonBody<{
+        templates: { name: string; label: string; html: string }[];
+      }>(res);
+
+      for (const template of body.templates) {
+        expect(typeof template.name).toBe('string');
+        expect(typeof template.label).toBe('string');
+        expect(typeof template.html).toBe('string');
+        expect(template.html).toContain('<!DOCTYPE html');
+      }
+    });
+
+    it('renders verification template with sample data', async () => {
+      const app = createEmailsApp();
+
+      const res = await app.request('/dev/emails');
+      const body = await jsonBody<{
+        templates: { name: string; html: string }[];
+      }>(res);
+
+      const verification = body.templates.find((t) => t.name === 'verification');
+      expect(verification?.html).toContain('Verify');
+    });
+  });
+
+  describe('POST /group-chat', () => {
+    function createGroupChatApp(): Hono<AppEnv> {
+      return createDevApp();
     }
 
     beforeEach(() => {

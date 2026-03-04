@@ -451,6 +451,27 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  // ------------------------------------------------------------------
+  // Mobile codes
+  // ------------------------------------------------------------------
+  it('maps UPGRADE_REQUIRED to user-facing message', () => {
+    expect(friendlyErrorMessage('UPGRADE_REQUIRED')).toBe(
+      'A new version is available. Please update to continue.'
+    );
+  });
+
+  it('maps LOGIN_TOKEN_INVALID to user-facing message', () => {
+    expect(friendlyErrorMessage('LOGIN_TOKEN_INVALID')).toBe(
+      'This login link has expired or already been used.'
+    );
+  });
+
+  it('maps BILLING_SESSION_RESTRICTED to user-facing message', () => {
+    expect(friendlyErrorMessage('BILLING_SESSION_RESTRICTED')).toBe(
+      'This session can only access billing. Please log in normally for full access.'
+    );
+  });
+
   it('maps CONTEXT_LENGTH_EXCEEDED to user-facing message', () => {
     expect(friendlyErrorMessage('CONTEXT_LENGTH_EXCEEDED')).toBe(
       'This conversation is too long for the selected model. Try a model with a larger context window.'

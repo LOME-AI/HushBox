@@ -319,6 +319,40 @@ describe('conversations service', () => {
       expect(result).toHaveLength(1);
       expect(result[0]?.invitedByUsername).toBeNull();
     });
+
+    it('returns muted as false by default', async () => {
+      const user = await createTestUser();
+      await createTestConversationWithEpoch(user.id, toBytes('My Conv'));
+
+      const result = await listConversations(db, user.id);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.muted).toBe(false);
+    });
+
+    it('returns muted as true when member has muted the conversation', async () => {
+      const user = await createTestUser();
+      const { conversationId } = await createTestConversationWithEpoch(
+        user.id,
+        toBytes('Muted Conv')
+      );
+
+      // Mute the conversation
+      await db
+        .update(conversationMembers)
+        .set({ muted: true })
+        .where(
+          and(
+            eq(conversationMembers.conversationId, conversationId),
+            eq(conversationMembers.userId, user.id)
+          )
+        );
+
+      const result = await listConversations(db, user.id);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.muted).toBe(true);
+    });
   });
 
   describe('getConversation', () => {

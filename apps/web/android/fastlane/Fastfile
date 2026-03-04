@@ -1,0 +1,30 @@
+default_platform(:android)
+
+platform :android do
+  desc "Build AAB and upload to Play Store"
+  lane :play_store do
+    gradle(
+      task: "bundle",
+      build_type: "Release",
+      project_dir: "..",
+    )
+
+    upload_to_play_store(
+      track: "production",
+      aab: "../app/build/outputs/bundle/release/app-release.aab",
+      json_key_data: ENV["PLAY_STORE_JSON_KEY"],
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+
+  desc "Build signed APK for GitHub Release (Obtainium)"
+  lane :github_release do
+    gradle(
+      task: "assemble",
+      build_type: "Release",
+      project_dir: "..",
+    )
+  end
+end

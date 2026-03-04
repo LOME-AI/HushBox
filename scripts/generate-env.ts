@@ -14,6 +14,45 @@ import {
 } from '../packages/shared/src/env.config.js';
 
 /**
+ * Build variants for release workflows.
+ * Each variant overrides specific frontend env vars in the generated build-env section.
+ * Keys not in the overrides map use the default envConfig production values.
+ */
+const BUILD_VARIANTS: Record<string, Record<string, string>> = {
+  'build-env': {
+    VITE_APP_VERSION: '${{ needs.version.outputs.version }}',
+  },
+  'build-env-web-release': {
+    VITE_PLATFORM: 'web',
+    VITE_APP_VERSION: '${{ steps.version.outputs.version }}',
+  },
+  'build-env-android-play': {
+    VITE_PLATFORM: 'android',
+    VITE_APP_VERSION: '${{ needs.prepare.outputs.version }}',
+  },
+  'build-env-android-direct': {
+    VITE_PLATFORM: 'android-direct',
+    VITE_APP_VERSION: '${{ inputs.version }}',
+  },
+};
+
+/**
+ * Deploy secret overrides.
+ * Keys here use the specified value instead of `${{ secrets.X }}` in
+ * the generated deploy-secrets section. Used to source APP_VERSION
+ * from the version job output rather than a GitHub secret.
+ */
+const DEPLOY_SECRET_OVERRIDES: Record<string, string> = {
+  APP_VERSION: '${{ needs.version.outputs.version }}',
+};
+
+const WORKFLOW_FILES = [
+  '.github/workflows/ci.yml',
+  '.github/workflows/release.yml',
+  '.github/workflows/build-android-apk.yml',
+];
+
+/**
  * Escape a value for dotenv format.
  * Always double-quote and escape internal double-quotes and backslashes.
  */
@@ -98,8 +137,8 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
   // Update wrangler.toml [vars] with production values
   updateWranglerToml(rootDir);
 
-  // Update CI workflow with generated env sections
-  updateCiWorkflow(rootDir);
+  // Update workflow files with generated env sections
+  updateWorkflows(rootDir);
 
   console.log('✓ All environment files generated');
 }
@@ -193,13 +232,19 @@ function generateSecretsEnv(mode: EnvMode): string {
 
 /**
  * Generate the build-env section (production frontend values).
+ * Overrides replace envConfig values for specific keys (e.g., VITE_PLATFORM, VITE_APP_VERSION).
  */
-function generateBuildEnv(): string {
+function generateBuildEnv(overrides: Record<string, string> = {}): string {
   const lines: string[] = ['env:'];
 
   for (const [key, config] of Object.entries(envConfig)) {
     const destinations = getDestinations(config as VariableConfig, Mode.Production);
     if (!destinations.includes(Destination.Frontend)) continue;
+
+    if (key in overrides) {
+      lines.push(`  ${key}: ${overrides[key] ?? ''}`);
+      continue;
+    }
 
     const raw = resolveRaw(config as VariableConfig, Mode.Production);
     // All frontend vars have production values
@@ -229,7 +274,12 @@ function generateDeploySecrets(): string {
 
     const raw = resolveRaw(config as VariableConfig, Mode.Production);
     if (raw && isSecret(raw)) {
-      lines.push(`echo "\${{ secrets.${raw.name} }}" | pnpm exec wrangler secret put ${key}`);
+      if (key in DEPLOY_SECRET_OVERRIDES) {
+        const override = DEPLOY_SECRET_OVERRIDES[key] ?? '';
+        lines.push(`echo "${override}" | pnpm exec wrangler secret put ${key}`);
+      } else {
+        lines.push(`echo "\${{ secrets.${raw.name} }}" | pnpm exec wrangler secret put ${key}`);
+      }
     }
   }
 
@@ -245,27 +295,34 @@ function generateVerifySecrets(): string {
 }
 
 /**
- * Update CI workflow with generated env sections.
- * Skips if ci.yml doesn't exist (e.g., in test fixtures).
+ * Update workflow files with generated env sections.
+ * Processes all known workflow files, applying all known markers.
+ * replaceSection is a no-op when a marker doesn't exist in a file.
  */
-export function updateCiWorkflow(rootDir: string): void {
-  const ciPath = path.resolve(rootDir, '.github/workflows/ci.yml');
+export function updateWorkflows(rootDir: string): void {
+  // Build all section generators
+  const sections: Record<string, string> = {
+    'vitest-env': generateSecretsEnv(Mode.CiVitest),
+    'e2e-env': generateSecretsEnv(Mode.CiE2E),
+    'deploy-secrets': generateDeploySecrets(),
+    'verify-secrets': generateVerifySecrets(),
+  };
 
-  if (!existsSync(ciPath)) {
-    return;
+  for (const [marker, overrides] of Object.entries(BUILD_VARIANTS)) {
+    sections[marker] = generateBuildEnv(overrides);
   }
 
-  let content = readFileSync(ciPath, 'utf8');
+  for (const relativePath of WORKFLOW_FILES) {
+    const fullPath = path.resolve(rootDir, relativePath);
+    if (!existsSync(fullPath)) continue;
 
-  // Generate and replace each section
-  content = replaceSection(content, 'vitest-env', generateSecretsEnv(Mode.CiVitest));
-  content = replaceSection(content, 'e2e-env', generateSecretsEnv(Mode.CiE2E));
-  content = replaceSection(content, 'build-env', generateBuildEnv());
-  content = replaceSection(content, 'deploy-secrets', generateDeploySecrets());
-  content = replaceSection(content, 'verify-secrets', generateVerifySecrets());
-
-  writeFileSync(ciPath, content);
-  console.log('  Updated .github/workflows/ci.yml');
+    let content = readFileSync(fullPath, 'utf8');
+    for (const [marker, generated] of Object.entries(sections)) {
+      content = replaceSection(content, marker, generated);
+    }
+    writeFileSync(fullPath, content);
+    console.log(`  Updated ${relativePath}`);
+  }
 }
 
 export function parseArgs(args: string[]): EnvMode {

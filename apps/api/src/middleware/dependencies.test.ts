@@ -241,6 +241,117 @@ describe('sessionMiddleware', () => {
     );
     expect(res.status).toBe(401);
   });
+
+  // Helper to create a test app at a specific path with billing-scoped session
+  function createBillingSessionApp(routePath: string): {
+    app: Hono<AppEnv>;
+    env: Record<string, string>;
+  } {
+    const testApp = new Hono<AppEnv>();
+    const env = {
+      DATABASE_URL: 'postgres://test',
+      UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+      UPSTASH_REDIS_REST_TOKEN: 'test-token',
+    };
+
+    testApp.use('*', envMiddleware());
+    testApp.use('*', dbMiddleware());
+    testApp.use('*', redisMiddleware());
+    testApp.use('*', async (c, next) => {
+      // Seed sessionActive in Redis so the session passes the active check
+      const redis = c.get('redis');
+      const { redisSet } = await import('../lib/redis-registry.js');
+      await redisSet(redis, 'sessionActive', '1', 'billing-user', 'billing-session');
+
+      c.set('sessionData', {
+        sessionId: 'billing-session',
+        userId: 'billing-user',
+        email: 'billing@example.com',
+        username: 'billing_user',
+        emailVerified: true,
+        totpEnabled: false,
+        hasAcknowledgedPhrase: true,
+        pending2FA: false,
+        pending2FAExpiresAt: 0,
+        createdAt: Date.now(),
+        billingOnly: true,
+      });
+      return next();
+    });
+    testApp.use('*', sessionMiddleware());
+    testApp.get(routePath, (c) => c.json({ allowed: true }));
+
+    return { app: testApp, env };
+  }
+
+  it('returns 403 for billing-only session accessing non-billing route', async () => {
+    const { app: testApp, env } = createBillingSessionApp('/api/conversations');
+
+    const res = await testApp.request('/api/conversations', {}, env);
+
+    expect(res.status).toBe(403);
+    const body = await jsonBody<{ code: string }>(res);
+    expect(body.code).toBe('BILLING_SESSION_RESTRICTED');
+  });
+
+  it('allows billing-only session to access /api/billing routes', async () => {
+    const { app: testApp, env } = createBillingSessionApp('/api/billing/balance');
+
+    const res = await testApp.request('/api/billing/balance', {}, env);
+
+    // Will fail at DB lookup (mocked), but should NOT be 403
+    // The important thing is it doesn't return BILLING_SESSION_RESTRICTED
+    expect(res.status).not.toBe(403);
+  });
+
+  it('allows billing-only session to access /api/auth routes', async () => {
+    const { app: testApp, env } = createBillingSessionApp('/api/auth/me');
+
+    const res = await testApp.request('/api/auth/me', {}, env);
+
+    expect(res.status).not.toBe(403);
+  });
+
+  it('allows normal sessions (no billingOnly) to access any route', async () => {
+    const testApp = new Hono<AppEnv>();
+    const env = {
+      DATABASE_URL: 'postgres://test',
+      UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+      UPSTASH_REDIS_REST_TOKEN: 'test-token',
+    };
+
+    testApp.use('*', envMiddleware());
+    testApp.use('*', dbMiddleware());
+    testApp.use('*', redisMiddleware());
+    testApp.use('*', async (c, next) => {
+      const redis = c.get('redis');
+      const { redisSet } = await import('../lib/redis-registry.js');
+      await redisSet(redis, 'sessionActive', '1', 'normal-user', 'normal-session');
+
+      c.set('sessionData', {
+        sessionId: 'normal-session',
+        userId: 'normal-user',
+        email: 'normal@example.com',
+        username: 'normal_user',
+        emailVerified: true,
+        totpEnabled: false,
+        hasAcknowledgedPhrase: true,
+        pending2FA: false,
+        pending2FAExpiresAt: 0,
+        createdAt: Date.now(),
+        // billingOnly NOT set
+      });
+      return next();
+    });
+    testApp.use('*', sessionMiddleware());
+    testApp.get('/api/conversations', (c) => c.json({ allowed: true }));
+
+    const res = await testApp.request('/api/conversations', {}, env);
+
+    // Will proceed past billing check (no billingOnly flag)
+    // Will fail at DB lookup, but NOT with 403
+    expect(res.status).not.toBe(403);
+  });
 });
 
 describe('openRouterMiddleware', () => {

@@ -43,15 +43,20 @@
     "db:seed": "./scripts/with-env tsx scripts/seed.ts",
     "generate:env": "tsx scripts/generate-env.ts",
     "verify:env": "tsx scripts/verify-env.ts",
+    "verify:typecheck-coverage": "tsx scripts/verify-typecheck-coverage.ts",
     "verify:evidence": "./scripts/with-env tsx scripts/verify-evidence.ts",
-    "email:preview": "tsx --watch scripts/email-preview.ts",
     "generate:readme": "tsx scripts/generate-readme.ts",
+    "asset:generate": "tsx scripts/generate-assets.ts",
+    "asset:sync": "pnpm --filter web asset:sync",
+    "asset:build": "pnpm asset:generate && pnpm asset:sync",
+    "screenshot:generate": "tsx scripts/generate-screenshots.ts",
     "lint:duplication": "jscpd --threshold 2 --silent .",
     "lint:unused": "./scripts/with-env knip --no-progress",
     "lint:summary": "turbo lint --continue -- --format summary",
     "lint:check": "tsx scripts/lint-check.ts",
     "mutation": "./scripts/with-env stryker run",
-    "mutation:incremental": "./scripts/with-env stryker run --incremental"
+    "mutation:incremental": "./scripts/with-env stryker run --incremental",
+    "cap:test-update": "./scripts/with-env tsx scripts/cap-test-update.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
@@ -96,7 +101,8 @@
   },
   "pnpm": {
     "overrides": {
-      "vite": "^7.3.1"
+      "vite": "^7.3.1",
+      "sharp": "^0.34.5"
     }
   }
 }

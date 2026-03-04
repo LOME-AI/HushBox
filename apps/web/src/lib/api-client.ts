@@ -1,9 +1,15 @@
 import { hc } from 'hono/client';
 import type { AppType } from '@hushbox/api';
 import { ApiError, getApiUrl } from './api.js';
+import { useAppVersionStore } from '@/stores/app-version.js';
+import { getPlatform } from '@/capacitor/platform.js';
 
 export const client = hc<AppType>(getApiUrl(), {
   init: { credentials: 'include' },
+  headers: {
+    'X-HushBox-Platform': getPlatform(),
+    'X-App-Version': (import.meta.env['VITE_APP_VERSION'] as string | undefined) ?? 'dev-local',
+  },
 });
 
 /**
@@ -27,6 +33,9 @@ export async function fetchJson<T>(responsePromise: Promise<Response>): Promise<
       typeof (body as Record<string, unknown>)['code'] === 'string'
         ? ((body as Record<string, unknown>)['code'] as string)
         : 'INTERNAL';
+    if (res.status === 426) {
+      useAppVersionStore.getState().setUpgradeRequired(true);
+    }
     throw new ApiError(code, res.status, body);
   }
   return (await res.json()) as T;

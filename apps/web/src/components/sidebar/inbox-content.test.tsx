@@ -15,6 +15,10 @@ vi.mock('@/hooks/use-conversation-members', () => ({
     mutate: mockLeaveMutate,
     isPending: false,
   }),
+  useMuteConversation: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
 }));
 
 // Mock router for navigation after accept

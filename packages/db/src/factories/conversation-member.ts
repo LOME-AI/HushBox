@@ -15,5 +15,6 @@ export const conversationMemberFactory = Factory.define<ConversationMember>(() =
   joinedAt: faker.date.recent(),
   leftAt: null,
   acceptedAt: faker.date.recent(),
+  muted: false,
   invitedByUserId: null,
 }));

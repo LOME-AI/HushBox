@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import { createIronSessionMiddleware } from './iron-session.js';
-import type { IronSessionConfig } from './iron-session.js';
 import type { SessionData } from '../lib/session.js';
 
 /** Type-safe JSON response parser for test assertions. */
@@ -29,10 +28,7 @@ interface TestEnv {
 }
 
 describe('iron-session middleware', () => {
-  const testConfig: IronSessionConfig = {
-    cookieName: 'hushbox_session',
-    password: 'test-secret-at-least-32-characters-long',
-  };
+  const testSecret = 'test-secret-at-least-32-characters-long';
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -43,7 +39,7 @@ describe('iron-session middleware', () => {
 
     app.use('*', async (c, next) => {
       c.env = {
-        IRON_SESSION_SECRET: testConfig.password,
+        IRON_SESSION_SECRET: testSecret,
         NODE_ENV: 'test',
       };
       await next();
@@ -125,20 +121,38 @@ describe('iron-session middleware', () => {
       expect.anything(), // request
       expect.anything(), // response
       expect.objectContaining({
-        password: testConfig.password,
+        password: testSecret,
         cookieName: 'hushbox_session',
       })
     );
   });
 
-  it('uses isProduction based on NODE_ENV', async () => {
+  it('uses getSessionOptions cookie config (secure: true, sameSite: none) in all environments', async () => {
     mockGetIronSession.mockResolvedValue({} as Awaited<ReturnType<typeof getIronSession>>);
 
-    // Test with production env
+    // Test with non-production env — should still use secure: true, sameSite: 'none'
+    const app = createApp();
+    await app.request('/test');
+
+    expect(mockGetIronSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        cookieOptions: expect.objectContaining({
+          secure: true,
+          sameSite: 'none',
+        }),
+      })
+    );
+  });
+
+  it('uses getSessionOptions cookie config in production', async () => {
+    mockGetIronSession.mockResolvedValue({} as Awaited<ReturnType<typeof getIronSession>>);
+
     const productionApp = new Hono<TestEnv>();
     productionApp.use('*', async (c, next) => {
       c.env = {
-        IRON_SESSION_SECRET: testConfig.password,
+        IRON_SESSION_SECRET: testSecret,
         NODE_ENV: 'production',
       };
       await next();
@@ -154,6 +168,7 @@ describe('iron-session middleware', () => {
       expect.objectContaining({
         cookieOptions: expect.objectContaining({
           secure: true,
+          sameSite: 'none',
         }),
       })
     );
@@ -180,7 +195,7 @@ describe('iron-session middleware', () => {
     const app = new Hono<TestEnv>();
     app.use('*', async (c, next) => {
       c.env = {
-        IRON_SESSION_SECRET: testConfig.password,
+        IRON_SESSION_SECRET: testSecret,
         NODE_ENV: 'test',
       };
       await next();

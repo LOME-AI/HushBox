@@ -1,12 +1,7 @@
 import type { MiddlewareHandler } from 'hono';
 import { getIronSession } from 'iron-session';
 import { createEnvUtilities } from '@hushbox/shared';
-import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS, type SessionData } from '../lib/session.js';
-
-export interface IronSessionConfig {
-  cookieName: string;
-  password: string;
-}
+import { getSessionOptions, type SessionData } from '../lib/session.js';
 
 interface IronSessionRequiredEnv {
   Bindings: {
@@ -32,6 +27,7 @@ function isValidSession(session: unknown): session is SessionData {
  *
  * Extracts session data from encrypted cookie and sets it on context.
  * Sets `sessionData` to null if no valid session exists.
+ * Uses getSessionOptions() from session.ts for consistent cookie config.
  */
 const ironSessionHandler: MiddlewareHandler<IronSessionRequiredEnv> = async (c, next) => {
   const secret = c.env.IRON_SESSION_SECRET;
@@ -42,17 +38,9 @@ const ironSessionHandler: MiddlewareHandler<IronSessionRequiredEnv> = async (c, 
   }
 
   const { isProduction } = createEnvUtilities(c.env);
+  const options = getSessionOptions(secret, isProduction);
 
-  const session = await getIronSession<SessionData>(c.req.raw, c.res, {
-    password: secret,
-    cookieName: SESSION_COOKIE_NAME,
-    cookieOptions: {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
-      maxAge: SESSION_MAX_AGE_SECONDS,
-    },
-  });
+  const session = await getIronSession<SessionData>(c.req.raw, c.res, options);
 
   if (isValidSession(session)) {
     c.set('sessionData', session);

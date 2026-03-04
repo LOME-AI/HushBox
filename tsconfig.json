@@ -13,6 +13,8 @@
   "references": [
     { "path": "./packages/shared" },
     { "path": "./packages/db" },
+    { "path": "./packages/crypto" },
+    { "path": "./packages/realtime" },
     { "path": "./packages/ui" },
     { "path": "./apps/web" },
     { "path": "./apps/api" }

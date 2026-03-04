@@ -14,16 +14,18 @@ export interface SessionData {
   pending2FA: boolean;
   pending2FAExpiresAt: number;
   createdAt: number;
+  /** When true, session is restricted to billing routes only (mobile → web handoff) */
+  billingOnly?: boolean;
 }
 
-export function getSessionOptions(secret: string, isProduction: boolean): SessionOptions {
+export function getSessionOptions(secret: string, _isProduction: boolean): SessionOptions {
   return {
     password: secret,
     cookieName: SESSION_COOKIE_NAME,
     cookieOptions: {
       httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
       maxAge: SESSION_MAX_AGE_SECONDS,
     },
   };

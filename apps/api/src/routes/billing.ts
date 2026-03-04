@@ -16,6 +16,7 @@ import {
   ERROR_CODE_PAYMENT_MISSING_TRANSACTION_ID,
   PAYMENT_EXPIRATION_MS,
 } from '@hushbox/shared';
+import { redisSet } from '../lib/redis-registry.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { requireAuth } from '../middleware/require-auth.js';
 import { requirePhrase } from '../middleware/require-phrase.js';
@@ -25,6 +26,17 @@ import type { AppEnv } from '../types.js';
 
 export const billingRoute = new Hono<AppEnv>()
   .use('*', requireAuth())
+
+  .post('/login-link', async (c) => {
+    const user = c.get('user');
+    if (!user) {
+      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
+    }
+    const redis = c.get('redis');
+    const token = crypto.randomUUID();
+    await redisSet(redis, 'billingLoginToken', { userId: user.id }, token);
+    return c.json({ token }, 200);
+  })
 
   .use('/payments', requirePhrase())
   .use('/payments/*', requirePhrase())

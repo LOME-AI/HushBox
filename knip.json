@@ -6,7 +6,8 @@
     },
     "apps/web": {
       "entry": ["src/main.tsx"],
-      "project": ["src/**/*.{ts,tsx}"]
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["@capacitor/ios", "@capacitor/assets"]
     },
     "packages/shared": {
       "project": ["src/**/*.ts"]

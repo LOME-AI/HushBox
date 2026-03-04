@@ -29,6 +29,10 @@ vi.mock('@/hooks/use-conversation-members', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+  useMuteConversation: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
 }));
 
 // Mock @hushbox/shared with feature flags (partial mock)
@@ -128,6 +132,7 @@ describe('Sidebar', () => {
           accepted: true,
           invitedByUsername: null,
           privilege: 'owner',
+          muted: false,
         },
       ],
       isLoading: false,
@@ -272,6 +277,7 @@ describe('Sidebar', () => {
             accepted: true,
             invitedByUsername: null,
             privilege: 'owner',
+            muted: false,
           },
           {
             id: 'conv-2',
@@ -285,6 +291,7 @@ describe('Sidebar', () => {
             accepted: true,
             invitedByUsername: null,
             privilege: 'write',
+            muted: false,
           },
         ],
         isLoading: false,
