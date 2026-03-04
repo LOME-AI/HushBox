@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { STRONGEST_MODEL_ID } from '@hushbox/shared';
 
 interface ModelState {
   selectedModelId: string;
@@ -10,8 +11,8 @@ interface ModelState {
 export const useModelStore = create<ModelState>()(
   persist(
     (set) => ({
-      selectedModelId: 'openai/gpt-4-turbo',
-      selectedModelName: 'GPT-4 Turbo',
+      selectedModelId: STRONGEST_MODEL_ID,
+      selectedModelName: '',
       setSelectedModel: (modelId, modelName) =>
         set({ selectedModelId: modelId, selectedModelName: modelName }),
     }),
