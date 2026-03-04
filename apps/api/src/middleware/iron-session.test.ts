@@ -127,10 +127,9 @@ describe('iron-session middleware', () => {
     );
   });
 
-  it('uses getSessionOptions cookie config (secure: true, sameSite: none) in all environments', async () => {
+  it('uses lax sameSite and non-secure cookies in development', async () => {
     mockGetIronSession.mockResolvedValue({} as Awaited<ReturnType<typeof getIronSession>>);
 
-    // Test with non-production env — should still use secure: true, sameSite: 'none'
     const app = createApp();
     await app.request('/test');
 
@@ -139,14 +138,14 @@ describe('iron-session middleware', () => {
       expect.anything(),
       expect.objectContaining({
         cookieOptions: expect.objectContaining({
-          secure: true,
-          sameSite: 'none',
+          secure: false,
+          sameSite: 'lax',
         }),
       })
     );
   });
 
-  it('uses getSessionOptions cookie config in production', async () => {
+  it('uses none sameSite and secure cookies in production', async () => {
     mockGetIronSession.mockResolvedValue({} as Awaited<ReturnType<typeof getIronSession>>);
 
     const productionApp = new Hono<TestEnv>();

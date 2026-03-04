@@ -18,14 +18,14 @@ export interface SessionData {
   billingOnly?: boolean;
 }
 
-export function getSessionOptions(secret: string, _isProduction: boolean): SessionOptions {
+export function getSessionOptions(secret: string, isProduction: boolean): SessionOptions {
   return {
     password: secret,
     cookieName: SESSION_COOKIE_NAME,
     cookieOptions: {
       httpOnly: true,
-      secure: true,
-      sameSite: 'none',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
       maxAge: SESSION_MAX_AGE_SECONDS,
     },
   };
