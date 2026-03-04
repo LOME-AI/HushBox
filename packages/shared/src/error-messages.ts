@@ -124,6 +124,13 @@ const ERROR_MESSAGES = {
   SHARE_NOT_FOUND: 'Shared message not found.',
   WRAP_SET_MISMATCH: 'Member wrap set does not match active members.',
   ROTATION_REQUIRED: 'Epoch rotation is required for this operation.',
+
+  // Mobile codes
+  UPGRADE_REQUIRED: 'A new version is available. Please update to continue.',
+  LOGIN_TOKEN_INVALID: 'This login link has expired or already been used.',
+  BILLING_SESSION_RESTRICTED:
+    'This session can only access billing. Please log in normally for full access.',
+  BUILD_NOT_FOUND: 'The requested app version was not found.',
 } as const satisfies Record<string, string>;
 
 /** Known error code — union of all keys in the error message map. */

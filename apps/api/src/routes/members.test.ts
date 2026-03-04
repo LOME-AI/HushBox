@@ -2080,6 +2080,158 @@ describe('members route', () => {
     return app;
   }
 
+  // ── Mute mock infrastructure ──
+
+  interface MuteMockDbConfig {
+    requesterMember?: { id: string; privilege: string; userId: string } | null;
+  }
+
+  /**
+   * Creates a mock Drizzle DB for the mute route:
+   * 0. Middleware: requester membership lookup (select→from→where→limit→then)
+   * 1. Mute: update chain returning rows affected
+   */
+  function createMuteMockDb(config: MuteMockDbConfig): unknown {
+    const indexRef = { value: 0 };
+    const selectResults: unknown[][] = [
+      // Query 0: middleware's membership lookup
+      config.requesterMember
+        ? [
+            {
+              id: config.requesterMember.id,
+              privilege: config.requesterMember.privilege,
+              visibleFromEpoch: 1,
+            },
+          ]
+        : [],
+    ];
+    const createQueryChain = createQueryChainFactory(selectResults, indexRef);
+
+    return {
+      select: () => createQueryChain(),
+      update: () => ({
+        set: () => ({
+          where: () => ({
+            returning: () =>
+              Promise.resolve(
+                config.requesterMember ? [{ id: config.requesterMember.id, muted: true }] : []
+              ),
+          }),
+        }),
+      }),
+    };
+  }
+
+  interface MuteTestAppOptions {
+    user?: AppEnv['Variables']['user'] | null;
+    dbConfig?: MuteMockDbConfig;
+  }
+
+  function createMuteTestApp(options: MuteTestAppOptions = {}): Hono<AppEnv> {
+    const { user = createMockUser(), dbConfig = {} } = options;
+    const app = new Hono<AppEnv>();
+
+    app.use('*', async (c, next) => {
+      c.env = {
+        NODE_ENV: 'test',
+      } as unknown as AppEnv['Bindings'];
+      c.set('user', user);
+      c.set('session', user ? createMockSession() : null);
+      c.set('sessionData', user ? createMockSession() : null);
+      c.set('db', createMuteMockDb(dbConfig) as AppEnv['Variables']['db']);
+      await next();
+    });
+
+    app.route('/', membersRoute);
+    return app;
+  }
+
+  describe('PATCH /:conversationId/mute', () => {
+    it('returns 401 when not authenticated', async () => {
+      const app = createMuteTestApp({ user: null });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/mute`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ muted: true }),
+      });
+
+      expect(res.status).toBe(401);
+      const body = await res.json<{ code: string }>();
+      expect(body.code).toBe('NOT_AUTHENTICATED');
+    });
+
+    it('returns 404 when not a member', async () => {
+      const app = createMuteTestApp({
+        dbConfig: {
+          requesterMember: null,
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/mute`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ muted: true }),
+      });
+
+      expect(res.status).toBe(404);
+      const body = await res.json<{ code: string }>();
+      expect(body.code).toBe('NOT_FOUND');
+    });
+
+    it('returns 400 when muted field is missing', async () => {
+      const app = createMuteTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'read', userId: TEST_USER_ID },
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/mute`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('mutes notifications and returns 200', async () => {
+      const app = createMuteTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'read', userId: TEST_USER_ID },
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/mute`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ muted: true }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{ muted: boolean }>();
+      expect(body.muted).toBe(true);
+    });
+
+    it('unmutes notifications and returns 200', async () => {
+      const app = createMuteTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'write', userId: TEST_USER_ID },
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/mute`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ muted: false }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{ muted: boolean }>();
+      expect(body.muted).toBe(false);
+    });
+  });
+
   describe('PATCH /:conversationId/accept', () => {
     it('returns 401 when not authenticated', async () => {
       const app = createAcceptTestApp({ user: null });

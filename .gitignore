@@ -58,8 +58,11 @@ Thumbs.db
 /*Local
 
 # Capacitor
-/apps/mobile/ios/
-/apps/mobile/android/
+apps/web/ios/App/Pods/
+apps/web/android/.gradle/
+apps/web/android/app/build/
+apps/web/public/dev-assets/
+apps/web/resources/generated/
 
 # Temporary files
 *.tmp

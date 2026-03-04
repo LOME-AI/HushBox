@@ -123,4 +123,55 @@ describe('cors middleware', () => {
       expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
     });
   });
+
+  describe('Capacitor native origins', () => {
+    it('allows requests from capacitor://localhost', async () => {
+      const app = new Hono<{ Bindings: { FRONTEND_URL: string } }>();
+      app.use('*', cors());
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request(
+        '/test',
+        {
+          headers: { Origin: 'capacitor://localhost' },
+        },
+        { FRONTEND_URL: 'https://hushbox.ai' }
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('capacitor://localhost');
+      expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    });
+
+    it('allows requests from http://localhost (Android WebView)', async () => {
+      const app = new Hono<{ Bindings: { FRONTEND_URL: string } }>();
+      app.use('*', cors());
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request(
+        '/test',
+        {
+          headers: { Origin: 'http://localhost' },
+        },
+        { FRONTEND_URL: 'https://hushbox.ai' }
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost');
+      expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    });
+
+    it('allows Capacitor origins in development too', async () => {
+      const app = new Hono();
+      app.use('*', cors());
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test', {
+        headers: { Origin: 'capacitor://localhost' },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('capacitor://localhost');
+    });
+  });
 });

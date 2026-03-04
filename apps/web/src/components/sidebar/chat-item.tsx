@@ -8,12 +8,21 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@hushbox/ui';
-import { Lock, LogOut, MessageSquare, MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import {
+  BellOff,
+  Bell,
+  Lock,
+  LogOut,
+  MessageSquare,
+  MoreVertical,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { encryptMessageForStorage, getPublicKeyFromPrivate } from '@hushbox/crypto';
 import { toBase64, ROUTES } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { useDeleteConversation, useUpdateConversation, DECRYPTING_TITLE } from '@/hooks/chat';
-import { useLeaveConversation } from '@/hooks/use-conversation-members';
+import { useLeaveConversation, useMuteConversation } from '@/hooks/use-conversation-members';
 import { getEpochKey } from '@/lib/epoch-key-cache';
 import { LeaveConfirmationModal } from '@/components/chat/leave-confirmation-modal';
 import { DeleteConversationDialog } from './delete-conversation-dialog';
@@ -25,11 +34,40 @@ interface Conversation {
   currentEpoch: number;
   updatedAt: string;
   privilege: string;
+  muted: boolean;
 }
 
 interface ChatItemProps {
   conversation: Conversation;
   isActive?: boolean;
+}
+
+function ChatItemTitle({ title }: Readonly<{ title: string }>): React.JSX.Element {
+  if (title === DECRYPTING_TITLE) {
+    return (
+      <span
+        className="text-muted-foreground flex items-center gap-1.5 truncate text-xs"
+        data-testid="decrypting-title"
+      >
+        <Lock className="h-3 w-3 shrink-0" />
+        Decrypting...
+      </span>
+    );
+  }
+  return <span className="truncate">{title}</span>;
+}
+
+function encryptTitle(
+  conversationId: string,
+  currentEpoch: number,
+  rawTitle: string
+): string | undefined {
+  const trimmed = rawTitle.trim();
+  if (!trimmed) return undefined;
+  const epochPrivateKey = getEpochKey(conversationId, currentEpoch);
+  if (!epochPrivateKey) return undefined;
+  const epochPublicKey = getPublicKeyFromPrivate(epochPrivateKey);
+  return toBase64(encryptMessageForStorage(epochPublicKey, trimmed));
 }
 
 export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): React.JSX.Element {
@@ -38,6 +76,7 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
   const deleteConversation = useDeleteConversation();
   const updateConversation = useUpdateConversation();
   const leaveConversation = useLeaveConversation();
+  const muteConversation = useMuteConversation();
 
   const isOwner = conversation.privilege === 'owner';
 
@@ -64,6 +103,13 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
     });
   };
 
+  const handleMuteToggle = (): void => {
+    muteConversation.mutate({
+      conversationId: conversation.id,
+      muted: !conversation.muted,
+    });
+  };
+
   const handleLeaveClick = (): void => {
     setShowLeaveDialog(true);
   };
@@ -81,20 +127,14 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
   };
 
   const handleConfirmRename = (): void => {
-    const trimmed = renameValue.trim();
-    if (!trimmed) return;
-
-    const epochPrivateKey = getEpochKey(conversation.id, conversation.currentEpoch);
-    if (!epochPrivateKey) return;
-
-    const epochPublicKey = getPublicKeyFromPrivate(epochPrivateKey);
-    const encryptedBytes = encryptMessageForStorage(epochPublicKey, trimmed);
+    const encrypted = encryptTitle(conversation.id, conversation.currentEpoch, renameValue);
+    if (!encrypted) return;
 
     updateConversation.mutate(
       {
         conversationId: conversation.id,
         data: {
-          title: toBase64(encryptedBytes),
+          title: encrypted,
           titleEpochNumber: conversation.currentEpoch,
         },
       },
@@ -126,25 +166,15 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
             sidebarOpen && 'pr-8'
           )}
         >
-          {!sidebarOpen && (
+          {sidebarOpen ? (
+            <ChatItemTitle title={conversation.title} />
+          ) : (
             <MessageSquare
               data-testid="message-icon"
               className="h-4 w-4 shrink-0"
               aria-hidden="true"
             />
           )}
-          {sidebarOpen &&
-            (conversation.title === DECRYPTING_TITLE ? (
-              <span
-                className="text-muted-foreground flex items-center gap-1.5 truncate text-xs"
-                data-testid="decrypting-title"
-              >
-                <Lock className="h-3 w-3 shrink-0" />
-                Decrypting...
-              </span>
-            ) : (
-              <span className="truncate">{conversation.title}</span>
-            ))}
         </Link>
 
         {sidebarOpen && (
@@ -162,6 +192,10 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
               </IconButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={handleMuteToggle}>
+                {conversation.muted ? <Bell /> : <BellOff />}
+                {conversation.muted ? 'Unmute' : 'Mute'}
+              </DropdownMenuItem>
               {isOwner ? (
                 <>
                   <DropdownMenuItem onSelect={handleRenameClick}>

@@ -241,6 +241,13 @@ export const REDIS_REGISTRY = {
     buildKey: (conversationId: string) => `chat:conversation-reserved:${conversationId}`,
   }),
 
+  // Billing login token (mobile app → web billing)
+  billingLoginToken: defineKey({
+    schema: z.object({ userId: z.string() }),
+    ttl: 60,
+    buildKey: (token: string) => `billing:login-token:${token}`,
+  }),
+
   // Session tracking
   sessionActive: defineKey({
     schema: z.coerce.string(),

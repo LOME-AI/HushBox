@@ -6,9 +6,28 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  # ── Version computation (main only) ────────────────────
+  version:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      version_name: ${{ steps.compute.outputs.version_name }}
+      version_code: ${{ steps.compute.outputs.version_code }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-blacksmith
+      - name: Compute next version
+        id: compute
+        run: pnpm tsx scripts/compute-next-version.ts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # ── Quick lint jobs (Blacksmith 2 vCPU) ──────────────────
   lint:
     runs-on: blacksmith-2vcpu-ubuntu-2404
@@ -25,6 +44,8 @@ jobs:
       - uses: ./.github/actions/setup-blacksmith
       - name: Type check
         run: pnpm typecheck
+      - name: Verify typecheck coverage
+        run: pnpm verify:typecheck-coverage
 
   duplication:
     runs-on: blacksmith-2vcpu-ubuntu-2404
@@ -128,7 +149,8 @@ jobs:
   build:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: ci
-    needs: [gitleaks]
+    needs: [gitleaks, version]
+    if: always() && needs.gitleaks.result == 'success' && (needs.version.result == 'success' || needs.version.result == 'skipped')
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
@@ -151,6 +173,8 @@ jobs:
         env:
           VITE_API_URL: https://api.hushbox.ai
           VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          VITE_PLATFORM: web
+          VITE_APP_VERSION: ${{ needs.version.outputs.version }}
         # END GENERATED: build-env
 
       - name: Merge marketing into web dist
@@ -298,12 +322,23 @@ jobs:
   # ── Deploy (GitHub-hosted — hyper-secrets) ───────────────
   deploy:
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, duplication, unused, test, build, e2e]
+    needs: [lint, typecheck, duplication, unused, test, build, e2e, version]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: production
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
+
+      - name: Verify version
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: Version is empty"
+            exit 1
+          fi
+          echo "Deploying version: $VERSION"
 
       - name: Download web build artifact
         uses: actions/download-artifact@v7
@@ -320,7 +355,10 @@ jobs:
           echo "${{ secrets.UPSTASH_REDIS_REST_TOKEN }}" | pnpm exec wrangler secret put UPSTASH_REDIS_REST_TOKEN
           echo "${{ secrets.OPAQUE_MASTER_SECRET }}" | pnpm exec wrangler secret put OPAQUE_MASTER_SECRET
           echo "${{ secrets.IRON_SESSION_SECRET }}" | pnpm exec wrangler secret put IRON_SESSION_SECRET
+          echo "${{ needs.version.outputs.version }}" | pnpm exec wrangler secret put APP_VERSION
           echo "${{ secrets.RESEND_API_KEY }}" | pnpm exec wrangler secret put RESEND_API_KEY
+          echo "${{ secrets.FCM_PROJECT_ID }}" | pnpm exec wrangler secret put FCM_PROJECT_ID
+          echo "${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}" | pnpm exec wrangler secret put FCM_SERVICE_ACCOUNT_JSON
           echo "${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}" | pnpm exec wrangler secret put OPENROUTER_API_KEY
           echo "${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_API_TOKEN
           echo "${{ secrets.HELCIM_WEBHOOK_VERIFIER_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_WEBHOOK_VERIFIER
@@ -334,7 +372,7 @@ jobs:
         run: |
           secrets=$(pnpm exec wrangler secret list)
           # BEGIN GENERATED: verify-secrets
-          for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET RESEND_API_KEY OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do
+          for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET APP_VERSION RESEND_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do
           # END GENERATED: verify-secrets
             if ! echo "$secrets" | grep -q "$secret"; then
               echo "ERROR: Secret $secret not found in Workers"
@@ -369,3 +407,18 @@ jobs:
         run: |
           sleep 10
           curl -f https://hushbox-api.${{ vars.WORKERS_SUBDOMAIN }}.workers.dev/api/health || exit 1
+
+      - name: Zip web dist for R2
+        run: cd apps/web/dist && zip -r ../../../web-dist.zip .
+
+      - name: Upload build to R2
+        working-directory: apps/api
+        run: pnpm exec wrangler r2 object put "hushbox-app-builds/builds/${{ needs.version.outputs.version }}.zip" --file ../../web-dist.zip
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Tag release
+        run: |
+          git tag "v${{ needs.version.outputs.version }}"
+          git push origin "v${{ needs.version.outputs.version }}"

@@ -1,7 +1,18 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { DropdownMenuItem, DropdownMenuSeparator } from '@hushbox/ui';
-import { Database, User, Settings, CreditCard, LogOut, LogIn, UserPlus, Users } from 'lucide-react';
+import {
+  Database,
+  Image,
+  Mail,
+  User,
+  Settings,
+  CreditCard,
+  LogOut,
+  LogIn,
+  UserPlus,
+  Users,
+} from 'lucide-react';
 import { SiGithub } from '@icons-pack/react-simple-icons';
 import { FEATURE_FLAGS, displayUsername, ROUTES } from '@hushbox/shared';
 
@@ -38,6 +49,24 @@ function DevMenuItems({
       >
         <Users className="mr-2 h-4 w-4" />
         Personas
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => {
+          void navigate({ to: ROUTES.DEV_EMAILS });
+        }}
+        data-testid="menu-emails"
+      >
+        <Mail className="mr-2 h-4 w-4" />
+        Emails
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => {
+          void navigate({ to: ROUTES.DEV_ASSETS });
+        }}
+        data-testid="menu-assets"
+      >
+        <Image className="mr-2 h-4 w-4" />
+        Assets
       </DropdownMenuItem>
       <DropdownMenuItem asChild data-testid="menu-db-studio">
         <a href={DRIZZLE_STUDIO_URL} target="_blank" rel="noopener noreferrer">

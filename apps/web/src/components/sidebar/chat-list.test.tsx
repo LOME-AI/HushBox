@@ -28,6 +28,10 @@ vi.mock('@/hooks/use-conversation-members', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+  useMuteConversation: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
 }));
 
 // Mock chat hooks used by ChatItem
@@ -51,6 +55,7 @@ describe('ChatList', () => {
       currentEpoch: 1,
       updatedAt: new Date().toISOString(),
       privilege: 'owner',
+      muted: false,
     },
     {
       id: 'conv-2',
@@ -58,6 +63,7 @@ describe('ChatList', () => {
       currentEpoch: 1,
       updatedAt: new Date().toISOString(),
       privilege: 'owner',
+      muted: false,
     },
     {
       id: 'conv-3',
@@ -65,6 +71,7 @@ describe('ChatList', () => {
       currentEpoch: 1,
       updatedAt: new Date().toISOString(),
       privilege: 'owner',
+      muted: false,
     },
   ];
 

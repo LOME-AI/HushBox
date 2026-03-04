@@ -75,6 +75,8 @@ export const MESSAGES: readonly string[] = [
   'Built For Your Workflow',
 ];
 
+export const SPLASH_MESSAGE_INDICES = [0, 2, 3, 7] as const;
+
 export const CIPHER_CHARS: readonly string[] = [
   '0',
   '1',
@@ -451,10 +453,11 @@ export interface RenderFrameInput {
   width: number;
   height: number;
   logoMask: boolean[][] | null;
+  cipherOpacity: number;
 }
 
 export function renderFrame(input: Readonly<RenderFrameInput>): void {
-  const { ctx, state, colors, width, height, logoMask } = input;
+  const { ctx, state, colors, width, height, logoMask, cipherOpacity } = input;
   ctx.clearRect(0, 0, width, height);
   ctx.font = FONT;
 
@@ -464,7 +467,8 @@ export function renderFrame(input: Readonly<RenderFrameInput>): void {
       const ch = getDisplayChar(cell);
       const color = getCellColor(cell, colors);
       const isInLogo = logoMask?.[r]?.[c] === true;
-      const alpha = getCellOpacity(cell, isInLogo);
+      const baseAlpha = getCellOpacity(cell, isInLogo);
+      const alpha = cell.state === 'readable' ? baseAlpha : baseAlpha * cipherOpacity;
 
       ctx.save();
       ctx.globalAlpha = alpha;
@@ -476,6 +480,55 @@ export function renderFrame(input: Readonly<RenderFrameInput>): void {
 }
 
 // --- Reduced Motion ---
+
+interface FrozenPlacement {
+  state: CipherWallState;
+  index: number;
+  offsets: readonly number[];
+  center: { row: number; col: number };
+}
+
+function placeFrozenMessage({ state, index, offsets, center }: FrozenPlacement): void {
+  const msgIndex = SPLASH_MESSAGE_INDICES[index];
+  if (msgIndex === undefined) return;
+  const text = MESSAGES[msgIndex];
+  if (!text) return;
+
+  const offset = offsets[index];
+  if (offset === undefined) return;
+  const row = center.row + offset;
+  if (row < 0 || row >= state.rows) return;
+
+  const middleChar = Math.floor((text.length - 1) / 2);
+  const col = center.col - middleChar;
+  if (col < 0 || col + text.length > state.cols) return;
+
+  for (let c = 0; c < text.length; c++) {
+    const cell = getCell(state.grid, row, col + c);
+    cell.state = 'readable';
+    cell.targetChar = text.charAt(c);
+    cell.progress = 1;
+  }
+}
+
+export function createFrozenSnapshot(
+  cols: number,
+  rows: number,
+  messageCount: number
+): CipherWallState {
+  const state = createGrid(cols, rows);
+  const center = { row: Math.floor(rows / 2), col: Math.floor(cols / 2) };
+
+  const offsets = [-8, -5, 5, 8] as const;
+  const count = Math.min(messageCount, offsets.length, SPLASH_MESSAGE_INDICES.length);
+
+  for (let index = 0; index < count; index++) {
+    placeFrozenMessage({ state, index, offsets, center });
+  }
+
+  state.reveals = [];
+  return state;
+}
 
 export function createStaticSnapshot(cols: number, rows: number): CipherWallState {
   const state = createGrid(cols, rows);

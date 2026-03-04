@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useStatusBar } from '@/capacitor/hooks/use-status-bar';
 import { triggerViewTransition } from '@hushbox/ui';
 
 type ThemeMode = 'light' | 'dark';
@@ -92,6 +93,8 @@ export function ThemeProvider({
       document.documentElement.classList.toggle('dark', mode === 'dark');
     }
   }, [mode, mounted]);
+
+  useStatusBar(mode);
 
   // Context value
   const contextValue = React.useMemo(

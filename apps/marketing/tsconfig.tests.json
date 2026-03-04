@@ -1,0 +1,14 @@
+{
+  "extends": "../../packages/config/tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tests.tsbuildinfo",
+    "noEmit": true,
+    "noUncheckedIndexedAccess": false,
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "../../packages/config/import-meta-env.d.ts",
+    "vitest.config.ts",
+    "public/.well-known/**/*.test.ts"
+  ]
+}

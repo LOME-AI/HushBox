@@ -98,21 +98,21 @@ async function createOpaqueUserCrypto(
 export const DEV_PERSONAS = [
   {
     name: 'alice',
-    displayName: 'Alice Developer',
+    displayName: 'Sarah Chen',
     emailVerified: true,
     hasSampleData: true,
     balance: '100.00000000',
   },
   {
     name: 'bob',
-    displayName: 'Bob Tester',
+    displayName: 'Marcus Johnson',
     emailVerified: true,
     hasSampleData: false,
     balance: '0.20000000',
   },
   {
     name: 'charlie',
-    displayName: 'Charlie Verified',
+    displayName: 'Priya Patel',
     emailVerified: true,
     hasSampleData: false,
     balance: '0.00000000',
@@ -689,6 +689,216 @@ function createPersonaWallets(
   return { wallets: personaWallets, ledgerEntries: welcomeEntries };
 }
 
+interface ScreenshotConversationsParams {
+  aliceUserId: string;
+  alicePublicKey: Uint8Array;
+  bobUserId: string;
+  bobPublicKey: Uint8Array;
+  charlieUserId: string;
+  charliePublicKey: Uint8Array;
+  now: Date;
+}
+
+interface ScreenshotConversationsResult {
+  conversations: ConversationWithId[];
+  messages: MessageWithId[];
+  epochs: EpochWithId[];
+  epochMembers: EpochMemberWithId[];
+  conversationMembers: ConversationMemberWithId[];
+}
+
+export function createScreenshotConversations(
+  params: ScreenshotConversationsParams
+): ScreenshotConversationsResult {
+  const allConversations: ConversationWithId[] = [];
+  const allMessages: MessageWithId[] = [];
+  const allEpochs: EpochWithId[] = [];
+  const allEpochMembers: EpochMemberWithId[] = [];
+  const allConversationMembers: ConversationMemberWithId[] = [];
+
+  // --- Solo conversations (chat, code, mermaid, privacy) ---
+  const soloConversations: { name: string; userMessage: string; aiMessage: string }[] = [
+    {
+      name: 'chat',
+      userMessage:
+        'Can you explain how async/await works in JavaScript and show me an example with error handling?',
+      aiMessage:
+        '## Async/Await in JavaScript\n\n`async/await` is syntactic sugar over Promises that makes asynchronous code look synchronous.\n\n### How It Works\n\n1. **`async`** keyword before a function makes it return a Promise\n2. **`await`** pauses execution until the Promise resolves\n\n### Example with Error Handling\n\n```javascript\nasync function fetchUserData(userId) {\n  try {\n    const response = await fetch(`/api/users/${userId}`);\n    if (!response.ok) {\n      throw new Error(`HTTP ${response.status}`);\n    }\n    const data = await response.json();\n    return data;\n  } catch (error) {\n    console.error("Failed to fetch user:", error.message);\n    throw error;\n  }\n}\n```\n\nThe `try/catch` block handles both network errors and HTTP error responses cleanly.',
+    },
+    {
+      name: 'code',
+      userMessage: 'Write a React hook that fetches data with loading and error states',
+      aiMessage:
+        'Here\'s a reusable data fetching hook:\n\n```typescript\nimport { useState, useEffect, useCallback } from "react";\n\ninterface UseFetchResult<T> {\n  data: T | null;\n  isLoading: boolean;\n  error: Error | null;\n  refetch: () => void;\n}\n\nexport function useFetch<T>(url: string): UseFetchResult<T> {\n  const [data, setData] = useState<T | null>(null);\n  const [isLoading, setIsLoading] = useState(true);\n  const [error, setError] = useState<Error | null>(null);\n\n  const fetchData = useCallback(async () => {\n    setIsLoading(true);\n    setError(null);\n    try {\n      const response = await fetch(url);\n      if (!response.ok) {\n        throw new Error(`HTTP error: ${response.status}`);\n      }\n      const result = await response.json();\n      setData(result as T);\n    } catch (err) {\n      setError(err instanceof Error ? err : new Error("Unknown error"));\n    } finally {\n      setIsLoading(false);\n    }\n  }, [url]);\n\n  useEffect(() => {\n    void fetchData();\n  }, [fetchData]);\n\n  return { data, isLoading, error, refetch: fetchData };\n}\n```\n\nUsage:\n```tsx\nconst { data, isLoading, error } = useFetch<User[]>("/api/users");\n```',
+    },
+    {
+      name: 'mermaid',
+      userMessage: 'Show me a simple flowchart for how a user signs up and verifies their email',
+      aiMessage:
+        "Here's the signup and email verification flow:\n\n```mermaid\nflowchart TD\n    A[User visits signup page] --> B[Fills in email & password]\n    B --> C[Clicks Sign Up]\n    C --> D[Server creates account]\n    D --> E[Verification email sent]\n    E --> F[User opens email]\n    F --> G[Clicks verification link]\n    G --> H{Token valid?}\n    H -->|Yes| I[Account verified]\n    H -->|No| J[Show error message]\n    I --> K[Redirect to dashboard]\n    J --> L[Resend verification]\n    L --> E\n```\n\nThe key steps are account creation, email delivery, and token validation. The flow handles the unhappy path where the token expires or is invalid by allowing the user to request a new verification email.",
+    },
+    {
+      name: 'privacy',
+      userMessage:
+        'How does HushBox keep my conversations private? Can you or anyone else read my messages?',
+      aiMessage:
+        "## Encrypted at Rest, Private by Design\n\nHushBox protects your conversations with multiple layers of security.\n\n### Your Password Never Leaves Your Device\n- We use the **OPAQUE protocol** — your password is verified cryptographically without ever being transmitted to our servers\n- Not during login, not during registration, not ever\n\n### Encrypted Storage\n- Every conversation is encrypted before being stored using **XChaCha20-Poly1305**, a modern AEAD cipher\n- Encryption keys are derived from your account credentials using **Argon2id**, the gold standard for key derivation\n- Our database contains only encrypted blobs — **a database breach alone would not expose your conversations**\n\n### Pseudonymous AI Access\n- When your messages reach AI providers, they see **HushBox's credentials — not yours**\n- Providers cannot link your conversations to your identity\n- We request that providers do not store or train on your data\n\n### Your Recovery Phrase Is Your Safety Net\n- If you lose both your password and recovery phrase, your stored data is permanently inaccessible\n- We cannot recover it for you — by design, not by oversight",
+    },
+  ];
+
+  for (const solo of soloConversations) {
+    const convId = seedUUID(`screenshot-conv-${solo.name}`);
+    const { epoch, epochMember, conversationMember, epochPublicKey } = createConversationEpochData(
+      convId,
+      params.aliceUserId,
+      params.alicePublicKey
+    );
+
+    allConversations.push(
+      conversationFactory.build({
+        id: convId,
+        userId: params.aliceUserId,
+        title: encryptMessageForStorage(epochPublicKey, `Screenshot: ${solo.name}`),
+      })
+    );
+    allEpochs.push(epoch);
+    allEpochMembers.push(epochMember);
+    allConversationMembers.push(conversationMember);
+
+    const userMsgTime = new Date(params.now.getTime() + allMessages.length * 1000);
+    allMessages.push(
+      messageFactory.build({
+        id: seedUUID(`screenshot-msg-${solo.name}-1`),
+        conversationId: convId,
+        encryptedBlob: encryptMessageForStorage(epochPublicKey, solo.userMessage),
+        senderType: 'user',
+        senderId: params.aliceUserId,
+        epochNumber: 1,
+        sequenceNumber: 1,
+        createdAt: userMsgTime,
+      })
+    );
+
+    const aiMsgTime = new Date(params.now.getTime() + allMessages.length * 1000);
+    allMessages.push(
+      messageFactory.build({
+        id: seedUUID(`screenshot-msg-${solo.name}-2`),
+        conversationId: convId,
+        encryptedBlob: encryptMessageForStorage(epochPublicKey, solo.aiMessage),
+        senderType: 'ai',
+        senderId: null,
+        epochNumber: 1,
+        sequenceNumber: 2,
+        createdAt: aiMsgTime,
+      })
+    );
+  }
+
+  // --- Group chat conversation (alice, bob, charlie) ---
+  const groupConvId = seedUUID('screenshot-conv-group-chat');
+  const groupEpochResult = createFirstEpoch([
+    params.alicePublicKey,
+    params.bobPublicKey,
+    params.charliePublicKey,
+  ]);
+  const groupEpochId = seedUUID(`${groupConvId}-epoch-1`);
+
+  const groupEpoch = epochFactory.build({
+    id: groupEpochId,
+    conversationId: groupConvId,
+    epochNumber: 1,
+    epochPublicKey: groupEpochResult.epochPublicKey,
+    confirmationHash: groupEpochResult.confirmationHash,
+    chainLink: null,
+  });
+  allEpochs.push(groupEpoch);
+
+  const groupMembers: { userId: string; publicKey: Uint8Array; privilege: string }[] = [
+    { userId: params.aliceUserId, publicKey: params.alicePublicKey, privilege: 'owner' },
+    { userId: params.bobUserId, publicKey: params.bobPublicKey, privilege: 'write' },
+    { userId: params.charlieUserId, publicKey: params.charliePublicKey, privilege: 'write' },
+  ];
+
+  for (const [index, groupMember] of groupMembers.entries()) {
+    const member = groupMember;
+    allEpochMembers.push(
+      epochMemberFactory.build({
+        id: seedUUID(`${groupConvId}-epoch-member-${String(index)}`),
+        epochId: groupEpochId,
+        memberPublicKey: member.publicKey,
+        wrap: groupEpochResult.memberWraps[index]?.wrap ?? new Uint8Array(0),
+        visibleFromEpoch: 1,
+      })
+    );
+    allConversationMembers.push(
+      conversationMemberFactory.build({
+        id: seedUUID(`${groupConvId}-member-${String(index)}`),
+        conversationId: groupConvId,
+        userId: member.userId,
+        privilege: member.privilege,
+        visibleFromEpoch: 1,
+      })
+    );
+  }
+
+  allConversations.push(
+    conversationFactory.build({
+      id: groupConvId,
+      userId: params.aliceUserId,
+      title: encryptMessageForStorage(groupEpochResult.epochPublicKey, 'Screenshot: group-chat'),
+    })
+  );
+
+  const groupMessages: { senderId: string | null; senderType: string; content: string }[] = [
+    {
+      senderId: params.aliceUserId,
+      senderType: 'user',
+      content: 'Hey team, should we go with PostgreSQL or MongoDB for the new project?',
+    },
+    {
+      senderId: params.bobUserId,
+      senderType: 'user',
+      content: 'PostgreSQL — we need relational integrity for the billing data',
+    },
+    {
+      senderId: params.charlieUserId,
+      senderType: 'user',
+      content: 'Agreed. Plus Drizzle ORM support is excellent for Postgres',
+    },
+    {
+      senderId: null,
+      senderType: 'ai',
+      content:
+        "Great consensus! PostgreSQL is the right choice here. You get relational integrity for billing, excellent Drizzle ORM support, and JSONB columns for any semi-structured data you might need. It's the best of both worlds.",
+    },
+  ];
+
+  for (const [index, groupMessage] of groupMessages.entries()) {
+    const msg = groupMessage;
+    const msgTime = new Date(params.now.getTime() + (allMessages.length + index) * 1000);
+    allMessages.push(
+      messageFactory.build({
+        id: seedUUID(`screenshot-msg-group-chat-${String(index + 1)}`),
+        conversationId: groupConvId,
+        encryptedBlob: encryptMessageForStorage(groupEpochResult.epochPublicKey, msg.content),
+        senderType: msg.senderType,
+        senderId: msg.senderId,
+        epochNumber: 1,
+        sequenceNumber: index + 1,
+        createdAt: msgTime,
+      })
+    );
+  }
+
+  return {
+    conversations: allConversations,
+    messages: allMessages,
+    epochs: allEpochs,
+    epochMembers: allEpochMembers,
+    conversationMembers: allConversationMembers,
+  };
+}
+
 export async function generatePersonaData(): Promise<PersonaData> {
   const personaUsers: UserWithId[] = [];
   const personaProjects: ProjectWithId[] = [];
@@ -702,10 +912,12 @@ export async function generatePersonaData(): Promise<PersonaData> {
   const personaConversationMembers: ConversationMemberWithId[] = [];
 
   const now = new Date();
+  const publicKeys = new Map<string, Uint8Array>();
 
   for (const persona of DEV_PERSONAS) {
     const { user, publicKey } = await createPersonaUser(persona, now);
     personaUsers.push(user);
+    publicKeys.set(persona.name, publicKey);
 
     const walletData = createPersonaWallets(persona.name, user.id, persona.balance);
     personaWallets.push(...walletData.wallets);
@@ -734,6 +946,28 @@ export async function generatePersonaData(): Promise<PersonaData> {
       personaEpochMembers.push(charlieData.epochMember);
       personaConversationMembers.push(charlieData.conversationMember);
     }
+  }
+
+  // Screenshot conversations for store screenshots (alice + group with bob, charlie)
+  const aliceUser = personaUsers.find((u) => u.id === seedUUID('dev-user-alice'));
+  const bobUser = personaUsers.find((u) => u.id === seedUUID('dev-user-bob'));
+  const charlieUser = personaUsers.find((u) => u.id === seedUUID('dev-user-charlie'));
+
+  if (aliceUser && bobUser && charlieUser) {
+    const screenshotData = createScreenshotConversations({
+      aliceUserId: aliceUser.id,
+      alicePublicKey: publicKeys.get('alice') ?? aliceUser.publicKey,
+      bobUserId: bobUser.id,
+      bobPublicKey: publicKeys.get('bob') ?? bobUser.publicKey,
+      charlieUserId: charlieUser.id,
+      charliePublicKey: publicKeys.get('charlie') ?? charlieUser.publicKey,
+      now,
+    });
+    personaConversations.push(...screenshotData.conversations);
+    personaMessages.push(...screenshotData.messages);
+    personaEpochs.push(...screenshotData.epochs);
+    personaEpochMembers.push(...screenshotData.epochMembers);
+    personaConversationMembers.push(...screenshotData.conversationMembers);
   }
 
   return {
@@ -978,19 +1212,23 @@ export async function upsertEntity(
   db: DbClient,
   table: Table,
   data: { id: string }
-): Promise<'created' | 'exists'> {
+): Promise<'created' | 'updated'> {
   const existing = await db.select().from(table).where(eq(table.id, data.id)).limit(1);
 
   if (existing.length === 0) {
     await db.insert(table).values(data);
     return 'created';
   }
-  return 'exists';
+
+  // eslint-disable-next-line sonarjs/no-unused-vars -- destructure to exclude id from update
+  const { id: _id, ...rest } = data;
+  await db.update(table).set(rest).where(eq(table.id, data.id));
+  return 'updated';
 }
 
 interface UpsertResult {
   created: number;
-  exists: number;
+  updated: number;
 }
 
 async function upsertEntities(
@@ -999,18 +1237,18 @@ async function upsertEntities(
   entities: { id: string }[]
 ): Promise<UpsertResult> {
   let created = 0;
-  let exists = 0;
+  let updated = 0;
   for (const entity of entities) {
     const result = await upsertEntity(db, table, entity);
     if (result === 'created') created++;
-    else exists++;
+    else updated++;
   }
-  return { created, exists };
+  return { created, updated };
 }
 
 function logUpsertResult(entityName: string, result: UpsertResult): void {
   console.log(
-    `${entityName}: ${String(result.created)} created, ${String(result.exists)} already existed`
+    `${entityName}: ${String(result.created)} created, ${String(result.updated)} updated`
   );
 }
 

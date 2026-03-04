@@ -10,6 +10,7 @@ export { llmCompletions } from './llm-completions';
 export { ledgerEntries } from './ledger-entries';
 export { sharedLinks } from './shared-links';
 export { conversationMembers } from './conversation-members';
+export { deviceTokens } from './device-tokens';
 export { epochs } from './epochs';
 export { epochMembers } from './epoch-members';
 export { sharedMessages } from './shared-messages';

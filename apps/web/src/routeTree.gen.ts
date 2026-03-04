@@ -13,6 +13,8 @@ import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DevPersonasRouteImport } from './routes/dev.personas'
+import { Route as DevEmailsRouteImport } from './routes/dev.emails'
+import { Route as DevAssetsRouteImport } from './routes/dev.assets'
 import { Route as AuthVerifyRouteImport } from './routes/_auth/verify'
 import { Route as AuthSignupRouteImport } from './routes/_auth/signup'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
@@ -22,6 +24,7 @@ import { Route as AppBillingRouteImport } from './routes/_app/billing'
 import { Route as AppChatIndexRouteImport } from './routes/_app/chat.index'
 import { Route as ShareMShareIdRouteImport } from './routes/share.m.$shareId'
 import { Route as ShareCConversationIdRouteImport } from './routes/share.c.$conversationId'
+import { Route as DevRenderAssetNameRouteImport } from './routes/dev.render-asset.$name'
 import { Route as AppChatTrialRouteImport } from './routes/_app/chat.trial'
 import { Route as AppChatIdRouteImport } from './routes/_app/chat.$id'
 
@@ -41,6 +44,16 @@ const IndexRoute = IndexRouteImport.update({
 const DevPersonasRoute = DevPersonasRouteImport.update({
   id: '/dev/personas',
   path: '/dev/personas',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DevEmailsRoute = DevEmailsRouteImport.update({
+  id: '/dev/emails',
+  path: '/dev/emails',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DevAssetsRoute = DevAssetsRouteImport.update({
+  id: '/dev/assets',
+  path: '/dev/assets',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthVerifyRoute = AuthVerifyRouteImport.update({
@@ -88,6 +101,11 @@ const ShareCConversationIdRoute = ShareCConversationIdRouteImport.update({
   path: '/share/c/$conversationId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DevRenderAssetNameRoute = DevRenderAssetNameRouteImport.update({
+  id: '/dev/render-asset/$name',
+  path: '/dev/render-asset/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppChatTrialRoute = AppChatTrialRouteImport.update({
   id: '/chat/trial',
   path: '/chat/trial',
@@ -107,9 +125,12 @@ export interface FileRoutesByFullPath {
   '/login': typeof AuthLoginRoute
   '/signup': typeof AuthSignupRoute
   '/verify': typeof AuthVerifyRoute
+  '/dev/assets': typeof DevAssetsRoute
+  '/dev/emails': typeof DevEmailsRoute
   '/dev/personas': typeof DevPersonasRoute
   '/chat/$id': typeof AppChatIdRoute
   '/chat/trial': typeof AppChatTrialRoute
+  '/dev/render-asset/$name': typeof DevRenderAssetNameRoute
   '/share/c/$conversationId': typeof ShareCConversationIdRoute
   '/share/m/$shareId': typeof ShareMShareIdRoute
   '/chat/': typeof AppChatIndexRoute
@@ -122,9 +143,12 @@ export interface FileRoutesByTo {
   '/login': typeof AuthLoginRoute
   '/signup': typeof AuthSignupRoute
   '/verify': typeof AuthVerifyRoute
+  '/dev/assets': typeof DevAssetsRoute
+  '/dev/emails': typeof DevEmailsRoute
   '/dev/personas': typeof DevPersonasRoute
   '/chat/$id': typeof AppChatIdRoute
   '/chat/trial': typeof AppChatTrialRoute
+  '/dev/render-asset/$name': typeof DevRenderAssetNameRoute
   '/share/c/$conversationId': typeof ShareCConversationIdRoute
   '/share/m/$shareId': typeof ShareMShareIdRoute
   '/chat': typeof AppChatIndexRoute
@@ -140,9 +164,12 @@ export interface FileRoutesById {
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/signup': typeof AuthSignupRoute
   '/_auth/verify': typeof AuthVerifyRoute
+  '/dev/assets': typeof DevAssetsRoute
+  '/dev/emails': typeof DevEmailsRoute
   '/dev/personas': typeof DevPersonasRoute
   '/_app/chat/$id': typeof AppChatIdRoute
   '/_app/chat/trial': typeof AppChatTrialRoute
+  '/dev/render-asset/$name': typeof DevRenderAssetNameRoute
   '/share/c/$conversationId': typeof ShareCConversationIdRoute
   '/share/m/$shareId': typeof ShareMShareIdRoute
   '/_app/chat/': typeof AppChatIndexRoute
@@ -157,9 +184,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/signup'
     | '/verify'
+    | '/dev/assets'
+    | '/dev/emails'
     | '/dev/personas'
     | '/chat/$id'
     | '/chat/trial'
+    | '/dev/render-asset/$name'
     | '/share/c/$conversationId'
     | '/share/m/$shareId'
     | '/chat/'
@@ -172,9 +202,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/signup'
     | '/verify'
+    | '/dev/assets'
+    | '/dev/emails'
     | '/dev/personas'
     | '/chat/$id'
     | '/chat/trial'
+    | '/dev/render-asset/$name'
     | '/share/c/$conversationId'
     | '/share/m/$shareId'
     | '/chat'
@@ -189,9 +222,12 @@ export interface FileRouteTypes {
     | '/_auth/login'
     | '/_auth/signup'
     | '/_auth/verify'
+    | '/dev/assets'
+    | '/dev/emails'
     | '/dev/personas'
     | '/_app/chat/$id'
     | '/_app/chat/trial'
+    | '/dev/render-asset/$name'
     | '/share/c/$conversationId'
     | '/share/m/$shareId'
     | '/_app/chat/'
@@ -201,7 +237,10 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
+  DevAssetsRoute: typeof DevAssetsRoute
+  DevEmailsRoute: typeof DevEmailsRoute
   DevPersonasRoute: typeof DevPersonasRoute
+  DevRenderAssetNameRoute: typeof DevRenderAssetNameRoute
   ShareCConversationIdRoute: typeof ShareCConversationIdRoute
   ShareMShareIdRoute: typeof ShareMShareIdRoute
 }
@@ -234,6 +273,20 @@ declare module '@tanstack/react-router' {
       path: '/dev/personas'
       fullPath: '/dev/personas'
       preLoaderRoute: typeof DevPersonasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dev/emails': {
+      id: '/dev/emails'
+      path: '/dev/emails'
+      fullPath: '/dev/emails'
+      preLoaderRoute: typeof DevEmailsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dev/assets': {
+      id: '/dev/assets'
+      path: '/dev/assets'
+      fullPath: '/dev/assets'
+      preLoaderRoute: typeof DevAssetsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth/verify': {
@@ -299,6 +352,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShareCConversationIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dev/render-asset/$name': {
+      id: '/dev/render-asset/$name'
+      path: '/dev/render-asset/$name'
+      fullPath: '/dev/render-asset/$name'
+      preLoaderRoute: typeof DevRenderAssetNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/chat/trial': {
       id: '/_app/chat/trial'
       path: '/chat/trial'
@@ -354,7 +414,10 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
+  DevAssetsRoute: DevAssetsRoute,
+  DevEmailsRoute: DevEmailsRoute,
   DevPersonasRoute: DevPersonasRoute,
+  DevRenderAssetNameRoute: DevRenderAssetNameRoute,
   ShareCConversationIdRoute: ShareCConversationIdRoute,
   ShareMShareIdRoute: ShareMShareIdRoute,
 }

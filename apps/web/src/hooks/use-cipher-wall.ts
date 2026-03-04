@@ -3,6 +3,7 @@ import {
   createGrid,
   seedInitialReveals,
   createStaticSnapshot,
+  createFrozenSnapshot,
   updateState,
   renderFrame,
   CELL_WIDTH,
@@ -11,6 +12,13 @@ import {
 import type { CipherWallState, ThemeColors } from '@/components/auth/cipher-wall-engine';
 
 const DPR_CAP = 2;
+
+export interface CipherWallOptions {
+  frozen?: boolean;
+  frozenMessageCount?: number;
+  themeOverride?: ThemeColors;
+  cipherOpacity?: number;
+}
 
 export function readThemeColors(): ThemeColors {
   const style = getComputedStyle(document.documentElement);
@@ -25,12 +33,19 @@ export function readThemeColors(): ThemeColors {
   };
 }
 
-export function useCipherWall(): React.RefObject<HTMLCanvasElement | null> {
+export function useCipherWall(
+  options?: CipherWallOptions
+): React.RefObject<HTMLCanvasElement | null> {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const stateRef = React.useRef<CipherWallState | null>(null);
   const colorsRef = React.useRef<ThemeColors | null>(null);
   const rafIdRef = React.useRef<number>(0);
   const logoMaskRef = React.useRef<boolean[][] | null>(null);
+
+  const frozen = options?.frozen === true;
+  const frozenMessageCount = options?.frozenMessageCount ?? 4;
+  const themeOverride = options?.themeOverride;
+  const cipherOpacity = options?.cipherOpacity ?? 1;
 
   React.useEffect(() => {
     const canvas = canvasRef.current;
@@ -41,11 +56,11 @@ export function useCipherWall(): React.RefObject<HTMLCanvasElement | null> {
 
     const parent = canvas.parentElement;
 
-    colorsRef.current = readThemeColors();
+    colorsRef.current = themeOverride ?? readThemeColors();
 
     // --- Reduced motion check ---
     const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
-    const prefersReducedMotion = motionQuery.matches;
+    const useStaticRender = frozen || motionQuery.matches;
 
     // --- Sizing ---
     const dpr = Math.min(devicePixelRatio, DPR_CAP);
@@ -68,7 +83,9 @@ export function useCipherWall(): React.RefObject<HTMLCanvasElement | null> {
       ctx.scale(dpr, dpr);
 
       const { cols, rows } = computeGridSize(w, h);
-      if (prefersReducedMotion) {
+      if (frozen) {
+        stateRef.current = createFrozenSnapshot(cols, rows, frozenMessageCount);
+      } else if (useStaticRender) {
         stateRef.current = createStaticSnapshot(cols, rows);
       } else {
         const state = createGrid(cols, rows);
@@ -77,57 +94,51 @@ export function useCipherWall(): React.RefObject<HTMLCanvasElement | null> {
       }
     }
 
+    function tryRender(): void {
+      if (!ctx || !parent || !stateRef.current || !colorsRef.current) return;
+      renderFrame({
+        ctx,
+        state: stateRef.current,
+        colors: colorsRef.current,
+        width: parent.clientWidth,
+        height: parent.clientHeight,
+        logoMask: logoMaskRef.current,
+        cipherOpacity,
+      });
+    }
+
     resize();
 
-    // --- Static render for reduced motion ---
-    if (prefersReducedMotion) {
-      if (stateRef.current && parent) {
-        renderFrame({
-          ctx,
-          state: stateRef.current,
-          colors: colorsRef.current,
-          width: parent.clientWidth,
-          height: parent.clientHeight,
-          logoMask: logoMaskRef.current,
-        });
-      }
+    // --- Static render for frozen or reduced motion ---
+    if (useStaticRender) {
+      tryRender();
 
       const resizeObserver = new ResizeObserver(() => {
         resize();
-        if (stateRef.current && parent && colorsRef.current) {
-          renderFrame({
-            ctx,
-            state: stateRef.current,
-            colors: colorsRef.current,
-            width: parent.clientWidth,
-            height: parent.clientHeight,
-            logoMask: logoMaskRef.current,
-          });
-        }
+        tryRender();
       });
       if (parent) resizeObserver.observe(parent);
 
-      const mutationObserver = new MutationObserver(() => {
-        colorsRef.current = readThemeColors();
-        if (stateRef.current && parent) {
-          renderFrame({
-            ctx,
-            state: stateRef.current,
-            colors: colorsRef.current,
-            width: parent.clientWidth,
-            height: parent.clientHeight,
-            logoMask: logoMaskRef.current,
-          });
-        }
-      });
-      mutationObserver.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['class'],
-      });
+      // MutationObserver only needed for theme changes — skip when frozen
+      // (frozen mode uses themeOverride, not CSS variables)
+      if (!frozen) {
+        const mutationObserver = new MutationObserver(() => {
+          colorsRef.current = readThemeColors();
+          tryRender();
+        });
+        mutationObserver.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ['class'],
+        });
+
+        return () => {
+          resizeObserver.disconnect();
+          mutationObserver.disconnect();
+        };
+      }
 
       return () => {
         resizeObserver.disconnect();
-        mutationObserver.disconnect();
       };
     }
 
@@ -140,17 +151,10 @@ export function useCipherWall(): React.RefObject<HTMLCanvasElement | null> {
       const delta = lastTime === 0 ? 0.016 : (time - lastTime) / 1000;
       lastTime = time;
 
-      if (stateRef.current && parent && colorsRef.current && ctx) {
+      if (stateRef.current) {
         updateState(stateRef.current, Math.min(delta, 0.1));
-        renderFrame({
-          ctx,
-          state: stateRef.current,
-          colors: colorsRef.current,
-          width: parent.clientWidth,
-          height: parent.clientHeight,
-          logoMask: logoMaskRef.current,
-        });
       }
+      tryRender();
     }
 
     rafIdRef.current = requestAnimationFrame(animate);
@@ -174,7 +178,7 @@ export function useCipherWall(): React.RefObject<HTMLCanvasElement | null> {
       resizeObserver.disconnect();
       mutationObserver.disconnect();
     };
-  }, []);
+  }, [frozen, frozenMessageCount, themeOverride, cipherOpacity]);
 
   return canvasRef;
 }
