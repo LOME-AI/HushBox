@@ -1,5 +1,4 @@
 import type { Redis } from '@upstash/redis';
-import { CHARS_PER_TOKEN_STANDARD, estimateMessageCostDevelopment } from '@hushbox/shared';
 import { redisGet, redisIncrByFloat } from './redis-registry.js';
 
 export interface GroupBudgetReservation {
@@ -13,37 +12,6 @@ export interface GroupReservedTotals {
   memberTotal: number;
   conversationTotal: number;
   payerTotal: number;
-}
-
-export interface WorstCaseCostParams {
-  estimatedInputTokens: number;
-  effectiveMaxOutputTokens: number;
-  pricePerInputToken: number;
-  pricePerOutputToken: number;
-  inputCharacters: number;
-}
-
-export function calculateWorstCaseCostCents(params: WorstCaseCostParams): number {
-  const {
-    estimatedInputTokens,
-    effectiveMaxOutputTokens,
-    pricePerInputToken,
-    pricePerOutputToken,
-    inputCharacters,
-  } = params;
-
-  const outputCharacters = effectiveMaxOutputTokens * CHARS_PER_TOKEN_STANDARD;
-
-  const dollars = estimateMessageCostDevelopment({
-    inputTokens: estimatedInputTokens,
-    outputTokens: effectiveMaxOutputTokens,
-    pricePerInputToken,
-    pricePerOutputToken,
-    inputCharacters,
-    outputCharacters,
-  });
-
-  return dollars * 100;
 }
 
 export async function getReservedTotal(redis: Redis, userId: string): Promise<number> {

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { useQuery } from '@tanstack/react-query';
-import { QueryProvider } from './query-provider';
+import { QueryProvider, shouldRetryQuery } from './query-provider';
+import { ApiError } from '@/lib/api';
 
 vi.mock('@tanstack/react-query-devtools', () => ({
   ReactQueryDevtools: () => <div data-testid="react-query-devtools" />,
@@ -86,5 +87,34 @@ describe('QueryProvider', () => {
     );
 
     expect(screen.getByTestId('react-query-devtools')).toBeInTheDocument();
+  });
+});
+
+describe('shouldRetryQuery', () => {
+  it('does not retry 404 errors', () => {
+    const error = new ApiError('CONVERSATION_NOT_FOUND', 404);
+    expect(shouldRetryQuery(0, error)).toBe(false);
+  });
+
+  it('does not retry 401 errors', () => {
+    const error = new ApiError('UNAUTHORIZED', 401);
+    expect(shouldRetryQuery(0, error)).toBe(false);
+  });
+
+  it('does not retry 403 errors', () => {
+    const error = new ApiError('FORBIDDEN', 403);
+    expect(shouldRetryQuery(0, error)).toBe(false);
+  });
+
+  it('retries non-ApiError once', () => {
+    const error = new Error('Network error');
+    expect(shouldRetryQuery(0, error)).toBe(true);
+    expect(shouldRetryQuery(1, error)).toBe(false);
+  });
+
+  it('retries 500 errors once', () => {
+    const error = new ApiError('INTERNAL', 500);
+    expect(shouldRetryQuery(0, error)).toBe(true);
+    expect(shouldRetryQuery(1, error)).toBe(false);
   });
 });

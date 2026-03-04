@@ -66,6 +66,13 @@ function resolveGroupBudgetArgument(
   return conversationId ?? '';
 }
 
+function resolveHasDelegatedBudget(
+  isGroupMember: boolean,
+  groupBudgetData: { memberBudgetDollars: number } | undefined
+): boolean {
+  return isGroupMember && groupBudgetData != null && groupBudgetData.memberBudgetDollars > 0;
+}
+
 // ============================================================================
 // Hook
 // ============================================================================
@@ -173,7 +180,7 @@ export function usePromptBudget(input: PromptBudgetInput): PromptBudgetResult {
   });
 
   // 4. Generate notifications
-  const hasDelegatedBudget = isGroupMember && groupBudgetData != null;
+  const hasDelegatedBudget = resolveHasDelegatedBudget(isGroupMember, groupBudgetData);
   const notifications = React.useMemo(
     () =>
       generateNotifications({

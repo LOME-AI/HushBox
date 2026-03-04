@@ -19,14 +19,20 @@ export function AuthenticatedChatPage({
   const chat = useAuthenticatedChat({ routeConversationId });
   const conversationId =
     routeConversationId === 'new' ? chat.realConversationId : routeConversationId;
-  const groupChat = useGroupChat(conversationId, chat.displayTitle);
+  const groupChat = useGroupChat(
+    conversationId,
+    chat.displayTitle,
+    chat.state.streamingMessageIdRef
+  );
 
   // Merge remote streaming phantom messages into the messages array
   const remotePhantoms = groupChat?.remoteStreamingMessages;
   const phantomMessages = React.useMemo((): Message[] => {
     if (!remotePhantoms || remotePhantoms.size === 0) return [];
+    const existingIds = new Set(chat.messages.map((m) => m.id));
     const result: Message[] = [];
     for (const [id, phantom] of remotePhantoms) {
+      if (existingIds.has(id)) continue;
       result.push({
         id,
         conversationId: conversationId ?? '',
@@ -37,7 +43,7 @@ export function AuthenticatedChatPage({
       });
     }
     return result;
-  }, [remotePhantoms, conversationId]);
+  }, [remotePhantoms, conversationId, chat.messages]);
 
   const messagesWithPhantoms = React.useMemo((): Message[] => {
     if (phantomMessages.length === 0) return chat.messages;

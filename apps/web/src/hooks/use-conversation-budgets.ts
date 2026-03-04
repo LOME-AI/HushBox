@@ -16,6 +16,7 @@ export interface ConversationBudgetsResponse {
   effectiveDollars: number;
   ownerTier: UserTier;
   ownerBalanceDollars: number;
+  memberBudgetDollars: number;
 }
 
 export const budgetKeys = {

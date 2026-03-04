@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { generateSync } from 'otplib';
 import {
   deriveTotpEncryptionKey,
   encryptTotpSecret,
@@ -138,6 +139,30 @@ describe('totp', () => {
       const code = generateTotpCodeSync(secret);
 
       expect(await verifyTotpCode(code, secret)).toBe(true);
+    });
+
+    it('accepts a code from the previous time step (30-second tolerance)', async () => {
+      const secret = generateTotpSecret();
+      const previousEpoch = Math.floor(Date.now() / 1000) - 30;
+      const previousCode = generateSync({ secret, epoch: previousEpoch });
+
+      expect(await verifyTotpCode(previousCode, secret)).toBe(true);
+    });
+
+    it('accepts a code from the next time step (30-second tolerance)', async () => {
+      const secret = generateTotpSecret();
+      const nextEpoch = Math.floor(Date.now() / 1000) + 30;
+      const nextCode = generateSync({ secret, epoch: nextEpoch });
+
+      expect(await verifyTotpCode(nextCode, secret)).toBe(true);
+    });
+
+    it('rejects a code from two time steps ago (outside tolerance)', async () => {
+      const secret = generateTotpSecret();
+      const oldEpoch = Math.floor(Date.now() / 1000) - 90;
+      const oldCode = generateSync({ secret, epoch: oldEpoch });
+
+      expect(await verifyTotpCode(oldCode, secret)).toBe(false);
     });
   });
 

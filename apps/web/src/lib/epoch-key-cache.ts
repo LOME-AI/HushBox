@@ -105,18 +105,6 @@ function tryUnwrapKey(accountPrivateKey: Uint8Array, wrap: KeyChainWrap): Uint8A
   }
 }
 
-function tryTraverseLink(newerKey: Uint8Array, link: KeyChainLink): Uint8Array | undefined {
-  try {
-    const olderKey = traverseChainLink(newerKey, fromBase64(link.chainLink));
-    if (!verifyEpochKeyConfirmation(olderKey, fromBase64(link.confirmationHash))) {
-      return undefined;
-    }
-    return olderKey;
-  } catch {
-    return undefined;
-  }
-}
-
 function unwrapDirectKeys(
   conversationId: string,
   wraps: KeyChainWrap[],
@@ -130,15 +118,45 @@ function unwrapDirectKeys(
   }
 }
 
-function resolveChainLinks(conversationId: string, chainLinks: KeyChainLink[]): void {
+function tryResolveOlderKey(
+  newerKey: Uint8Array,
+  chainLinkBase64: string,
+  expectedHashBase64: string | undefined
+): Uint8Array | undefined {
+  try {
+    const olderKey = traverseChainLink(newerKey, fromBase64(chainLinkBase64));
+    if (
+      expectedHashBase64 &&
+      !verifyEpochKeyConfirmation(olderKey, fromBase64(expectedHashBase64))
+    ) {
+      return undefined;
+    }
+    return olderKey;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveChainLinks(
+  conversationId: string,
+  chainLinks: KeyChainLink[],
+  wraps: KeyChainWrap[]
+): void {
+  // Build a map of epochNumber → confirmationHash from both chain links and wraps
+  // so we can look up the OLDER epoch's hash (not the chain link's own hash).
+  const hashByEpoch = new Map<number, string>();
+  for (const cl of chainLinks) hashByEpoch.set(cl.epochNumber, cl.confirmationHash);
+  for (const w of wraps) hashByEpoch.set(w.epochNumber, w.confirmationHash);
+
   const sorted = chainLinks.toSorted((a, b) => b.epochNumber - a.epochNumber);
   for (const cl of sorted) {
     const olderEpochNumber = cl.epochNumber - 1;
     if (getEpochKey(conversationId, olderEpochNumber)) continue;
     const newerKey = getEpochKey(conversationId, cl.epochNumber);
     if (!newerKey) continue;
-    const key = tryTraverseLink(newerKey, cl);
-    if (key) setEpochKey(conversationId, olderEpochNumber, key);
+
+    const olderKey = tryResolveOlderKey(newerKey, cl.chainLink, hashByEpoch.get(olderEpochNumber));
+    if (olderKey) setEpochKey(conversationId, olderEpochNumber, olderKey);
   }
 }
 
@@ -154,5 +172,5 @@ export function processKeyChain(
 ): void {
   setCurrentEpoch(conversationId, keyChain.currentEpoch);
   unwrapDirectKeys(conversationId, keyChain.wraps, accountPrivateKey);
-  resolveChainLinks(conversationId, keyChain.chainLinks);
+  resolveChainLinks(conversationId, keyChain.chainLinks, keyChain.wraps);
 }

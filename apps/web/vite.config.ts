@@ -87,6 +87,18 @@ export default defineConfig(({ mode }) => {
       sharedFaviconPlugin(),
       marketingRedirectPlugin(),
     ],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id): string | undefined {
+            if (id.includes('node_modules') && id.includes('streamdown')) {
+              return 'streamdown';
+            }
+            return undefined;
+          },
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': resolve(__dirname, './src'),

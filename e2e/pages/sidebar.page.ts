@@ -26,6 +26,21 @@ export class SidebarPage {
     await expect(this.sidebar).toBeVisible();
   }
 
+  private async expandSidebarIfCollapsed(): Promise<void> {
+    if (this.isMobileViewport()) return;
+
+    const expandButton = this.sidebar.getByRole('button', { name: 'Expand sidebar' });
+    if (await expandButton.isVisible()) {
+      await expandButton.click();
+      await expect(expandButton).not.toBeVisible();
+    }
+  }
+
+  private async ensureSidebarExpanded(): Promise<void> {
+    await this.openMobileSidebarIfNeeded();
+    await this.expandSidebarIfCollapsed();
+  }
+
   getChatLink(conversationId: string): Locator {
     return this.sidebar.locator(`a[href="/chat/${conversationId}"]`);
   }
@@ -35,7 +50,7 @@ export class SidebarPage {
   }
 
   async openMoreMenu(conversationId: string): Promise<void> {
-    await this.openMobileSidebarIfNeeded();
+    await this.ensureSidebarExpanded();
     const container = this.getChatItemContainer(conversationId).first();
     await container.hover();
     await container.getByTestId('chat-item-more-button').click();
@@ -70,21 +85,21 @@ export class SidebarPage {
   }
 
   async expectConversationVisible(conversationId: string): Promise<void> {
-    await this.openMobileSidebarIfNeeded();
+    await this.ensureSidebarExpanded();
     const link = this.getChatLink(conversationId);
     await link.scrollIntoViewIfNeeded();
     await expect(link).toBeVisible();
   }
 
   async expectConversationTitle(conversationId: string, title: string): Promise<void> {
-    await this.openMobileSidebarIfNeeded();
+    await this.ensureSidebarExpanded();
     const link = this.getChatLink(conversationId);
     await link.scrollIntoViewIfNeeded();
     await expect(link.getByText(title)).toBeVisible();
   }
 
   async countConversationsWithText(text: string): Promise<number> {
-    await this.openMobileSidebarIfNeeded();
+    await this.ensureSidebarExpanded();
     const matchingLinks = this.sidebar.locator('a[href^="/chat/"]').filter({ hasText: text });
     return matchingLinks.count();
   }

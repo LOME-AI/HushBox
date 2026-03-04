@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { generateTotpSecret } from '@hushbox/crypto';
+import { generateTotpSecret, generateTotpCodeSync } from '@hushbox/crypto';
 import { verifyTotpWithReplayProtection } from './totp.js';
 
 describe('verifyTotpWithReplayProtection', () => {
@@ -51,5 +51,34 @@ describe('verifyTotpWithReplayProtection', () => {
     // Code is invalid, so it won't be marked as used
     expect(result.valid).toBe(false);
     expect(mockRedis.set).not.toHaveBeenCalled();
+  });
+
+  it('accepts a valid code once, then rejects replay', async () => {
+    const mockRedis = createMockRedis();
+    const userId = 'test-user-id';
+    const secret = generateTotpSecret();
+    const code = generateTotpCodeSync(secret);
+
+    // First attempt: valid code should be accepted and stored
+    const first = await verifyTotpWithReplayProtection(
+      mockRedis as unknown as Parameters<typeof verifyTotpWithReplayProtection>[0],
+      userId,
+      code,
+      secret
+    );
+
+    expect(first.valid).toBe(true);
+    expect(mockRedis.set).toHaveBeenCalledOnce();
+
+    // Second attempt: same code should be rejected as replay
+    const second = await verifyTotpWithReplayProtection(
+      mockRedis as unknown as Parameters<typeof verifyTotpWithReplayProtection>[0],
+      userId,
+      code,
+      secret
+    );
+
+    expect(second.valid).toBe(false);
+    expect(second.error).toBe('CODE_ALREADY_USED');
   });
 });

@@ -77,7 +77,7 @@ export const REDIS_REGISTRY = {
     schema: rateLimitDataSchema,
     ttl: 900,
     buildKey: (userId: string) => `2fa:user:ratelimit:${userId}`,
-    rateLimitConfig: { maxAttempts: 5, windowSeconds: 900 },
+    rateLimitConfig: { maxAttempts: 10, windowSeconds: 900 },
   }),
 
   // Rate limit keys — recovery
@@ -207,7 +207,7 @@ export const REDIS_REGISTRY = {
   }),
   totpUsedCode: defineKey({
     schema: z.coerce.string(),
-    ttl: 90,
+    ttl: 120,
     buildKey: (userId: string, code: string) => `totp:used:${userId}:${code}`,
   }),
 

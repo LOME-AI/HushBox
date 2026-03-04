@@ -67,7 +67,12 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
 
   if (messages.length === 0) {
     return (
-      <div data-testid="message-list-empty" className="flex flex-1 items-center justify-center">
+      <div
+        role="log"
+        aria-label="Chat messages"
+        data-testid="message-list-empty"
+        className="flex flex-1 items-center justify-center"
+      >
         <p className="text-muted-foreground">No messages yet</p>
       </div>
     );

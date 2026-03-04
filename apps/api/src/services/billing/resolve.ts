@@ -33,6 +33,8 @@ export interface BuildBillingResult {
   input: ResolveBillingInput;
   /** Raw user balance from DB (before Redis reservation subtraction). Needed for personal race guard. */
   rawUserBalanceCents: number;
+  /** Raw free allowance from DB (before Redis reservation subtraction). Needed for free-tier race guard. */
+  rawFreeAllowanceCents: number;
   /** Present only for group billing paths. Used by the post-reservation race guard. */
   groupBudgetContext?: GroupBudgetContext;
 }
@@ -47,7 +49,6 @@ export interface BuildBillingResult {
 export interface BuildBillingInputParams {
   userId: string;
   model: string;
-  estimatedMinimumCostCents: number;
   memberContext?: MemberContext;
   conversationId?: string;
 }
@@ -57,7 +58,7 @@ export async function buildBillingInput(
   redis: Redis,
   params: BuildBillingInputParams
 ): Promise<BuildBillingResult> {
-  const { userId, model, estimatedMinimumCostCents, memberContext, conversationId } = params;
+  const { userId, model, memberContext, conversationId } = params;
   // 1. User tier info + Redis reservations + model premium check (in parallel)
   const [userTierInfo, reservedCents, openrouterModels, zdrModelIds] = await Promise.all([
     getUserTierInfo(db, userId),
@@ -70,13 +71,14 @@ export async function buildBillingInput(
   const isPremiumModel = premiumIds.includes(model);
 
   const adjustedBalanceCents = userTierInfo.balanceCents - reservedCents;
+  const adjustedFreeAllowanceCents = userTierInfo.freeAllowanceCents - reservedCents;
 
   const input: ResolveBillingInput = {
     tier: userTierInfo.tier,
     balanceCents: adjustedBalanceCents,
-    freeAllowanceCents: userTierInfo.freeAllowanceCents,
+    freeAllowanceCents: adjustedFreeAllowanceCents,
     isPremiumModel,
-    estimatedMinimumCostCents,
+    estimatedMinimumCostCents: 0, // Set by caller after tier-aware computation
   };
 
   // 2. Group path: if user is a member (not owner), gather group billing data
@@ -112,6 +114,7 @@ export async function buildBillingInput(
     return {
       input,
       rawUserBalanceCents: userTierInfo.balanceCents,
+      rawFreeAllowanceCents: userTierInfo.freeAllowanceCents,
       groupBudgetContext: {
         conversationBudget: budgets.conversationBudget,
         conversationSpent: budgets.totalSpent,
@@ -122,5 +125,9 @@ export async function buildBillingInput(
     };
   }
 
-  return { input, rawUserBalanceCents: userTierInfo.balanceCents };
+  return {
+    input,
+    rawUserBalanceCents: userTierInfo.balanceCents,
+    rawFreeAllowanceCents: userTierInfo.freeAllowanceCents,
+  };
 }

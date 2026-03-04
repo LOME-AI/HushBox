@@ -5,6 +5,12 @@ import { createOpenRouterClient, fetchZdrModelIds, type EvidenceConfig } from '.
 import { createFastMockOpenRouterClient } from '../../test-helpers/openrouter-mocks.js';
 import type { OpenRouterClient, ModelInfo } from './types.js';
 import { fetchModels } from './openrouter.js';
+import {
+  getPaidTestModel,
+  clearTestModelCache,
+  retryWithBackoff,
+  isProviderError,
+} from './test-utilities.js';
 
 /**
  * Integration tests for OpenRouter API.
@@ -13,8 +19,7 @@ import { fetchModels } from './openrouter.js';
  * - CI: Tests run with real API (OPENROUTER_API_KEY required)
  */
 
-// Fallback model if dynamic selection fails
-const FALLBACK_MODEL = 'meta-llama/llama-3.1-8b-instruct';
+const LOCAL_DEV_MODEL = 'meta-llama/llama-3.1-8b-instruct';
 
 const env = createEnvUtilities({
   ...(process.env['NODE_ENV'] && { NODE_ENV: process.env['NODE_ENV'] }),
@@ -58,7 +63,7 @@ const MOCK_MODELS = [
     architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
   {
-    id: FALLBACK_MODEL,
+    id: LOCAL_DEV_MODEL,
     name: 'Llama 3.1 8B Instruct',
     description: 'Meta Llama 3.1 8B',
     context_length: 131_072,
@@ -71,7 +76,7 @@ const MOCK_MODELS = [
 
 describe('OpenRouter Integration', () => {
   let client: OpenRouterClient;
-  let testModel: string = FALLBACK_MODEL;
+  let testModel: string = LOCAL_DEV_MODEL;
   let db: Database | null = null;
   let evidenceConfig: EvidenceConfig | undefined;
 
@@ -82,7 +87,7 @@ describe('OpenRouter Integration', () => {
         streamContent: 'INTEGRATION_TEST_OK',
         models: MOCK_MODELS,
       });
-      testModel = FALLBACK_MODEL;
+      testModel = LOCAL_DEV_MODEL;
       console.log('Using mock OpenRouter client for local development');
       return;
     }
@@ -104,29 +109,9 @@ describe('OpenRouter Integration', () => {
 
     client = createOpenRouterClient(apiKey, evidenceConfig);
 
-    // Dynamically select a cheap model that's currently available
-    try {
-      const models = await client.listModels();
-
-      // Find a cheap, available model (prompt pricing < $0.001 per 1k tokens)
-      const cheapModels = models
-        .filter((m) => {
-          const promptPrice = Number.parseFloat(m.pricing.prompt);
-          return !Number.isNaN(promptPrice) && promptPrice < 0.001;
-        })
-        .toSorted(
-          (a, b) => Number.parseFloat(a.pricing.prompt) - Number.parseFloat(b.pricing.prompt)
-        );
-
-      if (cheapModels.length > 0 && cheapModels[0]) {
-        testModel = cheapModels[0].id;
-        console.log(`Using dynamic test model: ${testModel}`);
-      } else {
-        console.warn(`No cheap model found, using fallback: ${FALLBACK_MODEL}`);
-      }
-    } catch (error) {
-      console.warn(`Failed to fetch models, using fallback: ${FALLBACK_MODEL}`, error);
-    }
+    clearTestModelCache();
+    testModel = await getPaidTestModel(client);
+    console.log(`Using paid test model: ${testModel}`);
   });
 
   describe('listModels', () => {
@@ -173,11 +158,15 @@ describe('OpenRouter Integration', () => {
 
   describe('chatCompletion', () => {
     it('gets response from real API', async () => {
-      const response = await client.chatCompletion({
-        model: testModel,
-        messages: [{ role: 'user', content: 'Reply with exactly: INTEGRATION_TEST_OK' }],
-        max_tokens: 50,
-      });
+      const response = await retryWithBackoff(
+        () =>
+          client.chatCompletion({
+            model: testModel,
+            messages: [{ role: 'user', content: 'Reply with exactly: INTEGRATION_TEST_OK' }],
+            max_tokens: 50,
+          }),
+        { shouldRetry: isProviderError }
+      );
 
       expect(response.id).toBeDefined();
       expect(response.model).toBeDefined();
@@ -216,15 +205,20 @@ describe('OpenRouter Integration', () => {
 
   describe('chatCompletionStream', () => {
     it('streams response from real API', async () => {
-      const tokens: string[] = [];
-
-      for await (const token of client.chatCompletionStream({
-        model: testModel,
-        messages: [{ role: 'user', content: 'Count from 1 to 3' }],
-        max_tokens: 50,
-      })) {
-        tokens.push(token);
-      }
+      const tokens = await retryWithBackoff(
+        async () => {
+          const collected: string[] = [];
+          for await (const token of client.chatCompletionStream({
+            model: testModel,
+            messages: [{ role: 'user', content: 'Count from 1 to 3' }],
+            max_tokens: 50,
+          })) {
+            collected.push(token);
+          }
+          return collected;
+        },
+        { shouldRetry: isProviderError }
+      );
 
       // Should receive multiple tokens
       expect(tokens.length).toBeGreaterThan(0);
@@ -235,16 +229,21 @@ describe('OpenRouter Integration', () => {
     }, 30_000);
 
     it('streams tokens incrementally', async () => {
-      const tokenTimestamps: number[] = [];
-
-      // eslint-disable-next-line sonarjs/no-unused-vars -- measuring timing, not content
-      for await (const _ of client.chatCompletionStream({
-        model: testModel,
-        messages: [{ role: 'user', content: 'Write a short sentence' }],
-        max_tokens: 30,
-      })) {
-        tokenTimestamps.push(Date.now());
-      }
+      const tokenTimestamps = await retryWithBackoff(
+        async () => {
+          const timestamps: number[] = [];
+          // eslint-disable-next-line sonarjs/no-unused-vars -- measuring timing, not content
+          for await (const _ of client.chatCompletionStream({
+            model: testModel,
+            messages: [{ role: 'user', content: 'Write a short sentence' }],
+            max_tokens: 30,
+          })) {
+            timestamps.push(Date.now());
+          }
+          return timestamps;
+        },
+        { shouldRetry: isProviderError }
+      );
 
       // Should receive multiple tokens over time (not all at once)
       expect(tokenTimestamps.length).toBeGreaterThan(1);

@@ -140,8 +140,8 @@ export function ChatWelcome({
         onPremiumClick={onPremiumClick}
       />
 
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-4 py-4 sm:py-8">
-        <div className="w-full max-w-2xl space-y-4 sm:space-y-8">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-4 py-8">
+        <div className="w-full max-w-2xl space-y-8">
           <WelcomeGreeting
             greeting={greeting}
             showSubtitle={showSubtitle}

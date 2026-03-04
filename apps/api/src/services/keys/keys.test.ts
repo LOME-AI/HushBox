@@ -11,7 +11,14 @@ import {
   type Database,
 } from '@hushbox/db';
 import { userFactory, epochFactory, epochMemberFactory } from '@hushbox/db/factories';
-import { generateKeyPair, createFirstEpoch } from '@hushbox/crypto';
+import {
+  generateKeyPair,
+  createFirstEpoch,
+  performEpochRotation,
+  unwrapEpochKey,
+  traverseChainLink,
+  verifyEpochKeyConfirmation,
+} from '@hushbox/crypto';
 import { createOrGetConversation } from '../conversations/index.js';
 import {
   getKeyChain,
@@ -783,6 +790,160 @@ describe('keys service', () => {
       });
 
       expect(result.newEpochNumber).toBe(2);
+    });
+  });
+
+  describe('key recovery after rotation (add member without history)', () => {
+    it('returns key chain that allows real crypto chain link traversal to recover epoch 1 key', async () => {
+      const ownerAccount = generateKeyPair();
+      const owner = await createTestUser();
+      // Override public key to match our generated key pair
+      await db
+        .update(users)
+        .set({ publicKey: ownerAccount.publicKey })
+        .where(eq(users.id, owner.id));
+
+      const conversationId = crypto.randomUUID();
+      const epoch1 = createFirstEpoch([ownerAccount.publicKey]);
+      const memberWrap = defined(epoch1.memberWraps[0], 'epoch1 member wrap');
+
+      const createResult = await createOrGetConversation(db, owner.id, {
+        id: conversationId,
+        epochPublicKey: epoch1.epochPublicKey,
+        confirmationHash: epoch1.confirmationHash,
+        memberWrap: memberWrap.wrap,
+        userPublicKey: ownerAccount.publicKey,
+      });
+      if (!createResult) throw new Error('Failed to create conversation');
+
+      // Perform REAL rotation to epoch 2 (simulates "add member without history")
+      const epoch2 = performEpochRotation(epoch1.epochPrivateKey, [ownerAccount.publicKey]);
+      const encryptedTitle = new Uint8Array([1, 2, 3]);
+
+      await submitRotation(db, {
+        conversationId,
+        expectedEpoch: 1,
+        epochPublicKey: epoch2.epochPublicKey,
+        confirmationHash: epoch2.confirmationHash,
+        chainLink: epoch2.chainLink,
+        memberWraps: [
+          {
+            memberPublicKey: ownerAccount.publicKey,
+            wrap: defined(epoch2.memberWraps[0], 'epoch2 member wrap').wrap,
+          },
+        ],
+        encryptedTitle,
+      });
+
+      // Fetch key chain as the owner would after page refresh
+      const keyChain = await getKeyChain(db, conversationId, ownerAccount.publicKey);
+      expect(keyChain).not.toBeNull();
+      const kc = defined(keyChain, 'key chain');
+
+      // Only epoch 2 wrap should exist (epoch 1 wraps deleted during rotation)
+      expect(kc.wraps).toHaveLength(1);
+      expect(defined(kc.wraps[0]).epochNumber).toBe(2);
+
+      // Chain link for epoch 2 should exist
+      expect(kc.chainLinks).toHaveLength(1);
+      const chainLink = defined(kc.chainLinks[0]);
+      expect(chainLink.epochNumber).toBe(2);
+
+      // Verify real crypto: unwrap epoch 2 key from wrap
+      const epoch2PrivateKey = unwrapEpochKey(ownerAccount.privateKey, defined(kc.wraps[0]).wrap);
+      expect(
+        verifyEpochKeyConfirmation(epoch2PrivateKey, defined(kc.wraps[0]).confirmationHash)
+      ).toBe(true);
+
+      // Verify real crypto: traverse chain link to recover epoch 1 key
+      const epoch1PrivateKey = traverseChainLink(epoch2PrivateKey, chainLink.chainLink);
+      expect(epoch1PrivateKey).toEqual(epoch1.epochPrivateKey);
+
+      // Verify epoch 1 key confirmation hash (from epoch 1 row, not the chain link)
+      const [epoch1Row] = await db
+        .select({ confirmationHash: epochs.confirmationHash })
+        .from(epochs)
+        .where(and(eq(epochs.conversationId, conversationId), eq(epochs.epochNumber, 1)));
+      expect(
+        verifyEpochKeyConfirmation(epoch1PrivateKey, defined(epoch1Row).confirmationHash)
+      ).toBe(true);
+    });
+
+    it('returns key chain that allows multi-rotation chain traversal', async () => {
+      const ownerAccount = generateKeyPair();
+      const owner = await createTestUser();
+      await db
+        .update(users)
+        .set({ publicKey: ownerAccount.publicKey })
+        .where(eq(users.id, owner.id));
+
+      const conversationId = crypto.randomUUID();
+      const epoch1 = createFirstEpoch([ownerAccount.publicKey]);
+      const memberWrap = defined(epoch1.memberWraps[0], 'epoch1 member wrap');
+
+      const createResult = await createOrGetConversation(db, owner.id, {
+        id: conversationId,
+        epochPublicKey: epoch1.epochPublicKey,
+        confirmationHash: epoch1.confirmationHash,
+        memberWrap: memberWrap.wrap,
+        userPublicKey: ownerAccount.publicKey,
+      });
+      if (!createResult) throw new Error('Failed to create conversation');
+
+      // Rotate twice: epoch 1 → 2 → 3
+      const epoch2 = performEpochRotation(epoch1.epochPrivateKey, [ownerAccount.publicKey]);
+      await submitRotation(db, {
+        conversationId,
+        expectedEpoch: 1,
+        epochPublicKey: epoch2.epochPublicKey,
+        confirmationHash: epoch2.confirmationHash,
+        chainLink: epoch2.chainLink,
+        memberWraps: [
+          {
+            memberPublicKey: ownerAccount.publicKey,
+            wrap: defined(epoch2.memberWraps[0]).wrap,
+          },
+        ],
+        encryptedTitle: new Uint8Array([1, 2, 3]),
+      });
+
+      const epoch3 = performEpochRotation(epoch2.epochPrivateKey, [ownerAccount.publicKey]);
+      await submitRotation(db, {
+        conversationId,
+        expectedEpoch: 2,
+        epochPublicKey: epoch3.epochPublicKey,
+        confirmationHash: epoch3.confirmationHash,
+        chainLink: epoch3.chainLink,
+        memberWraps: [
+          {
+            memberPublicKey: ownerAccount.publicKey,
+            wrap: defined(epoch3.memberWraps[0]).wrap,
+          },
+        ],
+        encryptedTitle: new Uint8Array([4, 5, 6]),
+      });
+
+      const keyChain = await getKeyChain(db, conversationId, ownerAccount.publicKey);
+      const kc = defined(keyChain, 'key chain');
+
+      // Only epoch 3 wrap should exist
+      expect(kc.wraps).toHaveLength(1);
+      expect(defined(kc.wraps[0]).epochNumber).toBe(3);
+
+      // Chain links for epochs 2 and 3
+      expect(kc.chainLinks).toHaveLength(2);
+
+      // Unwrap epoch 3 → traverse to 2 → traverse to 1
+      const epoch3PrivateKey = unwrapEpochKey(ownerAccount.privateKey, defined(kc.wraps[0]).wrap);
+      expect(epoch3PrivateKey).toEqual(epoch3.epochPrivateKey);
+
+      const cl3 = defined(kc.chainLinks.find((cl) => cl.epochNumber === 3));
+      const epoch2PrivateKey = traverseChainLink(epoch3PrivateKey, cl3.chainLink);
+      expect(epoch2PrivateKey).toEqual(epoch2.epochPrivateKey);
+
+      const cl2 = defined(kc.chainLinks.find((cl) => cl.epochNumber === 2));
+      const epoch1PrivateKey = traverseChainLink(epoch2PrivateKey, cl2.chainLink);
+      expect(epoch1PrivateKey).toEqual(epoch1.epochPrivateKey);
     });
   });
 

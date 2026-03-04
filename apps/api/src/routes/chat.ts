@@ -22,7 +22,11 @@ import {
   effectiveBudgetCents,
   resolveBilling,
   canSendMessages,
+  getCushionCents,
   MINIMUM_OUTPUT_TOKENS,
+  STORAGE_COST_PER_CHARACTER,
+  CHARS_PER_TOKEN_CONSERVATIVE,
+  CHARS_PER_TOKEN_STANDARD,
 } from '@hushbox/shared';
 import type { FundingSource, DenialReason, ResolveBillingInput } from '@hushbox/shared';
 import type { AppEnv, Bindings } from '../types.js';
@@ -45,14 +49,12 @@ import { requireAuth } from '../middleware/require-auth.js';
 import { broadcastToRoom } from '../lib/broadcast.js';
 import { createEvent } from '@hushbox/realtime/events';
 import {
-  calculateWorstCaseCostCents,
   reserveBudget,
   releaseBudget,
   reserveGroupBudget,
   releaseGroupBudget,
   type GroupBudgetReservation,
 } from '../lib/speculative-balance.js';
-import { MAX_ALLOWED_NEGATIVE_BALANCE_CENTS } from '@hushbox/shared';
 import type { Context } from 'hono';
 import { getPushClient, sendPushForNewMessage } from '../services/push/index.js';
 import { fireAndForget } from '../lib/fire-and-forget.js';
@@ -145,6 +147,19 @@ async function validateChatRequest(
   }
 
   return { success: true, ...(memberContext !== undefined && { memberContext }) };
+}
+
+/**
+ * Worst-case cost for a message reservation in cents.
+ * No Math.ceil — floor() in calculateBudget already guarantees worstCaseCents ≤ availableCents.
+ * Redis INCRBYFLOAT handles floats natively.
+ */
+export function computeWorstCaseCents(
+  estimatedInputCost: number,
+  effectiveMaxOutputTokens: number,
+  outputCostPerToken: number
+): number {
+  return (estimatedInputCost + effectiveMaxOutputTokens * outputCostPerToken) * 100;
 }
 
 interface BillingValidationSuccess {
@@ -256,28 +271,40 @@ async function validateBilling(
   const openrouterModels = await fetchModels();
   const pricing = getModelPricing(openrouterModels, model);
 
-  // 2. Compute estimated minimum cost for resolveBilling affordability check
+  // 2. Character count for budget computation
   const systemPromptForBudget = buildSystemPrompt([]);
   const historyCharacters = messagesForInference.reduce((sum, m) => sum + m.content.length, 0);
   const promptCharacterCount = systemPromptForBudget.length + historyCharacters;
-  const estimatedInputTokens = estimateTokensForTier('paid', promptCharacterCount);
-  const estimatedMinimumCostCents = Math.ceil(
-    (estimatedInputTokens * pricing.inputPricePerToken +
-      MINIMUM_OUTPUT_TOKENS * pricing.outputPricePerToken) *
-      100
-  );
 
-  // 3. Gather all billing data and resolve billing decision
+  // 3. Gather all billing data (tier resolved here)
   const billingResult = await buildBillingInput(db, redis, {
     userId,
     model,
-    estimatedMinimumCostCents,
     ...(memberContext !== undefined && { memberContext }),
     ...(conversationId !== undefined && { conversationId }),
   });
+
+  // 4. Compute estimated minimum cost with actual tier (known after buildBillingInput)
+  // Input: tier-aware token estimation (free=conservative/2, paid=standard/4)
+  // Output storage: INVERTED (free=standard/4 pessimistic, paid=conservative/2 optimistic)
+  const actualTier = billingResult.input.tier;
+  const estimatedInputTokens = estimateTokensForTier(actualTier, promptCharacterCount);
+  const outputCharsPerToken =
+    actualTier === 'paid' ? CHARS_PER_TOKEN_CONSERVATIVE : CHARS_PER_TOKEN_STANDARD;
+  const inputStorageCostCents = promptCharacterCount * STORAGE_COST_PER_CHARACTER * 100;
+  const outputStorageCostCents =
+    MINIMUM_OUTPUT_TOKENS * outputCharsPerToken * STORAGE_COST_PER_CHARACTER * 100;
+  const estimatedMinimumCostCents =
+    (estimatedInputTokens * pricing.inputPricePerToken +
+      MINIMUM_OUTPUT_TOKENS * pricing.outputPricePerToken) *
+      100 +
+    inputStorageCostCents +
+    outputStorageCostCents;
+
+  billingResult.input.estimatedMinimumCostCents = estimatedMinimumCostCents;
   const billingDecision = resolveBilling(billingResult.input);
 
-  // 4. Handle denial — return 402 before checking mismatch
+  // 5. Handle denial — return 402 before checking mismatch
   if (billingDecision.fundingSource === 'denied') {
     return {
       success: false,
@@ -285,7 +312,7 @@ async function validateBilling(
     };
   }
 
-  // 5. Handle mismatch — 409 when client and server disagree on funding source
+  // 6. Handle mismatch — 409 when client and server disagree on funding source
   if (clientFundingSource !== billingDecision.fundingSource) {
     return {
       success: false,
@@ -298,7 +325,7 @@ async function validateBilling(
     };
   }
 
-  // 6. Compute budget for maxOutputTokens based on payer
+  // 7. Compute budget for maxOutputTokens based on payer
   const isGroupBilling =
     billingDecision.fundingSource === 'owner_balance' && billingResult.input.group !== undefined;
   const group = billingResult.input.group;
@@ -323,19 +350,16 @@ async function validateBilling(
     estimatedInputTokens: budgetResult.estimatedInputTokens,
   });
 
-  // 7. Calculate worst case cost for reservation
+  // 8. Calculate worst case cost for reservation (derived from budget — single source of truth)
   const effectiveMaxOutputTokens =
     safeMaxTokens ?? pricing.contextLength - budgetResult.estimatedInputTokens;
-  const inputCharacters = messagesForInference.reduce((sum, m) => sum + m.content.length, 0);
-  const worstCaseCents = calculateWorstCaseCostCents({
-    estimatedInputTokens: budgetResult.estimatedInputTokens,
+  const worstCaseCents = computeWorstCaseCents(
+    budgetResult.estimatedInputCost,
     effectiveMaxOutputTokens,
-    pricePerInputToken: pricing.rawInputPricePerToken,
-    pricePerOutputToken: pricing.rawOutputPricePerToken,
-    inputCharacters,
-  });
+    budgetResult.outputCostPerToken
+  );
 
-  // 8. Reserve budget
+  // 9. Reserve budget
   if (isGroupBilling && memberContext && conversationId) {
     const groupReservation: GroupBudgetReservation = {
       conversationId,
@@ -360,7 +384,8 @@ async function validateBilling(
       ownerRemainingCents: ctx.ownerBalanceCents - reservedTotals.payerTotal,
     });
 
-    if (postReservationEffective < -MAX_ALLOWED_NEGATIVE_BALANCE_CENTS) {
+    const cushionCents = getCushionCents(payerTier);
+    if (postReservationEffective < -cushionCents) {
       await releaseGroupBudget(redis, groupReservation);
       return {
         success: false,
@@ -381,9 +406,16 @@ async function validateBilling(
   }
 
   // Personal budget reservation with race guard
+  // Free tier uses rawFreeAllowanceCents (DB value, not reservation-adjusted) — the race guard
+  // compares total reservations against raw balance to catch TOCTOU races
   const newTotalReserved = await reserveBudget(redis, userId, worstCaseCents);
-  const finalEffective = billingResult.rawUserBalanceCents - newTotalReserved;
-  if (finalEffective < -MAX_ALLOWED_NEGATIVE_BALANCE_CENTS) {
+  const availableCents =
+    billingDecision.fundingSource === 'free_allowance'
+      ? billingResult.rawFreeAllowanceCents
+      : billingResult.rawUserBalanceCents;
+  const finalEffective = availableCents - newTotalReserved;
+  const cushionCents = getCushionCents(payerTier);
+  if (finalEffective < -cushionCents) {
     await releaseBudget(redis, userId, worstCaseCents);
     return {
       success: false,
@@ -710,80 +742,81 @@ export const chatRoute = new Hono<AppEnv>()
 
     return streamSSE(c, async (stream) => {
       const writer = createSSEEventWriter(stream);
-
-      await writer.writeStart({
-        userMessageId: userMessage.id,
-        assistantMessageId,
-      });
-
-      const tokenStream = openrouter.chatCompletionStreamWithMetadata({
-        model,
-        messages: openRouterMessages,
-        ...(safeMaxTokens !== undefined && { max_tokens: safeMaxTokens }),
-      });
-
-      const result = await collectStreamTokens(tokenStream, writer, {
-        env: c.env,
-        conversationId,
-        assistantMessageId,
-      });
-
-      if (result.error) {
-        await releaseReservation();
-        const code =
-          result.error instanceof ContextCapacityError ? 'context_length_exceeded' : 'STREAM_ERROR';
-        await writer.writeError({ message: result.error.message, code });
-        return;
-      }
-
-      if (result.fullContent.length === 0) {
-        await releaseReservation();
-        await writer.writeError({ message: 'No content generated', code: 'STREAM_ERROR' });
-        return;
-      }
-
-      const billingPromise = processBillingAfterStream({
-        openrouter,
-        openrouterModels,
-        model,
-        generationId: result.generationId,
-        lastUserMessageContent: lastInferenceMessage?.content ?? '',
-        fullContent: result.fullContent,
-        db,
-        userMessageId: userMessage.id,
-        userContent: userMessage.content,
-        assistantMessageId,
-        conversationId,
-        userId: billingUserId,
-        ...(chatValidation.memberContext !== undefined &&
-          billingValidation.groupBudget !== undefined && {
-            groupMemberId: chatValidation.memberContext.memberId,
-          }),
-      });
-
-      const billingResult = await handleBillingResult({
-        c,
-        billingPromise,
-        assistantMessageId,
-        userId: billingUserId,
-        model,
-        generationId: result.generationId,
-      });
-
-      await releaseReservation();
-
-      if (billingResult) {
-        await broadcastAndFinish({
-          c,
-          conversationId,
-          senderUserId: user.id,
+      try {
+        await writer.writeStart({
           userMessageId: userMessage.id,
           assistantMessageId,
-          billingResult,
-          writer,
         });
-      } else {
-        await writer.writeError({ message: 'Failed to save message', code: 'BILLING_ERROR' });
+
+        const tokenStream = openrouter.chatCompletionStreamWithMetadata({
+          model,
+          messages: openRouterMessages,
+          ...(safeMaxTokens !== undefined && { max_tokens: safeMaxTokens }),
+        });
+
+        const result = await collectStreamTokens(tokenStream, writer, {
+          env: c.env,
+          conversationId,
+          assistantMessageId,
+        });
+
+        if (result.error) {
+          const code =
+            result.error instanceof ContextCapacityError
+              ? 'context_length_exceeded'
+              : 'STREAM_ERROR';
+          await writer.writeError({ message: result.error.message, code });
+          return;
+        }
+
+        if (result.fullContent.length === 0) {
+          await writer.writeError({ message: 'No content generated', code: 'STREAM_ERROR' });
+          return;
+        }
+
+        const billingPromise = processBillingAfterStream({
+          openrouter,
+          openrouterModels,
+          model,
+          generationId: result.generationId,
+          lastUserMessageContent: lastInferenceMessage?.content ?? '',
+          fullContent: result.fullContent,
+          db,
+          userMessageId: userMessage.id,
+          userContent: userMessage.content,
+          assistantMessageId,
+          conversationId,
+          userId: billingUserId,
+          ...(chatValidation.memberContext !== undefined &&
+            billingValidation.groupBudget !== undefined && {
+              groupMemberId: chatValidation.memberContext.memberId,
+            }),
+        });
+
+        const billingResult = await handleBillingResult({
+          c,
+          billingPromise,
+          assistantMessageId,
+          userId: billingUserId,
+          model,
+          generationId: result.generationId,
+        });
+
+        if (billingResult) {
+          await broadcastAndFinish({
+            c,
+            conversationId,
+            senderUserId: user.id,
+            userMessageId: userMessage.id,
+            assistantMessageId,
+            billingResult,
+            writer,
+          });
+        } else {
+          await writer.writeError({ message: 'Failed to save message', code: 'BILLING_ERROR' });
+        }
+      } finally {
+        await releaseReservation();
       }
     });
   })

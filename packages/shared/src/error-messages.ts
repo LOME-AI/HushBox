@@ -94,6 +94,7 @@ const ERROR_MESSAGES = {
   LAST_MESSAGE_NOT_USER: 'Last message must be from you.',
   BALANCE_RESERVED: 'Please wait for your current messages to finish before starting more.',
   DAILY_LIMIT_EXCEEDED: 'Daily message limit exceeded.',
+  CHAT_STREAM_FAILED: 'Something went wrong. Please try again or try a different model.',
   CONTEXT_LENGTH_EXCEEDED:
     'This conversation is too long for the selected model. Try a model with a larger context window.',
   PHRASE_REQUIRED: 'Recovery phrase required before making payments.',

@@ -5,6 +5,7 @@ import { code } from '@streamdown/code';
 import { mermaid } from '@streamdown/mermaid';
 import { math } from '@streamdown/math';
 import { cn } from '@hushbox/ui';
+import { ErrorBoundary } from '../shared/error-boundary';
 import { DocumentCard } from './document-card';
 import {
   extractTitle,
@@ -70,6 +71,15 @@ function extractCodeBlockMeta(node: HastElement | undefined): CodeBlockMeta | un
   const codeText = extractTextFromHast(codeNode).replace(/\n$/, '');
   const lineCount = codeText.split('\n').length;
   return { language, codeText, lineCount };
+}
+
+function MarkdownRenderFallback({ content }: Readonly<{ content: string }>): React.JSX.Element {
+  return (
+    <div data-testid="markdown-render-fallback">
+      <p className="text-base leading-relaxed break-words whitespace-pre-wrap">{content}</p>
+      <p className="text-muted-foreground mt-2 text-xs">Message formatting unavailable.</p>
+    </div>
+  );
 }
 
 export function MarkdownRenderer({
@@ -146,15 +156,17 @@ export function MarkdownRenderer({
         className
       )}
     >
-      <Streamdown
-        plugins={{ code, mermaid, math }}
-        components={components}
-        controls={{ code: true, mermaid: { copy: true, download: true } }}
-        isAnimating={isStreaming ?? false}
-        animated
-      >
-        {content}
-      </Streamdown>
+      <ErrorBoundary fallback={<MarkdownRenderFallback content={content} />}>
+        <Streamdown
+          plugins={{ code, mermaid, math }}
+          components={components}
+          controls={{ code: true, mermaid: { copy: true, download: true } }}
+          isAnimating={isStreaming ?? false}
+          animated
+        >
+          {content}
+        </Streamdown>
+      </ErrorBoundary>
     </div>
   );
 }

@@ -587,4 +587,71 @@ test.describe('Group Chat Admin', () => {
       }
     });
   });
+
+  // Test 6: Add member without history — adder can still read old messages after refresh
+  test('add member without history: adder retains access to old messages after page refresh', async ({
+    authenticatedPage,
+    testDavePage,
+    groupConversation,
+  }) => {
+    test.slow();
+
+    const aliceChatPage = new ChatPage(authenticatedPage);
+    await aliceChatPage.gotoConversation(groupConversation.id);
+    await aliceChatPage.waitForConversationLoaded();
+
+    await test.step('Alice sees pre-existing messages before adding member', async () => {
+      await aliceChatPage.expectMessageVisible('Hello from Alice');
+    });
+
+    await test.step('add Dave WITHOUT history', async () => {
+      const sidebar = new MemberSidebarPage(authenticatedPage);
+      await sidebar.openViaFacepile();
+      await sidebar.waitForLoaded();
+      await sidebar.clickNewMember();
+
+      const modal = authenticatedPage.getByTestId('add-member-modal');
+      await expect(modal).toBeVisible();
+
+      const searchInput = authenticatedPage.getByTestId('add-member-search-input');
+      await searchInput.fill('test dave');
+
+      const result = authenticatedPage.getByTestId(/^add-member-result-/);
+      await expect(result.first()).toBeVisible({ timeout: 5000 });
+      await result.first().click();
+
+      await expect(authenticatedPage.getByTestId('add-member-selected')).toBeVisible();
+
+      const privilegeSelect = authenticatedPage.getByTestId('add-member-privilege-select');
+      await privilegeSelect.selectOption('write');
+
+      // Do NOT check history checkbox — leave unchecked for "without history"
+      const historyCheckbox = authenticatedPage
+        .getByTestId('add-member-history-checkbox')
+        .getByRole('checkbox');
+      await expect(historyCheckbox).not.toBeChecked();
+
+      await authenticatedPage.getByTestId('add-member-submit-button').click();
+      await expect(modal).not.toBeVisible();
+    });
+
+    await test.step('Alice refreshes page and still sees old messages', async () => {
+      await authenticatedPage.reload();
+
+      const refreshedChat = new ChatPage(authenticatedPage);
+      await refreshedChat.waitForConversationLoaded();
+
+      // Alice must still be able to decrypt messages from before the rotation
+      await refreshedChat.expectMessageVisible('Hello from Alice');
+    });
+
+    await test.step('Dave cannot see pre-rotation messages', async () => {
+      const daveChatPage = new ChatPage(testDavePage);
+      await daveChatPage.gotoConversation(groupConversation.id);
+      await daveChatPage.waitForConversationLoaded();
+
+      // Dave should NOT see Alice's old message (added without history)
+      await expect(testDavePage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
+    });
+  });
 });

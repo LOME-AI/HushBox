@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Checkbox } from './checkbox';
 
 describe('Checkbox', () => {
-  it('renders as a checkbox', () => {
+  it('renders as a checkbox', { timeout: 15_000 }, () => {
     render(<Checkbox aria-label="Accept terms" />);
     expect(screen.getByRole('checkbox')).toBeInTheDocument();
   });

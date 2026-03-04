@@ -496,6 +496,25 @@ describe('resolveBilling', () => {
       expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'free_allowance' });
     });
 
+    it('free tier allows when allowance matches cost within float tolerance', () => {
+      // 0.98765432 cents loses precision in numeric(20,8) round-trip:
+      // (0.98765432 / 100).toFixed(8) = "0.00987654" → parseFloat * 100 = 0.9876539999... < 0.98765432
+      const cost = 0.987_654_32;
+      // Simulate numeric(20,8) round-trip precision loss: dollars → toFixed(8) → parseFloat → *100
+      const roundTripped = Number.parseFloat((cost / 100).toFixed(8)) * 100;
+      const result = resolveBilling(
+        personalInput({
+          tier: 'free',
+          balanceCents: 0,
+          freeAllowanceCents: roundTripped,
+          isPremiumModel: false,
+          estimatedMinimumCostCents: cost,
+        })
+      );
+
+      expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'free_allowance' });
+    });
+
     it('trial at exact boundary: cost equals MAX_TRIAL_MESSAGE_COST_CENTS', () => {
       const result = resolveBilling(
         personalInput({

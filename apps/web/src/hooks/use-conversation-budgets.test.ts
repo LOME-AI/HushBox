@@ -110,6 +110,7 @@ describe('useConversationBudgets', () => {
       effectiveDollars: 8,
       ownerTier: 'paid',
       ownerBalanceDollars: 50,
+      memberBudgetDollars: 8,
     };
     mockedUseQuery.mockReturnValue({
       data: mockData,

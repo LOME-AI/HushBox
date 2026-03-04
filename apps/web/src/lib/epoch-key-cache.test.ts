@@ -190,6 +190,9 @@ describe('epoch-key-cache', () => {
 
   describe('processKeyChain', () => {
     beforeEach(() => {
+      mockUnwrapEpochKey.mockReset();
+      mockTraverseChainLink.mockReset();
+      mockVerifyEpochKeyConfirmation.mockReset();
       mockUnwrapEpochKey.mockReturnValue(new Uint8Array([99]));
       mockTraverseChainLink.mockReturnValue(new Uint8Array([88]));
       mockVerifyEpochKeyConfirmation.mockReturnValue(true);
@@ -257,7 +260,7 @@ describe('epoch-key-cache', () => {
     });
 
     it('skips chain-linked key when confirmation hash verification fails', () => {
-      // First call (wrap): pass. Second call (chain link): fail.
+      // First call (wrap): pass. Second call (chain link for older epoch): fail.
       mockVerifyEpochKeyConfirmation.mockReturnValueOnce(true).mockReturnValueOnce(false);
 
       const keyChain = {
@@ -269,7 +272,11 @@ describe('epoch-key-cache', () => {
             visibleFromEpoch: 1,
           },
         ],
-        chainLinks: [{ epochNumber: 3, chainLink: 'DDDD', confirmationHash: 'EEEE' }],
+        chainLinks: [
+          // Epoch 2 chain link provides epoch 2's confirmation hash for the lookup map
+          { epochNumber: 2, chainLink: 'XXXX', confirmationHash: 'FFFF' },
+          { epochNumber: 3, chainLink: 'DDDD', confirmationHash: 'EEEE' },
+        ],
         currentEpoch: 3,
       };
 

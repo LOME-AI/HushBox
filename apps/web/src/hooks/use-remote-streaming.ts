@@ -9,7 +9,8 @@ export interface PhantomMessage {
 
 export function useRemoteStreaming(
   ws: ConversationWebSocket | null,
-  currentUserId: string | null
+  currentUserId: string | null,
+  localStreamingIdRef?: React.RefObject<string | null>
 ): Map<string, PhantomMessage> {
   const [phantoms, setPhantoms] = React.useState<Map<string, PhantomMessage>>(new Map());
 
@@ -32,6 +33,7 @@ export function useRemoteStreaming(
         });
       }),
       ws.on('message:stream', (event) => {
+        if (localStreamingIdRef?.current === event.messageId) return;
         setPhantoms((previous) => {
           const next = new Map(previous);
           const existing = next.get(event.messageId);
@@ -42,9 +44,6 @@ export function useRemoteStreaming(
           }
           return next;
         });
-      }),
-      ws.on('message:complete', () => {
-        setPhantoms(new Map());
       }),
     ];
 

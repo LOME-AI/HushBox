@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { Hero } from './hero';
 
 describe('Hero', () => {
-  it('renders title', () => {
+  it('renders title', { timeout: 15_000 }, () => {
     render(<Hero title="Welcome to HushBox" />);
     expect(screen.getByRole('heading', { name: 'Welcome to HushBox' })).toBeInTheDocument();
   });

@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { CHARS_PER_TOKEN_STANDARD, estimateMessageCostDevelopment } from '@hushbox/shared';
 import type { Redis } from '@upstash/redis';
 import {
-  calculateWorstCaseCostCents,
   reserveBudget,
   releaseBudget,
   getReservedTotal,
@@ -11,99 +9,6 @@ import {
   getGroupReservedTotals,
 } from './speculative-balance.js';
 import { REDIS_REGISTRY } from './redis-registry.js';
-
-describe('calculateWorstCaseCostCents', () => {
-  const baseParams = {
-    estimatedInputTokens: 500,
-    effectiveMaxOutputTokens: 4000,
-    pricePerInputToken: 0.000_003,
-    pricePerOutputToken: 0.000_015,
-    inputCharacters: 200,
-  };
-
-  it('returns cost in cents (not dollars)', () => {
-    const cents = calculateWorstCaseCostCents(baseParams);
-    const dollars = estimateMessageCostDevelopment({
-      inputTokens: baseParams.estimatedInputTokens,
-      outputTokens: baseParams.effectiveMaxOutputTokens,
-      pricePerInputToken: baseParams.pricePerInputToken,
-      pricePerOutputToken: baseParams.pricePerOutputToken,
-      inputCharacters: baseParams.inputCharacters,
-      outputCharacters: baseParams.effectiveMaxOutputTokens * CHARS_PER_TOKEN_STANDARD,
-    });
-
-    expect(cents).toBeCloseTo(dollars * 100, 10);
-  });
-
-  it('delegates to estimateMessageCostDevelopment with correct params', () => {
-    const cents = calculateWorstCaseCostCents(baseParams);
-    expect(cents).toBeGreaterThan(0);
-  });
-
-  it('uses effectiveMaxOutputTokens * CHARS_PER_TOKEN_STANDARD for outputCharacters', () => {
-    const result1 = calculateWorstCaseCostCents({
-      ...baseParams,
-      effectiveMaxOutputTokens: 1000,
-    });
-    const result2 = calculateWorstCaseCostCents({
-      ...baseParams,
-      effectiveMaxOutputTokens: 2000,
-    });
-
-    expect(result2).toBeGreaterThan(result1);
-  });
-
-  it('increases with higher input token price', () => {
-    const cheap = calculateWorstCaseCostCents({
-      ...baseParams,
-      pricePerInputToken: 0.000_001,
-    });
-    const expensive = calculateWorstCaseCostCents({
-      ...baseParams,
-      pricePerInputToken: 0.000_01,
-    });
-
-    expect(expensive).toBeGreaterThan(cheap);
-  });
-
-  it('increases with higher output token price', () => {
-    const cheap = calculateWorstCaseCostCents({
-      ...baseParams,
-      pricePerOutputToken: 0.000_005,
-    });
-    const expensive = calculateWorstCaseCostCents({
-      ...baseParams,
-      pricePerOutputToken: 0.000_05,
-    });
-
-    expect(expensive).toBeGreaterThan(cheap);
-  });
-
-  it('includes storage fee component', () => {
-    const shortInput = calculateWorstCaseCostCents({
-      ...baseParams,
-      inputCharacters: 10,
-    });
-    const longInput = calculateWorstCaseCostCents({
-      ...baseParams,
-      inputCharacters: 100_000,
-    });
-
-    expect(longInput).toBeGreaterThan(shortInput);
-  });
-
-  it('returns zero when all prices are zero', () => {
-    const result = calculateWorstCaseCostCents({
-      estimatedInputTokens: 0,
-      effectiveMaxOutputTokens: 0,
-      pricePerInputToken: 0,
-      pricePerOutputToken: 0,
-      inputCharacters: 0,
-    });
-
-    expect(result).toBe(0);
-  });
-});
 
 function createMockRedis(): {
   get: ReturnType<typeof vi.fn>;

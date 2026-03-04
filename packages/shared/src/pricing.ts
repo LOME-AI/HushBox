@@ -2,7 +2,10 @@ import {
   TOTAL_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
   EXPENSIVE_MODEL_THRESHOLD_PER_1K,
+  CHARS_PER_TOKEN_CONSERVATIVE,
+  CHARS_PER_TOKEN_STANDARD,
 } from './constants.js';
+import type { UserTier } from './tiers.js';
 
 /**
  * Estimate token count from text using character-based heuristic.
@@ -161,4 +164,21 @@ export function isExpensiveModel(pricePerInputToken: number, pricePerOutputToken
   return (
     getModelCostPer1k(pricePerInputToken, pricePerOutputToken) >= EXPENSIVE_MODEL_THRESHOLD_PER_1K
   );
+}
+
+/**
+ * Effective cost per output token: model cost + estimated storage cost.
+ *
+ * Output is tokens→chars: INVERTED from input (chars→tokens).
+ * Free/trial/guest: STANDARD (4 chars/tok) → pessimistic (more storage budgeted).
+ * Paid: CONSERVATIVE (2 chars/tok) → optimistic (less storage, cushion absorbs overruns).
+ */
+export function effectiveOutputCostPerToken(
+  modelOutputPricePerToken: number,
+  tier: UserTier
+): number {
+  const outputCharsPerToken =
+    tier === 'paid' ? CHARS_PER_TOKEN_CONSERVATIVE : CHARS_PER_TOKEN_STANDARD;
+  const storageCostPerToken = outputCharsPerToken * STORAGE_COST_PER_CHARACTER;
+  return modelOutputPricePerToken + storageCostPerToken;
 }

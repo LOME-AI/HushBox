@@ -371,7 +371,7 @@ export function useAuthenticatedChat({
           state.stopStreaming();
           useChatErrorStore.getState().setError(
             createChatError({
-              content: friendlyErrorMessage('INTERNAL'),
+              content: friendlyErrorMessage('CHAT_STREAM_FAILED'),
               retryable: false,
               failedContent: pendingMessage,
             })
@@ -477,7 +477,7 @@ export function useAuthenticatedChat({
             console.error('Stream failed:', error);
             useChatErrorStore.getState().setError(
               createChatError({
-                content: friendlyErrorMessage('INTERNAL'),
+                content: friendlyErrorMessage('CHAT_STREAM_FAILED'),
                 retryable: false,
                 failedContent: content,
               })

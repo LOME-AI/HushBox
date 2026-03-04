@@ -27,7 +27,7 @@ export function generateTotpUri(accountLabel: string, secret: string): string {
 
 export async function verifyTotpCode(code: string, secret: string): Promise<boolean> {
   try {
-    const result = await verify({ token: code, secret, strategy: 'totp' });
+    const result = await verify({ token: code, secret, strategy: 'totp', epochTolerance: 30 });
     return result.valid;
   } catch {
     return false;
