@@ -428,3 +428,5 @@ jobs:
         run: |
           git tag "v${{ needs.version.outputs.version }}"
           git push origin "v${{ needs.version.outputs.version }}"
+        env:
+          HUSKY: '0'
