@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -60,6 +64,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
+      - name: Generate environment files
+        run: pnpm generate:env
       - name: Check unused code
         run: pnpm lint:unused
 

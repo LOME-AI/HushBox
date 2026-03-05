@@ -293,6 +293,26 @@ local_protocol = "http"
       expect(content).toContain('VITE_CI="true"');
     });
 
+    it('includes base port vars in .env.scripts', () => {
+      generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
+
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
+      expect(content).toContain('HB_VITE_PORT="5173"');
+      expect(content).toContain('HB_API_PORT="8787"');
+      expect(content).toContain('HB_POSTGRES_PORT="5432"');
+      expect(content).toContain('HB_NEON_PORT="4444"');
+      expect(content).toContain('HB_REDIS_PORT="6379"');
+      expect(content).toContain('HB_REDIS_HTTP_PORT="8079"');
+      expect(content).toContain('HB_ASTRO_PORT="4321"');
+    });
+
+    it('does not include COMPOSE_PROJECT_NAME in CI mode', () => {
+      generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
+
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
+      expect(content).not.toContain('COMPOSE_PROJECT_NAME');
+    });
+
     it('throws if required ciE2E secrets are missing', () => {
       delete process.env['HELCIM_API_TOKEN_SANDBOX'];
 
