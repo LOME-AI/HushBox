@@ -10,6 +10,7 @@ interface Conversation {
   currentEpoch: number;
   updatedAt: string;
   privilege: string;
+  muted: boolean;
 }
 
 export interface ChatListProps {

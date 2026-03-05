@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { ROUTES } from './routes.js';
+import { ROUTES, MARKETING_BASE_URL } from './routes.js';
 
 describe('ROUTES constants', () => {
   const routeEntries = Object.entries(ROUTES);
   const routeValues = Object.values(ROUTES);
 
   it('contains the expected number of route definitions', () => {
-    expect(routeEntries.length).toBe(15);
+    expect(routeEntries.length).toBe(18);
   });
 
   it('has all values as non-empty strings', () => {
@@ -43,7 +43,10 @@ describe('ROUTES constants', () => {
         "CHAT_ID": "/chat/$id",
         "CHAT_NEW": "/chat/new",
         "CHAT_TRIAL": "/chat/trial",
+        "DEV_ASSETS": "/dev/assets",
+        "DEV_EMAILS": "/dev/emails",
         "DEV_PERSONAS": "/dev/personas",
+        "DEV_RENDER_ASSET": "/dev/render-asset/$name",
         "LOGIN": "/login",
         "PRIVACY": "/privacy",
         "PROJECTS": "/projects",
@@ -55,5 +58,15 @@ describe('ROUTES constants', () => {
         "VERIFY": "/verify",
       }
     `);
+  });
+});
+
+describe('MARKETING_BASE_URL', () => {
+  it('is the production hushbox.ai URL', () => {
+    expect(MARKETING_BASE_URL).toBe('https://hushbox.ai');
+  });
+
+  it('has no trailing slash', () => {
+    expect(MARKETING_BASE_URL.endsWith('/')).toBe(false);
   });
 });

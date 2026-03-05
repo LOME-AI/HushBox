@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { useAppVersionStore } from '@/stores/app-version';
 
 class ApiError extends Error {
   constructor(
@@ -14,6 +15,10 @@ class ApiError extends Error {
 vi.mock('./api.js', () => ({
   getApiUrl: () => 'http://localhost:8787',
   ApiError,
+}));
+
+vi.mock('@/capacitor/platform.js', () => ({
+  getPlatform: () => 'web',
 }));
 
 describe('api-client', () => {
@@ -41,7 +46,8 @@ describe('api-client', () => {
     await client.api.health.$get();
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const callArgs = fetchSpy.mock.calls[0] as [Request | string | URL];
+    type CallArgs = [Request | string | URL];
+    const callArgs = fetchSpy.mock.calls[0] as CallArgs;
     const requestUrl = callArgs[0] instanceof Request ? callArgs[0].url : String(callArgs[0]);
     expect(requestUrl).toContain('http://localhost:8787/api/health');
   });
@@ -68,6 +74,10 @@ describe('api-client', () => {
 });
 
 describe('fetchJson', () => {
+  beforeEach(() => {
+    useAppVersionStore.setState({ upgradeRequired: false });
+  });
+
   it('returns parsed JSON on successful response', async () => {
     const { fetchJson } = await import('./api-client.js');
     const data = { id: '1', name: 'test' };
@@ -177,5 +187,94 @@ describe('fetchJson', () => {
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).data).toEqual(errorBody);
     }
+  });
+
+  it('sets upgradeRequired in store on 426 response', async () => {
+    const { fetchJson } = await import('./api-client.js');
+    const errorBody = { code: 'UPGRADE_REQUIRED', currentVersion: 'abc123' };
+    const response = Promise.resolve(
+      Response.json(errorBody, {
+        status: 426,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await expect(fetchJson(response)).rejects.toThrow('UPGRADE_REQUIRED');
+    expect(useAppVersionStore.getState().upgradeRequired).toBe(true);
+  });
+
+  it('still throws ApiError on 426 after setting store', async () => {
+    const { fetchJson } = await import('./api-client.js');
+    const errorBody = { code: 'UPGRADE_REQUIRED', currentVersion: 'abc123' };
+    const response = Promise.resolve(
+      Response.json(errorBody, {
+        status: 426,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    try {
+      await fetchJson(response);
+      expect.fail('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).status).toBe(426);
+    }
+  });
+});
+
+describe('platform and version headers', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  function getHeaderFromFetchCall(fetchCall: unknown[], headerName: string): string | null {
+    const [req, init] = fetchCall as [Request | string | URL, RequestInit | undefined];
+    if (req instanceof Request) {
+      return req.headers.get(headerName);
+    }
+    if (init?.headers) {
+      return new Headers(init.headers).get(headerName);
+    }
+    return null;
+  }
+
+  it('sends X-HushBox-Platform header with every request', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        Response.json(
+          { status: 'ok', timestamp: '2024-01-01T00:00:00.000Z' },
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+    vi.resetModules();
+    const { client } = await import('./api-client.js');
+    await client.api.health.$get();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const platform = getHeaderFromFetchCall(fetchSpy.mock.calls[0]!, 'X-HushBox-Platform');
+    expect(platform).toBe('web');
+  });
+
+  it('sends X-App-Version header with every request', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        Response.json(
+          { status: 'ok', timestamp: '2024-01-01T00:00:00.000Z' },
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+    vi.resetModules();
+    const { client } = await import('./api-client.js');
+    await client.api.health.$get();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const version = getHeaderFromFetchCall(fetchSpy.mock.calls[0]!, 'X-App-Version');
+    expect(version).toBe('dev-local');
   });
 });

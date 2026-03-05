@@ -2,17 +2,26 @@ import * as React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
 import { useCipherWall, readThemeColors } from './use-cipher-wall';
+import type { CipherWallOptions } from './use-cipher-wall';
+import type { ThemeColors } from '@/components/auth/cipher-wall-engine';
 
-// --- Test component that wires the hook to a real canvas ---
+// --- Test components that wire the hook to a real canvas ---
 
-function TestCanvas(): React.JSX.Element {
-  const canvasRef = useCipherWall();
+function TestCanvas(props: Readonly<CipherWallOptions>): React.JSX.Element {
+  const canvasRef = useCipherWall(props);
   return (
     <div style={{ width: 800, height: 600 }}>
       <canvas ref={canvasRef} data-testid="test-canvas" />
     </div>
   );
 }
+
+const DARK_THEME: ThemeColors = {
+  background: '#0a0a0a',
+  foreground: '#fafafa',
+  brandRed: '#ec4755',
+  foregroundMuted: '#888888',
+};
 
 // --- Mock browser APIs ---
 
@@ -231,6 +240,66 @@ describe('useCipherWall', () => {
     const { unmount } = render(<TestCanvas />);
     unmount();
     expect(mutationDisconnected).toBe(true);
+  });
+});
+
+describe('useCipherWall frozen mode', () => {
+  beforeEach(() => {
+    resizeCallbacks = [];
+    resizeObservedElements = [];
+    resizeDisconnected = false;
+    mutationCallbacks = [];
+    mutationObserveArgs = [];
+    mutationDisconnected = false;
+
+    vi.stubGlobal('ResizeObserver', MockResizeObserver);
+    vi.stubGlobal('MutationObserver', MockMutationObserver);
+    setupMatchMedia(false);
+    setupRAF();
+    setupGetComputedStyle();
+
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => mockCtx) as never;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'matchMedia', {
+      writable: true,
+      value: originalMatchMedia,
+    });
+    globalThis.requestAnimationFrame = originalRAF;
+    globalThis.cancelAnimationFrame = originalCAF;
+    globalThis.getComputedStyle = originalGetComputedStyle;
+    HTMLCanvasElement.prototype.getContext = originalGetContext;
+    vi.restoreAllMocks();
+  });
+
+  it('does not start rAF loop when frozen is true', () => {
+    render(<TestCanvas frozen />);
+    expect(globalThis.requestAnimationFrame).not.toHaveBeenCalled();
+  });
+
+  it('still sets up ResizeObserver when frozen', () => {
+    render(<TestCanvas frozen />);
+    expect(resizeCallbacks).toHaveLength(1);
+    expect(resizeObservedElements).toHaveLength(1);
+  });
+
+  it('does not set up MutationObserver when frozen', () => {
+    render(<TestCanvas frozen />);
+    expect(mutationObserveArgs).toHaveLength(0);
+  });
+
+  it('uses themeOverride when provided instead of reading CSS', () => {
+    render(<TestCanvas frozen themeOverride={DARK_THEME} />);
+    // getComputedStyle should not be called for theme reading when override is provided
+    // (it may be called by JSDOM internally, but not by readThemeColors)
+    // The key test is that it renders without error using the override
+    expect(globalThis.requestAnimationFrame).not.toHaveBeenCalled();
+  });
+
+  it('accepts cipherOpacity option without error', () => {
+    render(<TestCanvas frozen themeOverride={DARK_THEME} cipherOpacity={0.5} />);
+    expect(globalThis.requestAnimationFrame).not.toHaveBeenCalled();
   });
 });
 

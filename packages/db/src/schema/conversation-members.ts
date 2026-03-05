@@ -1,4 +1,12 @@
-import { pgTable, text, timestamp, index, integer, uniqueIndex } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  timestamp,
+  index,
+  integer,
+  uniqueIndex,
+  boolean,
+} from 'drizzle-orm/pg-core';
 import { isNull, sql } from 'drizzle-orm';
 
 import { conversations } from './conversations';
@@ -21,6 +29,7 @@ export const conversationMembers = pgTable(
     joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
     leftAt: timestamp('left_at', { withTimezone: true }),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    muted: boolean('muted').notNull().default(false),
     invitedByUserId: text('invited_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),

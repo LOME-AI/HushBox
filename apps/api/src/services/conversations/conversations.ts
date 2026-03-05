@@ -17,6 +17,7 @@ export interface ConversationListRow {
   acceptedAt: Date | null;
   invitedByUsername: string | null;
   privilege: string;
+  muted: boolean;
 }
 
 export interface ConversationWithMessages {
@@ -103,6 +104,7 @@ export async function listConversations(
       acceptedAt: conversationMembers.acceptedAt,
       invitedByUsername: inviter.username,
       privilege: conversationMembers.privilege,
+      muted: conversationMembers.muted,
     })
     .from(conversationMembers)
     .innerJoin(conversations, eq(conversationMembers.conversationId, conversations.id))
@@ -126,6 +128,7 @@ export async function listConversations(
     acceptedAt: row.acceptedAt,
     invitedByUsername: row.invitedByUsername,
     privilege: row.privilege,
+    muted: row.muted,
   }));
 }
 

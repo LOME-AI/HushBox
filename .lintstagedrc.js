@@ -1,6 +1,5 @@
 export default {
-  'apps/api/**/*.ts': (files) =>
-    `pnpm --filter @hushbox/api exec eslint --fix ${files.join(' ')}`,
+  'apps/api/**/*.ts': (files) => `pnpm --filter @hushbox/api exec eslint --fix ${files.join(' ')}`,
   'apps/web/**/*.{ts,tsx}': (files) =>
     `pnpm --filter @hushbox/web exec eslint --fix ${files.join(' ')}`,
   'packages/db/**/*.ts': (files) =>

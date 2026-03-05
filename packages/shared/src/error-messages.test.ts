@@ -451,6 +451,27 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  // ------------------------------------------------------------------
+  // Mobile codes
+  // ------------------------------------------------------------------
+  it('maps UPGRADE_REQUIRED to user-facing message', () => {
+    expect(friendlyErrorMessage('UPGRADE_REQUIRED')).toBe(
+      'A new version is available. Please update to continue.'
+    );
+  });
+
+  it('maps LOGIN_TOKEN_INVALID to user-facing message', () => {
+    expect(friendlyErrorMessage('LOGIN_TOKEN_INVALID')).toBe(
+      'This login link has expired or already been used.'
+    );
+  });
+
+  it('maps BILLING_SESSION_RESTRICTED to user-facing message', () => {
+    expect(friendlyErrorMessage('BILLING_SESSION_RESTRICTED')).toBe(
+      'This session can only access billing. Please log in normally for full access.'
+    );
+  });
+
   it('maps CHAT_STREAM_FAILED to user-facing message', () => {
     expect(friendlyErrorMessage('CHAT_STREAM_FAILED')).toBe(
       'Something went wrong. Please try again or try a different model.'

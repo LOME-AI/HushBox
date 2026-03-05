@@ -4,11 +4,13 @@ import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Mock dependencies using vi.hoisted for values referenced in vi.mock factory
-const { mockUseStableBalance, mockUseTransactions, mockUseStability } = vi.hoisted(() => ({
-  mockUseStableBalance: vi.fn(),
-  mockUseTransactions: vi.fn(),
-  mockUseStability: vi.fn(),
-}));
+const { mockUseStableBalance, mockUseTransactions, mockUseStability, mockIsPaymentDisabled } =
+  vi.hoisted(() => ({
+    mockUseStableBalance: vi.fn(),
+    mockUseTransactions: vi.fn(),
+    mockUseStability: vi.fn(),
+    mockIsPaymentDisabled: vi.fn(() => false),
+  }));
 
 // Mock tanstack router
 vi.mock('@tanstack/react-router', async () => {
@@ -38,6 +40,18 @@ vi.mock('@/hooks/billing', () => ({
 // Mock stability provider
 vi.mock('@/providers/stability-provider', () => ({
   useStability: mockUseStability,
+}));
+
+// Mock platform detection
+vi.mock('@/capacitor/platform', () => ({
+  isPaymentDisabled: mockIsPaymentDisabled,
+}));
+
+// Mock ManageOnlineButton (it has its own tests)
+vi.mock('@/components/billing/manage-online-button', () => ({
+  ManageOnlineButton: () => (
+    <button data-testid="manage-online-button">Manage Balance Online</button>
+  ),
 }));
 
 // Import after mocks
@@ -268,6 +282,47 @@ describe('BillingPage', () => {
       // Next button should be enabled because nextCursor is present
       const nextButton = screen.getByRole('button', { name: /next/i });
       expect(nextButton).not.toBeDisabled();
+    });
+  });
+
+  describe('platform-conditional billing', () => {
+    beforeEach(() => {
+      mockUseStableBalance.mockReturnValue({
+        displayBalance: '10.00000000',
+        isStable: true,
+        refetch: vi.fn(),
+      });
+      mockUseTransactions.mockReturnValue({
+        data: { transactions: [], nextCursor: null },
+        isLoading: false,
+      });
+    });
+
+    it('shows Add Credits button when payments are enabled', () => {
+      mockIsPaymentDisabled.mockReturnValue(false);
+
+      render(<BillingPage />, { wrapper: createWrapper() });
+
+      expect(screen.getByRole('button', { name: /add credits/i })).toBeInTheDocument();
+      expect(screen.queryByTestId('manage-online-button')).not.toBeInTheDocument();
+    });
+
+    it('shows Manage Balance Online button when payments are disabled', () => {
+      mockIsPaymentDisabled.mockReturnValue(true);
+
+      render(<BillingPage />, { wrapper: createWrapper() });
+
+      expect(screen.getByTestId('manage-online-button')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /add credits/i })).not.toBeInTheDocument();
+    });
+
+    it('hides PaymentModal when payments are disabled', () => {
+      mockIsPaymentDisabled.mockReturnValue(true);
+
+      render(<BillingPage />, { wrapper: createWrapper() });
+
+      // PaymentModal should not be rendered at all
+      expect(screen.queryByTestId('payment-modal')).not.toBeInTheDocument();
     });
   });
 });

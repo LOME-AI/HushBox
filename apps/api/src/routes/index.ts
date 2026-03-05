@@ -15,3 +15,6 @@ export { linkGuestRoute } from './link-guest.js';
 export { messageSharesRoute, publicSharesRoute } from './message-shares.js';
 export { budgetsRoute } from './budgets.js';
 export { usersRoute } from './users.js';
+export { deviceTokensRoute } from './device-tokens.js';
+export { tokenLoginRoute } from './token-login.js';
+export { updatesRoute } from './updates.js';

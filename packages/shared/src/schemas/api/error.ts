@@ -269,6 +269,22 @@ export const ERROR_CODE_WRAP_SET_MISMATCH = 'WRAP_SET_MISMATCH';
 export const ERROR_CODE_ROTATION_REQUIRED = 'ROTATION_REQUIRED';
 
 // ============================================================
+// Error Codes — Mobile
+// ============================================================
+
+/** App version outdated - client must update before continuing */
+export const ERROR_CODE_UPGRADE_REQUIRED = 'UPGRADE_REQUIRED';
+
+/** Login token invalid or expired - one-time billing login link */
+export const ERROR_CODE_LOGIN_TOKEN_INVALID = 'LOGIN_TOKEN_INVALID';
+
+/** Billing-scoped session tried to access non-billing route */
+export const ERROR_CODE_BILLING_SESSION_RESTRICTED = 'BILLING_SESSION_RESTRICTED';
+
+/** Requested build version not found in R2 storage */
+export const ERROR_CODE_BUILD_NOT_FOUND = 'BUILD_NOT_FOUND';
+
+// ============================================================
 // Error Response Schema
 // ============================================================
 

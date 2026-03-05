@@ -326,4 +326,58 @@ describe('csrfProtection middleware', () => {
       expect(body.code).toBe('CSRF_REJECTED');
     });
   });
+
+  describe('Capacitor native origins', () => {
+    it('allows POST from capacitor://localhost', async () => {
+      const app = createApp('https://hushbox.ai');
+
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: {
+          Origin: 'capacitor://localhost',
+        },
+      });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('allows POST from http://localhost (Android WebView)', async () => {
+      const app = createApp('https://hushbox.ai');
+
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: {
+          Origin: 'http://localhost',
+        },
+      });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('allows DELETE from capacitor://localhost', async () => {
+      const app = createApp('https://hushbox.ai');
+
+      const res = await app.request('/test', {
+        method: 'DELETE',
+        headers: {
+          Origin: 'capacitor://localhost',
+        },
+      });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('still rejects other unknown origins', async () => {
+      const app = createApp('https://hushbox.ai');
+
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: {
+          Origin: 'http://localhost:9999',
+        },
+      });
+
+      expect(res.status).toBe(403);
+    });
+  });
 });

@@ -76,6 +76,7 @@ import { getEmailClient } from '../services/email/index.js';
 import { ensureWalletsExist } from '../services/billing/wallet-provisioning.js';
 import {
   verificationEmail,
+  welcomeEmail,
   passwordChangedEmail,
   twoFactorEnabledEmail,
   twoFactorDisabledEmail,
@@ -529,6 +530,17 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         subject: 'Verify your email address',
         html: content.html,
         text: content.text,
+      });
+
+      // Send welcome email (separate from verification)
+      const welcomeContent = welcomeEmail({
+        userName: displayUsername(pending.username),
+      });
+      await emailClient.sendEmail({
+        to: pending.email,
+        subject: 'Welcome to HushBox',
+        html: welcomeContent.html,
+        text: welcomeContent.text,
       });
     } catch {
       // Email send failure should not block registration

@@ -18,6 +18,7 @@ import {
   chatKeys,
   DECRYPTING_TITLE,
 } from '@/hooks/chat';
+
 import { usePendingChatStore } from '@/stores/pending-chat';
 import { useModelStore } from '@/stores/model';
 import { useChatErrorStore, createChatError } from '@/stores/chat-error';
@@ -73,13 +74,14 @@ interface UseAuthenticatedChatResult {
   readonly realConversationId: string | null;
 }
 
-interface ComputeRenderStateParams {
+export interface ComputeRenderStateParams {
   isCreateMode: boolean;
   pendingMessage: string | null;
   localMessagesLength: number;
   conversation: { title: string } | undefined;
   isConversationLoading: boolean;
   isMessagesLoading: boolean;
+  isDecryptionPending: boolean;
 }
 
 function shouldRedirect(
@@ -90,7 +92,7 @@ function shouldRedirect(
   return isCreateMode && !pendingMessage && localMessagesLength === 0;
 }
 
-function computeRenderState(params: ComputeRenderStateParams): RenderState {
+export function computeRenderState(params: ComputeRenderStateParams): RenderState {
   const {
     isCreateMode,
     pendingMessage,
@@ -118,6 +120,12 @@ function computeRenderState(params: ComputeRenderStateParams): RenderState {
     if (localMessagesLength > 0) {
       return { type: 'ready' };
     }
+    return { type: 'loading', title: DECRYPTING_TITLE };
+  }
+
+  // API returned messages but decryption hasn't completed yet (key chain loading).
+  // Stay in loading state to show "Decrypting..." instead of a blank page.
+  if (params.isDecryptionPending) {
     return { type: 'loading', title: DECRYPTING_TITLE };
   }
 
@@ -581,6 +589,9 @@ export function useAuthenticatedChat({
     return allMessages.reduce((total, message) => total + message.content.length, 0);
   }, [allMessages]);
 
+  const isDecryptionPending =
+    !isCreateMode && (apiMessages?.length ?? 0) > 0 && decryptedApiMessages.length === 0;
+
   const renderState = React.useMemo(
     () =>
       computeRenderState({
@@ -590,6 +601,7 @@ export function useAuthenticatedChat({
         conversation,
         isConversationLoading,
         isMessagesLoading,
+        isDecryptionPending,
       }),
     [
       isCreateMode,
@@ -598,6 +610,7 @@ export function useAuthenticatedChat({
       conversation,
       isConversationLoading,
       isMessagesLoading,
+      isDecryptionPending,
     ]
   );
 
@@ -642,3 +655,5 @@ export function useAuthenticatedChat({
     realConversationId,
   };
 }
+
+export { DECRYPTING_TITLE } from '@/hooks/chat';

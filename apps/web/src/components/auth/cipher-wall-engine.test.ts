@@ -8,6 +8,8 @@ import {
   getCellColor,
   renderFrame,
   createStaticSnapshot,
+  createFrozenSnapshot,
+  SPLASH_MESSAGE_INDICES,
   CIPHER_CHARS,
   MESSAGES,
   CELL_WIDTH,
@@ -775,21 +777,45 @@ describe('renderFrame', () => {
   it('calls clearRect with full dimensions', () => {
     const ctx = mockCtx();
     const state = createGrid(5, 3);
-    renderFrame({ ctx, state, colors: themeColors, width: 400, height: 300, logoMask: null });
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 400,
+      height: 300,
+      logoMask: null,
+      cipherOpacity: 1,
+    });
     expect(ctx.clearRect).toHaveBeenCalledWith(0, 0, 400, 300);
   });
 
   it('calls fillText for every cell in the grid', () => {
     const ctx = mockCtx();
     const state = createGrid(5, 3);
-    renderFrame({ ctx, state, colors: themeColors, width: 400, height: 300, logoMask: null });
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 400,
+      height: 300,
+      logoMask: null,
+      cipherOpacity: 1,
+    });
     expect(ctx.fillText).toHaveBeenCalledTimes(15);
   });
 
   it('sets font to FONT constant', () => {
     const ctx = mockCtx();
     const state = createGrid(2, 2);
-    renderFrame({ ctx, state, colors: themeColors, width: 200, height: 200, logoMask: null });
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 200,
+      height: 200,
+      logoMask: null,
+      cipherOpacity: 1,
+    });
     expect(ctx.font).toBe(FONT);
   });
 
@@ -799,7 +825,15 @@ describe('renderFrame', () => {
     state.grid[1]![2]!.state = 'readable';
     state.grid[1]![2]!.targetChar = 'H';
 
-    renderFrame({ ctx, state, colors: themeColors, width: 400, height: 300, logoMask: null });
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 400,
+      height: 300,
+      logoMask: null,
+      cipherOpacity: 1,
+    });
 
     const fillTextCalls = vi.mocked(ctx.fillText).mock.calls;
     const callIndex = 1 * 5 + 2;
@@ -809,7 +843,15 @@ describe('renderFrame', () => {
   it('uses 0.8 opacity for cipher cells', () => {
     const ctx = mockCtx();
     const state = createGrid(1, 1);
-    renderFrame({ ctx, state, colors: themeColors, width: 100, height: 100, logoMask: null });
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 100,
+      height: 100,
+      logoMask: null,
+      cipherOpacity: 1,
+    });
 
     expect(ctx.globalAlpha).toBe(0.8);
   });
@@ -822,14 +864,30 @@ describe('renderFrame', () => {
       [false, false, false],
     ];
 
-    renderFrame({ ctx, state, colors: themeColors, width: 300, height: 200, logoMask });
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 300,
+      height: 200,
+      logoMask,
+      cipherOpacity: 1,
+    });
     expect(ctx.fillText).toHaveBeenCalledTimes(6);
   });
 
   it('positions fillText at correct coordinates using CELL_WIDTH and CELL_HEIGHT', () => {
     const ctx = mockCtx();
     const state = createGrid(2, 2);
-    renderFrame({ ctx, state, colors: themeColors, width: 200, height: 200, logoMask: null });
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 200,
+      height: 200,
+      logoMask: null,
+      cipherOpacity: 1,
+    });
 
     const fillTextCalls = vi.mocked(ctx.fillText).mock.calls;
     expect(fillTextCalls[0]![1]).toBe(0 * CELL_WIDTH);
@@ -838,6 +896,103 @@ describe('renderFrame', () => {
     expect(fillTextCalls[1]![2]).toBe(0 * CELL_HEIGHT + FONT_SIZE);
     expect(fillTextCalls[2]![1]).toBe(0 * CELL_WIDTH);
     expect(fillTextCalls[2]![2]).toBe(1 * CELL_HEIGHT + FONT_SIZE);
+  });
+
+  it('applies cipherOpacity to cipher cells', () => {
+    const ctx = mockCtx();
+    const state = createGrid(1, 1);
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 100,
+      height: 100,
+      logoMask: null,
+      cipherOpacity: 0.5,
+    });
+
+    // cipher base opacity is 0.8, multiplied by 0.5 = 0.4
+    expect(ctx.globalAlpha).toBeCloseTo(0.4);
+  });
+
+  it('does not apply cipherOpacity to readable cells', () => {
+    const ctx = mockCtx();
+    const state = createGrid(1, 1);
+    state.grid[0]![0]!.state = 'readable';
+    state.grid[0]![0]!.targetChar = 'H';
+    state.grid[0]![0]!.progress = 1;
+
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 100,
+      height: 100,
+      logoMask: null,
+      cipherOpacity: 0.5,
+    });
+
+    // readable opacity is 1.0, cipherOpacity does NOT apply
+    expect(ctx.globalAlpha).toBeCloseTo(1);
+  });
+
+  it('applies cipherOpacity to decrypting cells', () => {
+    const ctx = mockCtx();
+    const state = createGrid(1, 1);
+    state.grid[0]![0]!.state = 'decrypting';
+    state.grid[0]![0]!.progress = 0.5;
+    state.grid[0]![0]!.rollChar = 'X';
+
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 100,
+      height: 100,
+      logoMask: null,
+      cipherOpacity: 0.5,
+    });
+
+    // decrypting at progress 0.5: base alpha = 0.8 + (1.0 - 0.8) * 0.5 = 0.9, × 0.5 = 0.45
+    expect(ctx.globalAlpha).toBeCloseTo(0.45);
+  });
+
+  it('applies cipherOpacity to encrypting cells', () => {
+    const ctx = mockCtx();
+    const state = createGrid(1, 1);
+    state.grid[0]![0]!.state = 'encrypting';
+    state.grid[0]![0]!.progress = 0.5;
+    state.grid[0]![0]!.rollChar = 'X';
+
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 100,
+      height: 100,
+      logoMask: null,
+      cipherOpacity: 0.5,
+    });
+
+    // encrypting at progress 0.5: base alpha = 1.0 - (1.0 - 0.8) * 0.5 = 0.9, × 0.5 = 0.45
+    expect(ctx.globalAlpha).toBeCloseTo(0.45);
+  });
+
+  it('treats cipherOpacity of 1 as no change', () => {
+    const ctx = mockCtx();
+    const state = createGrid(1, 1);
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 100,
+      height: 100,
+      logoMask: null,
+      cipherOpacity: 1,
+    });
+
+    // cipher base opacity is 0.8, × 1 = 0.8 (unchanged)
+    expect(ctx.globalAlpha).toBeCloseTo(0.8);
   });
 });
 
@@ -912,5 +1067,134 @@ describe('createStaticSnapshot', () => {
         }
       }
     }
+  });
+});
+
+function findReadableSpan(
+  state: CipherWallState,
+  row: number
+): { firstCol: number; lastCol: number } | undefined {
+  let firstCol = -1;
+  let lastCol = -1;
+  for (let c = 0; c < state.cols; c++) {
+    if (state.grid[row]![c]!.state === 'readable') {
+      if (firstCol === -1) firstCol = c;
+      lastCol = c;
+    }
+  }
+  return firstCol === -1 ? undefined : { firstCol, lastCol };
+}
+
+describe('createFrozenSnapshot', () => {
+  // Use a grid large enough for all 4 messages (113×62 matches real splash at 1366×1366)
+  const cols = 113;
+  const rows = 62;
+  const centerRow = Math.floor(rows / 2); // 31
+  const centerCol = Math.floor(cols / 2); // 56
+
+  it('returns grid with correct dimensions', () => {
+    const state = createFrozenSnapshot(cols, rows, 4);
+    expect(state.cols).toBe(cols);
+    expect(state.rows).toBe(rows);
+    expect(state.grid).toHaveLength(rows);
+    for (const row of state.grid) {
+      expect(row).toHaveLength(cols);
+    }
+  });
+
+  it('places 4 messages on 4 distinct rows', () => {
+    const state = createFrozenSnapshot(cols, rows, 4);
+    const readableRows = new Set<number>();
+    for (let r = 0; r < state.rows; r++) {
+      for (const cell of state.grid[r]!) {
+        if (cell.state === 'readable') readableRows.add(r);
+      }
+    }
+    expect(readableRows.size).toBe(4);
+  });
+
+  it('places messages at symmetric row offsets from center (±5 and ±8)', () => {
+    const state = createFrozenSnapshot(cols, rows, 4);
+    const readableRows: number[] = [];
+    for (let r = 0; r < state.rows; r++) {
+      for (const cell of state.grid[r]!) {
+        if (cell.state === 'readable') {
+          readableRows.push(r);
+          break;
+        }
+      }
+    }
+    readableRows.sort((a, b) => a - b);
+    expect(readableRows).toEqual([centerRow - 8, centerRow - 5, centerRow + 5, centerRow + 8]);
+  });
+
+  it('centers each message by its middle character on the center column', () => {
+    const state = createFrozenSnapshot(cols, rows, 4);
+    for (let r = 0; r < state.rows; r++) {
+      const span = findReadableSpan(state, r);
+      if (!span) continue;
+      const length = span.lastCol - span.firstCol + 1;
+      const middleChar = Math.floor((length - 1) / 2);
+      expect(span.firstCol + middleChar).toBe(centerCol);
+    }
+  });
+
+  it('places messages matching SPLASH_MESSAGE_INDICES from MESSAGES', () => {
+    const state = createFrozenSnapshot(cols, rows, 4);
+    const expectedMessages = SPLASH_MESSAGE_INDICES.map((index) => MESSAGES[index]);
+    const placedMessages: string[] = [];
+    for (let r = 0; r < state.rows; r++) {
+      let rowText = '';
+      for (let c = 0; c < state.cols; c++) {
+        const cell = state.grid[r]![c]!;
+        if (cell.state === 'readable') rowText += cell.targetChar;
+      }
+      if (rowText.length > 0) placedMessages.push(rowText);
+    }
+    expect(placedMessages).toEqual(expectedMessages);
+  });
+
+  it('SPLASH_MESSAGE_INDICES has 4 entries', () => {
+    expect(SPLASH_MESSAGE_INDICES).toHaveLength(4);
+  });
+
+  it('has no active reveals (static)', () => {
+    const state = createFrozenSnapshot(cols, rows, 4);
+    expect(state.reveals).toHaveLength(0);
+  });
+
+  it('all non-readable cells are in cipher state', () => {
+    const state = createFrozenSnapshot(cols, rows, 4);
+    for (const row of state.grid) {
+      for (const cell of row) {
+        if (cell.state !== 'readable') {
+          expect(cell.state).toBe('cipher');
+        }
+      }
+    }
+  });
+
+  it('handles zero messageCount', () => {
+    const state = createFrozenSnapshot(cols, rows, 0);
+    expect(countReadableCells(state.grid)).toBe(0);
+    expect(state.reveals).toHaveLength(0);
+  });
+
+  it('skips messages that do not fit in a small grid', () => {
+    // Grid with only 5 rows — offsets ±4 go out of bounds
+    const state = createFrozenSnapshot(cols, 5, 4);
+    const readableRows = new Set<number>();
+    for (let r = 0; r < state.rows; r++) {
+      for (const cell of state.grid[r]!) {
+        if (cell.state === 'readable') readableRows.add(r);
+      }
+    }
+    expect(readableRows.size).toBeLessThan(4);
+  });
+
+  it('skips messages that overflow columns in a narrow grid', () => {
+    // Grid too narrow for the longest splash message
+    const state = createFrozenSnapshot(10, rows, 4);
+    expect(countReadableCells(state.grid)).toBe(0);
   });
 });

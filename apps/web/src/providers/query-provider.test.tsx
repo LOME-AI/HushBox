@@ -1,8 +1,16 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { useQuery } from '@tanstack/react-query';
 import { QueryProvider, shouldRetryQuery } from './query-provider';
 import { ApiError } from '@/lib/api';
+
+vi.mock('@tanstack/react-query-devtools', () => ({
+  ReactQueryDevtools: () => <div data-testid="react-query-devtools" />,
+}));
+
+vi.mock('@/lib/env', () => ({
+  env: { isLocalDev: true },
+}));
 
 // Test component that uses useQuery to verify context is available
 // eslint-disable-next-line sonarjs/function-return-type -- test component
@@ -16,6 +24,19 @@ function TestQueryConsumer(): React.ReactNode {
 }
 
 describe('QueryProvider', () => {
+  let originalWebdriver: boolean;
+
+  beforeEach(() => {
+    originalWebdriver = navigator.webdriver;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'webdriver', {
+      value: originalWebdriver,
+      configurable: true,
+    });
+  });
+
   it('renders children', () => {
     render(
       <QueryProvider>
@@ -36,6 +57,36 @@ describe('QueryProvider', () => {
 
     // If context wasn't provided, useQuery would throw
     expect(screen.getByTestId('consumer')).toBeInTheDocument();
+  });
+
+  it('does not render devtools when navigator.webdriver is true', () => {
+    Object.defineProperty(navigator, 'webdriver', {
+      value: true,
+      configurable: true,
+    });
+
+    render(
+      <QueryProvider>
+        <div>child</div>
+      </QueryProvider>
+    );
+
+    expect(screen.queryByTestId('react-query-devtools')).not.toBeInTheDocument();
+  });
+
+  it('renders devtools in local dev when not automated', () => {
+    Object.defineProperty(navigator, 'webdriver', {
+      value: false,
+      configurable: true,
+    });
+
+    render(
+      <QueryProvider>
+        <div>child</div>
+      </QueryProvider>
+    );
+
+    expect(screen.getByTestId('react-query-devtools')).toBeInTheDocument();
   });
 });
 

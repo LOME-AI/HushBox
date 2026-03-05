@@ -1,3 +1,6 @@
+/** Production marketing site base URL (used for native deep links and external page opens). */
+export const MARKETING_BASE_URL = 'https://hushbox.ai';
+
 /**
  * Centralized route constants.
  * Single source of truth for all navigation paths.
@@ -27,4 +30,7 @@ export const ROUTES = {
 
   // Dev routes
   DEV_PERSONAS: '/dev/personas',
+  DEV_EMAILS: '/dev/emails',
+  DEV_ASSETS: '/dev/assets',
+  DEV_RENDER_ASSET: '/dev/render-asset/$name',
 } as const;

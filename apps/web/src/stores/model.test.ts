@@ -1,23 +1,24 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { STRONGEST_MODEL_ID } from '@hushbox/shared';
 import { useModelStore } from './model';
 
 describe('useModelStore', () => {
   beforeEach(() => {
     // Reset store state before each test
     useModelStore.setState({
-      selectedModelId: 'openai/gpt-4-turbo',
-      selectedModelName: 'GPT-4 Turbo',
+      selectedModelId: STRONGEST_MODEL_ID,
+      selectedModelName: '',
     });
   });
 
   it('has default selected model id', () => {
     const { selectedModelId } = useModelStore.getState();
-    expect(selectedModelId).toBe('openai/gpt-4-turbo');
+    expect(selectedModelId).toBe(STRONGEST_MODEL_ID);
   });
 
   it('has default selected model name', () => {
     const { selectedModelName } = useModelStore.getState();
-    expect(selectedModelName).toBe('GPT-4 Turbo');
+    expect(selectedModelName).toBe('');
   });
 
   it('sets selected model id and name', () => {

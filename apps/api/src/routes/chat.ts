@@ -56,6 +56,8 @@ import {
   type GroupBudgetReservation,
 } from '../lib/speculative-balance.js';
 import type { Context } from 'hono';
+import { getPushClient, sendPushForNewMessage } from '../services/push/index.js';
+import { fireAndForget } from '../lib/fire-and-forget.js';
 
 interface MessageForInference {
   role: 'user' | 'assistant' | 'system';
@@ -609,6 +611,7 @@ async function handleBillingResult(
 interface BroadcastAndFinishOptions {
   c: Context<AppEnv>;
   conversationId: string;
+  senderUserId: string;
   userMessageId: string;
   assistantMessageId: string;
   billingResult: SaveChatTurnResult;
@@ -616,7 +619,15 @@ interface BroadcastAndFinishOptions {
 }
 
 async function broadcastAndFinish(options: BroadcastAndFinishOptions): Promise<void> {
-  const { c, conversationId, userMessageId, assistantMessageId, billingResult, writer } = options;
+  const {
+    c,
+    conversationId,
+    senderUserId,
+    userMessageId,
+    assistantMessageId,
+    billingResult,
+    writer,
+  } = options;
 
   const broadcastPromise = broadcastToRoom(
     c.env,
@@ -636,6 +647,19 @@ async function broadcastAndFinish(options: BroadcastAndFinishOptions): Promise<v
   } catch {
     // executionCtx unavailable outside Workers runtime
   }
+
+  // Fire-and-forget push notifications to other conversation members
+  fireAndForget(
+    sendPushForNewMessage({
+      db: c.get('db'),
+      pushClient: getPushClient(c.env),
+      conversationId,
+      senderUserId,
+      title: 'New Message',
+      body: 'You have a new message',
+    }),
+    'send push notifications for AI response'
+  );
 
   await writer.writeDone({
     userMessageId,
@@ -782,6 +806,7 @@ export const chatRoute = new Hono<AppEnv>()
           await broadcastAndFinish({
             c,
             conversationId,
+            senderUserId: user.id,
             userMessageId: userMessage.id,
             assistantMessageId,
             billingResult,
@@ -870,6 +895,19 @@ export const chatRoute = new Hono<AppEnv>()
     } catch {
       // executionCtx unavailable outside Workers runtime
     }
+
+    // Fire-and-forget push notifications to other conversation members
+    fireAndForget(
+      sendPushForNewMessage({
+        db,
+        pushClient: getPushClient(c.env),
+        conversationId,
+        senderUserId: user.id,
+        title: 'New Message',
+        body: 'You have a new message',
+      }),
+      'send push notifications for user message'
+    );
 
     return c.json({
       messageId,

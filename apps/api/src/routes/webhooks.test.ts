@@ -96,7 +96,7 @@ describe('webhooks routes', () => {
         requiresRealServices: false,
       });
       // Set env bindings - DATABASE_URL required, HELCIM_WEBHOOK_VERIFIER empty to skip signature verification
-      c.env = { DATABASE_URL: connectionString, HELCIM_WEBHOOK_VERIFIER: '' };
+      c.env = { DATABASE_URL: connectionString, HELCIM_WEBHOOK_VERIFIER: '', APP_VERSION: 'test' };
       // Conditionally set user/session based on X-Test-User-Id header
       const testUserIdHeader = c.req.header('X-Test-User-Id');
       if (testUserIdHeader) {
@@ -444,6 +444,7 @@ describe('webhooks routes', () => {
           DATABASE_URL: connectionString,
           NODE_ENV: 'production',
           HELCIM_WEBHOOK_VERIFIER: '',
+          APP_VERSION: 'test',
         };
         await next();
       });
