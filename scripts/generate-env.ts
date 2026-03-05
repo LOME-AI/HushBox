@@ -12,7 +12,7 @@ import {
   type EnvMode,
   type VariableConfig,
 } from '../packages/shared/src/env.config.js';
-import { getWorktreeConfig, BASE_PORTS, type WorktreeConfig } from './worktree.js';
+import { getWorktreeConfig, BASE_PORTS, type WorktreeConfig, type PortKey } from './worktree.js';
 
 /**
  * Build variants for release workflows.
@@ -77,21 +77,28 @@ export function applyWorktreePorts(value: string, worktree: WorktreeConfig): str
 }
 
 /**
- * Generate worktree-specific env lines for .env.scripts.
+ * Generate port env lines for .env.scripts.
+ * Always writes HB_*_PORT vars (base ports for CI, worktree-offset ports for dev).
+ * Only writes COMPOSE_PROJECT_NAME when in a worktree.
  */
-function generateWorktreeLines(worktree: WorktreeConfig): string[] {
-  return [
-    '',
-    '# Worktree configuration',
-    `COMPOSE_PROJECT_NAME=${escapeEnvValue(worktree.projectName)}`,
-    `HB_VITE_PORT=${escapeEnvValue(String(worktree.ports.vite))}`,
-    `HB_API_PORT=${escapeEnvValue(String(worktree.ports.api))}`,
-    `HB_POSTGRES_PORT=${escapeEnvValue(String(worktree.ports.postgres))}`,
-    `HB_NEON_PORT=${escapeEnvValue(String(worktree.ports.neon))}`,
-    `HB_REDIS_PORT=${escapeEnvValue(String(worktree.ports.redis))}`,
-    `HB_REDIS_HTTP_PORT=${escapeEnvValue(String(worktree.ports.redisHttp))}`,
-    `HB_ASTRO_PORT=${escapeEnvValue(String(worktree.ports.astro))}`,
-  ];
+function generatePortLines(
+  ports: Record<PortKey, number>,
+  worktree: WorktreeConfig | null
+): string[] {
+  const lines = ['', worktree ? '# Worktree configuration' : '# Port configuration'];
+  if (worktree) {
+    lines.push(`COMPOSE_PROJECT_NAME=${escapeEnvValue(worktree.projectName)}`);
+  }
+  lines.push(
+    `HB_VITE_PORT=${escapeEnvValue(String(ports.vite))}`,
+    `HB_API_PORT=${escapeEnvValue(String(ports.api))}`,
+    `HB_POSTGRES_PORT=${escapeEnvValue(String(ports.postgres))}`,
+    `HB_NEON_PORT=${escapeEnvValue(String(ports.neon))}`,
+    `HB_REDIS_PORT=${escapeEnvValue(String(ports.redis))}`,
+    `HB_REDIS_HTTP_PORT=${escapeEnvValue(String(ports.redisHttp))}`,
+    `HB_ASTRO_PORT=${escapeEnvValue(String(ports.astro))}`
+  );
+  return lines;
 }
 
 /**
@@ -168,10 +175,11 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
   writeFileSync(path.resolve(rootDir, '.env.development'), envDevContent);
   console.log('  Generated .env.development');
 
-  // Write .env.scripts (Scripts) — includes worktree vars in development mode
-  const worktreeLines = worktree ? generateWorktreeLines(worktree) : [];
+  // Write .env.scripts (Scripts) — includes port vars for all modes
+  const ports = worktree?.ports ?? BASE_PORTS;
+  const portLines = generatePortLines(ports, worktree);
   const envScriptsContent =
-    ['# Auto-generated - do not edit', '', ...scriptsLines, ...worktreeLines].join('\n') + '\n';
+    ['# Auto-generated - do not edit', '', ...scriptsLines, ...portLines].join('\n') + '\n';
   writeFileSync(path.resolve(rootDir, '.env.scripts'), envScriptsContent);
   console.log('  Generated .env.scripts');
 

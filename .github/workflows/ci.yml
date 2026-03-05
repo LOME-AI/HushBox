@@ -109,6 +109,16 @@ jobs:
             done
           fi
 
+      - name: Generate environment files
+        run: pnpm generate:env --mode=ciVitest
+        # BEGIN GENERATED: vitest-env
+        env:
+          OPENROUTER_API_KEY_RESTRICTED: ${{ secrets.OPENROUTER_API_KEY_RESTRICTED }}
+        # END GENERATED: vitest-env
+
+      - name: Verify environment configuration
+        run: pnpm verify:env --mode=ciVitest
+
       - name: Start database
         run: pnpm db:up
 
@@ -124,16 +134,6 @@ jobs:
 
       - name: Run migrations
         run: pnpm db:migrate
-
-      - name: Generate environment files
-        run: pnpm generate:env --mode=ciVitest
-        # BEGIN GENERATED: vitest-env
-        env:
-          OPENROUTER_API_KEY_RESTRICTED: ${{ secrets.OPENROUTER_API_KEY_RESTRICTED }}
-        # END GENERATED: vitest-env
-
-      - name: Verify environment configuration
-        run: pnpm verify:env --mode=ciVitest
 
       - name: Run tests
         run: pnpm test
