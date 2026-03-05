@@ -2,8 +2,9 @@ import type { Page, APIRequestContext } from '@playwright/test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { generateTotpCodeSync } from '@hushbox/crypto';
 import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
+import { requireEnv } from './env.js';
 
-const API_BASE = 'http://localhost:8787';
+const API_BASE = requireEnv('VITE_API_URL');
 
 /**
  * Fills the signup form and submits. Does NOT verify email.

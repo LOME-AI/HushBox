@@ -12,6 +12,7 @@ import {
   type EnvMode,
   type VariableConfig,
 } from '../packages/shared/src/env.config.js';
+import { getWorktreeConfig, BASE_PORTS, type WorktreeConfig, type PortKey } from './worktree.js';
 
 /**
  * Build variants for release workflows.
@@ -63,6 +64,44 @@ export function escapeEnvValue(value: string): string {
 }
 
 /**
+ * Apply worktree port offsets to a resolved env value.
+ * Replaces localhost:BASE_PORT with localhost:COMPUTED_PORT.
+ */
+export function applyWorktreePorts(value: string, worktree: WorktreeConfig): string {
+  let result = value;
+  for (const [key, base] of Object.entries(BASE_PORTS)) {
+    const computed = worktree.ports[key as keyof typeof BASE_PORTS];
+    result = result.replaceAll(`localhost:${String(base)}`, `localhost:${String(computed)}`);
+  }
+  return result;
+}
+
+/**
+ * Generate port env lines for .env.scripts.
+ * Always writes HB_*_PORT vars (base ports for CI, worktree-offset ports for dev).
+ * Only writes COMPOSE_PROJECT_NAME when in a worktree.
+ */
+function generatePortLines(
+  ports: Record<PortKey, number>,
+  worktree: WorktreeConfig | null
+): string[] {
+  const lines = ['', worktree ? '# Worktree configuration' : '# Port configuration'];
+  if (worktree) {
+    lines.push(`COMPOSE_PROJECT_NAME=${escapeEnvValue(worktree.projectName)}`);
+  }
+  lines.push(
+    `HB_VITE_PORT=${escapeEnvValue(String(ports.vite))}`,
+    `HB_API_PORT=${escapeEnvValue(String(ports.api))}`,
+    `HB_POSTGRES_PORT=${escapeEnvValue(String(ports.postgres))}`,
+    `HB_NEON_PORT=${escapeEnvValue(String(ports.neon))}`,
+    `HB_REDIS_PORT=${escapeEnvValue(String(ports.redis))}`,
+    `HB_REDIS_HTTP_PORT=${escapeEnvValue(String(ports.redisHttp))}`,
+    `HB_ASTRO_PORT=${escapeEnvValue(String(ports.astro))}`
+  );
+  return lines;
+}
+
+/**
  * Generate all environment files from the single source of truth (env.config.ts).
  *
  * Destinations:
@@ -75,9 +114,13 @@ export function escapeEnvValue(value: string): string {
  * - ciVitest: Generate files for CI unit tests
  * - ciE2E: Include CI secrets from process.env for E2E tests
  * - production: Ensure wrangler.toml has production values
+ *
+ * In development mode, worktree detection applies port offsets so
+ * multiple worktrees can run simultaneously without collisions.
  */
 export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Development): void {
   const missing: string[] = [];
+  const worktree = (mode as Mode) === Mode.Development ? getWorktreeConfig(rootDir) : null;
 
   const getSecret = (name: string): string => {
     const val = process.env[name];
@@ -93,10 +136,14 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
     Object.entries(envConfig)
       .filter(([, config]) => getDestinations(config as VariableConfig, mode).includes(destination))
       .map(([key, config]) => {
-        const val = resolveValue(config as VariableConfig, mode, getSecret);
+        let val = resolveValue(config as VariableConfig, mode, getSecret);
         // Return null if val is null (defensive, filtered out by subsequent .filter())
         /* istanbul ignore next -- @preserve defensive check */
         if (val === null) return null;
+        // Apply worktree port offsets in development mode
+        if (worktree) {
+          val = applyWorktreePorts(val, worktree);
+        }
         return `${key}=${escapeEnvValue(val)}`;
       })
       .filter((line): line is string => line !== null);
@@ -128,9 +175,11 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
   writeFileSync(path.resolve(rootDir, '.env.development'), envDevContent);
   console.log('  Generated .env.development');
 
-  // Write .env.scripts (Scripts)
+  // Write .env.scripts (Scripts) — includes port vars for all modes
+  const ports = worktree?.ports ?? BASE_PORTS;
+  const portLines = generatePortLines(ports, worktree);
   const envScriptsContent =
-    ['# Auto-generated - do not edit', '', ...scriptsLines].join('\n') + '\n';
+    ['# Auto-generated - do not edit', '', ...scriptsLines, ...portLines].join('\n') + '\n';
   writeFileSync(path.resolve(rootDir, '.env.scripts'), envScriptsContent);
   console.log('  Generated .env.scripts');
 

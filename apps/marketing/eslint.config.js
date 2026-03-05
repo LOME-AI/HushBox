@@ -1,9 +1,4 @@
-import {
-  createBaseConfig,
-  reactConfig,
-  testConfig,
-  prettierConfig,
-} from '@hushbox/config/eslint';
+import { createBaseConfig, reactConfig, testConfig, prettierConfig } from '@hushbox/config/eslint';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [

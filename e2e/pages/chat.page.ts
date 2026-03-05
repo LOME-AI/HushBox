@@ -1,4 +1,7 @@
 import { type Page, type Locator, expect } from '@playwright/test';
+import { requireEnv } from '../helpers/env.js';
+
+const apiUrl = requireEnv('VITE_API_URL');
 
 export class ChatPage {
   readonly page: Page;
@@ -210,9 +213,8 @@ export class ChatPage {
 
   async getMessageCountViaAPI(): Promise<number> {
     const conversationId = this.getConversationIdFromUrl();
-    const response = await this.page.request.get(
-      `http://localhost:8787/api/conversations/${conversationId}`
-    );
+    const url = `${apiUrl}/api/conversations/${conversationId}`;
+    const response = await this.page.request.get(url);
     if (!response.ok()) {
       throw new Error(`Failed to get conversation: ${String(response.status())}`);
     }

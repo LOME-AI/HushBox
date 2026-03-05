@@ -1,11 +1,11 @@
-name: hushbox
+name: ${COMPOSE_PROJECT_NAME:-hushbox}
 
 services:
   postgres:
     image: postgres:18-alpine
     command: postgres -c max_connections=1000
     ports:
-      - '5432:5432'
+      - '${HB_POSTGRES_PORT:-5432}:5432'
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -25,7 +25,7 @@ services:
       ALLOW_ADDR_REGEX: '.*'
       LOG_TRAFFIC: 'true'
     ports:
-      - '4444:80'
+      - '${HB_NEON_PORT:-4444}:80'
     depends_on:
       postgres:
         condition: service_healthy
@@ -33,7 +33,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - '6379:6379'
+      - '${HB_REDIS_PORT:-6379}:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
@@ -43,7 +43,7 @@ services:
   serverless-redis-http:
     image: hiett/serverless-redis-http:latest
     ports:
-      - '8079:80'
+      - '${HB_REDIS_HTTP_PORT:-8079}:80'
     environment:
       SRH_MODE: env
       SRH_TOKEN: local_dev_token

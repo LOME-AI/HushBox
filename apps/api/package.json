@@ -7,7 +7,7 @@
     ".": "./src/app.ts"
   },
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --port $HB_API_PORT",
     "test": "../../scripts/with-env vitest run",
     "test:watch": "../../scripts/with-env vitest",
     "test:coverage": "../../scripts/with-env vitest run --coverage",

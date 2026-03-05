@@ -1,5 +1,8 @@
 import { test, expect } from '../fixtures.js';
 import { ChatPage } from '../pages';
+import { requireEnv } from '../helpers/env.js';
+
+const apiUrl = requireEnv('VITE_API_URL');
 
 // All trial chat tests share localhost IP for rate limiting - run only on chromium, serially
 test.describe('Trial Chat', () => {
@@ -15,7 +18,7 @@ test.describe('Trial Chat', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async ({ request }) => {
-    const response = await request.delete('http://localhost:8787/api/dev/trial-usage');
+    const response = await request.delete(`${apiUrl}/api/dev/trial-usage`);
     expect(response.ok()).toBe(true);
   });
   test.describe('New Chat Page', () => {
@@ -69,7 +72,7 @@ test.describe('Trial Chat', () => {
 
   test.describe('Rate Limiting', () => {
     test.beforeEach(async ({ request }) => {
-      const response = await request.delete('http://localhost:8787/api/dev/trial-usage');
+      const response = await request.delete(`${apiUrl}/api/dev/trial-usage`);
       expect(response.ok()).toBe(true);
     });
 
