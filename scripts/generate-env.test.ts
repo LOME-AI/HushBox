@@ -15,6 +15,9 @@ describe('generateEnvFiles', () => {
     mkdirSync(TEST_DIR_ENV, { recursive: true });
     mkdirSync(path.join(TEST_DIR_ENV, 'apps/api'), { recursive: true });
 
+    // Simulate main repo (.git as directory) for worktree detection
+    mkdirSync(path.join(TEST_DIR_ENV, '.git'), { recursive: true });
+
     // Create minimal wrangler.toml
     writeFileSync(
       path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'),
@@ -23,7 +26,7 @@ name = "test-api"
 main = "src/index.ts"
 
 [dev]
-port = 8787
+local_protocol = "http"
 `
     );
 
@@ -173,7 +176,10 @@ port = 8787
       generateEnvFiles(TEST_DIR_ENV);
 
       const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
-      expect(content).not.toContain('VITE_');
+      expect(content).not.toContain('VITE_API_URL');
+      expect(content).not.toContain('VITE_HELCIM');
+      expect(content).not.toContain('VITE_CI');
+      expect(content).not.toContain('VITE_E2E');
     });
   });
 
@@ -221,7 +227,6 @@ port = 8787
       const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf8');
       expect(content).toContain('name = "test-api"');
       expect(content).toContain('[dev]');
-      expect(content).toContain('port = 8787');
     });
 
     it('replaces existing [vars] section if present', () => {
@@ -233,7 +238,7 @@ port = 8787
 OLD_VAR = "should-be-replaced"
 
 [dev]
-port = 8787
+local_protocol = "http"
 `
       );
 
@@ -603,5 +608,136 @@ describe('escapeEnvValue', () => {
 
   it('handles values with newlines', () => {
     expect(escapeEnvValue('line1\nline2')).toBe('"line1\nline2"');
+  });
+});
+
+describe('worktree port integration', () => {
+  const TEST_DIR_WT = path.resolve(__dirname, '__test-fixtures-worktree-env__');
+
+  beforeEach(() => {
+    mkdirSync(TEST_DIR_WT, { recursive: true });
+    mkdirSync(path.join(TEST_DIR_WT, 'apps/api'), { recursive: true });
+
+    writeFileSync(
+      path.join(TEST_DIR_WT, 'apps/api/wrangler.toml'),
+      `# Wrangler configuration
+name = "test-api"
+main = "src/index.ts"
+
+[dev]
+local_protocol = "http"
+`
+    );
+
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    rmSync(TEST_DIR_WT, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  describe('main repo (slot 0)', () => {
+    beforeEach(() => {
+      mkdirSync(path.join(TEST_DIR_WT, '.git'), { recursive: true });
+    });
+
+    it('uses base ports in .dev.vars', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, 'apps/api/.dev.vars'), 'utf8');
+      expect(content).toContain('API_URL="http://localhost:8787"');
+      expect(content).toContain('FRONTEND_URL="http://localhost:5173"');
+    });
+
+    it('uses base ports in .env.development', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, '.env.development'), 'utf8');
+      expect(content).toContain('VITE_API_URL="http://localhost:8787"');
+    });
+
+    it('uses base ports in .env.scripts', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, '.env.scripts'), 'utf8');
+      expect(content).toContain('localhost:4444');
+      expect(content).toContain('localhost:5432');
+    });
+
+    it('appends worktree vars to .env.scripts', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, '.env.scripts'), 'utf8');
+      expect(content).toContain('COMPOSE_PROJECT_NAME="hushbox"');
+      expect(content).toContain('HB_VITE_PORT="5173"');
+      expect(content).toContain('HB_API_PORT="8787"');
+      expect(content).toContain('HB_POSTGRES_PORT="5432"');
+      expect(content).toContain('HB_NEON_PORT="4444"');
+      expect(content).toContain('HB_REDIS_PORT="6379"');
+      expect(content).toContain('HB_REDIS_HTTP_PORT="8079"');
+      expect(content).toContain('HB_ASTRO_PORT="4321"');
+    });
+  });
+
+  describe('worktree (slot > 0)', () => {
+    beforeEach(() => {
+      writeFileSync(
+        path.join(TEST_DIR_WT, '.git'),
+        'gitdir: /home/user/repo/.git/worktrees/my-feature\n'
+      );
+    });
+
+    it('offsets ports in .dev.vars', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, 'apps/api/.dev.vars'), 'utf8');
+      // Should NOT contain base ports
+      expect(content).not.toContain('localhost:8787');
+      expect(content).not.toContain('localhost:5173');
+      expect(content).not.toContain('localhost:4444');
+      expect(content).not.toContain('localhost:8079');
+    });
+
+    it('offsets ports in .env.development', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, '.env.development'), 'utf8');
+      expect(content).not.toContain('localhost:8787');
+    });
+
+    it('offsets ports in .env.scripts', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, '.env.scripts'), 'utf8');
+      expect(content).not.toContain('localhost:4444');
+      expect(content).not.toContain('localhost:5432');
+    });
+
+    it('appends worktree vars with offset ports to .env.scripts', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, '.env.scripts'), 'utf8');
+      expect(content).toContain('COMPOSE_PROJECT_NAME="hushbox-');
+      expect(content).not.toContain('HB_VITE_PORT="5173"');
+      expect(content).not.toContain('HB_API_PORT="8787"');
+    });
+
+    it('does not offset ports in non-development modes', () => {
+      // Set up required CI secrets
+      process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test';
+      process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test';
+      process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'] = 'test';
+
+      generateEnvFiles(TEST_DIR_WT, 'ciE2E');
+
+      const content = readFileSync(path.join(TEST_DIR_WT, 'apps/api/.dev.vars'), 'utf8');
+      expect(content).toContain('localhost:8787');
+      expect(content).toContain('localhost:5173');
+
+      delete process.env['HELCIM_API_TOKEN_SANDBOX'];
+      delete process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'];
+      delete process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'];
+    });
   });
 });

@@ -15,6 +15,25 @@ vi.mock('./seed.js', () => ({
   seed: vi.fn(),
 }));
 
+// Mock worktree to avoid .git file system reads in tests
+vi.mock('./worktree.js', () => ({
+  getWorktreeConfig: vi.fn().mockReturnValue({
+    isWorktree: false,
+    name: 'main',
+    slot: 0,
+    projectName: 'hushbox',
+    ports: {
+      vite: 5173,
+      api: 8787,
+      postgres: 5432,
+      neon: 4444,
+      redis: 6379,
+      redisHttp: 8079,
+      astro: 4321,
+    },
+  }),
+}));
+
 import { execa } from 'execa';
 import { seed } from './seed.js';
 import { startDocker, runMigrations, startDrizzleStudio, startTurbo, main } from './dev';

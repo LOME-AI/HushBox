@@ -1,0 +1,72 @@
+import { readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
+
+export const BASE_PORTS = {
+  vite: 5173,
+  api: 8787,
+  postgres: 5432,
+  neon: 4444,
+  redis: 6379,
+  redisHttp: 8079,
+  astro: 4321,
+} as const;
+
+export type PortKey = keyof typeof BASE_PORTS;
+
+export interface WorktreeConfig {
+  isWorktree: boolean;
+  name: string;
+  slot: number;
+  projectName: string;
+  ports: Record<PortKey, number>;
+}
+
+/** djb2 hash — deterministic, fast, good distribution for short strings */
+export function djb2Hash(input: string): number {
+  let hash = 5381;
+  for (const char of input) {
+    hash = Math.trunc((hash << 5) + hash + (char.codePointAt(0) ?? 0));
+  }
+  return Math.abs(hash);
+}
+
+export function getWorktreeConfig(rootDir?: string): WorktreeConfig {
+  const dir = rootDir ?? process.cwd();
+  const gitPath = path.join(dir, '.git');
+
+  const stat = statSync(gitPath);
+
+  if (stat.isDirectory()) {
+    return {
+      isWorktree: false,
+      name: 'main',
+      slot: 0,
+      projectName: 'hushbox',
+      ports: { ...BASE_PORTS },
+    };
+  }
+
+  // .git is a file — this is a worktree
+  const content = readFileSync(gitPath, 'utf8').trim();
+  const match = /^gitdir:\s+(.+)$/.exec(content);
+  if (!match?.[1]) {
+    throw new Error(`Invalid .git file: expected "gitdir: <path>", got "${content}"`);
+  }
+
+  const gitdir = match[1];
+  const name = path.basename(gitdir);
+  const slot = (djb2Hash(name) % 199) + 1;
+
+  const ports = {} as Record<PortKey, number>;
+  for (const [key, base] of Object.entries(BASE_PORTS)) {
+    ports[key as PortKey] = base + slot;
+  }
+
+  return {
+    isWorktree: true,
+    name,
+    slot,
+    projectName: `hushbox-${String(slot)}`,
+    ports,
+  };
+}

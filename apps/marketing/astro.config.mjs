@@ -1,9 +1,16 @@
+/* global process */
 import { defineConfig } from 'astro/config';
 import react from '@astrojs/react';
 import tailwindcss from '@tailwindcss/vite';
 
+const vitePort = process.env['HB_VITE_PORT'] ?? '5173';
+const astroPort = process.env['HB_ASTRO_PORT'];
+
 export default defineConfig({
   integrations: [react()],
+  server: {
+    port: Number(astroPort ?? 4321),
+  },
   vite: {
     plugins: [
       tailwindcss(),
@@ -19,7 +26,7 @@ export default defineConfig({
               url === '/signup' ||
               url === '/signup/'
             ) {
-              res.writeHead(302, { Location: `http://localhost:5173${url}` });
+              res.writeHead(302, { Location: `http://localhost:${vitePort}${url}` });
               res.end();
               return;
             }

@@ -6,7 +6,7 @@
   "packageManager": "pnpm@10.26.0",
   "scripts": {
     "dev": "./scripts/with-env tsx scripts/dev.ts",
-    "dev:clean": "lsof -ti:5173,8787 | xargs -r kill || true",
+    "dev:clean": "./scripts/with-env sh -c 'lsof -ti:${HB_VITE_PORT},${HB_API_PORT} | xargs -r kill || true'",
     "dev:restart": "pnpm dev:clean && pnpm dev",
     "build": "turbo build",
     "lint": "turbo lint",
@@ -35,7 +35,7 @@
     "clean": "turbo clean && rm -rf node_modules",
     "prepare": "husky",
     "db:up": "./scripts/with-env docker compose up -d --wait postgres neon-proxy redis serverless-redis-http",
-    "db:down": "docker compose down",
+    "db:down": "./scripts/with-env docker compose down",
     "db:reset": "./scripts/with-env tsx scripts/db-reset.ts",
     "db:migrate": "./scripts/with-env pnpm --filter @hushbox/db db:migrate",
     "db:generate": "./scripts/with-env pnpm --filter @hushbox/db db:generate",

@@ -2,6 +2,7 @@ import { execa } from 'execa';
 import { config } from 'dotenv';
 import path from 'node:path';
 import { generateEnvFiles } from './generate-env.js';
+import { getWorktreeConfig } from './worktree.js';
 import { seed } from './seed.js';
 
 const DOCKER_SERVICES = ['postgres', 'neon-proxy', 'redis', 'serverless-redis-http'];
@@ -51,9 +52,19 @@ export async function startTurbo(): Promise<void> {
 }
 
 export async function main(): Promise<void> {
+  const worktree = getWorktreeConfig(process.cwd());
+
   generateEnvFiles(process.cwd());
   config({ path: path.resolve(process.cwd(), '.env.development') });
   config({ path: path.resolve(process.cwd(), '.env.scripts') });
+
+  // Log worktree configuration
+  if (worktree.isWorktree) {
+    console.log(`Worktree: slot ${String(worktree.slot)} (${worktree.projectName})`);
+  }
+  console.log(`  Vite:     http://localhost:${String(worktree.ports.vite)}`);
+  console.log(`  API:      http://localhost:${String(worktree.ports.api)}`);
+  console.log(`  Postgres: localhost:${String(worktree.ports.postgres)}`);
   await startDocker();
   await runMigrations();
   startDrizzleStudio();
