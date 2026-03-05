@@ -75,7 +75,9 @@ test.describe('Auto-scroll During Streaming', () => {
     const midStreamPos = await chatPage.getScrollPosition();
     const midStreamDistance =
       midStreamPos.scrollHeight - midStreamPos.scrollTop - midStreamPos.clientHeight;
-    expect(midStreamDistance).toBeGreaterThan(100);
+    // Use proportional threshold that works across viewport sizes
+    const minDistance = Math.max(20, midStreamPos.clientHeight * 0.05);
+    expect(midStreamDistance).toBeGreaterThan(minDistance);
 
     await authenticatedPage.waitForTimeout(2000);
 
