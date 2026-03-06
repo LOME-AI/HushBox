@@ -419,7 +419,7 @@ jobs:
 
       - name: Upload build to R2
         working-directory: apps/api
-        run: pnpm exec wrangler r2 object put "hushbox-app-builds/builds/${{ needs.version.outputs.version }}.zip" --file ../../web-dist.zip
+        run: pnpm exec wrangler r2 object put "hushbox-app-builds/builds/${{ needs.version.outputs.version }}.zip" --file ../../web-dist.zip --remote
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -428,3 +428,5 @@ jobs:
         run: |
           git tag "v${{ needs.version.outputs.version }}"
           git push origin "v${{ needs.version.outputs.version }}"
+        env:
+          HUSKY: '0'

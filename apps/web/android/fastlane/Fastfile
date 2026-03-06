@@ -6,12 +6,11 @@ platform :android do
     gradle(
       task: "bundle",
       build_type: "Release",
-      project_dir: "..",
     )
 
     upload_to_play_store(
       track: "production",
-      aab: "../app/build/outputs/bundle/release/app-release.aab",
+      aab: "app/build/outputs/bundle/release/app-release.aab",
       json_key_data: ENV["PLAY_STORE_JSON_KEY"],
       skip_upload_metadata: true,
       skip_upload_images: true,
@@ -24,7 +23,6 @@ platform :android do
     gradle(
       task: "assemble",
       build_type: "Release",
-      project_dir: "..",
     )
   end
 end
