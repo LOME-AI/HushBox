@@ -4,6 +4,7 @@ const isCI = !!process.env['CI'];
 const vitePort = process.env['HB_VITE_PORT']!;
 const apiPort = process.env['HB_API_PORT']!;
 const viteUrl = `http://localhost:${vitePort}`;
+const viteHealthUrl = `${viteUrl}/@vite/client`;
 const apiUrl = `http://localhost:${apiPort}`;
 
 export default defineConfig({
@@ -26,7 +27,7 @@ export default defineConfig({
   webServer: [
     {
       command: 'pnpm --filter @hushbox/web dev',
-      url: viteUrl,
+      url: viteHealthUrl,
       reuseExistingServer: !process.env['CI'],
     },
     {
