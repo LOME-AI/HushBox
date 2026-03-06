@@ -6,7 +6,7 @@ import { SplashLight } from './splash-light';
 mockLogoImport();
 
 vi.mock('@hushbox/ui', async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
   return {
     ...actual,
     CipherWall: () => <canvas data-testid="cipher-wall" />,

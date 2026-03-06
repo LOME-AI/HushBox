@@ -6,7 +6,7 @@ import { SplashScreen } from './splash-screen';
 mockLogoImport();
 
 vi.mock('@hushbox/ui', async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
   return {
     ...actual,
     CipherWall: (props: Record<string, unknown>) => (

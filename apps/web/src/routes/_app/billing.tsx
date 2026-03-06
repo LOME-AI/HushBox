@@ -1,6 +1,15 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } from '@hushbox/ui';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  Button,
+  FeeBreakdown,
+  CostPieChart,
+} from '@hushbox/ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { BalanceTransactionResponse } from '@hushbox/shared';
 import { requireAuth } from '@/lib/auth';
@@ -11,8 +20,6 @@ import { PageHeader } from '@/components/shared/page-header';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { PaymentModal } from '@/components/billing/payment-modal';
 import { ManageOnlineButton } from '@/components/billing/manage-online-button';
-import { FeeBreakdown } from '@/components/billing/fee-breakdown';
-import { CostPieChart } from '@/components/billing/cost-pie-chart';
 import { isPaymentDisabled } from '@/capacitor/platform';
 
 const TRANSACTIONS_PER_PAGE = 5;

@@ -19,4 +19,4 @@ Disallow: /share
 # Assets — no need to index images/scripts
 Disallow: /assets
 
-Sitemap: https://hushbox.ai/sitemap.xml
+Sitemap: https://hushbox.ai/sitemap-index.xml
