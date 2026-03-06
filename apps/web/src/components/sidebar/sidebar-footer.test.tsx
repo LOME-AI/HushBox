@@ -167,6 +167,16 @@ describe('SidebarFooter', () => {
       expect(githubLink).toHaveAttribute('target', '_blank');
     });
 
+    it('shows About HushBox link in dropdown', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      const link = screen.getByTestId('menu-marketing');
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute('href', '/');
+    });
+
     it('shows Log Out option in dropdown', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
@@ -442,6 +452,16 @@ describe('SidebarFooter', () => {
 
       await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-github')).toBeInTheDocument();
+    });
+
+    it('shows About HushBox link', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      const link = screen.getByTestId('menu-marketing');
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute('href', '/');
     });
   });
 

@@ -6,7 +6,7 @@ import {
   STORAGE_COST_PER_CHARACTER,
 } from '@hushbox/shared';
 
-interface CostPieChartProps {
+export interface CostPieChartProps {
   /** The deposit amount in USD */
   depositAmount: number;
   /** Estimated characters used (for storage fee calculation) */

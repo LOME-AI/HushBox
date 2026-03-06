@@ -33,7 +33,7 @@ import type { AppEnv, Bindings } from '../types.js';
 import { buildPrompt } from '../services/prompt/builder.js';
 import { buildBillingInput, calculateMessageCost } from '../services/billing/index.js';
 import type { MemberContext } from '../services/billing/index.js';
-import { fetchModels } from '../services/openrouter/index.js';
+import { fetchModels } from '@hushbox/shared/models';
 import { ContextCapacityError } from '../services/openrouter/openrouter.js';
 import {
   validateLastMessageIsFromUser,

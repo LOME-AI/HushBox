@@ -7,11 +7,11 @@ import {
 } from './test-utilities.js';
 import type { OpenRouterClient, ModelInfo } from './types.js';
 
-vi.mock('./openrouter.js', () => ({
+vi.mock('@hushbox/shared/models', () => ({
   fetchZdrModelIds: vi.fn(),
 }));
 
-import { fetchZdrModelIds } from './openrouter.js';
+import { fetchZdrModelIds } from '@hushbox/shared/models';
 
 const mockFetchZdrModelIds = vi.mocked(fetchZdrModelIds);
 

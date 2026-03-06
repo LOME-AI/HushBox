@@ -43,7 +43,7 @@ export function LegalDocument({
         ))}
       </div>
 
-      <footer className="text-foreground-muted border-t pt-6 text-sm">
+      <footer className="text-foreground-muted pt-6 text-sm">
         <p>
           Questions? Contact us at{' '}
           <a

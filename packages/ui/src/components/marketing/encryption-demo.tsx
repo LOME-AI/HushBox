@@ -19,10 +19,10 @@ function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>):
   return (
     <div
       data-slot="encryption-demo"
-      className={cn('space-y-4 overflow-hidden rounded-lg border p-4 sm:p-6', className)}
+      className={cn('space-y-4 overflow-hidden rounded-lg border-2 p-4 sm:p-6', className)}
       {...props}
     >
-      <h3 className="text-sm font-semibold">See it for yourself</h3>
+      <h3 className="font-semibold">See it for yourself</h3>
 
       <div>
         <label className="text-muted-foreground text-xs">What you type:</label>

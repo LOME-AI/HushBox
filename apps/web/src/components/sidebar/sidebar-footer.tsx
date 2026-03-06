@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { DropdownMenuItem, DropdownMenuSeparator } from '@hushbox/ui';
 import {
   Database,
+  ExternalLink,
   Image,
   Mail,
   User,
@@ -30,6 +31,17 @@ function GitHubMenuItem(): React.JSX.Element {
       <a href="https://github.com/lome-ai/hushbox" target="_blank" rel="noopener noreferrer">
         <SiGithub className="mr-2 h-4 w-4" />
         GitHub
+      </a>
+    </DropdownMenuItem>
+  );
+}
+
+function MarketingMenuItem(): React.JSX.Element {
+  return (
+    <DropdownMenuItem asChild data-testid="menu-marketing">
+      <a href={ROUTES.MARKETING}>
+        <ExternalLink className="mr-2 h-4 w-4" />
+        About HushBox
       </a>
     </DropdownMenuItem>
   );
@@ -112,6 +124,7 @@ function AuthenticatedMenuItems({ navigate }: Readonly<MenuItemsProps>): React.J
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <GitHubMenuItem />
+      <MarketingMenuItem />
       <DropdownMenuSeparator />
       <DropdownMenuItem
         onClick={() => {
@@ -131,6 +144,7 @@ function TrialMenuItems({ navigate }: Readonly<MenuItemsProps>): React.JSX.Eleme
   return (
     <>
       <GitHubMenuItem />
+      <MarketingMenuItem />
       <DropdownMenuSeparator />
       <DropdownMenuItem
         onClick={() => {

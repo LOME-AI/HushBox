@@ -1,10 +1,10 @@
 /**
- * Premium model classification service.
+ * Premium model classification.
  *
  * Handles premium model classification and access control.
  */
 
-import type { OpenRouterModel } from '../models.js';
+import type { OpenRouterModel } from './types.js';
 
 /** Percentile threshold for premium pricing (0.75 = 75th percentile) */
 export const PREMIUM_PRICE_PERCENTILE = 0.75;

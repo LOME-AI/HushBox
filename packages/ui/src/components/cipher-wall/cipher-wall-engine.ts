@@ -285,19 +285,18 @@ function tryPlaceReveal(state: CipherWallState): MessageReveal | undefined {
   for (let attempt = 0; attempt < 20; attempt++) {
     const row = MARGIN_ROWS + getSecureRandomIndex(availableRows);
     const col = MARGIN_COLS + getSecureRandomIndex(availableCols);
-    if (!overlapsExistingReveal(state.reveals, row, col, text.length)) {
-      state.messageQueue.shift();
-      return {
-        row,
-        col,
-        text,
-        charIndex: 0,
-        state: 'decrypting',
-        holdTimer: 0,
-        rollTimer: 0,
-        rollTickTimer: 0,
-      };
-    }
+    if (overlapsExistingReveal(state.reveals, row, col, text.length)) continue;
+    state.messageQueue.shift();
+    return {
+      row,
+      col,
+      text,
+      charIndex: 0,
+      state: 'decrypting',
+      holdTimer: 0,
+      rollTimer: 0,
+      rollTickTimer: 0,
+    };
   }
   return undefined;
 }

@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { CipherWall } from '@/components/auth/cipher-wall';
-import type { ThemeColors } from '@/components/auth/cipher-wall-engine';
+import { CipherWall } from '@hushbox/ui';
+import type { ThemeColors } from '@hushbox/ui';
 import logoUrl from '@hushbox/ui/assets/HushBoxLogo.png';
 
 const BRAND_RED = '#ec4755';

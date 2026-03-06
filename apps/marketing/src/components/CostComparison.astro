@@ -1,0 +1,45 @@
+---
+interface Props {
+  hushboxCost: number;
+  modelCount: number;
+}
+
+const { hushboxCost, modelCount } = Astro.props;
+const formattedCost = hushboxCost.toFixed(2);
+
+const competitors = [
+  { name: 'ChatGPT Plus', price: 20, note: 'GPT-4o only' },
+  { name: 'Claude Pro', price: 20, note: 'Claude only' },
+  { name: 'Gemini Advanced', price: 20, note: 'Gemini only' },
+];
+---
+
+<div class="space-y-4">
+  {
+    competitors.map((c) => (
+      <div class="flex items-center gap-4">
+        <div class="w-40 shrink-0 text-sm font-medium sm:w-48">{c.name}</div>
+        <div class="bg-muted/40 relative h-8 flex-1 overflow-hidden rounded-md">
+          <div class="bg-foreground-muted/20 h-full w-full" />
+          <div class="text-foreground absolute inset-y-0 right-0 flex items-center pr-3 text-xs">
+            ${c.price}/mo &mdash; {c.note}
+          </div>
+        </div>
+      </div>
+    ))
+  }
+
+  <div class="flex items-center gap-4">
+    <div class="w-40 shrink-0 text-sm font-bold sm:w-48">HushBox</div>
+    <div class="bg-muted/40 relative h-8 flex-1 overflow-hidden rounded-md">
+      <div
+        class="bg-primary h-full rounded-md"
+        style={`width: ${String(Math.max((hushboxCost / 20) * 100, 5))}%`}
+      >
+      </div>
+      <div class="absolute inset-y-0 right-0 flex items-center pr-3 text-xs font-bold">
+        ${formattedCost}/mo &mdash; ALL {modelCount}+ models
+      </div>
+    </div>
+  </div>
+</div>

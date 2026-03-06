@@ -1,0 +1,21 @@
+---
+interface Props {
+  providers: string[];
+  modelCount: number;
+}
+
+const { providers, modelCount } = Astro.props;
+---
+
+<div class="text-center">
+  <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+    {
+      providers.map((provider) => (
+        <span class="text-foreground text-sm font-medium">{provider}</span>
+      ))
+    }
+  </div>
+  <p class="text-foreground mt-3 text-sm">
+    {modelCount} models available
+  </p>
+</div>
