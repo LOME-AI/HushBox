@@ -15,12 +15,9 @@ vi.mock('../../lib/speculative-balance.js', () => ({
   getGroupReservedTotals: vi.fn(),
 }));
 
-vi.mock('../openrouter/index.js', () => ({
+vi.mock('@hushbox/shared/models', () => ({
   fetchModels: vi.fn(),
   fetchZdrModelIds: vi.fn().mockResolvedValue(new Set()),
-}));
-
-vi.mock('../models.js', () => ({
   processModels: vi.fn(),
 }));
 
@@ -32,8 +29,7 @@ vi.mock('./budgets.js', () => ({
 // Import mocks after vi.mock
 import { getUserTierInfo } from './balance.js';
 import { getReservedTotal, getGroupReservedTotals } from '../../lib/speculative-balance.js';
-import { fetchModels } from '../openrouter/index.js';
-import { processModels } from '../models.js';
+import { fetchModels, processModels } from '@hushbox/shared/models';
 import { getConversationBudgets, computeGroupRemaining } from './budgets.js';
 
 const mockGetUserTierInfo = vi.mocked(getUserTierInfo);

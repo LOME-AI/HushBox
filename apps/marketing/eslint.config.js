@@ -1,4 +1,10 @@
-import { createBaseConfig, reactConfig, testConfig, prettierConfig } from '@hushbox/config/eslint';
+import {
+  createBaseConfig,
+  reactConfig,
+  astroConfig,
+  testConfig,
+  prettierConfig,
+} from '@hushbox/config/eslint';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -17,6 +23,7 @@ export default [
     },
   },
   ...reactConfig,
+  ...astroConfig,
   ...testConfig,
   prettierConfig,
 ];

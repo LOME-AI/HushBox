@@ -19,7 +19,8 @@
     "@hushbox/ui": "workspace:*",
     "astro": "^5.10.1",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "zod": "^4.2.1"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.4",

@@ -22,7 +22,7 @@ function Accordion({
         onClick={(): void => {
           setOpen((previous) => !previous);
         }}
-        className="hover:bg-muted/50 -mx-2 flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-3 text-left text-sm font-medium transition-colors"
+        className="hover:bg-muted/50 flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-3 text-left text-sm font-medium transition-colors"
         aria-expanded={open}
       >
         {trigger}

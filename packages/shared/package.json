@@ -9,7 +9,8 @@
     "./legal": "./src/legal/index.ts",
     "./routes": "./src/routes.ts",
     "./src/test-utilities.js": "./src/test-utilities.ts",
-    "./test-polyfills": "./src/test-polyfills.ts"
+    "./test-polyfills": "./src/test-polyfills.ts",
+    "./models": "./src/models/index.ts"
   },
   "scripts": {
     "test": "../../scripts/with-env vitest run --passWithNoTests",

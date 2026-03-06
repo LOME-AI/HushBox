@@ -10,6 +10,7 @@ import sonarjs from 'eslint-plugin-sonarjs';
 import unicorn from 'eslint-plugin-unicorn';
 import pluginPromise from 'eslint-plugin-promise';
 import unusedImports from 'eslint-plugin-unused-imports';
+import eslintPluginAstro from 'eslint-plugin-astro';
 
 /**
  * Creates the base ESLint configuration with correct TypeScript project resolution.
@@ -259,6 +260,20 @@ export const workersConfig = [
       globals: {
         ...globals.worker,
         ...globals.serviceworker,
+      },
+    },
+  },
+];
+
+/** @type {import('eslint').Linter.Config[]} */
+export const astroConfig = [
+  ...eslintPluginAstro.configs.recommended,
+  {
+    files: ['**/*.astro'],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: true,
       },
     },
   },

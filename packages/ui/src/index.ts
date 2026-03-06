@@ -83,6 +83,11 @@ export {
 } from './components/modal-actions';
 export { ThemeToggle, type ThemeToggleProps } from './components/theme-toggle';
 
+// CipherWall
+export { CipherWall } from './components/cipher-wall';
+export { useCipherWall, readThemeColors } from './components/cipher-wall';
+export type { CipherWallOptions, ThemeColors, CipherWallState } from './components/cipher-wall';
+
 // Marketing Components
 export { Hero, type HeroProps } from './components/marketing/hero';
 export { ContentSection, type ContentSectionProps } from './components/marketing/content-section';
@@ -97,6 +102,8 @@ export {
   type NavSection,
 } from './components/marketing/section-nav';
 export { EncryptionDemo, type EncryptionDemoProps } from './components/marketing/encryption-demo';
+export { FeeBreakdown, type FeeBreakdownProps } from './components/marketing/fee-breakdown';
+export { CostPieChart, type CostPieChartProps } from './components/marketing/cost-pie-chart';
 
 // Utilities
 export { cn } from './lib/utilities';

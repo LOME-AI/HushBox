@@ -4,9 +4,11 @@
  * Handles filtering, classification, and transformation of OpenRouter models.
  */
 
-import type { Model, ModelCapability } from '@hushbox/shared';
+import type { Model, ModelCapability } from '../schemas/api/models.js';
 
-import { isPremiumModel, PREMIUM_PRICE_PERCENTILE } from './models/premium-check.js';
+import { isPremiumModel, PREMIUM_PRICE_PERCENTILE } from './premium-check.js';
+
+import type { OpenRouterModel, ProcessedModels } from './types.js';
 
 // ============================================================
 // Constants
@@ -25,7 +27,7 @@ const MIN_PRICE_PER_1K_TOKENS = 0.001;
 const EXCLUDED_NAME_PATTERNS = [/body builder/i, /auto router/i, /audio/i, /image/i];
 
 /** Provider name mapping from model ID prefix */
-const PROVIDER_MAP: Record<string, string> = {
+export const PROVIDER_MAP: Record<string, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
   google: 'Google',
@@ -35,31 +37,6 @@ const PROVIDER_MAP: Record<string, string> = {
   perplexity: 'Perplexity',
   deepseek: 'DeepSeek',
 };
-
-// ============================================================
-// Types
-// ============================================================
-
-/** Raw model data from OpenRouter API */
-export interface OpenRouterModel {
-  id: string;
-  name: string;
-  description: string;
-  context_length: number;
-  pricing: { prompt: string; completion: string };
-  supported_parameters: string[];
-  created: number;
-  architecture: {
-    input_modalities: string[];
-    output_modalities: string[];
-  };
-}
-
-/** Result of processing models */
-export interface ProcessedModels {
-  models: Model[];
-  premiumIds: string[];
-}
 
 // ============================================================
 // Internal helpers
@@ -135,8 +112,8 @@ function extractProvider(model: OpenRouterModel): { provider: string; displayNam
 
 /**
  * Derive capabilities from supported_parameters.
- * - 'tools' or 'tool_choice' → functions
- * - 'response_format' → json-mode
+ * - 'tools' or 'tool_choice' -> functions
+ * - 'response_format' -> json-mode
  * - All models support streaming by default
  */
 function deriveCapabilities(params: string[]): ModelCapability[] {

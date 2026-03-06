@@ -5,11 +5,15 @@ import { SplashScreen } from './splash-screen';
 
 mockLogoImport();
 
-const mockUseCipherWall = vi.fn((_options?: Record<string, unknown>) => ({ current: null }));
-
-vi.mock('@/hooks/use-cipher-wall', () => ({
-  useCipherWall: (options?: Record<string, unknown>) => mockUseCipherWall(options),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    CipherWall: (props: Record<string, unknown>) => (
+      <canvas data-testid="cipher-wall" data-props={JSON.stringify(props)} />
+    ),
+  };
+});
 
 const VARIANT_CONFIG = {
   dark: { background: '#0a0a0a', foreground: '#fafafa' },
@@ -87,17 +91,10 @@ describe('SplashScreen', () => {
     expect(screen.getByText('Box')).toHaveStyle({ color: '#ec4755' });
   });
 
-  it('passes cipherOpacity 0.5 to useCipherWall', () => {
-    mockUseCipherWall.mockClear();
+  it('passes frozen and frozenMessageCount props to CipherWall', () => {
     render(<SplashScreen variant="dark" />);
-    expect(mockUseCipherWall).toHaveBeenCalledWith(expect.objectContaining({ cipherOpacity: 0.5 }));
-  });
-
-  it('passes frozen and frozenMessageCount to useCipherWall', () => {
-    mockUseCipherWall.mockClear();
-    render(<SplashScreen variant="light" />);
-    expect(mockUseCipherWall).toHaveBeenCalledWith(
-      expect.objectContaining({ frozen: true, frozenMessageCount: 4 })
-    );
+    const canvas = screen.getByTestId('cipher-wall');
+    const props = JSON.parse(canvas.dataset['props']!);
+    expect(props).toMatchObject({ frozen: true, frozenMessageCount: 4, cipherOpacity: 0.5 });
   });
 });

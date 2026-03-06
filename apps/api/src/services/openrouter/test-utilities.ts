@@ -1,4 +1,4 @@
-import { fetchZdrModelIds } from './openrouter.js';
+import { fetchZdrModelIds } from '@hushbox/shared/models';
 import type { OpenRouterClient } from './types.js';
 
 /** Fallback model if no cheap paid model is found */

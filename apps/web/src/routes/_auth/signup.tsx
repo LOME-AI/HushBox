@@ -94,7 +94,7 @@ export function SignupPage(): React.JSX.Element {
     <div>
       <div className="mb-5 text-center">
         <h1 className="text-foreground mb-2 text-3xl font-bold">Create your account</h1>
-        <p className="text-primary text-lg font-medium">One interface. Every AI model. Private.</p>
+        <p className="text-primary text-lg font-medium">One interface. Every feature. Private.</p>
       </div>
 
       <form

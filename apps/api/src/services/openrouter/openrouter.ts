@@ -1,4 +1,5 @@
 import { recordServiceEvidence, SERVICE_NAMES, type Database } from '@hushbox/db';
+import { fetchModels } from '@hushbox/shared/models';
 import { safeJsonParse } from '../../lib/safe-json.js';
 import type {
   ChatCompletionRequest,
@@ -8,7 +9,6 @@ import type {
   OpenRouterClient,
   GenerationStats,
   StreamToken,
-  ZdrEndpoint,
 } from './types.js';
 import { parseContextLengthError } from './context-error.js';
 
@@ -40,37 +40,6 @@ const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1';
 const ZDR_PROVIDER = {
   provider: { data_collection: 'deny' as const, zdr: true },
 } as const;
-
-/**
- * Fetch models from OpenRouter API without authentication.
- * The /models endpoint is public and does not require an API key.
- */
-export async function fetchModels(): Promise<ModelInfo[]> {
-  const response = await fetch(`${OPENROUTER_API_URL}/models`);
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch models');
-  }
-
-  const data = await safeJsonParse<{ data: ModelInfo[] }>(response, 'OpenRouter models');
-  return data.data;
-}
-
-/**
- * Fetch ZDR-compliant model IDs from OpenRouter.
- * The /endpoints/zdr endpoint is public — no API key required.
- * Works identically in dev, CI, and production.
- */
-export async function fetchZdrModelIds(): Promise<Set<string>> {
-  const response = await fetch(`${OPENROUTER_API_URL}/endpoints/zdr`);
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch ZDR endpoints');
-  }
-
-  const data = await safeJsonParse<{ data: ZdrEndpoint[] }>(response, 'OpenRouter ZDR endpoints');
-  return new Set(data.data.map((ep) => ep.model_id));
-}
 
 /**
  * Get a specific model by ID from OpenRouter API without authentication.

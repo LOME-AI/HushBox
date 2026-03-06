@@ -8,10 +8,11 @@ import {
   renderFrame,
   CELL_WIDTH,
   CELL_HEIGHT,
-} from '@/components/auth/cipher-wall-engine';
-import type { CipherWallState, ThemeColors } from '@/components/auth/cipher-wall-engine';
+} from './cipher-wall-engine';
+import type { CipherWallState, ThemeColors } from './cipher-wall-engine';
 
 const DPR_CAP = 2;
+export const RESIZE_DEBOUNCE_MS = 500;
 
 export interface CipherWallOptions {
   frozen?: boolean;
@@ -78,11 +79,11 @@ export function useCipherWall(
       const h = parent.clientHeight;
       canvas.width = w * dpr;
       canvas.height = h * dpr;
-      canvas.style.width = `${String(w)}px`;
-      canvas.style.height = `${String(h)}px`;
       ctx.scale(dpr, dpr);
 
       const { cols, rows } = computeGridSize(w, h);
+      if (stateRef.current?.cols === cols && stateRef.current.rows === rows) return;
+
       if (frozen) {
         stateRef.current = createFrozenSnapshot(cols, rows, frozenMessageCount);
       } else if (useStaticRender) {
@@ -109,13 +110,18 @@ export function useCipherWall(
 
     resize();
 
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+
     // --- Static render for frozen or reduced motion ---
     if (useStaticRender) {
       tryRender();
 
       const resizeObserver = new ResizeObserver(() => {
-        resize();
-        tryRender();
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          resize();
+          tryRender();
+        }, RESIZE_DEBOUNCE_MS);
       });
       if (parent) resizeObserver.observe(parent);
 
@@ -132,12 +138,14 @@ export function useCipherWall(
         });
 
         return () => {
+          clearTimeout(resizeTimer);
           resizeObserver.disconnect();
           mutationObserver.disconnect();
         };
       }
 
       return () => {
+        clearTimeout(resizeTimer);
         resizeObserver.disconnect();
       };
     }
@@ -161,7 +169,8 @@ export function useCipherWall(
 
     // --- Observers ---
     const resizeObserver = new ResizeObserver(() => {
-      resize();
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(resize, RESIZE_DEBOUNCE_MS);
     });
     if (parent) resizeObserver.observe(parent);
 
@@ -174,6 +183,7 @@ export function useCipherWall(
     });
 
     return () => {
+      clearTimeout(resizeTimer);
       cancelAnimationFrame(rafIdRef.current);
       resizeObserver.disconnect();
       mutationObserver.disconnect();

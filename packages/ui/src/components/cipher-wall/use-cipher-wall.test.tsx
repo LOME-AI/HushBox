@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
 import { useCipherWall, readThemeColors } from './use-cipher-wall';
 import type { CipherWallOptions } from './use-cipher-wall';
-import type { ThemeColors } from '@/components/auth/cipher-wall-engine';
+import type { ThemeColors } from './cipher-wall-engine';
 
 // --- Test components that wire the hook to a real canvas ---
 

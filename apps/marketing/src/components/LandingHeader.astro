@@ -1,0 +1,115 @@
+---
+import { ROUTES } from '@hushbox/shared/routes';
+import { buttonVariants, Logo, ThemeToggle } from '@hushbox/ui';
+import { fetchGitHubStars } from '../lib/fetch-github-stars';
+
+const starCount = await fetchGitHubStars();
+
+function formatStars(count: number): string {
+  if (count >= 1000) {
+    return `${(count / 1000).toFixed(1)}k`;
+  }
+  return String(count);
+}
+---
+
+<header class="border-border/50 bg-background/80 fixed top-0 z-50 w-full border-b backdrop-blur-md">
+  <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+    <a href="/" class="transition-opacity hover:opacity-80">
+      <Logo />
+    </a>
+
+    <nav class="hidden items-center gap-6 md:flex">
+      <a
+        href="https://github.com/LOME-AI/HushBox"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="text-foreground-muted hover:text-foreground inline-flex items-center gap-1.5 text-sm leading-none transition-colors"
+      >
+        <svg class="h-4 w-4 shrink-0" viewBox="0 0 16 16" fill="currentColor">
+          <path
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+          ></path>
+        </svg>
+        <span>{formatStars(starCount)}</span>
+      </a>
+      <a
+        href={ROUTES.PRIVACY}
+        class="text-foreground-muted hover:text-foreground text-sm transition-colors">Privacy</a
+      >
+      <a
+        href={ROUTES.TERMS}
+        class="text-foreground-muted hover:text-foreground text-sm transition-colors">Terms</a
+      >
+      <ThemeToggle client:load />
+      <a
+        href={ROUTES.LOGIN}
+        class="text-foreground-muted hover:text-foreground text-sm transition-colors">Log In</a
+      >
+      <a href={ROUTES.SIGNUP} class={buttonVariants({ variant: 'default', size: 'sm' })}>
+        Sign Up &rarr;
+      </a>
+    </nav>
+
+    <div class="flex items-center gap-2 md:hidden">
+      <ThemeToggle client:load />
+      <button
+        type="button"
+        id="landing-menu-toggle"
+        class="cursor-pointer"
+        aria-label="Toggle menu"
+        aria-expanded="false"
+      >
+        <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 6h16M4 12h16M4 18h16"></path>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="landing-mobile-menu" class="hidden border-t md:hidden">
+    <div class="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-4">
+      <a
+        href="https://github.com/LOME-AI/HushBox"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="text-foreground-muted flex items-center gap-1.5 text-sm"
+      >
+        <svg class="h-4 w-4 shrink-0" viewBox="0 0 16 16" fill="currentColor">
+          <path
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+          ></path>
+        </svg>
+        <span>{formatStars(starCount)}</span>
+      </a>
+      <a href={ROUTES.PRIVACY} class="text-foreground-muted text-sm">Privacy</a>
+      <a href={ROUTES.TERMS} class="text-foreground-muted text-sm">Terms</a>
+      <a href={ROUTES.LOGIN} class="text-foreground-muted text-sm">Log In</a>
+      <hr class="border-border" />
+      <a
+        href={ROUTES.SIGNUP}
+        class={buttonVariants({ variant: 'default', size: 'sm' }) + ' w-full text-center'}
+      >
+        Sign Up &rarr;
+      </a>
+    </div>
+  </div>
+</header>
+
+<script is:inline>
+  (function () {
+    var toggle = document.getElementById('landing-menu-toggle');
+    var menu = document.getElementById('landing-mobile-menu');
+    if (toggle && menu) {
+      toggle.addEventListener('click', function () {
+        var open = !menu.classList.contains('hidden');
+        menu.classList.toggle('hidden');
+        toggle.setAttribute('aria-expanded', String(!open));
+      });
+    }
+  })();
+</script>

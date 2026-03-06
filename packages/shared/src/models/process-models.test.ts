@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { processModels } from './models.js';
+import { processModels } from './process-models.js';
 
 // ============================================================
 // Test Fixtures

@@ -4,7 +4,7 @@ import { Logo } from '@hushbox/ui';
 import { ROUTES } from '@hushbox/shared';
 import { authClient } from '@/lib/auth';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
-import { CipherWall } from '@/components/auth/cipher-wall';
+import { CipherWall } from '@hushbox/ui';
 
 export const Route = createFileRoute('/_auth')({
   beforeLoad: async () => {

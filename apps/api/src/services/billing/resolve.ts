@@ -11,8 +11,7 @@ import type { Database } from '@hushbox/db';
 import type { Redis } from '@upstash/redis';
 import { getUserTierInfo } from './balance.js';
 import { getReservedTotal, getGroupReservedTotals } from '../../lib/speculative-balance.js';
-import { fetchModels, fetchZdrModelIds } from '../openrouter/index.js';
-import { processModels } from '../models.js';
+import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
 import { getConversationBudgets, computeGroupRemaining } from './budgets.js';
 
 export interface MemberContext {

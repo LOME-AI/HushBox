@@ -1,0 +1,17 @@
+---
+interface Props {
+  name: string;
+  description?: string;
+  comingSoon?: boolean;
+}
+
+const { name: featureName, description, comingSoon = false } = Astro.props;
+---
+
+<div
+  class={`rounded-lg border-2 px-4 py-3 ${comingSoon ? 'border-dashed border-border text-foreground' : 'border-border'}`}
+>
+  <p class="text-sm font-medium">{featureName}</p>
+  {description && <p class="text-foreground/70 mt-1 text-justify text-xs">{description}</p>}
+  {comingSoon && <span class="text-foreground/60 text-xs">(soon)</span>}
+</div>
