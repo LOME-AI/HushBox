@@ -43,6 +43,18 @@ jobs:
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
+      - name: Verify keystore
+        run: |
+          echo "Keystore file exists: $(test -s /tmp/hushbox-release.jks && echo YES || echo NO)"
+          echo "Store password set: $(test -n "$ANDROID_KEYSTORE_PASSWORD" && echo YES || echo NO)"
+          echo "Key alias set: $(test -n "$ANDROID_KEY_ALIAS" && echo YES || echo NO)"
+          echo "Key password set: $(test -n "$ANDROID_KEY_PASSWORD" && echo YES || echo NO)"
+          keytool -list -keystore /tmp/hushbox-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" > /dev/null 2>&1 && echo "Store password: CORRECT" || echo "Store password: WRONG"
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
       - name: Build web for APK
         run: pnpm --filter web build
         # BEGIN GENERATED: build-env-android-direct
