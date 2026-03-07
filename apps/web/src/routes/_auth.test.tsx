@@ -26,9 +26,13 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 // Mock CipherWall to avoid Canvas API in JSDOM
-vi.mock('@/components/auth/cipher-wall', () => ({
-  CipherWall: () => <div data-testid="cipher-wall">cipher wall</div>,
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    CipherWall: () => <div data-testid="cipher-wall">cipher wall</div>,
+  };
+});
 
 describe('AuthLayout component', () => {
   beforeEach(() => {

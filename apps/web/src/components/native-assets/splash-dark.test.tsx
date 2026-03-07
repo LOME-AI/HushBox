@@ -5,9 +5,13 @@ import { SplashDark } from './splash-dark';
 
 mockLogoImport();
 
-vi.mock('@/hooks/use-cipher-wall', () => ({
-  useCipherWall: () => ({ current: null }),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    CipherWall: () => <canvas data-testid="cipher-wall" />,
+  };
+});
 
 describe('SplashDark', () => {
   it('renders the dark splash variant', () => {

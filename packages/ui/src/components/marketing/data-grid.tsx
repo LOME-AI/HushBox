@@ -54,7 +54,7 @@ function DataGrid({
       })}
       {...(animated && { 'data-animated': '' })}
       {...(animated && { 'data-visible': String(visible) })}
-      className={cn('overflow-x-auto', className)}
+      className={cn('border-border overflow-hidden rounded-lg border-2', className)}
       {...props}
     >
       <table className="w-full border-collapse text-sm">

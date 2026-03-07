@@ -1,13 +1,15 @@
 /* global process */
 import { defineConfig } from 'astro/config';
 import react from '@astrojs/react';
+import sitemap from '@astrojs/sitemap';
 import tailwindcss from '@tailwindcss/vite';
 
 const vitePort = process.env['HB_VITE_PORT'] ?? '5173';
 const astroPort = process.env['HB_ASTRO_PORT'];
 
 export default defineConfig({
-  integrations: [react()],
+  site: 'https://hushbox.ai',
+  integrations: [react(), sitemap()],
   server: {
     port: Number(astroPort ?? 4321),
   },
@@ -20,11 +22,12 @@ export default defineConfig({
           server.middlewares.use((req, res, next) => {
             const url = req.url?.split('?')[0] ?? '';
             if (
-              url === '/' ||
               url === '/login' ||
               url === '/login/' ||
               url === '/signup' ||
-              url === '/signup/'
+              url === '/signup/' ||
+              url === '/chat' ||
+              url === '/chat/'
             ) {
               res.writeHead(302, { Location: `http://localhost:${vitePort}${url}` });
               res.end();

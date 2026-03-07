@@ -37,10 +37,11 @@
     "apps/marketing": {
       "entry": ["src/pages/**/*.astro"],
       "project": ["src/**/*.{astro,ts,tsx}"],
-      "ignore": ["src/styles/**"]
+      "ignore": ["src/styles/**"],
+      "ignoreDependencies": ["zod"]
     }
   },
   "ignoreDependencies": ["eslint-formatter-summary", "tailwindcss", "tw-animate-css", "vite"],
-  "ignoreBinaries": ["lsof"],
+  "ignoreBinaries": [],
   "ignoreExportsUsedInFile": true
 }

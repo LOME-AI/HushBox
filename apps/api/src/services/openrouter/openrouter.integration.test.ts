@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createDb, LOCAL_NEON_DEV_CONFIG, type Database } from '@hushbox/db';
 import { createEnvUtilities } from '@hushbox/shared';
-import { createOpenRouterClient, fetchZdrModelIds, type EvidenceConfig } from './openrouter.js';
+import { createOpenRouterClient, type EvidenceConfig } from './openrouter.js';
+import { fetchModels, fetchZdrModelIds } from '@hushbox/shared/models';
 import { createFastMockOpenRouterClient } from '../../test-helpers/openrouter-mocks.js';
 import type { OpenRouterClient, ModelInfo } from './types.js';
-import { fetchModels } from './openrouter.js';
 import {
   getPaidTestModel,
   clearTestModelCache,

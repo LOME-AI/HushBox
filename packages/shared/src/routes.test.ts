@@ -6,7 +6,7 @@ describe('ROUTES constants', () => {
   const routeValues = Object.values(ROUTES);
 
   it('contains the expected number of route definitions', () => {
-    expect(routeEntries.length).toBe(18);
+    expect(routeEntries.length).toBe(19);
   });
 
   it('has all values as non-empty strings', () => {
@@ -48,6 +48,7 @@ describe('ROUTES constants', () => {
         "DEV_PERSONAS": "/dev/personas",
         "DEV_RENDER_ASSET": "/dev/render-asset/$name",
         "LOGIN": "/login",
+        "MARKETING": "/welcome",
         "PRIVACY": "/privacy",
         "PROJECTS": "/projects",
         "SETTINGS": "/settings",
@@ -58,6 +59,9 @@ describe('ROUTES constants', () => {
         "VERIFY": "/verify",
       }
     `);
+  });
+  it('MARKETING route is not root to prevent Astro/Vite index.html conflict', () => {
+    expect(ROUTES.MARKETING).not.toBe('/');
   });
 });
 

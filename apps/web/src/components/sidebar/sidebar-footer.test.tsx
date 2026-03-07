@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { ROUTES } from '@hushbox/shared';
 import { SidebarFooter } from './sidebar-footer';
 import { useUIStore } from '@/stores/ui';
 
@@ -165,6 +166,16 @@ describe('SidebarFooter', () => {
       expect(githubLink).toBeInTheDocument();
       expect(githubLink).toHaveAttribute('href', 'https://github.com/lome-ai/hushbox');
       expect(githubLink).toHaveAttribute('target', '_blank');
+    });
+
+    it('shows About HushBox link in dropdown', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      const link = screen.getByTestId('menu-marketing');
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute('href', ROUTES.MARKETING);
     });
 
     it('shows Log Out option in dropdown', async () => {
@@ -442,6 +453,16 @@ describe('SidebarFooter', () => {
 
       await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-github')).toBeInTheDocument();
+    });
+
+    it('shows About HushBox link', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      const link = screen.getByTestId('menu-marketing');
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute('href', ROUTES.MARKETING);
     });
   });
 

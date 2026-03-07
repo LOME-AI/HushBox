@@ -6,7 +6,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./lib/utils": "./src/lib/utilities.ts",
-    "./assets/*": "./src/assets/*"
+    "./assets/*": "./src/assets/*",
+    "./cipher-wall/engine": "./src/components/cipher-wall/cipher-wall-engine.ts",
+    "./cipher-wall/hook": "./src/components/cipher-wall/use-cipher-wall.ts"
   },
   "scripts": {
     "lint": "eslint .",
@@ -30,6 +32,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.562.0",
+    "@hushbox/shared": "workspace:*",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0"
   },

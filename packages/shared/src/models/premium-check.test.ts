@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PREMIUM_PRICE_PERCENTILE, PREMIUM_RECENCY_MS, isPremiumModel } from './premium-check.js';
-import type { OpenRouterModel } from '../models.js';
+import type { OpenRouterModel } from './types.js';
 
 describe('PREMIUM_PRICE_PERCENTILE', () => {
   it('is 0.75 (75th percentile)', () => {

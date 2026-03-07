@@ -13,6 +13,9 @@ mockLogoImport();
 
 vi.mock('@hushbox/ui', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
+  CipherWall: (props: Record<string, unknown>) => (
+    <canvas data-testid="cipher-wall" data-props={JSON.stringify(props)} />
+  ),
 }));
 
 const { useParams } = await import('@tanstack/react-router');

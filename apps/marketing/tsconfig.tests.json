@@ -9,6 +9,7 @@
   "include": [
     "../../packages/config/import-meta-env.d.ts",
     "vitest.config.ts",
-    "public/.well-known/**/*.test.ts"
+    "public/.well-known/**/*.test.ts",
+    "src/**/*.test.ts"
   ]
 }
