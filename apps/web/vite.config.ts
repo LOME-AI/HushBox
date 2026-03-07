@@ -36,8 +36,14 @@ function marketingRedirectPlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url?.split('?')[0] ?? '';
+        if (url === '/') {
+          res.writeHead(301, { Location: `http://localhost:${astroPort}/welcome` });
+          res.end();
+          return;
+        }
         if (
-          url === '/' ||
+          url === '/welcome' ||
+          url === '/welcome/' ||
           url === '/privacy' ||
           url === '/privacy/' ||
           url === '/terms' ||
