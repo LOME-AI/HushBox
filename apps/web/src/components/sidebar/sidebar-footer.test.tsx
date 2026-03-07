@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { ROUTES } from '@hushbox/shared';
 import { SidebarFooter } from './sidebar-footer';
 import { useUIStore } from '@/stores/ui';
 
@@ -174,7 +175,7 @@ describe('SidebarFooter', () => {
       await user.click(screen.getByTestId('sidebar-trigger'));
       const link = screen.getByTestId('menu-marketing');
       expect(link).toBeInTheDocument();
-      expect(link).toHaveAttribute('href', '/');
+      expect(link).toHaveAttribute('href', ROUTES.MARKETING);
     });
 
     it('shows Log Out option in dropdown', async () => {
@@ -461,7 +462,7 @@ describe('SidebarFooter', () => {
       await user.click(screen.getByTestId('sidebar-trigger'));
       const link = screen.getByTestId('menu-marketing');
       expect(link).toBeInTheDocument();
-      expect(link).toHaveAttribute('href', '/');
+      expect(link).toHaveAttribute('href', ROUTES.MARKETING);
     });
   });
 

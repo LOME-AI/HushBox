@@ -2,7 +2,6 @@ import * as React from 'react';
 import {
   createGrid,
   seedInitialReveals,
-  createStaticSnapshot,
   createFrozenSnapshot,
   updateState,
   renderFrame,
@@ -59,10 +58,6 @@ export function useCipherWall(
 
     colorsRef.current = themeOverride ?? readThemeColors();
 
-    // --- Reduced motion check ---
-    const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
-    const useStaticRender = frozen || motionQuery.matches;
-
     // --- Sizing ---
     const dpr = Math.min(devicePixelRatio, DPR_CAP);
 
@@ -86,8 +81,6 @@ export function useCipherWall(
 
       if (frozen) {
         stateRef.current = createFrozenSnapshot(cols, rows, frozenMessageCount);
-      } else if (useStaticRender) {
-        stateRef.current = createStaticSnapshot(cols, rows);
       } else {
         const state = createGrid(cols, rows);
         seedInitialReveals(state);
@@ -112,8 +105,8 @@ export function useCipherWall(
 
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
 
-    // --- Static render for frozen or reduced motion ---
-    if (useStaticRender) {
+    // --- Static render for frozen mode ---
+    if (frozen) {
       tryRender();
 
       const resizeObserver = new ResizeObserver(() => {
@@ -124,25 +117,6 @@ export function useCipherWall(
         }, RESIZE_DEBOUNCE_MS);
       });
       if (parent) resizeObserver.observe(parent);
-
-      // MutationObserver only needed for theme changes — skip when frozen
-      // (frozen mode uses themeOverride, not CSS variables)
-      if (!frozen) {
-        const mutationObserver = new MutationObserver(() => {
-          colorsRef.current = readThemeColors();
-          tryRender();
-        });
-        mutationObserver.observe(document.documentElement, {
-          attributes: true,
-          attributeFilter: ['class'],
-        });
-
-        return () => {
-          clearTimeout(resizeTimer);
-          resizeObserver.disconnect();
-          mutationObserver.disconnect();
-        };
-      }
 
       return () => {
         clearTimeout(resizeTimer);

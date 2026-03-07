@@ -81,26 +81,9 @@ class MockMutationObserver {
   }
 }
 
-const originalMatchMedia = globalThis.matchMedia;
 const originalRAF = globalThis.requestAnimationFrame;
 const originalCAF = globalThis.cancelAnimationFrame;
 const originalGetComputedStyle = globalThis.getComputedStyle;
-
-function setupMatchMedia(matches: boolean): void {
-  Object.defineProperty(globalThis, 'matchMedia', {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  });
-}
 
 function setupRAF(): void {
   globalThis.requestAnimationFrame = vi.fn((_callback: FrameRequestCallback) => {
@@ -163,7 +146,6 @@ describe('useCipherWall', () => {
 
     vi.stubGlobal('ResizeObserver', MockResizeObserver);
     vi.stubGlobal('MutationObserver', MockMutationObserver);
-    setupMatchMedia(false);
     setupRAF();
     setupGetComputedStyle();
 
@@ -171,10 +153,6 @@ describe('useCipherWall', () => {
   });
 
   afterEach(() => {
-    Object.defineProperty(globalThis, 'matchMedia', {
-      writable: true,
-      value: originalMatchMedia,
-    });
     globalThis.requestAnimationFrame = originalRAF;
     globalThis.cancelAnimationFrame = originalCAF;
     globalThis.getComputedStyle = originalGetComputedStyle;
@@ -206,25 +184,12 @@ describe('useCipherWall', () => {
     expect(observed!.options).toEqual(expect.objectContaining({ attributes: true }));
   });
 
-  it('checks prefers-reduced-motion media query', () => {
-    render(<TestCanvas />);
-    expect(globalThis.matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)');
-  });
-
-  it('calls requestAnimationFrame on mount when motion is allowed', () => {
-    setupMatchMedia(false);
+  it('calls requestAnimationFrame on mount', () => {
     render(<TestCanvas />);
     expect(globalThis.requestAnimationFrame).toHaveBeenCalled();
   });
 
-  it('does not start rAF loop when reduced-motion matches', () => {
-    setupMatchMedia(true);
-    render(<TestCanvas />);
-    expect(globalThis.requestAnimationFrame).not.toHaveBeenCalled();
-  });
-
   it('calls cancelAnimationFrame on unmount', () => {
-    setupMatchMedia(false);
     const { unmount } = render(<TestCanvas />);
     unmount();
     expect(globalThis.cancelAnimationFrame).toHaveBeenCalled();
@@ -254,7 +219,6 @@ describe('useCipherWall frozen mode', () => {
 
     vi.stubGlobal('ResizeObserver', MockResizeObserver);
     vi.stubGlobal('MutationObserver', MockMutationObserver);
-    setupMatchMedia(false);
     setupRAF();
     setupGetComputedStyle();
 
@@ -262,10 +226,6 @@ describe('useCipherWall frozen mode', () => {
   });
 
   afterEach(() => {
-    Object.defineProperty(globalThis, 'matchMedia', {
-      writable: true,
-      value: originalMatchMedia,
-    });
     globalThis.requestAnimationFrame = originalRAF;
     globalThis.cancelAnimationFrame = originalCAF;
     globalThis.getComputedStyle = originalGetComputedStyle;

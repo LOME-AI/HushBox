@@ -44,7 +44,7 @@ export const CELL_WIDTH = 12;
 export const CELL_HEIGHT = 22;
 export const FONT_SIZE = 16;
 export const FONT = `${String(FONT_SIZE)}px 'JetBrains Mono', monospace`;
-export const REVEAL_INTERVAL = 3;
+export const REVEAL_INTERVAL = 2;
 export const HOLD_DURATION = 5;
 export const DECRYPT_TICK = 0.08;
 export const DECRYPT_SPEED = 1 / 6;
@@ -523,29 +523,6 @@ export function createFrozenSnapshot(
 
   for (let index = 0; index < count; index++) {
     placeFrozenMessage({ state, index, offsets, center });
-  }
-
-  state.reveals = [];
-  return state;
-}
-
-export function createStaticSnapshot(cols: number, rows: number): CipherWallState {
-  const state = createGrid(cols, rows);
-  const text = getSecureRandomElement(MESSAGES);
-
-  const availableRows = rows - 2 * MARGIN_ROWS;
-  const availableCols = cols - 2 * MARGIN_COLS - text.length + 1;
-
-  if (availableRows > 0 && availableCols > 0) {
-    const row = MARGIN_ROWS + getSecureRandomIndex(availableRows);
-    const col = MARGIN_COLS + getSecureRandomIndex(availableCols);
-
-    for (let index = 0; index < text.length; index++) {
-      const cell = getCell(state.grid, row, col + index);
-      cell.state = 'readable';
-      cell.targetChar = text.charAt(index);
-      cell.progress = 1;
-    }
   }
 
   state.reveals = [];
