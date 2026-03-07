@@ -48,7 +48,7 @@ describe('ROUTES constants', () => {
         "DEV_PERSONAS": "/dev/personas",
         "DEV_RENDER_ASSET": "/dev/render-asset/$name",
         "LOGIN": "/login",
-        "MARKETING": "/",
+        "MARKETING": "/welcome",
         "PRIVACY": "/privacy",
         "PROJECTS": "/projects",
         "SETTINGS": "/settings",
@@ -59,6 +59,9 @@ describe('ROUTES constants', () => {
         "VERIFY": "/verify",
       }
     `);
+  });
+  it('MARKETING route is not root to prevent Astro/Vite index.html conflict', () => {
+    expect(ROUTES.MARKETING).not.toBe('/');
   });
 });
 

@@ -7,7 +7,6 @@ import {
   getDisplayChar,
   getCellColor,
   renderFrame,
-  createStaticSnapshot,
   createFrozenSnapshot,
   SPLASH_MESSAGE_INDICES,
   CIPHER_CHARS,
@@ -55,16 +54,6 @@ function countReadableCells(grid: Cell[][]): number {
     }
   }
   return count;
-}
-
-function getReadableText(grid: Cell[][]): string {
-  let text = '';
-  for (const row of grid) {
-    for (const cell of row) {
-      if (cell.state === 'readable') text += cell.targetChar;
-    }
-  }
-  return text;
 }
 
 function resetGrid(state: CipherWallState): void {
@@ -993,80 +982,6 @@ describe('renderFrame', () => {
 
     // cipher base opacity is 0.8, × 1 = 0.8 (unchanged)
     expect(ctx.globalAlpha).toBeCloseTo(0.8);
-  });
-});
-
-describe('createStaticSnapshot', () => {
-  it('returns valid grid with correct dimensions', () => {
-    const state = createStaticSnapshot(50, 20);
-    expect(state.cols).toBe(50);
-    expect(state.rows).toBe(20);
-    expect(state.grid).toHaveLength(20);
-    for (const row of state.grid) {
-      expect(row).toHaveLength(50);
-    }
-  });
-
-  it('has exactly one message in readable state', () => {
-    const state = createStaticSnapshot(50, 20);
-    expect(countReadableCells(state.grid)).toBeGreaterThanOrEqual(1);
-
-    const readableRows = new Set<number>();
-    for (let r = 0; r < state.rows; r++) {
-      for (const cell of state.grid[r]!) {
-        if (cell.state === 'readable') readableRows.add(r);
-      }
-    }
-    expect(readableRows.size).toBe(1);
-  });
-
-  it('has all non-readable cells in cipher state', () => {
-    const state = createStaticSnapshot(50, 20);
-    for (const row of state.grid) {
-      for (const cell of row) {
-        if (cell.state !== 'readable') {
-          expect(cell.state).toBe('cipher');
-        }
-      }
-    }
-  });
-
-  it('has no active reveals (static)', () => {
-    const state = createStaticSnapshot(50, 20);
-    expect(state.reveals).toHaveLength(0);
-  });
-
-  it('readable cells have targetChar matching a MESSAGES entry', () => {
-    const state = createStaticSnapshot(50, 20);
-    expect(MESSAGES).toContain(getReadableText(state.grid));
-  });
-
-  it('places readable message within row margins', () => {
-    for (let trial = 0; trial < 20; trial++) {
-      const state = createStaticSnapshot(50, 20);
-      for (let r = 0; r < state.rows; r++) {
-        for (const cell of state.grid[r]!) {
-          if (cell.state === 'readable') {
-            expect(r).toBeGreaterThanOrEqual(MARGIN_ROWS);
-            expect(r).toBeLessThan(state.rows - MARGIN_ROWS);
-          }
-        }
-      }
-    }
-  });
-
-  it('places readable message within col margins', () => {
-    for (let trial = 0; trial < 20; trial++) {
-      const state = createStaticSnapshot(50, 20);
-      for (let r = 0; r < state.rows; r++) {
-        for (let c = 0; c < state.cols; c++) {
-          if (state.grid[r]![c]!.state === 'readable') {
-            expect(c).toBeGreaterThanOrEqual(MARGIN_COLS);
-            expect(c).toBeLessThan(state.cols - MARGIN_COLS);
-          }
-        }
-      }
-    }
   });
 });
 

@@ -25,7 +25,7 @@ export const ROUTES = {
   SHARE_MESSAGE: '/share/m/$shareId',
 
   // Marketing / legal routes (public, no auth)
-  MARKETING: '/',
+  MARKETING: '/welcome',
   PRIVACY: '/privacy',
   TERMS: '/terms',
 
