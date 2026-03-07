@@ -68,4 +68,16 @@ describe('extractProviders', () => {
     const result = extractProviders(models);
     expect(result).toEqual(['Anthropic']);
   });
+
+  it('deduplicates providers that differ only by case', () => {
+    const models = [makeModel('OpenAI'), makeModel('openai'), makeModel('OPENAI')];
+    const result = extractProviders(models);
+    expect(result).toEqual(['OpenAI']);
+  });
+
+  it('filters out Unknown provider', () => {
+    const models = [makeModel('OpenAI'), makeModel('Unknown'), makeModel('unknown')];
+    const result = extractProviders(models);
+    expect(result).toEqual(['OpenAI']);
+  });
 });
