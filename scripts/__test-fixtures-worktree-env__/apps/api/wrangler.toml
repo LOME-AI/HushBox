@@ -1,0 +1,24 @@
+# Wrangler configuration
+name = "test-api"
+main = "src/index.ts"
+
+[dev]
+local_protocol = "http"
+[vars]
+NODE_ENV = "production"
+API_URL = "https://api.hushbox.ai"
+FRONTEND_URL = "https://hushbox.ai"
+
+# Secrets deployed via CI (GitHub Secrets → wrangler secret put):
+# - DATABASE_URL
+# - UPSTASH_REDIS_REST_URL
+# - UPSTASH_REDIS_REST_TOKEN
+# - OPAQUE_MASTER_SECRET
+# - IRON_SESSION_SECRET
+# - APP_VERSION
+# - RESEND_API_KEY
+# - FCM_PROJECT_ID
+# - FCM_SERVICE_ACCOUNT_JSON
+# - OPENROUTER_API_KEY
+# - HELCIM_API_TOKEN
+# - HELCIM_WEBHOOK_VERIFIER
