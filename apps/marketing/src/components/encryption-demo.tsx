@@ -56,28 +56,22 @@ function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>):
         {showEncrypted ? 'Show readable' : "Show what's stored"}
       </button>
 
-      <div className="bg-muted/30 relative min-h-[3rem] rounded-md px-3 py-2 sm:px-4 sm:py-3">
-        <div
-          className={cn(
-            'transition-opacity duration-300',
-            showEncrypted ? 'opacity-0' : 'opacity-100'
-          )}
-        >
-          <p className="text-sm">{text || '(type something above)'}</p>
-        </div>
-        <div
-          className={cn(
-            'bg-muted absolute inset-0 rounded-md px-3 py-2 transition-opacity duration-300 sm:px-4 sm:py-3',
-            showEncrypted ? 'opacity-100' : 'pointer-events-none opacity-0'
-          )}
-        >
+      <div
+        className={cn(
+          'min-h-[3rem] rounded-md px-3 py-2 transition-colors duration-300 sm:px-4 sm:py-3',
+          showEncrypted ? 'bg-muted' : 'bg-muted/30'
+        )}
+      >
+        {showEncrypted ? (
           <code
             data-testid="cipher-output"
             className="text-muted-foreground font-mono text-sm break-all"
           >
             {cipherHex}
           </code>
-        </div>
+        ) : (
+          <p className="text-sm">{text || '(type something above)'}</p>
+        )}
       </div>
 
       <p
