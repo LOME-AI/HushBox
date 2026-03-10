@@ -6,12 +6,26 @@ interface Props {
 }
 
 const { name: featureName, description, comingSoon = false } = Astro.props;
+const hasIcon = Astro.slots.has('icon');
 ---
 
 <div
   class={`rounded-lg border-2 px-4 py-3 ${comingSoon ? 'border-dashed border-border text-foreground' : 'border-border'}`}
 >
-  <p class="text-sm font-medium">{featureName}</p>
-  {description && <p class="text-foreground/70 mt-1 text-justify text-xs">{description}</p>}
-  {comingSoon && <span class="text-foreground/60 text-xs">(soon)</span>}
+  <div class={hasIcon ? 'flex items-start gap-2.5' : ''}>
+    {
+      hasIcon && (
+        <div class="text-primary mt-0.5 shrink-0 [&>svg]:h-4 [&>svg]:w-4">
+          <slot name="icon" />
+        </div>
+      )
+    }
+    <div>
+      <p class="text-sm font-medium">
+        {featureName}
+        {comingSoon && <span class="text-foreground/60 ml-1 text-xs font-normal">(soon)</span>}
+      </p>
+      {description && <p class="text-foreground/70 mt-1 text-xs sm:text-justify">{description}</p>}
+    </div>
+  </div>
 </div>

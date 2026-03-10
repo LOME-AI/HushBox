@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { LegalDocument } from './LegalDocument';
 import { PRIVACY_POLICY_META, PRIVACY_SECTIONS } from '@hushbox/shared/legal';
-import { DataGrid, StepFlow, EncryptionDemo } from '@hushbox/ui';
+import { DataGrid, StepFlow } from '@hushbox/ui';
+import { EncryptionDemo } from './encryption-demo';
 
 const NUTRITION_LABEL_COLUMNS = ['Data', 'Collected', 'Stored', 'Shared'];
 
