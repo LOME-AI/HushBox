@@ -82,7 +82,7 @@ export function shortenModelName(name: string): string {
   // - Single group with 4+ digits (e.g., -20240806)
   // - Multiple groups of digits (e.g., -2024-08-06, -1-5)
   // Does NOT match single-digit suffixes like GPT-4
-  const versionDatePattern = /-(\d{4,}|\d+(-\d+)+)$/;
+  const versionDatePattern = /-(\d{4,}|\d{1,10}(-\d{1,10})+)$/;
 
   return trimmed.replace(versionDatePattern, '');
 }

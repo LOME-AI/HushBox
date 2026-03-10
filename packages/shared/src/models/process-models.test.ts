@@ -448,6 +448,33 @@ describe('processModels', () => {
       expect(result.models[0]?.name).toBe('Super Model');
     });
 
+    it('splits on first colon when name has multiple colons', () => {
+      const models = [
+        createModel({
+          id: 'someunknown/model',
+          name: 'Provider: Model: Version 2',
+        }),
+      ];
+
+      const result = processModels(models, allZdr(models));
+
+      expect(result.models[0]?.provider).toBe('Provider');
+      expect(result.models[0]?.name).toBe('Model: Version 2');
+    });
+
+    it('falls back to ID prefix when name has only whitespace after colon', () => {
+      const models = [
+        createModel({
+          id: 'openai/model',
+          name: 'Provider:   ',
+        }),
+      ];
+
+      const result = processModels(models, allZdr(models));
+
+      expect(result.models[0]?.provider).toBe('OpenAI');
+    });
+
     it('derives capabilities from supported_parameters', () => {
       const modelsData = [
         createModel({
