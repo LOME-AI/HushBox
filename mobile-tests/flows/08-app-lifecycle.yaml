@@ -1,0 +1,30 @@
+appId: ai.hushbox.app
+name: App survives background and foreground transitions
+tags:
+  - must
+androidWebViewHierarchy: devtools
+---
+- launchApp:
+    clearState: true
+
+# Wait for app to stabilize
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 15000
+
+# Send app to background by pressing home
+- pressKey: home
+
+# Wait briefly while app is in background
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Bring app back to foreground (resume without restarting)
+- launchApp:
+    stopApp: false
+
+# Verify the WebView still renders correctly after resume
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 15000
+- assertVisible: 'Sign up'

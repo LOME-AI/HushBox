@@ -56,7 +56,13 @@
     "lint:check": "tsx scripts/lint-check.ts",
     "mutation": "./scripts/with-env stryker run",
     "mutation:incremental": "./scripts/with-env stryker run --incremental",
-    "cap:test-update": "./scripts/with-env tsx scripts/cap-test-update.ts"
+    "cap:test-update": "./scripts/with-env tsx scripts/cap-test-update.ts",
+    "mobile:up": "./scripts/with-env docker compose --profile mobile up -d android-emulator",
+    "mobile:down": "./scripts/with-env docker compose --profile mobile down",
+    "mobile:test": "./scripts/with-env tsx scripts/mobile-test.ts",
+    "mobile:test:smoke": "./scripts/with-env tsx scripts/mobile-test.ts --smoke",
+    "mobile:studio": "maestro studio",
+    "mobile:vnc": "./scripts/with-env sh -c 'echo \"Opening emulator VNC at http://localhost:${HB_EMULATOR_VNC_PORT}\" && xdg-open http://localhost:${HB_EMULATOR_VNC_PORT} 2>/dev/null || open http://localhost:${HB_EMULATOR_VNC_PORT}'"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

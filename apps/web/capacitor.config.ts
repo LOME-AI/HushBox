@@ -4,6 +4,9 @@ const config: CapacitorConfig = {
   appId: 'ai.hushbox.app',
   appName: 'HushBox',
   webDir: 'dist',
+  android: {
+    webContentsDebuggingEnabled: true,
+  },
   plugins: {
     CapacitorCookies: { enabled: true },
     CapacitorHttp: { enabled: false },

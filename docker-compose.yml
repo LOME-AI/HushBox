@@ -61,5 +61,21 @@ services:
       timeout: 3s
       retries: 5
 
+  android-emulator:
+    image: budtmo/docker-android:emulator_14.0
+    privileged: true
+    devices:
+      - /dev/kvm
+    group_add:
+      - '${HB_KVM_GID:-kvm}'
+    ports:
+      - '${HB_EMULATOR_ADB_PORT:-5555}:5555'
+      - '${HB_EMULATOR_VNC_PORT:-6080}:6080'
+    environment:
+      EMULATOR_DEVICE: Samsung Galaxy S10
+      WEB_VNC: 'true'
+    profiles:
+      - mobile
+
 volumes:
   postgres_data:

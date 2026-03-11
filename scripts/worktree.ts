@@ -9,6 +9,8 @@ export const BASE_PORTS = {
   redis: 6379,
   redisHttp: 8079,
   astro: 4321,
+  emulatorAdb: 5555,
+  emulatorVnc: 6080,
 } as const;
 
 export type PortKey = keyof typeof BASE_PORTS;

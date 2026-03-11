@@ -1,0 +1,55 @@
+appId: ai.hushbox.app
+name: Core user flow — login and send message
+tags:
+  - should
+androidWebViewHierarchy: devtools
+env:
+  TEST_EMAIL: test-alice@test.hushbox.ai
+  TEST_PASSWORD: password123
+---
+- launchApp:
+    clearState: true
+
+# Wait for app to stabilize
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 15000
+
+# Open sidebar and navigate to login
+- tapOn: 'Open menu'
+- tapOn: 'Trial User'
+- tapOn: 'Log In'
+- extendedWaitUntil:
+    visible: 'Welcome back'
+    timeout: 10000
+
+# Fill login form
+- tapOn: 'Email or Username'
+- inputText: ${TEST_EMAIL}
+- hideKeyboard
+
+- tapOn: 'Password'
+- inputText: ${TEST_PASSWORD}
+- hideKeyboard
+
+# Submit login
+- tapOn: 'Log in'
+
+# Wait for authenticated chat page (use element unique to chat, not login page)
+- extendedWaitUntil:
+    visible: 'Select model'
+    timeout: 15000
+
+# Send a message — tap the textarea (hintText not matched by tapOn)
+- tapOn:
+    point: '50%,35%'
+- inputText: 'Hello from Maestro test'
+- hideKeyboard
+
+# Tap send button (aria-label="Send" on the prompt input button)
+- tapOn: 'Send'
+
+# Wait for AI response — after send, the input changes to "Type a message..."
+- extendedWaitUntil:
+    visible: 'Type a message...'
+    timeout: 15000

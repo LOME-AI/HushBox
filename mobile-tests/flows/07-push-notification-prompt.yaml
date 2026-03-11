@@ -1,0 +1,20 @@
+appId: ai.hushbox.app
+name: Push notification permission dialog appears
+tags:
+  - must
+---
+# Launch with notification permission unset to trigger the system dialog.
+# The usePushNotifications hook calls PushNotifications.requestPermissions() on mount.
+- launchApp:
+    clearState: true
+    permissions:
+      notifications: unset
+
+# On Android 13+ (API 33+), POST_NOTIFICATIONS requires explicit permission.
+# Wait for the system permission dialog to appear.
+- extendedWaitUntil:
+    visible: 'Allow'
+    timeout: 15000
+
+# Accept the permission
+- tapOn: 'Allow'
