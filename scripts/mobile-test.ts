@@ -293,10 +293,24 @@ export async function configureAppLinks(): Promise<void> {
 
 export async function runMaestro(smoke: boolean): Promise<void> {
   const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
+  const apiPort = process.env['HB_API_PORT'] ?? '8787';
 
-  // Reconnect adb to ensure clean connection state for Maestro.
-  await execa('adb', ['disconnect', `localhost:${adbPort}`]);
+  // Kill and restart the adb server with emulator port scanning disabled.
+  // The adb server auto-discovers emulator ports (5554-5682) and creates
+  // ghost "emulator-XXXX offline" entries that crash Maestro's dadb.
+  // ADB_LOCAL_TRANSPORT_MAX_PORT=0 prevents the scan entirely.
+  console.log('Restarting adb server without emulator port scanning...');
+  await execa('adb', ['kill-server']).catch(() => {
+    // Ignored: kill-server fails if adb is not running
+  });
+  const adbEnv = { ...process.env, ADB_LOCAL_TRANSPORT_MAX_PORT: '0' };
+  await execa('adb', ['start-server'], { env: adbEnv });
   await execa('adb', ['connect', `localhost:${adbPort}`]);
+  await execa('adb', ['-s', `localhost:${adbPort}`, 'wait-for-device']);
+
+  // Re-establish reverse port forwarding (lost when adb server was killed).
+  console.log(`Re-establishing adb reverse for API port ${apiPort}...`);
+  await execa('adb', ['-s', `localhost:${adbPort}`, 'reverse', `tcp:${apiPort}`, `tcp:${apiPort}`]);
 
   const flowArgs = smoke
     ? [

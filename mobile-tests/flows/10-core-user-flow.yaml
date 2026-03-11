@@ -40,16 +40,15 @@ env:
     visible: 'Select model'
     timeout: 15000
 
-# Send a message — tap the textarea (hintText not matched by tapOn)
+# Use a suggestion chip to set the textarea value via React state.
+# Direct inputText via IME doesn't reliably trigger React onChange in WebViews.
+- tapOn: 'Explain a concept'
+
+# Tap send button (id="send-button" on the prompt input button)
 - tapOn:
-    point: '50%,35%'
-- inputText: 'Hello from Maestro test'
-- hideKeyboard
+    id: 'send-button'
 
-# Tap send button (aria-label="Send" on the prompt input button)
-- tapOn: 'Send'
-
-# Wait for AI response — after send, the input changes to "Type a message..."
+# Wait for AI mock response — the dev mock echoes with "Echo:" prefix
 - extendedWaitUntil:
-    visible: 'Type a message...'
+    visible: 'Echo:'
     timeout: 15000

@@ -457,19 +457,66 @@ describe('mobile-test script', () => {
   });
 
   describe('runMaestro', () => {
-    it('reconnects adb before running maestro', async () => {
+    it('kills adb server to clear ghost devices', async () => {
       process.env['HB_EMULATOR_ADB_PORT'] = '5555';
+      process.env['HB_API_PORT'] = '8787';
 
       await runMaestro(false);
 
-      expect(mockExeca).toHaveBeenCalledWith('adb', ['disconnect', 'localhost:5555']);
-      expect(mockExeca).toHaveBeenCalledWith('adb', ['connect', 'localhost:5555']);
+      expect(mockExeca).toHaveBeenCalledWith('adb', ['kill-server']);
 
       delete process.env['HB_EMULATOR_ADB_PORT'];
+      delete process.env['HB_API_PORT'];
+    });
+
+    it('restarts adb server with emulator scanning disabled', async () => {
+      process.env['HB_EMULATOR_ADB_PORT'] = '5555';
+      process.env['HB_API_PORT'] = '8787';
+
+      await runMaestro(false);
+
+      expect(mockExeca).toHaveBeenCalledWith('adb', ['start-server'], {
+        env: expect.objectContaining({ ADB_LOCAL_TRANSPORT_MAX_PORT: '0' }),
+      });
+
+      delete process.env['HB_EMULATOR_ADB_PORT'];
+      delete process.env['HB_API_PORT'];
+    });
+
+    it('reconnects to device after killing adb server', async () => {
+      process.env['HB_EMULATOR_ADB_PORT'] = '5555';
+      process.env['HB_API_PORT'] = '8787';
+
+      await runMaestro(false);
+
+      expect(mockExeca).toHaveBeenCalledWith('adb', ['connect', 'localhost:5555']);
+      expect(mockExeca).toHaveBeenCalledWith('adb', ['-s', 'localhost:5555', 'wait-for-device']);
+
+      delete process.env['HB_EMULATOR_ADB_PORT'];
+      delete process.env['HB_API_PORT'];
+    });
+
+    it('re-establishes adb reverse for API port after server restart', async () => {
+      process.env['HB_EMULATOR_ADB_PORT'] = '5555';
+      process.env['HB_API_PORT'] = '9999';
+
+      await runMaestro(false);
+
+      expect(mockExeca).toHaveBeenCalledWith('adb', [
+        '-s',
+        'localhost:5555',
+        'reverse',
+        'tcp:9999',
+        'tcp:9999',
+      ]);
+
+      delete process.env['HB_EMULATOR_ADB_PORT'];
+      delete process.env['HB_API_PORT'];
     });
 
     it('runs all flows with --device flag when smoke is false', async () => {
       process.env['HB_EMULATOR_ADB_PORT'] = '5555';
+      process.env['HB_API_PORT'] = '8787';
 
       await runMaestro(false);
 
@@ -488,10 +535,12 @@ describe('mobile-test script', () => {
       );
 
       delete process.env['HB_EMULATOR_ADB_PORT'];
+      delete process.env['HB_API_PORT'];
     });
 
     it('runs only smoke flows when smoke is true', async () => {
       process.env['HB_EMULATOR_ADB_PORT'] = '5555';
+      process.env['HB_API_PORT'] = '8787';
 
       await runMaestro(true);
 
@@ -512,6 +561,7 @@ describe('mobile-test script', () => {
       );
 
       delete process.env['HB_EMULATOR_ADB_PORT'];
+      delete process.env['HB_API_PORT'];
     });
   });
 
@@ -562,7 +612,8 @@ describe('mobile-test script', () => {
         { cmd: 'npx', label: 'cap-sync' },
         { cmd: './gradlew', label: 'gradle' },
         { cmd: 'adb', argument: 'install', label: 'install-apk' },
-        { cmd: 'adb', argument: 'disconnect', label: 'adb-disconnect' },
+        { cmd: 'adb', argument: 'kill-server', label: 'kill-adb-server' },
+        { cmd: 'adb', argument: 'start-server', label: 'start-adb-server' },
         { cmd: 'maestro', argument: 'test', label: 'run-maestro' },
       ];
 
@@ -590,8 +641,9 @@ describe('mobile-test script', () => {
         'cap-sync',
         'gradle',
         'install-apk',
-        'adb-disconnect',
-        'adb-reconnect',
+        'kill-adb-server',
+        'start-adb-server',
+        'adb-connect',
         'run-maestro',
       ]);
       // installAndroidSdk runs but only calls existsSync (no execa), so it won't appear in callOrder

@@ -3,7 +3,13 @@ import { createBaseConfig, reactConfig, testConfig, prettierConfig } from '@hush
 /** @type {import('eslint').Linter.Config[]} */
 export default [
   {
-    ignores: ['src/routeTree.gen.ts'],
+    ignores: [
+      'src/routeTree.gen.ts',
+      'android/**',
+      '!android/**/*.test.ts',
+      'ios/**',
+      '!ios/**/*.test.ts',
+    ],
   },
   ...createBaseConfig(import.meta.dirname),
   {

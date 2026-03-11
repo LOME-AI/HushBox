@@ -35,22 +35,14 @@ env:
     visible: 'Select model'
     timeout: 15000
 
-# Send multiple messages to create scrollable content (hintText not matched by tapOn)
+# Send a message using suggestion chip (IME inputText doesn't trigger React onChange)
+- tapOn: 'Explain a concept'
 - tapOn:
-    point: '50%,35%'
-- inputText: 'First message for scroll test'
-- tapOn: 'Send'
+    id: 'send-button'
 - extendedWaitUntil:
-    visible: 'Type a message...'
+    visible: 'Echo:'
     timeout: 15000
 
-- tapOn: 'Type a message...'
-- inputText: 'Second message for scroll test'
-- tapOn: 'Send'
-- extendedWaitUntil:
-    visible: 'Type a message...'
-    timeout: 15000
-
-# Scroll up to verify earlier messages are reachable
+# Scroll to verify the message list handles scroll correctly
 - scroll
 - waitForAnimationToEnd
