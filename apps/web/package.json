@@ -40,7 +40,7 @@
     "@tanstack/react-query": "^5.90.21",
     "@tanstack/react-router": "^1.166.6",
     "framer-motion": "^12.35.2",
-    "hono": "^4.12.6",
+    "hono": "^4.12.7",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.577.0",
     "mermaid": "^11.13.0",
