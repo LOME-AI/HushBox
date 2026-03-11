@@ -580,7 +580,7 @@ interface HandleBillingOptions {
 async function handleBillingResult(
   options: HandleBillingOptions
 ): Promise<SaveChatTurnResult | null> {
-  const { c, billingPromise, assistantMessageId, userId, model, generationId } = options;
+  const { c, billingPromise } = options;
 
   // Ensure billing completes even if client disconnects (Workers only)
   try {
@@ -592,18 +592,7 @@ async function handleBillingResult(
 
   try {
     return await billingPromise;
-  } catch (billingError) {
-    console.error(
-      JSON.stringify({
-        event: 'billing_failed',
-        messageId: assistantMessageId,
-        userId,
-        model,
-        generationId,
-        error: billingError instanceof Error ? billingError.message : String(billingError),
-        timestamp: new Date().toISOString(),
-      })
-    );
+  } catch {
     return null;
   }
 }

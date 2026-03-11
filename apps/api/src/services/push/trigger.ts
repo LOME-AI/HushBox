@@ -70,7 +70,7 @@ export async function sendPushForNewMessage(params: SendPushParams): Promise<voi
       body,
       data: { conversationId },
     });
-  } catch (error: unknown) {
-    console.error('Failed to send push notifications:', error);
+  } catch {
+    // Silently swallow — push notifications are best-effort
   }
 }
