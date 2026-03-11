@@ -346,7 +346,7 @@ export function LoginPage(): React.JSX.Element {
     void navigate({ to: ROUTES.CHAT });
   }, [navigate]);
 
-  async function handleSubmit(e: React.FormEvent): Promise<void> {
+  async function handleSubmit(e: React.SyntheticEvent): Promise<void> {
     e.preventDefault();
 
     setTouched({ identifier: true, password: true });

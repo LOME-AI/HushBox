@@ -67,7 +67,7 @@ export function getDestinations(config: VariableConfig, mode: EnvMode): Destinat
 }
 
 /** Get the raw EnvValue for a mode (unwraps override object) */
-// eslint-disable-next-line sonarjs/function-return-type -- intentional optional return
+
 export function getModeValue(config: VariableConfig, mode: EnvMode): EnvValue | undefined {
   const modeValue = config[mode];
   if (modeValue === undefined) return undefined;

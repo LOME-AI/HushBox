@@ -118,7 +118,7 @@ function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
       },
     },
   });
-  // eslint-disable-next-line sonarjs/function-return-type -- test wrapper returns children
+
   function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   }
@@ -438,7 +438,6 @@ describe('Sidebar', () => {
         isLoading: false,
       });
 
-      // eslint-disable-next-line sonarjs/function-return-type -- test wrapper returns children
       function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
         return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
       }

@@ -13,7 +13,7 @@ vi.mock('@/lib/env', () => ({
 }));
 
 // Test component that uses useQuery to verify context is available
-// eslint-disable-next-line sonarjs/function-return-type -- test component
+
 function TestQueryConsumer(): React.ReactNode {
   const { isLoading } = useQuery({
     queryKey: ['test'],
