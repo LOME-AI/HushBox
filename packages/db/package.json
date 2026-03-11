@@ -22,19 +22,19 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
-    "drizzle-orm": "^0.45.0",
-    "drizzle-zod": "^0.8.0",
-    "ws": "^8.18.3",
-    "zod": "^4.0.0"
+    "drizzle-orm": "^0.45.1",
+    "drizzle-zod": "^0.8.3",
+    "ws": "^8.19.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@faker-js/faker": "^10.2.0",
+    "@faker-js/faker": "^10.3.0",
     "@hushbox/config": "workspace:*",
     "@types/ws": "^8.18.1",
-    "drizzle-kit": "^0.31.0",
+    "drizzle-kit": "^0.31.9",
     "fishery": "^2.4.0",
-    "pg": "^8.17.1",
-    "typescript": "^5.7.2",
-    "vitest": "^4.0.17"
+    "pg": "^8.20.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }
