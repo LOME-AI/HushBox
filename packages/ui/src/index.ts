@@ -101,7 +101,6 @@ export {
   type SectionNavProps,
   type NavSection,
 } from './components/marketing/section-nav';
-export { EncryptionDemo, type EncryptionDemoProps } from './components/marketing/encryption-demo';
 export { FeeBreakdown, type FeeBreakdownProps } from './components/marketing/fee-breakdown';
 export { CostPieChart, type CostPieChartProps } from './components/marketing/cost-pie-chart';
 
