@@ -304,6 +304,8 @@ local_protocol = "http"
       expect(content).toContain('HB_REDIS_PORT="6379"');
       expect(content).toContain('HB_REDIS_HTTP_PORT="8079"');
       expect(content).toContain('HB_ASTRO_PORT="4321"');
+      expect(content).toContain('HB_EMULATOR_ADB_PORT="5555"');
+      expect(content).toContain('HB_EMULATOR_VNC_PORT="6080"');
     });
 
     it('does not include COMPOSE_PROJECT_NAME in CI mode', () => {
@@ -502,6 +504,26 @@ old content
       );
       expect(content).toContain(
         'echo "${{ secrets.HELCIM_WEBHOOK_VERIFIER_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_WEBHOOK_VERIFIER'
+      );
+    });
+  });
+
+  describe('decode-google-services section', () => {
+    it('generates base64 decode command with production secret reference', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: decode-google-services
+old content
+# END GENERATED: decode-google-services`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).toContain(
+        'run: echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > apps/web/android/app/google-services.json'
+      );
+      expect(content).toContain('env:');
+      expect(content).toContain(
+        'GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}'
       );
     });
   });
@@ -736,6 +758,8 @@ local_protocol = "http"
       expect(content).toContain('HB_REDIS_PORT="6379"');
       expect(content).toContain('HB_REDIS_HTTP_PORT="8079"');
       expect(content).toContain('HB_ASTRO_PORT="4321"');
+      expect(content).toContain('HB_EMULATOR_ADB_PORT="5555"');
+      expect(content).toContain('HB_EMULATOR_VNC_PORT="6080"');
     });
   });
 

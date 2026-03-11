@@ -35,6 +35,12 @@ const BUILD_VARIANTS: Record<string, Record<string, string>> = {
     VITE_PLATFORM: 'android-direct',
     VITE_APP_VERSION: '${{ inputs.version }}',
   },
+  'build-env-mobile-test': {
+    // eslint-disable-next-line sonarjs/no-clear-text-protocols -- Android emulator loopback; HTTPS not applicable
+    VITE_API_URL: 'http://10.0.2.2:8787',
+    VITE_PLATFORM: 'android-direct',
+    VITE_APP_VERSION: 'ci-mobile-test',
+  },
 };
 
 /**
@@ -96,7 +102,9 @@ function generatePortLines(
     `HB_NEON_PORT=${escapeEnvValue(String(ports.neon))}`,
     `HB_REDIS_PORT=${escapeEnvValue(String(ports.redis))}`,
     `HB_REDIS_HTTP_PORT=${escapeEnvValue(String(ports.redisHttp))}`,
-    `HB_ASTRO_PORT=${escapeEnvValue(String(ports.astro))}`
+    `HB_ASTRO_PORT=${escapeEnvValue(String(ports.astro))}`,
+    `HB_EMULATOR_ADB_PORT=${escapeEnvValue(String(ports.emulatorAdb))}`,
+    `HB_EMULATOR_VNC_PORT=${escapeEnvValue(String(ports.emulatorVnc))}`
   );
   return lines;
 }
@@ -344,6 +352,23 @@ function generateVerifySecrets(): string {
 }
 
 /**
+ * Generate the decode-google-services section (base64 decode command for workflow).
+ */
+function generateGoogleServicesDecode(): string {
+  const config = envConfig.GOOGLE_SERVICES_JSON_BASE64;
+  const raw = resolveRaw(config as VariableConfig, Mode.Production);
+  /* istanbul ignore next -- @preserve defensive check */
+  if (!raw || !isSecret(raw)) return '';
+
+  const lines = [
+    `run: echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > apps/web/android/app/google-services.json`,
+    `env:`,
+    `  GOOGLE_SERVICES_JSON_BASE64: \${{ secrets.${raw.name} }}`,
+  ];
+  return lines.join('\n') + '\n';
+}
+
+/**
  * Update workflow files with generated env sections.
  * Processes all known workflow files, applying all known markers.
  * replaceSection is a no-op when a marker doesn't exist in a file.
@@ -355,6 +380,7 @@ export function updateWorkflows(rootDir: string): void {
     'e2e-env': generateSecretsEnv(Mode.CiE2E),
     'deploy-secrets': generateDeploySecrets(),
     'verify-secrets': generateVerifySecrets(),
+    'decode-google-services': generateGoogleServicesDecode(),
   };
 
   for (const [marker, overrides] of Object.entries(BUILD_VARIANTS)) {

@@ -147,6 +147,8 @@ describe('getWorktreeConfig', () => {
       expect(config.ports.redis).toBe(BASE_PORTS.redis + slot);
       expect(config.ports.redisHttp).toBe(BASE_PORTS.redisHttp + slot);
       expect(config.ports.astro).toBe(BASE_PORTS.astro + slot);
+      expect(config.ports.emulatorAdb).toBe(BASE_PORTS.emulatorAdb + slot);
+      expect(config.ports.emulatorVnc).toBe(BASE_PORTS.emulatorVnc + slot);
     });
 
     it('produces different slots for different worktree names', () => {

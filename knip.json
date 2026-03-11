@@ -42,6 +42,6 @@
     }
   },
   "ignoreDependencies": ["eslint-formatter-summary", "tailwindcss", "tw-animate-css", "vite"],
-  "ignoreBinaries": [],
+  "ignoreBinaries": ["maestro", "adb", "cap", "db:up", "db:migrate", "db:seed"],
   "ignoreExportsUsedInFile": true
 }

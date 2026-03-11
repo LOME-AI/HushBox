@@ -325,10 +325,51 @@ jobs:
         if: always()
         run: pnpm db:down
 
+  # ── Mobile tests (Maestro + Android emulator via Docker) ──
+  mobile-test:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    environment: ci
+    needs: [gitleaks]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-blacksmith
+
+      - name: Generate environment files
+        run: pnpm generate:env --mode=ciE2E
+        # BEGIN GENERATED: e2e-env
+        env:
+          HELCIM_API_TOKEN_SANDBOX: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
+          HELCIM_WEBHOOK_VERIFIER_SANDBOX: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
+          VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
+        # END GENERATED: e2e-env
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Run mobile tests
+        run: pnpm mobile:test
+
+      - name: Upload results
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: maestro-results
+          path: maestro-results/
+          retention-days: 7
+
+      - name: Stop services
+        if: always()
+        run: |
+          pnpm mobile:down
+          pnpm db:down
+
   # ── Deploy (GitHub-hosted — hyper-secrets) ───────────────
   deploy:
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, duplication, unused, test, build, e2e, version]
+    needs: [lint, typecheck, duplication, unused, test, build, e2e, mobile-test, version]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: production
     steps:

@@ -1,0 +1,23 @@
+appId: ai.hushbox.app
+name: Network status detection initializes correctly
+tags:
+  - must
+androidWebViewHierarchy: devtools
+---
+# Maestro cannot toggle airplane mode directly. This test verifies:
+# 1. The Capacitor Network plugin initializes without crashing
+# 2. The OfflineOverlay does NOT appear when the network is available
+#
+# Full airplane mode toggle testing requires adb commands in the CI
+# workflow script (see the mobile-test job in ci.yml).
+
+- launchApp:
+    clearState: true
+
+# Wait for app to stabilize
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 15000
+
+# Verify the offline overlay is NOT shown (network is available)
+- assertNotVisible: "You're Offline"

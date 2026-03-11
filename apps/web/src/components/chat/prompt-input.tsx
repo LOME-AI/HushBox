@@ -283,6 +283,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
               )}
 
               <Button
+                id="send-button"
                 type="button"
                 size="icon"
                 onClick={handleSubmit}

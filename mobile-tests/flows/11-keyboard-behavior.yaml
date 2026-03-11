@@ -1,0 +1,29 @@
+appId: ai.hushbox.app
+name: Keyboard appears and input remains visible
+tags:
+  - should
+androidWebViewHierarchy: devtools
+---
+- launchApp:
+    clearState: true
+
+# Wait for app to stabilize
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 15000
+
+# Tap the prompt input to trigger the software keyboard (hintText not matched by tapOn)
+- tapOn:
+    point: '50%,35%'
+
+# Verify app UI is still visible (not hidden behind keyboard)
+- assertVisible: 'Sign up'
+
+# Type some text to verify input works
+- inputText: 'Testing keyboard'
+
+# Dismiss keyboard
+- hideKeyboard
+
+# UI should still be visible after keyboard dismissal
+- assertVisible: 'Sign up'

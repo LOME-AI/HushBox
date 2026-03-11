@@ -55,6 +55,13 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
+      - name: Decode google-services.json
+        # BEGIN GENERATED: decode-google-services
+        run: echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > apps/web/android/app/google-services.json
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        # END GENERATED: decode-google-services
+
       - name: Build web for APK
         run: pnpm --filter web build
         # BEGIN GENERATED: build-env-android-direct

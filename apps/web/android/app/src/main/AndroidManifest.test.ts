@@ -44,3 +44,11 @@ describe('AndroidManifest.xml deep link intent filter', () => {
     expect(content).toContain('android:path="/signup"');
   });
 });
+
+describe('AndroidManifest.xml network security', () => {
+  it('references network security config instead of blanket cleartext flag', () => {
+    const content = readManifest();
+    expect(content).toContain('android:networkSecurityConfig="@xml/network_security_config"');
+    expect(content).not.toContain('usesCleartextTraffic');
+  });
+});

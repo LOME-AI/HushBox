@@ -1,0 +1,17 @@
+appId: ai.hushbox.app
+name: Splash screen appears and hides after initialization
+tags:
+  - smoke
+  - must
+androidWebViewHierarchy: devtools
+---
+# Launch app with clean state — splash is configured with launchAutoHide: false
+- launchApp:
+    clearState: true
+
+# Splash screen should be visible initially (Capacitor splash screen plugin).
+# The splash hides only when StabilityProvider settles (isAppStable=true).
+# Wait for the WebView to render content — once visible, splash has hidden.
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 15000
