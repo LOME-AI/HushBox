@@ -54,9 +54,7 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
   },
   ref
 ) {
-  // eslint-disable-next-line sonarjs/function-return-type -- Virtuoso API requires this signature
   const followOutput = useCallback((isAtBottom: boolean): boolean | 'smooth' => {
-    // eslint-disable-next-line sonarjs/no-selector-parameter -- Virtuoso API callback signature
     return isAtBottom ? 'smooth' : false;
   }, []);
 

@@ -101,9 +101,13 @@ function isExcludedByStandardCriteria(model: OpenRouterModel): boolean {
  * Tries "Provider: Model Name" format first, falls back to ID prefix.
  */
 function extractProvider(model: OpenRouterModel): { provider: string; displayName: string } {
-  const match = /^([^:]+):\s*(.+)$/.exec(model.name);
-  if (match?.[1] && match[2]) {
-    return { provider: match[1].trim(), displayName: match[2].trim() };
+  const colonIndex = model.name.indexOf(':');
+  if (colonIndex > 0) {
+    const provider = model.name.slice(0, colonIndex).trim();
+    const displayName = model.name.slice(colonIndex + 1).trim();
+    if (provider && displayName) {
+      return { provider, displayName };
+    }
   }
 
   const prefix = model.id.split('/')[0] ?? '';

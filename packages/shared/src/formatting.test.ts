@@ -131,6 +131,14 @@ describe('formatting utilities', () => {
     it('trims whitespace from result', () => {
       expect(shortenModelName('  Claude 3.5 Sonnet-2024-08-06  ')).toBe('Claude 3.5 Sonnet');
     });
+
+    it('resists ReDoS on long hyphenated-digit suffixes', () => {
+      const malicious = 'Model-' + '1-'.repeat(100) + '1X';
+      const start = performance.now();
+      shortenModelName(malicious);
+      const elapsed = performance.now() - start;
+      expect(elapsed).toBeLessThan(100);
+    });
   });
 
   describe('generateChatTitle', () => {
