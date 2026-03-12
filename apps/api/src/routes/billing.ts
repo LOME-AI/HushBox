@@ -225,8 +225,6 @@ export const billingRoute = new Hono<AppEnv>()
 
       if (result.status === 'approved') {
         if (!result.transactionId) {
-          // This should never happen - Helcim approved but gave no transaction ID
-          console.error('[ERROR] Helcim approved payment but returned no transactionId');
           return c.json(createErrorResponse(ERROR_CODE_PAYMENT_MISSING_TRANSACTION_ID), 500);
         }
 
@@ -244,7 +242,6 @@ export const billingRoute = new Hono<AppEnv>()
           .returning();
 
         if (!updated) {
-          console.error(`Payment UPDATE failed: id=${payment.id}, status may have changed`);
           return c.json(createErrorResponse(ERROR_CODE_PAYMENT_ALREADY_PROCESSED), 400);
         }
 

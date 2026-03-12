@@ -31,7 +31,6 @@ async function verifySignatureIfRequired(
   isProduction: boolean
 ): Promise<VerifySignatureResult> {
   if (isProduction && !webhookVerifier) {
-    console.error('HELCIM_WEBHOOK_VERIFIER not configured in production');
     return {
       error: {
         message: ERROR_CODE_WEBHOOK_VERIFIER_MISSING,
@@ -146,7 +145,6 @@ async function handleCardTransaction(
     return { handled: true };
   }
 
-  console.error(`Webhook failed: payment not found for helcimTransactionId=${transactionId}`);
   return { handled: false, shouldReturnError: true };
 }
 

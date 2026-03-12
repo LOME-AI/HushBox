@@ -1,12 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { errorHandler } from './error.js';
 
 describe('errorHandler middleware', () => {
   it('returns 500 for unknown errors', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
     const app = new Hono();
     app.onError(errorHandler);
     app.get('/throw', () => {
@@ -18,14 +16,9 @@ describe('errorHandler middleware', () => {
     expect(res.status).toBe(500);
     const body: { code: string } = await res.json();
     expect(body.code).toBe('INTERNAL');
-    expect(consoleSpy).toHaveBeenCalled();
-
-    consoleSpy.mockRestore();
   });
 
   it('returns HTTPException response for HTTPException errors', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
     const app = new Hono();
     app.onError(errorHandler);
     app.get('/http-error', () => {
@@ -35,14 +28,9 @@ describe('errorHandler middleware', () => {
     const res = await app.request('/http-error');
 
     expect(res.status).toBe(404);
-    expect(consoleSpy).toHaveBeenCalled();
-
-    consoleSpy.mockRestore();
   });
 
   it('returns HTTPException with custom message', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
     const app = new Hono();
     app.onError(errorHandler);
     app.get('/bad-request', () => {
@@ -52,8 +40,5 @@ describe('errorHandler middleware', () => {
     const res = await app.request('/bad-request');
 
     expect(res.status).toBe(400);
-    expect(consoleSpy).toHaveBeenCalled();
-
-    consoleSpy.mockRestore();
   });
 });

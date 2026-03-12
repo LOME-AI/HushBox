@@ -77,8 +77,7 @@ function processSSEDataLine(line: string): SSEDataLineResult {
     const chunk = JSON.parse(data) as ChatCompletionChunk;
     const content = chunk.choices[0]?.delta.content ?? null;
     return { done: false, content };
-  } catch (error) {
-    console.warn('Failed to parse SSE chunk:', { data, error });
+  } catch {
     return { done: false, content: null };
   }
 }
@@ -168,8 +167,7 @@ function processSSELine(line: string, state: SSELineState): SSELineResult {
       token,
       state: { generationId: newGenerationId, isFirstTokenWithId: newIsFirstTokenWithId },
     };
-  } catch (error) {
-    console.warn('Failed to parse SSE chunk:', { data, error });
+  } catch {
     return { done: false, state };
   }
 }

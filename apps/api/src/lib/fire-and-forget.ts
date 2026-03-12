@@ -10,12 +10,12 @@
  * @param promise - The promise to execute without awaiting
  * @param errorContext - Description of the operation for error logging
  */
-export function fireAndForget<T>(promise: Promise<T>, errorContext: string): void {
+export function fireAndForget<T>(promise: Promise<T>, _errorContext: string): void {
   void (async () => {
     try {
       await promise;
-    } catch (error: unknown) {
-      console.error(`Failed to ${errorContext}:`, error);
+    } catch {
+      // Silently swallow — fire-and-forget by design
     }
   })();
 }
