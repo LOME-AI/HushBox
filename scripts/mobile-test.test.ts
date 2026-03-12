@@ -180,6 +180,9 @@ describe('mobile-test script', () => {
   describe('startEmulator', () => {
     const emulatorMock = ((cmd: string, args?: readonly string[]) => {
       if (cmd === 'stat') return Promise.resolve({ stdout: '993' } as never);
+      if (cmd === 'adb' && Array.isArray(args) && args.includes('connect')) {
+        return Promise.resolve({ stdout: 'connected to localhost:5555' } as never);
+      }
       if (cmd === 'adb' && Array.isArray(args) && args.includes('getprop')) {
         return Promise.resolve({ stdout: '1' } as never);
       }
@@ -204,7 +207,7 @@ describe('mobile-test script', () => {
 
       expect(mockExeca).toHaveBeenCalledWith(
         'docker',
-        ['compose', '--profile', 'mobile', 'up', '-d', '--force-recreate', 'android-emulator'],
+        ['compose', '--profile', 'mobile', 'up', '-d', 'android-emulator'],
         expect.objectContaining({ stdio: 'inherit' })
       );
 
@@ -229,6 +232,9 @@ describe('mobile-test script', () => {
       let pollCount = 0;
       mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
         if (cmd === 'stat') return Promise.resolve({ stdout: '993' } as never);
+        if (cmd === 'adb' && Array.isArray(args) && args.includes('connect')) {
+          return Promise.resolve({ stdout: 'connected to localhost:5555' } as never);
+        }
         if (cmd === 'adb' && Array.isArray(args) && args.includes('getprop')) {
           pollCount++;
           if (pollCount < 3) return Promise.reject(new Error('not ready'));
@@ -574,6 +580,9 @@ describe('mobile-test script', () => {
 
       mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
         if (cmd === 'stat') return Promise.resolve({ stdout: '993' } as never);
+        if (cmd === 'adb' && Array.isArray(args) && args.includes('connect')) {
+          return Promise.resolve({ stdout: 'connected to localhost:5555' } as never);
+        }
         if (cmd === 'adb' && Array.isArray(args) && args.includes('getprop')) {
           return Promise.resolve({ stdout: '1' } as never);
         }
@@ -605,7 +614,12 @@ describe('mobile-test script', () => {
         { cmd: 'docker', argument: 'info', label: 'check-docker' },
         { cmd: 'maestro', argument: '--version', label: 'check-maestro' },
         { cmd: 'docker', argument: '--profile', label: 'start-emulator' },
-        { cmd: 'adb', argument: 'connect', label: 'adb-connect' },
+        {
+          cmd: 'adb',
+          argument: 'connect',
+          label: 'adb-connect',
+          result: { stdout: 'connected to localhost:5555' },
+        },
         { cmd: 'adb', argument: 'getprop', label: 'wait-boot', result: { stdout: '1' } },
         { cmd: 'curl', label: 'health-check' },
         { cmd: 'pnpm', argument: 'build', label: 'build' },
