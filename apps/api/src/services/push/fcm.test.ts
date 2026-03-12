@@ -18,8 +18,8 @@ beforeAll(async () => {
     ['sign', 'verify']
   );
 
-  const { privateKey } = keyPair as CryptoKeyPair;
-  const pkcs8 = (await crypto.subtle.exportKey('pkcs8', privateKey)) as ArrayBuffer;
+  const { privateKey } = keyPair;
+  const pkcs8 = await crypto.subtle.exportKey('pkcs8', privateKey);
   const bytes = new Uint8Array(pkcs8);
   let binary = '';
   for (const byte of bytes) {
