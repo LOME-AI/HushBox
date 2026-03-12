@@ -10,6 +10,7 @@ jobs:
   # ── Prepare: extract version ──────────────────────────
   prepare:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: production
     outputs:
       version_name: ${{ steps.version.outputs.version_name }}

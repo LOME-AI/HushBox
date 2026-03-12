@@ -10,6 +10,7 @@ jobs:
   # ── Prepare: build web + extract version ────────────────
   prepare:
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     environment: production
     outputs:
       version_name: ${{ steps.version.outputs.version_name }}
@@ -59,6 +60,7 @@ jobs:
   # ── iOS: Build + App Store upload ───────────────────────
   build-ios:
     runs-on: macos-latest
+    timeout-minutes: 15
     needs: [prepare]
     environment: production
     steps:
@@ -102,6 +104,7 @@ jobs:
   # ── Android Play Store: Build AAB + upload ──────────────
   build-android-play:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [prepare]
     environment: production
     steps:

@@ -16,6 +16,7 @@ jobs:
   # ── Version computation (main only) ────────────────────
   version:
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 3
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     outputs:
       version: ${{ steps.compute.outputs.version }}
@@ -35,6 +36,7 @@ jobs:
   # ── Quick lint jobs (Blacksmith 2 vCPU) ──────────────────
   lint:
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
@@ -43,6 +45,7 @@ jobs:
 
   typecheck:
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
@@ -53,6 +56,7 @@ jobs:
 
   duplication:
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
@@ -61,6 +65,7 @@ jobs:
 
   unused:
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
@@ -71,6 +76,7 @@ jobs:
 
   gitleaks:
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
     environment: ci
     steps:
       - uses: actions/checkout@v6
@@ -85,6 +91,7 @@ jobs:
   # ── Test job (Blacksmith 4 vCPU + Docker) ────────────────
   test:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
     environment: ci
     needs: [gitleaks]
     steps:
@@ -154,6 +161,7 @@ jobs:
   # ── Build job (Blacksmith 4 vCPU) ────────────────────────
   build:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 8
     environment: ci
     needs: [gitleaks, version]
     if: always() && needs.gitleaks.result == 'success' && (needs.version.result == 'success' || needs.version.result == 'skipped')
@@ -195,6 +203,7 @@ jobs:
   # ── E2E tests (Blacksmith 4 vCPU + Docker + Playwright) ──
   e2e:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
     environment: ci
     needs: [gitleaks]
     strategy:
@@ -328,11 +337,58 @@ jobs:
   # ── Mobile tests (Maestro + Android emulator via Docker) ──
   mobile-test:
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 15
     environment: ci
     needs: [gitleaks]
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
+
+      - name: Cache Turbo
+        uses: useblacksmith/cache@v5
+        with:
+          path: .turbo
+          key: turbo-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ github.ref_name }}-
+            turbo-main-
+
+      - name: Cache Docker images
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: docker-mobile-${{ hashFiles('docker-compose.yml') }}
+          path: /tmp/docker-cache
+
+      - name: Load cached Docker images
+        run: |
+          if ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            echo "Loading cached Docker images..."
+            for img in /tmp/docker-cache/*.tar; do
+              docker load -i "$img"
+            done
+          fi
+
+      - name: Cache Android SDK
+        uses: useblacksmith/cache@v5
+        with:
+          path: ~/Android/Sdk
+          key: android-sdk-android-36-cmdtools-11076708
+
+      - name: Cache Gradle
+        uses: useblacksmith/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('apps/web/android/gradle/wrapper/gradle-wrapper.properties', 'apps/web/android/**/*.gradle') }}
+          restore-keys: |
+            gradle-
+
+      - name: Cache Maestro CLI
+        uses: useblacksmith/cache@v5
+        with:
+          path: ~/.maestro
+          key: maestro-cli
 
       - name: Generate environment files
         run: pnpm generate:env --mode=ciE2E
@@ -352,6 +408,17 @@ jobs:
       - name: Run mobile tests
         run: pnpm mobile:test
 
+      - name: Save Docker images for next run
+        run: |
+          if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            mkdir -p /tmp/docker-cache
+            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar
+            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar
+            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar
+            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar
+            docker save budtmo/docker-android:emulator_14.0 -o /tmp/docker-cache/android-emulator.tar
+          fi
+
       - name: Upload results
         uses: actions/upload-artifact@v6
         if: always()
@@ -369,6 +436,7 @@ jobs:
   # ── Deploy (GitHub-hosted — hyper-secrets) ───────────────
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [lint, typecheck, duplication, unused, test, build, e2e, mobile-test, version]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: production
