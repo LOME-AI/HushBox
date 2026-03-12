@@ -114,8 +114,15 @@ describe('mobile-test script', () => {
   });
 
   describe('installAndroidSdk', () => {
+    let savedPath: string | undefined;
+
+    beforeEach(() => {
+      savedPath = process.env['PATH'];
+    });
+
     afterEach(() => {
       delete process.env['ANDROID_HOME'];
+      process.env['PATH'] = savedPath;
     });
 
     it('skips install when ANDROID_HOME is set and platform exists', async () => {
@@ -174,6 +181,33 @@ describe('mobile-test script', () => {
         expect.arrayContaining(['platforms;android-36', 'platform-tools']),
         expect.objectContaining({ stdio: 'inherit' })
       );
+    });
+
+    it('adds platform-tools to PATH when ANDROID_HOME is set', async () => {
+      process.env['ANDROID_HOME'] = '/opt/android-sdk';
+      mockExistsSync.mockReturnValue(true);
+
+      await installAndroidSdk();
+
+      expect(process.env['PATH']).toContain('/opt/android-sdk/platform-tools');
+    });
+
+    it('adds platform-tools to PATH when using default SDK location', async () => {
+      delete process.env['ANDROID_HOME'];
+      mockExistsSync.mockReturnValue(true);
+
+      await installAndroidSdk();
+
+      expect(process.env['PATH']).toContain('Android/Sdk/platform-tools');
+    });
+
+    it('adds platform-tools to PATH after fresh install', async () => {
+      delete process.env['ANDROID_HOME'];
+      mockExistsSync.mockImplementation(((p: string) => !p.includes('android-36')) as never);
+
+      await installAndroidSdk();
+
+      expect(process.env['PATH']).toContain('Android/Sdk/platform-tools');
     });
   });
 
@@ -572,7 +606,10 @@ describe('mobile-test script', () => {
   });
 
   describe('main', () => {
+    let savedPath: string | undefined;
+
     beforeEach(() => {
+      savedPath = process.env['PATH'];
       process.env['HB_API_PORT'] = '8787';
       process.env['HB_EMULATOR_ADB_PORT'] = '5555';
       process.env['API_URL'] = 'http://localhost:8787';
@@ -596,6 +633,7 @@ describe('mobile-test script', () => {
       delete process.env['HB_KVM_GID'];
       delete process.env['API_URL'];
       delete process.env['FRONTEND_URL'];
+      process.env['PATH'] = savedPath;
     });
 
     it('executes all steps in order', async () => {
