@@ -419,12 +419,24 @@ jobs:
             docker save budtmo/docker-android:emulator_14.0 -o /tmp/docker-cache/android-emulator.tar
           fi
 
+      - name: Dump emulator logs
+        if: failure()
+        run: |
+          docker compose --profile mobile logs android-emulator > emulator-logs.txt 2>&1 || true
+          CONTAINER_ID=$(docker compose --profile mobile ps -q android-emulator 2>/dev/null || true)
+          if [ -n "$CONTAINER_ID" ]; then
+            docker inspect "$CONTAINER_ID" > emulator-inspect.json 2>&1 || true
+          fi
+
       - name: Upload results
         uses: actions/upload-artifact@v6
         if: always()
         with:
           name: maestro-results
-          path: maestro-results/
+          path: |
+            maestro-results/
+            emulator-logs.txt
+            emulator-inspect.json
           retention-days: 7
 
       - name: Stop services

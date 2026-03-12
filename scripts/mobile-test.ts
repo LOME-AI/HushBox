@@ -4,8 +4,10 @@ import { existsSync, writeFileSync } from 'node:fs';
 const APK_PATH = 'apps/web/android/app/build/outputs/apk/debug/app-debug.apk';
 const BOOT_TIMEOUT_POLLS = 120;
 const BOOT_POLL_INTERVAL_MS = 2000;
+const BOOT_DIAGNOSTIC_INTERVAL = 10;
 const API_TIMEOUT_POLLS = 30;
 const API_POLL_INTERVAL_MS = 1000;
+const EMULATOR_SERVICE = 'android-emulator';
 
 export function parseArgs(args: string[]): { smoke: boolean } {
   return { smoke: args.includes('--smoke') };
@@ -87,20 +89,115 @@ export async function installAndroidSdk(): Promise<void> {
   });
 }
 
+export async function getContainerStatus(): Promise<string> {
+  try {
+    const result = await execa(
+      'docker',
+      ['compose', '--profile', 'mobile', 'ps', '--format', 'json', EMULATOR_SERVICE],
+      { stdio: 'pipe' }
+    );
+    return result.stdout.trim() || 'no output';
+  } catch {
+    return 'failed to get container status';
+  }
+}
+
+export async function dumpContainerLogs(tail = 200): Promise<string> {
+  try {
+    const result = await execa(
+      'docker',
+      ['compose', '--profile', 'mobile', 'logs', '--tail', String(tail), EMULATOR_SERVICE],
+      { stdio: 'pipe' }
+    );
+    return result.stdout || result.stderr || 'no logs';
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `failed to get container logs: ${message}`;
+  }
+}
+
+function extractErrorDetail(error: unknown): string {
+  const stderr = (error as { stderr?: string }).stderr ?? '';
+  const shortMessage = (error as { shortMessage?: string }).shortMessage ?? '';
+  return stderr || shortMessage || (error instanceof Error ? error.message : String(error));
+}
+
+async function dumpBootDiagnostics(): Promise<void> {
+  console.error('=== EMULATOR BOOT TIMEOUT DIAGNOSTICS ===');
+  console.error('--- Container logs (last 200 lines) ---');
+  console.error(await dumpContainerLogs());
+  console.error('--- Container status ---');
+  console.error(await getContainerStatus());
+  try {
+    const adbDevices = await execa('adb', ['devices'], { stdio: 'pipe' });
+    console.error(`--- ADB devices ---\n${adbDevices.stdout}`);
+  } catch {
+    console.error('--- ADB devices: failed to query ---');
+  }
+  console.error('=== END DIAGNOSTICS ===');
+}
+
+// Attempts to connect and check boot status in a single poll iteration.
+async function pollEmulatorBoot(
+  adbPort: string,
+  connected: boolean,
+  index: number
+): Promise<{ connected: boolean; booted: boolean }> {
+  if (!connected) {
+    const connectResult = await execa('adb', ['connect', `localhost:${adbPort}`], {
+      stdio: 'pipe',
+    });
+    const connectOutput = connectResult.stdout.trim();
+    // adb connect returns exit 0 even on failure with output like
+    // "unable to connect" or "failed to connect". Only set connected
+    // when the output confirms an actual connection.
+    if (!connectOutput.includes('connected to') || connectOutput.includes('unable')) {
+      if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
+        console.log(`[poll ${String(index)}] adb connect: ${connectOutput}`);
+      }
+      return { connected: false, booted: false };
+    }
+    console.log(`Connected to localhost:${adbPort}`);
+    connected = true;
+  }
+
+  const result = await execa('adb', [
+    '-s',
+    `localhost:${adbPort}`,
+    'shell',
+    'getprop',
+    'sys.boot_completed',
+  ]);
+  return { connected, booted: result.stdout.trim() === '1' };
+}
+
+async function setupAdbReverse(adbPort: string): Promise<void> {
+  // Set up reverse port forwarding so the emulator can reach the host API.
+  // In Docker, 10.0.2.2 maps to the container, not the host.
+  // adb reverse tunnels emulator localhost:PORT → host localhost:PORT.
+  const apiPort = process.env['HB_API_PORT'] ?? '8787';
+  console.log(`Setting up adb reverse for API port ${apiPort}...`);
+  await execa('adb', ['-s', `localhost:${adbPort}`, 'reverse', `tcp:${apiPort}`, `tcp:${apiPort}`]);
+}
+
+async function logPollError(error: unknown, connected: boolean, index: number): Promise<void> {
+  const detail = extractErrorDetail(error);
+  const phase = connected ? 'getprop' : 'adb connect';
+  console.log(`[poll ${String(index)}] ${phase} error: ${detail}`);
+  const status = await getContainerStatus();
+  console.log(`[poll ${String(index)}] container: ${status}`);
+}
+
 export async function startEmulator(): Promise<void> {
   // Detect host KVM group ID so the container user can access /dev/kvm
   const kvmStat = await execa('stat', ['-c', '%g', '/dev/kvm']);
   process.env['HB_KVM_GID'] = kvmStat.stdout.trim();
 
   console.log('Starting Android emulator...');
-  await execa(
-    'docker',
-    ['compose', '--profile', 'mobile', 'up', '-d', '--force-recreate', 'android-emulator'],
-    {
-      stdio: 'inherit',
-      env: process.env,
-    }
-  );
+  await execa('docker', ['compose', '--profile', 'mobile', 'up', '-d', 'android-emulator'], {
+    stdio: 'inherit',
+    env: process.env,
+  });
 
   const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
   let connected = false;
@@ -108,43 +205,24 @@ export async function startEmulator(): Promise<void> {
   console.log('Waiting for emulator to boot...');
   for (let index = 0; index < BOOT_TIMEOUT_POLLS; index++) {
     try {
-      if (!connected) {
-        await execa('adb', ['connect', `localhost:${adbPort}`], { stdio: 'pipe' });
-        connected = true;
-        console.log(`Connected to localhost:${adbPort}`);
-      }
-      const result = await execa('adb', [
-        '-s',
-        `localhost:${adbPort}`,
-        'shell',
-        'getprop',
-        'sys.boot_completed',
-      ]);
-      if (result.stdout.trim() === '1') {
+      const poll = await pollEmulatorBoot(adbPort, connected, index);
+      connected = poll.connected;
+      if (poll.booted) {
         console.log('Emulator booted');
-
-        // Set up reverse port forwarding so the emulator can reach the host API.
-        // In Docker, 10.0.2.2 maps to the container, not the host.
-        // adb reverse tunnels emulator localhost:PORT → host localhost:PORT.
-        const apiPort = process.env['HB_API_PORT'] ?? '8787';
-        console.log(`Setting up adb reverse for API port ${apiPort}...`);
-        await execa('adb', [
-          '-s',
-          `localhost:${adbPort}`,
-          'reverse',
-          `tcp:${apiPort}`,
-          `tcp:${apiPort}`,
-        ]);
-
+        await setupAdbReverse(adbPort);
         return;
       }
-    } catch {
-      // Not ready yet
+    } catch (error: unknown) {
+      if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
+        await logPollError(error, connected, index);
+      }
     }
     await new Promise((resolve) => {
       setTimeout(resolve, BOOT_POLL_INTERVAL_MS);
     });
   }
+
+  await dumpBootDiagnostics();
   throw new Error('Emulator failed to boot within timeout');
 }
 
