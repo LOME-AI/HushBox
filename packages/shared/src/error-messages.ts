@@ -144,7 +144,7 @@ const FALLBACK_MESSAGE = 'Something went wrong. Please try again.';
  * Accepts `ErrorCode` (for autocomplete) or any string (for network-parsed codes).
  * Unknown codes return the generic fallback.
  */
-// eslint-disable-next-line sonarjs/no-useless-intersection -- preserves IDE autocomplete for ErrorCode while accepting arbitrary strings
+
 export function friendlyErrorMessage(code: ErrorCode | (string & {})): UserFacingMessage {
   const message = (ERROR_MESSAGES as Record<string, string>)[code] ?? FALLBACK_MESSAGE;
   return message as UserFacingMessage;

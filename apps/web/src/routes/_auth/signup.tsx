@@ -46,7 +46,7 @@ export function SignupPage(): React.JSX.Element {
     ? validateConfirmPassword(password, confirmPassword)
     : { isValid: false };
 
-  async function handleSubmit(e: React.FormEvent): Promise<void> {
+  async function handleSubmit(e: React.SyntheticEvent): Promise<void> {
     e.preventDefault();
 
     setTouched({ username: true, email: true, password: true, confirmPassword: true });

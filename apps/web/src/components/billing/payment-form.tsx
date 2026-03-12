@@ -603,7 +603,7 @@ export function PaymentForm({
     }, 100);
   };
 
-  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
+  const handleSubmit = async (e: React.SyntheticEvent): Promise<void> => {
     e.preventDefault();
 
     if (!form.validateAll()) {

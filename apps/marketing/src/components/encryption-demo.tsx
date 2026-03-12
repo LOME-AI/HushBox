@@ -1,20 +1,27 @@
 import * as React from 'react';
-import { cn } from '../../lib/utilities';
-import { buttonVariants } from '../button';
+import { cn, buttonVariants } from '@hushbox/ui';
+import { generateKeyPair, encryptMessageForStorage } from '@hushbox/crypto';
 
 type EncryptionDemoProps = React.ComponentProps<'div'>;
+
+function toHex(bytes: Uint8Array): string {
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>): React.JSX.Element {
   const [text, setText] = React.useState('This is private.');
   const [showEncrypted, setShowEncrypted] = React.useState(false);
 
-  const cipherText = React.useMemo(() => {
+  const demoPublicKey = React.useMemo(() => generateKeyPair().publicKey, []);
+
+  const cipherHex = React.useMemo(() => {
     try {
-      return btoa(text);
+      const blob = encryptMessageForStorage(demoPublicKey, text || 'demo');
+      return toHex(blob);
     } catch {
-      return btoa('demo');
+      return '(encryption unavailable)';
     }
-  }, [text]);
+  }, [demoPublicKey, text]);
 
   return (
     <div
@@ -49,23 +56,22 @@ function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>):
         {showEncrypted ? 'Show readable' : "Show what's stored"}
       </button>
 
-      <div className="bg-muted/30 relative min-h-[3rem] rounded-md px-3 py-2 sm:px-4 sm:py-3">
-        <div
-          className={cn(
-            'transition-opacity duration-300',
-            showEncrypted ? 'opacity-0' : 'opacity-100'
-          )}
-        >
+      <div
+        className={cn(
+          'min-h-[3rem] rounded-md px-3 py-2 transition-colors duration-300 sm:px-4 sm:py-3',
+          showEncrypted ? 'bg-muted' : 'bg-muted/30'
+        )}
+      >
+        {showEncrypted ? (
+          <code
+            data-testid="cipher-output"
+            className="text-muted-foreground font-mono text-sm break-all"
+          >
+            {cipherHex}
+          </code>
+        ) : (
           <p className="text-sm">{text || '(type something above)'}</p>
-        </div>
-        <div
-          className={cn(
-            'bg-muted absolute inset-0 rounded-md px-3 py-2 transition-opacity duration-300 sm:px-4 sm:py-3',
-            showEncrypted ? 'opacity-100' : 'pointer-events-none opacity-0'
-          )}
-        >
-          <code className="text-muted-foreground font-mono text-sm break-all">{cipherText}</code>
-        </div>
+        )}
       </div>
 
       <p
@@ -74,7 +80,7 @@ function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>):
           showEncrypted ? 'opacity-100' : 'pointer-events-none opacity-0'
         )}
       >
-        ↑ This is all our servers see. Without your password, it&apos;s meaningless.
+        &uarr; This is all our servers see. Without your password, it&apos;s meaningless.
       </p>
     </div>
   );

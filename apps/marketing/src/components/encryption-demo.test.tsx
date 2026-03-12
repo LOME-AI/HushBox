@@ -1,9 +1,33 @@
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@hushbox/crypto', () => {
+  const encoder = new TextEncoder();
+  return {
+    generateKeyPair: vi.fn(() => ({
+      publicKey: new Uint8Array(32).fill(0xaa),
+      privateKey: new Uint8Array(32).fill(0xbb),
+    })),
+    encryptMessageForStorage: vi.fn((_, plaintext: string) => {
+      const bytes = encoder.encode(plaintext);
+      const result = new Uint8Array(bytes.length + 49);
+      result[0] = 0x01;
+      result.set(new Uint8Array(32).fill(0xcc), 1);
+      result.set(bytes, 33);
+      result.set(new Uint8Array(16).fill(0xdd), 33 + bytes.length);
+      return result;
+    }),
+  };
+});
+
 import { EncryptionDemo } from './encryption-demo';
 
 describe('EncryptionDemo', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('has data-slot attribute', () => {
     render(<EncryptionDemo data-testid="demo" />);
     expect(screen.getByTestId('demo')).toHaveAttribute('data-slot', 'encryption-demo');
@@ -35,7 +59,7 @@ describe('EncryptionDemo', () => {
     expect(screen.getByText(/this is all our servers see/i)).toHaveClass('opacity-0');
   });
 
-  it('shows cipher text and explanation after toggle', async () => {
+  it('shows cipher text as hex and explanation after toggle', async () => {
     const user = userEvent.setup();
     render(<EncryptionDemo />);
 
@@ -43,11 +67,30 @@ describe('EncryptionDemo', () => {
 
     expect(screen.getByText(/this is all our servers see/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /show readable/i })).toBeInTheDocument();
+
+    const cipherElement = screen.getByTestId('cipher-output');
+    expect(cipherElement.textContent).toMatch(/^[0-9a-f]+$/);
+  });
+
+  it('displays hex output that differs from plaintext', async () => {
+    const user = userEvent.setup();
+    render(<EncryptionDemo />);
+
+    await user.click(screen.getByRole('button', { name: /show what's stored/i }));
+
+    const cipherElement = screen.getByTestId('cipher-output');
+    expect(cipherElement.textContent).not.toBe('This is private.');
+    expect(cipherElement.textContent.length).toBeGreaterThan(0);
   });
 
   it('updates cipher text when input changes', async () => {
     const user = userEvent.setup();
     render(<EncryptionDemo />);
+
+    await user.click(screen.getByRole('button', { name: /show what's stored/i }));
+    const initialCipher = screen.getByTestId('cipher-output').textContent;
+
+    await user.click(screen.getByRole('button', { name: /show readable/i }));
 
     const input = screen.getByRole('textbox');
     await user.clear(input);
@@ -55,8 +98,8 @@ describe('EncryptionDemo', () => {
 
     await user.click(screen.getByRole('button', { name: /show what's stored/i }));
 
-    // btoa('test') = 'dGVzdA=='
-    expect(screen.getByText('dGVzdA==')).toBeInTheDocument();
+    const updatedCipher = screen.getByTestId('cipher-output').textContent;
+    expect(updatedCipher).not.toBe(initialCipher);
   });
 
   it('toggles back to readable view', async () => {
@@ -73,5 +116,18 @@ describe('EncryptionDemo', () => {
   it('applies custom className', () => {
     render(<EncryptionDemo className="custom-class" data-testid="demo" />);
     expect(screen.getByTestId('demo')).toHaveClass('custom-class');
+  });
+
+  it('calls encryptMessageForStorage with generated key', async () => {
+    const { encryptMessageForStorage } = await import('@hushbox/crypto');
+    const user = userEvent.setup();
+    render(<EncryptionDemo />);
+
+    await user.click(screen.getByRole('button', { name: /show what's stored/i }));
+
+    expect(encryptMessageForStorage).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      'This is private.'
+    );
   });
 });
