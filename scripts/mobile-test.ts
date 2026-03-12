@@ -48,45 +48,45 @@ export async function installAndroidSdk(): Promise<void> {
   const androidHome = process.env['ANDROID_HOME'];
   if (androidHome && existsSync(`${androidHome}/platforms/${REQUIRED_PLATFORM}`)) {
     console.log('Android SDK found');
-    return;
-  }
-
-  if (existsSync(`${ANDROID_SDK_ROOT}/platforms/${REQUIRED_PLATFORM}`)) {
+  } else if (existsSync(`${ANDROID_SDK_ROOT}/platforms/${REQUIRED_PLATFORM}`)) {
     process.env['ANDROID_HOME'] = ANDROID_SDK_ROOT;
     console.log('Android SDK found');
-    return;
+  } else {
+    console.log('Installing Android SDK command-line tools...');
+    await execa('mkdir', ['-p', `${ANDROID_SDK_ROOT}/cmdline-tools`]);
+    // eslint-disable-next-line sonarjs/publicly-writable-directories -- /tmp is standard for CI SDK downloads
+    await execa('curl', ['-fsSL', '-o', '/tmp/cmdline-tools.zip', CMDLINE_TOOLS_URL], {
+      stdio: 'inherit',
+    });
+    await execa(
+      'unzip',
+      // eslint-disable-next-line sonarjs/publicly-writable-directories -- /tmp is standard for CI SDK downloads
+      ['-q', '-o', '/tmp/cmdline-tools.zip', '-d', `${ANDROID_SDK_ROOT}/cmdline-tools`],
+      {
+        stdio: 'inherit',
+      }
+    );
+    await execa('mv', [
+      `${ANDROID_SDK_ROOT}/cmdline-tools/cmdline-tools`,
+      `${ANDROID_SDK_ROOT}/cmdline-tools/latest`,
+    ]);
+
+    process.env['ANDROID_HOME'] = ANDROID_SDK_ROOT;
+
+    const sdkmanager = `${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager`;
+
+    console.log('Accepting Android SDK licenses...');
+    await execa('bash', ['-c', `yes | ${sdkmanager} --licenses`], { stdio: 'pipe' });
+
+    console.log(`Installing platforms;${REQUIRED_PLATFORM}...`);
+    await execa(sdkmanager, [`platforms;${REQUIRED_PLATFORM}`, 'platform-tools'], {
+      stdio: 'inherit',
+    });
   }
 
-  console.log('Installing Android SDK command-line tools...');
-  await execa('mkdir', ['-p', `${ANDROID_SDK_ROOT}/cmdline-tools`]);
-  // eslint-disable-next-line sonarjs/publicly-writable-directories -- /tmp is standard for CI SDK downloads
-  await execa('curl', ['-fsSL', '-o', '/tmp/cmdline-tools.zip', CMDLINE_TOOLS_URL], {
-    stdio: 'inherit',
-  });
-  await execa(
-    'unzip',
-    // eslint-disable-next-line sonarjs/publicly-writable-directories -- /tmp is standard for CI SDK downloads
-    ['-q', '-o', '/tmp/cmdline-tools.zip', '-d', `${ANDROID_SDK_ROOT}/cmdline-tools`],
-    {
-      stdio: 'inherit',
-    }
-  );
-  await execa('mv', [
-    `${ANDROID_SDK_ROOT}/cmdline-tools/cmdline-tools`,
-    `${ANDROID_SDK_ROOT}/cmdline-tools/latest`,
-  ]);
-
-  process.env['ANDROID_HOME'] = ANDROID_SDK_ROOT;
-
-  const sdkmanager = `${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager`;
-
-  console.log('Accepting Android SDK licenses...');
-  await execa('bash', ['-c', `yes | ${sdkmanager} --licenses`], { stdio: 'pipe' });
-
-  console.log(`Installing platforms;${REQUIRED_PLATFORM}...`);
-  await execa(sdkmanager, [`platforms;${REQUIRED_PLATFORM}`, 'platform-tools'], {
-    stdio: 'inherit',
-  });
+  // Ensure platform-tools (adb) is in PATH
+  const home = process.env['ANDROID_HOME'] ?? ANDROID_SDK_ROOT;
+  process.env['PATH'] = `${home}/platform-tools:${process.env['PATH'] ?? ''}`;
 }
 
 export async function getContainerStatus(): Promise<string> {
