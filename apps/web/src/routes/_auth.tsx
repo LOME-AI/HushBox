@@ -20,13 +20,22 @@ export const Route = createFileRoute('/_auth')({
 export function AuthLayout(): React.JSX.Element {
   return (
     <div data-testid="auth-layout" className="bg-background flex min-h-dvh">
-      <div className="relative flex flex-1 flex-col justify-center px-8 pt-14 pb-8 lg:px-16 lg:pt-0 lg:pb-0">
-        <div className="absolute top-4 left-4">
+      <div
+        className="relative flex flex-1 flex-col justify-center px-8 pb-8 lg:px-16 lg:pt-0 lg:pb-0"
+        style={{ paddingTop: 'calc(3.5rem + env(safe-area-inset-top, 0px))' }}
+      >
+        <div
+          className="absolute left-4"
+          style={{ top: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
+        >
           <Link to={ROUTES.CHAT} aria-label="HushBox - Go to chat">
             <Logo />
           </Link>
         </div>
-        <div className="absolute top-4 right-4">
+        <div
+          className="absolute right-4"
+          style={{ top: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
+        >
           <ThemeToggle />
         </div>
         <div className="mx-auto w-full max-w-md">

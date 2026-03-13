@@ -10,6 +10,7 @@ import { AuthButton } from '@/components/auth/AuthButton';
 import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
 import { AuthFeatureList } from '@/components/auth/auth-feature-list';
 import { AuthShakeError } from '@/components/auth/auth-shake-error';
+import { ExternalPageLink } from '@/components/shared/external-page-link';
 import {
   validateUsername,
   validateEmail,
@@ -166,23 +167,13 @@ export function SignupPage(): React.JSX.Element {
 
         <p className="text-muted-foreground text-center text-xs">
           By creating an account, you agree to our{' '}
-          <a
-            href={ROUTES.TERMS}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
+          <ExternalPageLink path={ROUTES.TERMS} className="text-primary hover:underline">
             Terms of Service
-          </a>{' '}
+          </ExternalPageLink>{' '}
           and{' '}
-          <a
-            href={ROUTES.PRIVACY}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
+          <ExternalPageLink path={ROUTES.PRIVACY} className="text-primary hover:underline">
             Privacy Policy
-          </a>
+          </ExternalPageLink>
           .
         </p>
 

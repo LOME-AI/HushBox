@@ -177,6 +177,13 @@ export const envConfig = {
     [Mode.Production]: secret('VITE_HELCIM_JS_TOKEN_PRODUCTION'),
   },
 
+  VITE_OPAQUE_SERVER_ID: {
+    to: [Destination.Frontend],
+    [Mode.Production]: 'hushbox.ai',
+    // Dev/CI: not set — getOpaqueServerIdentifier() falls back to location.host which is correct on web.
+    // Mobile builds override via BUILD_VARIANTS or mobile-test.ts.
+  },
+
   VITE_PLATFORM: {
     to: [Destination.Frontend],
     [Mode.Development]: 'web',
@@ -241,6 +248,7 @@ export type BackendEnv = z.infer<typeof backendEnvSchema>;
 
 export const frontendEnvSchema = z.object({
   VITE_API_URL: z.string().url(),
+  VITE_OPAQUE_SERVER_ID: z.string().optional(),
   VITE_PLATFORM: z.enum(VALID_PLATFORMS).default('web'),
   VITE_APP_VERSION: z.string().min(1).default('dev-local'),
   VITE_HELCIM_JS_TOKEN: z.string().optional(),

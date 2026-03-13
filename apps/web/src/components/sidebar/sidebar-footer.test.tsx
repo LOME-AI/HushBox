@@ -71,6 +71,14 @@ vi.mock('@/hooks/use-is-mobile', () => ({
   useIsMobile: mockUseIsMobile,
 }));
 
+vi.mock('@/capacitor/platform', () => ({
+  isNative: (): boolean => false,
+}));
+
+vi.mock('@/capacitor/browser', () => ({
+  openExternalPage: vi.fn(),
+}));
+
 describe('SidebarFooter', () => {
   beforeEach(() => {
     vi.clearAllMocks();

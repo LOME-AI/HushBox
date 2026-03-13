@@ -245,9 +245,12 @@ export async function startDevStack(): Promise<void> {
   const apiProcess = execa('pnpm', ['--filter', '@hushbox/api', 'dev'], {
     stdio: 'ignore',
     env: process.env,
+    cleanup: false,
   });
   // eslint-disable-next-line promise/prefer-await-to-then, @typescript-eslint/no-empty-function -- fire-and-forget subprocess
   apiProcess.catch(() => {});
+  // Allow the parent process to exit without waiting for the dev server
+  apiProcess.unref();
 
   console.log('Waiting for API server...');
   for (let index = 0; index < API_TIMEOUT_POLLS; index++) {

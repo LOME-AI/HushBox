@@ -40,6 +40,7 @@ const BUILD_VARIANTS: Record<string, Record<string, string>> = {
     VITE_API_URL: 'http://10.0.2.2:8787',
     VITE_PLATFORM: 'android-direct',
     VITE_APP_VERSION: 'ci-mobile-test',
+    VITE_OPAQUE_SERVER_ID: 'localhost:5173', // Matches dev API's FRONTEND_URL
   },
 };
 
