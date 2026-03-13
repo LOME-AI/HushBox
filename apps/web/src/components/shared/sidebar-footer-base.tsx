@@ -22,6 +22,10 @@ interface SidebarFooterBaseProps {
   testId?: string | undefined;
 }
 
+function makeTestId(prefix: string | undefined, suffix: string): string | undefined {
+  return prefix === undefined ? undefined : `${prefix}-${suffix}`;
+}
+
 export function SidebarFooterBase({
   icon,
   label,
@@ -33,7 +37,8 @@ export function SidebarFooterBase({
 }: Readonly<SidebarFooterBaseProps>): React.JSX.Element {
   const triggerContent = (
     <button
-      data-testid={testId === undefined ? undefined : `${testId}-trigger`}
+      id={makeTestId(testId, 'trigger')}
+      data-testid={makeTestId(testId, 'trigger')}
       type="button"
       className={cn(
         'flex w-full cursor-pointer items-center gap-3 rounded-md p-2 transition-colors',
@@ -73,7 +78,7 @@ export function SidebarFooterBase({
 
   return (
     <div
-      data-testid={testId === undefined ? undefined : `${testId}-footer`}
+      data-testid={makeTestId(testId, 'footer')}
       className={cn('border-sidebar-border border-t p-2', collapsed && 'flex justify-center')}
     >
       {innerContent}
