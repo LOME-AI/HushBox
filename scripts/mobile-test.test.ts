@@ -34,6 +34,11 @@ const mockExeca = vi.mocked(execa);
 const mockExistsSync = vi.mocked(existsSync);
 const mockWriteFileSync = vi.mocked(writeFileSync);
 
+// execa returns a subprocess (ChildProcess + Promise). Tests need .unref() for startDevStack's fire-and-forget subprocess.
+function mockSubprocess(value: unknown = {}): never {
+  return Object.assign(Promise.resolve(value as never), { unref: vi.fn() }) as never;
+}
+
 describe('mobile-test script', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -320,9 +325,9 @@ describe('mobile-test script', () => {
         if (cmd === 'curl') {
           healthCheckCount++;
           if (healthCheckCount === 1) return Promise.reject(new Error('not running'));
-          return Promise.resolve({} as never);
+          return mockSubprocess();
         }
-        return Promise.resolve({} as never);
+        return mockSubprocess();
       }) as never);
 
       await startDevStack();
@@ -354,9 +359,9 @@ describe('mobile-test script', () => {
         if (cmd === 'curl') {
           healthCheckCount++;
           if (healthCheckCount === 1) return Promise.reject(new Error('not running'));
-          return Promise.resolve({} as never);
+          return mockSubprocess();
         }
-        return Promise.resolve({} as never);
+        return mockSubprocess();
       }) as never);
 
       await startDevStack();
@@ -673,10 +678,10 @@ describe('mobile-test script', () => {
         for (const matcher of matchers) {
           if (cmd === matcher.cmd && (!matcher.argument || hasArgument(args, matcher.argument))) {
             callOrder.push(matcher.label);
-            if (matcher.result) return Promise.resolve(matcher.result as never);
+            if (matcher.result) return mockSubprocess(matcher.result);
           }
         }
-        return Promise.resolve({} as never);
+        return mockSubprocess();
       }) as never);
 
       await main();

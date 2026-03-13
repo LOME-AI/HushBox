@@ -69,6 +69,7 @@ jobs:
         env:
           VITE_API_URL: https://api.hushbox.ai
           VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          VITE_OPAQUE_SERVER_ID: hushbox.ai
           VITE_PLATFORM: android-direct
           VITE_APP_VERSION: ${{ inputs.version }}
         # END GENERATED: build-env-android-direct
