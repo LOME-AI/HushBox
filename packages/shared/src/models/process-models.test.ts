@@ -326,12 +326,13 @@ describe('processModels', () => {
 
   describe('premium classification', () => {
     it('marks models in top 25% price as premium', () => {
+      // Use realistic per-token prices ($0.001/1K to $0.01/1K per side)
       const models = Array.from({ length: 10 }, (_, index) =>
         createModel({
           id: `model-${String(index)}`,
           pricing: {
-            prompt: String(0.001 * (index + 1)),
-            completion: String(0.001 * (index + 1)),
+            prompt: String(0.000_001 * (index + 1)),
+            completion: String(0.000_001 * (index + 1)),
           },
           created: Math.floor(twoYearsAgo / 1000), // Old, so recency doesn't make them premium
         })
@@ -501,6 +502,46 @@ describe('processModels', () => {
       expect(withJson?.capabilities).toContain('json-mode');
       expect(basic?.capabilities).toContain('streaming');
       expect(basic?.capabilities).not.toContain('functions');
+    });
+  });
+
+  describe('trial affordability classification', () => {
+    it('marks models that exceed trial budget as premium even when below price percentile', () => {
+      // Need enough models so that Sonar Reasoning Pro pricing is NOT in the top 25% by combined price,
+      // but IS too expensive for trial users due to high output cost.
+      // Sonar Reasoning Pro: prompt=$0.0023/1K, completion=$0.0092/1K → combined=$0.0115/1K
+      // Add models with higher combined prices so Sonar isn't in top 25% by price.
+      const models = [
+        // 8 models more expensive (combined price) than Sonar — keeps Sonar below 75th percentile
+        ...Array.from({ length: 8 }, (_, index) =>
+          createModel({
+            id: `expensive/model-${String(index)}`,
+            pricing: { prompt: '0.00005', completion: '0.00005' }, // $0.1/1K combined — very expensive
+            created: Math.floor(twoYearsAgo / 1000),
+          })
+        ),
+        // 4 models cheaper than Sonar
+        ...Array.from({ length: 4 }, (_, index) =>
+          createModel({
+            id: `cheap/model-${String(index)}`,
+            pricing: { prompt: '0.000001', completion: '0.000001' }, // $0.002/1K combined — cheap
+            created: Math.floor(twoYearsAgo / 1000),
+          })
+        ),
+        // Sonar Reasoning Pro: below 75th percentile by combined price, but output too expensive for trial
+        createModel({
+          id: 'perplexity/sonar-reasoning-pro',
+          pricing: { prompt: '0.0000023', completion: '0.0000092' },
+          created: Math.floor(twoYearsAgo / 1000),
+        }),
+      ];
+
+      const result = processModels(models, allZdr(models));
+
+      // Sonar should be marked premium due to trial affordability, not price percentile
+      expect(result.premiumIds).toContain('perplexity/sonar-reasoning-pro');
+      // Cheap models should NOT be premium
+      expect(result.premiumIds).not.toContain('cheap/model-0');
     });
   });
 

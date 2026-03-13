@@ -30,10 +30,10 @@ describe('PageHeader', () => {
       expect(header).toHaveClass('sticky', 'top-0', 'backdrop-blur');
     });
 
-    it('has safe-area-inset-top padding for mobile status bar', () => {
+    it('does not apply per-component safe-area padding (handled globally by body)', () => {
       render(<PageHeader />);
       const header = screen.getByTestId('page-header');
-      expect(header).toHaveClass('pt-safe');
+      expect(header).not.toHaveClass('pt-safe');
     });
 
     it('has overflow-hidden to prevent visual overflow', () => {

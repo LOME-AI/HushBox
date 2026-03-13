@@ -42,7 +42,7 @@ function useRadialMask(
 ): React.CSSProperties | undefined {
   const [dynamicMask, setDynamicMask] = React.useState<React.CSSProperties | undefined>();
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (fadeMask !== 'radial' || frozen) return;
 
     if (!fadeMaskTarget) {

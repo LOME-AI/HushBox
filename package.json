@@ -32,6 +32,8 @@
     "e2e:debug": "./scripts/with-env sh -c 'playwright test --reporter=json | tsx scripts/e2e-debug.ts'",
     "e2e:quick:debug": "./scripts/with-env sh -c 'playwright test --project=chromium --project=iphone-15 --reporter=json | tsx scripts/e2e-debug.ts'",
     "e2e:fast:debug": "./scripts/with-env sh -c 'playwright test --project=iphone-15 --retries=0 --reporter=json | tsx scripts/e2e-debug.ts'",
+    "e2e:failed": "./scripts/with-env playwright test --last-failed",
+    "e2e:failed:debug": "./scripts/with-env sh -c 'playwright test --last-failed --reporter=json | tsx scripts/e2e-debug.ts'",
     "clean": "turbo clean && rm -rf node_modules",
     "prepare": "husky",
     "db:up": "./scripts/with-env docker compose up -d --wait postgres neon-proxy redis serverless-redis-http",
