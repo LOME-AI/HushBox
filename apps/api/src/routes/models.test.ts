@@ -232,8 +232,8 @@ describe('Models Routes', () => {
         description: 'Test model',
         context_length: 100_000,
         pricing: {
-          prompt: String(0.000_01 * (index + 1)),
-          completion: String(0.000_01 * (index + 1)),
+          prompt: String(0.000_001 * (index + 1)),
+          completion: String(0.000_001 * (index + 1)),
         },
         supported_parameters: ['temperature'],
         created: oneYearAgo, // Within 2 years, so NOT filtered by age

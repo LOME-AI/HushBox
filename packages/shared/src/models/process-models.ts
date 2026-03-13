@@ -6,7 +6,9 @@
 
 import type { Model, ModelCapability } from '../schemas/api/models.js';
 
-import { isPremiumModel, PREMIUM_PRICE_PERCENTILE } from './premium-check.js';
+import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
+
+import { isPremiumModel, PREMIUM_PRICE_PERCENTILE, exceedsTrialBudget } from './premium-check.js';
 
 import type { OpenRouterModel, ProcessedModels } from './types.js';
 
@@ -166,7 +168,8 @@ function transform(model: OpenRouterModel): Model {
  *
  * Premium classification:
  * - Price >= 75th percentile of filtered models, OR
- * - Released within the last year
+ * - Released within the last year, OR
+ * - Output cost exceeds trial budget for 2× minimum output tokens
  */
 export function processModels(
   rawModels: OpenRouterModel[],
@@ -195,12 +198,13 @@ export function processModels(
   const priceThreshold = calculatePercentileThreshold(prices, PREMIUM_PRICE_PERCENTILE);
 
   // Classify and transform
+  const systemPromptChars = buildSystemPrompt([]).length;
   const models: Model[] = [];
   const premiumIds: string[] = [];
 
   for (const model of filtered) {
     models.push(transform(model));
-    if (isPremiumModel(model, priceThreshold)) {
+    if (isPremiumModel(model, priceThreshold) || exceedsTrialBudget(model, systemPromptChars)) {
       premiumIds.push(model.id);
     }
   }
