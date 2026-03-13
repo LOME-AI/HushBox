@@ -61,34 +61,28 @@ describe('AuthLayout component', () => {
     });
   });
 
-  it('offsets logo position by safe-area-inset-top for mobile status bar', async () => {
+  it('positions logo at top-4 left-4 (safe area handled globally by body)', async () => {
     const { AuthLayout } = await import('./_auth');
     render(<AuthLayout />);
     const logoLink = screen.getByRole('link', { name: /hushbox/i });
     const logoContainer = logoLink.parentElement!;
-    const style = logoContainer.getAttribute('style') ?? '';
-    expect(style).toContain('top:');
-    expect(style).toContain('safe-area-inset-top');
+    expect(logoContainer).toHaveClass('top-4', 'left-4');
   });
 
-  it('offsets theme toggle position by safe-area-inset-top for mobile status bar', async () => {
+  it('positions theme toggle at top-4 right-4 (safe area handled globally by body)', async () => {
     const { AuthLayout } = await import('./_auth');
     render(<AuthLayout />);
     const themeToggle = screen.getByTestId('theme-toggle');
     const toggleContainer = themeToggle.parentElement!;
-    const style = toggleContainer.getAttribute('style') ?? '';
-    expect(style).toContain('top:');
-    expect(style).toContain('safe-area-inset-top');
+    expect(toggleContainer).toHaveClass('top-4', 'right-4');
   });
 
-  it('offsets content padding-top by safe-area-inset-top for mobile status bar', async () => {
+  it('uses pt-14 for content padding (safe area handled globally by body)', async () => {
     const { AuthLayout } = await import('./_auth');
     render(<AuthLayout />);
     const layout = screen.getByTestId('auth-layout');
     const formArea = layout.children[0] as HTMLElement;
-    const style = formArea.getAttribute('style') ?? '';
-    expect(style).toContain('padding-top:');
-    expect(style).toContain('safe-area-inset-top');
+    expect(formArea).toHaveClass('pt-14');
   });
 
   it('renders split-screen layout', async () => {

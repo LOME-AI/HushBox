@@ -170,6 +170,7 @@
   }
 
   body {
+    padding-top: env(safe-area-inset-top, 0px);
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-feature-settings:
@@ -187,17 +188,17 @@
   }
 }
 
+@utility h-dvh {
+  height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+}
+
+@utility min-h-dvh {
+  min-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+}
+
 @utility wrap-anywhere {
   overflow-wrap: anywhere;
   word-break: break-word;
-}
-
-@utility pt-safe {
-  padding-top: env(safe-area-inset-top, 0px);
-}
-
-@utility pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @keyframes shine {

@@ -59,7 +59,7 @@ export function PageHeader({
   return (
     <header
       data-testid={testId}
-      className="bg-background/95 supports-backdrop-blur:bg-background/60 pt-safe sticky top-0 z-10 min-h-[53px] shrink-0 overflow-hidden border-b px-4 py-2 backdrop-blur"
+      className="bg-background/95 supports-backdrop-blur:bg-background/60 sticky top-0 z-10 min-h-[53px] shrink-0 overflow-hidden border-b px-4 py-2 backdrop-blur"
     >
       <div
         ref={containerRef}
