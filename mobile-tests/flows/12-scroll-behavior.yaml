@@ -15,10 +15,8 @@ env:
     visible: 'Sign up'
     timeout: 15000
 
-# Open sidebar and navigate to login
-- tapOn: 'Open menu'
-- tapOn: 'Trial User'
-- tapOn: 'Log In'
+# Navigate to login page via deep link (avoids WebView tap issues with sidebar Sheet)
+- openLink: https://hushbox.ai/login
 - extendedWaitUntil:
     visible: 'Welcome back'
     timeout: 10000

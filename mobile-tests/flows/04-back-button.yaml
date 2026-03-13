@@ -12,19 +12,23 @@ androidWebViewHierarchy: devtools
     visible: 'Sign up'
     timeout: 15000
 
-# Open sidebar and navigate to login page
-- tapOn: 'Open menu'
-- tapOn: 'Trial User'
-- tapOn: 'Log In'
+# Navigate to login page via deep link (avoids WebView tap issues with sidebar Sheet)
+- openLink: https://hushbox.ai/login
 - extendedWaitUntil:
     visible: 'Welcome back'
     timeout: 10000
 
-# Press hardware back button — should navigate back to chat
-- back
+# Navigate to signup via in-app link (creates a browser history entry)
+- tapOn: 'Sign up'
 - extendedWaitUntil:
-    visible: 'Sign up'
+    visible: 'Create your account'
     timeout: 10000
 
-# Verify we returned to the chat page
-- assertVisible: 'Sign up'
+# Press hardware back button — should navigate back to login
+- back
+- extendedWaitUntil:
+    visible: 'Welcome back'
+    timeout: 10000
+
+# Verify we returned to the login page
+- assertVisible: 'Welcome back'
