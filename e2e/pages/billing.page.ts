@@ -126,9 +126,10 @@ export class BillingPage {
     await this.purchaseButton.click();
   }
 
-  async expectPaymentSuccess(): Promise<void> {
+  async expectPaymentSuccess(timeout = 15_000): Promise<void> {
     // Wait for "Payment Successful" text (CardTitle renders as div, not heading)
-    await expect(this.paymentSuccessCard).toBeVisible({ timeout: 15_000 });
+    // Real Helcim + Hookdeck webhook flow needs longer than default 15s
+    await expect(this.paymentSuccessCard).toBeVisible({ timeout });
   }
 
   async expectPaymentError(): Promise<void> {

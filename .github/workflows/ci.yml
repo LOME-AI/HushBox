@@ -118,8 +118,9 @@ jobs:
           if ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
             echo "Loading cached Docker images..."
             for img in /tmp/docker-cache/*.tar; do
-              docker load -i "$img"
+              docker load -i "$img" &
             done
+            wait
           fi
 
       - name: Generate environment files
@@ -139,10 +140,11 @@ jobs:
         run: |
           if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
             mkdir -p /tmp/docker-cache
-            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar
-            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar
-            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar
-            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar
+            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar &
+            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar &
+            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar &
+            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar &
+            wait
           fi
 
       - name: Run migrations
@@ -243,8 +245,9 @@ jobs:
         run: |
           if ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
             for img in /tmp/docker-cache/*.tar; do
-              docker load -i "$img"
+              docker load -i "$img" &
             done
+            wait
           fi
 
       - name: Generate environment files
@@ -274,10 +277,11 @@ jobs:
         run: |
           if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
             mkdir -p /tmp/docker-cache
-            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar
-            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar
-            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar
-            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar
+            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar &
+            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar &
+            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar &
+            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar &
+            wait
           fi
 
       - name: Run migrations
@@ -365,8 +369,9 @@ jobs:
           if ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
             echo "Loading cached Docker images..."
             for img in /tmp/docker-cache/*.tar; do
-              docker load -i "$img"
+              docker load -i "$img" &
             done
+            wait
           fi
 
       - name: Cache Android SDK
@@ -413,11 +418,12 @@ jobs:
         run: |
           if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
             mkdir -p /tmp/docker-cache
-            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar
-            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar
-            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar
-            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar
-            docker save budtmo/docker-android:emulator_14.0 -o /tmp/docker-cache/android-emulator.tar
+            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar &
+            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar &
+            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar &
+            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar &
+            docker save budtmo/docker-android:emulator_14.0 -o /tmp/docker-cache/android-emulator.tar &
+            wait
           fi
 
       - name: Dump emulator logs
