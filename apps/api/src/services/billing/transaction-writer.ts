@@ -6,6 +6,7 @@ import {
   usageRecords,
   llmCompletions,
   type Database,
+  type DatabaseClient,
 } from '@hushbox/db';
 
 export interface CreditBalanceParams {
@@ -54,6 +55,51 @@ export interface ChargeResult {
   newBalance: string;
 }
 
+interface CreditWalletResult {
+  updatedWallet: { id: string; balance: string };
+  ledgerEntry: { id: string };
+}
+
+/**
+ * Credit a user's purchased wallet and create a deposit ledger entry.
+ * Used by both processWebhookCredit and creditUserBalance to avoid duplication.
+ */
+async function creditWalletAndCreateLedger(
+  tx: DatabaseClient,
+  userId: string,
+  amount: string,
+  paymentId: string
+): Promise<CreditWalletResult> {
+  const [updatedWallet] = await tx
+    .update(wallets)
+    .set({
+      balance: sql`${wallets.balance} + ${amount}::numeric`,
+    })
+    .where(and(eq(wallets.userId, userId), eq(wallets.type, 'purchased')))
+    .returning({ id: wallets.id, balance: wallets.balance });
+
+  if (!updatedWallet) {
+    throw new Error('Failed to update wallet balance');
+  }
+
+  const [ledgerEntry] = await tx
+    .insert(ledgerEntries)
+    .values({
+      walletId: updatedWallet.id,
+      amount,
+      balanceAfter: updatedWallet.balance,
+      entryType: 'deposit',
+      paymentId,
+    })
+    .returning({ id: ledgerEntries.id });
+
+  if (!ledgerEntry) {
+    throw new Error('Failed to create ledger entry');
+  }
+
+  return { updatedWallet, ledgerEntry };
+}
+
 /**
  * Process webhook credit by Helcim transaction ID.
  * Only claims payments in 'awaiting_webhook' status.
@@ -89,34 +135,12 @@ export async function processWebhookCredit(
       throw new Error('Payment has no associated user');
     }
 
-    // Credit the purchased wallet
-    const [updatedWallet] = await tx
-      .update(wallets)
-      .set({
-        balance: sql`${wallets.balance} + ${payment.amount}::numeric`,
-      })
-      .where(and(eq(wallets.userId, payment.userId), eq(wallets.type, 'purchased')))
-      .returning({ id: wallets.id, balance: wallets.balance });
-
-    if (!updatedWallet) {
-      throw new Error('Failed to update wallet balance');
-    }
-
-    // Create ledger entry for the deposit
-    const [ledgerEntry] = await tx
-      .insert(ledgerEntries)
-      .values({
-        walletId: updatedWallet.id,
-        amount: payment.amount,
-        balanceAfter: updatedWallet.balance,
-        entryType: 'deposit',
-        paymentId: payment.id,
-      })
-      .returning({ id: ledgerEntries.id });
-
-    if (!ledgerEntry) {
-      throw new Error('Failed to create ledger entry');
-    }
+    const { updatedWallet, ledgerEntry } = await creditWalletAndCreateLedger(
+      tx,
+      payment.userId,
+      payment.amount,
+      payment.id
+    );
 
     return {
       newBalance: updatedWallet.balance,
@@ -168,34 +192,12 @@ export async function creditUserBalance(
       return null;
     }
 
-    // Credit the purchased wallet
-    const [updatedWallet] = await tx
-      .update(wallets)
-      .set({
-        balance: sql`${wallets.balance} + ${amount}::numeric`,
-      })
-      .where(and(eq(wallets.userId, userId), eq(wallets.type, 'purchased')))
-      .returning({ id: wallets.id, balance: wallets.balance });
-
-    if (!updatedWallet) {
-      throw new Error('Failed to update wallet balance');
-    }
-
-    // Create ledger entry for the deposit
-    const [ledgerEntry] = await tx
-      .insert(ledgerEntries)
-      .values({
-        walletId: updatedWallet.id,
-        amount,
-        balanceAfter: updatedWallet.balance,
-        entryType: 'deposit',
-        paymentId,
-      })
-      .returning({ id: ledgerEntries.id });
-
-    if (!ledgerEntry) {
-      throw new Error('Failed to create ledger entry');
-    }
+    const { updatedWallet, ledgerEntry } = await creditWalletAndCreateLedger(
+      tx,
+      userId,
+      amount,
+      paymentId
+    );
 
     return {
       newBalance: updatedWallet.balance,
@@ -233,6 +235,11 @@ export async function chargeForUsage(
     sourceType,
     sourceId,
   } = params;
+
+  const numericCost = Number(cost);
+  if (Number.isNaN(numericCost) || numericCost < 0) {
+    throw new Error(`Invalid cost: "${cost}" — must be a non-negative numeric string`);
+  }
 
   return await db.transaction(async (tx) => {
     // Step 1: Insert usage record (pending)
@@ -313,7 +320,7 @@ export async function chargeForUsage(
       .insert(ledgerEntries)
       .values({
         walletId: chargedWallet.id,
-        amount: `-${cost}`,
+        amount: (-numericCost).toFixed(8),
         balanceAfter: chargedWallet.balance,
         entryType: 'usage_charge',
         usageRecordId: usageRecord.id,

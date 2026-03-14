@@ -16,15 +16,17 @@ export const messages = pgTable(
     encryptedBlob: bytea('encrypted_blob').notNull(),
     senderType: text('sender_type').notNull(),
     senderId: text('sender_id'),
-    senderDisplayName: text('sender_display_name'),
+    modelName: text('model_name'),
     payerId: text('payer_id'),
     cost: numeric('cost', { precision: 20, scale: 8 }),
     epochNumber: integer('epoch_number').notNull(),
     sequenceNumber: integer('sequence_number').notNull(),
+    parentMessageId: text('parent_message_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index('messages_conversation_sequence_idx').on(table.conversationId, table.sequenceNumber),
     index('messages_conversation_epoch_idx').on(table.conversationId, table.epochNumber),
+    index('messages_parent_message_id_idx').on(table.parentMessageId),
   ]
 );

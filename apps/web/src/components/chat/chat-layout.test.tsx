@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatLayout } from './chat-layout';
+import type { GroupChatProps } from './chat-layout';
 import type { Message } from '@/lib/api';
 
 import type { ConversationWebSocket } from '@/lib/ws-client';
@@ -53,11 +54,19 @@ vi.mock('@/hooks/billing', () => ({
   billingKeys: { balance: () => ['balance'] },
 }));
 
-vi.mock('@/stores/model', () => ({
-  useModelStore: () => ({
-    selectedModelId: 'gpt-4',
-    selectedModelName: 'GPT-4',
-    setSelectedModel: vi.fn(),
+vi.mock('@/stores/model', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/model')>();
+  const store = () => ({
+    selectedModels: [{ id: 'gpt-4', name: 'GPT-4' }],
+  });
+  store.setState = vi.fn();
+  return { ...actual, useModelStore: store };
+});
+
+vi.mock('@/stores/search', () => ({
+  useSearchStore: () => ({
+    webSearchEnabled: false,
+    toggleWebSearch: vi.fn(),
   }),
 }));
 
@@ -103,12 +112,20 @@ vi.mock('@/components/chat/message-list', () => ({
   MessageList: ({
     messages,
     onShare,
+    onRegenerate,
+    onEdit,
+    onFork,
+    canRegenerate,
     isGroupChat,
     currentUserId,
     members,
   }: {
     messages: Message[];
     onShare?: (id: string) => void;
+    onRegenerate?: (id: string) => void;
+    onEdit?: (id: string, content: string) => void;
+    onFork?: (id: string) => void;
+    canRegenerate?: boolean;
     isGroupChat?: boolean;
     currentUserId?: string;
     members?: { id: string; userId: string; username: string; privilege: string }[];
@@ -116,6 +133,10 @@ vi.mock('@/components/chat/message-list', () => ({
     <div
       data-testid="message-list"
       data-has-on-share={onShare ? 'true' : 'false'}
+      data-has-on-regenerate={onRegenerate ? 'true' : 'false'}
+      data-has-on-edit={onEdit ? 'true' : 'false'}
+      data-has-on-fork={onFork ? 'true' : 'false'}
+      {...(canRegenerate === undefined ? {} : { 'data-can-regenerate': String(canRegenerate) })}
       {...(isGroupChat ? { 'data-is-group-chat': 'true' } : {})}
       {...(currentUserId === undefined ? {} : { 'data-current-user-id': currentUserId })}
       {...(members === undefined ? {} : { 'data-member-count-list': String(members.length) })}
@@ -136,6 +157,12 @@ vi.mock('@/components/chat/prompt-input', () => ({
       disabled,
       autoFocus,
       onTypingChange,
+      webSearchEnabled,
+      modelSupportsSearch,
+      isAuthenticated,
+      onToggleWebSearch,
+      conversationId,
+      currentUserPrivilege,
     }: {
       value: string;
       onChange: (v: string) => void;
@@ -143,6 +170,12 @@ vi.mock('@/components/chat/prompt-input', () => ({
       disabled: boolean;
       autoFocus?: boolean;
       onTypingChange?: (isTyping: boolean) => void;
+      webSearchEnabled?: boolean;
+      modelSupportsSearch?: boolean;
+      isAuthenticated?: boolean;
+      onToggleWebSearch?: () => void;
+      conversationId?: string | null;
+      currentUserPrivilege?: string;
     },
     ref: React.ForwardedRef<{ focus: () => void }>
   ) {
@@ -154,6 +187,24 @@ vi.mock('@/components/chat/prompt-input', () => ({
         data-testid="prompt-input"
         data-autofocus={autoFocus ? 'true' : 'false'}
         data-has-typing-change={onTypingChange ? 'true' : 'false'}
+        {...(webSearchEnabled !== undefined && {
+          'data-web-search-enabled': String(webSearchEnabled),
+        })}
+        {...(modelSupportsSearch !== undefined && {
+          'data-model-supports-search': String(modelSupportsSearch),
+        })}
+        {...(isAuthenticated !== undefined && {
+          'data-is-authenticated': String(isAuthenticated),
+        })}
+        {...(onToggleWebSearch !== undefined && {
+          'data-has-toggle-web-search': 'true',
+        })}
+        {...(conversationId !== undefined && {
+          'data-conversation-id': String(conversationId),
+        })}
+        {...(currentUserPrivilege !== undefined && {
+          'data-current-user-privilege': currentUserPrivilege,
+        })}
         value={value}
         onChange={(e) => {
           onChange(e.target.value);
@@ -203,6 +254,35 @@ vi.mock('@/components/chat/share-message-modal', () => ({
   ShareMessageModal: () => <div data-testid="share-message-modal" />,
 }));
 
+vi.mock('@/components/chat/fork-tabs', () => ({
+  ForkTabs: ({
+    forks,
+    activeForkId,
+    onForkSelect,
+    onRename,
+    onDelete,
+  }: {
+    forks: { id: string; name: string }[];
+    activeForkId: string | null;
+    onForkSelect: (id: string) => void;
+    onRename: (id: string, name: string) => void;
+    onDelete: (id: string) => void;
+  }) => (
+    <div
+      data-testid="fork-tabs"
+      data-fork-count={forks.length}
+      data-active-fork-id={activeForkId ?? ''}
+      data-has-on-fork-select={String(Boolean(onForkSelect))}
+      data-has-on-rename={String(Boolean(onRename))}
+      data-has-on-delete={String(Boolean(onDelete))}
+    >
+      {forks.map((f: { id: string; name: string }) => (
+        <span key={f.id}>{f.name}</span>
+      ))}
+    </div>
+  ),
+}));
+
 vi.mock('@/components/chat/typing-indicator', () => ({
   TypingIndicator: ({
     typingUserIds,
@@ -222,7 +302,7 @@ vi.mock('@/components/chat/typing-indicator', () => ({
 describe('ChatLayout', () => {
   const defaultProps = {
     messages: [] as Message[],
-    streamingMessageId: null,
+    streamingMessageIds: new Set<string>(),
     inputValue: '',
     onInputChange: vi.fn(),
     onSubmit: vi.fn(),
@@ -350,7 +430,7 @@ describe('ChatLayout', () => {
   });
 
   describe('group chat features', () => {
-    const defaultGroupChat = {
+    const defaultGroupChat: GroupChatProps = {
       conversationId: 'conv-123',
       members: [
         { id: 'm1', userId: 'u1', username: 'alice', privilege: 'owner' },
@@ -765,6 +845,46 @@ describe('ChatLayout', () => {
     });
   });
 
+  describe('prompt input privilege and conversationId forwarding', () => {
+    it('passes conversationId and currentUserPrivilege to PromptInput when groupChat is provided', () => {
+      const groupChat: GroupChatProps = {
+        conversationId: 'conv-123',
+        members: [
+          { id: 'm1', userId: 'u1', username: 'alice', privilege: 'owner' },
+          { id: 'm2', userId: 'u2', username: 'bob', privilege: 'write' },
+        ],
+        links: [],
+        onlineMemberIds: new Set<string>(),
+        currentUserId: 'u1',
+        currentUserPrivilege: 'owner',
+        currentEpochPrivateKey: new Uint8Array(32),
+        currentEpochNumber: 1,
+      };
+
+      render(<ChatLayout {...defaultProps} conversationId="conv-123" groupChat={groupChat} />);
+
+      const input = screen.getByTestId('prompt-input');
+      expect(input).toHaveAttribute('data-conversation-id', 'conv-123');
+      expect(input).toHaveAttribute('data-current-user-privilege', 'owner');
+    });
+
+    it('passes both conversationId and callerPrivilege to PromptInput when groupChat is undefined (link guest fallback)', () => {
+      render(<ChatLayout {...defaultProps} conversationId="conv-456" callerPrivilege="read" />);
+
+      const input = screen.getByTestId('prompt-input');
+      expect(input).toHaveAttribute('data-conversation-id', 'conv-456');
+      expect(input).toHaveAttribute('data-current-user-privilege', 'read');
+    });
+
+    it('does not pass conversationId or currentUserPrivilege for solo conversations', () => {
+      render(<ChatLayout {...defaultProps} />);
+
+      const input = screen.getByTestId('prompt-input');
+      expect(input).not.toHaveAttribute('data-conversation-id');
+      expect(input).not.toHaveAttribute('data-current-user-privilege');
+    });
+  });
+
   it('always renders share message modal', () => {
     render(<ChatLayout {...defaultProps} />);
 
@@ -779,5 +899,139 @@ describe('ChatLayout', () => {
     render(<ChatLayout {...defaultProps} messages={messages} />);
 
     expect(screen.getByTestId('message-list')).toHaveAttribute('data-has-on-share', 'true');
+  });
+
+  describe('fork tabs', () => {
+    const forks = [
+      {
+        id: 'fork-main',
+        conversationId: 'conv-1',
+        name: 'Main',
+        tipMessageId: 'msg-5',
+        createdAt: '2026-03-03',
+      },
+      {
+        id: 'fork-1',
+        conversationId: 'conv-1',
+        name: 'Fork 1',
+        tipMessageId: 'msg-3',
+        createdAt: '2026-03-03',
+      },
+    ];
+
+    it('renders ForkTabs when forks are provided', () => {
+      render(
+        <ChatLayout
+          {...defaultProps}
+          forks={forks}
+          activeForkId="fork-main"
+          onForkSelect={vi.fn()}
+          onForkRename={vi.fn()}
+          onForkDelete={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('fork-tabs')).toBeInTheDocument();
+      expect(screen.getByTestId('fork-tabs')).toHaveAttribute('data-fork-count', '2');
+    });
+
+    it('passes activeForkId to ForkTabs', () => {
+      render(
+        <ChatLayout
+          {...defaultProps}
+          forks={forks}
+          activeForkId="fork-1"
+          onForkSelect={vi.fn()}
+          onForkRename={vi.fn()}
+          onForkDelete={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('fork-tabs')).toHaveAttribute('data-active-fork-id', 'fork-1');
+    });
+
+    it('passes callback props to ForkTabs', () => {
+      render(
+        <ChatLayout
+          {...defaultProps}
+          forks={forks}
+          activeForkId="fork-main"
+          onForkSelect={vi.fn()}
+          onForkRename={vi.fn()}
+          onForkDelete={vi.fn()}
+        />
+      );
+
+      const tabs = screen.getByTestId('fork-tabs');
+      expect(tabs).toHaveAttribute('data-has-on-fork-select', 'true');
+      expect(tabs).toHaveAttribute('data-has-on-rename', 'true');
+      expect(tabs).toHaveAttribute('data-has-on-delete', 'true');
+    });
+
+    it('renders ForkTabs with empty array when no forks provided', () => {
+      render(<ChatLayout {...defaultProps} />);
+
+      const tabs = screen.getByTestId('fork-tabs');
+      expect(tabs).toHaveAttribute('data-fork-count', '0');
+    });
+  });
+
+  describe('message action callbacks', () => {
+    it('passes onRegenerate to MessageList when provided', () => {
+      const messages: Message[] = [
+        { id: '1', conversationId: 'conv-1', role: 'user', content: 'Hi', createdAt: '' },
+      ];
+      render(<ChatLayout {...defaultProps} messages={messages} onRegenerate={vi.fn()} />);
+
+      expect(screen.getByTestId('message-list')).toHaveAttribute('data-has-on-regenerate', 'true');
+    });
+
+    it('passes onEdit to MessageList when provided', () => {
+      const messages: Message[] = [
+        { id: '1', conversationId: 'conv-1', role: 'user', content: 'Hi', createdAt: '' },
+      ];
+      render(<ChatLayout {...defaultProps} messages={messages} onEdit={vi.fn()} />);
+
+      expect(screen.getByTestId('message-list')).toHaveAttribute('data-has-on-edit', 'true');
+    });
+
+    it('passes onFork to MessageList when provided', () => {
+      const messages: Message[] = [
+        { id: '1', conversationId: 'conv-1', role: 'user', content: 'Hi', createdAt: '' },
+      ];
+      render(<ChatLayout {...defaultProps} messages={messages} onFork={vi.fn()} />);
+
+      expect(screen.getByTestId('message-list')).toHaveAttribute('data-has-on-fork', 'true');
+    });
+
+    it('does not pass action callbacks when not provided', () => {
+      const messages: Message[] = [
+        { id: '1', conversationId: 'conv-1', role: 'user', content: 'Hi', createdAt: '' },
+      ];
+      render(<ChatLayout {...defaultProps} messages={messages} />);
+
+      expect(screen.getByTestId('message-list')).toHaveAttribute('data-has-on-regenerate', 'false');
+      expect(screen.getByTestId('message-list')).toHaveAttribute('data-has-on-edit', 'false');
+      expect(screen.getByTestId('message-list')).toHaveAttribute('data-has-on-fork', 'false');
+    });
+  });
+
+  describe('web search integration', () => {
+    it('passes search toggle props to PromptInput for authenticated user', () => {
+      render(<ChatLayout {...defaultProps} isAuthenticated={true} />);
+
+      const input = screen.getByTestId('prompt-input');
+      expect(input).toHaveAttribute('data-web-search-enabled', 'false');
+      expect(input).toHaveAttribute('data-model-supports-search');
+      expect(input).toHaveAttribute('data-is-authenticated', 'true');
+      expect(input).toHaveAttribute('data-has-toggle-web-search', 'true');
+    });
+
+    it('passes isAuthenticated=false for unauthenticated users', () => {
+      render(<ChatLayout {...defaultProps} isAuthenticated={false} />);
+
+      const input = screen.getByTestId('prompt-input');
+      expect(input).toHaveAttribute('data-is-authenticated', 'false');
+    });
   });
 });

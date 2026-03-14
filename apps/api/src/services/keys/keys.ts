@@ -91,7 +91,7 @@ export async function getKeyChain(
     .orderBy(asc(epochs.epochNumber));
 
   // Filter chain links to only include epochs >= the member's visibleFromEpoch
-  const filteredChainLinks = chainLinksRows.filter((cl) => cl.epochNumber >= visibleFromEpoch);
+  const filteredChainLinks = chainLinksRows.filter((cl) => cl.epochNumber > visibleFromEpoch);
 
   // Query currentEpoch from the conversation row
   const [conversation] = await db

@@ -91,11 +91,12 @@ function createMessageResponse(overrides: Partial<MessageResponse> = {}): Messag
     encryptedBlob: 'base64-blob',
     senderType: 'user',
     senderId: 'user-1',
-    senderDisplayName: null,
+    modelName: null,
     payerId: null,
     cost: null,
     epochNumber: 1,
     sequenceNumber: 0,
+    parentMessageId: null,
     createdAt: '2026-01-01T00:00:00Z',
     ...overrides,
   };

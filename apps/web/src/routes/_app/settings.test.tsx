@@ -20,10 +20,12 @@ const { mockChangePassword, mockUseAuthStore, useAuthStoreMock, mockAuthStoreSta
         hasAcknowledgedPhrase: boolean;
       } | null,
       privateKey: new Uint8Array(32),
+      customInstructions: null as string | null,
       isLoading: false,
       isAuthenticated: true,
       setUser: vi.fn(),
       setPrivateKey: vi.fn(),
+      setCustomInstructions: vi.fn(),
       setLoading: vi.fn(),
       clear: vi.fn(),
     };
@@ -63,6 +65,22 @@ vi.mock('@/lib/api', () => ({
 
 vi.mock('@/hooks/use-is-mobile', () => ({
   useIsMobile: vi.fn(() => false),
+}));
+
+vi.mock('@/components/settings/CustomInstructionsModal', () => ({
+  CustomInstructionsModal: ({
+    open,
+    onSuccess,
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    onSuccess: () => void;
+  }) =>
+    open ? (
+      <div data-testid="custom-instructions-modal">
+        <button onClick={onSuccess}>Mock Save</button>
+      </div>
+    ) : null,
 }));
 
 vi.mock('@hushbox/crypto', () => ({
@@ -114,8 +132,9 @@ function setMockUser(
   const user = { ...defaultUser, ...overrides };
   // Update both selector mock and getState().user for direct access
   mockAuthStoreState.user = user;
-  mockUseAuthStore.mockImplementation((selector: (state: { user: typeof user }) => unknown) =>
-    selector({ user })
+  mockUseAuthStore.mockImplementation(
+    (selector: (state: { user: typeof user; customInstructions: string | null }) => unknown) =>
+      selector({ user, customInstructions: mockAuthStoreState.customInstructions })
   );
 }
 
@@ -400,6 +419,61 @@ describe('SettingsPage', () => {
         );
       });
     }, 15_000);
+  });
+
+  describe('preferences card', () => {
+    it('renders Preferences card with title and description', () => {
+      render(<SettingsPage />);
+
+      expect(screen.getByText('Preferences')).toBeInTheDocument();
+      expect(screen.getByText('Customize how AI responds to you')).toBeInTheDocument();
+    });
+
+    it('renders Custom Instructions setting item', () => {
+      render(<SettingsPage />);
+
+      expect(screen.getByText('Custom Instructions')).toBeInTheDocument();
+      expect(
+        screen.getByText("Tell the AI about yourself and how you'd like it to respond")
+      ).toBeInTheDocument();
+    });
+
+    it('shows Active badge when custom instructions are set', () => {
+      mockUseAuthStore.mockImplementation((selector: (state: Record<string, unknown>) => unknown) =>
+        selector({
+          user: mockAuthStoreState.user,
+          customInstructions: 'Be concise',
+        })
+      );
+
+      render(<SettingsPage />);
+
+      expect(screen.getByText('Active')).toBeInTheDocument();
+    });
+
+    it('shows Not set badge when custom instructions are null', () => {
+      mockUseAuthStore.mockImplementation((selector: (state: Record<string, unknown>) => unknown) =>
+        selector({
+          user: mockAuthStoreState.user,
+          customInstructions: null,
+        })
+      );
+
+      render(<SettingsPage />);
+
+      expect(screen.getByText('Not set')).toBeInTheDocument();
+    });
+
+    it('opens custom instructions modal when clicked', async () => {
+      const user = userEvent.setup();
+      render(<SettingsPage />);
+
+      await user.click(screen.getByRole('button', { name: /custom instructions.*tell the ai/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('custom-instructions-modal')).toBeInTheDocument();
+      });
+    });
   });
 
   describe('recovery phrase flow', () => {

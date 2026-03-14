@@ -30,6 +30,7 @@ export interface RestoredSession {
   privateKey: Uint8Array;
   userId: string;
   user: MeResponse['user'];
+  customInstructionsEncrypted: string | null;
 }
 
 /**
@@ -116,6 +117,7 @@ export interface MeResponse {
   pending2FA?: true;
   passwordWrappedPrivateKey?: string;
   publicKey?: string;
+  customInstructionsEncrypted?: string | null;
 }
 
 export async function restoreSession(): Promise<RestoredSession | null> {
@@ -161,6 +163,7 @@ export async function restoreSession(): Promise<RestoredSession | null> {
         privateKey,
         userId: storedAuth.userId,
         user: data.user,
+        customInstructionsEncrypted: data.customInstructionsEncrypted ?? null,
       };
     } catch {
       // Stored export key is corrupted or wrong — clear it

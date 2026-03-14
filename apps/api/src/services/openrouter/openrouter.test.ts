@@ -6,6 +6,7 @@ import {
   getModel,
   ContextCapacityError,
   MINIMUM_OUTPUT_TOKENS,
+  clearModelCache,
 } from './openrouter.js';
 import type {
   OpenRouterClient,
@@ -470,6 +471,7 @@ describe('fetchModels (public, no auth required)', () => {
   let fetchMock: FetchMock;
 
   beforeEach(() => {
+    clearModelCache();
     fetchMock = vi.fn() as FetchMock;
     vi.stubGlobal('fetch', fetchMock);
   });
@@ -551,6 +553,7 @@ describe('fetchZdrModelIds (public, no auth required)', () => {
   let fetchMock: FetchMock;
 
   beforeEach(() => {
+    clearModelCache();
     fetchMock = vi.fn() as FetchMock;
     vi.stubGlobal('fetch', fetchMock);
   });
@@ -635,6 +638,134 @@ describe('fetchZdrModelIds (public, no auth required)', () => {
     const result = await fetchZdrModelIds();
 
     expect(result.size).toBe(0);
+  });
+});
+
+describe('fetchModels caching', () => {
+  let fetchMock: FetchMock;
+
+  const mockModels: ModelInfo[] = [
+    {
+      id: 'openai/gpt-4',
+      name: 'GPT-4',
+      description: 'Test',
+      context_length: 8192,
+      pricing: { prompt: '0.00001', completion: '0.00003' },
+      supported_parameters: [],
+      created: 1_704_067_200,
+      architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+    },
+  ];
+
+  beforeEach(() => {
+    clearModelCache();
+    fetchMock = vi.fn() as FetchMock;
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('returns cached models on second call without hitting fetch', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: mockModels }),
+    });
+
+    const first = await fetchModels();
+    const second = await fetchModels();
+
+    expect(first).toEqual(second);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-fetches after TTL expires', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: mockModels }),
+    });
+
+    await fetchModels();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Advance past the 1-hour TTL
+    vi.advanceTimersByTime(3_600_001);
+
+    await fetchModels();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('clearModelCache forces re-fetch', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: mockModels }),
+    });
+
+    await fetchModels();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    clearModelCache();
+
+    await fetchModels();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('fetchZdrModelIds caching', () => {
+  let fetchMock: FetchMock;
+
+  beforeEach(() => {
+    clearModelCache();
+    fetchMock = vi.fn() as FetchMock;
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('returns cached ZDR model IDs on second call without hitting fetch', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: [
+            {
+              model_id: 'openai/gpt-4',
+              model_name: 'GPT-4',
+              provider_name: 'OpenAI',
+              context_length: 8192,
+              pricing: { prompt: '0.00001', completion: '0.00003' },
+            },
+          ],
+        }),
+    });
+
+    const first = await fetchZdrModelIds();
+    const second = await fetchZdrModelIds();
+
+    expect(first).toEqual(second);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-fetches after TTL expires', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: [] }),
+    });
+
+    await fetchZdrModelIds();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(3_600_001);
+
+    await fetchZdrModelIds();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

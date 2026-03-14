@@ -5,6 +5,10 @@ import { TrialChatPage } from './trial-chat-page';
 import { TrialRateLimitError } from '@/hooks/use-chat-stream';
 import type { TrialMessage } from '@/stores/trial-chat';
 
+vi.mock('@/lib/api', () => ({
+  getApiUrl: () => 'http://localhost:8787',
+}));
+
 const mockNavigate = vi.fn();
 
 vi.mock('@tanstack/react-router', () => ({
@@ -13,6 +17,8 @@ vi.mock('@tanstack/react-router', () => ({
     return <div data-testid="navigate" data-to={to} />;
   },
 }));
+
+let capturedOnRegenerate: ((messageId: string) => void) | undefined;
 
 vi.mock('@/components/chat/chat-layout', () => ({
   ChatLayout: ({
@@ -23,6 +29,7 @@ vi.mock('@/components/chat/chat-layout', () => ({
     inputDisabled,
     isProcessing,
     historyCharacters,
+    onRegenerate,
   }: {
     messages: TrialMessage[];
     onSubmit: () => void;
@@ -31,32 +38,37 @@ vi.mock('@/components/chat/chat-layout', () => ({
     inputDisabled: boolean;
     isProcessing: boolean;
     historyCharacters: number;
-  }) => (
-    <div data-testid="chat-layout">
-      <div data-testid="message-count">{messages.length}</div>
-      <div data-testid="history-characters">{historyCharacters}</div>
-      <div data-testid="input-disabled">{String(inputDisabled)}</div>
-      <div data-testid="is-processing">{String(isProcessing)}</div>
-      <input
-        data-testid="input"
-        value={inputValue}
-        onChange={(event) => {
-          onInputChange(event.target.value);
-        }}
-      />
-      <button data-testid="submit" onClick={onSubmit}>
-        Submit
-      </button>
-    </div>
-  ),
+    onRegenerate?: (messageId: string) => void;
+  }) => {
+    capturedOnRegenerate = onRegenerate;
+    return (
+      <div data-testid="chat-layout">
+        <div data-testid="message-count">{messages.length}</div>
+        <div data-testid="history-characters">{historyCharacters}</div>
+        <div data-testid="input-disabled">{String(inputDisabled)}</div>
+        <div data-testid="is-processing">{String(isProcessing)}</div>
+        <div data-testid="has-on-regenerate">{String(onRegenerate !== undefined)}</div>
+        <input
+          data-testid="input"
+          value={inputValue}
+          onChange={(event) => {
+            onInputChange(event.target.value);
+          }}
+        />
+        <button data-testid="submit" onClick={onSubmit}>
+          Submit
+        </button>
+      </div>
+    );
+  },
 }));
 
 interface ChatPageStateMock {
   inputValue: string;
   setInputValue: ReturnType<typeof vi.fn>;
   clearInput: ReturnType<typeof vi.fn>;
-  streamingMessageId: string | null;
-  streamingMessageIdRef: { current: string | null };
+  streamingMessageIds: Set<string>;
+  streamingMessageIdsRef: { current: Set<string> };
   startStreaming: ReturnType<typeof vi.fn>;
   stopStreaming: ReturnType<typeof vi.fn>;
 }
@@ -82,13 +94,17 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 interface ModelStoreMock {
-  selectedModelId: string;
+  selectedModels: { id: string; name: string }[];
 }
 
 const mockUseModelStore = vi.fn<() => ModelStoreMock>();
-vi.mock('@/stores/model', () => ({
-  useModelStore: (): ModelStoreMock => mockUseModelStore(),
-}));
+vi.mock('@/stores/model', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/model')>();
+  return {
+    ...actual,
+    useModelStore: (): ModelStoreMock => mockUseModelStore(),
+  };
+});
 
 interface ChatStreamMock {
   isStreaming: boolean;
@@ -113,6 +129,7 @@ const mockTrialChatStore = {
   appendToMessage: vi.fn(),
   clearPendingMessage: vi.fn(),
   setRateLimited: vi.fn(),
+  removeMessagesAfter: vi.fn(),
 };
 
 interface TrialChatStoreMock {
@@ -124,6 +141,7 @@ interface TrialChatStoreMock {
   appendToMessage: ReturnType<typeof vi.fn>;
   clearPendingMessage: ReturnType<typeof vi.fn>;
   setRateLimited: ReturnType<typeof vi.fn>;
+  removeMessagesAfter: ReturnType<typeof vi.fn>;
 }
 
 const mockUseTrialChatStore = vi.fn<() => TrialChatStoreMock>();
@@ -178,7 +196,7 @@ function getSessionData(user: { id: string } | null): { user: { id: string } } |
 
 interface StreamOptions {
   onToken?: (token: string) => void;
-  onStart?: (data: { assistantMessageId: string }) => void;
+  onStart?: (data: { models: { modelId: string; assistantMessageId: string }[] }) => void;
 }
 
 describe('TrialChatPage', () => {
@@ -188,7 +206,7 @@ describe('TrialChatPage', () => {
   const mockSetInputValue = vi.fn();
   const mockClearInput = vi.fn();
 
-  const streamingMessageIdRef = { current: null as string | null };
+  const streamingMessageIdsRef = { current: new Set<string>() };
 
   interface MockOverrides {
     isPending?: boolean;
@@ -220,7 +238,9 @@ describe('TrialChatPage', () => {
       isPending: config.isPending,
     });
 
-    mockUseModelStore.mockReturnValue({ selectedModelId: 'test-model' });
+    mockUseModelStore.mockReturnValue({
+      selectedModels: [{ id: 'test-model', name: 'Test Model' }],
+    });
 
     mockUseChatStream.mockReturnValue({
       isStreaming: config.isStreaming,
@@ -236,6 +256,7 @@ describe('TrialChatPage', () => {
       appendToMessage: mockTrialChatStore.appendToMessage,
       clearPendingMessage: mockTrialChatStore.clearPendingMessage,
       setRateLimited: mockTrialChatStore.setRateLimited,
+      removeMessagesAfter: mockTrialChatStore.removeMessagesAfter,
     });
 
     mockUseIsMobile.mockReturnValue(config.isMobile);
@@ -244,8 +265,8 @@ describe('TrialChatPage', () => {
       inputValue: config.inputValue,
       setInputValue: mockSetInputValue,
       clearInput: mockClearInput,
-      streamingMessageId: null,
-      streamingMessageIdRef,
+      streamingMessageIds: new Set<string>(),
+      streamingMessageIdsRef,
       startStreaming: mockStartStreaming,
       stopStreaming: mockStopStreaming,
     });
@@ -253,8 +274,9 @@ describe('TrialChatPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    streamingMessageIdRef.current = null;
+    streamingMessageIdsRef.current = new Set<string>();
     mockChatErrorState.error = null;
+    capturedOnRegenerate = undefined;
     setupMocks();
   });
 
@@ -314,11 +336,7 @@ describe('TrialChatPage', () => {
   });
 
   it('triggers first message stream when pending message exists', async () => {
-    mockStartStream.mockResolvedValue({
-      userMessageId: 'user-1',
-      assistantMessageId: 'assistant-1',
-      content: 'Response content',
-    });
+    mockStartStream.mockResolvedValue({ userMessageId: 'user-1', models: [] });
 
     setupMocks({ pendingMessage: 'Hello AI' });
 
@@ -353,13 +371,12 @@ describe('TrialChatPage', () => {
 
   describe('stream callbacks', () => {
     it('handles onStart callback', async () => {
-      let capturedOnStart: ((data: { assistantMessageId: string }) => void) | undefined;
+      let capturedOnStart:
+        | ((data: { models: { modelId: string; assistantMessageId: string }[] }) => void)
+        | undefined;
       mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
         capturedOnStart = options?.onStart;
-        return Promise.resolve({
-          assistantMessageId: 'assistant-1',
-          content: 'Response',
-        });
+        return Promise.resolve({ userMessageId: 'user-1', models: [] });
       });
 
       setupMocks({ pendingMessage: 'Hello' });
@@ -371,7 +388,9 @@ describe('TrialChatPage', () => {
       });
 
       act(() => {
-        capturedOnStart?.({ assistantMessageId: 'assistant-1' });
+        capturedOnStart?.({
+          models: [{ modelId: 'test-model', assistantMessageId: 'assistant-1' }],
+        });
       });
 
       expect(mockTrialChatStore.addMessage).toHaveBeenCalledWith(
@@ -381,18 +400,18 @@ describe('TrialChatPage', () => {
           content: '',
         })
       );
-      expect(mockStartStreaming).toHaveBeenCalledWith('assistant-1');
+      expect(mockStartStreaming).toHaveBeenCalledWith(['assistant-1']);
     });
 
     it('handles onToken callback', async () => {
       let capturedOnToken: ((token: string) => void) | undefined;
       mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
         capturedOnToken = options?.onToken;
-        return Promise.resolve({ assistantMessageId: 'assistant-1', content: 'Response' });
+        return Promise.resolve({ userMessageId: 'user-1', models: [] });
       });
 
       setupMocks({ pendingMessage: 'Hello' });
-      streamingMessageIdRef.current = 'assistant-1';
+      streamingMessageIdsRef.current = new Set(['assistant-1']);
 
       render(<TrialChatPage />);
 
@@ -411,11 +430,11 @@ describe('TrialChatPage', () => {
       let capturedOnToken: ((token: string) => void) | undefined;
       mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
         capturedOnToken = options?.onToken;
-        return Promise.resolve({ assistantMessageId: 'assistant-1', content: 'Response' });
+        return Promise.resolve({ userMessageId: 'user-1', models: [] });
       });
 
       setupMocks({ pendingMessage: 'Hello' });
-      streamingMessageIdRef.current = null;
+      streamingMessageIdsRef.current = new Set<string>();
 
       render(<TrialChatPage />);
 
@@ -430,24 +449,16 @@ describe('TrialChatPage', () => {
       expect(mockTrialChatStore.appendToMessage).not.toHaveBeenCalled();
     });
 
-    it('updates message content on stream complete', async () => {
-      mockStartStream.mockResolvedValue({
-        assistantMessageId: 'assistant-1',
-        content: 'Final response',
-      });
+    it('stops streaming on stream complete', async () => {
+      mockStartStream.mockResolvedValue({ userMessageId: 'user-1', models: [] });
 
       setupMocks({ pendingMessage: 'Hello' });
 
       render(<TrialChatPage />);
 
       await waitFor(() => {
-        expect(mockTrialChatStore.updateMessageContent).toHaveBeenCalledWith(
-          'assistant-1',
-          'Final response'
-        );
+        expect(mockStopStreaming).toHaveBeenCalled();
       });
-
-      expect(mockStopStreaming).toHaveBeenCalled();
     });
   });
 
@@ -504,10 +515,7 @@ describe('TrialChatPage', () => {
         { id: '2', conversationId: 'trial', role: 'assistant', content: 'Response', createdAt: '' },
       ];
 
-      mockStartStream.mockResolvedValue({
-        assistantMessageId: 'assistant-2',
-        content: 'New response',
-      });
+      mockStartStream.mockResolvedValue({ userMessageId: 'user-1', models: [] });
 
       setupMocks({
         messages: existingMessages,
@@ -664,10 +672,7 @@ describe('TrialChatPage', () => {
 
     it('clears input and focuses on desktop after submit', async () => {
       const user = userEvent.setup();
-      mockStartStream.mockResolvedValue({
-        assistantMessageId: 'assistant-1',
-        content: 'Response',
-      });
+      mockStartStream.mockResolvedValue({ userMessageId: 'user-1', models: [] });
 
       setupMocks({
         messages: [
@@ -688,10 +693,7 @@ describe('TrialChatPage', () => {
 
     it('clears input without focus on mobile after submit', async () => {
       const user = userEvent.setup();
-      mockStartStream.mockResolvedValue({
-        assistantMessageId: 'assistant-1',
-        content: 'Response',
-      });
+      mockStartStream.mockResolvedValue({ userMessageId: 'user-1', models: [] });
 
       setupMocks({
         messages: [
@@ -714,13 +716,12 @@ describe('TrialChatPage', () => {
   describe('submit stream callbacks', () => {
     it('handles onStart callback during submit', async () => {
       const user = userEvent.setup();
-      let capturedOnStart: ((data: { assistantMessageId: string }) => void) | undefined;
+      let capturedOnStart:
+        | ((data: { models: { modelId: string; assistantMessageId: string }[] }) => void)
+        | undefined;
       mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
         capturedOnStart = options?.onStart;
-        return Promise.resolve({
-          assistantMessageId: 'assistant-submit',
-          content: 'Response',
-        });
+        return Promise.resolve({ userMessageId: 'user-1', models: [] });
       });
 
       setupMocks({
@@ -739,7 +740,9 @@ describe('TrialChatPage', () => {
       });
 
       act(() => {
-        capturedOnStart?.({ assistantMessageId: 'assistant-submit' });
+        capturedOnStart?.({
+          models: [{ modelId: 'test-model', assistantMessageId: 'assistant-submit' }],
+        });
       });
 
       expect(mockTrialChatStore.addMessage).toHaveBeenCalledWith(
@@ -756,13 +759,10 @@ describe('TrialChatPage', () => {
       mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
         capturedOnToken = options?.onToken;
         // Simulate calling onToken during stream
-        if (streamingMessageIdRef.current) {
+        if (streamingMessageIdsRef.current.size > 0) {
           options?.onToken?.('test-token');
         }
-        return Promise.resolve({
-          assistantMessageId: 'assistant-submit',
-          content: 'Response',
-        });
+        return Promise.resolve({ userMessageId: 'user-1', models: [] });
       });
 
       setupMocks({
@@ -771,7 +771,7 @@ describe('TrialChatPage', () => {
         ],
         inputValue: 'New message',
       });
-      streamingMessageIdRef.current = 'assistant-submit';
+      streamingMessageIdsRef.current = new Set(['assistant-submit']);
 
       render(<TrialChatPage />);
 
@@ -792,10 +792,7 @@ describe('TrialChatPage', () => {
       mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
         // Call onToken but with no streaming id set
         options?.onToken?.('test-token');
-        return Promise.resolve({
-          assistantMessageId: 'assistant-submit',
-          content: 'Response',
-        });
+        return Promise.resolve({ userMessageId: 'user-1', models: [] });
       });
 
       setupMocks({
@@ -804,17 +801,17 @@ describe('TrialChatPage', () => {
         ],
         inputValue: 'New message',
       });
-      streamingMessageIdRef.current = null;
+      streamingMessageIdsRef.current = new Set<string>();
 
       render(<TrialChatPage />);
 
       await user.click(screen.getByTestId('submit'));
 
       await waitFor(() => {
-        expect(mockTrialChatStore.updateMessageContent).toHaveBeenCalled();
+        expect(mockStopStreaming).toHaveBeenCalled();
       });
 
-      // appendToMessage should not have been called because streamingMessageIdRef was null
+      // appendToMessage should not have been called because streamingMessageIdsRef was empty
       expect(mockTrialChatStore.appendToMessage).not.toHaveBeenCalled();
     });
 
@@ -876,12 +873,9 @@ describe('TrialChatPage', () => {
       expect(mockOpenSignupModal).not.toHaveBeenCalled();
     });
 
-    it('does not update message if no assistantMessageId on submit', async () => {
+    it('stops streaming after submit completes', async () => {
       const user = userEvent.setup();
-      mockStartStream.mockResolvedValue({
-        assistantMessageId: '',
-        content: 'Response',
-      });
+      mockStartStream.mockResolvedValue({ userMessageId: 'user-1', models: [] });
 
       setupMocks({
         messages: [
@@ -897,8 +891,6 @@ describe('TrialChatPage', () => {
       await waitFor(() => {
         expect(mockStopStreaming).toHaveBeenCalled();
       });
-
-      expect(mockTrialChatStore.updateMessageContent).not.toHaveBeenCalled();
     });
   });
 
@@ -938,11 +930,8 @@ describe('TrialChatPage', () => {
   });
 
   describe('message result handling', () => {
-    it('does not update if no assistantMessageId returned', async () => {
-      mockStartStream.mockResolvedValue({
-        assistantMessageId: '',
-        content: 'Response',
-      });
+    it('stops streaming after first message completes', async () => {
+      mockStartStream.mockResolvedValue({ userMessageId: 'user-1', models: [] });
 
       setupMocks({ pendingMessage: 'Hello' });
 
@@ -951,8 +940,6 @@ describe('TrialChatPage', () => {
       await waitFor(() => {
         expect(mockStopStreaming).toHaveBeenCalled();
       });
-
-      expect(mockTrialChatStore.updateMessageContent).not.toHaveBeenCalled();
     });
   });
 
@@ -987,10 +974,7 @@ describe('TrialChatPage', () => {
 
     it('clears chat error when submitting a message', async () => {
       const user = userEvent.setup();
-      mockStartStream.mockResolvedValue({
-        assistantMessageId: 'assistant-1',
-        content: 'Response',
-      });
+      mockStartStream.mockResolvedValue({ userMessageId: 'user-1', models: [] });
 
       setupMocks({
         messages: [
@@ -1011,10 +995,7 @@ describe('TrialChatPage', () => {
     });
 
     it('clears chat error when first message streams', async () => {
-      mockStartStream.mockResolvedValue({
-        assistantMessageId: 'assistant-1',
-        content: 'Response',
-      });
+      mockStartStream.mockResolvedValue({ userMessageId: 'user-1', models: [] });
 
       setupMocks({ pendingMessage: 'Hello' });
 
@@ -1025,6 +1006,215 @@ describe('TrialChatPage', () => {
       });
 
       expect(mockClearError).toHaveBeenCalled();
+    });
+  });
+
+  describe('retry and regenerate', () => {
+    it('passes onRegenerate callback to ChatLayout', () => {
+      setupMocks({
+        messages: [
+          { id: 'm1', conversationId: 'trial', role: 'user', content: 'Hi', createdAt: '' },
+          { id: 'm2', conversationId: 'trial', role: 'assistant', content: 'Hello', createdAt: '' },
+        ],
+      });
+
+      render(<TrialChatPage />);
+
+      expect(screen.getByTestId('has-on-regenerate')).toHaveTextContent('true');
+    });
+
+    it('retries a user message by truncating history and re-streaming', async () => {
+      const existingMessages: TrialMessage[] = [
+        { id: 'm1', conversationId: 'trial', role: 'user', content: 'Hello', createdAt: '' },
+        {
+          id: 'm2',
+          conversationId: 'trial',
+          role: 'assistant',
+          content: 'Hi there',
+          createdAt: '',
+        },
+        { id: 'm3', conversationId: 'trial', role: 'user', content: 'Follow up', createdAt: '' },
+        {
+          id: 'm4',
+          conversationId: 'trial',
+          role: 'assistant',
+          content: 'Response',
+          createdAt: '',
+        },
+      ];
+
+      mockStartStream.mockResolvedValue({ userMessageId: 'user-1', models: [] });
+
+      setupMocks({ messages: existingMessages });
+
+      render(<TrialChatPage />);
+
+      act(() => {
+        capturedOnRegenerate?.('m3');
+      });
+
+      await waitFor(() => {
+        expect(mockTrialChatStore.removeMessagesAfter).toHaveBeenCalledWith('m3');
+      });
+
+      expect(mockStartStream).toHaveBeenCalledWith(
+        {
+          messages: [
+            { role: 'user', content: 'Hello' },
+            { role: 'assistant', content: 'Hi there' },
+            { role: 'user', content: 'Follow up' },
+          ],
+          model: 'test-model',
+        },
+        expect.any(Object)
+      );
+    });
+
+    it('regenerates an AI message by truncating and re-streaming', async () => {
+      const existingMessages: TrialMessage[] = [
+        { id: 'm1', conversationId: 'trial', role: 'user', content: 'Hello', createdAt: '' },
+        {
+          id: 'm2',
+          conversationId: 'trial',
+          role: 'assistant',
+          content: 'Hi there',
+          createdAt: '',
+        },
+      ];
+
+      mockStartStream.mockResolvedValue({ userMessageId: 'user-1', models: [] });
+
+      setupMocks({ messages: existingMessages });
+
+      render(<TrialChatPage />);
+
+      act(() => {
+        capturedOnRegenerate?.('m2');
+      });
+
+      await waitFor(() => {
+        expect(mockTrialChatStore.removeMessagesAfter).toHaveBeenCalledWith('m1');
+      });
+
+      // Should send only the user message for regeneration
+      expect(mockStartStream).toHaveBeenCalledWith(
+        {
+          messages: [{ role: 'user', content: 'Hello' }],
+          model: 'test-model',
+        },
+        expect.any(Object)
+      );
+    });
+
+    it('does not retry when streaming', () => {
+      setupMocks({
+        messages: [
+          { id: 'm1', conversationId: 'trial', role: 'user', content: 'Hi', createdAt: '' },
+          { id: 'm2', conversationId: 'trial', role: 'assistant', content: 'Hello', createdAt: '' },
+        ],
+        isStreaming: true,
+      });
+
+      render(<TrialChatPage />);
+
+      act(() => {
+        capturedOnRegenerate?.('m1');
+      });
+
+      expect(mockStartStream).not.toHaveBeenCalled();
+    });
+
+    it('does not retry when rate limited', () => {
+      setupMocks({
+        messages: [
+          { id: 'm1', conversationId: 'trial', role: 'user', content: 'Hi', createdAt: '' },
+          { id: 'm2', conversationId: 'trial', role: 'assistant', content: 'Hello', createdAt: '' },
+        ],
+        isRateLimited: true,
+      });
+
+      render(<TrialChatPage />);
+
+      act(() => {
+        capturedOnRegenerate?.('m1');
+      });
+
+      expect(mockStartStream).not.toHaveBeenCalled();
+    });
+
+    it('handles rate limit error on retry', async () => {
+      const existingMessages: TrialMessage[] = [
+        { id: 'm1', conversationId: 'trial', role: 'user', content: 'Hello', createdAt: '' },
+        { id: 'm2', conversationId: 'trial', role: 'assistant', content: 'Hi', createdAt: '' },
+      ];
+
+      const rateLimitError = new TrialRateLimitError('DAILY_LIMIT_EXCEEDED', 5, 0);
+      mockStartStream.mockRejectedValue(rateLimitError);
+
+      setupMocks({ messages: existingMessages });
+
+      render(<TrialChatPage />);
+
+      act(() => {
+        capturedOnRegenerate?.('m1');
+      });
+
+      await waitFor(() => {
+        expect(mockTrialChatStore.setRateLimited).toHaveBeenCalledWith(true);
+      });
+
+      expect(mockSetError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          retryable: false,
+        })
+      );
+      expect(mockStopStreaming).toHaveBeenCalled();
+    });
+
+    it('handles rate limit error on regenerate', async () => {
+      const existingMessages: TrialMessage[] = [
+        { id: 'm1', conversationId: 'trial', role: 'user', content: 'Hello', createdAt: '' },
+        { id: 'm2', conversationId: 'trial', role: 'assistant', content: 'Hi', createdAt: '' },
+      ];
+
+      const rateLimitError = new TrialRateLimitError('DAILY_LIMIT_EXCEEDED', 5, 0);
+      mockStartStream.mockRejectedValue(rateLimitError);
+
+      setupMocks({ messages: existingMessages });
+
+      render(<TrialChatPage />);
+
+      act(() => {
+        capturedOnRegenerate?.('m2');
+      });
+
+      await waitFor(() => {
+        expect(mockTrialChatStore.setRateLimited).toHaveBeenCalledWith(true);
+      });
+
+      expect(mockSetError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          retryable: false,
+        })
+      );
+      expect(mockStopStreaming).toHaveBeenCalled();
+    });
+
+    it('does nothing when target message is not found', () => {
+      setupMocks({
+        messages: [
+          { id: 'm1', conversationId: 'trial', role: 'user', content: 'Hi', createdAt: '' },
+        ],
+      });
+
+      render(<TrialChatPage />);
+
+      act(() => {
+        capturedOnRegenerate?.('nonexistent');
+      });
+
+      expect(mockStartStream).not.toHaveBeenCalled();
+      expect(mockTrialChatStore.removeMessagesAfter).not.toHaveBeenCalled();
     });
   });
 });

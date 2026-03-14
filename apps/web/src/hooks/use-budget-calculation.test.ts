@@ -25,9 +25,13 @@ const mockUseBalance = vi.mocked(billingHooks.useBalance);
 describe('useBudgetCalculation', () => {
   const defaultInput = {
     promptCharacterCount: 1000,
-    modelInputPricePerToken: 0.000_01,
-    modelOutputPricePerToken: 0.000_03,
-    modelContextLength: 128_000,
+    models: [
+      {
+        modelInputPricePerToken: 0.000_01,
+        modelOutputPricePerToken: 0.000_03,
+        contextLength: 128_000,
+      },
+    ],
     isAuthenticated: true,
   };
 
@@ -326,7 +330,13 @@ describe('useBudgetCalculation', () => {
         useBudgetCalculation({
           ...defaultInput,
           promptCharacterCount: 100_000, // Large message
-          modelInputPricePerToken: 0.001, // Expensive model
+          models: [
+            {
+              modelInputPricePerToken: 0.001,
+              modelOutputPricePerToken: 0.000_03,
+              contextLength: 128_000,
+            },
+          ], // Expensive model
         })
       );
 
@@ -347,7 +357,7 @@ describe('useBudgetCalculation', () => {
         useBudgetCalculation({
           ...defaultInput,
           promptCharacterCount: 4000,
-          modelContextLength: 10_000, // Small context for test
+          models: [{ ...defaultInput.models[0]!, contextLength: 10_000 }], // Small context for test
         })
       );
 
@@ -370,8 +380,6 @@ describe('useBudgetCalculation', () => {
         useBudgetCalculation({
           ...defaultInput,
           promptCharacterCount: 4000,
-          modelInputPricePerToken: 0.000_01,
-          modelOutputPricePerToken: 0.000_03,
         })
       );
 
@@ -386,6 +394,42 @@ describe('useBudgetCalculation', () => {
       // outputCostPerToken = 0.00003 + 2 * 0.0000003 = 0.0000306
       // minimumOutputCost = 1000 * 0.0000306 = 0.0306
       // estimatedMinimumCost = 0.0112 + 0.0306 = 0.0418
+      expect(result.current.estimatedMinimumCost).toBeCloseTo(0.0418, 5);
+    });
+  });
+
+  describe('web search cost', () => {
+    it('includes webSearchCost in estimated input cost', () => {
+      const { result } = renderHook(() =>
+        useBudgetCalculation({
+          ...defaultInput,
+          promptCharacterCount: 4000,
+          webSearchCost: 0.005,
+        })
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      // Without search: estimatedInputCost = 1000 * 0.00001 + 0.0012 = 0.0112
+      // With search: estimatedInputCost = 0.0112 + 0.005 = 0.0162
+      // estimatedMinimumCost = 0.0162 + 0.0306 = 0.0468
+      expect(result.current.estimatedMinimumCost).toBeCloseTo(0.0468, 5);
+    });
+
+    it('defaults webSearchCost to 0 when omitted', () => {
+      const { result } = renderHook(() =>
+        useBudgetCalculation({
+          ...defaultInput,
+          promptCharacterCount: 4000,
+        })
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
       expect(result.current.estimatedMinimumCost).toBeCloseTo(0.0418, 5);
     });
   });

@@ -33,6 +33,8 @@ export interface Message {
   createdAt: string;
   cost?: string;
   senderId?: string;
+  modelName?: string | null;
+  parentMessageId?: string | null;
 }
 
 export {
@@ -46,4 +48,5 @@ export {
   type CreateConversationResponse,
   type DeleteConversationResponse,
   type UpdateConversationResponse,
+  type ForkResponse,
 } from '@hushbox/shared';

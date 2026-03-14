@@ -22,10 +22,16 @@ describe('messageFactory', () => {
   });
 
   it('generates nullable fields', () => {
-    const message = messageFactory.build();
+    const message = messageFactory.build({ senderType: 'user' });
 
-    expect(message.senderDisplayName).toBeNull();
+    expect(message.modelName).toBeNull();
     expect(message.payerId).toBeNull();
+  });
+
+  it('generates modelName for AI messages', () => {
+    const message = messageFactory.build({ senderType: 'ai' });
+
+    expect(message.modelName).toEqual(expect.any(String));
   });
 
   it('generates senderId as UUID', () => {

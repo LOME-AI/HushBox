@@ -4,6 +4,7 @@ import type { AppEnv } from '../types.js';
 import type { OpenRouterClient } from '../services/openrouter/types.js';
 import { trialChatRoute } from './trial-chat.js';
 import { createFastMockOpenRouterClient } from '../test-helpers/index.js';
+import { clearModelCache } from '../services/openrouter/openrouter.js';
 
 interface MockFetchResponse {
   ok: boolean;
@@ -108,6 +109,7 @@ describe('trial chat routes', () => {
   let fetchMock: FetchMock;
 
   beforeEach(() => {
+    clearModelCache();
     fetchMock = vi.fn() as FetchMock;
     vi.stubGlobal('fetch', fetchMock);
     vi.useFakeTimers();

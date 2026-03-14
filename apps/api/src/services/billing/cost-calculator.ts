@@ -2,6 +2,7 @@ import {
   estimateTokenCount,
   estimateMessageCostDevelopment,
   calculateMessageCostFromOpenRouter,
+  parseTokenPrice,
 } from '@hushbox/shared';
 
 export interface CalculateMessageCostParams {
@@ -19,20 +20,23 @@ export interface CalculateMessageCostParams {
   generationId: string | undefined;
   inputContent: string;
   outputContent: string;
+  /** Per-search cost in USD (base price before fees). 0 when search disabled. Only used in mock/estimation path. */
+  webSearchCost: number;
 }
 
 /**
  * Calculate message cost based on client type and available data.
- * Real client (isMock=false) with generationId: uses exact OpenRouter stats.
- * Mock client (isMock=true) or without generationId: estimates from character count.
+ * Real client (isMock=false) with generationId: uses exact OpenRouter stats (includes search cost).
+ * Mock client (isMock=true) or without generationId: estimates from character count + webSearchCost.
  */
 export async function calculateMessageCost(params: CalculateMessageCostParams): Promise<number> {
-  const { openrouter, modelInfo, generationId, inputContent, outputContent } = params;
+  const { openrouter, modelInfo, generationId, inputContent, outputContent, webSearchCost } =
+    params;
 
   const inputCharacters = inputContent.length;
   const outputCharacters = outputContent.length;
 
-  // Real client path: use exact stats from OpenRouter
+  // Real client path: use exact stats from OpenRouter (total_cost already includes search charges)
   if (!openrouter.isMock && generationId) {
     try {
       const stats = await openrouter.getGenerationStats(generationId);
@@ -49,6 +53,7 @@ export async function calculateMessageCost(params: CalculateMessageCostParams): 
         outputContent,
         inputCharacters,
         outputCharacters,
+        webSearchCost,
       });
     }
   }
@@ -60,6 +65,7 @@ export async function calculateMessageCost(params: CalculateMessageCostParams): 
     outputContent,
     inputCharacters,
     outputCharacters,
+    webSearchCost,
   });
 }
 
@@ -69,16 +75,24 @@ interface EstimateCostParams {
   outputContent: string;
   inputCharacters: number;
   outputCharacters: number;
+  webSearchCost: number;
 }
 
 function estimateCost(params: EstimateCostParams): number {
-  const { modelInfo, inputContent, outputContent, inputCharacters, outputCharacters } = params;
+  const {
+    modelInfo,
+    inputContent,
+    outputContent,
+    inputCharacters,
+    outputCharacters,
+    webSearchCost,
+  } = params;
   if (!modelInfo) {
     return 0;
   }
 
-  const pricePerInputToken = Number.parseFloat(modelInfo.pricing.prompt);
-  const pricePerOutputToken = Number.parseFloat(modelInfo.pricing.completion);
+  const pricePerInputToken = parseTokenPrice(modelInfo.pricing.prompt);
+  const pricePerOutputToken = parseTokenPrice(modelInfo.pricing.completion);
 
   return estimateMessageCostDevelopment({
     inputTokens: estimateTokenCount(inputContent),
@@ -87,5 +101,6 @@ function estimateCost(params: EstimateCostParams): number {
     pricePerOutputToken,
     inputCharacters,
     outputCharacters,
+    webSearchCost,
   });
 }

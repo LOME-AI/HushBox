@@ -5,37 +5,40 @@ export interface ChatPageState {
   setInputValue: (value: string) => void;
   clearInput: () => void;
 
-  streamingMessageId: string | null;
-  streamingMessageIdRef: React.RefObject<string | null>;
-  startStreaming: (messageId: string) => void;
+  streamingMessageIds: Set<string>;
+  streamingMessageIdsRef: React.RefObject<Set<string>>;
+  startStreaming: (messageIds: string[]) => void;
   stopStreaming: () => void;
 }
 
+const EMPTY_SET = new Set<string>();
+
 export function useChatPageState(): ChatPageState {
   const [inputValue, setInputValue] = React.useState('');
-  const [streamingMessageId, setStreamingMessageId] = React.useState<string | null>(null);
-  const streamingMessageIdRef = React.useRef<string | null>(null);
+  const [streamingMessageIds, setStreamingMessageIds] = React.useState<Set<string>>(EMPTY_SET);
+  const streamingMessageIdsRef = React.useRef<Set<string>>(new Set());
 
   const clearInput = React.useCallback(() => {
     setInputValue('');
   }, []);
 
-  const startStreaming = React.useCallback((messageId: string) => {
-    setStreamingMessageId(messageId);
-    streamingMessageIdRef.current = messageId;
+  const startStreaming = React.useCallback((messageIds: string[]) => {
+    const ids = new Set(messageIds);
+    setStreamingMessageIds(ids);
+    streamingMessageIdsRef.current = ids;
   }, []);
 
   const stopStreaming = React.useCallback(() => {
-    setStreamingMessageId(null);
-    streamingMessageIdRef.current = null;
+    setStreamingMessageIds(EMPTY_SET);
+    streamingMessageIdsRef.current = new Set();
   }, []);
 
   return {
     inputValue,
     setInputValue,
     clearInput,
-    streamingMessageId,
-    streamingMessageIdRef,
+    streamingMessageIds,
+    streamingMessageIdsRef,
     startStreaming,
     stopStreaming,
   };

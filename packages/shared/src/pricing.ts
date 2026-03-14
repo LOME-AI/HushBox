@@ -8,6 +8,16 @@ import {
 import type { UserTier } from './tiers.js';
 
 /**
+ * Parse a token price string from the OpenRouter API.
+ * Returns 0 for negative sentinel values (e.g. "-1" = "variable pricing")
+ * and for NaN/missing values.
+ */
+export function parseTokenPrice(raw: string): number {
+  const value = Number.parseFloat(raw);
+  return Number.isNaN(value) || value < 0 ? 0 : value;
+}
+
+/**
  * Estimate token count from text using character-based heuristic.
  * Uses ~4 characters per token approximation.
  * This is an approximation - actual tokenization varies by model.
@@ -61,6 +71,8 @@ export interface MessageCostParams {
   pricePerInputToken: number;
   /** Model's price per output token in USD */
   pricePerOutputToken: number;
+  /** Per-search cost in USD (base price, fees will be applied). 0 or omitted if no search. */
+  webSearchCost?: number;
 }
 
 /**
@@ -84,6 +96,7 @@ export function estimateMessageCostDevelopment(params: MessageCostParams): numbe
     outputCharacters,
     pricePerInputToken,
     pricePerOutputToken,
+    webSearchCost = 0,
   } = params;
 
   const tokenCostWithFees = calculateTokenCostWithFees(
@@ -95,7 +108,7 @@ export function estimateMessageCostDevelopment(params: MessageCostParams): numbe
 
   const storageFee = (inputCharacters + outputCharacters) * STORAGE_COST_PER_CHARACTER;
 
-  return tokenCostWithFees + storageFee;
+  return tokenCostWithFees + storageFee + applyFees(webSearchCost);
 }
 
 export interface MessageCostFromOpenRouterParams {
@@ -164,6 +177,31 @@ export function isExpensiveModel(pricePerInputToken: number, pricePerOutputToken
   return (
     getModelCostPer1k(pricePerInputToken, pricePerOutputToken) >= EXPENSIVE_MODEL_THRESHOLD_PER_1K
   );
+}
+
+/**
+ * Compute fee-inclusive model pricing from raw per-token prices.
+ * SINGLE SOURCE OF TRUTH for extracting model pricing with fees applied.
+ *
+ * Accepts raw (pre-fee) prices — callers parse strings or pass numbers directly.
+ * Returns fee-inclusive prices ready for budget calculation.
+ */
+export interface ModelPricingResult {
+  inputPricePerToken: number;
+  outputPricePerToken: number;
+  contextLength: number;
+}
+
+export function getModelPricing(
+  inputPricePerToken: number,
+  outputPricePerToken: number,
+  contextLength: number
+): ModelPricingResult {
+  return {
+    inputPricePerToken: applyFees(inputPricePerToken),
+    outputPricePerToken: applyFees(outputPricePerToken),
+    contextLength,
+  };
 }
 
 /**

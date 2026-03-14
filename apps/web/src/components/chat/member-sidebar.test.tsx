@@ -985,6 +985,12 @@ describe('MemberSidebar', () => {
       expect(screen.queryByTestId('member-overflow-count')).not.toBeInTheDocument();
     });
 
+    it('hides scrollbar on collapsed content container', () => {
+      render(<MemberSidebar {...defaultProps} />);
+      const content = screen.getByTestId('member-sidebar-content');
+      expect(content).toHaveClass('scrollbar-hide');
+    });
+
     it('expands sidebar when expand button is clicked in collapsed state', async () => {
       const user = userEvent.setup();
       render(<MemberSidebar {...defaultProps} />);

@@ -1,29 +1,118 @@
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
-import { conversationMembers } from '@hushbox/db';
+import { conversationMembers, conversations } from '@hushbox/db';
+import type { Database } from '@hushbox/db';
 import {
-  ERROR_CODE_NOT_FOUND,
+  ERROR_CODE_CONVERSATION_NOT_FOUND,
   ERROR_CODE_VALIDATION,
-  ERROR_CODE_UNAUTHORIZED,
+  ERROR_CODE_NOT_AUTHENTICATED,
   ERROR_CODE_PRIVILEGE_INSUFFICIENT,
   getPrivilegeLevel,
 } from '@hushbox/shared';
 import type { MemberPrivilege } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 import { createErrorResponse } from '../lib/error-response.js';
+import { resolveLinkGuest } from './resolve-link-guest.js';
+
+interface PrivilegeOptions {
+  /** When true, allows link guests (via x-link-public-key header) when no session user is present. */
+  allowLinkGuest?: boolean;
+  /** When true, queries conversation owner and sets `c.set('conversationOwnerId', ownerId)`. */
+  includeOwnerId?: boolean;
+}
+
+/** Looks up the conversation owner userId. Returns null if conversation not found. */
+async function lookupConversationOwner(
+  db: Database,
+  conversationId: string
+): Promise<string | null> {
+  const row = await db
+    .select({ userId: conversations.userId })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1)
+    .then((rows) => rows[0]);
+  return row?.userId ?? null;
+}
+
+/**
+ * Sets conversationOwnerId on context. Returns 404 response if conversation not found.
+ */
+async function setConversationOwner(
+  c: Context<AppEnv>,
+  db: Database,
+  conversationId: string
+): Promise<Response | void> {
+  const ownerId = await lookupConversationOwner(db, conversationId);
+  if (!ownerId) {
+    return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
+  }
+  c.set('conversationOwnerId', ownerId);
+}
+
+/**
+ * Attempts to resolve a link guest and set context variables.
+ * Returns a Response (error or next()) on success/failure, or null if resolution fails entirely.
+ */
+async function tryResolveLinkGuest(
+  c: Context<AppEnv>,
+  minLevel: MemberPrivilege,
+  includeOwnerId: boolean,
+  next: () => Promise<void | Response>
+): Promise<Response | void | null> {
+  const resolved = await resolveLinkGuest(c);
+  if (!resolved) {
+    return null;
+  }
+  if (getPrivilegeLevel(resolved.member.privilege) < getPrivilegeLevel(minLevel)) {
+    return c.json(createErrorResponse(ERROR_CODE_PRIVILEGE_INSUFFICIENT), 403);
+  }
+  c.set('linkGuest', { linkId: resolved.linkId, publicKey: resolved.publicKey });
+  c.set('callerId', resolved.linkId);
+  c.set('member', {
+    id: resolved.member.id,
+    privilege: resolved.member.privilege,
+    visibleFromEpoch: resolved.member.visibleFromEpoch,
+  });
+
+  if (includeOwnerId) {
+    const conversationId = c.req.param('conversationId');
+    const errorResponse = await setConversationOwner(c, c.get('db'), conversationId);
+    if (errorResponse) return errorResponse;
+  }
+
+  return next();
+}
 
 /**
  * Middleware that verifies the authenticated user is a member of the conversation
  * (identified by `conversationId` route param) and holds at least `minLevel` privilege.
  *
+ * When `allowLinkGuest` is true, falls back to resolving a link guest via the
+ * `x-link-public-key` header — both when no session user exists AND when the session
+ * user is not a member of the conversation. Sets `c.set('linkGuest', ...)` on success.
+ *
  * On success, sets `c.set('member', { id, privilege, visibleFromEpoch })` for downstream handlers.
  */
-export function requirePrivilege(minLevel: MemberPrivilege): MiddlewareHandler<AppEnv> {
+export function requirePrivilege(
+  minLevel: MemberPrivilege,
+  options?: PrivilegeOptions
+): MiddlewareHandler<AppEnv> {
+  const { allowLinkGuest = false, includeOwnerId = false } = options ?? {};
+
   return async (c, next) => {
     const user = c.get('user');
+
     if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
+      if (allowLinkGuest) {
+        const result = await tryResolveLinkGuest(c, minLevel, includeOwnerId, next);
+        if (result !== null) return result;
+        return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
+      }
+
+      return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
     }
+
     const db = c.get('db');
     const conversationId = c.req.param('conversationId');
     if (!conversationId) {
@@ -48,18 +137,29 @@ export function requirePrivilege(minLevel: MemberPrivilege): MiddlewareHandler<A
       .then((rows) => rows[0]);
 
     if (!member) {
-      return c.json(createErrorResponse(ERROR_CODE_NOT_FOUND), 404);
+      // User is authenticated but not a member — try link guest fallback
+      if (allowLinkGuest) {
+        const result = await tryResolveLinkGuest(c, minLevel, includeOwnerId, next);
+        if (result !== null) return result;
+      }
+      return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
     }
 
     if (getPrivilegeLevel(member.privilege) < getPrivilegeLevel(minLevel)) {
       return c.json(createErrorResponse(ERROR_CODE_PRIVILEGE_INSUFFICIENT), 403);
     }
 
+    c.set('callerId', user.id);
     c.set('member', {
       id: member.id,
       privilege: member.privilege,
       visibleFromEpoch: member.visibleFromEpoch,
     });
+
+    if (includeOwnerId) {
+      const errorResponse = await setConversationOwner(c, db, conversationId);
+      if (errorResponse) return errorResponse;
+    }
 
     return next();
   };

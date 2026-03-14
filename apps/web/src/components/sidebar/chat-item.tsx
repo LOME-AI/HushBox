@@ -1,14 +1,8 @@
 import * as React from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import {
-  cn,
-  IconButton,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@hushbox/ui';
-import { Lock, LogOut, MessageSquare, MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import { cn, DropdownMenuItem } from '@hushbox/ui';
+import { Lock, LogOut, MessageSquare, Pencil, Trash2 } from 'lucide-react';
+import { ItemRow } from '@/components/shared/item-row';
 import { encryptMessageForStorage, getPublicKeyFromPrivate } from '@hushbox/crypto';
 import { toBase64, ROUTES } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
@@ -108,17 +102,44 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
 
   return (
     <>
-      <div
+      <ItemRow
         className={cn(
-          'group relative flex items-center overflow-hidden rounded-md',
-          '[&:hover:not(:has(button:hover))]:bg-sidebar-border/50 transition-colors',
+          '[&:hover:not(:has([data-menu-trigger]:hover))]:bg-sidebar-border/50',
           isActive && 'bg-sidebar-border',
           !sidebarOpen && 'justify-center'
         )}
+        showMenu={sidebarOpen}
+        menuProps={{
+          className: 'absolute right-1',
+          'data-testid': 'chat-item-more-button',
+          onClick: (e) => {
+            e.preventDefault();
+          },
+        }}
+        menuContent={
+          isOwner ? (
+            <>
+              <DropdownMenuItem onSelect={handleRenameClick}>
+                <Pencil />
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleDeleteClick} className="text-destructive">
+                <Trash2 />
+                Delete
+              </DropdownMenuItem>
+            </>
+          ) : (
+            <DropdownMenuItem onSelect={handleLeaveClick} className="text-destructive">
+              <LogOut />
+              Leave
+            </DropdownMenuItem>
+          )
+        }
       >
         <Link
           to={ROUTES.CHAT_ID}
           params={{ id: conversation.id }}
+          search={{ fork: undefined }}
           data-testid="chat-link"
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-sm',
@@ -146,43 +167,7 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
               <span className="truncate">{conversation.title}</span>
             ))}
         </Link>
-
-        {sidebarOpen && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <IconButton
-                className="absolute right-1"
-                data-testid="chat-item-more-button"
-                onClick={(e) => {
-                  e.preventDefault();
-                }}
-              >
-                <MoreVertical className="h-4 w-4" />
-                <span className="sr-only">More options</span>
-              </IconButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {isOwner ? (
-                <>
-                  <DropdownMenuItem onSelect={handleRenameClick}>
-                    <Pencil />
-                    Rename
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={handleDeleteClick} className="text-destructive">
-                    <Trash2 />
-                    Delete
-                  </DropdownMenuItem>
-                </>
-              ) : (
-                <DropdownMenuItem onSelect={handleLeaveClick} className="text-destructive">
-                  <LogOut />
-                  Leave
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
+      </ItemRow>
 
       <DeleteConversationDialog
         open={showDeleteDialog}

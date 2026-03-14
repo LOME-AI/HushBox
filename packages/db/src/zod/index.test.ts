@@ -295,11 +295,12 @@ describe('selectMessageSchema', () => {
       encryptedBlob: new Uint8Array([1, 2, 3]),
       senderType: 'user',
       senderId: '550e8400-e29b-41d4-a716-446655440002',
-      senderDisplayName: null,
+      modelName: null,
       payerId: null,
       cost: null,
       epochNumber: 1,
       sequenceNumber: 1,
+      parentMessageId: null,
       createdAt: new Date(),
     });
     expect(result.success).toBe(true);
@@ -312,11 +313,12 @@ describe('selectMessageSchema', () => {
       encryptedBlob: new Uint8Array([1, 2, 3]),
       senderType: 'ai',
       senderId: null,
-      senderDisplayName: null,
+      modelName: null,
       payerId: '550e8400-e29b-41d4-a716-446655440002',
       cost: null,
       epochNumber: 1,
       sequenceNumber: 2,
+      parentMessageId: null,
       createdAt: new Date(),
     });
     expect(result.success).toBe(true);

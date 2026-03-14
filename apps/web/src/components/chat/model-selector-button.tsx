@@ -2,14 +2,25 @@ import * as React from 'react';
 import { Button } from '@hushbox/ui';
 import type { Model } from '@hushbox/shared';
 import { shortenModelName } from '@hushbox/shared';
+import { DEFAULT_MODEL_NAME } from '@/stores/model';
 import { ModelSelectorModal } from './model-selector-modal';
 
-interface ModelSelectorButtonProps {
+function getModelDisplayText(
+  selectedModels: { id: string; name: string }[],
+  selectedModel: Model | undefined,
+  firstEntry: { id: string; name: string } | undefined
+): string {
+  if (selectedModels.length > 1) {
+    return 'Multiple Models';
+  }
+  const rawName = selectedModel?.name ?? firstEntry?.name ?? DEFAULT_MODEL_NAME;
+  return shortenModelName(rawName);
+}
+
+export interface ModelSelectorButtonProps {
   models: Model[];
-  selectedId: string;
-  /** Fallback name to display before models load (prevents flash) */
-  selectedName?: string | undefined;
-  onSelect: (modelId: string, modelName: string) => void;
+  selectedModels: { id: string; name: string }[];
+  onSelect: (models: { id: string; name: string }[]) => void;
   disabled?: boolean | undefined;
   /** Set of premium model IDs */
   premiumIds?: Set<string> | undefined;
@@ -23,12 +34,11 @@ interface ModelSelectorButtonProps {
 
 /**
  * Button that opens the model selector modal.
- * Displays the selected model name.
+ * Displays the selected model name, or "Multiple Models" when 2+ are selected.
  */
 export function ModelSelectorButton({
   models,
-  selectedId,
-  selectedName,
+  selectedModels,
   onSelect,
   disabled = false,
   premiumIds,
@@ -38,14 +48,15 @@ export function ModelSelectorButton({
 }: Readonly<ModelSelectorButtonProps>): React.JSX.Element {
   const [isOpen, setIsOpen] = React.useState(false);
 
+  const firstEntry = selectedModels[0];
+  const selectedId = firstEntry?.id ?? '';
   const selectedModel = models.find((m) => m.id === selectedId);
-  const rawName = selectedModel?.name ?? selectedName ?? 'Select model';
-  const displayText = rawName === 'Select model' ? rawName : shortenModelName(rawName);
+  const displayText = getModelDisplayText(selectedModels, selectedModel, firstEntry);
 
-  const handleSelect = (modelId: string): void => {
-    const model = models.find((m) => m.id === modelId);
-    onSelect(modelId, model?.name ?? modelId);
-  };
+  const selectedIds = React.useMemo(
+    () => new Set(selectedModels.map((m) => m.id)),
+    [selectedModels]
+  );
 
   const handleClick = (): void => {
     if (!disabled) {
@@ -70,8 +81,8 @@ export function ModelSelectorButton({
         open={isOpen}
         onOpenChange={setIsOpen}
         models={models}
-        selectedId={selectedId}
-        onSelect={handleSelect}
+        selectedIds={selectedIds}
+        onSelect={onSelect}
         premiumIds={premiumIds}
         canAccessPremium={canAccessPremium}
         isAuthenticated={isAuthenticated}

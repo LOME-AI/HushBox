@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { processModels } from './models.js';
+import {
+  AUTO_ROUTER_MODEL_ID,
+  AUTO_ROUTER_INPUT_PRICE_PER_TOKEN,
+  AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN,
+} from '@hushbox/shared';
 
 // ============================================================
 // Test Fixtures
@@ -218,7 +223,7 @@ describe('processModels', () => {
       expect(result.models.map((m) => m.id)).toEqual(['boundary/model']);
     });
 
-    it('excludes models cheaper than $0.001 per 1K tokens combined', () => {
+    it('excludes models cheaper than $0.0002 per 1K tokens combined', () => {
       const models = Array.from({ length: 20 }, (_, index) =>
         createModel({
           id: `expensive/model-${String(index)}`,
@@ -448,15 +453,15 @@ describe('processModels', () => {
       expect(result.models[0]?.name).toBe('Super Model');
     });
 
-    it('derives capabilities from supported_parameters', () => {
+    it('derives internet-search capability from web_search_options parameter', () => {
       const modelsData = [
         createModel({
-          id: 'with-tools/model',
-          supported_parameters: ['tools', 'tool_choice'],
+          id: 'with-search/model',
+          supported_parameters: ['tools', 'web_search_options'],
         }),
         createModel({
-          id: 'with-json/model',
-          supported_parameters: ['response_format'],
+          id: 'without-search/model',
+          supported_parameters: ['tools', 'temperature'],
         }),
         createModel({
           id: 'basic/model',
@@ -466,14 +471,143 @@ describe('processModels', () => {
 
       const result = processModels(modelsData, allZdr(modelsData));
 
-      const withTools = result.models.find((m) => m.id === 'with-tools/model');
-      const withJson = result.models.find((m) => m.id === 'with-json/model');
+      const withSearch = result.models.find((m) => m.id === 'with-search/model');
+      const withoutSearch = result.models.find((m) => m.id === 'without-search/model');
       const basic = result.models.find((m) => m.id === 'basic/model');
 
-      expect(withTools?.capabilities).toContain('functions');
-      expect(withJson?.capabilities).toContain('json-mode');
-      expect(basic?.capabilities).toContain('streaming');
-      expect(basic?.capabilities).not.toContain('functions');
+      expect(withSearch?.capabilities).toEqual(['internet-search']);
+      expect(withoutSearch?.capabilities).toEqual([]);
+      expect(basic?.capabilities).toEqual([]);
+    });
+
+    it('extracts webSearchPrice from pricing.web_search', () => {
+      const modelsData = [
+        createModel({
+          id: 'search/model',
+          pricing: { prompt: '0.001', completion: '0.002', web_search: '0.005' },
+          supported_parameters: ['web_search_options'],
+        }),
+      ];
+
+      const result = processModels(modelsData, allZdr(modelsData));
+      const model = result.models.find((m) => m.id === 'search/model');
+
+      expect(model?.webSearchPrice).toBe(0.005);
+    });
+
+    it('omits webSearchPrice when pricing.web_search is absent', () => {
+      const modelsData = [
+        createModel({
+          id: 'no-search/model',
+          pricing: { prompt: '0.001', completion: '0.002' },
+        }),
+      ];
+
+      const result = processModels(modelsData, allZdr(modelsData));
+      const model = result.models.find((m) => m.id === 'no-search/model');
+
+      expect(model?.webSearchPrice).toBeUndefined();
+    });
+  });
+
+  describe('auto-router', () => {
+    const autoRouterRaw = createModel({
+      id: AUTO_ROUTER_MODEL_ID,
+      name: 'Auto Router',
+      description: 'Automatically selects the best model for your task',
+      context_length: 2_000_000,
+      pricing: { prompt: '0', completion: '0' },
+    });
+
+    it('includes auto-router when present in ZDR list', () => {
+      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+
+      const result = processModels(models, allZdr(models));
+
+      expect(result.models.map((m) => m.id)).toContain(AUTO_ROUTER_MODEL_ID);
+    });
+
+    it('includes auto-router even when not in ZDR set', () => {
+      const normal = createModel({ id: 'normal/model' });
+      const models = [normal, autoRouterRaw];
+      const zdr = new Set([normal.id]); // auto-router NOT in ZDR set
+
+      const result = processModels(models, zdr);
+
+      expect(result.models.map((m) => m.id)).toContain(AUTO_ROUTER_MODEL_ID);
+    });
+
+    it('sets isAutoRouter flag on the auto-router model', () => {
+      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+
+      const result = processModels(models, allZdr(models));
+      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
+
+      expect(autoModel?.isAutoRouter).toBe(true);
+    });
+
+    it('uses hardcoded client estimation prices', () => {
+      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+
+      const result = processModels(models, allZdr(models));
+      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
+
+      expect(autoModel?.pricePerInputToken).toBe(AUTO_ROUTER_INPUT_PRICE_PER_TOKEN);
+      expect(autoModel?.pricePerOutputToken).toBe(AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN);
+    });
+
+    it('computes price ranges from the model pool', () => {
+      const cheapModel = createModel({
+        id: 'cheap/model',
+        pricing: { prompt: '0.0001', completion: '0.0002' },
+      });
+      const expensiveModel = createModel({
+        id: 'expensive/model',
+        pricing: { prompt: '0.01', completion: '0.02' },
+      });
+      const models = [cheapModel, expensiveModel, autoRouterRaw];
+
+      const result = processModels(models, allZdr(models));
+      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
+
+      expect(autoModel?.minPricePerInputToken).toBe(0.0001);
+      expect(autoModel?.minPricePerOutputToken).toBe(0.0002);
+      expect(autoModel?.maxPricePerInputToken).toBe(0.01);
+      expect(autoModel?.maxPricePerOutputToken).toBe(0.02);
+    });
+
+    it('does not classify auto-router as premium', () => {
+      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+
+      const result = processModels(models, allZdr(models));
+
+      expect(result.premiumIds).not.toContain(AUTO_ROUTER_MODEL_ID);
+    });
+
+    it('uses "Smart Model" as display name', () => {
+      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+
+      const result = processModels(models, allZdr(models));
+      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
+
+      expect(autoModel?.name).toBe('Smart Model');
+    });
+
+    it('does not include auto-router when pool is empty after filtering', () => {
+      const models = [autoRouterRaw]; // Only auto-router, no other models
+
+      const result = processModels(models, allZdr(models));
+
+      expect(result.models.map((m) => m.id)).not.toContain(AUTO_ROUTER_MODEL_ID);
+    });
+
+    it('preserves context length from OpenRouter', () => {
+      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+
+      const result = processModels(models, allZdr(models));
+      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
+
+      expect(autoModel?.contextLength).toBe(2_000_000);
     });
   });
 

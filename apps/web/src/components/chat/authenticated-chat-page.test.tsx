@@ -25,62 +25,100 @@ vi.mock('@tanstack/react-query', () => ({
   }),
 }));
 
+interface MockChatLayoutProps {
+  messages: Message[];
+  onSubmit: (fundingSource: string) => void;
+  onSubmitUserOnly?: () => void;
+  inputValue: string;
+  onInputChange: (v: string) => void;
+  inputDisabled: boolean;
+  isProcessing: boolean;
+  historyCharacters: number;
+  title?: string;
+  isDecrypting?: boolean;
+  conversationId?: string;
+  groupChat?: { conversationId: string };
+  streamingMessageIds?: Set<string>;
+  onRegenerate?: (messageId: string) => void;
+  onEdit?: (messageId: string, content: string) => void;
+  onFork?: (messageId: string) => void;
+  onForkRename?: (forkId: string, currentName: string) => void;
+  onForkDelete?: (forkId: string) => void;
+}
+
+function resolveConversationId(
+  conversationId: string | undefined,
+  groupChat: { conversationId: string } | undefined
+): string {
+  return conversationId ?? groupChat?.conversationId ?? '';
+}
+
+function resolveStreamingAttribute(
+  streamingMessageIds: Set<string> | undefined
+): Record<string, string> {
+  if (!streamingMessageIds || streamingMessageIds.size === 0) return {};
+  return { 'data-streaming-ids': [...streamingMessageIds].join(',') };
+}
+
+function boolAttribute(value: unknown): string {
+  return value ? 'true' : 'false';
+}
+
 vi.mock('@/components/chat/chat-layout', () => ({
-  ChatLayout: ({
-    messages,
-    onSubmit,
-    onSubmitUserOnly,
-    inputValue,
-    onInputChange,
-    inputDisabled,
-    isProcessing,
-    historyCharacters,
-    title,
-    isDecrypting,
-    conversationId,
-    groupChat,
-    streamingMessageId,
-  }: {
-    messages: Message[];
-    onSubmit: () => void;
-    onSubmitUserOnly?: () => void;
-    inputValue: string;
-    onInputChange: (v: string) => void;
-    inputDisabled: boolean;
-    isProcessing: boolean;
-    historyCharacters: number;
-    title?: string;
-    isDecrypting?: boolean;
-    conversationId?: string;
-    groupChat?: { conversationId: string };
-    streamingMessageId?: string | null;
-  }) => (
+  ChatLayout: (props: MockChatLayoutProps) => (
     <div
       data-testid="chat-layout"
-      data-decrypting={isDecrypting ? 'true' : undefined}
-      data-conversation-id={conversationId ?? groupChat?.conversationId ?? ''}
-      {...(streamingMessageId !== undefined &&
-        streamingMessageId !== null && { 'data-streaming-id': streamingMessageId })}
+      data-decrypting={props.isDecrypting ? 'true' : undefined}
+      data-conversation-id={resolveConversationId(props.conversationId, props.groupChat)}
+      {...resolveStreamingAttribute(props.streamingMessageIds)}
+      data-has-on-regenerate={boolAttribute(props.onRegenerate)}
+      data-has-on-edit={boolAttribute(props.onEdit)}
+      data-has-on-fork={boolAttribute(props.onFork)}
     >
-      <div data-testid="message-count">{messages.length}</div>
-      <div data-testid="history-characters">{historyCharacters}</div>
-      <div data-testid="input-disabled">{String(inputDisabled)}</div>
-      <div data-testid="is-processing">{String(isProcessing)}</div>
-      <div data-testid="title">{title ?? ''}</div>
-      <div data-testid="message-ids">{messages.map((m) => m.id).join(',')}</div>
+      <div data-testid="message-count">{props.messages.length}</div>
+      <div data-testid="history-characters">{props.historyCharacters}</div>
+      <div data-testid="input-disabled">{String(props.inputDisabled)}</div>
+      <div data-testid="is-processing">{String(props.isProcessing)}</div>
+      <div data-testid="title">{props.title ?? ''}</div>
+      <div data-testid="message-ids">{props.messages.map((m) => m.id).join(',')}</div>
       <input
         data-testid="input"
-        value={inputValue}
+        value={props.inputValue}
         onChange={(event) => {
-          onInputChange(event.target.value);
+          props.onInputChange(event.target.value);
         }}
       />
-      <button data-testid="submit" onClick={onSubmit}>
+      <button
+        data-testid="submit"
+        onClick={() => {
+          props.onSubmit('personal_balance');
+        }}
+      >
         Submit
       </button>
-      {onSubmitUserOnly && (
-        <button data-testid="submit-user-only" onClick={onSubmitUserOnly}>
+      {props.onSubmitUserOnly && (
+        <button data-testid="submit-user-only" onClick={props.onSubmitUserOnly}>
           Submit User Only
+        </button>
+      )}
+      {props.onForkRename && (
+        <button
+          data-testid="trigger-fork-rename"
+          onClick={() => {
+            props.onForkRename?.('fork-1', 'Fork 1');
+          }}
+        >
+          Trigger Fork Rename
+        </button>
+      )}
+      {props.onForkDelete && (
+        <button
+          data-testid="trigger-fork-delete"
+          onClick={() => {
+            props.onForkDelete?.('fork-1');
+          }}
+        >
+          Trigger Fork Delete
         </button>
       )}
     </div>
@@ -91,8 +129,8 @@ interface ChatPageStateMock {
   inputValue: string;
   setInputValue: ReturnType<typeof vi.fn>;
   clearInput: ReturnType<typeof vi.fn>;
-  streamingMessageId: string | null;
-  streamingMessageIdRef: { current: string | null };
+  streamingMessageIds: Set<string>;
+  streamingMessageIdsRef: { current: Set<string> };
   startStreaming: ReturnType<typeof vi.fn>;
   stopStreaming: ReturnType<typeof vi.fn>;
 }
@@ -101,7 +139,7 @@ const mockStartStreaming = vi.fn();
 const mockStopStreaming = vi.fn();
 const mockSetInputValue = vi.fn();
 const mockClearInput = vi.fn();
-const streamingMessageIdRef = { current: null as string | null };
+const streamingMessageIdsRef = { current: new Set<string>() };
 
 const mockUseChatPageState = vi.fn<() => ChatPageStateMock>();
 vi.mock('@/hooks/use-chat-page', () => ({
@@ -215,6 +253,70 @@ vi.mock('@/hooks/chat', () => ({
   DECRYPTING_TITLE: 'Decrypting...',
 }));
 
+vi.mock('@/hooks/forks', () => ({
+  useForks: () => ({ data: [], isLoading: false }),
+  useCreateFork: () => ({ mutate: vi.fn() }),
+  useDeleteFork: () => ({ mutate: vi.fn() }),
+  useRenameFork: () => ({ mutate: vi.fn() }),
+}));
+
+vi.mock('@/hooks/use-fork-messages', () => ({
+  useForkMessages: (messages: Message[]) => messages,
+}));
+
+const mockSetActiveFork = vi.fn();
+let mockActiveForkId: string | null = null;
+
+vi.mock('@/stores/fork', () => ({
+  useForkStore: Object.assign(
+    () => ({
+      activeForkId: mockActiveForkId,
+      setActiveFork: mockSetActiveFork,
+    }),
+    {
+      getState: () => ({
+        activeForkId: mockActiveForkId,
+        setActiveFork: mockSetActiveFork,
+      }),
+    }
+  ),
+}));
+
+vi.mock('@/components/sidebar/rename-conversation-dialog', () => ({
+  RenameConversationDialog: (props: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    value: string;
+    onValueChange: (v: string) => void;
+    onConfirm: () => void;
+  }) => {
+    return props.open ? (
+      <div data-testid="rename-fork-dialog" data-value={props.value}>
+        <button data-testid="confirm-rename" onClick={props.onConfirm}>
+          Save
+        </button>
+      </div>
+    ) : null;
+  },
+}));
+
+vi.mock('@/components/sidebar/delete-conversation-dialog', () => ({
+  DeleteConversationDialog: (props: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    title: string;
+    onConfirm: () => void;
+  }) => {
+    return props.open ? (
+      <div data-testid="delete-fork-dialog" data-title={props.title}>
+        <button data-testid="confirm-delete" onClick={props.onConfirm}>
+          Delete
+        </button>
+      </div>
+    ) : null;
+  },
+}));
+
 vi.mock('@/hooks/billing', () => ({
   billingKeys: { balance: () => ['balance'] },
 }));
@@ -237,9 +339,13 @@ vi.mock('@/stores/pending-chat', () => ({
   },
 }));
 
-vi.mock('@/stores/model', () => ({
-  useModelStore: () => ({ selectedModelId: 'test-model' }),
-}));
+vi.mock('@/stores/model', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/model')>();
+  return {
+    ...actual,
+    useModelStore: () => ({ selectedModels: [{ id: 'test-model', name: 'Test Model' }] }),
+  };
+});
 
 const mockScrollToBottom = vi.fn();
 vi.mock('@/hooks/use-scroll-behavior', () => ({
@@ -291,27 +397,39 @@ vi.mock('@/hooks/use-decrypted-messages', () => ({
 
 const mockUseGroupChat = vi.fn();
 vi.mock('@/hooks/use-group-chat', () => ({
-  useGroupChat: (conversationId: string | null, plaintextTitle?: string) =>
-    mockUseGroupChat(conversationId, plaintextTitle),
+  useGroupChat: (...args: unknown[]) => mockUseGroupChat(...args),
 }));
+
+vi.mock('@/lib/chat-regeneration', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/chat-regeneration')>();
+  return { ...actual };
+});
 
 const mockFetchJson = vi.fn();
 vi.mock('@/lib/api-client', () => ({
   client: {
     api: {
-      chat: {
-        message: {
-          $post: vi.fn(() => Promise.resolve(new Response())),
-        },
-      },
+      chat: new Proxy(
+        {},
+        {
+          get: () => ({
+            message: {
+              $post: vi.fn(() => Promise.resolve(new Response())),
+            },
+          }),
+        }
+      ),
     },
   },
   fetchJson: (...args: unknown[]) => mockFetchJson(...args),
 }));
 
 interface StreamOptions {
-  onToken?: (token: string) => void;
-  onStart?: (data: { assistantMessageId: string }) => void;
+  onStart?: (data: {
+    userMessageId: string;
+    models: { modelId: string; assistantMessageId: string }[];
+  }) => void;
+  onToken?: (token: string, modelId: string) => void;
 }
 
 interface SetupMocksOptions {
@@ -347,8 +465,8 @@ function setupMocks(overrides: SetupMocksOptions = {}): void {
     inputValue,
     setInputValue: mockSetInputValue,
     clearInput: mockClearInput,
-    streamingMessageId: null,
-    streamingMessageIdRef,
+    streamingMessageIds: new Set<string>(),
+    streamingMessageIdsRef,
     startStreaming: mockStartStreaming,
     stopStreaming: mockStopStreaming,
   });
@@ -382,8 +500,8 @@ function setupSuccessfulCreation(): void {
     isNew: true,
   });
   mockStartStream.mockResolvedValue({
-    assistantMessageId: 'assistant-1',
-    content: 'Response',
+    userMessageId: 'user-1',
+    models: [{ modelId: 'test-model', assistantMessageId: 'assistant-1', cost: '0' }],
   });
 }
 
@@ -392,8 +510,9 @@ describe('AuthenticatedChatPage', () => {
     vi.clearAllMocks();
     clearEpochKeyCache();
     mockPendingMessage = null;
-    streamingMessageIdRef.current = null;
+    streamingMessageIdsRef.current = new Set<string>();
     mockChatErrorState.error = null;
+    mockActiveForkId = null;
     mockAuthPrivateKey = mockPrivateKey;
     mockUseGroupChat.mockImplementation((conversationId: string | null) => {
       if (!conversationId) return;
@@ -493,7 +612,7 @@ describe('AuthenticatedChatPage', () => {
         expect(mockStartStream).toHaveBeenCalledWith(
           expect.objectContaining({
             conversationId: 'conv-123',
-            model: 'test-model',
+            models: ['test-model'],
             userMessage: expect.objectContaining({
               id: expect.any(String),
               content: expect.any(String),
@@ -514,14 +633,20 @@ describe('AuthenticatedChatPage', () => {
         isNew: true,
       });
       mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
-        options?.onStart?.({ assistantMessageId: 'assistant-1' });
-        return Promise.resolve({ assistantMessageId: 'assistant-1', content: 'Response' });
+        options?.onStart?.({
+          userMessageId: 'user-1',
+          models: [{ modelId: 'test-model', assistantMessageId: 'assistant-1' }],
+        });
+        return Promise.resolve({
+          userMessageId: 'user-1',
+          models: [{ modelId: 'test-model', assistantMessageId: 'assistant-1', cost: '0' }],
+        });
       });
       setupMocks({ pendingMessage: 'Hello AI' });
       render(<AuthenticatedChatPage routeConversationId="new" />);
 
       await waitFor(() => {
-        expect(mockStartStreaming).toHaveBeenCalledWith('assistant-1');
+        expect(mockStartStreaming).toHaveBeenCalledWith(['assistant-1']);
       });
     });
 
@@ -531,9 +656,15 @@ describe('AuthenticatedChatPage', () => {
         isNew: true,
       });
       mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
-        streamingMessageIdRef.current = 'assistant-1';
-        options?.onToken?.('Hello');
-        return Promise.resolve({ assistantMessageId: 'assistant-1', content: 'Response' });
+        options?.onStart?.({
+          userMessageId: 'user-1',
+          models: [{ modelId: 'test-model', assistantMessageId: 'assistant-1' }],
+        });
+        options?.onToken?.('Hello', 'test-model');
+        return Promise.resolve({
+          userMessageId: 'user-1',
+          models: [{ modelId: 'test-model', assistantMessageId: 'assistant-1', cost: '0' }],
+        });
       });
       setupMocks({ pendingMessage: 'Hello AI' });
       render(<AuthenticatedChatPage routeConversationId="new" />);
@@ -713,8 +844,8 @@ describe('AuthenticatedChatPage', () => {
     it('submits new message with optimistic update', async () => {
       const user = userEvent.setup();
       mockStartStream.mockResolvedValue({
-        assistantMessageId: 'assistant-2',
-        content: 'Response',
+        userMessageId: 'user-2',
+        models: [{ modelId: 'test-model', assistantMessageId: 'assistant-2', cost: '0' }],
       });
 
       setupMocks({
@@ -742,7 +873,7 @@ describe('AuthenticatedChatPage', () => {
       expect(mockStartStream).toHaveBeenCalledWith(
         expect.objectContaining({
           conversationId: 'conv-456',
-          model: 'test-model',
+          models: ['test-model'],
           userMessage: expect.objectContaining({
             id: expect.any(String),
             content: 'New message',
@@ -799,7 +930,7 @@ describe('AuthenticatedChatPage', () => {
         expect(mockStartStream).toHaveBeenCalledWith(
           expect.objectContaining({
             conversationId: 'conv-456',
-            model: 'test-model',
+            models: ['test-model'],
           }),
           expect.any(Object)
         );
@@ -815,7 +946,12 @@ describe('AuthenticatedChatPage', () => {
 
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
-      expect(mockUseGroupChat).toHaveBeenCalledWith('conv-456', 'Decrypted Title');
+      expect(mockUseGroupChat).toHaveBeenCalledWith(
+        'conv-456',
+        undefined,
+        'Decrypted Title',
+        streamingMessageIdsRef
+      );
     });
 
     it('passes conversationId via groupChat to ChatLayout', () => {
@@ -826,7 +962,12 @@ describe('AuthenticatedChatPage', () => {
 
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
-      expect(mockUseGroupChat).toHaveBeenCalledWith('conv-456', expect.anything());
+      expect(mockUseGroupChat).toHaveBeenCalledWith(
+        'conv-456',
+        undefined,
+        expect.anything(),
+        streamingMessageIdsRef
+      );
       expect(screen.getByTestId('chat-layout')).toHaveAttribute('data-conversation-id', 'conv-456');
     });
 
@@ -843,12 +984,17 @@ describe('AuthenticatedChatPage', () => {
       expect(screen.getByTestId('chat-layout')).toHaveAttribute('data-conversation-id', 'conv-456');
     });
 
-    it('passes null to useGroupChat initially for new conversation', () => {
+    it('passes undefined to useGroupChat initially for new conversation', () => {
       setupMocks({ pendingMessage: null });
 
       render(<AuthenticatedChatPage routeConversationId="new" />);
 
-      expect(mockUseGroupChat).toHaveBeenCalledWith(null, undefined);
+      expect(mockUseGroupChat).toHaveBeenCalledWith(
+        null,
+        undefined,
+        undefined,
+        streamingMessageIdsRef
+      );
     });
 
     it('passes realConversationId to useGroupChat after conversation creation', async () => {
@@ -857,7 +1003,12 @@ describe('AuthenticatedChatPage', () => {
       render(<AuthenticatedChatPage routeConversationId="new" />);
 
       await waitFor(() => {
-        expect(mockUseGroupChat).toHaveBeenCalledWith('conv-123', expect.anything());
+        expect(mockUseGroupChat).toHaveBeenCalledWith(
+          'conv-123',
+          undefined,
+          expect.anything(),
+          streamingMessageIdsRef
+        );
       });
     });
 
@@ -950,7 +1101,7 @@ describe('AuthenticatedChatPage', () => {
       expect(screen.getByTestId('message-ids')).toHaveTextContent('m1,phantom-user-1,phantom-ai-1');
     });
 
-    it('sets streamingMessageId to remote AI phantom when no local streaming', () => {
+    it('sets streamingMessageIds to remote AI phantom when no local streaming', () => {
       const phantomMap = new Map([
         ['phantom-ai-1', { content: 'Echo: Hello', senderType: 'ai' as const }],
       ]);
@@ -975,7 +1126,7 @@ describe('AuthenticatedChatPage', () => {
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
       expect(screen.getByTestId('chat-layout')).toHaveAttribute(
-        'data-streaming-id',
+        'data-streaming-ids',
         'phantom-ai-1'
       );
     });
@@ -1100,8 +1251,8 @@ describe('AuthenticatedChatPage', () => {
     it('clears input after submit on desktop', async () => {
       const user = userEvent.setup();
       mockStartStream.mockResolvedValue({
-        assistantMessageId: 'assistant-2',
-        content: 'Response',
+        userMessageId: 'user-2',
+        models: [{ modelId: 'test-model', assistantMessageId: 'assistant-2', cost: '0' }],
       });
 
       setupMocks({
@@ -1186,7 +1337,7 @@ describe('AuthenticatedChatPage', () => {
     it('sets non-retryable chat error on ContextCapacityError', async () => {
       const { ContextCapacityError } = await import('@/hooks/use-chat-stream');
       const user = userEvent.setup();
-      mockStartStream.mockRejectedValue(new ContextCapacityError('context_length_exceeded'));
+      mockStartStream.mockRejectedValue(new ContextCapacityError('CONTEXT_LENGTH_EXCEEDED'));
 
       setupMocks({
         conversationData: { id: 'conv-456', title: 'Test Chat' },
@@ -1290,8 +1441,8 @@ describe('AuthenticatedChatPage', () => {
     it('clears chat error when submitting a new message', async () => {
       const user = userEvent.setup();
       mockStartStream.mockResolvedValue({
-        assistantMessageId: 'assistant-2',
-        content: 'Response',
+        userMessageId: 'user-2',
+        models: [{ modelId: 'test-model', assistantMessageId: 'assistant-2', cost: '0' }],
       });
 
       setupMocks({
@@ -1454,6 +1605,112 @@ describe('AuthenticatedChatPage', () => {
           queryKey: ['messages', 'conv-456'],
         });
       });
+    });
+  });
+
+  describe('fork URL sync', () => {
+    it('initializes fork store from initialForkId prop', () => {
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" initialForkId="fork-abc" />);
+
+      expect(mockSetActiveFork).toHaveBeenCalledWith('fork-abc');
+    });
+
+    it('does not initialize fork store when initialForkId is undefined', () => {
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      expect(mockSetActiveFork).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('fork rename modal', () => {
+    it('opens rename dialog when onForkRename is called', async () => {
+      const user = userEvent.setup();
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      // Initially no dialog
+      expect(screen.queryByTestId('rename-fork-dialog')).not.toBeInTheDocument();
+
+      // Trigger fork rename
+      await user.click(screen.getByTestId('trigger-fork-rename'));
+
+      // Dialog should now be visible with the current fork name
+      expect(screen.getByTestId('rename-fork-dialog')).toBeInTheDocument();
+      expect(screen.getByTestId('rename-fork-dialog')).toHaveAttribute('data-value', 'Fork 1');
+    });
+
+    it('opens delete dialog when onForkDelete is called', async () => {
+      const user = userEvent.setup();
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      // Initially no dialog
+      expect(screen.queryByTestId('delete-fork-dialog')).not.toBeInTheDocument();
+
+      // Trigger fork delete
+      await user.click(screen.getByTestId('trigger-fork-delete'));
+
+      // Dialog should now be visible
+      expect(screen.getByTestId('delete-fork-dialog')).toBeInTheDocument();
+    });
+  });
+
+  describe('message action callbacks', () => {
+    it('passes onRegenerate to ChatLayout', () => {
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [
+          { id: 'm1', conversationId: 'conv-456', role: 'user', content: 'Hi', createdAt: '' },
+        ],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      expect(screen.getByTestId('chat-layout')).toHaveAttribute('data-has-on-regenerate', 'true');
+    });
+
+    it('passes onEdit to ChatLayout', () => {
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [
+          { id: 'm1', conversationId: 'conv-456', role: 'user', content: 'Hi', createdAt: '' },
+        ],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      expect(screen.getByTestId('chat-layout')).toHaveAttribute('data-has-on-edit', 'true');
+    });
+
+    it('passes onFork to ChatLayout', () => {
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [
+          { id: 'm1', conversationId: 'conv-456', role: 'user', content: 'Hi', createdAt: '' },
+        ],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      expect(screen.getByTestId('chat-layout')).toHaveAttribute('data-has-on-fork', 'true');
     });
   });
 });

@@ -321,7 +321,7 @@ function createConversationEpochData(
 function generateUserEntities(userIndex: number): UserEntities {
   const userId = seedUUID(`seed-user-${String(userIndex + 1)}`);
   const user = userFactory.build({ id: userId });
-  const userPublicKey = user.publicKey;
+  const userPublicKey: Uint8Array = user.publicKey;
   const projects: ProjectWithId[] = [];
   const allConversations: ConversationWithId[] = [];
   const allMessages: MessageWithId[] = [];
@@ -453,6 +453,90 @@ async function createPersonaUser(
   return { user, publicKey: crypto.publicKey };
 }
 
+const SEARCH_MESSAGES = [
+  { role: 'user' as const, text: 'What are the latest developments in quantum computing?' },
+  {
+    role: 'ai' as const,
+    text:
+      'Based on recent web results, here are the latest developments in quantum computing:\n\n' +
+      'According to [nature.com](https://nature.com/articles/quantum-2024), researchers have ' +
+      'achieved a major breakthrough in error correction, demonstrating logical qubits with ' +
+      'error rates below the threshold needed for practical computation.\n\n' +
+      'A recent paper on [arxiv.org](https://arxiv.org/abs/2401.00001) describes a new ' +
+      'approach to topological quantum computing that could make systems more stable at ' +
+      'higher temperatures.',
+  },
+  {
+    role: 'user' as const,
+    text: 'How does this compare to classical computing for optimization problems?',
+  },
+  {
+    role: 'ai' as const,
+    text:
+      'Quantum computing shows significant advantages for specific optimization problems:\n\n' +
+      'According to [science.org](https://science.org/quantum-optimization), quantum annealers ' +
+      'have demonstrated up to 100x speedups on certain combinatorial optimization tasks ' +
+      'compared to classical solvers.\n\n' +
+      'However, as noted by [ieee.org](https://spectrum.ieee.org/quantum-classical), for many ' +
+      'real-world problems classical algorithms remain competitive, and the crossover point ' +
+      'depends heavily on problem structure and size.',
+  },
+];
+
+interface ConversationMessageContext {
+  personaName: string;
+  convIndex: number;
+  convId: string;
+  userId: string;
+  epochPublicKey: Uint8Array;
+  now: Date;
+}
+
+function createSearchConversationMessages(ctx: ConversationMessageContext): MessageWithId[] {
+  const messages: MessageWithId[] = [];
+  for (const [msgIndex, msg] of SEARCH_MESSAGES.entries()) {
+    const msgTime = new Date(ctx.now.getTime() + ctx.convIndex * 10_000 + msgIndex * 1000);
+    messages.push(
+      messageFactory.build({
+        id: seedUUID(`${ctx.personaName}-msg-${String(ctx.convIndex + 1)}-${String(msgIndex + 1)}`),
+        conversationId: ctx.convId,
+        encryptedBlob: encryptMessageForStorage(ctx.epochPublicKey, msg.text),
+        senderType: msg.role,
+        senderId: msg.role === 'user' ? ctx.userId : null,
+        epochNumber: 1,
+        sequenceNumber: msgIndex + 1,
+        createdAt: msgTime,
+      })
+    );
+  }
+  return messages;
+}
+
+function createGenericConversationMessages(ctx: ConversationMessageContext): MessageWithId[] {
+  const messages: MessageWithId[] = [];
+  const messageCount = 3 + (ctx.convIndex % 3);
+  for (let msgIndex = 0; msgIndex < messageCount; msgIndex++) {
+    const senderType = msgIndex % 2 === 0 ? 'user' : 'ai';
+    const msgTime = new Date(ctx.now.getTime() + ctx.convIndex * 10_000 + msgIndex * 1000);
+    messages.push(
+      messageFactory.build({
+        id: seedUUID(`${ctx.personaName}-msg-${String(ctx.convIndex + 1)}-${String(msgIndex + 1)}`),
+        conversationId: ctx.convId,
+        encryptedBlob: encryptMessageForStorage(
+          ctx.epochPublicKey,
+          `${ctx.personaName} message ${String(ctx.convIndex + 1)}-${String(msgIndex + 1)}`
+        ),
+        senderType,
+        senderId: senderType === 'user' ? ctx.userId : null,
+        epochNumber: 1,
+        sequenceNumber: msgIndex + 1,
+        createdAt: msgTime,
+      })
+    );
+  }
+  return messages;
+}
+
 function createPersonaSampleData(
   personaName: string,
   userId: string,
@@ -495,40 +579,34 @@ function createPersonaSampleData(
       userPublicKey
     );
 
+    const isSearchConversation = convIndex === 2;
+    const convTitle = isSearchConversation
+      ? 'Quantum Computing Research'
+      : `${personaName} Conversation ${String(convIndex + 1)}`;
+
     sampleConversations.push(
       conversationFactory.build({
         id: convId,
         userId,
-        title: encryptMessageForStorage(
-          epochPublicKey,
-          `${personaName} Conversation ${String(convIndex + 1)}`
-        ),
+        title: encryptMessageForStorage(epochPublicKey, convTitle),
       })
     );
     sampleEpochs.push(epoch);
     sampleEpochMembers.push(epochMember);
     sampleConversationMembers.push(conversationMember);
 
-    const messageCount = 3 + (convIndex % 3);
-    for (let msgIndex = 0; msgIndex < messageCount; msgIndex++) {
-      const senderType = msgIndex % 2 === 0 ? 'user' : 'ai';
-      const msgTime = new Date(now.getTime() + convIndex * 10_000 + msgIndex * 1000);
-      sampleMessages.push(
-        messageFactory.build({
-          id: seedUUID(`${personaName}-msg-${String(convIndex + 1)}-${String(msgIndex + 1)}`),
-          conversationId: convId,
-          encryptedBlob: encryptMessageForStorage(
-            epochPublicKey,
-            `${personaName} message ${String(convIndex + 1)}-${String(msgIndex + 1)}`
-          ),
-          senderType,
-          senderId: senderType === 'user' ? userId : null,
-          epochNumber: 1,
-          sequenceNumber: msgIndex + 1,
-          createdAt: msgTime,
-        })
-      );
-    }
+    const msgCtx: ConversationMessageContext = {
+      personaName,
+      convIndex,
+      convId,
+      userId,
+      epochPublicKey,
+      now,
+    };
+    const convMessages = isSearchConversation
+      ? createSearchConversationMessages(msgCtx)
+      : createGenericConversationMessages(msgCtx);
+    sampleMessages.push(...convMessages);
   }
 
   return {

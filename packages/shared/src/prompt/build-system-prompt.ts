@@ -4,7 +4,10 @@ import type { CapabilityId } from '../capabilities/types.js';
  * Builds the system prompt based on active capabilities.
  * Mirrors the prompt building logic from the API for token estimation.
  */
-export function buildSystemPrompt(capabilities: CapabilityId[]): string {
+export function buildSystemPrompt(
+  capabilities: CapabilityId[],
+  customInstructions?: string
+): string {
   const sections: string[] = [];
 
   // Base module (always included)
@@ -33,6 +36,10 @@ You can execute JavaScript code using the execute_javascript tool.
 - Runs in Node.js environment
 - Output is captured from console.log and returned to you
 - Execution timeout: 30 seconds`);
+  }
+
+  if (customInstructions) {
+    sections.push(`## User's Custom Instructions\n${customInstructions}`);
   }
 
   return sections.join('\n\n');

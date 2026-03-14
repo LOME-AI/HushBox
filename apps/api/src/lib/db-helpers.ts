@@ -80,6 +80,7 @@ export async function findActiveMember(
 
 export interface ActiveSharedLink {
   id: string;
+  displayName: string | null;
 }
 
 /** Finds an active (not revoked) shared link by conversationId and linkPublicKey. */
@@ -91,6 +92,7 @@ export async function findActiveSharedLink(
   const rows = await db
     .select({
       id: sharedLinks.id,
+      displayName: sharedLinks.displayName,
     })
     .from(sharedLinks)
     .where(

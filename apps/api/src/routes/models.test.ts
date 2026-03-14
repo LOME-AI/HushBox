@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import type { ModelsListResponse } from '@hushbox/shared';
 import { modelsRoute } from './models.js';
 import type { AppEnv } from '../types.js';
+import { clearModelCache } from '../services/openrouter/openrouter.js';
 
 interface MockOpenRouterModel {
   id: string;
@@ -36,7 +37,7 @@ const MOCK_MODELS: MockOpenRouterModel[] = [
     description: 'Most capable GPT-4 model',
     context_length: 128_000,
     pricing: { prompt: '0.00001', completion: '0.00003' },
-    supported_parameters: ['temperature', 'max_tokens', 'tools'],
+    supported_parameters: ['temperature', 'max_tokens', 'tools', 'web_search_options'],
     created: sixMonthsAgo, // Recent
     architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
@@ -89,6 +90,7 @@ describe('Models Routes', () => {
   let fetchMock: FetchMock;
 
   beforeEach(() => {
+    clearModelCache();
     fetchMock = vi.fn() as FetchMock;
     vi.stubGlobal('fetch', fetchMock);
     vi.useFakeTimers();
@@ -153,9 +155,8 @@ describe('Models Routes', () => {
       const data: ModelsListResponse = await response.json();
       const gpt4 = data.models.find((m) => m.id === 'openai/gpt-4-turbo');
 
-      // GPT-4 has 'tools' in supported_parameters, so should have 'functions' capability
-      expect(gpt4?.capabilities).toContain('streaming');
-      expect(gpt4?.capabilities).toContain('functions');
+      // GPT-4 has 'web_search_options' in supported_parameters, so should have 'internet-search' capability
+      expect(gpt4?.capabilities).toContain('internet-search');
     });
 
     it('returns empty array when no models available', async () => {
@@ -260,6 +261,31 @@ describe('Models Routes', () => {
       expect(data.premiumModelIds).toContain('model-8');
       // Cheapest should not be premium
       expect(data.premiumModelIds).not.toContain('model-0');
+    });
+
+    it('includes Smart Model even when not in ZDR endpoint list', async () => {
+      const autoRouter: MockOpenRouterModel = {
+        id: 'openrouter/auto',
+        name: 'Auto Router',
+        description: 'Automatically selects the best model',
+        context_length: 2_000_000,
+        pricing: { prompt: '0', completion: '0' },
+        supported_parameters: ['temperature'],
+        created: sixMonthsAgo,
+        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+      };
+      const modelsWithAutoRouter = [...MOCK_MODELS, autoRouter];
+      // ZDR set does NOT include auto-router
+      mockBothEndpoints(fetchMock, modelsWithAutoRouter, MOCK_ZDR_ENDPOINTS);
+
+      const app = createTestApp();
+      const response = await app.request('/models');
+
+      expect(response.status).toBe(200);
+      const data: ModelsListResponse = await response.json();
+      const smartModel = data.models.find((m) => m.id === 'openrouter/auto');
+      expect(smartModel).toBeDefined();
+      expect(smartModel!.name).toBe('Smart Model');
     });
 
     it('returns premiumModelIds for recently released models', async () => {

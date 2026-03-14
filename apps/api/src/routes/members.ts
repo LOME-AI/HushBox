@@ -1,18 +1,18 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq, and, isNull, isNotNull, sql } from 'drizzle-orm';
+import { eq, and, isNull, sql } from 'drizzle-orm';
 import {
   conversationMembers,
   epochMembers,
   epochs,
   conversations,
   users,
+  sharedLinks,
   type Database,
 } from '@hushbox/db';
 import {
   ERROR_CODE_NOT_FOUND,
-  ERROR_CODE_UNAUTHORIZED,
   ERROR_CODE_VALIDATION,
   ERROR_CODE_CONVERSATION_NOT_FOUND,
   ERROR_CODE_PRIVILEGE_INSUFFICIENT,
@@ -32,21 +32,34 @@ import {
   fromBase64,
 } from '@hushbox/shared';
 import { createEvent } from '@hushbox/realtime/events';
-import type { AppEnv } from '../types.js';
-import { requireAuth } from '../middleware/require-auth.js';
-import { requirePrivilege } from '../middleware/require-privilege.js';
+import type { RealtimeEvent, RealtimeEventType } from '@hushbox/realtime/events';
+import type { AppEnv, Bindings } from '../types.js';
+import { requirePrivilege } from '../middleware/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { findActiveMember } from '../lib/db-helpers.js';
 import { submitRotation, toRotationParams, handleRotationError } from '../services/keys/keys.js';
 import { broadcastToRoom } from '../lib/broadcast.js';
 import { fireAndForget } from '../lib/fire-and-forget.js';
 
+/**
+ * Fire-and-forget broadcast of a realtime event to a conversation room.
+ * Captures the repeated `fireAndForget(broadcastToRoom(env, id, createEvent(...)))` pattern.
+ */
+function broadcastEvent<T extends RealtimeEventType>(
+  env: Bindings | undefined,
+  conversationId: string,
+  type: T,
+  data: Omit<Extract<RealtimeEvent, { type: T }>, 'type' | 'timestamp'>,
+  errorContext: string
+): void {
+  fireAndForget(broadcastToRoom(env, conversationId, createEvent(type, data)), errorContext);
+}
+
 export const membersRoute = new Hono<AppEnv>()
-  .use('*', requireAuth())
   .get(
     '/:conversationId',
     zValidator('param', z.object({ conversationId: z.string() })),
-    requirePrivilege('read'),
+    requirePrivilege('read', { allowLinkGuest: true }),
     async (c) => {
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
@@ -60,30 +73,29 @@ export const membersRoute = new Hono<AppEnv>()
           visibleFromEpoch: conversationMembers.visibleFromEpoch,
           joinedAt: conversationMembers.joinedAt,
           username: users.username,
+          linkDisplayName: sharedLinks.displayName,
         })
         .from(conversationMembers)
         .leftJoin(users, eq(conversationMembers.userId, users.id))
+        .leftJoin(sharedLinks, eq(conversationMembers.linkId, sharedLinks.id))
         .where(
           and(
             eq(conversationMembers.conversationId, conversationId),
-            isNull(conversationMembers.leftAt),
-            isNotNull(conversationMembers.userId)
+            isNull(conversationMembers.leftAt)
           )
         );
 
       return c.json(
         {
-          members: rows
-            .filter((r) => r.userId !== null)
-            .map((r) => ({
-              id: r.id,
-              userId: r.userId,
-              linkId: r.linkId,
-              username: r.username ?? null,
-              privilege: r.privilege,
-              visibleFromEpoch: r.visibleFromEpoch,
-              joinedAt: r.joinedAt.toISOString(),
-            })),
+          members: rows.map((r) => ({
+            id: r.id,
+            userId: r.userId ?? r.linkId ?? r.id,
+            linkId: r.linkId,
+            username: r.username ?? r.linkDisplayName ?? 'Unknown',
+            privilege: r.privilege,
+            visibleFromEpoch: r.visibleFromEpoch,
+            joinedAt: r.joinedAt.toISOString(),
+          })),
         },
         200
       );
@@ -92,6 +104,7 @@ export const membersRoute = new Hono<AppEnv>()
   .post(
     '/:conversationId/add',
     zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('admin'),
     zValidator(
       'json',
       z
@@ -106,13 +119,9 @@ export const membersRoute = new Hono<AppEnv>()
           message: 'wrap required for full history, rotation required without history',
         })
     ),
-    requirePrivilege('admin'),
-    // eslint-disable-next-line complexity, sonarjs/cognitive-complexity -- add-member handler has inherent branching from giveFullHistory/rotation/wrap guards
+    // eslint-disable-next-line sonarjs/cognitive-complexity -- add-member handler has inherent branching from giveFullHistory/rotation/wrap guards
     async (c) => {
-      const user = c.get('user');
-      if (!user) {
-        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-      }
+      const user = c.get('user')!;
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const {
@@ -230,31 +239,29 @@ export const membersRoute = new Hono<AppEnv>()
         }
 
         // 5. Broadcast member:added event (fire-and-forget)
-        fireAndForget(
-          broadcastToRoom(
-            c.env,
+        broadcastEvent(
+          c.env,
+          conversationId,
+          'member:added',
+          {
             conversationId,
-            createEvent('member:added', {
-              conversationId,
-              memberId: newMember.id,
-              userId: targetUserId,
-              privilege,
-            })
-          ),
+            memberId: newMember.id,
+            userId: targetUserId,
+            privilege,
+          },
           'broadcast member:added event'
         );
 
         // 6. Broadcast rotation:complete if epoch rotated (no rotation for full history)
         if (!giveFullHistory && rotation) {
-          fireAndForget(
-            broadcastToRoom(
-              c.env,
+          broadcastEvent(
+            c.env,
+            conversationId,
+            'rotation:complete',
+            {
               conversationId,
-              createEvent('rotation:complete', {
-                conversationId,
-                newEpochNumber: rotation.expectedEpoch + 1,
-              })
-            ),
+              newEpochNumber: rotation.expectedEpoch + 1,
+            },
             'broadcast rotation:complete after add-member rotation'
           );
         }
@@ -280,6 +287,7 @@ export const membersRoute = new Hono<AppEnv>()
   .post(
     '/:conversationId/remove',
     zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('admin'),
     zValidator(
       'json',
       z.object({
@@ -287,12 +295,8 @@ export const membersRoute = new Hono<AppEnv>()
         rotation: rotationSchema,
       })
     ),
-    requirePrivilege('admin'),
     async (c) => {
-      const user = c.get('user');
-      if (!user) {
-        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-      }
+      const user = c.get('user')!;
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const { memberId, rotation } = c.req.valid('json');
@@ -338,29 +342,27 @@ export const membersRoute = new Hono<AppEnv>()
       }
 
       // 6. Broadcast member:removed event (fire-and-forget)
-      fireAndForget(
-        broadcastToRoom(
-          c.env,
+      broadcastEvent(
+        c.env,
+        conversationId,
+        'member:removed',
+        {
           conversationId,
-          createEvent('member:removed', {
-            conversationId,
-            memberId,
-            ...(targetMember.userId != null && { userId: targetMember.userId }),
-          })
-        ),
+          memberId,
+          ...(targetMember.userId != null && { userId: targetMember.userId }),
+        },
         'broadcast member:removed event'
       );
 
       // 7. Broadcast rotation:complete (fire-and-forget)
-      fireAndForget(
-        broadcastToRoom(
-          c.env,
+      broadcastEvent(
+        c.env,
+        conversationId,
+        'rotation:complete',
+        {
           conversationId,
-          createEvent('rotation:complete', {
-            conversationId,
-            newEpochNumber: rotation.expectedEpoch + 1,
-          })
-        ),
+          newEpochNumber: rotation.expectedEpoch + 1,
+        },
         'broadcast rotation:complete after member removal'
       );
 
@@ -370,6 +372,7 @@ export const membersRoute = new Hono<AppEnv>()
   .patch(
     '/:conversationId/privilege',
     zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('admin'),
     zValidator(
       'json',
       z.object({
@@ -377,12 +380,8 @@ export const membersRoute = new Hono<AppEnv>()
         privilege: memberPrivilegeSchema,
       })
     ),
-    requirePrivilege('admin'),
     async (c) => {
-      const user = c.get('user');
-      if (!user) {
-        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-      }
+      const user = c.get('user')!;
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const { memberId, privilege: newPrivilege } = c.req.valid('json');
@@ -412,16 +411,15 @@ export const membersRoute = new Hono<AppEnv>()
         .where(eq(conversationMembers.id, memberId));
 
       // 5. Broadcast privilege change (fire-and-forget)
-      fireAndForget(
-        broadcastToRoom(
-          c.env,
+      broadcastEvent(
+        c.env,
+        conversationId,
+        'member:privilege-changed',
+        {
           conversationId,
-          createEvent('member:privilege-changed', {
-            conversationId,
-            memberId,
-            privilege: newPrivilege,
-          })
-        ),
+          memberId,
+          privilege: newPrivilege,
+        },
         'broadcast member:privilege-changed event'
       );
 
@@ -438,18 +436,15 @@ export const membersRoute = new Hono<AppEnv>()
   .post(
     '/:conversationId/leave',
     zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('read'),
     zValidator(
       'json',
       z.object({
         rotation: rotationSchema.optional(),
       })
     ),
-    requirePrivilege('read'),
     async (c) => {
-      const user = c.get('user');
-      if (!user) {
-        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-      }
+      const user = c.get('user')!;
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const { rotation } = c.req.valid('json');
@@ -484,29 +479,27 @@ export const membersRoute = new Hono<AppEnv>()
       }
 
       // Broadcast member:removed event (fire-and-forget)
-      fireAndForget(
-        broadcastToRoom(
-          c.env,
+      broadcastEvent(
+        c.env,
+        conversationId,
+        'member:removed',
+        {
           conversationId,
-          createEvent('member:removed', {
-            conversationId,
-            memberId: requesterMember.id,
-            userId: user.id,
-          })
-        ),
+          memberId: requesterMember.id,
+          userId: user.id,
+        },
         'broadcast member:removed event after leave'
       );
 
       // Broadcast rotation:complete (fire-and-forget)
-      fireAndForget(
-        broadcastToRoom(
-          c.env,
+      broadcastEvent(
+        c.env,
+        conversationId,
+        'rotation:complete',
+        {
           conversationId,
-          createEvent('rotation:complete', {
-            conversationId,
-            newEpochNumber: rotation.expectedEpoch + 1,
-          })
-        ),
+          newEpochNumber: rotation.expectedEpoch + 1,
+        },
         'broadcast rotation:complete after leave'
       );
 
@@ -518,10 +511,7 @@ export const membersRoute = new Hono<AppEnv>()
     zValidator('param', z.object({ conversationId: z.string() })),
     requirePrivilege('read'),
     async (c) => {
-      const user = c.get('user');
-      if (!user) {
-        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-      }
+      const user = c.get('user')!;
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
 

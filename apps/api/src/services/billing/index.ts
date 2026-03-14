@@ -1,6 +1,6 @@
 export { checkUserBalance, getUserTierInfo } from './balance.js';
 export type { BalanceCheckResult } from './balance.js';
-export { buildBillingInput } from './resolve.js';
+export { buildBillingInput, buildGuestBillingInput } from './resolve.js';
 export type { BuildBillingResult, MemberContext, GroupBudgetContext } from './resolve.js';
 export { calculateMessageCost } from './cost-calculator.js';
 export type { CalculateMessageCostParams } from './cost-calculator.js';

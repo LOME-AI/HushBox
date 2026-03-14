@@ -10,6 +10,29 @@ vi.mock('@hushbox/crypto', () => ({
   createSharedLink: vi.fn(),
 }));
 
+const mockRotationResult = {
+  params: {
+    expectedEpoch: 1,
+    epochPublicKey: 'ep',
+    confirmationHash: 'ch',
+    chainLink: 'cl',
+    encryptedTitle: 'et',
+    memberWraps: [],
+  },
+  newEpochPrivateKey: new Uint8Array(32).fill(8),
+  newEpochNumber: 2,
+};
+const mockExecuteWithRotation = vi.fn(
+  async (input: { execute: (r: unknown) => Promise<unknown> }) => {
+    await input.execute(mockRotationResult.params);
+    return mockRotationResult;
+  }
+);
+vi.mock('../../lib/rotation.js', () => ({
+  executeWithRotation: (...args: unknown[]) =>
+    mockExecuteWithRotation(...(args as [{ execute: (r: unknown) => Promise<unknown> }])),
+}));
+
 vi.mock('@hushbox/shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@hushbox/shared')>();
   return {
@@ -35,10 +58,18 @@ describe('InviteLinkModal', () => {
     onOpenChange: vi.fn(),
     conversationId: 'conv-123',
     currentEpochPrivateKey: new Uint8Array([1, 2, 3]),
+    currentEpochNumber: 1,
+    plaintextTitle: 'Test Chat',
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExecuteWithRotation.mockImplementation(
+      async (input: { execute: (r: unknown) => Promise<unknown> }) => {
+        await input.execute(mockRotationResult.params);
+        return mockRotationResult;
+      }
+    );
     mockUseCreateLink.mockReturnValue({
       mutateAsync: mockMutateAsync,
       isPending: false,
@@ -99,13 +130,17 @@ describe('InviteLinkModal', () => {
     await userEvent.click(screen.getByTestId('invite-link-generate-button'));
 
     expect(mockCreateSharedLink).toHaveBeenCalledWith(defaultProps.currentEpochPrivateKey);
-    expect(mockMutateAsync).toHaveBeenCalledWith({
-      conversationId: 'conv-123',
-      linkPublicKey: 'link-pubkey-b64',
-      memberWrap: 'link-wrap-b64',
-      privilege: 'read',
-      giveFullHistory: false,
-    });
+    // No-history link goes through executeWithRotation, which calls mutateAsync with rotation
+    expect(mockMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-123',
+        linkPublicKey: 'link-pubkey-b64',
+        memberWrap: 'link-wrap-b64',
+        privilege: 'read',
+        giveFullHistory: false,
+        rotation: mockRotationResult.params,
+      })
+    );
   });
 
   it('passes giveFullHistory true when history checkbox is checked', async () => {
@@ -227,6 +262,36 @@ describe('InviteLinkModal', () => {
       expect(mockCreateSharedLink).toHaveBeenCalledWith(defaultProps.currentEpochPrivateKey);
     });
     expect(mockMutateAsync).toHaveBeenCalled();
+  });
+
+  it('uses executeWithRotation for no-history link creation', async () => {
+    render(<InviteLinkModal {...defaultProps} />);
+
+    // Default: history unchecked (no history)
+    await userEvent.click(screen.getByTestId('invite-link-generate-button'));
+
+    expect(mockExecuteWithRotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-123',
+        currentEpochPrivateKey: defaultProps.currentEpochPrivateKey,
+        currentEpochNumber: 1,
+        plaintextTitle: 'Test Chat',
+        filterMembers: expect.any(Function),
+        execute: expect.any(Function),
+      })
+    );
+  });
+
+  it('does not use executeWithRotation when includeHistory is true', async () => {
+    render(<InviteLinkModal {...defaultProps} />);
+
+    await userEvent.click(screen.getByRole('checkbox'));
+    await userEvent.click(screen.getByTestId('invite-link-generate-button'));
+
+    expect(mockExecuteWithRotation).not.toHaveBeenCalled();
+    expect(mockMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ giveFullHistory: true })
+    );
   });
 
   it('renders generated phase buttons side-by-side with Done on left', async () => {

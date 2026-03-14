@@ -2,7 +2,15 @@ import { forwardRef, useCallback, useMemo } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { MessageItem } from './message-item';
 import type { Message } from '@/lib/api';
-import { groupConsecutiveMessages } from '@/lib/chat-sender';
+import { groupConsecutiveMessages, type MessageGroup } from '@/lib/chat-sender';
+import type { LinkInfo } from '@/lib/chat-sender';
+import { isMultiModelResponse, canRegenerateMessage } from '@/lib/chat-regeneration';
+import {
+  resolveMessageActions,
+  buildChatContext,
+  type MessageContext,
+} from '@/lib/message-actions';
+import type { MemberPrivilege } from '@hushbox/shared';
 
 interface MemberInfo {
   id: string;
@@ -13,16 +21,30 @@ interface MemberInfo {
 
 interface MessageListProps {
   messages: Message[];
-  streamingMessageId?: string | null | undefined;
+  streamingMessageIds?: Set<string> | undefined;
   errorMessageId?: string | undefined;
   modelName?: string | undefined;
   onShare?: ((messageId: string) => void) | undefined;
+  /** Called when user clicks regenerate (AI) or retry (user) */
+  onRegenerate?: ((messageId: string) => void) | undefined;
+  /** Called when user clicks edit on a user message */
+  onEdit?: ((messageId: string, content: string) => void) | undefined;
+  /** Called when user clicks fork on any message */
+  onFork?: ((messageId: string) => void) | undefined;
   /** Whether this is a group chat with multiple members */
   isGroupChat?: boolean;
   /** Current user's ID for sender labels and alignment */
   currentUserId?: string;
   /** Group chat members for resolving sender names */
   members?: MemberInfo[];
+  /** Shared links for resolving link guest sender names */
+  links?: LinkInfo[];
+  /** Whether the user is authenticated */
+  isAuthenticated?: boolean;
+  /** Whether the user is a link guest */
+  isLinkGuest?: boolean;
+  /** The caller's privilege level */
+  callerPrivilege?: MemberPrivilege | undefined;
 }
 
 const FOOTER_HEIGHT = '10dvh';
@@ -44,13 +66,20 @@ const components = { Header, Footer, Scroller };
 export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function MessageList(
   {
     messages,
-    streamingMessageId,
+    streamingMessageIds,
     errorMessageId,
     modelName,
     onShare,
+    onRegenerate,
+    onEdit,
+    onFork,
     isGroupChat,
     currentUserId,
     members,
+    links,
+    isAuthenticated,
+    isLinkGuest,
+    callerPrivilege,
   },
   ref
 ) {
@@ -59,6 +88,18 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
     // eslint-disable-next-line sonarjs/no-selector-parameter -- Virtuoso API callback signature
     return isAtBottom ? 'smooth' : false;
   }, []);
+
+  const chatContext = useMemo(
+    () =>
+      buildChatContext({
+        isAuthenticated: isAuthenticated ?? true,
+        isLinkGuest: isLinkGuest ?? false,
+        privilege: callerPrivilege,
+        currentUserId,
+        isGroupChat: isGroupChat ?? false,
+      }),
+    [isAuthenticated, isLinkGuest, callerPrivilege, currentUserId, isGroupChat]
+  );
 
   const groups = useMemo(
     () => (isGroupChat ? groupConsecutiveMessages(messages) : null),
@@ -78,6 +119,53 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
     );
   }
 
+  function buildOptionalMessageProps(
+    group: MessageGroup | undefined
+  ): Partial<React.ComponentProps<typeof MessageItem>> {
+    return {
+      ...(group !== undefined && { group, isGroupChat: true as const }),
+      ...(currentUserId !== undefined && { currentUserId }),
+      ...(members !== undefined && { members }),
+      ...(links !== undefined && { links }),
+      ...(modelName !== undefined && { modelName }),
+      ...(onShare !== undefined && { onShare }),
+      ...(onRegenerate !== undefined && { onRegenerate }),
+      ...(onEdit !== undefined && { onEdit }),
+      ...(onFork !== undefined && { onFork }),
+    };
+  }
+
+  function renderMessageItem(
+    message: Message,
+    isStreaming: boolean,
+    isError: boolean,
+    group?: MessageGroup
+  ): React.JSX.Element | null {
+    const msgContext: MessageContext = {
+      message,
+      isStreaming,
+      isError,
+      isMultiModel: isMultiModelResponse(messages, message.id),
+      canRegenerate: canRegenerateMessage(
+        messages,
+        message.id,
+        chatContext.currentUserId ?? '',
+        chatContext.isGroupChat
+      ),
+    };
+    const allowedActions = resolveMessageActions(chatContext, msgContext);
+    return (
+      <MessageItem
+        key={group?.id ?? message.id}
+        message={message}
+        allowedActions={allowedActions}
+        isStreaming={isStreaming}
+        isError={isError}
+        {...buildOptionalMessageProps(group)}
+      />
+    );
+  }
+
   if (groups) {
     return (
       <div
@@ -94,20 +182,11 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
           itemContent={(_index, group) => {
             const firstMessage = group.messages[0];
             if (!firstMessage) return null;
-            return (
-              <MessageItem
-                key={group.id}
-                message={firstMessage}
-                group={group}
-                isGroupChat
-                {...(currentUserId !== undefined && { currentUserId })}
-                {...(members !== undefined && { members })}
-                isStreaming={group.messages.some((m) => m.id === streamingMessageId)}
-                {...(modelName !== undefined && { modelName })}
-                isError={group.messages.some((m) => m.id === errorMessageId)}
-                {...(onShare !== undefined && { onShare })}
-              />
+            const isStreamingGroup = group.messages.some(
+              (m) => streamingMessageIds?.has(m.id) ?? false
             );
+            const isErrorGroup = group.messages.some((m) => m.id === errorMessageId);
+            return renderMessageItem(firstMessage, isStreamingGroup, isErrorGroup, group);
           }}
           components={components}
         />
@@ -127,16 +206,11 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
         data={messages}
         followOutput={followOutput}
         atBottomThreshold={50}
-        itemContent={(_index, message) => (
-          <MessageItem
-            key={message.id}
-            message={message}
-            isStreaming={message.id === streamingMessageId}
-            {...(modelName !== undefined && { modelName })}
-            isError={message.id === errorMessageId}
-            {...(onShare !== undefined && { onShare })}
-          />
-        )}
+        itemContent={(_index, message) => {
+          const isStreamingMsg = streamingMessageIds?.has(message.id) ?? false;
+          const isErrorMsg = message.id === errorMessageId;
+          return renderMessageItem(message, isStreamingMsg, isErrorMsg);
+        }}
         components={components}
       />
     </div>

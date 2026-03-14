@@ -320,13 +320,13 @@ describe('useRemoteStreaming', () => {
 
   it('message:stream matching local streaming ID is skipped', () => {
     const mockWs = createMockWs();
-    const localStreamingIdRef = { current: 'ai-msg-1' };
+    const localStreamingIdsRef = { current: new Set(['ai-msg-1']) };
 
     const { result } = renderHook(() =>
       useRemoteStreaming(
         mockWs as unknown as ConversationWebSocket,
         'current-user',
-        localStreamingIdRef
+        localStreamingIdsRef
       )
     );
 
@@ -344,13 +344,13 @@ describe('useRemoteStreaming', () => {
 
   it('message:stream with different ID than local streaming is processed', () => {
     const mockWs = createMockWs();
-    const localStreamingIdRef = { current: 'ai-msg-1' };
+    const localStreamingIdsRef = { current: new Set(['ai-msg-1']) };
 
     const { result } = renderHook(() =>
       useRemoteStreaming(
         mockWs as unknown as ConversationWebSocket,
         'current-user',
-        localStreamingIdRef
+        localStreamingIdsRef
       )
     );
 
@@ -372,13 +372,13 @@ describe('useRemoteStreaming', () => {
 
   it('message:stream with null ref is processed normally', () => {
     const mockWs = createMockWs();
-    const localStreamingIdRef = { current: null };
+    const localStreamingIdsRef = { current: new Set<string>() };
 
     const { result } = renderHook(() =>
       useRemoteStreaming(
         mockWs as unknown as ConversationWebSocket,
         'current-user',
-        localStreamingIdRef
+        localStreamingIdsRef
       )
     );
 
@@ -418,6 +418,90 @@ describe('useRemoteStreaming', () => {
     expect(result.current.get('ai-msg-1')).toEqual({
       content: 'Hello',
       senderType: 'ai',
+    });
+  });
+
+  it('message:new AI phantom includes modelName when present', () => {
+    const mockWs = createMockWs();
+
+    const { result } = renderHook(() =>
+      useRemoteStreaming(mockWs as unknown as ConversationWebSocket, 'current-user')
+    );
+
+    act(() => {
+      mockWs.emit('message:new', {
+        type: 'message:new',
+        timestamp: Date.now(),
+        messageId: 'ai-msg-1',
+        conversationId: 'conv-1',
+        senderType: 'ai',
+        modelName: 'GPT-4o',
+        content: 'Hello',
+      });
+    });
+
+    const phantom = result.current.get('ai-msg-1');
+    expect(phantom).toBeDefined();
+    expect(phantom!.modelName).toBe('GPT-4o');
+  });
+
+  it('message:stream creates AI phantom with modelName when present', () => {
+    const mockWs = createMockWs();
+
+    const { result } = renderHook(() =>
+      useRemoteStreaming(mockWs as unknown as ConversationWebSocket, 'current-user')
+    );
+
+    act(() => {
+      mockWs.emit('message:stream', {
+        type: 'message:stream',
+        timestamp: Date.now(),
+        messageId: 'ai-msg-1',
+        token: 'Hello',
+        modelName: 'Claude 3.5 Sonnet',
+      });
+    });
+
+    const phantom = result.current.get('ai-msg-1');
+    expect(phantom).toEqual({
+      content: 'Hello',
+      senderType: 'ai',
+      modelName: 'Claude 3.5 Sonnet',
+    });
+  });
+
+  it('message:stream preserves modelName across accumulated tokens', () => {
+    const mockWs = createMockWs();
+
+    const { result } = renderHook(() =>
+      useRemoteStreaming(mockWs as unknown as ConversationWebSocket, 'current-user')
+    );
+
+    act(() => {
+      mockWs.emit('message:stream', {
+        type: 'message:stream',
+        timestamp: Date.now(),
+        messageId: 'ai-msg-1',
+        token: 'Hello',
+        modelName: 'GPT-4o',
+      });
+    });
+
+    act(() => {
+      mockWs.emit('message:stream', {
+        type: 'message:stream',
+        timestamp: Date.now(),
+        messageId: 'ai-msg-1',
+        token: ' world',
+        modelName: 'GPT-4o',
+      });
+    });
+
+    const phantom = result.current.get('ai-msg-1');
+    expect(phantom).toEqual({
+      content: 'Hello world',
+      senderType: 'ai',
+      modelName: 'GPT-4o',
     });
   });
 

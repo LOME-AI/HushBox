@@ -6,7 +6,6 @@ interface UIModalsState {
   paymentModalOpen: boolean;
   premiumModelName: string | undefined;
   recoveryPhraseModalOpen: boolean;
-  fromPaymentGate: boolean;
   memberSidebarOpen: boolean;
   mobileMemberSidebarOpen: boolean;
   addMemberModalOpen: boolean;
@@ -23,7 +22,7 @@ interface UIModalsState {
   closePaymentModal: () => void;
   setPaymentModalOpen: (open: boolean) => void;
 
-  openRecoveryPhraseModal: (fromPaymentGate?: boolean) => void;
+  openRecoveryPhraseModal: () => void;
   closeRecoveryPhraseModal: () => void;
   onRecoveryPhraseSuccess: () => void;
 
@@ -48,12 +47,11 @@ interface UIModalsState {
 
 export const useUIModalsStore = create<UIModalsState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       signupModalOpen: false,
       paymentModalOpen: false,
       premiumModelName: undefined,
       recoveryPhraseModalOpen: false,
-      fromPaymentGate: false,
       memberSidebarOpen: false,
       mobileMemberSidebarOpen: false,
       addMemberModalOpen: false,
@@ -92,20 +90,16 @@ export const useUIModalsStore = create<UIModalsState>()(
         }));
       },
 
-      openRecoveryPhraseModal: (fromPaymentGate = false) => {
-        set({ recoveryPhraseModalOpen: true, fromPaymentGate });
+      openRecoveryPhraseModal: () => {
+        set({ recoveryPhraseModalOpen: true });
       },
 
       closeRecoveryPhraseModal: () => {
-        set({ recoveryPhraseModalOpen: false, fromPaymentGate: false });
+        set({ recoveryPhraseModalOpen: false });
       },
 
       onRecoveryPhraseSuccess: () => {
-        const { fromPaymentGate } = get();
-        set({ recoveryPhraseModalOpen: false, fromPaymentGate: false });
-        if (fromPaymentGate) {
-          set({ paymentModalOpen: true });
-        }
+        set({ recoveryPhraseModalOpen: false });
       },
 
       openMemberSidebar: () => {

@@ -25,6 +25,7 @@ export interface CreateLinkParams {
   visibleFromEpoch: number;
   currentEpochId: string;
   displayName?: string;
+  rotation?: SubmitRotationParams;
 }
 
 export interface CreateLinkResult {
@@ -106,13 +107,23 @@ export async function createLink(
       throw new StaleEpochError(conv.currentEpoch);
     }
 
-    // 1. Upsert sharedLinks row — idempotent on duplicate linkPublicKey
+    // 1. Resolve display name — generate "Guest N" if not provided
+    let displayName = params.displayName;
+    if (displayName === undefined) {
+      const [row] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(sharedLinks)
+        .where(eq(sharedLinks.conversationId, params.conversationId));
+      displayName = `Guest ${(row?.count ?? 0) + 1}`;
+    }
+
+    // 2. Upsert sharedLinks row — idempotent on duplicate linkPublicKey
     const [link] = await tx
       .insert(sharedLinks)
       .values({
         conversationId: params.conversationId,
         linkPublicKey: params.linkPublicKey,
-        ...(params.displayName !== undefined && { displayName: params.displayName }),
+        displayName,
       })
       .onConflictDoUpdate({
         target: sharedLinks.linkPublicKey,
@@ -124,21 +135,8 @@ export async function createLink(
       throw new Error('Failed to insert shared link');
     }
 
-    // 2. Upsert epochMembers row — idempotent on duplicate (epochId, memberPublicKey)
-    await tx
-      .insert(epochMembers)
-      .values({
-        epochId: params.currentEpochId,
-        memberPublicKey: params.linkPublicKey,
-        wrap: params.memberWrap,
-        visibleFromEpoch: params.visibleFromEpoch,
-      })
-      .onConflictDoUpdate({
-        target: [epochMembers.epochId, epochMembers.memberPublicKey],
-        set: { id: sql`epoch_members.id` },
-      });
-
     // 3. Upsert conversationMembers row — idempotent on active (conversationId, linkId)
+    //    Must happen BEFORE submitRotation so validation sees the new link as an active member.
     const [member] = await tx
       .insert(conversationMembers)
       .values({
@@ -158,6 +156,26 @@ export async function createLink(
 
     if (!member) {
       throw new Error('Failed to insert conversation member');
+    }
+
+    // 4. Either rotate epoch or insert epochMembers wrap
+    if (params.rotation) {
+      // No-history path: rotate epoch (creates new epoch + wraps for all members)
+      await submitRotation(tx as unknown as Database, params.rotation);
+    } else {
+      // Full-history path: insert wrap for current epoch
+      await tx
+        .insert(epochMembers)
+        .values({
+          epochId: params.currentEpochId,
+          memberPublicKey: params.linkPublicKey,
+          wrap: params.memberWrap,
+          visibleFromEpoch: params.visibleFromEpoch,
+        })
+        .onConflictDoUpdate({
+          target: [epochMembers.epochId, epochMembers.memberPublicKey],
+          set: { id: sql`epoch_members.id` },
+        });
     }
 
     return { linkId: link.id, memberId: member.id };

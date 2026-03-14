@@ -165,7 +165,13 @@ describe('useGroupChat', () => {
   });
 
   it('returns undefined for null conversationId', () => {
-    const { result } = renderHook(() => useGroupChat(null));
+    const { result } = renderHook(() => useGroupChat(null, 'u1'));
+
+    expect(result.current).toBeUndefined();
+  });
+
+  it('returns undefined when callerId is undefined', () => {
+    const { result } = renderHook(() => useGroupChat('conv-1', undefined));
 
     expect(result.current).toBeUndefined();
   });
@@ -177,13 +183,13 @@ describe('useGroupChat', () => {
       isError: false,
     } as ReturnType<typeof useConversationMembers>);
 
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current).toBeUndefined();
   });
 
   it('returns GroupChatProps with correct members shape', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current).toBeDefined();
     expect(result.current!.members).toEqual([
@@ -193,34 +199,42 @@ describe('useGroupChat', () => {
   });
 
   it('returns GroupChatProps with correct links shape', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current!.links).toEqual([
       { id: 'l1', displayName: 'Dave', privilege: 'read', createdAt: '2026-01-01T00:00:00Z' },
     ]);
   });
 
+  it('uses callerId to find current member instead of auth store', () => {
+    // Set callerId to 'u2' (bob) — should find bob's member, not alice
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u2'));
+
+    expect(result.current!.currentUserId).toBe('u2');
+    expect(result.current!.currentUserPrivilege).toBe('write');
+  });
+
   it('derives currentUserPrivilege from members list', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current!.currentUserPrivilege).toBe('owner');
   });
 
   it('reads currentEpochPrivateKey from epoch cache', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current!.currentEpochPrivateKey).toEqual(new Uint8Array(32).fill(7));
     expect(getEpochKey).toHaveBeenCalledWith('conv-1', 3);
   });
 
   it('reads currentEpochNumber from epoch cache', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current!.currentEpochNumber).toBe(3);
   });
 
   it('onRemoveMember calls executeWithRotation', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1', 'My Chat'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
       result.current!.onRemoveMember!('m2');
@@ -239,7 +253,7 @@ describe('useGroupChat', () => {
   });
 
   it('onRemoveMember filterMembers excludes removed member and includes metadata', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1', 'My Chat'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
       result.current!.onRemoveMember!('m2');
@@ -281,7 +295,7 @@ describe('useGroupChat', () => {
   });
 
   it('onChangePrivilege calls mutation with correct params', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     act(() => {
       result.current!.onChangePrivilege!('m2', 'admin');
@@ -295,7 +309,7 @@ describe('useGroupChat', () => {
   });
 
   it('onRevokeLinkClick calls executeWithRotation', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1', 'My Chat'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
       result.current!.onRevokeLinkClick!('l1');
@@ -312,7 +326,7 @@ describe('useGroupChat', () => {
   });
 
   it('onRevokeLinkClick filterMembers excludes link member and includes metadata', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1', 'My Chat'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
       result.current!.onRevokeLinkClick!('l1');
@@ -353,7 +367,7 @@ describe('useGroupChat', () => {
   });
 
   it('onSaveLinkName calls admin link name mutation with new name', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     act(() => {
       result.current!.onSaveLinkName!('l1', 'NewName');
@@ -367,7 +381,7 @@ describe('useGroupChat', () => {
   });
 
   it('onChangeLinkPrivilege calls change link privilege mutation', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     act(() => {
       result.current!.onChangeLinkPrivilege!('l1', 'write');
@@ -381,7 +395,7 @@ describe('useGroupChat', () => {
   });
 
   it('onLeave as owner calls mutation directly without rotation', async () => {
-    const { result } = renderHook(() => useGroupChat('conv-1', 'My Chat'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     // eslint-disable-next-line @typescript-eslint/require-await -- async needed so act() returns Promise and flushes .then() chain
     await act(async () => {
@@ -407,7 +421,7 @@ describe('useGroupChat', () => {
       isError: false,
     } as ReturnType<typeof useConversationMembers>);
 
-    const { result } = renderHook(() => useGroupChat('conv-1', 'My Chat'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     // eslint-disable-next-line @typescript-eslint/require-await -- async needed so act() returns Promise and flushes .then() chain
     await act(async () => {
@@ -437,7 +451,7 @@ describe('useGroupChat', () => {
       isError: false,
     } as ReturnType<typeof useConversationMembers>);
 
-    const { result } = renderHook(() => useGroupChat('conv-1', 'My Chat'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
       result.current!.onLeave!();
@@ -478,7 +492,7 @@ describe('useGroupChat', () => {
   });
 
   it('onAddMember with full history wraps epoch key directly', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1', 'My Chat'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
       result.current!.onAddMember!({
@@ -502,7 +516,7 @@ describe('useGroupChat', () => {
   });
 
   it('onAddMember without history calls executeWithRotation', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1', 'My Chat'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
       result.current!.onAddMember!({
@@ -526,7 +540,7 @@ describe('useGroupChat', () => {
   });
 
   it('onAddMember without history filterMembers includes new member with metadata', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1', 'My Chat'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
       result.current!.onAddMember!({
@@ -562,7 +576,7 @@ describe('useGroupChat', () => {
   });
 
   it('onlineMemberIds derived from presence map', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current!.onlineMemberIds).toEqual(new Set(['u1']));
   });
@@ -574,7 +588,7 @@ describe('useGroupChat', () => {
       isError: true,
     } as ReturnType<typeof useConversationLinks>);
 
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current!.links).toEqual([]);
   });
@@ -588,7 +602,7 @@ describe('useGroupChat', () => {
       isError: false,
     } as ReturnType<typeof useConversationMembers>);
 
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current).toBeDefined();
     expect(result.current!.members).toEqual([
@@ -607,7 +621,7 @@ describe('useGroupChat', () => {
       isError: false,
     } as ReturnType<typeof useConversationMembers>);
 
-    renderHook(() => useGroupChat('conv-1'));
+    renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(useConversationWebSocket).toHaveBeenCalledWith(null);
   });
@@ -621,7 +635,7 @@ describe('useGroupChat', () => {
       isError: false,
     } as ReturnType<typeof useConversationMembers>);
 
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current).toBeUndefined();
   });
@@ -632,7 +646,7 @@ describe('useGroupChat', () => {
       mockWs as unknown as ReturnType<typeof useConversationWebSocket>
     );
 
-    renderHook(() => useGroupChat('conv-1'));
+    renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(mockUseRealtimeSync).toHaveBeenCalledWith(mockWs, 'conv-1', 'u1');
   });
@@ -643,7 +657,7 @@ describe('useGroupChat', () => {
       mockWs as unknown as ReturnType<typeof useConversationWebSocket>
     );
 
-    renderHook(() => useGroupChat('conv-1'));
+    renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(useRemoteStreaming).toHaveBeenCalledWith(mockWs, 'u1', undefined);
   });
@@ -654,19 +668,19 @@ describe('useGroupChat', () => {
       mockWs as unknown as ReturnType<typeof useConversationWebSocket>
     );
 
-    renderHook(() => useGroupChat('conv-1'));
+    renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(useTypingIndicators).toHaveBeenCalledWith(mockWs);
   });
 
   it('returns typingUserIds in GroupChatProps', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current!.typingUserIds).toBe(mockTypingUserIds);
   });
 
   it('returns remoteStreamingMessages in GroupChatProps', () => {
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current!.remoteStreamingMessages).toBe(mockRemoteStreamingMap);
   });
@@ -677,7 +691,7 @@ describe('useGroupChat', () => {
       mockWs as unknown as ReturnType<typeof useConversationWebSocket>
     );
 
-    const { result } = renderHook(() => useGroupChat('conv-1'));
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     expect(result.current!.ws).toBe(mockWs);
   });
@@ -685,7 +699,7 @@ describe('useGroupChat', () => {
   it('re-computes epoch key when cache version changes', () => {
     // Initial render with cache version 0 — epoch key is fill(7)
     vi.mocked(getSnapshot).mockReturnValue(0);
-    const { result, rerender } = renderHook(() => useGroupChat('conv-1'));
+    const { result, rerender } = renderHook(() => useGroupChat('conv-1', 'u1'));
     expect(result.current!.currentEpochPrivateKey).toEqual(new Uint8Array(32).fill(7));
 
     // Simulate cache update: new epoch key cached, version bumps

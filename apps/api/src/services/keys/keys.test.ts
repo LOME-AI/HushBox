@@ -242,13 +242,14 @@ describe('keys service', () => {
 
       expect(result).not.toBeNull();
       const r = defined(result);
-      // Should only see chain links for epochs >= 3
-      expect(r.chainLinks).toHaveLength(2);
-      expect(defined(r.chainLinks[0]).epochNumber).toBe(3);
-      expect(defined(r.chainLinks[1]).epochNumber).toBe(4);
-      // Epoch 2's chain link should be filtered out
+      // Should only see chain links for epochs > 3 (not >=)
+      // Chain link at epoch 3 connects to epoch 2, which is before visibleFromEpoch=3
+      expect(r.chainLinks).toHaveLength(1);
+      expect(defined(r.chainLinks[0]).epochNumber).toBe(4);
+      // Epochs 2 and 3 chain links should be filtered out
       const epochNumbers = r.chainLinks.map((cl) => cl.epochNumber);
       expect(epochNumbers).not.toContain(2);
+      expect(epochNumbers).not.toContain(3);
     });
 
     it('returns all chain links when visibleFromEpoch is 1', async () => {
@@ -343,9 +344,8 @@ describe('keys service', () => {
       const r = defined(result);
       expect(r.wraps).toHaveLength(1);
       expect(defined(r.wraps[0]).visibleFromEpoch).toBe(3);
-      // Only epoch 3's chain link should be returned (not epoch 2's)
-      expect(r.chainLinks).toHaveLength(1);
-      expect(defined(r.chainLinks[0]).epochNumber).toBe(3);
+      // No chain links returned — epoch 3's chain link connects to epoch 2 (before visibleFromEpoch=3)
+      expect(r.chainLinks).toHaveLength(0);
     });
 
     it('wraps are ordered by epochNumber ASC', async () => {

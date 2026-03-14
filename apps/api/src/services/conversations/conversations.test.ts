@@ -20,7 +20,7 @@ import {
 import { createFirstEpoch, generateKeyPair } from '@hushbox/crypto';
 import {
   listConversations,
-  getConversation,
+  getConversationForMember,
   createOrGetConversation,
   updateConversation,
   deleteConversation,
@@ -112,6 +112,7 @@ describe('conversations service', () => {
       senderType,
       sequenceNumber,
       epochNumber,
+      ...(senderType === 'ai' ? { modelName: 'test-model' } : {}),
     });
     const [msg] = await db.insert(messages).values(msgData).returning();
     if (!msg) throw new Error('Failed to create test message');
@@ -321,176 +322,179 @@ describe('conversations service', () => {
     });
   });
 
-  describe('getConversation', () => {
-    it('returns conversation with messages', async () => {
-      const user = await createTestUser();
-      const { conversationId } = await createTestConversationWithEpoch(user.id, toBytes('My Conv'));
-      await createTestMessage(conversationId, 1, 'user');
-      await createTestMessage(conversationId, 2, 'ai');
-
-      const result = await getConversation(db, conversationId, user.id);
-
-      expect(result).not.toBeNull();
-      expect(result?.conversation.title).toEqual(toBytes('My Conv'));
-      expect(result?.messages).toHaveLength(2);
-    });
-
-    it('returns null for non-existent conversation', async () => {
-      const user = await createTestUser();
-
-      const result = await getConversation(db, 'non-existent-id', user.id);
-
-      expect(result).toBeNull();
-    });
-
-    it('returns null for non-member user', async () => {
-      const user1 = await createTestUser();
-      const user2 = await createTestUser();
-      const { conversationId } = await createTestConversationWithEpoch(
-        user1.id,
-        toBytes('User 1 Conv')
-      );
-
-      const result = await getConversation(db, conversationId, user2.id);
-
-      expect(result).toBeNull();
-    });
-
-    it('returns conversation with empty messages array when no messages exist', async () => {
-      const user = await createTestUser();
-      const { conversationId } = await createTestConversationWithEpoch(
-        user.id,
-        toBytes('Empty Conv')
-      );
-
-      const result = await getConversation(db, conversationId, user.id);
-
-      expect(result).not.toBeNull();
-      expect(result?.conversation.title).toEqual(toBytes('Empty Conv'));
-      expect(result?.messages).toEqual([]);
-    });
-
-    it('returns messages ordered by sequenceNumber ascending', async () => {
-      const user = await createTestUser();
-      const { conversationId } = await createTestConversationWithEpoch(user.id);
-      // Insert in reverse order to prove ordering works
-      const msg2 = await createTestMessage(conversationId, 2, 'ai');
-      const msg1 = await createTestMessage(conversationId, 1, 'user');
-
-      const result = await getConversation(db, conversationId, user.id);
-
-      expect(result?.messages).toHaveLength(2);
-      expect(result?.messages[0]?.id).toBe(msg1.id);
-      expect(result?.messages[1]?.id).toBe(msg2.id);
-      expect(result?.messages[0]?.sequenceNumber).toBe(1);
-      expect(result?.messages[1]?.sequenceNumber).toBe(2);
-    });
-
-    it('filters messages by member visibleFromEpoch', async () => {
+  describe('getConversationForMember (unified)', () => {
+    it('returns conversation with messages filtered by visibleFromEpoch without userId', async () => {
       const alice = await createTestUser();
-      const charlie = await createTestUser();
-      const { conversationId } = await createTestConversationWithEpoch(alice.id);
+      const { conversationId } = await createTestConversationWithEpoch(alice.id, toBytes('Group'));
 
-      // Add Charlie as a member who joined at epoch 3
-      await db.insert(conversationMembers).values({
-        conversationId,
-        userId: charlie.id,
-        privilege: 'write',
-        visibleFromEpoch: 3,
-      });
-
-      // Create messages across different epochs
       await createTestMessage(conversationId, 1, 'user', 1);
       await createTestMessage(conversationId, 2, 'ai', 1);
       await createTestMessage(conversationId, 3, 'user', 2);
       await createTestMessage(conversationId, 4, 'ai', 3);
       await createTestMessage(conversationId, 5, 'user', 3);
 
-      // Charlie should only see messages from epoch >= 3
-      const result = await getConversation(db, conversationId, charlie.id);
+      const result = await getConversationForMember(db, conversationId, 3);
 
       expect(result).not.toBeNull();
+      expect(result?.conversation.title).toEqual(toBytes('Group'));
       expect(result?.messages).toHaveLength(2);
       expect(result?.messages[0]?.sequenceNumber).toBe(4);
       expect(result?.messages[1]?.sequenceNumber).toBe(5);
-      expect(result?.messages[0]?.epochNumber).toBe(3);
-      expect(result?.messages[1]?.epochNumber).toBe(3);
     });
 
-    it('returns all messages when visibleFromEpoch is not provided', async () => {
+    it('returns null for non-existent conversation without userId', async () => {
+      const result = await getConversationForMember(db, 'non-existent-id', 1);
+
+      expect(result).toBeNull();
+    });
+
+    it('returns all messages when visibleFromEpoch is 1 without userId', async () => {
       const user = await createTestUser();
       const { conversationId } = await createTestConversationWithEpoch(user.id);
 
-      // Create messages across different epochs
       await createTestMessage(conversationId, 1, 'user', 1);
       await createTestMessage(conversationId, 2, 'ai', 2);
       await createTestMessage(conversationId, 3, 'user', 3);
 
-      // Fetch without visibleFromEpoch — backwards compatible, returns all
-      const result = await getConversation(db, conversationId, user.id);
+      const result = await getConversationForMember(db, conversationId, 1);
 
       expect(result).not.toBeNull();
       expect(result?.messages).toHaveLength(3);
     });
 
-    it('returns conversation with messages for a member (not owner)', async () => {
+    it('returns acceptedAt as current date and invitedByUsername as null without userId (link guest)', async () => {
+      const user = await createTestUser();
+      const { conversationId } = await createTestConversationWithEpoch(
+        user.id,
+        toBytes('Link Guest Conv')
+      );
+
+      const beforeCall = new Date();
+      const result = await getConversationForMember(db, conversationId, 1);
+
+      expect(result).not.toBeNull();
+      expect(result?.acceptedAt).toBeInstanceOf(Date);
+      expect(result!.acceptedAt!.getTime()).toBeGreaterThanOrEqual(beforeCall.getTime());
+      expect(result?.invitedByUsername).toBeNull();
+    });
+
+    it('returns acceptedAt and invitedByUsername from membership with userId', async () => {
       const alice = await createTestUser();
-      const charlie = await createTestUser();
+      const bob = await createTestUser();
       const { conversationId } = await createTestConversationWithEpoch(
         alice.id,
-        toBytes('Group Chat')
+        toBytes('Shared Conv')
       );
-      await createTestMessage(conversationId, 1, 'user');
-      await createTestMessage(conversationId, 2, 'ai');
+
+      // Add Bob as a member invited by Alice
+      await db.insert(conversationMembers).values({
+        conversationId,
+        userId: bob.id,
+        privilege: 'write',
+        visibleFromEpoch: 1,
+        acceptedAt: new Date('2025-01-01'),
+        invitedByUserId: alice.id,
+      });
+
+      const result = await getConversationForMember(db, conversationId, 1, bob.id);
+
+      expect(result).not.toBeNull();
+      expect(result?.acceptedAt).toEqual(new Date('2025-01-01'));
+      expect(result?.invitedByUsername).toBe(alice.username);
+    });
+
+    it('returns acceptedAt as null for unaccepted member with userId', async () => {
+      const alice = await createTestUser();
+      const bob = await createTestUser();
+      const { conversationId } = await createTestConversationWithEpoch(
+        alice.id,
+        toBytes('Pending Conv')
+      );
+
+      // Add Bob as unaccepted member
+      await db.insert(conversationMembers).values({
+        conversationId,
+        userId: bob.id,
+        privilege: 'write',
+        visibleFromEpoch: 1,
+        acceptedAt: null,
+        invitedByUserId: alice.id,
+      });
+
+      const result = await getConversationForMember(db, conversationId, 1, bob.id);
+
+      expect(result).not.toBeNull();
+      expect(result?.acceptedAt).toBeNull();
+      expect(result?.invitedByUsername).toBe(alice.username);
+    });
+
+    it('returns null for non-existent conversation with userId', async () => {
+      const user = await createTestUser();
+
+      const result = await getConversationForMember(db, 'non-existent-id', 1, user.id);
+
+      expect(result).toBeNull();
+    });
+
+    it('filters messages by visibleFromEpoch with userId', async () => {
+      const alice = await createTestUser();
+      const charlie = await createTestUser();
+      const { conversationId } = await createTestConversationWithEpoch(alice.id);
 
       // Add Charlie as a member
       await db.insert(conversationMembers).values({
         conversationId,
         userId: charlie.id,
         privilege: 'write',
-        visibleFromEpoch: 1,
+        visibleFromEpoch: 3,
+        acceptedAt: new Date(),
       });
 
-      const result = await getConversation(db, conversationId, charlie.id);
-
-      expect(result).not.toBeNull();
-      expect(result?.conversation.title).toEqual(toBytes('Group Chat'));
-      expect(result?.messages).toHaveLength(2);
-    });
-
-    it('returns null for user who was a member but left', async () => {
-      const alice = await createTestUser();
-      const charlie = await createTestUser();
-      const { conversationId } = await createTestConversationWithEpoch(alice.id);
-
-      // Add Charlie as a member who has left
-      await db.insert(conversationMembers).values({
-        conversationId,
-        userId: charlie.id,
-        privilege: 'write',
-        visibleFromEpoch: 1,
-        leftAt: new Date(),
-      });
-
-      const result = await getConversation(db, conversationId, charlie.id);
-
-      expect(result).toBeNull();
-    });
-
-    it('returns all messages for owner (visibleFromEpoch=1)', async () => {
-      const user = await createTestUser();
-      const { conversationId } = await createTestConversationWithEpoch(user.id);
-
-      // Create messages across different epochs
       await createTestMessage(conversationId, 1, 'user', 1);
-      await createTestMessage(conversationId, 2, 'ai', 2);
-      await createTestMessage(conversationId, 3, 'user', 3);
+      await createTestMessage(conversationId, 2, 'ai', 1);
+      await createTestMessage(conversationId, 3, 'user', 2);
+      await createTestMessage(conversationId, 4, 'ai', 3);
+      await createTestMessage(conversationId, 5, 'user', 3);
 
-      // Owner has visibleFromEpoch=1 from createTestConversationWithEpoch — sees all
-      const result = await getConversation(db, conversationId, user.id);
+      // Should only see messages from epoch >= 3
+      const result = await getConversationForMember(db, conversationId, 3, charlie.id);
 
       expect(result).not.toBeNull();
-      expect(result?.messages).toHaveLength(3);
+      expect(result?.messages).toHaveLength(2);
+      expect(result?.messages[0]?.sequenceNumber).toBe(4);
+      expect(result?.messages[1]?.sequenceNumber).toBe(5);
+    });
+
+    it('returns conversation with messages for owner with userId', async () => {
+      const user = await createTestUser();
+      const { conversationId } = await createTestConversationWithEpoch(user.id, toBytes('My Conv'));
+      await createTestMessage(conversationId, 1, 'user');
+      await createTestMessage(conversationId, 2, 'ai');
+
+      const result = await getConversationForMember(db, conversationId, 1, user.id);
+
+      expect(result).not.toBeNull();
+      expect(result?.conversation.title).toEqual(toBytes('My Conv'));
+      expect(result?.messages).toHaveLength(2);
+      expect(result?.acceptedAt).toBeInstanceOf(Date);
+      expect(result?.invitedByUsername).toBeNull();
+    });
+
+    it('returns invitedByUsername as null when userId has no membership (non-member)', async () => {
+      const alice = await createTestUser();
+      const bob = await createTestUser();
+      const { conversationId } = await createTestConversationWithEpoch(
+        alice.id,
+        toBytes('Private Conv')
+      );
+
+      // Bob is not a member — with userId but no membership row, should still return conversation
+      // (membership check is done by middleware, not this function)
+      const result = await getConversationForMember(db, conversationId, 1, bob.id);
+
+      expect(result).not.toBeNull();
+      expect(result?.acceptedAt).toBeNull();
+      expect(result?.invitedByUsername).toBeNull();
     });
   });
 

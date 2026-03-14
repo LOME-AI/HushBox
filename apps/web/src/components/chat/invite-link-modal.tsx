@@ -4,15 +4,19 @@ import { AlertTriangle, Link as LinkIcon } from 'lucide-react';
 import { Alert, ModalOverlay, ModalActions, Input } from '@hushbox/ui';
 import { CheckboxField } from '../shared/checkbox-field.js';
 import { createSharedLink } from '@hushbox/crypto';
-import { toBase64, MAX_CONVERSATION_MEMBERS } from '@hushbox/shared';
+import { fromBase64, toBase64, MAX_CONVERSATION_MEMBERS } from '@hushbox/shared';
 import { useCreateLink } from '../../hooks/use-conversation-links.js';
 import { useFormEnterNav } from '../../hooks/use-form-enter-nav.js';
+import { executeWithRotation } from '../../lib/rotation.js';
+import type { MemberKeyResponse, RotationMember } from '../../lib/rotation.js';
 
 interface InviteLinkModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   conversationId: string;
   currentEpochPrivateKey: Uint8Array;
+  currentEpochNumber: number;
+  plaintextTitle: string;
   memberCount?: number;
 }
 
@@ -21,6 +25,8 @@ export function InviteLinkModal({
   onOpenChange,
   conversationId,
   currentEpochPrivateKey,
+  currentEpochNumber,
+  plaintextTitle,
   memberCount,
 }: Readonly<InviteLinkModalProps>): React.JSX.Element {
   const formRef = useRef<HTMLFormElement>(null);
@@ -50,14 +56,45 @@ export function InviteLinkModal({
     const result = createSharedLink(currentEpochPrivateKey);
 
     const trimmedName = guestName.trim();
-    await mutateAsync({
-      conversationId,
-      linkPublicKey: toBase64(result.linkPublicKey),
-      memberWrap: toBase64(result.linkWrap),
-      privilege,
-      giveFullHistory: includeHistory,
-      ...(trimmedName !== '' && { displayName: trimmedName }),
-    });
+    const linkPublicKeyB64 = toBase64(result.linkPublicKey);
+    const memberWrapB64 = toBase64(result.linkWrap);
+
+    if (includeHistory) {
+      await mutateAsync({
+        conversationId,
+        linkPublicKey: linkPublicKeyB64,
+        memberWrap: memberWrapB64,
+        privilege,
+        giveFullHistory: true,
+        ...(trimmedName !== '' && { displayName: trimmedName }),
+      });
+    } else {
+      const linkPublicKey = result.linkPublicKey;
+      await executeWithRotation({
+        conversationId,
+        currentEpochPrivateKey,
+        currentEpochNumber,
+        plaintextTitle,
+        filterMembers: (keys: MemberKeyResponse[]): RotationMember[] => {
+          const members: RotationMember[] = [];
+          for (const k of keys) {
+            members.push({ publicKey: fromBase64(k.publicKey) });
+          }
+          members.push({ publicKey: linkPublicKey });
+          return members;
+        },
+        execute: (rotation) =>
+          mutateAsync({
+            conversationId,
+            linkPublicKey: linkPublicKeyB64,
+            memberWrap: memberWrapB64,
+            privilege,
+            giveFullHistory: false,
+            rotation,
+            ...(trimmedName !== '' && { displayName: trimmedName }),
+          }),
+      });
+    }
 
     const url = `${globalThis.location.origin}/share/c/${conversationId}#${toBase64(result.linkSecret)}`;
     setGeneratedUrl(url);

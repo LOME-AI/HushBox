@@ -35,6 +35,7 @@ coverage/
 playwright-report/
 test-results/
 e2e/.auth/
+e2e/report/
 
 # Logs
 *.log

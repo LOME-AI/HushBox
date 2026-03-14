@@ -95,6 +95,36 @@ describe('buildSystemPrompt', () => {
     });
   });
 
+  describe('custom instructions', () => {
+    it('appends custom instructions section when provided', () => {
+      const prompt = buildSystemPrompt([], 'Always respond in bullet points');
+      expect(prompt).toContain("## User's Custom Instructions");
+      expect(prompt).toContain('Always respond in bullet points');
+    });
+
+    it('omits custom instructions section when not provided', () => {
+      const prompt = buildSystemPrompt([]);
+      expect(prompt).not.toContain('Custom Instructions');
+    });
+
+    it('omits custom instructions section when undefined', () => {
+      const prompt = buildSystemPrompt([]);
+      expect(prompt).not.toContain('Custom Instructions');
+    });
+
+    it('places custom instructions after capability sections', () => {
+      const prompt = buildSystemPrompt(['python-execution'], 'Be concise');
+      const pythonIndex = prompt.indexOf('Python Code Execution');
+      const instructionsIndex = prompt.indexOf("User's Custom Instructions");
+      expect(pythonIndex).toBeLessThan(instructionsIndex);
+    });
+
+    it('separates custom instructions with double newline', () => {
+      const prompt = buildSystemPrompt([], 'My instructions');
+      expect(prompt).toMatch(/HushBox[\s\S]*\n\n## User's Custom Instructions/);
+    });
+  });
+
   describe('prompt structure', () => {
     it('returns a non-empty string', () => {
       const prompt = buildSystemPrompt([]);

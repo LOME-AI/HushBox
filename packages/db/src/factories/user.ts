@@ -29,6 +29,7 @@ export const userFactory = Factory.define<User>(() => ({
   totpEnabled: false,
 
   hasAcknowledgedPhrase: false,
+  customInstructionsEncrypted: null,
 
   publicKey: placeholderBytes(32),
   passwordWrappedPrivateKey: placeholderBytes(48),

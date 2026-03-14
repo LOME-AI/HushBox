@@ -17,12 +17,13 @@ import { chatRoute } from './chat.js';
 import type { AppEnv } from '../types.js';
 import type { OpenRouterClient } from '../services/openrouter/types.js';
 import { createFastMockOpenRouterClient } from '../test-helpers/index.js';
+import { createMockOpenRouterClient } from '../services/openrouter/mock.js';
 import {
   ERROR_CODE_BALANCE_RESERVED,
   ERROR_CODE_BILLING_MISMATCH,
   ERROR_CODE_PRIVILEGE_INSUFFICIENT,
 } from '@hushbox/shared';
-import { ContextCapacityError } from '../services/openrouter/openrouter.js';
+import { ContextCapacityError, clearModelCache } from '../services/openrouter/openrouter.js';
 import { generateKeyPair } from '@hushbox/crypto';
 
 /** Type-safe JSON response parser for test assertions. */
@@ -76,8 +77,7 @@ type FetchMock = Mock<(url: string, init?: RequestInit) => Promise<MockFetchResp
 /** Build a valid stream request body with all required fields. */
 function streamBody(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    conversationId: TEST_CONVERSATION_ID,
-    model: 'openai/gpt-4-turbo',
+    models: ['openai/gpt-4-turbo'],
     userMessage: {
       id: TEST_USER_MESSAGE_ID,
       content: 'Hello',
@@ -132,7 +132,14 @@ function createMockDb(options: {
   conversationSpendingRows?: MockConversationSpending[];
 }) {
   const { conversations = [], users = [], onInsert } = options;
-  const conversationMemberRows = options.conversationMemberRows ?? [];
+  const conversationMemberRows = options.conversationMemberRows ?? [
+    {
+      id: 'member-owner',
+      userId: conversations[0]?.userId ?? 'unknown',
+      privilege: 'owner',
+      visibleFromEpoch: 1,
+    },
+  ];
   const memberBudgetRows = options.memberBudgetRows ?? [];
   const conversationSpendingRows = options.conversationSpendingRows ?? [];
 
@@ -167,7 +174,7 @@ function createMockDb(options: {
           return Promise.resolve(resolve(sliced));
         },
       }),
-      orderBy: () => Promise.resolve(value),
+      orderBy: () => createThenable(value),
     };
   }
   /* eslint-enable unicorn/no-thenable */
@@ -440,6 +447,7 @@ describe('chat routes', () => {
   let fetchMock: FetchMock;
 
   beforeEach(() => {
+    clearModelCache();
     fetchMock = vi.fn() as FetchMock;
     vi.stubGlobal('fetch', fetchMock);
     vi.useFakeTimers();
@@ -475,7 +483,7 @@ describe('chat routes', () => {
   describe('POST /stream', () => {
     it('returns 401 for unauthenticated requests', async () => {
       const app = createUnauthenticatedTestApp();
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -486,23 +494,23 @@ describe('chat routes', () => {
       expect(body.code).toBe('NOT_AUTHENTICATED');
     });
 
-    it('returns 400 when conversationId is missing', async () => {
+    it('returns 400 when required body fields are missing', async () => {
       const app = createTestApp();
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'openai/gpt-4-turbo' }),
+        body: JSON.stringify({ models: ['openai/gpt-4-turbo'] }),
       });
 
       expect(res.status).toBe(400);
     });
 
-    it('returns 400 when model is missing', async () => {
+    it('returns 400 when models is missing', async () => {
       const app = createTestApp();
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationId: TEST_CONVERSATION_ID }),
+        body: JSON.stringify({}),
       });
 
       expect(res.status).toBe(400);
@@ -511,7 +519,7 @@ describe('chat routes', () => {
     it('streams SSE response for valid request', async () => {
       vi.useRealTimers();
       const app = createTestApp();
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -525,7 +533,7 @@ describe('chat routes', () => {
     it('returns start event with assistantMessageId', async () => {
       vi.useRealTimers();
       const app = createTestApp();
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -539,7 +547,7 @@ describe('chat routes', () => {
     it('returns token events with content', async () => {
       vi.useRealTimers();
       const app = createTestApp();
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -553,7 +561,7 @@ describe('chat routes', () => {
     it('returns done event with epoch metadata', async () => {
       vi.useRealTimers();
       const app = createTestApp();
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -646,7 +654,7 @@ describe('chat routes', () => {
       });
       app.route('/', chatRoute);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -659,10 +667,10 @@ describe('chat routes', () => {
 
     it('returns 404 when conversation not found', async () => {
       const app = createTestApp({ conversations: [] });
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: streamBody({ conversationId: '33333333-3333-3333-8333-333333333333' }),
+        body: streamBody(),
       });
 
       expect(res.status).toBe(404);
@@ -683,9 +691,10 @@ describe('chat routes', () => {
             updatedAt: new Date(),
           },
         ],
+        conversationMemberRows: [],
       });
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -717,7 +726,7 @@ describe('chat routes', () => {
         ],
       });
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -750,7 +759,7 @@ describe('chat routes', () => {
         ],
       });
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -765,7 +774,7 @@ describe('chat routes', () => {
     it('returns 400 when last message is not from user', async () => {
       const app = createTestApp();
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody({
@@ -784,7 +793,7 @@ describe('chat routes', () => {
     it('returns 400 when messagesForInference is empty', async () => {
       const app = createTestApp();
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody({ messagesForInference: [] }),
@@ -824,7 +833,7 @@ describe('chat routes', () => {
         },
       });
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -854,7 +863,7 @@ describe('chat routes', () => {
       vi.useRealTimers();
       const knownId = '44444444-4444-4444-8444-444444444444';
       const app = createTestApp();
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody({
@@ -958,7 +967,7 @@ describe('chat routes', () => {
         app.route('/', chatRoute);
 
         // No NODE_ENV set (defaults to development/test behavior)
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1061,7 +1070,7 @@ describe('chat routes', () => {
 
         // Pass NODE_ENV: 'production' to simulate production mode
         const res = await app.request(
-          '/stream',
+          `/${TEST_CONVERSATION_ID}/stream`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1183,7 +1192,7 @@ describe('chat routes', () => {
         });
         app.route('/', chatRoute);
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1302,7 +1311,7 @@ describe('chat routes', () => {
         });
         app.route('/', chatRoute);
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1328,12 +1337,12 @@ describe('chat routes', () => {
 
         // Start two concurrent stream requests
         const [res1, res2] = await Promise.all([
-          app.request('/stream', {
+          app.request(`/${TEST_CONVERSATION_ID}/stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: streamBody(),
           }),
-          app.request('/stream', {
+          app.request(`/${TEST_CONVERSATION_ID}/stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: streamBody(),
@@ -1361,7 +1370,7 @@ describe('chat routes', () => {
         const mockRedis = createMockRedis('5');
         const app = createTestApp(undefined, mockRedis);
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1381,7 +1390,7 @@ describe('chat routes', () => {
 
         const app = createTestApp(undefined, mockRedis);
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1403,7 +1412,7 @@ describe('chat routes', () => {
 
         const app = createTestApp(undefined, mockRedis);
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1482,10 +1491,10 @@ describe('chat routes', () => {
           mockRedis
         );
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: streamBody({ model: 'openai/gpt-3.5-turbo', fundingSource: 'free_allowance' }),
+          body: streamBody({ models: ['openai/gpt-3.5-turbo'], fundingSource: 'free_allowance' }),
         });
 
         expect(res.status).toBe(200);
@@ -1499,7 +1508,7 @@ describe('chat routes', () => {
         const mockRedis = createMockRedis('5');
         const app = createTestApp(undefined, mockRedis);
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1583,7 +1592,7 @@ describe('chat routes', () => {
         });
         app.route('/', chatRoute);
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1666,7 +1675,7 @@ describe('chat routes', () => {
         });
         app.route('/', chatRoute);
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1687,7 +1696,7 @@ describe('chat routes', () => {
         const mockRedis = createMockRedis('0.01');
         const app = createTestApp(undefined, mockRedis);
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1780,7 +1789,7 @@ describe('chat routes', () => {
           ],
           users: [{ id: TEST_USER_ID, balance: '10.00000000' }],
         });
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1810,7 +1819,7 @@ describe('chat routes', () => {
           ],
           users: [{ id: TEST_USER_ID, balance: '10.00000000' }],
         });
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1843,7 +1852,7 @@ describe('chat routes', () => {
           ],
           users: [{ id: TEST_USER_ID, balance: '10.00000000' }],
         });
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1876,7 +1885,7 @@ describe('chat routes', () => {
           ],
           users: [{ id: TEST_USER_ID, balance: '10.00000000' }],
         });
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -1896,7 +1905,7 @@ describe('chat routes', () => {
       it('does not broadcast message:stream when no DO binding is present', async () => {
         vi.useRealTimers();
         const app = createTestApp();
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -2009,7 +2018,7 @@ describe('chat routes', () => {
           await next();
         });
         app.route('/', chatRoute);
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -2065,7 +2074,7 @@ describe('chat routes', () => {
           memberBudgetRows: [{ budget: '50.00', spent: '0.00000000' }],
         });
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody({ fundingSource: 'owner_balance' }),
@@ -2093,7 +2102,7 @@ describe('chat routes', () => {
           conversationMemberRows: [], // No member record for test user
         });
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -2133,7 +2142,7 @@ describe('chat routes', () => {
           ],
         });
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -2171,7 +2180,7 @@ describe('chat routes', () => {
           ],
         });
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -2217,7 +2226,7 @@ describe('chat routes', () => {
           mockRedis
         );
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody({ fundingSource: 'owner_balance' }),
@@ -2287,7 +2296,7 @@ describe('chat routes', () => {
           mockRedis
         );
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody({ fundingSource: 'owner_balance' }),
@@ -2331,7 +2340,7 @@ describe('chat routes', () => {
           ],
         });
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -2373,7 +2382,7 @@ describe('chat routes', () => {
           memberBudgetRows: [{ budget: '50.00', spent: '0.00000000' }],
         });
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody({ fundingSource: 'owner_balance' }),
@@ -2391,7 +2400,7 @@ describe('chat routes', () => {
         // Client claims free_allowance — mismatch!
         const app = createTestApp();
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody({ fundingSource: 'free_allowance' }),
@@ -2409,7 +2418,7 @@ describe('chat routes', () => {
         // Client claims personal_balance — match!
         const app = createTestApp();
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody({ fundingSource: 'personal_balance' }),
@@ -2442,7 +2451,7 @@ describe('chat routes', () => {
           ],
         });
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody({ fundingSource: 'personal_balance' }),
@@ -2486,7 +2495,7 @@ describe('chat routes', () => {
 
         // Server resolves owner_balance (group budget available)
         // Client claims personal_balance — mismatch!
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody({ fundingSource: 'personal_balance' }),
@@ -2515,7 +2524,7 @@ describe('chat routes', () => {
 
         const app = createTestApp(undefined, undefined, throwingClient);
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -2524,7 +2533,7 @@ describe('chat routes', () => {
         expect(res.status).toBe(200); // SSE streams always return 200
         const text = await res.text();
         expect(text).toContain('event: error');
-        expect(text).toContain('"code":"context_length_exceeded"');
+        expect(text).toContain('"code":"CONTEXT_LENGTH_EXCEEDED"');
       });
 
       it('sends STREAM_ERROR code for generic stream errors', async () => {
@@ -2542,7 +2551,7 @@ describe('chat routes', () => {
 
         const app = createTestApp(undefined, undefined, throwingClient);
 
-        const res = await app.request('/stream', {
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: streamBody(),
@@ -2554,6 +2563,545 @@ describe('chat routes', () => {
         expect(text).toContain('"code":"STREAM_ERROR"');
       });
     });
+
+    describe('web search plugins', () => {
+      it('passes plugins to OpenRouter when webSearchEnabled is true', async () => {
+        vi.useRealTimers();
+        const mockClient = createMockOpenRouterClient();
+        const app = createTestApp(undefined, undefined, mockClient);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ webSearchEnabled: true }),
+        });
+
+        await res.text();
+
+        const history = mockClient.getCompletionHistory();
+        expect(history).toHaveLength(1);
+        expect(history[0]?.plugins).toEqual([{ id: 'web' }]);
+      });
+
+      it('does not pass plugins when webSearchEnabled is false', async () => {
+        vi.useRealTimers();
+        const mockClient = createMockOpenRouterClient();
+        const app = createTestApp(undefined, undefined, mockClient);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ webSearchEnabled: false }),
+        });
+
+        await res.text();
+
+        const history = mockClient.getCompletionHistory();
+        expect(history).toHaveLength(1);
+        expect(history[0]?.plugins).toBeUndefined();
+      });
+
+      it('does not pass plugins when webSearchEnabled is omitted', async () => {
+        vi.useRealTimers();
+        const mockClient = createMockOpenRouterClient();
+        const app = createTestApp(undefined, undefined, mockClient);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody(),
+        });
+
+        await res.text();
+
+        const history = mockClient.getCompletionHistory();
+        expect(history).toHaveLength(1);
+        expect(history[0]?.plugins).toBeUndefined();
+      });
+    });
+
+    describe('web search budget reservation', () => {
+      const WEB_SEARCH_MODEL_ID = 'openai/gpt-4-turbo';
+      const WEB_SEARCH_PRICE = '0.03'; // $0.03 per search
+
+      /** Override fetchModels to return a model with web_search pricing */
+      function stubModelsWithWebSearch(fetchMockFunction: FetchMock): void {
+        const modelsWithSearch = [
+          {
+            ...mockModels[0],
+            pricing: { ...mockModels[0]!.pricing, web_search: WEB_SEARCH_PRICE },
+          },
+        ];
+        fetchMockFunction.mockImplementation((url: string) => {
+          if (url.includes('/endpoints/zdr')) {
+            return Promise.resolve({
+              ok: true,
+              json: () =>
+                Promise.resolve({
+                  data: modelsWithSearch.map((m) => ({
+                    model_id: m.id,
+                    model_name: m.name,
+                    provider_name: 'Provider',
+                    context_length: m.context_length,
+                    pricing: m.pricing,
+                  })),
+                }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: modelsWithSearch }),
+          });
+        });
+      }
+
+      it('includes web search cost in budget reservation when webSearchEnabled is true', async () => {
+        vi.useRealTimers();
+        stubModelsWithWebSearch(fetchMock);
+        const mockRedis = createMockRedis();
+        const app = createTestApp(undefined, mockRedis);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: [WEB_SEARCH_MODEL_ID], webSearchEnabled: true }),
+        });
+
+        expect(res.status).toBe(200);
+        await res.text();
+
+        // redis.eval is called with (script, [key], [incrementStr, ttlStr])
+        // The first eval call is reserveBudget — extract the increment (cost in cents)
+        const evalCalls = mockRedis.eval.mock.calls;
+        expect(evalCalls.length).toBeGreaterThanOrEqual(1);
+        const reservationWithSearch = Number(evalCalls[0]?.[2]?.[0]);
+
+        // Now send the same request without web search and compare reservation
+        const mockRedis2 = createMockRedis();
+        const app2 = createTestApp(undefined, mockRedis2);
+
+        const res2 = await app2.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: [WEB_SEARCH_MODEL_ID], webSearchEnabled: false }),
+        });
+
+        expect(res2.status).toBe(200);
+        await res2.text();
+
+        const evalCalls2 = mockRedis2.eval.mock.calls;
+        expect(evalCalls2.length).toBeGreaterThanOrEqual(1);
+        const reservationWithoutSearch = Number(evalCalls2[0]?.[2]?.[0]);
+
+        // The reservation with web search should be higher
+        expect(reservationWithSearch).toBeGreaterThan(reservationWithoutSearch);
+      });
+
+      it('denies request when balance cannot cover web search cost', async () => {
+        // Use a high web search price ($1.00) so it exceeds balance + $0.50 cushion
+        const expensiveSearchModels = [
+          {
+            ...mockModels[0],
+            pricing: { ...mockModels[0]!.pricing, web_search: '1.00' },
+          },
+        ];
+        fetchMock.mockImplementation((url: string) => {
+          if (url.includes('/endpoints/zdr')) {
+            return Promise.resolve({
+              ok: true,
+              json: () =>
+                Promise.resolve({
+                  data: expensiveSearchModels.map((m) => ({
+                    model_id: m.id,
+                    model_name: m.name,
+                    provider_name: 'Provider',
+                    context_length: m.context_length,
+                    pricing: m.pricing,
+                  })),
+                }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: expensiveSearchModels }),
+          });
+        });
+
+        const app = createTestApp({
+          conversations: [
+            {
+              id: TEST_CONVERSATION_ID,
+              userId: TEST_USER_ID,
+              title: 'Test',
+              currentEpoch: 1,
+              nextSequence: 0,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ],
+          users: [
+            {
+              id: TEST_USER_ID,
+              // $0.10 balance + $0.50 cushion = $0.60 effective, but search costs $1.00
+              balance: '0.10000000',
+            },
+          ],
+        });
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: [WEB_SEARCH_MODEL_ID], webSearchEnabled: true }),
+        });
+
+        expect(res.status).toBe(402);
+      });
+    });
+
+    describe('auto-router', () => {
+      const AUTO_ROUTER_ID = 'openrouter/auto';
+      // Must be within 2-year age window (from real date ~2026-03) but older than
+      // 1 year (to avoid premium-by-recency classification for all models).
+      const RECENT_CREATED = Math.floor(new Date('2025-01-15T00:00:00Z').getTime() / 1000);
+
+      const autoRouterModels = [
+        {
+          id: AUTO_ROUTER_ID,
+          name: 'Auto Router',
+          description: 'Automatically chooses the best model',
+          context_length: 2_000_000,
+          pricing: { prompt: '0', completion: '0' },
+          supported_parameters: ['temperature'],
+          created: RECENT_CREATED,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+        {
+          id: 'openai/gpt-4-turbo',
+          name: 'OpenAI: GPT-4 Turbo',
+          description: 'A capable model',
+          context_length: 128_000,
+          pricing: { prompt: '0.00001', completion: '0.00003' },
+          supported_parameters: ['temperature'],
+          created: RECENT_CREATED,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+        {
+          id: 'deepseek/deepseek-r1',
+          name: 'DeepSeek: DeepSeek R1',
+          description: 'A cheap model',
+          context_length: 164_000,
+          pricing: { prompt: '0.000001', completion: '0.000003' },
+          supported_parameters: ['temperature'],
+          created: RECENT_CREATED,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+      ];
+
+      function stubAutoRouterModels(fetchMockFunction: FetchMock): void {
+        fetchMockFunction.mockImplementation((url: string) => {
+          if (url.includes('/endpoints/zdr')) {
+            return Promise.resolve({
+              ok: true,
+              json: () =>
+                Promise.resolve({
+                  data: autoRouterModels.map((m) => ({
+                    model_id: m.id,
+                    model_name: m.name,
+                    provider_name: 'Provider',
+                    context_length: m.context_length,
+                    pricing: m.pricing,
+                  })),
+                }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: autoRouterModels }),
+          });
+        });
+      }
+
+      it('sends auto-router plugin with allowed_models to OpenRouter', async () => {
+        vi.useRealTimers();
+        stubAutoRouterModels(fetchMock);
+        const mockClient = createMockOpenRouterClient();
+        const app = createTestApp(undefined, undefined, mockClient);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: [AUTO_ROUTER_ID] }),
+        });
+
+        await res.text();
+
+        const history = mockClient.getCompletionHistory();
+        expect(history).toHaveLength(1);
+        const plugins = history[0]?.plugins;
+        expect(plugins).toBeDefined();
+        const autoRouterPlugin = plugins?.find((p) => p.id === 'auto-router');
+        expect(autoRouterPlugin).toBeDefined();
+        expect(autoRouterPlugin?.allowed_models).toContain('openai/gpt-4-turbo');
+        expect(autoRouterPlugin?.allowed_models).toContain('deepseek/deepseek-r1');
+      });
+
+      it('denies request when no models are affordable', async () => {
+        stubAutoRouterModels(fetchMock);
+        const app = createTestApp({
+          conversations: [
+            {
+              id: TEST_CONVERSATION_ID,
+              userId: TEST_USER_ID,
+              title: 'Test',
+              currentEpoch: 1,
+              nextSequence: 0,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ],
+          users: [
+            {
+              id: TEST_USER_ID,
+              // $0 balance → free tier, $0 free allowance → nothing affordable
+              balance: '0.00000000',
+            },
+          ],
+        });
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: [AUTO_ROUTER_ID], fundingSource: 'free_allowance' }),
+        });
+
+        expect(res.status).toBe(402);
+      });
+
+      it('merges auto-router and web search plugins', async () => {
+        vi.useRealTimers();
+        // Use models with web_search pricing
+        const modelsWithSearch = autoRouterModels.map((m) =>
+          m.id === AUTO_ROUTER_ID ? m : { ...m, pricing: { ...m.pricing, web_search: '0.03' } }
+        );
+        fetchMock.mockImplementation((url: string) => {
+          if (url.includes('/endpoints/zdr')) {
+            return Promise.resolve({
+              ok: true,
+              json: () =>
+                Promise.resolve({
+                  data: modelsWithSearch.map((m) => ({
+                    model_id: m.id,
+                    model_name: m.name,
+                    provider_name: 'Provider',
+                    context_length: m.context_length,
+                    pricing: m.pricing,
+                  })),
+                }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: modelsWithSearch }),
+          });
+        });
+
+        const mockClient = createMockOpenRouterClient();
+        const app = createTestApp(undefined, undefined, mockClient);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: [AUTO_ROUTER_ID], webSearchEnabled: true }),
+        });
+
+        await res.text();
+
+        const history = mockClient.getCompletionHistory();
+        expect(history).toHaveLength(1);
+        const plugins = history[0]?.plugins;
+        expect(plugins).toBeDefined();
+        expect(plugins?.some((p) => p.id === 'auto-router')).toBe(true);
+        expect(plugins?.some((p) => p.id === 'web')).toBe(true);
+      });
+
+      it('reserves budget based on worst-case allowed model pricing', async () => {
+        vi.useRealTimers();
+        stubAutoRouterModels(fetchMock);
+        const mockRedis = createMockRedis();
+        const app = createTestApp(undefined, mockRedis);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: [AUTO_ROUTER_ID] }),
+        });
+
+        expect(res.status).toBe(200);
+        await res.text();
+
+        // redis.eval is called with (script, [key], [incrementStr, ttlStr])
+        const evalCalls = mockRedis.eval.mock.calls;
+        expect(evalCalls.length).toBeGreaterThanOrEqual(1);
+        const autoRouterReservation = Number(evalCalls[0]?.[2]?.[0]);
+
+        // Compare: send same request with the cheapest model directly
+        const mockRedis2 = createMockRedis();
+        const app2 = createTestApp(undefined, mockRedis2);
+
+        const res2 = await app2.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: ['deepseek/deepseek-r1'] }),
+        });
+
+        expect(res2.status).toBe(200);
+        await res2.text();
+
+        const evalCalls2 = mockRedis2.eval.mock.calls;
+        expect(evalCalls2.length).toBeGreaterThanOrEqual(1);
+        const cheapModelReservation = Number(evalCalls2[0]?.[2]?.[0]);
+
+        // Auto-router reserves at worst-case (most expensive allowed model)
+        // so the reservation should be higher than the cheapest model
+        expect(autoRouterReservation).toBeGreaterThan(cheapModelReservation);
+      });
+    });
+
+    describe('multi-model streaming', () => {
+      const SECOND_MODEL_ID = 'openai/gpt-3.5-turbo';
+      const multiModels = [
+        ...mockModels,
+        {
+          id: SECOND_MODEL_ID,
+          name: 'GPT-3.5 Turbo',
+          description: 'Basic model',
+          context_length: 16_000,
+          pricing: { prompt: '0.0000005', completion: '0.0000015' },
+          supported_parameters: ['temperature'],
+          created: Math.floor(Date.now() / 1000),
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+      ];
+
+      function stubMultiModels(fetchMockFunction: FetchMock): void {
+        fetchMockFunction.mockImplementation((url: string) => {
+          if (url.includes('/endpoints/zdr')) {
+            return Promise.resolve({
+              ok: true,
+              json: () =>
+                Promise.resolve({
+                  data: multiModels.map((m) => ({
+                    model_id: m.id,
+                    model_name: m.name,
+                    provider_name: 'Provider',
+                    context_length: m.context_length,
+                    pricing: m.pricing,
+                  })),
+                }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: multiModels }),
+          });
+        });
+      }
+
+      it('saves user + N assistant messages for multi-model request', async () => {
+        vi.useRealTimers();
+        stubMultiModels(fetchMock);
+
+        const insertedMessages: unknown[] = [];
+        const app = createTestApp({
+          conversations: [
+            {
+              id: TEST_CONVERSATION_ID,
+              userId: TEST_USER_ID,
+              title: 'Test',
+              currentEpoch: 1,
+              nextSequence: 0,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ],
+          users: [{ id: TEST_USER_ID, balance: '10.00000000' }],
+          onInsert: (table, values) => {
+            if (table === messagesTable) {
+              insertedMessages.push(values);
+            }
+          },
+        });
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: ['openai/gpt-4-turbo', SECOND_MODEL_ID] }),
+        });
+
+        await res.text();
+
+        // 1 user message + 2 assistant messages = 3 total
+        expect(insertedMessages.length).toBe(3);
+
+        const userMsg = insertedMessages[0] as Record<string, unknown>;
+        expect(userMsg).toMatchObject({
+          conversationId: TEST_CONVERSATION_ID,
+          senderType: 'user',
+        });
+
+        const aiMsgs = insertedMessages.slice(1) as Record<string, unknown>[];
+        for (const aiMsg of aiMsgs) {
+          expect(aiMsg).toMatchObject({
+            conversationId: TEST_CONVERSATION_ID,
+            senderType: 'ai',
+          });
+        }
+      });
+
+      it('emits model:done event for each model', async () => {
+        vi.useRealTimers();
+        stubMultiModels(fetchMock);
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: ['openai/gpt-4-turbo', SECOND_MODEL_ID] }),
+        });
+
+        const text = await res.text();
+
+        // Should have model:done events for each model
+        const modelDoneMatches = text.match(/event: model:done/g);
+        expect(modelDoneMatches).toHaveLength(2);
+        expect(text).toContain('"modelId":"openai/gpt-4-turbo"');
+        expect(text).toContain(`"modelId":"${SECOND_MODEL_ID}"`);
+      });
+
+      it('emits model-tagged token events', async () => {
+        vi.useRealTimers();
+        stubMultiModels(fetchMock);
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: ['openai/gpt-4-turbo', SECOND_MODEL_ID] }),
+        });
+
+        const text = await res.text();
+
+        // Token events should include modelId
+        expect(text).toContain('event: token');
+        // Parse token events to verify they have modelId
+        const tokenDataMatches = [...text.matchAll(/event: token\ndata: (.+)/g)];
+        expect(tokenDataMatches.length).toBeGreaterThanOrEqual(2);
+        for (const match of tokenDataMatches) {
+          const data = JSON.parse(match[1]!) as Record<string, unknown>;
+          expect(data).toHaveProperty('modelId');
+        }
+      });
+    });
   });
 
   describe('POST /message', () => {
@@ -2561,7 +3109,6 @@ describe('chat routes', () => {
 
     function messageBody(overrides: Record<string, unknown> = {}): string {
       return JSON.stringify({
-        conversationId: TEST_CONVERSATION_ID,
         messageId: TEST_MESSAGE_ID,
         content: 'Hello without AI',
         ...overrides,
@@ -2570,7 +3117,7 @@ describe('chat routes', () => {
 
     it('returns 401 for unauthenticated requests', async () => {
       const app = createUnauthenticatedTestApp();
-      const res = await app.request('/message', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: messageBody(),
@@ -2583,11 +3130,10 @@ describe('chat routes', () => {
 
     it('returns 400 when content is missing', async () => {
       const app = createTestApp();
-      const res = await app.request('/message', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          conversationId: TEST_CONVERSATION_ID,
           messageId: TEST_MESSAGE_ID,
         }),
       });
@@ -2597,7 +3143,7 @@ describe('chat routes', () => {
 
     it('returns 404 when conversation does not exist', async () => {
       const app = createTestApp({ conversations: [] });
-      const res = await app.request('/message', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: messageBody(),
@@ -2610,7 +3156,7 @@ describe('chat routes', () => {
 
     it('returns 200 with sequenceNumber and epochNumber on success', async () => {
       const app = createTestApp();
-      const res = await app.request('/message', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: messageBody(),
@@ -2629,7 +3175,7 @@ describe('chat routes', () => {
 
     it('returns JSON response (not SSE stream)', async () => {
       const app = createTestApp();
-      const res = await app.request('/message', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: messageBody(),
@@ -2704,7 +3250,7 @@ describe('chat routes', () => {
         await next();
       });
       app.route('/', chatRoute);
-      const res = await app.request('/message', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: messageBody(),
@@ -2745,13 +3291,189 @@ describe('chat routes', () => {
           },
         ],
       });
-      const res = await app.request('/message', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: messageBody(),
       });
 
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe('POST /regenerate', () => {
+    const TEST_TARGET_MESSAGE_ID = '55555555-5555-5555-8555-555555555555';
+
+    function regenerateBody(overrides: Record<string, unknown> = {}): string {
+      return JSON.stringify({
+        targetMessageId: TEST_TARGET_MESSAGE_ID,
+        action: 'retry',
+        model: 'openai/gpt-4-turbo',
+        userMessage: {
+          id: TEST_USER_MESSAGE_ID,
+          content: 'Hello',
+        },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        ...overrides,
+      });
+    }
+
+    it('returns 401 for unauthenticated requests', async () => {
+      const app = createUnauthenticatedTestApp();
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: regenerateBody(),
+      });
+
+      expect(res.status).toBe(401);
+      const body: ErrorBody = await res.json();
+      expect(body.code).toBe('NOT_AUTHENTICATED');
+    });
+
+    it('returns 400 when required fields are missing', async () => {
+      const app = createTestApp();
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 for invalid action', async () => {
+      const app = createTestApp();
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: regenerateBody({ action: 'invalid' }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 404 when conversation not found', async () => {
+      const app = createTestApp({ conversations: [] });
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: regenerateBody(),
+      });
+
+      expect(res.status).toBe(404);
+      const body: ErrorBody = await res.json();
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
+    });
+
+    it('returns 400 when messagesForInference ends with assistant role', async () => {
+      const app = createTestApp();
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: regenerateBody({
+          messagesForInference: [
+            { role: 'user', content: 'Hello' },
+            { role: 'assistant', content: 'Hi there' },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body: ErrorBody = await res.json();
+      expect(body.code).toBe('LAST_MESSAGE_NOT_USER');
+    });
+
+    it('streams SSE response for valid regenerate request', async () => {
+      vi.useRealTimers();
+      const app = createTestApp();
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: regenerateBody({
+          action: 'regenerate',
+          messagesForInference: [{ role: 'user', content: 'Hello' }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('text/event-stream');
+    });
+
+    it('streams SSE response for edit action', async () => {
+      vi.useRealTimers();
+      const app = createTestApp();
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: regenerateBody({
+          action: 'edit',
+          messagesForInference: [{ role: 'user', content: 'Edited message' }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('text/event-stream');
+    });
+
+    it('writes SSE error event when persistence fails after successful stream', async () => {
+      vi.useRealTimers();
+
+      // DB insert throws during message persistence
+      const app = createTestApp({
+        conversations: [
+          {
+            id: TEST_CONVERSATION_ID,
+            userId: TEST_USER_ID,
+            title: 'Test Conversation',
+            currentEpoch: 1,
+            nextSequence: 1,
+            conversationBudget: '100.00',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
+        users: [{ id: TEST_USER_ID, balance: '10.00000000' }],
+        onInsert: (table) => {
+          if (table === messagesTable) {
+            throw new Error('DB write failed');
+          }
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: regenerateBody({
+          action: 'retry',
+          messagesForInference: [{ role: 'user', content: 'Hello' }],
+        }),
+      });
+
+      expect(res.status).toBe(200); // SSE streams always return 200
+      const text = await res.text();
+      expect(text).toContain('event: error');
+      expect(text).toContain('"code":"STREAM_ERROR"');
+    });
+
+    it('returns SSE events with start, token, and done sequence', async () => {
+      vi.useRealTimers();
+      const app = createTestApp();
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: regenerateBody({
+          action: 'retry',
+          messagesForInference: [{ role: 'user', content: 'Hello' }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toContain('event: start');
+      expect(text).toContain('event: token');
+      expect(text).toContain('event: done');
     });
   });
 });

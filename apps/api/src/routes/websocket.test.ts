@@ -1,11 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Hono } from 'hono';
+import { toBase64 } from '@hushbox/shared';
 import { websocketRoute } from './websocket.js';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
 
 const TEST_USER_ID = 'user-ws-123';
 const TEST_CONVERSATION_ID = 'conv-ws-456';
+const TEST_LINK_ID = 'link-ws-789';
+const TEST_LINK_PUBLIC_KEY = new Uint8Array([10, 20, 30, 40, 50]);
+const TEST_LINK_DISPLAY_NAME = 'Guest 1';
 
 interface MockStub {
   fetch: ReturnType<typeof vi.fn>;
@@ -37,14 +41,33 @@ function createMockDONamespace(): {
   return { namespace, stub };
 }
 
+interface MockLinkGuestConfig {
+  sharedLink: { id: string; displayName: string } | null;
+  member: MockMemberRow | null;
+}
+
 /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder */
-function createMockDb(members: MockMemberRow[]): unknown {
+function createMockDb(members: MockMemberRow[], linkGuest?: MockLinkGuestConfig): unknown {
+  let queryCount = 0;
   return {
     select: () => ({
       from: () => ({
         where: () => ({
           limit: () => ({
-            then: (resolve: (v: MockMemberRow[]) => unknown) => Promise.resolve(resolve(members)),
+            then: (resolve: (v: unknown[]) => unknown) => {
+              queryCount++;
+              if (linkGuest) {
+                // Link guest path: 1st query = sharedLinks, 2nd query = conversationMembers
+                if (queryCount === 1) {
+                  return Promise.resolve(
+                    resolve(linkGuest.sharedLink ? [linkGuest.sharedLink] : [])
+                  );
+                }
+                return Promise.resolve(resolve(linkGuest.member ? [linkGuest.member] : []));
+              }
+              // Auth user path: single member query
+              return Promise.resolve(resolve(members));
+            },
           }),
         }),
       }),
@@ -84,10 +107,11 @@ interface TestAppOptions {
   user?: AppEnv['Variables']['user'] | null;
   members?: MockMemberRow[];
   doNamespace?: MockNamespace | undefined;
+  linkGuest?: MockLinkGuestConfig;
 }
 
 function createTestApp(options: TestAppOptions = {}): Hono<AppEnv> {
-  const { user = createMockUser(), members = [], doNamespace } = options;
+  const { user = createMockUser(), members = [], doNamespace, linkGuest } = options;
   const app = new Hono<AppEnv>();
 
   app.use('*', async (c, next) => {
@@ -98,7 +122,7 @@ function createTestApp(options: TestAppOptions = {}): Hono<AppEnv> {
     c.set('user', user);
     c.set('session', user ? createMockSession() : null);
     c.set('sessionData', user ? createMockSession() : null);
-    c.set('db', createMockDb(members) as AppEnv['Variables']['db']);
+    c.set('db', createMockDb(members, linkGuest) as AppEnv['Variables']['db']);
     await next();
   });
 
@@ -114,7 +138,7 @@ describe('websocket route', () => {
 
     expect(res.status).toBe(401);
     const body = await res.json<{ code: string }>();
-    expect(body.code).toBe('NOT_AUTHENTICATED');
+    expect(body.code).toBe('UNAUTHORIZED');
   });
 
   it('returns 404 when user is not a member of conversation', async () => {
@@ -192,5 +216,51 @@ describe('websocket route', () => {
     expect(request.headers.get('Upgrade')).toBe('websocket');
     expect(request.headers.get('Connection')).toBe('Upgrade');
     expect(request.headers.get('Sec-WebSocket-Key')).toBe('test-key');
+  });
+
+  it('forwards link guest to DO with userId=linkId and guest=true query params', async () => {
+    const { namespace, stub } = createMockDONamespace();
+    const app = createTestApp({
+      user: null,
+      doNamespace: namespace,
+      linkGuest: {
+        sharedLink: { id: TEST_LINK_ID, displayName: TEST_LINK_DISPLAY_NAME },
+        member: { id: 'member-guest-1', privilege: 'write' },
+      },
+    });
+
+    const keyBase64 = toBase64(TEST_LINK_PUBLIC_KEY);
+    const res = await app.request(
+      `/${TEST_CONVERSATION_ID}?linkPublicKey=${encodeURIComponent(keyBase64)}`
+    );
+
+    expect(res.status).toBe(200);
+    expect(stub.fetch).toHaveBeenCalledOnce();
+
+    const fetchCall = stub.fetch.mock.calls[0] as [Request];
+    const request = fetchCall[0];
+    const url = new URL(request.url);
+    expect(url.searchParams.get('userId')).toBe(TEST_LINK_ID);
+    expect(url.searchParams.get('guest')).toBe('true');
+    expect(url.searchParams.get('name')).toBe(TEST_LINK_DISPLAY_NAME);
+  });
+
+  it('returns 401 when neither session user nor link guest can be resolved', async () => {
+    const app = createTestApp({
+      user: null,
+      linkGuest: {
+        sharedLink: null,
+        member: null,
+      },
+    });
+
+    const keyBase64 = toBase64(TEST_LINK_PUBLIC_KEY);
+    const res = await app.request(
+      `/${TEST_CONVERSATION_ID}?linkPublicKey=${encodeURIComponent(keyBase64)}`
+    );
+
+    expect(res.status).toBe(401);
+    const body = await res.json<{ code: string }>();
+    expect(body.code).toBe('UNAUTHORIZED');
   });
 });

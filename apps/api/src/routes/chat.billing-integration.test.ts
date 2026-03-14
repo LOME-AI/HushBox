@@ -157,9 +157,13 @@ function computeScenario(input: ScenarioInput): ScenarioOutput {
     balanceCents: adjustedBalanceCents,
     freeAllowanceCents: adjustedFreeAllowanceCents,
     promptCharacterCount,
-    modelInputPricePerToken: inputPricePerToken,
-    modelOutputPricePerToken: outputPricePerToken,
-    modelContextLength: contextLength,
+    models: [
+      {
+        modelInputPricePerToken: inputPricePerToken,
+        modelOutputPricePerToken: outputPricePerToken,
+        contextLength,
+      },
+    ],
   });
 
   const safeMaxTokens = computeSafeMaxTokens({
@@ -272,7 +276,7 @@ function createMockDb(options: {
 
   /* eslint-disable unicorn/no-thenable -- test mock for Drizzle query builder */
   function createThenable<T>(value: T) {
-    return {
+    const chainable = {
       then: (resolve: (v: T) => unknown) => Promise.resolve(resolve(value)),
       limit: (n: number) => ({
         then: (resolve: (v: T) => unknown) => {
@@ -280,8 +284,9 @@ function createMockDb(options: {
           return Promise.resolve(resolve(sliced));
         },
       }),
-      orderBy: () => Promise.resolve(value),
+      orderBy: () => chainable,
     };
+    return chainable;
   }
   /* eslint-enable unicorn/no-thenable */
 
@@ -331,9 +336,25 @@ function createMockDb(options: {
     ],
     [epochsTable, () => createThenable([{ epochPublicKey: testEpochKeyPair.publicKey }])],
     [ledgerEntriesTable, () => createThenable([{ maxCreatedAt: lastRenewalAt }])],
-    [conversationMembersTable, () => createThenable([])],
+    [
+      conversationMembersTable,
+      () =>
+        createThenable(
+          conversations.length > 0
+            ? [
+                {
+                  id: 'member-owner',
+                  userId: conversations[0]!.userId,
+                  privilege: 'owner',
+                  visibleFromEpoch: 1,
+                },
+              ]
+            : []
+        ),
+    ],
     [memberBudgetsTable, () => createThenable([])],
     [conversationSpendingTable, () => createThenable([])],
+    [messagesTable, () => createThenable([])],
   ]);
 
   function resolveWhere(table: unknown) {
@@ -477,8 +498,7 @@ function createTestApp(
 
 function streamBody(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    conversationId: TEST_CONVERSATION_ID,
-    model: BASIC_MODEL.id,
+    models: [BASIC_MODEL.id],
     userMessage: { id: TEST_USER_MESSAGE_ID, content: 'Hello' },
     messagesForInference: [{ role: 'user', content: 'Hello' }],
     fundingSource: 'free_allowance',
@@ -539,7 +559,7 @@ describe('billing integration — scenario matrix', () => {
       const mockRedis = createMockRedis();
       const app = createTestApp(freeDbOptions('0.05000000'), mockRedis);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -556,7 +576,7 @@ describe('billing integration — scenario matrix', () => {
       const mockRedis = createMockRedis({ reservedCents: 3 });
       const app = createTestApp(freeDbOptions('0.05000000'), mockRedis);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -571,7 +591,7 @@ describe('billing integration — scenario matrix', () => {
       const mockRedis = createMockRedis({ reservedCents: 4.9 });
       const app = createTestApp(freeDbOptions('0.05000000'), mockRedis);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -586,7 +606,7 @@ describe('billing integration — scenario matrix', () => {
       const mockRedis = createMockRedis({ reservedCents: 5 });
       const app = createTestApp(freeDbOptions('0.05000000'), mockRedis);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -601,10 +621,10 @@ describe('billing integration — scenario matrix', () => {
       const mockRedis = createMockRedis();
       const app = createTestApp(freeDbOptions('0.05000000'), mockRedis);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: streamBody({ model: PREMIUM_MODEL.id, fundingSource: 'personal_balance' }),
+        body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
       expect(res.status).toBe(402);
@@ -616,7 +636,7 @@ describe('billing integration — scenario matrix', () => {
       const mockRedis = createMockRedis();
       const app = createTestApp(freeDbOptions('0.00000000'), mockRedis);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -652,10 +672,10 @@ describe('billing integration — scenario matrix', () => {
       const mockRedis = createMockRedis();
       const app = createTestApp(paidDbOptions('10.00000000'), mockRedis);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: streamBody({ model: PREMIUM_MODEL.id, fundingSource: 'personal_balance' }),
+        body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
       expect(res.status).toBe(200);
@@ -669,10 +689,10 @@ describe('billing integration — scenario matrix', () => {
       const mockRedis = createMockRedis({ reservedCents: 950 });
       const app = createTestApp(paidDbOptions('10.00000000'), mockRedis);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: streamBody({ model: PREMIUM_MODEL.id, fundingSource: 'personal_balance' }),
+        body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
       expect(res.status).toBe(200);
@@ -686,7 +706,7 @@ describe('billing integration — scenario matrix', () => {
       const mockRedis = createMockRedis({ reservedCents: 1049 });
       const app = createTestApp(paidDbOptions('10.00000000'), mockRedis);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody({ fundingSource: 'personal_balance' }),
@@ -701,10 +721,10 @@ describe('billing integration — scenario matrix', () => {
       const mockRedis = createMockRedis({ reservedCents: 1050 });
       const app = createTestApp(paidDbOptions('10.00000000'), mockRedis);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: streamBody({ model: PREMIUM_MODEL.id, fundingSource: 'personal_balance' }),
+        body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
       expect(res.status).toBe(402);
@@ -719,7 +739,7 @@ describe('billing integration — scenario matrix', () => {
       const mockRedis = createMockRedis();
       const app = createTestApp(paidDbOptions('0.01000000'), mockRedis);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody({ fundingSource: 'personal_balance' }),
@@ -737,10 +757,10 @@ describe('billing integration — scenario matrix', () => {
       const mockRedis = createMockRedis();
       const app = createTestApp(paidDbOptions('0.01000000'), mockRedis);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: streamBody({ model: PREMIUM_MODEL.id, fundingSource: 'personal_balance' }),
+        body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
       expect(res.status).toBe(200);
@@ -773,10 +793,10 @@ describe('billing integration — scenario matrix', () => {
         mockRedis
       );
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: streamBody({ model: PREMIUM_MODEL.id, fundingSource: 'personal_balance' }),
+        body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
       expect(res.status).toBe(402);
@@ -804,10 +824,10 @@ describe('billing integration — scenario matrix', () => {
         mockRedis
       );
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: streamBody({ model: PREMIUM_MODEL.id, fundingSource: 'personal_balance' }),
+        body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
       expect(res.status).toBe(200);
@@ -833,7 +853,7 @@ describe('billing integration — scenario matrix', () => {
         mockRedis
       );
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -864,10 +884,10 @@ describe('billing integration — scenario matrix', () => {
         mockRedis
       );
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: streamBody({ model: PREMIUM_MODEL.id, fundingSource: 'personal_balance' }),
+        body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
       expect(res.status).toBe(200);
@@ -925,7 +945,7 @@ describe('billing integration — scenario matrix', () => {
         mockRedis
       );
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -965,7 +985,7 @@ describe('billing integration — scenario matrix', () => {
         mockRedis
       );
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: streamBody(),
@@ -1098,10 +1118,10 @@ describe('billing integration — scenario matrix', () => {
         mockRedis
       );
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: streamBody({ model: PREMIUM_MODEL.id, fundingSource: 'personal_balance' }),
+        body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
       await res.text();
@@ -1179,10 +1199,10 @@ describe('billing integration — scenario matrix', () => {
 
       app.route('/', chatRoute);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: streamBody({ model: PREMIUM_MODEL.id, fundingSource: 'personal_balance' }),
+        body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
       await res.text();
@@ -1326,10 +1346,10 @@ describe('billing integration — scenario matrix', () => {
 
       app.route('/', chatRoute);
 
-      const res = await app.request('/stream', {
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: streamBody({ model: PREMIUM_MODEL.id, fundingSource: 'personal_balance' }),
+        body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
       await res.text();

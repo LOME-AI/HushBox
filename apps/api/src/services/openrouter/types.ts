@@ -30,6 +30,7 @@ export interface ChatCompletionRequest {
   tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
   temperature?: number;
   max_tokens?: number;
+  plugins?: { id: string; allowed_models?: string[] }[];
 }
 
 export interface ChatCompletionChoice {
@@ -57,6 +58,7 @@ export interface ModelInfo {
   pricing: {
     prompt: string;
     completion: string;
+    web_search?: string;
   };
   supported_parameters: string[];
   /** Unix timestamp when the model was created */

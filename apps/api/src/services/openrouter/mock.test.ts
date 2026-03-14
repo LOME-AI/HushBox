@@ -270,6 +270,159 @@ describe('createMockOpenRouterClient', () => {
     });
   });
 
+  describe('web search plugin', () => {
+    it('returns search-style response with citations when plugins include web', async () => {
+      const request: ChatCompletionRequest = {
+        model: 'openai/gpt-4-turbo',
+        messages: [{ role: 'user', content: 'What is quantum computing?' }],
+        plugins: [{ id: 'web' }],
+      };
+
+      const response = await client.chatCompletion(request);
+      const content = response.choices[0]?.message.content ?? '';
+
+      expect(content).not.toContain('Echo:');
+      expect(content).toContain('quantum computing');
+      expect(content).toMatch(/\[.*\]\(https?:\/\/.*\)/);
+    });
+
+    it('returns echo response when no plugins are provided', async () => {
+      const request: ChatCompletionRequest = {
+        model: 'openai/gpt-4-turbo',
+        messages: [{ role: 'user', content: 'Hello' }],
+      };
+
+      const response = await client.chatCompletion(request);
+      const content = response.choices[0]?.message.content ?? '';
+
+      expect(content).toBe('Echo:\n\nHello');
+    });
+
+    it('returns echo response when plugins do not include web', async () => {
+      const request: ChatCompletionRequest = {
+        model: 'openai/gpt-4-turbo',
+        messages: [{ role: 'user', content: 'Hello' }],
+        plugins: [{ id: 'other' }],
+      };
+
+      const response = await client.chatCompletion(request);
+      const content = response.choices[0]?.message.content ?? '';
+
+      expect(content).toBe('Echo:\n\nHello');
+    });
+
+    it('streams search-style response with citations when plugins include web', async () => {
+      const request: ChatCompletionRequest = {
+        model: 'openai/gpt-4-turbo',
+        messages: [{ role: 'user', content: 'Latest news' }],
+        plugins: [{ id: 'web' }],
+      };
+
+      const tokens: string[] = [];
+      for await (const token of client.chatCompletionStream(request)) {
+        tokens.push(token);
+      }
+      const content = tokens.join('');
+
+      expect(content).not.toContain('Echo:');
+      expect(content).toContain('Latest news');
+      expect(content).toMatch(/\[.*\]\(https?:\/\/.*\)/);
+    });
+
+    it('includes search-style response in streamWithMetadata when plugins include web', async () => {
+      vi.useFakeTimers();
+
+      const request: ChatCompletionRequest = {
+        model: 'openai/gpt-4-turbo',
+        messages: [{ role: 'user', content: 'Climate change' }],
+        plugins: [{ id: 'web' }],
+      };
+
+      const tokens: string[] = [];
+      const iterator = client.chatCompletionStreamWithMetadata(request)[Symbol.asyncIterator]();
+
+      // Advance past thinking delay
+      let result = iterator.next();
+      await vi.advanceTimersByTimeAsync(1100);
+      let token = await result;
+
+      while (!token.done) {
+        tokens.push(token.value.content);
+        result = iterator.next();
+        await vi.advanceTimersByTimeAsync(10);
+        token = await result;
+      }
+
+      const content = tokens.join('');
+      expect(content).not.toContain('Echo:');
+      expect(content).toContain('Climate change');
+      expect(content).toMatch(/\[.*\]\(https?:\/\/.*\)/);
+
+      vi.useRealTimers();
+    });
+
+    it('stores plugins in request history', async () => {
+      const request: ChatCompletionRequest = {
+        model: 'openai/gpt-4-turbo',
+        messages: [{ role: 'user', content: 'Test' }],
+        plugins: [{ id: 'web' }],
+      };
+
+      await client.chatCompletion(request);
+
+      const history = client.getCompletionHistory();
+      expect(history[0]?.plugins).toEqual([{ id: 'web' }]);
+    });
+  });
+
+  describe('auto-router support', () => {
+    it('uses non-zero cost for auto-router in generation stats', async () => {
+      vi.useFakeTimers();
+
+      const request: ChatCompletionRequest = {
+        model: 'openrouter/auto',
+        messages: [{ role: 'user', content: 'Hello' }],
+      };
+
+      // Stream to populate generation data
+      let generationId: string | undefined;
+      const iterator = client.chatCompletionStreamWithMetadata(request)[Symbol.asyncIterator]();
+      let result = iterator.next();
+      await vi.advanceTimersByTimeAsync(1100);
+      let token = await result;
+      while (!token.done) {
+        if (token.value.generationId) {
+          generationId = token.value.generationId;
+        }
+        result = iterator.next();
+        await vi.advanceTimersByTimeAsync(10);
+        token = await result;
+      }
+
+      vi.useRealTimers();
+
+      expect(generationId).toBeDefined();
+      const stats = await client.getGenerationStats(generationId!);
+      expect(stats.total_cost).toBeGreaterThan(0);
+    });
+
+    it('preserves auto-router plugin with allowed_models in history', async () => {
+      const request: ChatCompletionRequest = {
+        model: 'openrouter/auto',
+        messages: [{ role: 'user', content: 'Test' }],
+        plugins: [{ id: 'auto-router', allowed_models: ['openai/gpt-4-turbo'] }, { id: 'web' }],
+      };
+
+      await client.chatCompletion(request);
+
+      const history = client.getCompletionHistory();
+      expect(history[0]?.plugins).toEqual([
+        { id: 'auto-router', allowed_models: ['openai/gpt-4-turbo'] },
+        { id: 'web' },
+      ]);
+    });
+  });
+
   describe('listModels and getModel', () => {
     it('throws not implemented error for listModels', () => {
       expect(() => client.listModels()).toThrow('Not implemented');

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from '../../lib/utilities';
+import { useIntersectionVisibility } from '../../hooks/use-intersection-visibility';
 
 interface Step {
   title: string;
@@ -23,29 +24,7 @@ function StepFlow({
   className,
   ...props
 }: Readonly<StepFlowProps>): React.JSX.Element {
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!animated) return;
-    const element = containerRef.current;
-    if (!element) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.1 }
-    );
-
-    observer.observe(element);
-    return (): void => {
-      observer.disconnect();
-    };
-  }, [animated]);
+  const { containerRef, visible } = useIntersectionVisibility(animated);
 
   return (
     <div

@@ -1,12 +1,6 @@
 import * as React from 'react';
-import {
-  resolveBilling,
-  getUserTier,
-  type UserBalanceState,
-  type UserTier,
-  type ResolveBillingResult,
-} from '@hushbox/shared';
-import { useBalance } from './billing.js';
+import { resolveBilling, type UserTier, type ResolveBillingResult } from '@hushbox/shared';
+import { useUserTierInfo } from './use-user-tier-info.js';
 
 export interface UseResolveBillingInput {
   /** Estimated minimum cost in cents (from calculateBudget().estimatedMinimumCost * 100) */
@@ -30,22 +24,7 @@ export interface UseResolveBillingInput {
  * Returns a `ResolveBillingResult` — either a `fundingSource` or `{ fundingSource: 'denied', reason }`.
  */
 export function useResolveBilling(input: UseResolveBillingInput): ResolveBillingResult {
-  const { data: balanceData } = useBalance();
-
-  const balanceState = React.useMemo((): UserBalanceState | null => {
-    if (!input.isAuthenticated) {
-      return null;
-    }
-    if (!balanceData) {
-      return null;
-    }
-    return {
-      balanceCents: Number.parseFloat(balanceData.balance) * 100,
-      freeAllowanceCents: balanceData.freeAllowanceCents,
-    };
-  }, [input.isAuthenticated, balanceData]);
-
-  const tierInfo = React.useMemo(() => getUserTier(balanceState), [balanceState]);
+  const tierInfo = useUserTierInfo(input.isAuthenticated);
 
   return React.useMemo(
     () =>

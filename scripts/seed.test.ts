@@ -131,7 +131,7 @@ vi.mock('@hushbox/db/factories', () => ({
       encryptedBlob: mockCryptoBytes(64),
       senderType: 'user',
       senderId: 'test-user-id',
-      senderDisplayName: null,
+      modelName: null,
       payerId: null,
       epochNumber: 1,
       sequenceNumber: 1,

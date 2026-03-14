@@ -11,6 +11,7 @@ import {
   unwrapAccountKeyWithPassword,
   rewrapAccountKeyForPasswordChange,
   recoverAccountFromMnemonic,
+  decryptMessage,
 } from '@hushbox/crypto';
 import {
   normalizeIdentifier,
@@ -32,6 +33,7 @@ import {
   restoreSession,
   type MeResponse,
 } from './auth-client.js';
+import { getLinkGuestAuth } from './link-guest-auth.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,6 +46,11 @@ export function parseErrorMessage(body: unknown): string {
     if (typeof code === 'string') return friendlyErrorMessage(code);
   }
   return friendlyErrorMessage('INTERNAL');
+}
+
+async function handleErrorResponse(response: Response): Promise<{ success: false; error: string }> {
+  const body: unknown = await response.json();
+  return { success: false, error: parseErrorMessage(body) };
 }
 
 // ---------------------------------------------------------------------------
@@ -62,10 +69,12 @@ export interface UserData {
 interface AuthState {
   user: UserData | null;
   privateKey: Uint8Array | null;
+  customInstructions: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   setUser: (user: UserData | null) => void;
   setPrivateKey: (key: Uint8Array) => void;
+  setCustomInstructions: (instructions: string | null) => void;
   setLoading: (isLoading: boolean) => void;
   clear: () => void;
 }
@@ -93,6 +102,7 @@ interface VerifyEmailResult {
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   privateKey: null,
+  customInstructions: null,
   isLoading: true,
   isAuthenticated: false,
   setUser: (user) => {
@@ -101,13 +111,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setPrivateKey: (key) => {
     set({ privateKey: key });
   },
+  setCustomInstructions: (instructions) => {
+    set({ customInstructions: instructions });
+  },
   setLoading: (isLoading) => {
     set({ isLoading });
   },
   clear: () => {
     const { privateKey } = get();
     if (privateKey) privateKey.fill(0);
-    set({ user: null, privateKey: null, isAuthenticated: false, isLoading: false });
+    set({
+      user: null,
+      privateKey: null,
+      customInstructions: null,
+      isAuthenticated: false,
+      isLoading: false,
+    });
   },
 }));
 
@@ -124,6 +143,14 @@ export function useSession(): SessionHookResult {
   const { user, isLoading } = useAuthStore(
     useShallow((s) => ({ user: s.user, isLoading: s.isLoading }))
   );
+
+  // When viewing a shared conversation via link guest auth, mask the session
+  // so the user appears as an unauthenticated guest. This prevents balance
+  // queries (which fail with credentials: 'omit') and ensures the share page
+  // shows read-only notification instead of trial notice.
+  if (getLinkGuestAuth()) {
+    return { data: null, isPending: false };
+  }
 
   return {
     data: user ? { user, session: { id: user.id } } : null,
@@ -229,6 +256,11 @@ async function signInEmail(options: {
             if (meResponse.ok) {
               const meData = (await meResponse.json()) as MeResponse;
               useAuthStore.getState().setUser(meData.user);
+              useAuthStore
+                .getState()
+                .setCustomInstructions(
+                  decryptCustomInstructions(accountPrivateKey, meData.customInstructionsEncrypted)
+                );
             }
 
             return { success: true };
@@ -258,6 +290,11 @@ async function signInEmail(options: {
     if (meResponse.ok) {
       const meData = (await meResponse.json()) as MeResponse;
       useAuthStore.getState().setUser(meData.user);
+      useAuthStore
+        .getState()
+        .setCustomInstructions(
+          decryptCustomInstructions(accountPrivateKey, meData.customInstructionsEncrypted)
+        );
     } else {
       // Fallback to minimal user info from login response
       useAuthStore.getState().setUser({
@@ -402,8 +439,7 @@ export async function changePassword(
     });
 
     if (!initResponse.ok) {
-      const body: unknown = await initResponse.json();
-      return { success: false, error: parseErrorMessage(body) };
+      return await handleErrorResponse(initResponse);
     }
 
     const { ke2, newRegistrationResponse } = (await initResponse.json()) as {
@@ -447,8 +483,7 @@ export async function changePassword(
     });
 
     if (!finishResponse.ok) {
-      const body: unknown = await finishResponse.json();
-      return { success: false, error: parseErrorMessage(body) };
+      return await handleErrorResponse(finishResponse);
     }
 
     // 9. Update local export key storage
@@ -490,8 +525,7 @@ export async function resetPasswordViaRecovery(
     });
 
     if (!getKeyResponse.ok) {
-      const body: unknown = await getKeyResponse.json();
-      return { success: false, error: parseErrorMessage(body) };
+      return await handleErrorResponse(getKeyResponse);
     }
 
     const { recoveryWrappedPrivateKey } = (await getKeyResponse.json()) as {
@@ -517,8 +551,7 @@ export async function resetPasswordViaRecovery(
     });
 
     if (!initResponse.ok) {
-      const body: unknown = await initResponse.json();
-      return { success: false, error: parseErrorMessage(body) };
+      return await handleErrorResponse(initResponse);
     }
 
     const { newRegistrationResponse } = (await initResponse.json()) as {
@@ -553,8 +586,7 @@ export async function resetPasswordViaRecovery(
     });
 
     if (!finishResponse.ok) {
-      const body: unknown = await finishResponse.json();
-      return { success: false, error: parseErrorMessage(body) };
+      return await handleErrorResponse(finishResponse);
     }
 
     return { success: true };
@@ -640,6 +672,7 @@ export async function signOutAndClearCache(): Promise<void> {
   clearEpochKeyCache(); // zeros and clears all cached epoch keys
   useAuthStore.getState().clear(); // zeros privateKey, clears state
   queryClient.clear();
+  initPromise = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -678,6 +711,23 @@ export const authClient = {
 };
 
 // ---------------------------------------------------------------------------
+// Helpers — custom instructions decryption
+// ---------------------------------------------------------------------------
+
+function decryptCustomInstructions(
+  privateKey: Uint8Array,
+  encryptedBase64: string | null | undefined
+): string | null {
+  if (!encryptedBase64) return null;
+  try {
+    const blob = fromBase64(encryptedBase64);
+    return decryptMessage(privateKey, blob);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // initAuth (singleton — restores session from stored export key)
 // ---------------------------------------------------------------------------
 
@@ -709,6 +759,11 @@ async function doInitAuth(): Promise<void> {
 
     useAuthStore.getState().setPrivateKey(restored.privateKey);
     useAuthStore.getState().setUser(restored.user);
+    useAuthStore
+      .getState()
+      .setCustomInstructions(
+        decryptCustomInstructions(restored.privateKey, restored.customInstructionsEncrypted)
+      );
   } catch {
     // restoreSession() handles clearing auth for definitive failures (401/403).
     // Don't clear here — transient errors should allow retry.

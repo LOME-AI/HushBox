@@ -25,6 +25,12 @@ test.describe('Shared Content', () => {
       const modal = authenticatedPage.getByTestId('invite-link-modal');
       await expect(modal).toBeVisible();
 
+      // Check history checkbox so guest can see existing messages
+      await authenticatedPage
+        .getByTestId('invite-link-history-checkbox')
+        .getByRole('checkbox')
+        .check();
+
       await authenticatedPage.getByTestId('invite-link-generate-button').click();
 
       const urlEl = authenticatedPage.getByTestId('invite-link-url');

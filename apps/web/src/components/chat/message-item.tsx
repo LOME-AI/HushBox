@@ -1,8 +1,12 @@
 import * as React from 'react';
 import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@hushbox/ui';
-import { Check, Copy, Share2 } from 'lucide-react';
+import { shortenModelName } from '@hushbox/shared';
+import { getModelColor } from '@/lib/model-color';
+import { useModels } from '@/hooks/models';
+import { Check, Copy, GitBranch, Pencil, RefreshCw, Share2 } from 'lucide-react';
 import type { Message } from '@/lib/api';
-import type { MessageGroup } from '@/lib/chat-sender';
+import type { MessageAction } from '@/lib/message-actions';
+import type { MessageGroup, LinkInfo } from '@/lib/chat-sender';
 import { getSenderLabel, isOwnMessage } from '@/lib/chat-sender';
 import { MarkdownRenderer } from './markdown-renderer';
 import { MessageCost } from './message-cost';
@@ -17,6 +21,8 @@ interface MemberInfo {
 
 interface MessageItemProps {
   message: Message;
+  /** Set of actions allowed for this message, determined by resolveMessageActions */
+  allowedActions: Set<MessageAction>;
   /** Whether this message is currently streaming */
   isStreaming?: boolean;
   /** Display name of the selected model, shown in thinking indicator */
@@ -24,6 +30,12 @@ interface MessageItemProps {
   isError?: boolean;
   onRetry?: () => void;
   onShare?: (messageId: string) => void;
+  /** Called when user clicks regenerate (AI) or retry (user) */
+  onRegenerate?: (messageId: string) => void;
+  /** Called when user clicks edit on a user message */
+  onEdit?: (messageId: string, content: string) => void;
+  /** Called when user clicks fork on any message */
+  onFork?: (messageId: string) => void;
   /** Group of consecutive messages (group chat mode) */
   group?: MessageGroup;
   /** Whether this is a group chat with multiple members */
@@ -32,6 +44,8 @@ interface MessageItemProps {
   currentUserId?: string;
   /** Group chat members for resolving sender names */
   members?: MemberInfo[];
+  /** Shared links for resolving link guest sender names */
+  links?: LinkInfo[];
 }
 
 interface RetryButtonProps {
@@ -76,62 +90,213 @@ function computeBubbleClasses(
   return cn('px-4 py-2', 'bg-message-user text-foreground rounded-lg');
 }
 
+function ActionButton({
+  label,
+  icon,
+  onClick,
+}: Readonly<{
+  label: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+}>): React.JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+          onClick={onClick}
+          aria-label={label}
+        >
+          {icon}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        <p>{label}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function CopyButton({
+  copied,
+  onCopy,
+}: Readonly<{
+  copied: boolean;
+  onCopy: () => void;
+}>): React.JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+          onClick={onCopy}
+          aria-label={copied ? 'Copied' : 'Copy'}
+        >
+          {copied ? (
+            <Check className="h-3 w-3" aria-hidden="true" />
+          ) : (
+            <Copy className="h-3 w-3" aria-hidden="true" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        <p>{copied ? 'Copied!' : 'Copy'}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+interface UserActionEntry {
+  key: string;
+  render: () => React.JSX.Element;
+}
+
+function UserMessageActions({
+  message,
+  allowedActions,
+  onRegenerate,
+  onEdit,
+  onFork,
+  copied,
+  onCopy,
+}: Readonly<{
+  message: Message;
+  allowedActions: Set<MessageAction>;
+  onRegenerate?: (messageId: string) => void;
+  onEdit?: (messageId: string, content: string) => void;
+  onFork?: (messageId: string) => void;
+  copied: boolean;
+  onCopy: () => void;
+}>): React.JSX.Element | null {
+  const actions: UserActionEntry[] = [];
+
+  if (allowedActions.has('retry') && onRegenerate) {
+    const handler = onRegenerate;
+    actions.push({
+      key: 'retry',
+      render: () => (
+        <ActionButton
+          label="Retry"
+          icon={<RefreshCw className="h-3 w-3" aria-hidden="true" />}
+          onClick={() => {
+            handler(message.id);
+          }}
+        />
+      ),
+    });
+  }
+
+  if (allowedActions.has('edit') && onEdit) {
+    const handler = onEdit;
+    actions.push({
+      key: 'edit',
+      render: () => (
+        <ActionButton
+          label="Edit"
+          icon={<Pencil className="h-3 w-3" aria-hidden="true" />}
+          onClick={() => {
+            handler(message.id, message.content);
+          }}
+        />
+      ),
+    });
+  }
+
+  if (allowedActions.has('fork') && onFork) {
+    const handler = onFork;
+    actions.push({
+      key: 'fork',
+      render: () => (
+        <ActionButton
+          label="Fork"
+          icon={<GitBranch className="h-3 w-3" aria-hidden="true" />}
+          onClick={() => {
+            handler(message.id);
+          }}
+        />
+      ),
+    });
+  }
+
+  if (allowedActions.has('copy')) {
+    actions.push({
+      key: 'copy',
+      render: () => <CopyButton copied={copied} onCopy={onCopy} />,
+    });
+  }
+
+  if (actions.length === 0) return null;
+
+  return (
+    <div className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-center justify-end px-1">
+      <div className="ml-auto flex items-center gap-0.5">
+        {actions.map((a) => (
+          <React.Fragment key={a.key}>{a.render()}</React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MessageActions({
   primaryMessage,
+  allowedActions,
   onShare,
+  onRegenerate,
+  onFork,
   copied,
   onCopy,
 }: Readonly<{
   primaryMessage: Message;
+  allowedActions: Set<MessageAction>;
   onShare?: (messageId: string) => void;
+  onRegenerate?: (messageId: string) => void;
+  onFork?: (messageId: string) => void;
   copied: boolean;
   onCopy: () => void;
 }>): React.JSX.Element {
+  const showRegenerate = allowedActions.has('regenerate') && onRegenerate;
+  const showFork = allowedActions.has('fork') && onFork;
+  const showShare = allowedActions.has('share') && onShare;
+  const showCopy = allowedActions.has('copy');
+
   return (
     <div className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-center justify-between px-1">
       {primaryMessage.cost && <MessageCost cost={primaryMessage.cost} />}
 
       <div className="ml-auto flex items-center gap-0.5">
-        {onShare && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-                onClick={() => {
-                  onShare(primaryMessage.id);
-                }}
-                aria-label="Share"
-              >
-                <Share2 className="h-3 w-3" aria-hidden="true" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              <p>Share</p>
-            </TooltipContent>
-          </Tooltip>
+        {showRegenerate && (
+          <ActionButton
+            label="Regenerate"
+            icon={<RefreshCw className="h-3 w-3" aria-hidden="true" />}
+            onClick={() => {
+              onRegenerate(primaryMessage.id);
+            }}
+          />
         )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-              onClick={onCopy}
-              aria-label={copied ? 'Copied' : 'Copy'}
-            >
-              {copied ? (
-                <Check className="h-3 w-3" aria-hidden="true" />
-              ) : (
-                <Copy className="h-3 w-3" aria-hidden="true" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <p>{copied ? 'Copied!' : 'Copy'}</p>
-          </TooltipContent>
-        </Tooltip>
+        {showFork && (
+          <ActionButton
+            label="Fork"
+            icon={<GitBranch className="h-3 w-3" aria-hidden="true" />}
+            onClick={() => {
+              onFork(primaryMessage.id);
+            }}
+          />
+        )}
+        {showShare && (
+          <ActionButton
+            label="Share"
+            icon={<Share2 className="h-3 w-3" aria-hidden="true" />}
+            onClick={() => {
+              onShare(primaryMessage.id);
+            }}
+          />
+        )}
+        {showCopy && <CopyButton copied={copied} onCopy={onCopy} />}
       </div>
     </div>
   );
@@ -153,34 +318,49 @@ interface MessageDisplayInput {
   isGroupChat: boolean | undefined;
   currentUserId: string | undefined;
   members: MemberInfo[] | undefined;
+  links: LinkInfo[] | undefined;
 }
 
-function resolveGroupIdentity(
-  isGroupedUser: boolean,
-  group: MessageGroup | undefined,
-  currentUserId: string | undefined,
-  members: MemberInfo[] | undefined
-): { senderLabel: string | undefined; ownMessage: boolean } {
+interface GroupIdentityInput {
+  isGroupedUser: boolean;
+  group: MessageGroup | undefined;
+  currentUserId: string | undefined;
+  members: MemberInfo[] | undefined;
+  links: LinkInfo[] | undefined;
+}
+
+function resolveGroupIdentity(input: GroupIdentityInput): {
+  senderLabel: string | undefined;
+  ownMessage: boolean;
+} {
+  const { isGroupedUser, group, currentUserId, members, links } = input;
   if (!isGroupedUser || !currentUserId || !group) {
     return { senderLabel: undefined, ownMessage: true };
   }
   return {
-    senderLabel: getSenderLabel(group.senderId, currentUserId, members ?? [], true),
+    senderLabel: getSenderLabel({
+      senderId: group.senderId,
+      currentUserId,
+      members: members ?? [],
+      isGroupChat: true,
+      links: links ?? [],
+    }),
     ownMessage: isOwnMessage(group.senderId, currentUserId),
   };
 }
 
 function computeMessageDisplayState(input: MessageDisplayInput): MessageDisplayState {
-  const { message, group, isGroupChat, currentUserId, members } = input;
+  const { message, group, isGroupChat, currentUserId, members, links } = input;
   const isGroupedUser = !!group && group.role === 'user' && !!isGroupChat;
   const effectiveRole = group ? group.role : message.role;
   const isUser = effectiveRole === 'user';
-  const { senderLabel, ownMessage } = resolveGroupIdentity(
+  const { senderLabel, ownMessage } = resolveGroupIdentity({
     isGroupedUser,
     group,
     currentUserId,
-    members
-  );
+    members,
+    links,
+  });
   const messagesToRender = isGroupedUser ? group.messages : [message];
   const primaryMessage = messagesToRender[0] ?? message;
   return {
@@ -206,7 +386,7 @@ function AIMessageContent({
   isError: boolean | undefined;
 }>): React.JSX.Element {
   if (isStreaming && primaryMessage.content === '') {
-    return <ThinkingIndicator modelName={modelName ?? ''} />;
+    return <ThinkingIndicator modelName={primaryMessage.modelName ?? modelName ?? ''} />;
   }
   return (
     <MarkdownRenderer
@@ -248,17 +428,117 @@ function UserMessageContent({
   );
 }
 
+function AIMessageNametag({
+  primaryMessage,
+  modelName,
+}: Readonly<{
+  primaryMessage: Message;
+  modelName: string | undefined;
+}>): React.JSX.Element {
+  const { data: modelsData } = useModels();
+
+  const nametagText = (() => {
+    if (primaryMessage.modelName) {
+      const resolved = modelsData?.models.find((m) => m.id === primaryMessage.modelName);
+      return shortenModelName(resolved?.name ?? primaryMessage.modelName);
+    }
+    return modelName ? shortenModelName(modelName) : 'AI';
+  })();
+
+  const color = getModelColor(primaryMessage.modelName ?? modelName ?? 'AI');
+
+  return (
+    <p
+      data-testid="model-nametag"
+      className="mb-0.5 inline-block rounded bg-[var(--nametag-bg)] px-1.5 py-0.5 text-xs text-[var(--nametag-fg)] dark:bg-[var(--nametag-bg-dark)] dark:text-[var(--nametag-fg-dark)]"
+      style={
+        {
+          '--nametag-bg': color.bg,
+          '--nametag-fg': color.fg,
+          '--nametag-bg-dark': color.bgDark,
+          '--nametag-fg-dark': color.fgDark,
+        } as React.CSSProperties
+      }
+    >
+      {nametagText}
+    </p>
+  );
+}
+
+function MessageActionButtons({
+  isUser,
+  primaryMessage,
+  allowedActions,
+  onRetry,
+  onShare,
+  onRegenerate,
+  onEdit,
+  onFork,
+  copied,
+  onCopy,
+}: Readonly<{
+  isUser: boolean;
+  primaryMessage: Message;
+  allowedActions: Set<MessageAction>;
+  onRetry?: () => void;
+  onShare?: (messageId: string) => void;
+  onRegenerate?: (messageId: string) => void;
+  onEdit?: (messageId: string, content: string) => void;
+  onFork?: (messageId: string) => void;
+  copied: boolean;
+  onCopy: () => void;
+}>): React.JSX.Element | null {
+  const showRetryError = allowedActions.has('retry-error') && onRetry;
+
+  if (isUser) {
+    return (
+      <>
+        {showRetryError && <RetryButton onRetry={onRetry} />}
+        <UserMessageActions
+          message={primaryMessage}
+          allowedActions={allowedActions}
+          {...(onRegenerate != null && { onRegenerate })}
+          {...(onEdit != null && { onEdit })}
+          {...(onFork != null && { onFork })}
+          copied={copied}
+          onCopy={onCopy}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      {showRetryError && <RetryButton onRetry={onRetry} />}
+      <MessageActions
+        primaryMessage={primaryMessage}
+        allowedActions={allowedActions}
+        {...(onShare != null && { onShare })}
+        {...(onRegenerate != null && { onRegenerate })}
+        {...(onFork != null && { onFork })}
+        copied={copied}
+        onCopy={onCopy}
+      />
+    </>
+  );
+}
+
 export function MessageItem({
   message,
+  allowedActions,
   isStreaming,
   modelName,
   isError,
   onRetry,
   onShare,
+  onRegenerate,
+  onEdit,
+  onFork,
   group,
   isGroupChat,
   currentUserId,
   members,
+  links,
 }: Readonly<MessageItemProps>): React.JSX.Element {
   const [copied, setCopied] = React.useState(false);
 
@@ -270,7 +550,7 @@ export function MessageItem({
     ownMessage,
     messagesToRender,
     primaryMessage,
-  } = computeMessageDisplayState({ message, group, isGroupChat, currentUserId, members });
+  } = computeMessageDisplayState({ message, group, isGroupChat, currentUserId, members, links });
 
   const handleCopy = async (): Promise<void> => {
     const allContent = messagesToRender.map((m) => m.content).join('\n\n');
@@ -312,27 +592,34 @@ export function MessageItem({
                 message={message}
               />
             ) : (
-              <div className="w-full overflow-hidden text-base leading-relaxed break-words">
-                <AIMessageContent
-                  primaryMessage={primaryMessage}
-                  isStreaming={isStreaming}
-                  modelName={modelName}
-                  isError={isError}
-                />
-              </div>
+              <>
+                {(primaryMessage.content !== '' || isStreaming === true) && (
+                  <AIMessageNametag primaryMessage={primaryMessage} modelName={modelName} />
+                )}
+                <div className="w-full overflow-hidden text-base leading-relaxed break-words">
+                  <AIMessageContent
+                    primaryMessage={primaryMessage}
+                    isStreaming={isStreaming}
+                    modelName={modelName}
+                    isError={isError}
+                  />
+                </div>
+              </>
             )}
           </div>
 
-          {isError && onRetry && <RetryButton onRetry={onRetry} />}
-
-          {!isUser && !isError && (
-            <MessageActions
-              primaryMessage={primaryMessage}
-              {...(onShare !== undefined && { onShare })}
-              copied={copied}
-              onCopy={() => void handleCopy()}
-            />
-          )}
+          <MessageActionButtons
+            isUser={isUser}
+            primaryMessage={primaryMessage}
+            allowedActions={allowedActions}
+            {...(onRetry != null && { onRetry })}
+            {...(onShare != null && { onShare })}
+            {...(onRegenerate != null && { onRegenerate })}
+            {...(onEdit != null && { onEdit })}
+            {...(onFork != null && { onFork })}
+            copied={copied}
+            onCopy={() => void handleCopy()}
+          />
         </div>
       </div>
     </div>

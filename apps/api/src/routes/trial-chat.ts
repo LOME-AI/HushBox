@@ -8,9 +8,10 @@ import {
   ERROR_CODE_PREMIUM_REQUIRES_ACCOUNT,
   ERROR_CODE_AUTHENTICATED_ON_TRIAL,
   ERROR_CODE_TRIAL_MESSAGE_TOO_EXPENSIVE,
+  ERROR_CODE_STREAM_ERROR,
   calculateBudget,
   resolveBilling,
-  applyFees,
+  getModelPricing,
   buildSystemPrompt,
 } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
@@ -22,6 +23,7 @@ import { validateLastMessageIsFromUser, buildOpenRouterMessages } from '../servi
 import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { createSSEEventWriter } from '../lib/stream-handler.js';
+import { lookupModelPricing } from '../lib/stream-pipeline.js';
 import { hashIp, getClientIp } from '../lib/client-ip.js';
 import type { Context } from 'hono';
 
@@ -81,26 +83,6 @@ function checkTrialModelAccess(
   return null;
 }
 
-interface ModelPricing {
-  inputPricePerToken: number;
-  outputPricePerToken: number;
-  contextLength: number;
-}
-
-function getModelPricing(
-  models: Awaited<ReturnType<typeof fetchModels>>,
-  modelId: string
-): ModelPricing {
-  const modelInfo = models.find((m) => m.id === modelId);
-  const inputPricePerToken = applyFees(modelInfo ? Number.parseFloat(modelInfo.pricing.prompt) : 0);
-  const outputPricePerToken = applyFees(
-    modelInfo ? Number.parseFloat(modelInfo.pricing.completion) : 0
-  );
-  const contextLength = modelInfo?.context_length ?? 128_000;
-
-  return { inputPricePerToken, outputPricePerToken, contextLength };
-}
-
 type TrialBudgetResult =
   | {
       allowed: true;
@@ -112,7 +94,7 @@ type TrialBudgetResult =
 function calculateTrialBudget(
   c: Context<AppEnv>,
   messages: TrialMessage[],
-  pricing: ModelPricing
+  pricing: ReturnType<typeof getModelPricing>
 ): TrialBudgetResult {
   const systemPromptForBudget = buildSystemPrompt([]);
   const historyCharacters = messages.reduce((sum, m) => sum + m.content.length, 0);
@@ -123,9 +105,13 @@ function calculateTrialBudget(
     balanceCents: 0,
     freeAllowanceCents: 0,
     promptCharacterCount,
-    modelInputPricePerToken: pricing.inputPricePerToken,
-    modelOutputPricePerToken: pricing.outputPricePerToken,
-    modelContextLength: pricing.contextLength,
+    models: [
+      {
+        modelInputPricePerToken: pricing.inputPricePerToken,
+        modelOutputPricePerToken: pricing.outputPricePerToken,
+        contextLength: pricing.contextLength,
+      },
+    ],
   });
 
   const estimatedMinimumCostCents = Math.ceil(budgetResult.estimatedMinimumCost * 100);
@@ -189,7 +175,7 @@ async function validateTrialRequest(
     return { success: false, response: modelError };
   }
 
-  const pricing = getModelPricing(allModels, model);
+  const pricing = lookupModelPricing(allModels, model);
   const budgetCheck = calculateTrialBudget(c, messages, pricing);
   if (!budgetCheck.allowed) {
     return { success: false, response: budgetCheck.errorResponse };
@@ -238,7 +224,10 @@ export const trialChatRoute = new Hono<AppEnv>().post(
     return streamSSE(c, async (stream) => {
       const writer = createSSEEventWriter(stream);
 
-      await writer.writeStart({ assistantMessageId });
+      await writer.writeStart({
+        userMessageId: crypto.randomUUID(),
+        models: [{ modelId: model, assistantMessageId }],
+      });
 
       let streamError: Error | null = null;
 
@@ -255,7 +244,7 @@ export const trialChatRoute = new Hono<AppEnv>().post(
       }
 
       if (streamError) {
-        await writer.writeError({ message: streamError.message, code: 'STREAM_ERROR' });
+        await writer.writeError({ message: streamError.message, code: ERROR_CODE_STREAM_ERROR });
       } else {
         await writer.writeDone();
       }

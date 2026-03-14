@@ -94,10 +94,11 @@ const ERROR_MESSAGES = {
   LAST_MESSAGE_NOT_USER: 'Last message must be from you.',
   BALANCE_RESERVED: 'Please wait for your current messages to finish before starting more.',
   DAILY_LIMIT_EXCEEDED: 'Daily message limit exceeded.',
+  STREAM_ERROR: 'Something went wrong. Please try again or try a different model.',
+  BILLING_ERROR: 'Something went wrong saving your message. Your balance was not charged.',
   CHAT_STREAM_FAILED: 'Something went wrong. Please try again or try a different model.',
   CONTEXT_LENGTH_EXCEEDED:
     'This conversation is too long for the selected model. Try a model with a larger context window.',
-  PHRASE_REQUIRED: 'Recovery phrase required before making payments.',
   PAYMENT_NOT_FOUND: 'Payment not found.',
   PAYMENT_ALREADY_PROCESSED: 'Payment already processed.',
   PAYMENT_EXPIRED: 'Payment expired.',
@@ -124,6 +125,15 @@ const ERROR_MESSAGES = {
   SHARE_NOT_FOUND: 'Shared message not found.',
   WRAP_SET_MISMATCH: 'Member wrap set does not match active members.',
   ROTATION_REQUIRED: 'Epoch rotation is required for this operation.',
+
+  // Regeneration & Fork codes
+  REGENERATION_BLOCKED_BY_OTHER_USER:
+    'Cannot regenerate — another user has replied after this message.',
+  FORK_NOT_FOUND: 'Fork not found.',
+  FORK_NAME_TAKEN: 'A fork with this name already exists.',
+  FORK_LIMIT_REACHED: 'Maximum number of forks reached for this conversation.',
+  TARGET_MESSAGE_NOT_FOUND: 'Target message not found.',
+  CANNOT_REGENERATE_WHILE_STREAMING: 'Please wait for the current response to finish.',
 } as const satisfies Record<string, string>;
 
 /** Known error code — union of all keys in the error message map. */

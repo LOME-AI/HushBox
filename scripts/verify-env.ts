@@ -200,6 +200,30 @@ function compareEnvUtilities(actual: EnvUtilities, expected: EnvUtilities): Mism
 }
 
 /**
+ * Build a VerificationResult from a resolved env context and source label.
+ * Shared by verifyBackendEnv and verifyFrontendEnv to avoid duplicating
+ * the createEnvUtilities → compare → return-result pattern.
+ */
+export function verifyEnvSource(
+  mode: Mode,
+  envContext: EnvContext,
+  source: string
+): VerificationResult {
+  const actual = createEnvUtilities(envContext);
+  const expected = getExpectedEnvUtilities(mode);
+  const mismatches = compareEnvUtilities(actual, expected);
+
+  return {
+    success: mismatches.length === 0,
+    actual,
+    expected,
+    mismatches,
+    source,
+    input: envContext,
+  };
+}
+
+/**
  * Verify backend environment for a given mode
  */
 export async function verifyBackendEnv(
@@ -217,18 +241,7 @@ export async function verifyBackendEnv(
     source = paths.devVarsPath;
   }
 
-  const actual = createEnvUtilities(envContext);
-  const expected = getExpectedEnvUtilities(mode);
-  const mismatches = compareEnvUtilities(actual, expected);
-
-  return {
-    success: mismatches.length === 0,
-    actual,
-    expected,
-    mismatches,
-    source,
-    input: envContext,
-  };
+  return verifyEnvSource(mode, envContext, source);
 }
 
 /**
@@ -257,18 +270,7 @@ export async function verifyFrontendEnv(
     source = `${paths.envDevelopmentPath} + MODE=development`;
   }
 
-  const actual = createEnvUtilities(envContext);
-  const expected = getExpectedEnvUtilities(mode);
-  const mismatches = compareEnvUtilities(actual, expected);
-
-  return {
-    success: mismatches.length === 0,
-    actual,
-    expected,
-    mismatches,
-    source,
-    input: envContext,
-  };
+  return verifyEnvSource(mode, envContext, source);
 }
 
 /**

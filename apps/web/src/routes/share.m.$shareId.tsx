@@ -60,7 +60,7 @@ export function SharedMessagePage(): React.JSX.Element {
       <ChatLayout
         title="Shared Message"
         messages={[singleMessage]}
-        streamingMessageId={null}
+        streamingMessageIds={new Set<string>()}
         inputDisabled={true}
         isProcessing={false}
         isAuthenticated={false}

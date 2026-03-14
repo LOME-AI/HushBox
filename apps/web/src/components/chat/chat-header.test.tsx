@@ -50,9 +50,9 @@ const mockModels: Model[] = [
     contextLength: 128_000,
     pricePerInputToken: 0.000_01,
     pricePerOutputToken: 0.000_03,
-    capabilities: ['vision', 'functions', 'streaming'],
+    capabilities: ['internet-search'],
     description: 'Test description for GPT-4 Turbo.',
-    supportedParameters: [],
+    supportedParameters: ['web_search_options'],
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
@@ -61,7 +61,7 @@ const mockModels: Model[] = [
     contextLength: 200_000,
     pricePerInputToken: 0.000_003,
     pricePerOutputToken: 0.000_015,
-    capabilities: ['vision', 'streaming'],
+    capabilities: [],
     description: 'Test description for Claude 3.5 Sonnet.',
     supportedParameters: [],
   },
@@ -72,7 +72,7 @@ describe('ChatHeader', () => {
     render(
       <ChatHeader
         models={mockModels}
-        selectedModelId="openai/gpt-4-turbo"
+        selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
         onModelSelect={vi.fn()}
       />
     );
@@ -83,7 +83,7 @@ describe('ChatHeader', () => {
     render(
       <ChatHeader
         models={mockModels}
-        selectedModelId="openai/gpt-4-turbo"
+        selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
         onModelSelect={vi.fn()}
       />
     );
@@ -94,7 +94,7 @@ describe('ChatHeader', () => {
     render(
       <ChatHeader
         models={mockModels}
-        selectedModelId="openai/gpt-4-turbo"
+        selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
         onModelSelect={vi.fn()}
       />
     );
@@ -105,7 +105,7 @@ describe('ChatHeader', () => {
     render(
       <ChatHeader
         models={mockModels}
-        selectedModelId="openai/gpt-4-turbo"
+        selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
         onModelSelect={vi.fn()}
       />
     );
@@ -118,7 +118,7 @@ describe('ChatHeader', () => {
     render(
       <ChatHeader
         models={mockModels}
-        selectedModelId="openai/gpt-4-turbo"
+        selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
         onModelSelect={vi.fn()}
       />
     );
@@ -130,7 +130,7 @@ describe('ChatHeader', () => {
     render(
       <ChatHeader
         models={mockModels}
-        selectedModelId="openai/gpt-4-turbo"
+        selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
         onModelSelect={vi.fn()}
       />
     );
@@ -144,7 +144,7 @@ describe('ChatHeader', () => {
       render(
         <ChatHeader
           models={mockModels}
-          selectedModelId="openai/gpt-4-turbo"
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
           onModelSelect={vi.fn()}
         />
       );
@@ -155,7 +155,7 @@ describe('ChatHeader', () => {
       render(
         <ChatHeader
           models={mockModels}
-          selectedModelId="openai/gpt-4-turbo"
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
           onModelSelect={vi.fn()}
         />
       );
@@ -168,7 +168,7 @@ describe('ChatHeader', () => {
       render(
         <ChatHeader
           models={mockModels}
-          selectedModelId="openai/gpt-4-turbo"
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
           onModelSelect={onModelSelect}
         />
       );
@@ -181,12 +181,17 @@ describe('ChatHeader', () => {
         expect(screen.getAllByPlaceholderText('Search models').length).toBeGreaterThan(0);
       });
 
-      // Double-click to select the model
+      // Double-click to toggle Claude into selection
       await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
 
+      // Click confirm button to trigger onModelSelect
+      await user.click(screen.getByRole('button', { name: /select.*model/i }));
+
       expect(onModelSelect).toHaveBeenCalledWith(
-        'anthropic/claude-3.5-sonnet',
-        'Claude 3.5 Sonnet'
+        expect.arrayContaining([
+          { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
+          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+        ])
       );
     });
 
@@ -194,7 +199,7 @@ describe('ChatHeader', () => {
       render(
         <ChatHeader
           models={mockModels}
-          selectedModelId="openai/gpt-4-turbo"
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
           onModelSelect={vi.fn()}
         />
       );
@@ -209,7 +214,7 @@ describe('ChatHeader', () => {
       render(
         <ChatHeader
           models={mockModels}
-          selectedModelId="openai/gpt-4-turbo"
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
           onModelSelect={vi.fn()}
           title="Test Conversation"
         />
@@ -221,7 +226,7 @@ describe('ChatHeader', () => {
       render(
         <ChatHeader
           models={mockModels}
-          selectedModelId="openai/gpt-4-turbo"
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
           onModelSelect={vi.fn()}
         />
       );
@@ -232,7 +237,7 @@ describe('ChatHeader', () => {
       render(
         <ChatHeader
           models={mockModels}
-          selectedModelId="openai/gpt-4-turbo"
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
           onModelSelect={vi.fn()}
           title="A Very Long Conversation Title That Should Be Truncated"
         />
@@ -246,7 +251,7 @@ describe('ChatHeader', () => {
       render(
         <ChatHeader
           models={mockModels}
-          selectedModelId="openai/gpt-4-turbo"
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
           onModelSelect={vi.fn()}
           title={fullTitle}
         />
@@ -259,7 +264,7 @@ describe('ChatHeader', () => {
       render(
         <ChatHeader
           models={mockModels}
-          selectedModelId="openai/gpt-4-turbo"
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
           onModelSelect={vi.fn()}
           title="Test Conversation"
         />
@@ -273,7 +278,7 @@ describe('ChatHeader', () => {
       render(
         <ChatHeader
           models={mockModels}
-          selectedModelId="openai/gpt-4-turbo"
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
           onModelSelect={vi.fn()}
           title="Test Conversation"
         />
@@ -294,7 +299,7 @@ describe('ChatHeader', () => {
         render(
           <ChatHeader
             models={mockModels}
-            selectedModelId="openai/gpt-4-turbo"
+            selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
             onModelSelect={vi.fn()}
             members={groupMembers}
             onlineMemberIds={new Set()}
@@ -308,7 +313,7 @@ describe('ChatHeader', () => {
         render(
           <ChatHeader
             models={mockModels}
-            selectedModelId="openai/gpt-4-turbo"
+            selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
             onModelSelect={vi.fn()}
           />
         );
@@ -319,7 +324,7 @@ describe('ChatHeader', () => {
         render(
           <ChatHeader
             models={mockModels}
-            selectedModelId="openai/gpt-4-turbo"
+            selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
             onModelSelect={vi.fn()}
             members={[]}
             onlineMemberIds={new Set()}
@@ -335,7 +340,7 @@ describe('ChatHeader', () => {
         render(
           <ChatHeader
             models={mockModels}
-            selectedModelId="openai/gpt-4-turbo"
+            selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
             onModelSelect={vi.fn()}
             members={groupMembers}
             onlineMemberIds={new Set()}
@@ -352,7 +357,7 @@ describe('ChatHeader', () => {
         render(
           <ChatHeader
             models={mockModels}
-            selectedModelId="openai/gpt-4-turbo"
+            selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
             onModelSelect={vi.fn()}
             members={groupMembers}
             onlineMemberIds={new Set()}
@@ -378,7 +383,7 @@ describe('ChatHeader', () => {
         render(
           <ChatHeader
             models={mockModels}
-            selectedModelId="openai/gpt-4-turbo"
+            selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
             onModelSelect={vi.fn()}
             members={groupMembers}
             onlineMemberIds={new Set()}

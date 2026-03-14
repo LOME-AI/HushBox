@@ -567,18 +567,21 @@ export function PaymentForm({
     }
   };
 
-  const handleSimulateSuccess = (): void => {
+  const populateTestCard = (cvv: string): void => {
     clearHelcimResults(); // Clear FIRST, before form updates trigger re-renders
     if (!form.amount) {
       form.handleAmountChange('100');
     }
     form.handleFieldChange('cardNumber', MOCK_TEST_CARDS.SUCCESS.number);
     form.handleFieldChange('expiry', MOCK_TEST_CARDS.SUCCESS.expiry);
-    form.handleFieldChange('cvv', MOCK_TEST_CARDS.SUCCESS.cvv);
+    form.handleFieldChange('cvv', cvv);
     form.handleFieldChange('cardHolderName', 'Test User');
     form.handleFieldChange('billingAddress', '123 Test St');
     form.handleFieldChange('zipCode', '12345');
+  };
 
+  const handleSimulateSuccess = (): void => {
+    populateTestCard(MOCK_TEST_CARDS.SUCCESS.cvv);
     simulateTimerRef.current = setTimeout(() => {
       const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
       formEl?.requestSubmit();
@@ -586,17 +589,7 @@ export function PaymentForm({
   };
 
   const handleSimulateFailure = (): void => {
-    clearHelcimResults(); // Clear FIRST, before form updates trigger re-renders
-    if (!form.amount) {
-      form.handleAmountChange('100');
-    }
-    form.handleFieldChange('cardNumber', MOCK_TEST_CARDS.SUCCESS.number);
-    form.handleFieldChange('expiry', MOCK_TEST_CARDS.SUCCESS.expiry);
-    form.handleFieldChange('cvv', MOCK_TEST_CARDS.DECLINE.cvv);
-    form.handleFieldChange('cardHolderName', 'Test User');
-    form.handleFieldChange('billingAddress', '123 Test St');
-    form.handleFieldChange('zipCode', '12345');
-
+    populateTestCard(MOCK_TEST_CARDS.DECLINE.cvv);
     simulateTimerRef.current = setTimeout(() => {
       const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
       formEl?.requestSubmit();

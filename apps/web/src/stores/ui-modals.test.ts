@@ -11,7 +11,6 @@ describe('useUIModalsStore', () => {
       paymentModalOpen: false,
       premiumModelName: undefined,
       recoveryPhraseModalOpen: false,
-      fromPaymentGate: false,
       memberSidebarOpen: false,
       mobileMemberSidebarOpen: false,
       addMemberModalOpen: false,
@@ -105,14 +104,6 @@ describe('useUIModalsStore', () => {
       useUIModalsStore.getState().openRecoveryPhraseModal();
 
       expect(useUIModalsStore.getState().recoveryPhraseModalOpen).toBe(true);
-      expect(useUIModalsStore.getState().fromPaymentGate).toBe(false);
-    });
-
-    it('opens recovery phrase modal from payment gate', () => {
-      useUIModalsStore.getState().openRecoveryPhraseModal(true);
-
-      expect(useUIModalsStore.getState().recoveryPhraseModalOpen).toBe(true);
-      expect(useUIModalsStore.getState().fromPaymentGate).toBe(true);
     });
 
     it('closes recovery phrase modal', () => {
@@ -120,7 +111,6 @@ describe('useUIModalsStore', () => {
       useUIModalsStore.getState().closeRecoveryPhraseModal();
 
       expect(useUIModalsStore.getState().recoveryPhraseModalOpen).toBe(false);
-      expect(useUIModalsStore.getState().fromPaymentGate).toBe(false);
     });
   });
 
@@ -243,33 +233,6 @@ describe('useUIModalsStore', () => {
 
       expect(useUIModalsStore.getState().shareMessageModalOpen).toBe(false);
       expect(useUIModalsStore.getState().shareMessageId).toBeNull();
-    });
-  });
-
-  describe('payment gate flow', () => {
-    it('continues to payment after recovery phrase success when from payment gate', () => {
-      // Start from payment gate
-      useUIModalsStore.getState().openRecoveryPhraseModal(true);
-
-      // Complete recovery phrase
-      useUIModalsStore.getState().onRecoveryPhraseSuccess();
-
-      // Should close recovery phrase and open payment
-      expect(useUIModalsStore.getState().recoveryPhraseModalOpen).toBe(false);
-      expect(useUIModalsStore.getState().paymentModalOpen).toBe(true);
-      expect(useUIModalsStore.getState().fromPaymentGate).toBe(false);
-    });
-
-    it('does not open payment when not from payment gate', () => {
-      // Open directly (not from payment gate)
-      useUIModalsStore.getState().openRecoveryPhraseModal();
-
-      // Complete recovery phrase
-      useUIModalsStore.getState().onRecoveryPhraseSuccess();
-
-      // Should only close recovery phrase
-      expect(useUIModalsStore.getState().recoveryPhraseModalOpen).toBe(false);
-      expect(useUIModalsStore.getState().paymentModalOpen).toBe(false);
     });
   });
 

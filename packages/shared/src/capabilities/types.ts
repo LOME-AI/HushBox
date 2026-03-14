@@ -35,7 +35,7 @@ export const CAPABILITIES: Record<CapabilityId, Capability> = {
     id: 'web-search',
     name: 'Web Search',
     description: 'Search the web for current information',
-    requiredParameters: ['tools'],
+    requiredParameters: ['web_search_options'],
   },
 };
 

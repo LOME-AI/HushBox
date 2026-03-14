@@ -113,6 +113,12 @@ describe('SidebarContent', () => {
     expect(nav).toHaveAttribute('aria-label', 'Chat navigation');
   });
 
+  it('shows scrollbar on chat list container when sidebar is open', () => {
+    render(<SidebarContent conversations={mockConversations} />);
+    const container = screen.getByTestId('chat-list-scroll-container');
+    expect(container).not.toHaveClass('scrollbar-hide');
+  });
+
   describe('collapsed state', () => {
     beforeEach(() => {
       useUIStore.setState({ sidebarOpen: false });
@@ -123,6 +129,12 @@ describe('SidebarContent', () => {
       expect(screen.queryByText('New Chat')).not.toBeInTheDocument();
       expect(screen.queryByText('Search chats')).not.toBeInTheDocument();
       // Projects is hidden by feature flag, so we just verify sidebar is collapsed
+    });
+
+    it('hides scrollbar on chat list container when collapsed', () => {
+      render(<SidebarContent conversations={mockConversations} />);
+      const container = screen.getByTestId('chat-list-scroll-container');
+      expect(container).toHaveClass('scrollbar-hide');
     });
   });
 

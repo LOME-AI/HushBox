@@ -18,16 +18,12 @@ import {
 } from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
 import { requireAuth } from '../middleware/require-auth.js';
-import { requirePhrase } from '../middleware/require-phrase.js';
 import { getClientIp } from '../lib/client-ip.js';
 import { checkUserBalance } from '../services/billing/index.js';
 import type { AppEnv } from '../types.js';
 
 export const billingRoute = new Hono<AppEnv>()
   .use('*', requireAuth())
-
-  .use('/payments', requirePhrase())
-  .use('/payments/*', requirePhrase())
 
   .get('/balance', async (c) => {
     const user = c.get('user');

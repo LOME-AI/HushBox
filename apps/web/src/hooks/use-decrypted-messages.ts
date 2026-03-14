@@ -13,6 +13,20 @@ function mapSenderTypeToRole(senderType: 'user' | 'ai'): 'user' | 'assistant' {
   return senderType === 'ai' ? 'assistant' : 'user';
 }
 
+function buildDecryptedMessage(msg: MessageResponse, content: string): Message {
+  return {
+    id: msg.id,
+    conversationId: msg.conversationId,
+    role: mapSenderTypeToRole(msg.senderType),
+    content,
+    createdAt: msg.createdAt,
+    ...(msg.cost != null && { cost: msg.cost }),
+    ...(msg.senderId != null && { senderId: msg.senderId }),
+    modelName: msg.modelName,
+    parentMessageId: msg.parentMessageId,
+  };
+}
+
 /**
  * Decrypts MessageResponse[] into display Message[] using epoch-based ECIES.
  *
@@ -24,9 +38,11 @@ function mapSenderTypeToRole(senderType: 'user' | 'ai'): 'user' | 'assistant' {
  */
 export function useDecryptedMessages(
   conversationId: string | null,
-  messages: MessageResponse[] | undefined
+  messages: MessageResponse[] | undefined,
+  privateKeyOverride?: Uint8Array | null
 ): Message[] {
   const accountPrivateKey = useAuthStore((s) => s.privateKey);
+  const effectivePrivateKey = privateKeyOverride ?? accountPrivateKey;
 
   const { data: keyChain } = useQuery({
     queryKey: ['keys', conversationId],
@@ -36,54 +52,36 @@ export function useDecryptedMessages(
         client.api.keys[':conversationId'].$get({ param: { conversationId } })
       );
     },
-    enabled: !!conversationId && !!accountPrivateKey,
+    enabled: !!conversationId && !!effectivePrivateKey,
     staleTime: 1000 * 60 * 60, // Key chains rarely change; refetch on epoch rotation
   });
 
   return useMemo(() => {
-    if (!conversationId || !messages || messages.length === 0 || !accountPrivateKey || !keyChain) {
+    if (
+      !conversationId ||
+      !messages ||
+      messages.length === 0 ||
+      !effectivePrivateKey ||
+      !keyChain
+    ) {
       return [];
     }
 
     // Populate epoch key cache from key chain
-    processKeyChain(conversationId, keyChain, accountPrivateKey);
+    processKeyChain(conversationId, keyChain, effectivePrivateKey);
 
     return messages.map((msg): Message => {
       const epochKey = getEpochKey(conversationId, msg.epochNumber);
       if (!epochKey) {
-        return {
-          id: msg.id,
-          conversationId: msg.conversationId,
-          role: mapSenderTypeToRole(msg.senderType),
-          content: '[decryption failed: missing epoch key]',
-          createdAt: msg.createdAt,
-          ...(msg.cost != null && { cost: msg.cost }),
-          ...(msg.senderId != null && { senderId: msg.senderId }),
-        };
+        return buildDecryptedMessage(msg, '[decryption failed: missing epoch key]');
       }
 
       try {
         const content = decryptMessage(epochKey, fromBase64(msg.encryptedBlob));
-        return {
-          id: msg.id,
-          conversationId: msg.conversationId,
-          role: mapSenderTypeToRole(msg.senderType),
-          content,
-          createdAt: msg.createdAt,
-          ...(msg.cost != null && { cost: msg.cost }),
-          ...(msg.senderId != null && { senderId: msg.senderId }),
-        };
+        return buildDecryptedMessage(msg, content);
       } catch {
-        return {
-          id: msg.id,
-          conversationId: msg.conversationId,
-          role: mapSenderTypeToRole(msg.senderType),
-          content: '[decryption failed]',
-          createdAt: msg.createdAt,
-          ...(msg.cost != null && { cost: msg.cost }),
-          ...(msg.senderId != null && { senderId: msg.senderId }),
-        };
+        return buildDecryptedMessage(msg, '[decryption failed]');
       }
     });
-  }, [conversationId, messages, accountPrivateKey, keyChain]);
+  }, [conversationId, messages, effectivePrivateKey, keyChain]);
 }

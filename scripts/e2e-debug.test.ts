@@ -1,9 +1,19 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import {
-  parsePlaywrightJson,
   categorizeTests,
   extractArtifactPaths,
   generateDebugReport,
+  stripAnsi,
+  slugify,
+  formatDuration,
+  screenshotFileName,
+  buildRerunCommand,
+  generateMarkdownReport,
+  writeReport,
+  type DebugReport,
   type FlattenedTestResult,
   type PlaywrightReport,
   type PlaywrightSpec,
@@ -12,29 +22,119 @@ import {
 } from './e2e-debug.js';
 
 describe('e2e-debug', () => {
-  describe('parsePlaywrightJson', () => {
-    it('parses valid JSON from stdin content', () => {
-      const input = JSON.stringify({
-        suites: [],
-        config: {},
-        stats: { duration: 1000 },
-      });
-
-      const result = parsePlaywrightJson(input);
-
-      expect(result).toEqual({
-        suites: [],
-        config: {},
-        stats: { duration: 1000 },
-      });
+  describe('stripAnsi', () => {
+    it('removes color codes from text', () => {
+      const input = '\u001b[31mError\u001b[0m: something failed';
+      expect(stripAnsi(input)).toBe('Error: something failed');
     });
 
-    it('throws on invalid JSON', () => {
-      expect(() => parsePlaywrightJson('not json')).toThrow();
+    it('removes bold and underline codes', () => {
+      const input = '\u001b[1mbold\u001b[22m \u001b[4munderline\u001b[24m';
+      expect(stripAnsi(input)).toBe('bold underline');
     });
 
-    it('throws on empty input', () => {
-      expect(() => parsePlaywrightJson('')).toThrow();
+    it('passes through plain text unchanged', () => {
+      const input = 'no ansi codes here';
+      expect(stripAnsi(input)).toBe('no ansi codes here');
+    });
+
+    it('handles empty string', () => {
+      expect(stripAnsi('')).toBe('');
+    });
+
+    it('removes multiple ANSI sequences', () => {
+      const input = '\u001b[32m✓\u001b[0m \u001b[90mtest passed\u001b[0m';
+      expect(stripAnsi(input)).toBe('✓ test passed');
+    });
+  });
+
+  describe('slugify', () => {
+    it('converts spaces to hyphens', () => {
+      expect(slugify('hello world')).toBe('hello-world');
+    });
+
+    it('converts to lowercase', () => {
+      expect(slugify('Hello World')).toBe('hello-world');
+    });
+
+    it('removes non-alphanumeric characters', () => {
+      expect(slugify('test (chromium) #1')).toBe('test-chromium-1');
+    });
+
+    it('collapses consecutive hyphens', () => {
+      expect(slugify('a---b')).toBe('a-b');
+    });
+
+    it('trims leading and trailing hyphens', () => {
+      expect(slugify('--hello--')).toBe('hello');
+    });
+
+    it('handles file paths with slashes and dots', () => {
+      expect(slugify('e2e/web/chat.spec.ts')).toBe('e2e-web-chat-spec-ts');
+    });
+  });
+
+  describe('formatDuration', () => {
+    it('formats seconds only', () => {
+      expect(formatDuration(5000)).toBe('5s');
+    });
+
+    it('formats minutes and seconds', () => {
+      expect(formatDuration(154_000)).toBe('2m 34s');
+    });
+
+    it('formats hours, minutes, and seconds', () => {
+      expect(formatDuration(3_661_000)).toBe('1h 1m 1s');
+    });
+
+    it('formats zero duration', () => {
+      expect(formatDuration(0)).toBe('0s');
+    });
+
+    it('formats exact minutes without seconds', () => {
+      expect(formatDuration(120_000)).toBe('2m 0s');
+    });
+  });
+
+  describe('screenshotFileName', () => {
+    it('generates deterministic filename from file, project, and title', () => {
+      const result = screenshotFileName({
+        file: 'e2e/web/chat.spec.ts',
+        project: 'chromium',
+        title: 'displays UI',
+      });
+      expect(result).toBe('e2e-web-chat-spec-ts--chromium--displays-ui.png');
+    });
+
+    it('handles special characters in title', () => {
+      const result = screenshotFileName({
+        file: 'e2e/web/billing.spec.ts',
+        project: 'webkit',
+        title: 'handles $0.00 edge case',
+      });
+      expect(result).toBe('e2e-web-billing-spec-ts--webkit--handles-0-00-edge-case.png');
+    });
+  });
+
+  describe('buildRerunCommand', () => {
+    it('generates rerun command with file, grep, and project', () => {
+      const result = buildRerunCommand({
+        title: 'displays UI',
+        file: 'e2e/web/chat.spec.ts',
+        project: 'chromium',
+      });
+      expect(result).toBe('pnpm e2e -- e2e/web/chat.spec.ts -g "displays UI" --project=chromium');
+    });
+
+    it('escapes double quotes in title', () => {
+      const result = buildRerunCommand({
+        title: 'handles "edge" case',
+        file: 'e2e/web/chat.spec.ts',
+        project: 'webkit',
+      });
+      expect(result).toBe(
+        'pnpm e2e -- e2e/web/chat.spec.ts -g "handles \\"edge\\" case" --project=webkit'
+      );
     });
   });
 
@@ -469,6 +569,319 @@ describe('e2e-debug', () => {
 
       expect(result.summary.total).toBe(0);
       expect(result.passed).toHaveLength(0);
+    });
+  });
+
+  describe('generateMarkdownReport', () => {
+    it('shows PASSED result when no failures', () => {
+      const report: DebugReport = {
+        summary: { total: 3, passed: 3, flaky: 0, failed: 0, duration: 5000 },
+        passed: [
+          { title: 'test one', file: 'e2e/web/chat.spec.ts', project: 'chromium' },
+          { title: 'test two', file: 'e2e/web/chat.spec.ts', project: 'firefox' },
+          { title: 'test three', file: 'e2e/web/billing.spec.ts', project: 'chromium' },
+        ],
+        flaky: [],
+        failed: [],
+      };
+
+      const md = generateMarkdownReport(report);
+
+      expect(md).toContain('**Result:** PASSED');
+      expect(md).toContain('3 passed');
+      expect(md).toContain('## Passed Tests (3)');
+      expect(md).not.toContain('## Failed Tests');
+      expect(md).not.toContain('## Flaky Tests');
+    });
+
+    it('shows FAILED result with failed test details', () => {
+      const report: DebugReport = {
+        summary: { total: 2, passed: 1, flaky: 0, failed: 1, duration: 10_000 },
+        passed: [{ title: 'test one', file: 'e2e/web/chat.spec.ts', project: 'chromium' }],
+        flaky: [],
+        failed: [
+          {
+            title: 'broken test',
+            file: 'e2e/web/billing.spec.ts',
+            project: 'webkit',
+            error: 'Timeout waiting for selector',
+            artifacts: { trace: undefined, screenshot: '/abs/path/screenshot.png', video: undefined },
+          },
+        ],
+      };
+
+      const md = generateMarkdownReport(report);
+
+      expect(md).toContain('**Result:** FAILED');
+      expect(md).toContain('## Failed Tests');
+      expect(md).toContain('### `e2e/web/billing.spec.ts`');
+      expect(md).toContain('#### broken test [webkit]');
+      expect(md).toContain('Timeout waiting for selector');
+      expect(md).toContain('pnpm e2e -- e2e/web/billing.spec.ts -g "broken test" --project=webkit');
+    });
+
+    it('groups failed tests by file', () => {
+      const report: DebugReport = {
+        summary: { total: 3, passed: 0, flaky: 0, failed: 3, duration: 5000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'test A',
+            file: 'e2e/web/chat.spec.ts',
+            project: 'chromium',
+            error: 'error A',
+            artifacts: { trace: undefined, screenshot: undefined, video: undefined },
+          },
+          {
+            title: 'test B',
+            file: 'e2e/web/chat.spec.ts',
+            project: 'firefox',
+            error: 'error B',
+            artifacts: { trace: undefined, screenshot: undefined, video: undefined },
+          },
+          {
+            title: 'test C',
+            file: 'e2e/web/billing.spec.ts',
+            project: 'chromium',
+            error: 'error C',
+            artifacts: { trace: undefined, screenshot: undefined, video: undefined },
+          },
+        ],
+      };
+
+      const md = generateMarkdownReport(report);
+
+      // chat.spec.ts should appear once as a heading, with both tests under it
+      const chatHeadingCount = (md.match(/### `e2e\/web\/chat\.spec\.ts`/g) ?? []).length;
+      expect(chatHeadingCount).toBe(1);
+      expect(md).toContain('#### test A [chromium]');
+      expect(md).toContain('#### test B [firefox]');
+      expect(md).toContain('### `e2e/web/billing.spec.ts`');
+    });
+
+    it('renders flaky tests as a table', () => {
+      const report: DebugReport = {
+        summary: { total: 2, passed: 1, flaky: 1, failed: 0, duration: 5000 },
+        passed: [{ title: 'stable', file: 'e2e/web/chat.spec.ts', project: 'chromium' }],
+        flaky: [
+          { title: 'flaky test', file: 'e2e/web/chat.spec.ts', project: 'firefox', attempts: 3 },
+        ],
+        failed: [],
+      };
+
+      const md = generateMarkdownReport(report);
+
+      expect(md).toContain('## Flaky Tests');
+      expect(md).toContain('| flaky test |');
+      expect(md).toContain('| 3 |');
+    });
+
+    it('strips ANSI codes from error messages', () => {
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'test',
+            file: 'e2e/test.spec.ts',
+            project: 'chromium',
+            error: '\u001b[31mError\u001b[0m: failed',
+            artifacts: { trace: undefined, screenshot: undefined, video: undefined },
+          },
+        ],
+      };
+
+      const md = generateMarkdownReport(report);
+
+      expect(md).toContain('Error: failed');
+      expect(md).not.toContain('\u001b[31m');
+    });
+
+    it('truncates long error messages', () => {
+      const longError = 'x'.repeat(3000);
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'test',
+            file: 'e2e/test.spec.ts',
+            project: 'chromium',
+            error: longError,
+            artifacts: { trace: undefined, screenshot: undefined, video: undefined },
+          },
+        ],
+      };
+
+      const md = generateMarkdownReport(report);
+
+      expect(md).toContain('... (truncated)');
+      expect(md.length).toBeLessThan(longError.length);
+    });
+
+    it('shows screenshot path when present', () => {
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'test',
+            file: 'e2e/test.spec.ts',
+            project: 'chromium',
+            error: 'error',
+            artifacts: { trace: undefined, screenshot: '/some/path/screenshot.png', video: undefined },
+          },
+        ],
+      };
+
+      const md = generateMarkdownReport(report);
+
+      expect(md).toContain('**Screenshot:**');
+      expect(md).toContain('e2e/report/screenshots/');
+    });
+
+    it('shows "none" when screenshot is missing', () => {
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'test',
+            file: 'e2e/test.spec.ts',
+            project: 'chromium',
+            error: 'error',
+            artifacts: { trace: undefined, screenshot: undefined, video: undefined },
+          },
+        ],
+      };
+
+      const md = generateMarkdownReport(report);
+
+      expect(md).toContain('**Screenshot:** none');
+    });
+
+    it('includes formatted duration', () => {
+      const report: DebugReport = {
+        summary: { total: 1, passed: 1, flaky: 0, failed: 0, duration: 154_000 },
+        passed: [{ title: 'test', file: 'e2e/test.spec.ts', project: 'chromium' }],
+        flaky: [],
+        failed: [],
+      };
+
+      const md = generateMarkdownReport(report);
+
+      expect(md).toContain('**Duration:** 2m 34s');
+    });
+  });
+
+  describe('writeReport', () => {
+    let tempDir: string;
+
+    afterEach(() => {
+      if (tempDir && existsSync(tempDir)) {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('creates report directory and writes REPORT.md', () => {
+      tempDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const reportDir = path.join(tempDir, 'report');
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 1, flaky: 0, failed: 0, duration: 1000 },
+        passed: [{ title: 'test', file: 'e2e/test.spec.ts', project: 'chromium' }],
+        flaky: [],
+        failed: [],
+      };
+
+      writeReport(report, reportDir);
+
+      expect(existsSync(path.join(reportDir, 'REPORT.md'))).toBe(true);
+      const content = readFileSync(path.join(reportDir, 'REPORT.md'), 'utf8');
+      expect(content).toContain('# E2E Test Report');
+    });
+
+    it('copies screenshot files when present', () => {
+      tempDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const reportDir = path.join(tempDir, 'report');
+      const sourceScreenshot = path.join(tempDir, 'source-screenshot.png');
+      writeFileSync(sourceScreenshot, 'fake-png-data');
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'broken test',
+            file: 'e2e/test.spec.ts',
+            project: 'chromium',
+            error: 'error',
+            artifacts: { trace: undefined, screenshot: sourceScreenshot, video: undefined },
+          },
+        ],
+      };
+
+      writeReport(report, reportDir);
+
+      const screenshotsDir = path.join(reportDir, 'screenshots');
+      expect(existsSync(screenshotsDir)).toBe(true);
+      const expectedFile = path.join(
+        screenshotsDir,
+        'e2e-test-spec-ts--chromium--broken-test.png'
+      );
+      expect(existsSync(expectedFile)).toBe(true);
+    });
+
+    it('wipes existing report directory on re-run', () => {
+      tempDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const reportDir = path.join(tempDir, 'report');
+      mkdirSync(reportDir, { recursive: true });
+      writeFileSync(path.join(reportDir, 'old-file.txt'), 'stale data');
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 1, flaky: 0, failed: 0, duration: 1000 },
+        passed: [{ title: 'test', file: 'e2e/test.spec.ts', project: 'chromium' }],
+        flaky: [],
+        failed: [],
+      };
+
+      writeReport(report, reportDir);
+
+      expect(existsSync(path.join(reportDir, 'old-file.txt'))).toBe(false);
+      expect(existsSync(path.join(reportDir, 'REPORT.md'))).toBe(true);
+    });
+
+    it('handles missing screenshot source gracefully', () => {
+      tempDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const reportDir = path.join(tempDir, 'report');
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'test',
+            file: 'e2e/test.spec.ts',
+            project: 'chromium',
+            error: 'error',
+            artifacts: {
+              trace: undefined,
+              screenshot: '/nonexistent/path/screenshot.png',
+              video: undefined,
+            },
+          },
+        ],
+      };
+
+      expect(() => writeReport(report, reportDir)).not.toThrow();
+      expect(existsSync(path.join(reportDir, 'REPORT.md'))).toBe(true);
     });
   });
 });

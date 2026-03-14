@@ -1,0 +1,182 @@
+import { describe, it, expect } from 'vitest';
+import { collectMultiModelStreams, type ModelStreamEntry } from './multi-stream.js';
+import type { SSEEventWriter } from './stream-handler.js';
+
+function createMockWriter(): SSEEventWriter & {
+  events: { method: string; args: unknown[] }[];
+} {
+  const events: { method: string; args: unknown[] }[] = [];
+  const record =
+    (method: string) =>
+    async (...args: unknown[]): Promise<void> => {
+      events.push({ method, args });
+    };
+
+  return {
+    events,
+    writeStart: record('writeStart'),
+    writeToken: record('writeToken'),
+    writeModelToken: record('writeModelToken'),
+    writeError: record('writeError'),
+    writeModelDone: record('writeModelDone'),
+    writeModelError: record('writeModelError'),
+    writeDone: record('writeDone'),
+    isConnected: () => true,
+  };
+}
+
+async function* createTokenStream(
+  tokens: string[],
+  generationId?: string
+): AsyncIterable<{ content: string; generationId?: string }> {
+  for (const [index, token] of tokens.entries()) {
+    yield {
+      content: token,
+      ...(index === 0 && generationId !== undefined ? { generationId } : {}),
+    };
+  }
+}
+
+async function* createFailingStream(
+  tokensBeforeError: string[],
+  error: Error
+): AsyncIterable<{ content: string; generationId?: string }> {
+  for (const token of tokensBeforeError) {
+    yield { content: token };
+  }
+  throw error;
+}
+
+describe('collectMultiModelStreams', () => {
+  it('collects tokens from a single model', async () => {
+    const writer = createMockWriter();
+    const entries: ModelStreamEntry[] = [
+      {
+        modelId: 'openai/gpt-4o',
+        assistantMessageId: 'asst-1',
+        stream: createTokenStream(['Hello', ' world'], 'gen-1'),
+      },
+    ];
+
+    const results = await collectMultiModelStreams(entries, writer);
+
+    expect(results.size).toBe(1);
+    const result = results.get('openai/gpt-4o')!;
+    expect(result.fullContent).toBe('Hello world');
+    expect(result.generationId).toBe('gen-1');
+    expect(result.error).toBeNull();
+  });
+
+  it('collects tokens from multiple models in parallel', async () => {
+    const writer = createMockWriter();
+    const entries: ModelStreamEntry[] = [
+      {
+        modelId: 'openai/gpt-4o',
+        assistantMessageId: 'asst-1',
+        stream: createTokenStream(['A1', 'A2'], 'gen-a'),
+      },
+      {
+        modelId: 'anthropic/claude-3.5-sonnet',
+        assistantMessageId: 'asst-2',
+        stream: createTokenStream(['B1', 'B2'], 'gen-b'),
+      },
+    ];
+
+    const results = await collectMultiModelStreams(entries, writer);
+
+    expect(results.size).toBe(2);
+    expect(results.get('openai/gpt-4o')!.fullContent).toBe('A1A2');
+    expect(results.get('anthropic/claude-3.5-sonnet')!.fullContent).toBe('B1B2');
+  });
+
+  it('writes model-tagged tokens to SSE writer', async () => {
+    const writer = createMockWriter();
+    const entries: ModelStreamEntry[] = [
+      {
+        modelId: 'openai/gpt-4o',
+        assistantMessageId: 'asst-1',
+        stream: createTokenStream(['Hi']),
+      },
+    ];
+
+    await collectMultiModelStreams(entries, writer);
+
+    const tokenEvents = writer.events.filter((e) => e.method === 'writeModelToken');
+    expect(tokenEvents).toHaveLength(1);
+    expect(tokenEvents[0]!.args[0]).toEqual({ modelId: 'openai/gpt-4o', content: 'Hi' });
+  });
+
+  it('writes model:done for each completed model', async () => {
+    const writer = createMockWriter();
+    const entries: ModelStreamEntry[] = [
+      {
+        modelId: 'openai/gpt-4o',
+        assistantMessageId: 'asst-1',
+        stream: createTokenStream(['Done']),
+      },
+      {
+        modelId: 'anthropic/claude-3.5-sonnet',
+        assistantMessageId: 'asst-2',
+        stream: createTokenStream(['Also done']),
+      },
+    ];
+
+    await collectMultiModelStreams(entries, writer);
+
+    const doneEvents = writer.events.filter((e) => e.method === 'writeModelDone');
+    expect(doneEvents).toHaveLength(2);
+    const modelIds = doneEvents.map((e) => (e.args[0] as { modelId: string }).modelId);
+    expect(modelIds.sort()).toEqual(['anthropic/claude-3.5-sonnet', 'openai/gpt-4o']);
+  });
+
+  it('handles partial failure — captures error per model', async () => {
+    const writer = createMockWriter();
+    const entries: ModelStreamEntry[] = [
+      {
+        modelId: 'openai/gpt-4o',
+        assistantMessageId: 'asst-1',
+        stream: createTokenStream(['Good response']),
+      },
+      {
+        modelId: 'anthropic/claude-3.5-sonnet',
+        assistantMessageId: 'asst-2',
+        stream: createFailingStream(['Partial'], new Error('Model unavailable')),
+      },
+    ];
+
+    const results = await collectMultiModelStreams(entries, writer);
+
+    expect(results.get('openai/gpt-4o')!.error).toBeNull();
+    expect(results.get('openai/gpt-4o')!.fullContent).toBe('Good response');
+
+    expect(results.get('anthropic/claude-3.5-sonnet')!.error).toBeInstanceOf(Error);
+    expect(results.get('anthropic/claude-3.5-sonnet')!.error!.message).toBe('Model unavailable');
+    expect(results.get('anthropic/claude-3.5-sonnet')!.fullContent).toBe('Partial');
+  });
+
+  it('writes model:error for failed models', async () => {
+    const writer = createMockWriter();
+    const entries: ModelStreamEntry[] = [
+      {
+        modelId: 'openai/gpt-4o',
+        assistantMessageId: 'asst-1',
+        stream: createFailingStream([], new Error('Timeout')),
+      },
+    ];
+
+    await collectMultiModelStreams(entries, writer);
+
+    const errorEvents = writer.events.filter((e) => e.method === 'writeModelError');
+    expect(errorEvents).toHaveLength(1);
+    expect(errorEvents[0]!.args[0]).toEqual({
+      modelId: 'openai/gpt-4o',
+      message: 'Timeout',
+    });
+  });
+
+  it('returns empty map for empty entries', async () => {
+    const writer = createMockWriter();
+    const results = await collectMultiModelStreams([], writer);
+    expect(results.size).toBe(0);
+  });
+});

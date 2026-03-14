@@ -3,11 +3,20 @@ import { modelSchema, type Model, modelCapabilitySchema, type ModelCapability } 
 
 describe('modelCapabilitySchema', () => {
   it('accepts valid capabilities', () => {
-    const validCapabilities: ModelCapability[] = ['vision', 'functions', 'json-mode', 'streaming'];
+    const validCapabilities: ModelCapability[] = ['internet-search'];
 
     for (const cap of validCapabilities) {
       const result = modelCapabilitySchema.safeParse(cap);
       expect(result.success).toBe(true);
+    }
+  });
+
+  it('rejects old capability values', () => {
+    const oldCapabilities = ['vision', 'functions', 'json-mode', 'streaming'];
+
+    for (const cap of oldCapabilities) {
+      const result = modelCapabilitySchema.safeParse(cap);
+      expect(result.success).toBe(false);
     }
   });
 
@@ -26,7 +35,7 @@ describe('modelSchema', () => {
       contextLength: 128_000,
       pricePerInputToken: 0.000_01,
       pricePerOutputToken: 0.000_03,
-      capabilities: ['vision', 'functions', 'json-mode', 'streaming'],
+      capabilities: ['internet-search'],
       description: 'A powerful language model from OpenAI.',
     };
 
@@ -159,13 +168,150 @@ describe('Model type', () => {
       contextLength: 8192,
       pricePerInputToken: 0.0001,
       pricePerOutputToken: 0.0002,
-      capabilities: ['streaming'],
+      capabilities: ['internet-search'],
       description: 'A test model for type inference.',
-      supportedParameters: ['temperature'],
+      supportedParameters: ['temperature', 'web_search_options'],
     };
 
     expect(model.id).toBe('test-model');
-    expect(model.capabilities).toContain('streaming');
+    expect(model.capabilities).toContain('internet-search');
     expect(model.description).toBe('A test model for type inference.');
+  });
+
+  it('accepts optional webSearchPrice', () => {
+    const model = {
+      id: 'test',
+      name: 'Test',
+      provider: 'Test',
+      contextLength: 4096,
+      pricePerInputToken: 0.001,
+      pricePerOutputToken: 0.002,
+      capabilities: ['internet-search'],
+      description: 'Test description.',
+      webSearchPrice: 0.005,
+    };
+
+    const result = modelSchema.safeParse(model);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.webSearchPrice).toBe(0.005);
+    }
+  });
+
+  it('allows model without webSearchPrice', () => {
+    const model = {
+      id: 'test',
+      name: 'Test',
+      provider: 'Test',
+      contextLength: 4096,
+      pricePerInputToken: 0.001,
+      pricePerOutputToken: 0.002,
+      capabilities: [],
+      description: 'Test description.',
+    };
+
+    const result = modelSchema.safeParse(model);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.webSearchPrice).toBeUndefined();
+    }
+  });
+
+  it('rejects negative webSearchPrice', () => {
+    const model = {
+      id: 'test',
+      name: 'Test',
+      provider: 'Test',
+      contextLength: 4096,
+      pricePerInputToken: 0.001,
+      pricePerOutputToken: 0.002,
+      capabilities: [],
+      description: 'Test description.',
+      webSearchPrice: -0.01,
+    };
+
+    const result = modelSchema.safeParse(model);
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts optional isAutoRouter flag', () => {
+    const model = {
+      id: 'openrouter/auto',
+      name: 'Smart Model',
+      provider: 'OpenRouter',
+      contextLength: 2_000_000,
+      pricePerInputToken: 0.000_000_039,
+      pricePerOutputToken: 0.000_000_19,
+      capabilities: [],
+      description: 'Uses the best model for your task',
+      isAutoRouter: true,
+    };
+
+    const result = modelSchema.safeParse(model);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.isAutoRouter).toBe(true);
+    }
+  });
+
+  it('defaults isAutoRouter to undefined when omitted', () => {
+    const model = {
+      id: 'test',
+      name: 'Test',
+      provider: 'Test',
+      contextLength: 4096,
+      pricePerInputToken: 0.001,
+      pricePerOutputToken: 0.002,
+      capabilities: [],
+      description: 'Test description.',
+    };
+
+    const result = modelSchema.safeParse(model);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.isAutoRouter).toBeUndefined();
+    }
+  });
+
+  it('accepts auto-router price range fields', () => {
+    const model = {
+      id: 'openrouter/auto',
+      name: 'Smart Model',
+      provider: 'OpenRouter',
+      contextLength: 2_000_000,
+      pricePerInputToken: 0.000_000_039,
+      pricePerOutputToken: 0.000_000_19,
+      capabilities: [],
+      description: 'Uses the best model for your task',
+      isAutoRouter: true,
+      minPricePerInputToken: 0.000_000_039,
+      minPricePerOutputToken: 0.000_000_19,
+      maxPricePerInputToken: 0.000_06,
+      maxPricePerOutputToken: 0.000_18,
+    };
+
+    const result = modelSchema.safeParse(model);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.minPricePerInputToken).toBe(0.000_000_039);
+      expect(result.data.maxPricePerOutputToken).toBe(0.000_18);
+    }
+  });
+
+  it('rejects negative price range values', () => {
+    const model = {
+      id: 'test',
+      name: 'Test',
+      provider: 'Test',
+      contextLength: 4096,
+      pricePerInputToken: 0.001,
+      pricePerOutputToken: 0.002,
+      capabilities: [],
+      description: 'Test description.',
+      minPricePerInputToken: -0.001,
+    };
+
+    const result = modelSchema.safeParse(model);
+    expect(result.success).toBe(false);
   });
 });

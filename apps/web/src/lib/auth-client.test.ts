@@ -392,6 +392,66 @@ describe('auth-client', () => {
       expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull();
     });
 
+    it('returns customInstructionsEncrypted from server response', async () => {
+      const data = { kek: toBase64(testExportKey), userId: testUserId };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+      const mockResponse = {
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          user: {
+            id: testUserId,
+            email: 'test@example.com',
+            username: 'test',
+            emailVerified: true,
+            totpEnabled: false,
+            hasAcknowledgedPhrase: true,
+          },
+          passwordWrappedPrivateKey: toBase64(testPrivateKey),
+          publicKey: toBase64(new Uint8Array([1, 2, 3])),
+          customInstructionsEncrypted: 'encrypted-blob-base64',
+        }),
+      };
+      mockFetch.mockResolvedValue(mockResponse as unknown as Response);
+      mockUnwrapAccountKey.mockReturnValue(testPrivateKey);
+
+      const result = await restoreSession();
+
+      expect(result).not.toBeNull();
+      if (!result) throw new Error('Expected result');
+      expect(result.customInstructionsEncrypted).toBe('encrypted-blob-base64');
+    });
+
+    it('returns null customInstructionsEncrypted when not set on server', async () => {
+      const data = { kek: toBase64(testExportKey), userId: testUserId };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+      const mockResponse = {
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          user: {
+            id: testUserId,
+            email: 'test@example.com',
+            username: 'test',
+            emailVerified: true,
+            totpEnabled: false,
+            hasAcknowledgedPhrase: true,
+          },
+          passwordWrappedPrivateKey: toBase64(testPrivateKey),
+          publicKey: toBase64(new Uint8Array([1, 2, 3])),
+          customInstructionsEncrypted: null,
+        }),
+      };
+      mockFetch.mockResolvedValue(mockResponse as unknown as Response);
+      mockUnwrapAccountKey.mockReturnValue(testPrivateKey);
+
+      const result = await restoreSession();
+
+      expect(result).not.toBeNull();
+      if (!result) throw new Error('Expected result');
+      expect(result.customInstructionsEncrypted).toBeNull();
+    });
+
     it('clears storage and returns null when passwordWrappedPrivateKey is missing', async () => {
       const data = { kek: toBase64(testExportKey), userId: testUserId };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));

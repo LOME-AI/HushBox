@@ -3,6 +3,7 @@ import {
   formatNumber,
   formatContextLength,
   formatPricePer1k,
+  formatPriceRange,
   formatCost,
   shortenModelName,
   generateChatTitle,
@@ -64,6 +65,20 @@ describe('formatting utilities', () => {
 
     it('handles very small prices', () => {
       expect(formatPricePer1k(0.000_001)).toBe('$0.001');
+    });
+  });
+
+  describe('formatPriceRange', () => {
+    it('formats min and max per-token prices as a range per 1k', () => {
+      expect(formatPriceRange(0.000_000_1, 0.000_06)).toBe('$0.0001 – $0.06 / 1k');
+    });
+
+    it('handles same min and max', () => {
+      expect(formatPriceRange(0.000_01, 0.000_01)).toBe('$0.01 – $0.01 / 1k');
+    });
+
+    it('handles very small prices', () => {
+      expect(formatPriceRange(0.000_000_039, 0.000_000_19)).toBe('$0.000039 – $0.00019 / 1k');
     });
   });
 
@@ -130,6 +145,18 @@ describe('formatting utilities', () => {
 
     it('trims whitespace from result', () => {
       expect(shortenModelName('  Claude 3.5 Sonnet-2024-08-06  ')).toBe('Claude 3.5 Sonnet');
+    });
+
+    it('strips provider prefix from model IDs', () => {
+      expect(shortenModelName('anthropic/claude-3-5-sonnet-20241022')).toBe('claude-3-5-sonnet');
+      expect(shortenModelName('openai/gpt-4o-2024-08-06')).toBe('gpt-4o');
+      expect(shortenModelName('google/gemini-2.0-flash-001')).toBe('gemini-2.0-flash-001');
+      expect(shortenModelName('meta-llama/llama-3-70b-20240501')).toBe('llama-3-70b');
+    });
+
+    it('does not strip slash from display names without provider prefix', () => {
+      expect(shortenModelName('Claude 3.5 Sonnet')).toBe('Claude 3.5 Sonnet');
+      expect(shortenModelName('GPT-4')).toBe('GPT-4');
     });
   });
 

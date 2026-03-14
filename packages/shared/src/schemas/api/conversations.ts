@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { memberPrivilegeSchema } from '../../enums.js';
+import { MAX_SELECTED_MODELS } from '../../constants.js';
 
 /**
  * Request schema for creating a conversation.
@@ -68,8 +69,7 @@ const fundingSourceSchema = z.enum([
 ]);
 
 export const streamChatRequestSchema = z.object({
-  conversationId: z.uuid(),
-  model: z.string(),
+  models: z.array(z.string()).min(1).max(MAX_SELECTED_MODELS),
   userMessage: z.object({
     id: z.uuid(),
     content: z.string().min(1), // plaintext — server encrypts with epoch key
@@ -83,6 +83,9 @@ export const streamChatRequestSchema = z.object({
     )
     .min(1),
   fundingSource: fundingSourceSchema, // client's billing claim — compared with backend's resolveBilling()
+  webSearchEnabled: z.boolean().optional(),
+  customInstructions: z.string().max(5000).optional(),
+  forkId: z.uuid().optional(),
 });
 
 export type StreamChatRequest = z.infer<typeof streamChatRequestSchema>;
@@ -93,7 +96,6 @@ export type StreamChatRequest = z.infer<typeof streamChatRequestSchema>;
  * Used in group chats when the AI toggle is off.
  */
 export const userOnlyMessageSchema = z.object({
-  conversationId: z.uuid(),
   messageId: z.uuid(),
   content: z.string().min(1),
 });
@@ -145,15 +147,29 @@ export const messageResponseSchema = z.object({
   encryptedBlob: z.string(), // base64-encoded ECIES blob
   senderType: z.enum(['user', 'ai']),
   senderId: z.string().nullable(),
-  senderDisplayName: z.string().nullable(),
+  modelName: z.string().nullable(),
   payerId: z.string().nullable(),
   cost: z.string().nullable(),
   epochNumber: z.number().int().min(1),
   sequenceNumber: z.number().int().nonnegative(),
+  parentMessageId: z.string().nullable(),
   createdAt: z.string(),
 });
 
 export type MessageResponse = z.infer<typeof messageResponseSchema>;
+
+/**
+ * Schema for a fork entity in API responses.
+ */
+export const forkResponseSchema = z.object({
+  id: z.string(),
+  conversationId: z.string(),
+  name: z.string(),
+  tipMessageId: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export type ForkResponse = z.infer<typeof forkResponseSchema>;
 
 /**
  * Response schema for GET /conversations
@@ -171,8 +187,11 @@ export type ListConversationsResponse = z.infer<typeof listConversationsResponse
 export const getConversationResponseSchema = z.object({
   conversation: conversationResponseSchema,
   messages: z.array(messageResponseSchema),
+  forks: z.array(forkResponseSchema).default([]),
   accepted: z.boolean(),
   invitedByUsername: z.string().nullable(),
+  callerId: z.string(),
+  privilege: memberPrivilegeSchema,
 });
 
 export type GetConversationResponse = z.infer<typeof getConversationResponseSchema>;
@@ -186,6 +205,7 @@ export type GetConversationResponse = z.infer<typeof getConversationResponseSche
 export const createConversationResponseSchema = z.object({
   conversation: conversationResponseSchema,
   messages: z.array(messageResponseSchema).optional(),
+  forks: z.array(forkResponseSchema).default([]),
   isNew: z.boolean(), // true = 201 Created, false = 200 OK (idempotent return)
   accepted: z.boolean(),
   invitedByUsername: z.string().nullable(),
@@ -212,3 +232,60 @@ export const deleteConversationResponseSchema = z.object({
 });
 
 export type DeleteConversationResponse = z.infer<typeof deleteConversationResponseSchema>;
+
+// ============================================================
+// Fork Request Schemas
+// ============================================================
+
+/**
+ * Request schema for creating a fork.
+ * Client provides fork ID for idempotency.
+ */
+export const createForkRequestSchema = z.object({
+  id: z.uuid(),
+  fromMessageId: z.uuid(),
+  name: z.string().min(1).max(50).optional(),
+});
+
+export type CreateForkRequest = z.infer<typeof createForkRequestSchema>;
+
+/**
+ * Request schema for renaming a fork.
+ */
+export const renameForkRequestSchema = z.object({
+  name: z.string().min(1).max(50),
+});
+
+export type RenameForkRequest = z.infer<typeof renameForkRequestSchema>;
+
+// ============================================================
+// Regeneration Schemas
+// ============================================================
+
+/**
+ * Request schema for POST /chat/regenerate.
+ * Supports retry (resend same user message), edit (new user message), and regenerate (re-run AI).
+ */
+export const regenerateRequestSchema = z.object({
+  targetMessageId: z.uuid(),
+  action: z.enum(['retry', 'edit', 'regenerate']),
+  model: z.string(),
+  userMessage: z.object({
+    id: z.uuid(),
+    content: z.string().min(1),
+  }),
+  messagesForInference: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant', 'system']),
+        content: z.string(),
+      })
+    )
+    .min(1),
+  fundingSource: fundingSourceSchema,
+  forkId: z.uuid().optional(),
+  webSearchEnabled: z.boolean().optional(),
+  customInstructions: z.string().max(5000).optional(),
+});
+
+export type RegenerateRequest = z.infer<typeof regenerateRequestSchema>;

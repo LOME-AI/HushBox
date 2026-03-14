@@ -187,9 +187,6 @@ export const ERROR_CODE_BALANCE_RESERVED = 'BALANCE_RESERVED';
 /** Daily message limit exceeded */
 export const ERROR_CODE_DAILY_LIMIT_EXCEEDED = 'DAILY_LIMIT_EXCEEDED';
 
-/** Recovery phrase required before payment */
-export const ERROR_CODE_PHRASE_REQUIRED = 'PHRASE_REQUIRED';
-
 /** Payment not found */
 export const ERROR_CODE_PAYMENT_NOT_FOUND = 'PAYMENT_NOT_FOUND';
 
@@ -267,6 +264,44 @@ export const ERROR_CODE_WRAP_SET_MISMATCH = 'WRAP_SET_MISMATCH';
 
 /** Epoch rotation required */
 export const ERROR_CODE_ROTATION_REQUIRED = 'ROTATION_REQUIRED';
+
+// ============================================================
+// Error Codes — Regeneration & Forks
+// ============================================================
+
+/** Regeneration blocked because another user replied after target message */
+export const ERROR_CODE_REGENERATION_BLOCKED_BY_OTHER_USER = 'REGENERATION_BLOCKED_BY_OTHER_USER';
+
+/** Fork not found */
+export const ERROR_CODE_FORK_NOT_FOUND = 'FORK_NOT_FOUND';
+
+/** Fork name already taken in this conversation */
+export const ERROR_CODE_FORK_NAME_TAKEN = 'FORK_NAME_TAKEN';
+
+/** Maximum number of forks per conversation reached */
+export const ERROR_CODE_FORK_LIMIT_REACHED = 'FORK_LIMIT_REACHED';
+
+/** Target message not found for regeneration */
+export const ERROR_CODE_TARGET_MESSAGE_NOT_FOUND = 'TARGET_MESSAGE_NOT_FOUND';
+
+/** Cannot regenerate while a message is currently streaming */
+export const ERROR_CODE_CANNOT_REGENERATE_WHILE_STREAMING = 'CANNOT_REGENERATE_WHILE_STREAMING';
+
+// ============================================================
+// Error Codes — SSE Streaming
+// ============================================================
+
+/** Context length exceeded — conversation too long for the model */
+export const ERROR_CODE_CONTEXT_LENGTH_EXCEEDED = 'CONTEXT_LENGTH_EXCEEDED';
+
+/** Generic stream error — AI provider or stream processing failure */
+export const ERROR_CODE_STREAM_ERROR = 'STREAM_ERROR';
+
+/** Billing error — failed to save billing after successful stream */
+export const ERROR_CODE_BILLING_ERROR = 'BILLING_ERROR';
+
+/** Chat stream failed — generic client-side stream failure */
+export const ERROR_CODE_CHAT_STREAM_FAILED = 'CHAT_STREAM_FAILED';
 
 // ============================================================
 // Error Response Schema

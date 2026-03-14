@@ -126,6 +126,7 @@ describe('saveChatTurn', () => {
     const result = await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId,
       userContent: 'Hello from user',
       assistantMessageId,
@@ -134,6 +135,7 @@ describe('saveChatTurn', () => {
       totalCost: 0.001_36,
       inputTokens: 100,
       outputTokens: 50,
+      parentMessageId: null,
     });
 
     // User message exists with correct fields
@@ -171,6 +173,7 @@ describe('saveChatTurn', () => {
     await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId,
       userContent: userText,
       assistantMessageId,
@@ -179,6 +182,7 @@ describe('saveChatTurn', () => {
       totalCost: 0.001,
       inputTokens: 50,
       outputTokens: 30,
+      parentMessageId: null,
     });
 
     // Decrypt user message with epoch private key
@@ -205,6 +209,7 @@ describe('saveChatTurn', () => {
     const result = await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId,
       userContent: 'First user message',
       assistantMessageId,
@@ -213,6 +218,7 @@ describe('saveChatTurn', () => {
       totalCost: 0.001,
       inputTokens: 50,
       outputTokens: 30,
+      parentMessageId: null,
     });
 
     expect(result.userSequence).toBe(1);
@@ -246,6 +252,7 @@ describe('saveChatTurn', () => {
     const result = await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId,
       userContent: 'User message',
       assistantMessageId,
@@ -255,6 +262,7 @@ describe('saveChatTurn', () => {
       inputTokens: 200,
       outputTokens: 100,
       cachedTokens: 10,
+      parentMessageId: null,
     });
 
     expect(result.cost).toBe('0.05000000');
@@ -322,6 +330,7 @@ describe('saveChatTurn', () => {
       saveChatTurn(db, {
         conversationId: createdConv.id,
         userId: createdUser.id,
+        senderId: createdUser.id,
         userMessageId,
         userContent: 'Should not persist',
         assistantMessageId,
@@ -330,6 +339,7 @@ describe('saveChatTurn', () => {
         totalCost: 0.001,
         inputTokens: 50,
         outputTokens: 30,
+        parentMessageId: null,
       })
     ).rejects.toThrow();
 
@@ -367,6 +377,7 @@ describe('saveChatTurn', () => {
     await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId,
       userContent: 'First attempt',
       assistantMessageId: assistantMessageId1,
@@ -375,6 +386,7 @@ describe('saveChatTurn', () => {
       totalCost: 0.001,
       inputTokens: 50,
       outputTokens: 30,
+      parentMessageId: null,
     });
 
     const [walletAfterFirst] = await db
@@ -389,6 +401,7 @@ describe('saveChatTurn', () => {
       saveChatTurn(db, {
         conversationId: setup.conversation.id,
         userId: setup.user.id,
+        senderId: setup.user.id,
         userMessageId, // same user message ID
         userContent: 'Duplicate attempt',
         assistantMessageId: assistantMessageId2,
@@ -397,6 +410,7 @@ describe('saveChatTurn', () => {
         totalCost: 0.001,
         inputTokens: 50,
         outputTokens: 30,
+        parentMessageId: null,
       })
     ).rejects.toThrow();
 
@@ -423,6 +437,7 @@ describe('saveChatTurn', () => {
     const result = await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId,
       userContent: 'Free message',
       assistantMessageId,
@@ -431,6 +446,7 @@ describe('saveChatTurn', () => {
       totalCost: 0,
       inputTokens: 50,
       outputTokens: 30,
+      parentMessageId: null,
     });
 
     expect(result.cost).toBe('0.00000000');
@@ -455,6 +471,7 @@ describe('saveChatTurn', () => {
     const result1 = await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId: crypto.randomUUID(),
       userContent: 'First user message',
       assistantMessageId: crypto.randomUUID(),
@@ -463,6 +480,7 @@ describe('saveChatTurn', () => {
       totalCost: 0.001,
       inputTokens: 50,
       outputTokens: 30,
+      parentMessageId: null,
     });
 
     expect(result1.userSequence).toBe(1);
@@ -472,6 +490,7 @@ describe('saveChatTurn', () => {
     const result2 = await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId: crypto.randomUUID(),
       userContent: 'Second user message',
       assistantMessageId: crypto.randomUUID(),
@@ -480,6 +499,7 @@ describe('saveChatTurn', () => {
       totalCost: 0.002,
       inputTokens: 60,
       outputTokens: 40,
+      parentMessageId: null,
     });
 
     expect(result2.userSequence).toBe(3);
@@ -545,6 +565,7 @@ describe('saveChatTurn', () => {
     const result = await saveChatTurn(db, {
       conversationId: createdConv.id,
       userId: createdUser.id,
+      senderId: createdUser.id,
       userMessageId: crypto.randomUUID(),
       userContent: 'Message with wallet fallback',
       assistantMessageId: crypto.randomUUID(),
@@ -553,6 +574,7 @@ describe('saveChatTurn', () => {
       totalCost: 0.05,
       inputTokens: 100,
       outputTokens: 50,
+      parentMessageId: null,
     });
 
     expect(result.cost).toBe('0.05000000');
@@ -586,6 +608,7 @@ describe('saveChatTurn', () => {
       saveChatTurn(db, {
         conversationId: setup.conversation.id,
         userId: setup.user.id,
+        senderId: setup.user.id,
         userMessageId,
         userContent: 'Should not persist',
         assistantMessageId,
@@ -594,6 +617,7 @@ describe('saveChatTurn', () => {
         totalCost: 1, // way more than 0.001 balance
         inputTokens: 500,
         outputTokens: 500,
+        parentMessageId: null,
       })
     ).rejects.toThrow('Insufficient balance');
 
@@ -632,6 +656,7 @@ describe('saveChatTurn', () => {
     await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId,
       userContent: longUserContent,
       assistantMessageId,
@@ -640,6 +665,7 @@ describe('saveChatTurn', () => {
       totalCost: 0.01,
       inputTokens: 2000,
       outputTokens: 4000,
+      parentMessageId: null,
     });
 
     // Decrypt and verify exact content roundtrip
@@ -665,6 +691,7 @@ describe('saveChatTurn', () => {
       saveChatTurn(db, {
         conversationId: crypto.randomUUID(), // non-existent conversation
         userId: setup.user.id,
+        senderId: setup.user.id,
         userMessageId: crypto.randomUUID(),
         userContent: 'Should fail',
         assistantMessageId: crypto.randomUUID(),
@@ -673,6 +700,7 @@ describe('saveChatTurn', () => {
         totalCost: 0.001,
         inputTokens: 50,
         outputTokens: 30,
+        parentMessageId: null,
       })
     ).rejects.toThrow('Conversation not found');
   });
@@ -703,6 +731,7 @@ describe('saveChatTurn', () => {
       saveChatTurn(db, {
         conversationId: createdConv.id,
         userId: createdUser.id,
+        senderId: createdUser.id,
         userMessageId: crypto.randomUUID(),
         userContent: 'Should fail',
         assistantMessageId: crypto.randomUUID(),
@@ -711,6 +740,7 @@ describe('saveChatTurn', () => {
         totalCost: 0.001,
         inputTokens: 50,
         outputTokens: 30,
+        parentMessageId: null,
       })
     ).rejects.toThrow('Epoch not found');
   });
@@ -751,6 +781,7 @@ describe('saveChatTurn', () => {
     const result = await saveChatTurn(db, {
       conversationId: createdConv.id,
       userId: createdUser.id,
+      senderId: createdUser.id,
       userMessageId,
       userContent: 'Message in epoch 3',
       assistantMessageId,
@@ -759,6 +790,7 @@ describe('saveChatTurn', () => {
       totalCost: 0.001,
       inputTokens: 50,
       outputTokens: 30,
+      parentMessageId: null,
     });
 
     expect(result.epochNumber).toBe(3);
@@ -783,6 +815,7 @@ describe('saveChatTurn', () => {
     await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId,
       userContent: '',
       assistantMessageId,
@@ -791,6 +824,7 @@ describe('saveChatTurn', () => {
       totalCost: 0,
       inputTokens: 0,
       outputTokens: 0,
+      parentMessageId: null,
     });
 
     const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
@@ -811,6 +845,7 @@ describe('saveChatTurn', () => {
     const result = await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId: crypto.randomUUID(),
       userContent: 'Check provider',
       assistantMessageId: crypto.randomUUID(),
@@ -819,6 +854,7 @@ describe('saveChatTurn', () => {
       totalCost: 0.003,
       inputTokens: 80,
       outputTokens: 60,
+      parentMessageId: null,
     });
 
     const [completion] = await db
@@ -845,6 +881,7 @@ describe('saveChatTurn', () => {
     await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId,
       userContent: 'User message',
       assistantMessageId,
@@ -853,6 +890,7 @@ describe('saveChatTurn', () => {
       totalCost: 0.001,
       inputTokens: 50,
       outputTokens: 30,
+      parentMessageId: null,
     });
 
     const [updatedConv] = await db
@@ -900,6 +938,7 @@ describe('saveChatTurn', () => {
       await saveChatTurn(db, {
         conversationId: setup.conversation.id,
         userId: setup.user.id,
+        senderId: setup.user.id,
         userMessageId: crypto.randomUUID(),
         userContent: 'Group message',
         assistantMessageId: crypto.randomUUID(),
@@ -909,6 +948,7 @@ describe('saveChatTurn', () => {
         inputTokens: 100,
         outputTokens: 50,
         groupBillingContext: { memberId: setup.member.id },
+        parentMessageId: null,
       });
 
       const [spending] = await db
@@ -926,6 +966,7 @@ describe('saveChatTurn', () => {
       await saveChatTurn(db, {
         conversationId: setup.conversation.id,
         userId: setup.user.id,
+        senderId: setup.user.id,
         userMessageId: crypto.randomUUID(),
         userContent: 'Group message',
         assistantMessageId: crypto.randomUUID(),
@@ -935,6 +976,7 @@ describe('saveChatTurn', () => {
         inputTokens: 100,
         outputTokens: 50,
         groupBillingContext: { memberId: setup.member.id },
+        parentMessageId: null,
       });
 
       const [budget] = await db
@@ -952,6 +994,7 @@ describe('saveChatTurn', () => {
       await saveChatTurn(db, {
         conversationId: setup.conversation.id,
         userId: setup.user.id,
+        senderId: setup.user.id,
         userMessageId: crypto.randomUUID(),
         userContent: 'First',
         assistantMessageId: crypto.randomUUID(),
@@ -961,11 +1004,13 @@ describe('saveChatTurn', () => {
         inputTokens: 100,
         outputTokens: 50,
         groupBillingContext: { memberId: setup.member.id },
+        parentMessageId: null,
       });
 
       await saveChatTurn(db, {
         conversationId: setup.conversation.id,
         userId: setup.user.id,
+        senderId: setup.user.id,
         userMessageId: crypto.randomUUID(),
         userContent: 'Second',
         assistantMessageId: crypto.randomUUID(),
@@ -975,6 +1020,7 @@ describe('saveChatTurn', () => {
         inputTokens: 80,
         outputTokens: 40,
         groupBillingContext: { memberId: setup.member.id },
+        parentMessageId: null,
       });
 
       const [spending] = await db
@@ -999,6 +1045,7 @@ describe('saveChatTurn', () => {
       await saveChatTurn(db, {
         conversationId: setup.conversation.id,
         userId: setup.user.id,
+        senderId: setup.user.id,
         userMessageId: crypto.randomUUID(),
         userContent: 'Solo message',
         assistantMessageId: crypto.randomUUID(),
@@ -1007,6 +1054,7 @@ describe('saveChatTurn', () => {
         totalCost: 0.05,
         inputTokens: 100,
         outputTokens: 50,
+        parentMessageId: null,
       });
 
       const spending = await db
@@ -1030,6 +1078,7 @@ describe('saveChatTurn', () => {
         saveChatTurn(db, {
           conversationId: setup.conversation.id,
           userId: setup.user.id,
+          senderId: setup.user.id,
           userMessageId: crypto.randomUUID(),
           userContent: 'Bad member',
           assistantMessageId: crypto.randomUUID(),
@@ -1039,6 +1088,7 @@ describe('saveChatTurn', () => {
           inputTokens: 100,
           outputTokens: 50,
           groupBillingContext: { memberId: 'nonexistent-member-id' },
+          parentMessageId: null,
         })
       ).rejects.toThrow();
 
@@ -1059,6 +1109,7 @@ describe('saveChatTurn', () => {
         saveChatTurn(db, {
           conversationId: setup.conversation.id,
           userId: setup.user.id,
+          senderId: setup.user.id,
           userMessageId: crypto.randomUUID(),
           userContent: 'Should fail',
           assistantMessageId: crypto.randomUUID(),
@@ -1068,6 +1119,7 @@ describe('saveChatTurn', () => {
           inputTokens: 500,
           outputTokens: 500,
           groupBillingContext: { memberId: setup.member.id },
+          parentMessageId: null,
         })
       ).rejects.toThrow();
 
@@ -1083,6 +1135,161 @@ describe('saveChatTurn', () => {
         .from(memberBudgets)
         .where(eq(memberBudgets.memberId, setup.member.id));
       expect(budgets).toHaveLength(0);
+    });
+  });
+
+  describe('multi-model assistantMessages', () => {
+    it('inserts user + N assistant messages with sequential sequence numbers', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const userMessageId = crypto.randomUUID();
+      const assistantId1 = crypto.randomUUID();
+      const assistantId2 = crypto.randomUUID();
+
+      const result = await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        userMessageId,
+        userContent: 'Compare these models',
+        assistantMessages: [
+          {
+            id: assistantId1,
+            content: 'Response from GPT-4o',
+            model: 'openai/gpt-4o',
+            cost: 0.002,
+            inputTokens: 100,
+            outputTokens: 80,
+          },
+          {
+            id: assistantId2,
+            content: 'Response from Claude',
+            model: 'anthropic/claude-3.5-sonnet',
+            cost: 0.003,
+            inputTokens: 100,
+            outputTokens: 120,
+          },
+        ],
+        parentMessageId: null,
+      });
+
+      // 3 messages total: 1 user + 2 assistant
+      const allMsgs = await db
+        .select()
+        .from(messages)
+        .where(inArray(messages.id, [userMessageId, assistantId1, assistantId2]));
+      expect(allMsgs).toHaveLength(3);
+
+      // Sequence numbers are sequential: user=1, ai1=2, ai2=3
+      const userMsg = allMsgs.find((m) => m.id === userMessageId)!;
+      const ai1Msg = allMsgs.find((m) => m.id === assistantId1)!;
+      const ai2Msg = allMsgs.find((m) => m.id === assistantId2)!;
+      expect(userMsg.sequenceNumber).toBe(1);
+      expect(ai1Msg.sequenceNumber).toBe(2);
+      expect(ai2Msg.sequenceNumber).toBe(3);
+
+      // Both AI messages have correct model names
+      expect(ai1Msg.modelName).toBe('openai/gpt-4o');
+      expect(ai2Msg.modelName).toBe('anthropic/claude-3.5-sonnet');
+
+      // Both AI messages are parented to the user message
+      expect(ai1Msg.parentMessageId).toBe(userMessageId);
+      expect(ai2Msg.parentMessageId).toBe(userMessageId);
+
+      // Result contains per-model info
+      expect(result.assistantResults).toHaveLength(2);
+      expect(result.assistantResults[0]!.aiSequence).toBe(2);
+      expect(result.assistantResults[1]!.aiSequence).toBe(3);
+    });
+
+    it('creates separate usage records per model', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const userMessageId = crypto.randomUUID();
+      const assistantId1 = crypto.randomUUID();
+      const assistantId2 = crypto.randomUUID();
+
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        userMessageId,
+        userContent: 'Test multi-model billing',
+        assistantMessages: [
+          {
+            id: assistantId1,
+            content: 'First model response',
+            model: 'openai/gpt-4o',
+            cost: 0.002,
+            inputTokens: 100,
+            outputTokens: 80,
+          },
+          {
+            id: assistantId2,
+            content: 'Second model response',
+            model: 'anthropic/claude-3.5-sonnet',
+            cost: 0.003,
+            inputTokens: 100,
+            outputTokens: 120,
+          },
+        ],
+        parentMessageId: null,
+      });
+
+      // Should have 2 usage records
+      const records = await db
+        .select()
+        .from(usageRecords)
+        .where(eq(usageRecords.userId, setup.user.id));
+      expect(records).toHaveLength(2);
+
+      // Should have 2 LLM completions with different models
+      const completions = await db
+        .select()
+        .from(llmCompletions)
+        .where(
+          inArray(
+            llmCompletions.usageRecordId,
+            records.map((r) => r.id)
+          )
+        );
+      expect(completions).toHaveLength(2);
+      const completionModels = completions.map((c) => c.model).sort();
+      expect(completionModels).toEqual(['anthropic/claude-3.5-sonnet', 'openai/gpt-4o']);
+    });
+
+    it('produces identical results for single-model array vs legacy fields', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const userMessageId = crypto.randomUUID();
+      const assistantId = crypto.randomUUID();
+
+      const result = await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        userMessageId,
+        userContent: 'Single model via array',
+        assistantMessages: [
+          {
+            id: assistantId,
+            content: 'AI response',
+            model: 'openai/gpt-4o',
+            cost: 0.001,
+            inputTokens: 50,
+            outputTokens: 30,
+          },
+        ],
+        parentMessageId: null,
+      });
+
+      expect(result.userSequence).toBe(1);
+      expect(result.assistantResults).toHaveLength(1);
+      expect(result.assistantResults[0]!.aiSequence).toBe(2);
+      expect(result.epochNumber).toBe(1);
     });
   });
 });
@@ -1112,8 +1319,10 @@ describe('saveUserOnlyMessage', () => {
     const result = await saveUserOnlyMessage(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       messageId,
       content: 'Hello from user only',
+      parentMessageId: null,
     });
 
     // Message exists with correct fields
@@ -1140,8 +1349,10 @@ describe('saveUserOnlyMessage', () => {
     const result1 = await saveUserOnlyMessage(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       messageId: crypto.randomUUID(),
       content: 'First user-only message',
+      parentMessageId: null,
     });
 
     expect(result1.sequenceNumber).toBe(1);
@@ -1149,8 +1360,10 @@ describe('saveUserOnlyMessage', () => {
     const result2 = await saveUserOnlyMessage(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       messageId: crypto.randomUUID(),
       content: 'Second user-only message',
+      parentMessageId: null,
     });
 
     expect(result2.sequenceNumber).toBe(2);
@@ -1171,8 +1384,10 @@ describe('saveUserOnlyMessage', () => {
     await saveUserOnlyMessage(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       messageId: crypto.randomUUID(),
       content: 'Free message',
+      parentMessageId: null,
     });
 
     // No usage records
@@ -1203,8 +1418,10 @@ describe('saveUserOnlyMessage', () => {
       saveUserOnlyMessage(db, {
         conversationId: crypto.randomUUID(),
         userId: setup.user.id,
+        senderId: setup.user.id,
         messageId: crypto.randomUUID(),
         content: 'Should fail',
+        parentMessageId: null,
       })
     ).rejects.toThrow('Conversation not found');
   });
@@ -1217,8 +1434,10 @@ describe('saveUserOnlyMessage', () => {
     const result1 = await saveUserOnlyMessage(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       messageId: crypto.randomUUID(),
       content: 'User-only first',
+      parentMessageId: null,
     });
     expect(result1.sequenceNumber).toBe(1);
 
@@ -1226,6 +1445,7 @@ describe('saveUserOnlyMessage', () => {
     const result2 = await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       userMessageId: crypto.randomUUID(),
       userContent: 'User message with AI',
       assistantMessageId: crypto.randomUUID(),
@@ -1234,6 +1454,7 @@ describe('saveUserOnlyMessage', () => {
       totalCost: 0.001,
       inputTokens: 50,
       outputTokens: 30,
+      parentMessageId: null,
     });
     expect(result2.userSequence).toBe(2);
     expect(result2.aiSequence).toBe(3);
@@ -1242,8 +1463,10 @@ describe('saveUserOnlyMessage', () => {
     const result3 = await saveUserOnlyMessage(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       messageId: crypto.randomUUID(),
       content: 'User-only after AI',
+      parentMessageId: null,
     });
     expect(result3.sequenceNumber).toBe(4);
   });
@@ -1257,16 +1480,20 @@ describe('saveUserOnlyMessage', () => {
     await saveUserOnlyMessage(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
+      senderId: setup.user.id,
       messageId,
       content: 'First attempt',
+      parentMessageId: null,
     });
 
     await expect(
       saveUserOnlyMessage(db, {
         conversationId: setup.conversation.id,
         userId: setup.user.id,
+        senderId: setup.user.id,
         messageId, // duplicate
         content: 'Duplicate attempt',
+        parentMessageId: null,
       })
     ).rejects.toThrow();
 
@@ -1277,5 +1504,73 @@ describe('saveUserOnlyMessage', () => {
       .where(eq(conversations.id, setup.conversation.id));
     if (!conv) throw new Error('Conversation not found');
     expect(conv.nextSequence).toBe(2);
+  });
+
+  it('saveChatTurn persists senderId separately from billing userId', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    // Create a second user to act as the actual sender
+    const senderKeyPair = generateKeyPair();
+    const senderData = userFactory.build({ publicKey: senderKeyPair.publicKey });
+    const [sender] = await db.insert(users).values(senderData).returning();
+    if (!sender) throw new Error('Failed to create sender user');
+    createdUserIds.push(sender.id);
+
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+
+    await saveChatTurn(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id, // billing target (owner)
+      senderId: sender.id, // actual sender (member)
+      userMessageId,
+      userContent: 'Hello from member',
+      assistantMessageId,
+      assistantContent: 'AI response',
+      model: 'openai/gpt-4o-mini',
+      totalCost: 0.001,
+      inputTokens: 50,
+      outputTokens: 25,
+      parentMessageId: null,
+    });
+
+    // User message senderId should be the actual sender, not the billing user
+    const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
+    if (!userMsg) throw new Error('User message not found');
+    expect(userMsg.senderId).toBe(sender.id);
+    expect(userMsg.senderId).not.toBe(setup.user.id);
+
+    // AI message payerId should still be the billing user (owner)
+    const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
+    if (!aiMsg) throw new Error('AI message not found');
+    expect(aiMsg.payerId).toBe(setup.user.id);
+  });
+
+  it('saveUserOnlyMessage persists senderId separately from userId', async () => {
+    const setup = await createTestSetup(db);
+    createdUserIds.push(setup.user.id);
+
+    const senderKeyPair = generateKeyPair();
+    const senderData = userFactory.build({ publicKey: senderKeyPair.publicKey });
+    const [sender] = await db.insert(users).values(senderData).returning();
+    if (!sender) throw new Error('Failed to create sender user');
+    createdUserIds.push(sender.id);
+
+    const messageId = crypto.randomUUID();
+
+    await saveUserOnlyMessage(db, {
+      conversationId: setup.conversation.id,
+      userId: setup.user.id, // billing target (unused for user-only, but kept for consistency)
+      senderId: sender.id, // actual sender
+      messageId,
+      content: 'Hello from member (no AI)',
+      parentMessageId: null,
+    });
+
+    const [msg] = await db.select().from(messages).where(eq(messages.id, messageId));
+    if (!msg) throw new Error('Message not found');
+    expect(msg.senderId).toBe(sender.id);
+    expect(msg.senderId).not.toBe(setup.user.id);
   });
 });

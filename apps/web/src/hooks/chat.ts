@@ -35,12 +35,15 @@ export const chatKeys = {
 };
 
 export function useConversations(): ReturnType<typeof useQuery<ConversationListItem[], Error>> {
+  const user = useAuthStore((s) => s.user);
+
   return useQuery({
     queryKey: chatKeys.conversations(),
     queryFn: async (): Promise<ConversationListItem[]> => {
       const response = await fetchJson<ConversationsResponse>(client.api.conversations.$get());
       return response.conversations;
     },
+    enabled: !!user,
   });
 }
 
@@ -105,14 +108,25 @@ export function useDecryptedConversations(): {
   return { data: decryptedData, isLoading };
 }
 
-export function useConversation(id: string): ReturnType<typeof useQuery<Conversation, Error>> {
+export type ConversationWithCaller = Conversation & {
+  callerId: string;
+  callerPrivilege: string;
+};
+
+export function useConversation(
+  id: string
+): ReturnType<typeof useQuery<ConversationWithCaller, Error>> {
   return useQuery({
     queryKey: chatKeys.conversation(id),
-    queryFn: async (): Promise<Conversation> => {
-      const response = await fetchJson<ConversationResponse>(
-        client.api.conversations[':id'].$get({ param: { id } })
-      );
-      return response.conversation;
+    queryFn: async (): Promise<ConversationWithCaller> => {
+      const response = await fetchJson<
+        ConversationResponse & { callerId: string; privilege: string }
+      >(client.api.conversations[':conversationId'].$get({ param: { conversationId: id } }));
+      return {
+        ...response.conversation,
+        callerId: response.callerId,
+        callerPrivilege: response.privilege,
+      };
     },
     enabled: !!id,
   });
@@ -125,7 +139,7 @@ export function useMessages(
     queryKey: chatKeys.messages(conversationId),
     queryFn: async (): Promise<MessageResponse[]> => {
       const response = await fetchJson<ConversationResponse>(
-        client.api.conversations[':id'].$get({ param: { id: conversationId } })
+        client.api.conversations[':conversationId'].$get({ param: { conversationId } })
       );
       return response.messages;
     },
@@ -154,7 +168,7 @@ export function useDeleteConversation(): ReturnType<
   return useMutation({
     mutationFn: async (conversationId: string): Promise<DeleteConversationResponse> => {
       return fetchJson<DeleteConversationResponse>(
-        client.api.conversations[':id'].$delete({ param: { id: conversationId } })
+        client.api.conversations[':conversationId'].$delete({ param: { conversationId } })
       );
     },
     onSuccess: () => {
@@ -180,7 +194,10 @@ export function useUpdateConversation(): ReturnType<
       data: UpdateConversationRequest;
     }): Promise<UpdateConversationResponse> => {
       return fetchJson<UpdateConversationResponse>(
-        client.api.conversations[':id'].$patch({ param: { id: conversationId }, json: data })
+        client.api.conversations[':conversationId'].$patch({
+          param: { conversationId },
+          json: data,
+        })
       );
     },
     onSuccess: (_data, variables) => {

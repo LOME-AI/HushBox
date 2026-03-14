@@ -17,6 +17,23 @@ export const STRONGEST_MODEL_ID = 'anthropic/claude-opus-4.6';
 /** Model ID for the "Value" quick-select button */
 export const VALUE_MODEL_ID = 'deepseek/deepseek-r1';
 
+/** Model ID for OpenRouter's auto-router */
+export const AUTO_ROUTER_MODEL_ID = 'openrouter/auto';
+
+/**
+ * Client-only input price estimation for auto-router (per token, USD).
+ * Based on cheapest model the auto-router supports ($0.000039/1k tokens).
+ * Backend computes its own pricing from the allowed models list.
+ */
+export const AUTO_ROUTER_INPUT_PRICE_PER_TOKEN = 0.000_000_039;
+
+/**
+ * Client-only output price estimation for auto-router (per token, USD).
+ * Based on cheapest model the auto-router supports ($0.00019/1k tokens).
+ * Backend computes its own pricing from the allowed models list.
+ */
+export const AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN = 0.000_000_19;
+
 /** HushBox's profit margin on AI model usage (5%) */
 export const HUSHBOX_FEE_RATE = 0.05;
 
@@ -152,6 +169,12 @@ export const FEATURE_FLAGS: FeatureFlags = {
 
 /** Maximum number of members (users + link guests) allowed in a single conversation */
 export const MAX_CONVERSATION_MEMBERS = 100;
+
+/** Maximum number of forks allowed per conversation */
+export const MAX_FORKS_PER_CONVERSATION = 5;
+
+/** Maximum number of models that can be selected simultaneously for multi-model chat */
+export const MAX_SELECTED_MODELS = 5;
 
 // ============================================================================
 // Legal Constants

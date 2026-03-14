@@ -48,9 +48,57 @@ export interface BuildBillingResult {
  */
 export interface BuildBillingInputParams {
   userId: string;
-  model: string;
+  models: string[];
   memberContext?: MemberContext;
   conversationId?: string;
+}
+
+export interface BuildGuestBillingInputParams {
+  ownerId: string;
+  memberId: string;
+  models: string[];
+  conversationId: string;
+}
+
+interface ResolveGroupRemainingResult {
+  groupRemaining: ReturnType<typeof computeGroupRemaining>;
+  memberBudget: string;
+  memberSpent: string;
+  conversationBudget: string;
+  totalSpent: string;
+}
+
+/**
+ * Looks up the member's budget from the conversation budgets result and computes
+ * group remaining values. Shared by buildBillingInput and buildGuestBillingInput.
+ */
+function resolveGroupRemaining(
+  budgets: Awaited<ReturnType<typeof getConversationBudgets>>,
+  memberId: string,
+  ownerBalanceCents: number,
+  reserved: Awaited<ReturnType<typeof getGroupReservedTotals>>
+): ResolveGroupRemainingResult {
+  const currentMemberBudget = budgets.memberBudgets.find((mb) => mb.memberId === memberId);
+
+  const memberBudget = currentMemberBudget?.budget ?? '0.00';
+  const memberSpent = currentMemberBudget?.spent ?? '0';
+
+  const groupRemaining = computeGroupRemaining({
+    conversationBudget: budgets.conversationBudget,
+    conversationSpent: budgets.totalSpent,
+    memberBudget,
+    memberSpent,
+    ownerBalanceCents,
+    reserved,
+  });
+
+  return {
+    groupRemaining,
+    memberBudget,
+    memberSpent,
+    conversationBudget: budgets.conversationBudget,
+    totalSpent: budgets.totalSpent,
+  };
 }
 
 export async function buildBillingInput(
@@ -58,7 +106,7 @@ export async function buildBillingInput(
   redis: Redis,
   params: BuildBillingInputParams
 ): Promise<BuildBillingResult> {
-  const { userId, model, memberContext, conversationId } = params;
+  const { userId, models, memberContext, conversationId } = params;
   // 1. User tier info + Redis reservations + model premium check (in parallel)
   const [userTierInfo, reservedCents, openrouterModels, zdrModelIds] = await Promise.all([
     getUserTierInfo(db, userId),
@@ -68,7 +116,7 @@ export async function buildBillingInput(
   ]);
 
   const { premiumIds } = processModels(openrouterModels, zdrModelIds);
-  const isPremiumModel = premiumIds.includes(model);
+  const isPremiumModel = models.some((m) => premiumIds.includes(m));
 
   const adjustedBalanceCents = userTierInfo.balanceCents - reservedCents;
   const adjustedFreeAllowanceCents = userTierInfo.freeAllowanceCents - reservedCents;
@@ -89,24 +137,15 @@ export async function buildBillingInput(
       getConversationBudgets(db, conversationId),
     ]);
 
-    const currentMemberBudget = budgets.memberBudgets.find(
-      (mb) => mb.memberId === memberContext.memberId
+    const resolved = resolveGroupRemaining(
+      budgets,
+      memberContext.memberId,
+      ownerTierInfo.balanceCents,
+      reserved
     );
 
-    const memberBudget = currentMemberBudget?.budget ?? '0.00';
-    const memberSpent = currentMemberBudget?.spent ?? '0';
-
-    const groupRemaining = computeGroupRemaining({
-      conversationBudget: budgets.conversationBudget,
-      conversationSpent: budgets.totalSpent,
-      memberBudget,
-      memberSpent,
-      ownerBalanceCents: ownerTierInfo.balanceCents,
-      reserved,
-    });
-
     input.group = {
-      effectiveCents: effectiveBudgetCents(groupRemaining),
+      effectiveCents: effectiveBudgetCents(resolved.groupRemaining),
       ownerTier: ownerTierInfo.tier,
       ownerBalanceCents: ownerTierInfo.balanceCents - reserved.payerTotal,
     };
@@ -116,10 +155,10 @@ export async function buildBillingInput(
       rawUserBalanceCents: userTierInfo.balanceCents,
       rawFreeAllowanceCents: userTierInfo.freeAllowanceCents,
       groupBudgetContext: {
-        conversationBudget: budgets.conversationBudget,
-        conversationSpent: budgets.totalSpent,
-        memberBudget,
-        memberSpent,
+        conversationBudget: resolved.conversationBudget,
+        conversationSpent: resolved.totalSpent,
+        memberBudget: resolved.memberBudget,
+        memberSpent: resolved.memberSpent,
         ownerBalanceCents: ownerTierInfo.balanceCents,
       },
     };
@@ -129,5 +168,59 @@ export async function buildBillingInput(
     input,
     rawUserBalanceCents: userTierInfo.balanceCents,
     rawFreeAllowanceCents: userTierInfo.freeAllowanceCents,
+  };
+}
+
+/**
+ * Gather billing data for a link guest.
+ *
+ * Guests have no personal wallet, so this skips personal tier/reservation lookups.
+ * Only queries: owner tier info, group budgets, group Redis reservations, and
+ * model premium check. Returns the same `BuildBillingResult` shape.
+ */
+export async function buildGuestBillingInput(
+  db: Database,
+  redis: Redis,
+  params: BuildGuestBillingInputParams
+): Promise<BuildBillingResult> {
+  const { ownerId, memberId, models, conversationId } = params;
+
+  const [ownerTierInfo, reserved, budgets, openrouterModels, zdrModelIds] = await Promise.all([
+    getUserTierInfo(db, ownerId),
+    getGroupReservedTotals(redis, conversationId, memberId, ownerId),
+    getConversationBudgets(db, conversationId),
+    fetchModels(),
+    fetchZdrModelIds(),
+  ]);
+
+  const { premiumIds } = processModels(openrouterModels, zdrModelIds);
+  const isPremiumModel = models.some((m) => premiumIds.includes(m));
+
+  const resolved = resolveGroupRemaining(budgets, memberId, ownerTierInfo.balanceCents, reserved);
+
+  const input: ResolveBillingInput = {
+    tier: 'guest',
+    balanceCents: 0,
+    freeAllowanceCents: 0,
+    isPremiumModel,
+    estimatedMinimumCostCents: 0,
+    group: {
+      effectiveCents: effectiveBudgetCents(resolved.groupRemaining),
+      ownerTier: ownerTierInfo.tier,
+      ownerBalanceCents: ownerTierInfo.balanceCents - reserved.payerTotal,
+    },
+  };
+
+  return {
+    input,
+    rawUserBalanceCents: 0,
+    rawFreeAllowanceCents: 0,
+    groupBudgetContext: {
+      conversationBudget: resolved.conversationBudget,
+      conversationSpent: resolved.totalSpent,
+      memberBudget: resolved.memberBudget,
+      memberSpent: resolved.memberSpent,
+      ownerBalanceCents: ownerTierInfo.balanceCents,
+    },
   };
 }

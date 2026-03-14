@@ -64,7 +64,7 @@ export function ChatIndex(): React.JSX.Element {
       const isUserAuthenticated = Boolean(currentSession?.user);
       if (isUserAuthenticated) {
         usePendingChatStore.getState().setPendingMessage(content, fundingSource);
-        void navigate({ to: ROUTES.CHAT_ID, params: { id: 'new' } });
+        void navigate({ to: ROUTES.CHAT_ID, params: { id: 'new' }, search: { fork: undefined } });
       } else {
         useTrialChatStore.getState().reset();
         useTrialChatStore.getState().setPendingMessage(content);

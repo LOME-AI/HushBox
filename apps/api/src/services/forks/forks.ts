@@ -1,0 +1,384 @@
+import { eq, ne, and, desc, inArray } from 'drizzle-orm';
+import { conversationForks, messages, type Database } from '@hushbox/db';
+import {
+  MAX_FORKS_PER_CONVERSATION,
+  ERROR_CODE_FORK_LIMIT_REACHED,
+  ERROR_CODE_FORK_NAME_TAKEN,
+} from '@hushbox/shared';
+
+// =============================================================================
+// Error class
+// =============================================================================
+
+export class ForkError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string
+  ) {
+    super(message);
+    this.name = 'ForkError';
+  }
+}
+
+// =============================================================================
+// Types
+// =============================================================================
+
+export interface CreateForkParams {
+  id: string;
+  conversationId: string;
+  fromMessageId: string;
+  name?: string;
+}
+
+export interface ForkRecord {
+  id: string;
+  conversationId: string;
+  name: string;
+  tipMessageId: string | null;
+  createdAt: Date;
+}
+
+export interface CreateForkResult {
+  forks: ForkRecord[];
+  isNew: boolean;
+}
+
+export interface DeleteForkParams {
+  conversationId: string;
+  forkId: string;
+}
+
+export interface DeleteForkResult {
+  remainingForks: { id: string; name: string; tipMessageId: string | null }[];
+}
+
+export interface RenameForkParams {
+  forkId: string;
+  conversationId: string;
+  name: string;
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Fetches all fork records for a conversation, ordered by creation time.
+ */
+async function fetchAllForks(db: Database, conversationId: string): Promise<ForkRecord[]> {
+  return db
+    .select({
+      id: conversationForks.id,
+      conversationId: conversationForks.conversationId,
+      name: conversationForks.name,
+      tipMessageId: conversationForks.tipMessageId,
+      createdAt: conversationForks.createdAt,
+    })
+    .from(conversationForks)
+    .where(eq(conversationForks.conversationId, conversationId))
+    .orderBy(conversationForks.createdAt);
+}
+
+/**
+ * Generates the next auto-name for a fork.
+ * Scans existing fork names of the form "Fork N" and picks the next sequential number.
+ */
+function nextAutoName(existingForks: ForkRecord[]): string {
+  let maxNumber = 0;
+  for (const fork of existingForks) {
+    const match = /^Fork (\d+)$/.exec(fork.name);
+    if (match) {
+      const number_ = Number.parseInt(match[1]!, 10);
+      if (number_ > maxNumber) {
+        maxNumber = number_;
+      }
+    }
+  }
+  return `Fork ${String(maxNumber + 1)}`;
+}
+
+/**
+ * Collects the ancestor chain from a given message ID to the root,
+ * following parentMessageId links. Returns the set of message IDs.
+ */
+async function collectAncestorChain(
+  db: Database,
+  conversationId: string,
+  tipMessageId: string | null
+): Promise<Set<string>> {
+  const chain = new Set<string>();
+  let currentId = tipMessageId;
+
+  while (currentId) {
+    chain.add(currentId);
+    const [msg] = await db
+      .select({ parentMessageId: messages.parentMessageId })
+      .from(messages)
+      .where(and(eq(messages.id, currentId), eq(messages.conversationId, conversationId)));
+    currentId = msg?.parentMessageId ?? null;
+  }
+
+  return chain;
+}
+
+/**
+ * Checks if a unique constraint violation occurred on the (conversation_id, name) index.
+ * Drizzle wraps postgres errors in DrizzleQueryError with the original error as `cause`.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  if (error instanceof Error) {
+    // Check the error message itself
+    const message = error.message;
+    if (
+      message.includes('duplicate key') ||
+      message.includes('unique constraint') ||
+      message.includes('conversation_forks_conv_name_idx')
+    ) {
+      return true;
+    }
+    // Check the cause (DrizzleQueryError wraps postgres errors)
+    const cause = (error as { cause?: unknown }).cause;
+    if (cause instanceof Error) {
+      const causeMessage = cause.message;
+      if (
+        causeMessage.includes('duplicate key') ||
+        causeMessage.includes('unique constraint') ||
+        causeMessage.includes('conversation_forks_conv_name_idx')
+      ) {
+        return true;
+      }
+    }
+    // Check postgres error code 23505 (unique_violation) on cause
+    if (cause && typeof cause === 'object' && 'code' in cause && cause.code === '23505') {
+      return true;
+    }
+  }
+  return false;
+}
+
+// =============================================================================
+// createFork
+// =============================================================================
+
+/**
+ * Creates a new fork in a conversation. Idempotent on fork ID.
+ *
+ * When no forks exist yet, creates both a "Main" fork (pointing to the
+ * latest message by sequence number) and the new fork (pointing to fromMessageId).
+ *
+ * When forks already exist, creates only the new fork record.
+ */
+export async function createFork(
+  db: Database,
+  params: CreateForkParams
+): Promise<CreateForkResult> {
+  const { id, conversationId, fromMessageId, name } = params;
+
+  // Idempotency: check if fork with this ID already exists
+  const [existingFork] = await db
+    .select({ id: conversationForks.id })
+    .from(conversationForks)
+    .where(eq(conversationForks.id, id));
+
+  if (existingFork) {
+    const forks = await fetchAllForks(db, conversationId);
+    return { forks, isNew: false };
+  }
+
+  // Count existing forks
+  const existingForks = await fetchAllForks(db, conversationId);
+
+  if (existingForks.length >= MAX_FORKS_PER_CONVERSATION) {
+    throw new ForkError(
+      ERROR_CODE_FORK_LIMIT_REACHED,
+      `Maximum of ${String(MAX_FORKS_PER_CONVERSATION)} forks per conversation reached`
+    );
+  }
+
+  const forkName = name ?? nextAutoName(existingForks);
+
+  if (existingForks.length === 0) {
+    // First fork — create Main + new fork
+    // Find latest message by sequence_number
+    const [latestMessage] = await db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(desc(messages.sequenceNumber))
+      .limit(1);
+
+    const mainTip = latestMessage?.id ?? null;
+
+    const now = new Date();
+    try {
+      await db.insert(conversationForks).values([
+        {
+          conversationId,
+          name: 'Main',
+          tipMessageId: mainTip,
+          createdAt: now,
+        },
+        {
+          id,
+          conversationId,
+          name: forkName,
+          tipMessageId: fromMessageId,
+          createdAt: new Date(now.getTime() + 1),
+        },
+      ]);
+    } catch (error: unknown) {
+      if (isUniqueViolation(error)) {
+        throw new ForkError(ERROR_CODE_FORK_NAME_TAKEN, `Fork name "${forkName}" already taken`);
+      }
+      throw error;
+    }
+  } else {
+    // Subsequent fork — create only the new one
+    try {
+      await db.insert(conversationForks).values({
+        id,
+        conversationId,
+        name: forkName,
+        tipMessageId: fromMessageId,
+      });
+    } catch (error: unknown) {
+      if (isUniqueViolation(error)) {
+        throw new ForkError(ERROR_CODE_FORK_NAME_TAKEN, `Fork name "${forkName}" already taken`);
+      }
+      throw error;
+    }
+  }
+
+  const forks = await fetchAllForks(db, conversationId);
+  return { forks, isNew: true };
+}
+
+// =============================================================================
+// deleteFork
+// =============================================================================
+
+/**
+ * Deletes a fork and its exclusive messages.
+ *
+ * "Exclusive messages" are messages whose only path to any fork tip goes
+ * through the deleted fork. These are identified by walking the deleted
+ * fork's tip chain and checking each message against all other fork chains.
+ *
+ * If only one fork remains after deletion, that fork is also removed
+ * (reverting the conversation to linear mode).
+ *
+ * Idempotent: if the fork is already deleted, returns remaining forks.
+ */
+export async function deleteFork(
+  db: Database,
+  params: DeleteForkParams
+): Promise<DeleteForkResult> {
+  const { conversationId, forkId } = params;
+
+  // Get the fork to delete (may not exist if already deleted)
+  const [targetFork] = await db
+    .select({
+      id: conversationForks.id,
+      tipMessageId: conversationForks.tipMessageId,
+    })
+    .from(conversationForks)
+    .where(
+      and(eq(conversationForks.id, forkId), eq(conversationForks.conversationId, conversationId))
+    );
+
+  if (!targetFork) {
+    // Already deleted — return remaining forks (idempotent)
+    const remaining = await fetchAllForks(db, conversationId);
+    return {
+      remainingForks: remaining.map((f) => ({
+        id: f.id,
+        name: f.name,
+        tipMessageId: f.tipMessageId,
+      })),
+    };
+  }
+
+  // Get all other forks
+  const otherForks = await db
+    .select({
+      id: conversationForks.id,
+      tipMessageId: conversationForks.tipMessageId,
+    })
+    .from(conversationForks)
+    .where(
+      and(eq(conversationForks.conversationId, conversationId), ne(conversationForks.id, forkId))
+    );
+
+  // Collect ancestor chains for all other forks
+  const otherChains = new Set<string>();
+  for (const otherFork of otherForks) {
+    const chain = await collectAncestorChain(db, conversationId, otherFork.tipMessageId);
+    for (const msgId of chain) {
+      otherChains.add(msgId);
+    }
+  }
+
+  // Collect the deleted fork's chain
+  const deletedChain = await collectAncestorChain(db, conversationId, targetFork.tipMessageId);
+
+  // Find exclusive messages: in deleted chain but not in any other chain
+  const exclusiveMessageIds: string[] = [];
+  for (const msgId of deletedChain) {
+    if (!otherChains.has(msgId)) {
+      exclusiveMessageIds.push(msgId);
+    }
+  }
+
+  // Delete exclusive messages
+  if (exclusiveMessageIds.length > 0) {
+    await db.delete(messages).where(inArray(messages.id, exclusiveMessageIds));
+  }
+
+  // Delete the fork record
+  await db.delete(conversationForks).where(eq(conversationForks.id, forkId));
+
+  // Check remaining forks
+  const remaining = await fetchAllForks(db, conversationId);
+
+  // If only one fork remains, revert to linear (delete all fork records)
+  if (remaining.length === 1) {
+    await db.delete(conversationForks).where(eq(conversationForks.conversationId, conversationId));
+    return { remainingForks: [] };
+  }
+
+  return {
+    remainingForks: remaining.map((f) => ({
+      id: f.id,
+      name: f.name,
+      tipMessageId: f.tipMessageId,
+    })),
+  };
+}
+
+// =============================================================================
+// renameFork
+// =============================================================================
+
+/**
+ * Renames a fork. Atomic UPDATE with WHERE clause.
+ * Unique constraint on (conversation_id, name) catches duplicates.
+ * Renaming to the same name is a no-op (UPDATE sets same value).
+ */
+export async function renameFork(db: Database, params: RenameForkParams): Promise<void> {
+  const { forkId, conversationId, name } = params;
+
+  try {
+    await db
+      .update(conversationForks)
+      .set({ name })
+      .where(
+        and(eq(conversationForks.id, forkId), eq(conversationForks.conversationId, conversationId))
+      );
+  } catch (error: unknown) {
+    if (isUniqueViolation(error)) {
+      throw new ForkError(ERROR_CODE_FORK_NAME_TAKEN, `Fork name "${name}" already taken`);
+    }
+    throw error;
+  }
+}

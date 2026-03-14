@@ -74,8 +74,7 @@ describe('useModelValidation', () => {
     mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
 
     mockedUseModelStore.mockReturnValue({
-      selectedModelId: 'basic-model',
-      selectedModelName: 'Basic Model',
+      selectedModels: [{ id: 'basic-model', name: 'Basic Model' }],
       setSelectedModel: mockSetSelectedModel,
     });
 
@@ -120,8 +119,7 @@ describe('useModelValidation', () => {
       },
     } as ReturnType<typeof useModels>);
     mockedUseModelStore.mockReturnValue({
-      selectedModelId: 'premium-model',
-      selectedModelName: 'Premium Model',
+      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }],
       setSelectedModel: mockSetSelectedModel,
     });
     mockedGetAccessibleModelIds.mockReturnValue({
@@ -153,8 +151,7 @@ describe('useModelValidation', () => {
       },
     } as ReturnType<typeof useModels>);
     mockedUseModelStore.mockReturnValue({
-      selectedModelId: 'premium-model', // Premium model selected
-      selectedModelName: 'Premium Model',
+      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }], // Premium model selected
       setSelectedModel: mockSetSelectedModel,
     });
 
@@ -181,8 +178,7 @@ describe('useModelValidation', () => {
       },
     } as ReturnType<typeof useModels>);
     mockedUseModelStore.mockReturnValue({
-      selectedModelId: 'basic-model', // Basic model (accessible)
-      selectedModelName: 'Basic Model',
+      selectedModels: [{ id: 'basic-model', name: 'Basic Model' }], // Basic model (accessible)
       setSelectedModel: mockSetSelectedModel,
     });
 
@@ -209,8 +205,7 @@ describe('useModelValidation', () => {
       },
     } as ReturnType<typeof useModels>);
     mockedUseModelStore.mockReturnValue({
-      selectedModelId: 'premium-model', // Premium model selected (not accessible)
-      selectedModelName: 'Premium Model',
+      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }], // Premium model selected (not accessible)
       setSelectedModel: mockSetSelectedModel,
     });
     mockedGetAccessibleModelIds.mockReturnValue({
@@ -239,8 +234,7 @@ describe('useModelValidation', () => {
       },
     } as ReturnType<typeof useModels>);
     mockedUseModelStore.mockReturnValue({
-      selectedModelId: 'premium-model', // Premium model selected (not accessible)
-      selectedModelName: 'Premium Model',
+      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }], // Premium model selected (not accessible)
       setSelectedModel: mockSetSelectedModel,
     });
     mockedGetAccessibleModelIds.mockReturnValue({
@@ -285,8 +279,7 @@ describe('useModelValidation', () => {
       },
     } as ReturnType<typeof useModels>);
     mockedUseModelStore.mockReturnValue({
-      selectedModelId: 'premium-model',
-      selectedModelName: 'Premium Model',
+      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }],
       setSelectedModel: mockSetSelectedModel,
     });
     mockedGetAccessibleModelIds.mockReturnValue({
@@ -315,8 +308,7 @@ describe('useModelValidation', () => {
       },
     } as ReturnType<typeof useModels>);
     mockedUseModelStore.mockReturnValue({
-      selectedModelId: 'premium-model',
-      selectedModelName: 'Premium Model',
+      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }],
       setSelectedModel: mockSetSelectedModel,
     });
     mockedGetAccessibleModelIds.mockReturnValue({
@@ -348,8 +340,7 @@ describe('useModelValidation', () => {
       },
     } as ReturnType<typeof useModels>);
     mockedUseModelStore.mockReturnValue({
-      selectedModelId: 'premium-model', // Premium model from cache
-      selectedModelName: 'Premium Model',
+      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }], // Premium model from cache
       setSelectedModel: mockSetSelectedModel,
     });
     mockedGetAccessibleModelIds.mockReturnValue({

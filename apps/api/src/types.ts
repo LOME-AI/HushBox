@@ -44,6 +44,9 @@ export interface Variables {
     publicKey: Uint8Array;
   } | null;
   member: { id: string; privilege: string; visibleFromEpoch: number };
+  callerId: string;
+  conversationOwnerId: string;
+  linkGuest: { linkId: string; publicKey: Uint8Array } | null;
   session: SessionData | null;
   sessionData: SessionData | null;
 }

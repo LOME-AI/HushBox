@@ -1,9 +1,21 @@
 import { hc } from 'hono/client';
 import type { AppType } from '@hushbox/api';
 import { ApiError, getApiUrl } from './api.js';
+import { getLinkGuestAuth } from './link-guest-auth.js';
+
+const linkGuestFetch: typeof fetch = (input, init) => {
+  const linkKey = getLinkGuestAuth();
+  if (linkKey) {
+    const headers = new Headers(init?.headers);
+    headers.set('X-Link-Public-Key', linkKey);
+    return fetch(input, { ...init, headers, credentials: 'omit' });
+  }
+  return fetch(input, init);
+};
 
 export const client = hc<AppType>(getApiUrl(), {
   init: { credentials: 'include' },
+  fetch: linkGuestFetch,
 });
 
 /**

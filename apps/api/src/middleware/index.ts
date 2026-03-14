@@ -4,8 +4,8 @@ export { securityHeaders } from './security.js';
 export { devOnly } from './dev-only.js';
 export { errorHandler } from './error.js';
 export { requireAuth } from './require-auth.js';
-export { requirePhrase } from './require-phrase.js';
 export { requirePrivilege } from './require-privilege.js';
+export { requireLinkGuest } from './require-link-guest.js';
 export {
   dbMiddleware,
   redisMiddleware,

@@ -21,7 +21,6 @@ import {
   keysRoute,
   membersRoute,
   linksRoute,
-  linkGuestRoute,
   messageSharesRoute,
   publicSharesRoute,
   trialChatRoute,
@@ -32,6 +31,7 @@ import {
   websocketRoute,
   budgetsRoute,
   usersRoute,
+  forksRoute,
 } from './routes/index.js';
 import type { AppEnv } from './types.js';
 
@@ -76,8 +76,6 @@ export function createApp() {
   base.use('/api/budgets/*', ironSessionMiddleware());
   base.use('/api/budgets/*', sessionMiddleware());
 
-  base.use('/api/link-guest/*', dbMiddleware());
-
   base.use('/api/shares/*', dbMiddleware());
 
   base.use('/api/messages/*', csrfProtection());
@@ -85,6 +83,12 @@ export function createApp() {
   base.use('/api/messages/*', redisMiddleware());
   base.use('/api/messages/*', ironSessionMiddleware());
   base.use('/api/messages/*', sessionMiddleware());
+
+  base.use('/api/forks/*', csrfProtection());
+  base.use('/api/forks/*', dbMiddleware());
+  base.use('/api/forks/*', redisMiddleware());
+  base.use('/api/forks/*', ironSessionMiddleware());
+  base.use('/api/forks/*', sessionMiddleware());
 
   base.use('/api/keys/*', csrfProtection());
   base.use('/api/keys/*', dbMiddleware());
@@ -138,11 +142,11 @@ export function createApp() {
     .route('/api/conversations', conversationsRoute)
     .route('/api/members', membersRoute)
     .route('/api/links', linksRoute)
-    .route('/api/link-guest', linkGuestRoute)
     .route('/api/messages', messageSharesRoute)
     .route('/api/shares', publicSharesRoute)
     .route('/api/keys', keysRoute)
     .route('/api/chat', chatRoute)
+    .route('/api/forks', forksRoute)
     .route('/api/trial', trialChatRoute)
     .route('/api/models', modelsRoute)
     .route('/api/billing', billingRoute)

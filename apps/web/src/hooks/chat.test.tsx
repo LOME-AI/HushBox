@@ -14,9 +14,10 @@ import {
 } from './chat';
 
 // Mock auth to break transitive import chain to api.ts (env parse)
+let mockAuthState: Record<string, unknown> = { privateKey: null, user: { id: 'test-user' } };
 vi.mock('../lib/auth', () => ({
-  useAuthStore: vi.fn((selector: (s: { privateKey: null }) => unknown) =>
-    selector({ privateKey: null })
+  useAuthStore: vi.fn((selector: (s: Record<string, unknown>) => unknown) =>
+    selector(mockAuthState)
   ),
 }));
 
@@ -50,7 +51,7 @@ vi.mock('../lib/api-client', () => ({
       conversations: {
         $get: vi.fn(),
         $post: vi.fn(),
-        ':id': {
+        ':conversationId': {
           $get: vi.fn(),
           $delete: vi.fn(),
           $patch: vi.fn(),
@@ -158,6 +159,23 @@ describe('useConversations', () => {
 
     expect(result.current.error?.message).toBe('Network error');
   });
+
+  it('does not fetch when user is not authenticated', async () => {
+    const previousState = mockAuthState;
+    mockAuthState = { privateKey: null, user: null };
+
+    const { result } = renderHook(() => useConversations(), { wrapper: createWrapper() });
+
+    // Wait a tick to ensure query would have fired if enabled
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockFetchJson).not.toHaveBeenCalled();
+
+    mockAuthState = previousState;
+  });
 });
 
 describe('useConversation', () => {
@@ -230,7 +248,7 @@ describe('useMessages', () => {
         encryptedBlob: 'blob-1',
         senderType: 'user',
         senderId: 'user-1',
-        senderDisplayName: null,
+        modelName: null,
         payerId: null,
         epochNumber: 1,
         sequenceNumber: 0,
@@ -242,7 +260,7 @@ describe('useMessages', () => {
         encryptedBlob: 'blob-2',
         senderType: 'ai',
         senderId: null,
-        senderDisplayName: null,
+        modelName: null,
         payerId: null,
         epochNumber: 1,
         sequenceNumber: 1,

@@ -1,12 +1,12 @@
 export {
   listConversations,
-  getConversation,
+  getConversationForMember,
   createOrGetConversation,
   updateConversation,
   deleteConversation,
 } from './conversations.js';
 export type {
-  ConversationWithMessages,
+  ConversationForMember,
   CreateOrGetConversationParams,
   CreateOrGetConversationResult,
   UpdateConversationParams,

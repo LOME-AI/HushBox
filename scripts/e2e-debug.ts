@@ -1,9 +1,13 @@
 /**
  * E2E Debug Report Generator
  *
- * Parses Playwright JSON reporter output and generates a structured debug report
- * categorizing tests as passed, flaky, or failed with detailed error information.
+ * Pure functions for categorizing Playwright test results and generating
+ * AI-agent-friendly Markdown reports with consolidated screenshots.
+ * Used by e2e-reporter.ts (custom Playwright reporter).
  */
+
+import { mkdirSync, rmSync, copyFileSync, writeFileSync, existsSync } from 'node:fs';
+import path from 'node:path';
 
 export interface PlaywrightError {
   message?: string;
@@ -120,11 +124,38 @@ export interface DebugReport {
   failed: FailedTest[];
 }
 
-export function parsePlaywrightJson(input: string): PlaywrightReport {
-  if (!input.trim()) {
-    throw new Error('Empty input');
-  }
-  return JSON.parse(input) as PlaywrightReport;
+// eslint-disable-next-line no-control-regex
+const ANSI_REGEX = /[\u001b\u009b][[()#;?]*(?:\d{1,4}(?:;\d{0,4})*)?[\dA-ORZcf-nqry=><]/g;
+
+export function stripAnsi(text: string): string {
+  return text.replace(ANSI_REGEX, '');
+}
+
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+export function buildRerunCommand(test: { title: string; file: string; project: string }): string {
+  const escapedTitle = test.title.replace(/"/g, '\\"');
+  return `pnpm e2e -- ${test.file} -g "${escapedTitle}" --project=${test.project}`;
+}
+
+export function screenshotFileName(test: { file: string; project: string; title: string }): string {
+  return `${slugify(test.file)}--${slugify(test.project)}--${slugify(test.title)}.png`;
+}
+
+export function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 export function categorizeTests(tests: FlattenedTestResult[]): CategorizedTests {
@@ -243,30 +274,110 @@ export function generateDebugReport(report: PlaywrightReport): DebugReport {
   };
 }
 
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
+const MAX_ERROR_LENGTH = 2000;
 
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer);
+export function generateMarkdownReport(report: DebugReport): string {
+  const lines: string[] = [];
+  const { summary } = report;
+  const status = summary.failed > 0 ? 'FAILED' : 'PASSED';
+
+  lines.push('# E2E Test Report');
+  lines.push('');
+  lines.push(`**Date:** ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`);
+  lines.push(`**Duration:** ${formatDuration(summary.duration)}`);
+  lines.push(
+    `**Result:** ${status} (${summary.passed} passed, ${summary.flaky} flaky, ${summary.failed} failed)`
+  );
+
+  if (report.failed.length > 0) {
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    lines.push('## Failed Tests');
+
+    const byFile = new Map<string, FailedTest[]>();
+    for (const test of report.failed) {
+      const existing = byFile.get(test.file) ?? [];
+      existing.push(test);
+      byFile.set(test.file, existing);
+    }
+
+    for (const [file, tests] of byFile) {
+      lines.push('');
+      lines.push(`### \`${file}\``);
+
+      for (const test of tests) {
+        lines.push('');
+        lines.push(`#### ${test.title} [${test.project}]`);
+        lines.push('');
+        lines.push(`**Re-run:** \`${buildRerunCommand(test)}\``);
+        lines.push('');
+
+        let error = stripAnsi(test.error);
+        if (error.length > MAX_ERROR_LENGTH) {
+          error = error.slice(0, MAX_ERROR_LENGTH) + '\n... (truncated)';
+        }
+        lines.push('**Error:**');
+        lines.push('```');
+        lines.push(error);
+        lines.push('```');
+        lines.push('');
+
+        if (test.artifacts.screenshot) {
+          const fname = screenshotFileName(test);
+          lines.push(`**Screenshot:** \`e2e/report/screenshots/${fname}\``);
+        } else {
+          lines.push('**Screenshot:** none');
+        }
+      }
+    }
   }
 
-  return Buffer.concat(chunks).toString('utf8');
+  if (report.flaky.length > 0) {
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    lines.push('## Flaky Tests');
+    lines.push('');
+    lines.push('| Test | File | Project | Attempts |');
+    lines.push('|------|------|---------|----------|');
+    for (const test of report.flaky) {
+      lines.push(`| ${test.title} | \`${test.file}\` | ${test.project} | ${test.attempts} |`);
+    }
+  }
+
+  if (report.passed.length > 0) {
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    lines.push(`## Passed Tests (${report.passed.length})`);
+    lines.push('');
+    lines.push('<details>');
+    lines.push('<summary>Expand</summary>');
+    lines.push('');
+    for (const test of report.passed) {
+      lines.push(`- ${test.title} [\`${test.file}\`] [${test.project}]`);
+    }
+    lines.push('');
+    lines.push('</details>');
+  }
+
+  lines.push('');
+  return lines.join('\n');
 }
 
-/* v8 ignore start */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
-if (isMain) {
-  void (async () => {
-    try {
-      const input = await readStdin();
-      const report = parsePlaywrightJson(input);
-      const debugReport = generateDebugReport(report);
-      console.log(JSON.stringify(debugReport, null, 2));
-      process.exit(debugReport.summary.failed > 0 ? 1 : 0);
-    } catch (error: unknown) {
-      console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+export function writeReport(report: DebugReport, reportDir: string): void {
+  rmSync(reportDir, { recursive: true, force: true });
+  mkdirSync(path.join(reportDir, 'screenshots'), { recursive: true });
+
+  for (const test of report.failed) {
+    if (test.artifacts.screenshot && existsSync(test.artifacts.screenshot)) {
+      const dest = path.join(reportDir, 'screenshots', screenshotFileName(test));
+      copyFileSync(test.artifacts.screenshot, dest);
     }
-  })();
+  }
+
+  const markdown = generateMarkdownReport(report);
+  writeFileSync(path.join(reportDir, 'REPORT.md'), markdown, 'utf8');
 }
-/* v8 ignore stop */
+

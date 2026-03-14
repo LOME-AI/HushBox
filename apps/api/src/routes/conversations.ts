@@ -6,17 +6,20 @@ import {
   updateConversationRequestSchema,
   conversationResponseSchema,
   messageResponseSchema,
-  ERROR_CODE_UNAUTHORIZED,
   ERROR_CODE_CONVERSATION_NOT_FOUND,
   toBase64,
   fromBase64,
 } from '@hushbox/shared';
-import type { Conversation, Message } from '@hushbox/db';
+import { eq } from 'drizzle-orm';
+import type { Conversation, Message, Database } from '@hushbox/db';
+import { conversationForks } from '@hushbox/db';
+
+type ConversationFork = typeof conversationForks.$inferSelect;
 import { createErrorResponse } from '../lib/error-response.js';
-import { requireAuth } from '../middleware/require-auth.js';
+import { requireAuth, requirePrivilege } from '../middleware/index.js';
 import {
   listConversations,
-  getConversation,
+  getConversationForMember,
   createOrGetConversation,
   updateConversation,
   deleteConversation,
@@ -46,22 +49,45 @@ function serializeMessage(msg: Message): z.infer<typeof messageResponseSchema> {
     // DB CHECK constraint guarantees senderType IN ('user', 'ai')
     senderType: msg.senderType as 'user' | 'ai',
     senderId: msg.senderId ?? null,
-    senderDisplayName: msg.senderDisplayName ?? null,
+    modelName: msg.modelName ?? null,
     payerId: msg.payerId ?? null,
     cost: msg.cost ?? null,
     epochNumber: msg.epochNumber,
     sequenceNumber: msg.sequenceNumber,
+    parentMessageId: msg.parentMessageId ?? null,
     createdAt: msg.createdAt.toISOString(),
   };
 }
 
+/** Serialize a fork entity for API responses. */
+function serializeFork(f: ConversationFork): {
+  id: string;
+  conversationId: string;
+  name: string;
+  tipMessageId: string | null;
+  createdAt: string;
+} {
+  return {
+    id: f.id,
+    conversationId: f.conversationId,
+    name: f.name,
+    tipMessageId: f.tipMessageId,
+    createdAt: f.createdAt.toISOString(),
+  };
+}
+
+/** Fetch all forks for a conversation. */
+async function fetchForks(db: Database, conversationId: string): Promise<ConversationFork[]> {
+  return db
+    .select()
+    .from(conversationForks)
+    .where(eq(conversationForks.conversationId, conversationId))
+    .orderBy(conversationForks.createdAt);
+}
+
 export const conversationsRoute = new Hono<AppEnv>()
-  .use('*', requireAuth())
-  .get('/', async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+  .get('/', requireAuth(), async (c) => {
+    const user = c.get('user')!;
     const db = c.get('db');
 
     const userConversations = await listConversations(db, user.id);
@@ -79,34 +105,47 @@ export const conversationsRoute = new Hono<AppEnv>()
       200
     );
   })
-  .get('/:id', zValidator('param', z.object({ id: z.string() })), async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
-    const db = c.get('db');
-    const { id: conversationId } = c.req.valid('param');
+  .get(
+    '/:conversationId',
+    zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('read', { allowLinkGuest: true }),
+    async (c) => {
+      const db = c.get('db');
+      const { conversationId } = c.req.valid('param');
+      const user = c.get('user');
+      const member = c.get('member');
+      const callerId = c.get('callerId');
 
-    const result = await getConversation(db, conversationId, user.id);
-    if (!result) {
-      return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
-    }
+      const result = await getConversationForMember(
+        db,
+        conversationId,
+        member.visibleFromEpoch,
+        user?.id
+      );
+      if (!result) {
+        return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
+      }
+      const accepted = result.acceptedAt !== null;
+      const invitedByUsername = result.invitedByUsername;
 
-    return c.json(
-      {
-        conversation: serializeConversation(result.conversation),
-        messages: result.messages.map((msg) => serializeMessage(msg)),
-        accepted: result.acceptedAt !== null,
-        invitedByUsername: result.invitedByUsername,
-      },
-      200
-    );
-  })
-  .post('/', zValidator('json', createConversationRequestSchema), async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
+      const forks = await fetchForks(db, conversationId);
+
+      return c.json(
+        {
+          conversation: serializeConversation(result.conversation),
+          messages: result.messages.map((msg) => serializeMessage(msg)),
+          forks: forks.map(serializeFork),
+          accepted,
+          invitedByUsername,
+          callerId,
+          privilege: member.privilege,
+        },
+        200
+      );
     }
+  )
+  .post('/', requireAuth(), zValidator('json', createConversationRequestSchema), async (c) => {
+    const user = c.get('user')!;
     const db = c.get('db');
     const body = c.req.valid('json');
 
@@ -124,9 +163,13 @@ export const conversationsRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
     }
 
+    // Fetch forks (empty for new conversations, may exist for idempotent returns)
+    const existingForks = result.isNew ? [] : await fetchForks(db, result.conversation.id);
+
     const response = {
       conversation: serializeConversation(result.conversation),
       messages: result.messages?.map((msg) => serializeMessage(msg)),
+      forks: existingForks.map(serializeFork),
       isNew: result.isNew,
       accepted: true as const, // creator is always auto-accepted
       invitedByUsername: null as string | null,
@@ -137,16 +180,14 @@ export const conversationsRoute = new Hono<AppEnv>()
     return c.json(response, status);
   })
   .patch(
-    '/:id',
-    zValidator('param', z.object({ id: z.string() })),
+    '/:conversationId',
+    zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('owner'),
     zValidator('json', updateConversationRequestSchema),
     async (c) => {
-      const user = c.get('user');
-      if (!user) {
-        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-      }
+      const user = c.get('user')!;
       const db = c.get('db');
-      const { id: conversationId } = c.req.valid('param');
+      const { conversationId } = c.req.valid('param');
       const body = c.req.valid('json');
 
       const conversation = await updateConversation(db, conversationId, user.id, {
@@ -168,18 +209,20 @@ export const conversationsRoute = new Hono<AppEnv>()
       );
     }
   )
-  .delete('/:id', zValidator('param', z.object({ id: z.string() })), async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
-    const db = c.get('db');
-    const { id: conversationId } = c.req.valid('param');
+  .delete(
+    '/:conversationId',
+    zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('owner'),
+    async (c) => {
+      const user = c.get('user')!;
+      const db = c.get('db');
+      const { conversationId } = c.req.valid('param');
 
-    const deleted = await deleteConversation(db, conversationId, user.id);
-    if (!deleted) {
-      return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
-    }
+      const deleted = await deleteConversation(db, conversationId, user.id);
+      if (!deleted) {
+        return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
+      }
 
-    return c.json({ deleted: true }, 200);
-  });
+      return c.json({ deleted: true }, 200);
+    }
+  );

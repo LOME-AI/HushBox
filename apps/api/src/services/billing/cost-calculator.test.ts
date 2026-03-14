@@ -29,6 +29,7 @@ describe('calculateMessageCost', () => {
         generationId: 'gen-123',
         inputContent: 'Hello world',
         outputContent: 'Hello! How can I help you today?',
+        webSearchCost: 0,
       });
 
       expect(realClient.getGenerationStats).toHaveBeenCalledWith('gen-123');
@@ -45,6 +46,7 @@ describe('calculateMessageCost', () => {
         generationId: 'gen-123',
         inputContent: 'Hello',
         outputContent: 'World',
+        webSearchCost: 0,
       });
 
       // Should fall back to estimation, not throw
@@ -62,6 +64,7 @@ describe('calculateMessageCost', () => {
         generationId: 'gen-123',
         inputContent: 'Hello world',
         outputContent: 'Hello! How can I help you today?',
+        webSearchCost: 0,
       });
 
       // Should NOT call getGenerationStats for mock client
@@ -78,6 +81,7 @@ describe('calculateMessageCost', () => {
         generationId: undefined,
         inputContent: 'Hello world',
         outputContent: 'Hello! How can I help you today?',
+        webSearchCost: 0,
       });
 
       expect(realClient.getGenerationStats).not.toHaveBeenCalled();
@@ -93,6 +97,7 @@ describe('calculateMessageCost', () => {
         generationId: undefined,
         inputContent: 'Hello',
         outputContent: 'World',
+        webSearchCost: 0,
       });
 
       expect(result).toBe(0);
@@ -112,10 +117,65 @@ describe('calculateMessageCost', () => {
         generationId: 'gen-123',
         inputContent: 'Short input',
         outputContent: 'Short output',
+        webSearchCost: 0,
       });
 
       // Total should include OpenRouter cost + storage fee
       expect(result).toBeGreaterThan(0.001);
+    });
+  });
+
+  describe('web search cost', () => {
+    it('includes webSearchCost in mock client estimation', async () => {
+      const mockClient = createMockOpenRouter(true);
+
+      const withoutSearch = await calculateMessageCost({
+        openrouter: mockClient,
+        modelInfo: mockModelInfo,
+        generationId: undefined,
+        inputContent: 'Hello',
+        outputContent: 'World',
+        webSearchCost: 0,
+      });
+
+      const withSearch = await calculateMessageCost({
+        openrouter: mockClient,
+        modelInfo: mockModelInfo,
+        generationId: undefined,
+        inputContent: 'Hello',
+        outputContent: 'World',
+        webSearchCost: 0.03,
+      });
+
+      expect(withSearch).toBeGreaterThan(withoutSearch);
+    });
+
+    it('does not add webSearchCost in real client mode (OpenRouter total_cost includes it)', async () => {
+      const realClient = createMockOpenRouter(false);
+      realClient.getGenerationStats.mockResolvedValue({
+        total_cost: 0.05, // Already includes search cost
+      });
+
+      const withSearch = await calculateMessageCost({
+        openrouter: realClient,
+        modelInfo: mockModelInfo,
+        generationId: 'gen-123',
+        inputContent: 'Hello',
+        outputContent: 'World',
+        webSearchCost: 0.03,
+      });
+
+      const withoutSearch = await calculateMessageCost({
+        openrouter: realClient,
+        modelInfo: mockModelInfo,
+        generationId: 'gen-123',
+        inputContent: 'Hello',
+        outputContent: 'World',
+        webSearchCost: 0,
+      });
+
+      // Real client uses OpenRouter total_cost directly — webSearchCost should not be added
+      expect(withSearch).toBe(withoutSearch);
     });
   });
 });

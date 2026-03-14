@@ -28,33 +28,113 @@ const members = [
 
 describe('getSenderLabel', () => {
   it('returns undefined when not in group chat', () => {
-    const label = getSenderLabel('user-1', 'user-1', members, false);
+    const label = getSenderLabel({
+      senderId: 'user-1',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: false,
+    });
 
     expect(label).toBeUndefined();
   });
 
   it('returns undefined when senderId is undefined', () => {
-    const label = getSenderLabel(undefined, 'user-1', members, true);
+    const label = getSenderLabel({
+      senderId: undefined,
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+    });
 
     expect(label).toBeUndefined();
   });
 
   it('returns "You" when senderId matches currentUserId', () => {
-    const label = getSenderLabel('user-1', 'user-1', members, true);
+    const label = getSenderLabel({
+      senderId: 'user-1',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+    });
 
     expect(label).toBe('You');
   });
 
   it('returns username when senderId matches a member', () => {
-    const label = getSenderLabel('user-2', 'user-1', members, true);
+    const label = getSenderLabel({
+      senderId: 'user-2',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+    });
 
     expect(label).toBe('bob');
   });
 
   it('returns left user message when senderId is not found in members', () => {
-    const label = getSenderLabel('user-deleted', 'user-1', members, true);
+    const label = getSenderLabel({
+      senderId: 'user-deleted',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+    });
 
     expect(label).toBe('This user has left the conversation');
+  });
+
+  it('returns link displayName when senderId matches a link id', () => {
+    const links = [
+      {
+        id: 'link-001',
+        displayName: 'Guest Alice',
+        privilege: 'write',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ];
+    const label = getSenderLabel({
+      senderId: 'link-001',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+      links,
+    });
+
+    expect(label).toBe('Guest Alice');
+  });
+
+  it('returns fallback label when link has no displayName', () => {
+    const links = [
+      { id: 'link-002', displayName: null, privilege: 'write', createdAt: '2026-01-01T00:00:00Z' },
+    ];
+    const label = getSenderLabel({
+      senderId: 'link-002',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+      links,
+    });
+
+    expect(label).toBe('Guest');
+  });
+
+  it('prefers member match over link match', () => {
+    const links = [
+      {
+        id: 'user-2',
+        displayName: 'Link User',
+        privilege: 'write',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ];
+    const label = getSenderLabel({
+      senderId: 'user-2',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+      links,
+    });
+
+    expect(label).toBe('bob');
   });
 });
 

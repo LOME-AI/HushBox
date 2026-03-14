@@ -1,0 +1,43 @@
+import type { MiddlewareHandler } from 'hono';
+import { ERROR_CODE_UNAUTHORIZED, ERROR_CODE_LINK_NOT_FOUND } from '@hushbox/shared';
+import type { AppEnv } from '../types.js';
+import { createErrorResponse } from '../lib/error-response.js';
+import { resolveLinkGuest } from './resolve-link-guest.js';
+import { LINK_PUBLIC_KEY_HEADER } from './constants.js';
+
+/**
+ * Standalone middleware for link-guest-only endpoints.
+ *
+ * Reads `x-link-public-key` header and `conversationId` route param.
+ * Resolves the shared link and associated member.
+ *
+ * On success, sets `c.set('linkGuest', ...)` and `c.set('member', ...)`.
+ * Returns 401 if no header, 404 if link or member not found.
+ */
+export function requireLinkGuest(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const linkPublicKeyBase64 = c.req.header(LINK_PUBLIC_KEY_HEADER);
+    if (!linkPublicKeyBase64) {
+      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
+    }
+
+    const resolved = await resolveLinkGuest(c);
+    if (!resolved) {
+      // Differentiate: header was present but link/member not found
+      const conversationId = c.req.param('conversationId');
+      if (!conversationId) {
+        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
+      }
+      return c.json(createErrorResponse(ERROR_CODE_LINK_NOT_FOUND), 404);
+    }
+
+    c.set('linkGuest', { linkId: resolved.linkId, publicKey: resolved.publicKey });
+    c.set('member', {
+      id: resolved.member.id,
+      privilege: resolved.member.privilege,
+      visibleFromEpoch: resolved.member.visibleFromEpoch,
+    });
+
+    return next();
+  };
+}

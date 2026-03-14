@@ -54,4 +54,10 @@ describe('ThinkingIndicator', () => {
     expect(screen.getByText('AI is thinking')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'AI is thinking');
   });
+
+  it('strips provider prefix from model name', () => {
+    render(<ThinkingIndicator modelName="deepseek/deepseek-r1" />);
+    expect(screen.getByText('deepseek-r1 is thinking')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'deepseek-r1 is thinking');
+  });
 });

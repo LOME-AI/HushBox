@@ -40,24 +40,50 @@ export interface DoneEventData {
   cost: string;
 }
 
+export interface ModelTokenData {
+  modelId: string;
+  content: string;
+}
+
+export interface ModelDoneData {
+  modelId: string;
+  assistantMessageId: string;
+  cost: string;
+}
+
+export interface ModelErrorData {
+  modelId: string;
+  message: string;
+}
+
+export interface StartModelEntry {
+  modelId: string;
+  assistantMessageId: string;
+}
+
+export interface StartEventData {
+  userMessageId: string;
+  models: StartModelEntry[];
+}
+
 export interface SSEHandlers {
-  onStart?: (data: { userMessageId: string; assistantMessageId: string }) => void;
-  onToken?: (content: string) => void;
+  onStart?: (data: StartEventData) => void;
+  onToken?: (data: ModelTokenData) => void;
   onError?: (error: { message: string; code?: string }) => void;
   onDone?: (data: DoneEventData) => void;
+  onModelDone?: (data: ModelDoneData) => void;
+  onModelError?: (data: ModelErrorData) => void;
 }
 
 export interface SSEParser {
   processChunk: (chunk: string) => void;
   getUserMessageId: () => string;
-  getAssistantMessageId: () => string;
-  getContent: () => string;
+  getModelContent: (modelId: string) => string;
 }
 
 interface ParserState {
   userMessageId: string;
-  assistantMessageId: string;
-  content: string;
+  modelContent: Map<string, string>;
 }
 
 type EventHandler = (data: unknown, state: ParserState) => void;
@@ -65,19 +91,27 @@ type EventHandler = (data: unknown, state: ParserState) => void;
 function createEventHandlers(handlers: SSEHandlers): Record<string, EventHandler> {
   return {
     start: (data, state) => {
-      const startData = data as { userMessageId: string; assistantMessageId: string };
+      const startData = data as StartEventData;
       state.userMessageId = startData.userMessageId;
-      state.assistantMessageId = startData.assistantMessageId;
       handlers.onStart?.(startData);
     },
     token: (data, state) => {
-      const tokenData = data as { content: string };
-      state.content += tokenData.content;
-      handlers.onToken?.(tokenData.content);
+      const tokenData = data as ModelTokenData;
+      const existing = state.modelContent.get(tokenData.modelId) ?? '';
+      state.modelContent.set(tokenData.modelId, existing + tokenData.content);
+      handlers.onToken?.(tokenData);
     },
     error: (data) => {
       const errorData = data as { message: string; code?: string };
       handlers.onError?.(errorData);
+    },
+    'model:done': (data) => {
+      const modelDoneData = data as ModelDoneData;
+      handlers.onModelDone?.(modelDoneData);
+    },
+    'model:error': (data) => {
+      const modelErrorData = data as ModelErrorData;
+      handlers.onModelError?.(modelErrorData);
     },
     done: (data) => {
       const doneData = data as DoneEventData;
@@ -106,7 +140,10 @@ function processDataLine(
 export function createSSEParser(handlers: SSEHandlers): SSEParser {
   let buffer = '';
   let currentEvent = '';
-  const state: ParserState = { userMessageId: '', assistantMessageId: '', content: '' };
+  const state: ParserState = {
+    userMessageId: '',
+    modelContent: new Map(),
+  };
   const eventHandlers = createEventHandlers(handlers);
 
   function processChunk(chunk: string): void {
@@ -129,7 +166,6 @@ export function createSSEParser(handlers: SSEHandlers): SSEParser {
   return {
     processChunk,
     getUserMessageId: () => state.userMessageId,
-    getAssistantMessageId: () => state.assistantMessageId,
-    getContent: () => state.content,
+    getModelContent: (modelId: string) => state.modelContent.get(modelId) ?? '',
   };
 }

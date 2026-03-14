@@ -281,30 +281,6 @@ describe('createApp', () => {
     });
   });
 
-  describe('link-guest routes', () => {
-    const linkGuestEnv = {
-      DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
-      NODE_ENV: 'development',
-    };
-
-    it('returns 400 for POST /api/link-guest/access with empty body', async () => {
-      const app = createApp();
-      const res = await app.request(
-        '/api/link-guest/access',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        },
-        linkGuestEnv
-      );
-
-      // Zod validation should reject the empty body (not 404 or 500)
-      expect(res.status).not.toBe(404);
-      expect(res.status).not.toBe(500);
-    });
-  });
-
   describe('message share routes', () => {
     const messagesEnv = {
       DATABASE_URL: 'postgresql://test:test@localhost:5432/test',

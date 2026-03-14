@@ -1,6 +1,7 @@
 import type { RealtimeEvent, RealtimeEventType } from '@hushbox/realtime/events';
 import { parseEvent } from '@hushbox/realtime/events';
 import { getApiUrl } from './api.js';
+import { getLinkGuestAuth } from './link-guest-auth.js';
 
 type EventListener<T extends RealtimeEventType> = (
   event: Extract<RealtimeEvent, { type: T }>
@@ -134,7 +135,12 @@ export class ConversationWebSocket {
   private buildWsUrl(): string {
     const apiUrl = getApiUrl();
     const wsBase = apiUrl.replace(/^http/, 'ws');
-    return `${wsBase}/api/ws/${this.options.conversationId}`;
+    const base = `${wsBase}/api/ws/${this.options.conversationId}`;
+    const linkKey = getLinkGuestAuth();
+    if (linkKey) {
+      return `${base}?linkPublicKey=${encodeURIComponent(linkKey)}`;
+    }
+    return base;
   }
 
   private scheduleReconnect(): void {

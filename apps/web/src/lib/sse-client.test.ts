@@ -34,15 +34,19 @@ describe('createSSEParser', () => {
       onToken: ReturnType<typeof vi.fn>;
       onError: ReturnType<typeof vi.fn>;
       onDone: ReturnType<typeof vi.fn>;
+      onModelDone: ReturnType<typeof vi.fn>;
+      onModelError: ReturnType<typeof vi.fn>;
     };
   } => {
     const onStart = vi.fn();
     const onToken = vi.fn();
     const onError = vi.fn();
     const onDone = vi.fn();
+    const onModelDone = vi.fn();
+    const onModelError = vi.fn();
     return {
-      handlers: { onStart, onToken, onError, onDone },
-      mocks: { onStart, onToken, onError, onDone },
+      handlers: { onStart, onToken, onError, onDone, onModelDone, onModelError },
+      mocks: { onStart, onToken, onError, onDone, onModelDone, onModelError },
     };
   };
 
@@ -55,11 +59,13 @@ describe('createSSEParser', () => {
     const parser = createSSEParser(handlers);
 
     parser.processChunk('event: start\n');
-    parser.processChunk('data: {"userMessageId":"123","assistantMessageId":"456"}\n\n');
+    parser.processChunk(
+      'data: {"userMessageId":"123","models":[{"modelId":"openai/gpt-4o","assistantMessageId":"456"}]}\n\n'
+    );
 
     expect(mocks.onStart).toHaveBeenCalledWith({
       userMessageId: '123',
-      assistantMessageId: '456',
+      models: [{ modelId: 'openai/gpt-4o', assistantMessageId: '456' }],
     });
   });
 
@@ -68,9 +74,12 @@ describe('createSSEParser', () => {
     const parser = createSSEParser(handlers);
 
     parser.processChunk('event: token\n');
-    parser.processChunk('data: {"content":"Hello"}\n\n');
+    parser.processChunk('data: {"modelId":"openai/gpt-4o","content":"Hello"}\n\n');
 
-    expect(mocks.onToken).toHaveBeenCalledWith('Hello');
+    expect(mocks.onToken).toHaveBeenCalledWith({
+      modelId: 'openai/gpt-4o',
+      content: 'Hello',
+    });
   });
 
   it('calls onError when error event is received', () => {
@@ -101,14 +110,17 @@ describe('createSSEParser', () => {
     const parser = createSSEParser(handlers);
 
     parser.processChunk(
-      'event: start\ndata: {"userMessageId":"1","assistantMessageId":"2"}\n\nevent: token\ndata: {"content":"Hi"}\n\n'
+      'event: start\ndata: {"userMessageId":"1","models":[{"modelId":"openai/gpt-4o","assistantMessageId":"2"}]}\n\nevent: token\ndata: {"modelId":"openai/gpt-4o","content":"Hi"}\n\n'
     );
 
     expect(mocks.onStart).toHaveBeenCalledWith({
       userMessageId: '1',
-      assistantMessageId: '2',
+      models: [{ modelId: 'openai/gpt-4o', assistantMessageId: '2' }],
     });
-    expect(mocks.onToken).toHaveBeenCalledWith('Hi');
+    expect(mocks.onToken).toHaveBeenCalledWith({
+      modelId: 'openai/gpt-4o',
+      content: 'Hi',
+    });
   });
 
   it('handles split chunks (data across multiple process calls)', () => {
@@ -118,35 +130,101 @@ describe('createSSEParser', () => {
     // Send event type in one chunk
     parser.processChunk('event: token\n');
     // Send partial data
-    parser.processChunk('data: {"content":"Hel');
+    parser.processChunk('data: {"modelId":"openai/gpt-4o","content":"Hel');
     // Complete the data
     parser.processChunk('lo"}\n\n');
 
-    expect(mocks.onToken).toHaveBeenCalledWith('Hello');
+    expect(mocks.onToken).toHaveBeenCalledWith({
+      modelId: 'openai/gpt-4o',
+      content: 'Hello',
+    });
   });
 
   it('accumulates content from multiple token events', () => {
     const { handlers, mocks } = createMockHandlers();
     const parser = createSSEParser(handlers);
 
-    parser.processChunk('event: token\ndata: {"content":"Hello"}\n\n');
-    parser.processChunk('event: token\ndata: {"content":" world"}\n\n');
+    parser.processChunk('event: token\ndata: {"modelId":"openai/gpt-4o","content":"Hello"}\n\n');
+    parser.processChunk('event: token\ndata: {"modelId":"openai/gpt-4o","content":" world"}\n\n');
 
     expect(mocks.onToken).toHaveBeenCalledTimes(2);
-    expect(mocks.onToken).toHaveBeenNthCalledWith(1, 'Hello');
-    expect(mocks.onToken).toHaveBeenNthCalledWith(2, ' world');
-    expect(parser.getContent()).toBe('Hello world');
+    expect(mocks.onToken).toHaveBeenNthCalledWith(1, {
+      modelId: 'openai/gpt-4o',
+      content: 'Hello',
+    });
+    expect(mocks.onToken).toHaveBeenNthCalledWith(2, {
+      modelId: 'openai/gpt-4o',
+      content: ' world',
+    });
+    expect(parser.getModelContent('openai/gpt-4o')).toBe('Hello world');
   });
 
   it('returns accumulated state', () => {
     const { handlers } = createMockHandlers();
     const parser = createSSEParser(handlers);
 
-    parser.processChunk('event: start\ndata: {"userMessageId":"u1","assistantMessageId":"a1"}\n\n');
-    parser.processChunk('event: token\ndata: {"content":"Test"}\n\n');
+    parser.processChunk(
+      'event: start\ndata: {"userMessageId":"u1","models":[{"modelId":"openai/gpt-4o","assistantMessageId":"a1"}]}\n\n'
+    );
+    parser.processChunk('event: token\ndata: {"modelId":"openai/gpt-4o","content":"Test"}\n\n');
 
     expect(parser.getUserMessageId()).toBe('u1');
-    expect(parser.getAssistantMessageId()).toBe('a1');
-    expect(parser.getContent()).toBe('Test');
+    expect(parser.getModelContent('openai/gpt-4o')).toBe('Test');
+  });
+
+  describe('model-tagged events', () => {
+    it('passes modelId and content to onToken handler', () => {
+      const { handlers, mocks } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      parser.processChunk('event: token\n');
+      parser.processChunk('data: {"modelId":"openai/gpt-4o","content":"Hello"}\n\n');
+
+      expect(mocks.onToken).toHaveBeenCalledWith({
+        modelId: 'openai/gpt-4o',
+        content: 'Hello',
+      });
+    });
+
+    it('calls onModelDone when model:done event is received', () => {
+      const { handlers, mocks } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      parser.processChunk('event: model:done\n');
+      parser.processChunk(
+        'data: {"modelId":"openai/gpt-4o","assistantMessageId":"asst-1","cost":"0.00200000"}\n\n'
+      );
+
+      expect(mocks.onModelDone).toHaveBeenCalledWith({
+        modelId: 'openai/gpt-4o',
+        assistantMessageId: 'asst-1',
+        cost: '0.00200000',
+      });
+    });
+
+    it('calls onModelError when model:error event is received', () => {
+      const { handlers, mocks } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      parser.processChunk('event: model:error\n');
+      parser.processChunk('data: {"modelId":"openai/gpt-4o","message":"Model unavailable"}\n\n');
+
+      expect(mocks.onModelError).toHaveBeenCalledWith({
+        modelId: 'openai/gpt-4o',
+        message: 'Model unavailable',
+      });
+    });
+
+    it('accumulates content per model', () => {
+      const { handlers } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      parser.processChunk('event: token\ndata: {"modelId":"openai/gpt-4o","content":"Hello"}\n\n');
+      parser.processChunk('event: token\ndata: {"modelId":"anthropic/claude","content":"Hi"}\n\n');
+      parser.processChunk('event: token\ndata: {"modelId":"openai/gpt-4o","content":" world"}\n\n');
+
+      expect(parser.getModelContent('openai/gpt-4o')).toBe('Hello world');
+      expect(parser.getModelContent('anthropic/claude')).toBe('Hi');
+    });
   });
 });

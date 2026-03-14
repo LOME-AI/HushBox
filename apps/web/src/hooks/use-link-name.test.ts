@@ -10,14 +10,12 @@ import { createElement, type ReactNode } from 'react';
 vi.mock('../lib/api-client.js', () => ({
   client: {
     api: {
-      'link-guest': {
-        name: { $patch: vi.fn(() => Promise.resolve(new Response())) },
-      },
       links: {
         ':conversationId': {
           ':linkId': {
             name: { $patch: vi.fn(() => Promise.resolve(new Response())) },
           },
+          'my-name': { $patch: vi.fn(() => Promise.resolve(new Response())) },
         },
       },
     },
@@ -83,7 +81,6 @@ describe('useGuestLinkName', () => {
     await act(async () => {
       await result.current.mutateAsync({
         conversationId: 'conv-1',
-        linkPublicKey: 'pub-key-b64',
         displayName: 'Alice',
       });
     });

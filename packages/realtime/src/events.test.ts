@@ -50,7 +50,7 @@ describe('events', () => {
         conversationId: 'conv-1',
         senderType: 'user' as const,
         senderId: 'user-1',
-        senderDisplayName: 'Alice',
+        modelName: 'test-model',
         sequenceNumber: 5,
       };
       const result = messageNewEventSchema.parse(event);
@@ -68,7 +68,7 @@ describe('events', () => {
       const result = messageNewEventSchema.parse(event);
       expect(result.type).toBe('message:new');
       expect(result.senderId).toBeUndefined();
-      expect(result.senderDisplayName).toBeUndefined();
+      expect(result.modelName).toBeUndefined();
       expect(result.sequenceNumber).toBeUndefined();
     });
 
@@ -143,6 +143,29 @@ describe('events', () => {
       expect(result).toEqual(event);
     });
 
+    it('accepts modelName for AI message streaming', () => {
+      const event = {
+        type: 'message:stream' as const,
+        timestamp: Date.now(),
+        messageId: 'msg-1',
+        token: 'Hello',
+        modelName: 'GPT-4o',
+      };
+      const result = messageStreamEventSchema.parse(event);
+      expect(result.modelName).toBe('GPT-4o');
+    });
+
+    it('accepts message:stream without modelName', () => {
+      const event = {
+        type: 'message:stream' as const,
+        timestamp: Date.now(),
+        messageId: 'msg-1',
+        token: 'Hello',
+      };
+      const result = messageStreamEventSchema.parse(event);
+      expect(result.modelName).toBeUndefined();
+    });
+
     it('rejects a message:stream event missing token', () => {
       const event = {
         type: 'message:stream',
@@ -165,6 +188,33 @@ describe('events', () => {
       };
       const result = messageCompleteEventSchema.parse(event);
       expect(result).toEqual(event);
+    });
+
+    it('accepts modelName for AI message completion', () => {
+      const event = {
+        type: 'message:complete' as const,
+        timestamp: Date.now(),
+        messageId: 'msg-1',
+        conversationId: 'conv-1',
+        sequenceNumber: 10,
+        epochNumber: 3,
+        modelName: 'Claude 3.5 Sonnet',
+      };
+      const result = messageCompleteEventSchema.parse(event);
+      expect(result.modelName).toBe('Claude 3.5 Sonnet');
+    });
+
+    it('accepts message:complete without modelName', () => {
+      const event = {
+        type: 'message:complete' as const,
+        timestamp: Date.now(),
+        messageId: 'msg-1',
+        conversationId: 'conv-1',
+        sequenceNumber: 10,
+        epochNumber: 3,
+      };
+      const result = messageCompleteEventSchema.parse(event);
+      expect(result.modelName).toBeUndefined();
     });
 
     it('rejects a message:complete event missing epochNumber', () => {

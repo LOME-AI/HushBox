@@ -466,9 +466,8 @@ describe('keys routes', () => {
       expect(json.wraps[0]!.epochNumber).toBe(2);
       expect(json.wraps[0]!.visibleFromEpoch).toBe(2);
 
-      // Chain link for epoch 2 should be included (>= visibleFromEpoch)
-      expect(json.chainLinks).toHaveLength(1);
-      expect(json.chainLinks[0]!.epochNumber).toBe(2);
+      // Chain link for epoch 2 excluded (2 > 2 = false) — it connects to epoch 1, before visibility boundary
+      expect(json.chainLinks).toHaveLength(0);
     });
 
     it('returns 404 for non-existent conversation', async () => {

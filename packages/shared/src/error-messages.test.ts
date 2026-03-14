@@ -311,12 +311,6 @@ describe('friendlyErrorMessage', () => {
     expect(friendlyErrorMessage('DAILY_LIMIT_EXCEEDED')).toBe('Daily message limit exceeded.');
   });
 
-  it('maps PHRASE_REQUIRED to user-facing message', () => {
-    expect(friendlyErrorMessage('PHRASE_REQUIRED')).toBe(
-      'Recovery phrase required before making payments.'
-    );
-  });
-
   it('maps PAYMENT_NOT_FOUND to user-facing message', () => {
     expect(friendlyErrorMessage('PAYMENT_NOT_FOUND')).toBe('Payment not found.');
   });
@@ -451,9 +445,54 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  // ------------------------------------------------------------------
+  // Regeneration & Fork codes
+  // ------------------------------------------------------------------
+  it('maps REGENERATION_BLOCKED_BY_OTHER_USER to user-facing message', () => {
+    expect(friendlyErrorMessage('REGENERATION_BLOCKED_BY_OTHER_USER')).toBe(
+      'Cannot regenerate — another user has replied after this message.'
+    );
+  });
+
+  it('maps FORK_NOT_FOUND to user-facing message', () => {
+    expect(friendlyErrorMessage('FORK_NOT_FOUND')).toBe('Fork not found.');
+  });
+
+  it('maps FORK_NAME_TAKEN to user-facing message', () => {
+    expect(friendlyErrorMessage('FORK_NAME_TAKEN')).toBe('A fork with this name already exists.');
+  });
+
+  it('maps FORK_LIMIT_REACHED to user-facing message', () => {
+    expect(friendlyErrorMessage('FORK_LIMIT_REACHED')).toBe(
+      'Maximum number of forks reached for this conversation.'
+    );
+  });
+
+  it('maps TARGET_MESSAGE_NOT_FOUND to user-facing message', () => {
+    expect(friendlyErrorMessage('TARGET_MESSAGE_NOT_FOUND')).toBe('Target message not found.');
+  });
+
+  it('maps CANNOT_REGENERATE_WHILE_STREAMING to user-facing message', () => {
+    expect(friendlyErrorMessage('CANNOT_REGENERATE_WHILE_STREAMING')).toBe(
+      'Please wait for the current response to finish.'
+    );
+  });
+
   it('maps CHAT_STREAM_FAILED to user-facing message', () => {
     expect(friendlyErrorMessage('CHAT_STREAM_FAILED')).toBe(
       'Something went wrong. Please try again or try a different model.'
+    );
+  });
+
+  it('maps STREAM_ERROR to user-facing message', () => {
+    expect(friendlyErrorMessage('STREAM_ERROR')).toBe(
+      'Something went wrong. Please try again or try a different model.'
+    );
+  });
+
+  it('maps BILLING_ERROR to user-facing message', () => {
+    expect(friendlyErrorMessage('BILLING_ERROR')).toBe(
+      'Something went wrong saving your message. Your balance was not charged.'
     );
   });
 

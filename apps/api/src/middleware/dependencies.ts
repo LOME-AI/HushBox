@@ -16,6 +16,7 @@ import { getHelcimClient } from '../services/helcim/index.js';
 import { getOpenRouterClient } from '../services/openrouter/index.js';
 import type { AppEnv } from '../types.js';
 import { createErrorResponse } from '../lib/error-response.js';
+import { LINK_PUBLIC_KEY_HEADER } from './constants.js';
 
 export function dbMiddleware(): MiddlewareHandler<AppEnv> {
   // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
@@ -47,7 +48,10 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
   // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
     const sessionData = c.get('sessionData');
+    const hasLinkHeader = !!c.req.header(LINK_PUBLIC_KEY_HEADER);
+
     if (!sessionData?.userId) {
+      if (hasLinkHeader) return next();
       return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
     }
 
@@ -61,20 +65,24 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
       sessionData.sessionId
     );
     if (!sessionActive) {
+      if (hasLinkHeader) return next();
       return c.json(createErrorResponse(ERROR_CODE_SESSION_REVOKED), 401);
     }
 
     // Check session predates password change
     const passwordChangedAt = await redisGet(redis, 'passwordChangedAt', sessionData.userId);
     if (passwordChangedAt && sessionData.createdAt < passwordChangedAt) {
+      if (hasLinkHeader) return next();
       return c.json(createErrorResponse(ERROR_CODE_PASSWORD_CHANGED), 401);
     }
 
     // Check pending 2FA gate
     if (sessionData.pending2FA) {
       if (sessionData.pending2FAExpiresAt < Date.now()) {
+        if (hasLinkHeader) return next();
         return c.json(createErrorResponse(ERROR_CODE_2FA_EXPIRED), 401);
       }
+      // 2FA_REQUIRED (403): do NOT fall back to link guest — user must complete 2FA
       return c.json(createErrorResponse(ERROR_CODE_2FA_REQUIRED), 403);
     }
 
@@ -93,6 +101,7 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
       .where(eq(users.id, sessionData.userId));
 
     if (!user) {
+      if (hasLinkHeader) return next();
       return c.json(createErrorResponse(ERROR_CODE_USER_NOT_FOUND), 404);
     }
 

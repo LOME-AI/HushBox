@@ -5,6 +5,7 @@
  */
 
 import type { OpenRouterModel } from '../models.js';
+import { parseTokenPrice } from '@hushbox/shared';
 
 /** Percentile threshold for premium pricing (0.75 = 75th percentile) */
 export const PREMIUM_PRICE_PERCENTILE = 0.75;
@@ -25,7 +26,7 @@ export const PREMIUM_RECENCY_MS = 365 * 24 * 60 * 60 * 1000;
  */
 export function isPremiumModel(model: OpenRouterModel, priceThreshold: number): boolean {
   const price =
-    Number.parseFloat(model.pricing.prompt) + Number.parseFloat(model.pricing.completion);
+    parseTokenPrice(model.pricing.prompt) + parseTokenPrice(model.pricing.completion);
   const recencyThreshold = Date.now() - PREMIUM_RECENCY_MS;
   return price >= priceThreshold || model.created * 1000 > recencyThreshold;
 }

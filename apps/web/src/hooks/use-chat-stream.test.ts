@@ -8,6 +8,7 @@ import {
   ContextCapacityError,
 } from './use-chat-stream';
 import * as trialTokenModule from '../lib/trial-token';
+import { useStreamingActivityStore } from '@/stores/streaming-activity';
 
 // Mock modules
 vi.mock('../lib/api', () => ({
@@ -42,6 +43,7 @@ function createSSEStream(events: string[]): ReadableStream<Uint8Array> {
 describe('useChatStream', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useStreamingActivityStore.setState({ activeStreams: 0 });
   });
 
   afterEach(() => {
@@ -49,10 +51,10 @@ describe('useChatStream', () => {
   });
 
   describe('authenticated mode', () => {
-    it('calls POST /api/chat/stream with conversationId and model', async () => {
+    it('calls POST /api/chat/:conversationId/stream with models in body', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"user-123","assistantMessageId":"msg-123"}',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
         'event: done',
         'data: {}',
       ];
@@ -68,7 +70,7 @@ describe('useChatStream', () => {
       await act(async () => {
         await result.current.startStream({
           conversationId: 'conv-123',
-          model: 'gpt-4',
+          models: ['gpt-4'],
           userMessage: { id: 'msg-1', content: 'Hello' },
           messagesForInference: [{ role: 'user', content: 'Hello' }],
           fundingSource: 'personal_balance',
@@ -76,7 +78,7 @@ describe('useChatStream', () => {
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8787/api/chat/stream',
+        'http://localhost:8787/api/chat/conv-123/stream',
         expect.objectContaining({
           method: 'POST',
           credentials: 'include',
@@ -85,8 +87,7 @@ describe('useChatStream', () => {
             'Content-Type': 'application/json',
           }),
           body: JSON.stringify({
-            conversationId: 'conv-123',
-            model: 'gpt-4',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
@@ -95,10 +96,10 @@ describe('useChatStream', () => {
       );
     });
 
-    it('does not include X-Trial-Token header in authenticated mode', async () => {
+    it('includes webSearchEnabled in request body when provided', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"user-123","assistantMessageId":"msg-123"}',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
         'event: done',
         'data: {}',
       ];
@@ -114,7 +115,48 @@ describe('useChatStream', () => {
       await act(async () => {
         await result.current.startStream({
           conversationId: 'conv-123',
-          model: 'gpt-4',
+          models: ['gpt-4'],
+          userMessage: { id: 'msg-1', content: 'Hello' },
+          messagesForInference: [{ role: 'user', content: 'Hello' }],
+          fundingSource: 'personal_balance',
+          webSearchEnabled: true,
+        });
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8787/api/chat/conv-123/stream',
+        expect.objectContaining({
+          body: JSON.stringify({
+            models: ['gpt-4'],
+            userMessage: { id: 'msg-1', content: 'Hello' },
+            messagesForInference: [{ role: 'user', content: 'Hello' }],
+            fundingSource: 'personal_balance',
+            webSearchEnabled: true,
+          }),
+        })
+      );
+    });
+
+    it('does not include X-Trial-Token header in authenticated mode', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-123',
+          models: ['gpt-4'],
           userMessage: { id: 'msg-1', content: 'Hello' },
           messagesForInference: [{ role: 'user', content: 'Hello' }],
           fundingSource: 'personal_balance',
@@ -126,14 +168,16 @@ describe('useChatStream', () => {
       expect(headers['X-Trial-Token']).toBeUndefined();
     });
 
-    it('returns userMessageId, assistantMessageId and content on success', async () => {
+    it('returns userMessageId and models array on success', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"user-456","assistantMessageId":"msg-456"}',
+        'data: {"userMessageId":"user-456","models":[{"modelId":"gpt-4","assistantMessageId":"msg-456"}]}',
         'event: token',
-        'data: {"content":"Hello "}',
+        'data: {"modelId":"gpt-4","content":"Hello "}',
         'event: token',
-        'data: {"content":"world!"}',
+        'data: {"modelId":"gpt-4","content":"world!"}',
+        'event: model:done',
+        'data: {"modelId":"gpt-4","assistantMessageId":"msg-456","cost":"0.00150000"}',
         'event: done',
         'data: {}',
       ];
@@ -150,7 +194,7 @@ describe('useChatStream', () => {
       await act(async () => {
         streamResult = await result.current.startStream({
           conversationId: 'conv-123',
-          model: 'gpt-4',
+          models: ['gpt-4'],
           userMessage: { id: 'msg-1', content: 'Hello' },
           messagesForInference: [{ role: 'user', content: 'Hello' }],
           fundingSource: 'personal_balance',
@@ -159,20 +203,18 @@ describe('useChatStream', () => {
 
       expect(streamResult).toEqual({
         userMessageId: 'user-456',
-        assistantMessageId: 'msg-456',
-        content: 'Hello world!',
-        cost: '0',
+        models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-456', cost: '0.00150000' }],
       });
     });
 
-    it('calls onToken callback for each token', async () => {
+    it('calls onToken callback for each token with modelId', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"user-789","assistantMessageId":"msg-789"}',
+        'data: {"userMessageId":"user-789","models":[{"modelId":"gpt-4","assistantMessageId":"msg-789"}]}',
         'event: token',
-        'data: {"content":"Hello "}',
+        'data: {"modelId":"gpt-4","content":"Hello "}',
         'event: token',
-        'data: {"content":"world!"}',
+        'data: {"modelId":"gpt-4","content":"world!"}',
         'event: done',
         'data: {}',
       ];
@@ -190,7 +232,7 @@ describe('useChatStream', () => {
         await result.current.startStream(
           {
             conversationId: 'conv-123',
-            model: 'gpt-4',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
@@ -200,14 +242,50 @@ describe('useChatStream', () => {
       });
 
       expect(onToken).toHaveBeenCalledTimes(2);
-      expect(onToken).toHaveBeenNthCalledWith(1, 'Hello ');
-      expect(onToken).toHaveBeenNthCalledWith(2, 'world!');
+      expect(onToken).toHaveBeenNthCalledWith(1, 'Hello ', 'gpt-4');
+      expect(onToken).toHaveBeenNthCalledWith(2, 'world!', 'gpt-4');
+    });
+
+    it('calls onStart callback with StartEventData containing models array', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const onStart = vi.fn();
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream(
+          {
+            conversationId: 'conv-123',
+            models: ['gpt-4'],
+            userMessage: { id: 'msg-1', content: 'Hello' },
+            messagesForInference: [{ role: 'user', content: 'Hello' }],
+            fundingSource: 'personal_balance',
+          },
+          { onStart }
+        );
+      });
+
+      expect(onStart).toHaveBeenCalledWith({
+        userMessageId: 'user-123',
+        models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-123' }],
+      });
     });
 
     it('sets isStreaming to true while streaming', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"user-123","assistantMessageId":"msg-123"}',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
         'event: done',
         'data: {}',
       ];
@@ -226,7 +304,7 @@ describe('useChatStream', () => {
       act(() => {
         streamPromise = result.current.startStream({
           conversationId: 'conv-123',
-          model: 'gpt-4',
+          models: ['gpt-4'],
           userMessage: { id: 'msg-1', content: 'Hello' },
           messagesForInference: [{ role: 'user', content: 'Hello' }],
           fundingSource: 'personal_balance',
@@ -257,7 +335,7 @@ describe('useChatStream', () => {
         act(async () => {
           await result.current.startStream({
             conversationId: 'conv-123',
-            model: 'gpt-4',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
@@ -271,7 +349,7 @@ describe('useChatStream', () => {
     it('calls POST /api/trial/stream with messages and model', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"","assistantMessageId":"msg-123"}',
+        'data: {"userMessageId":"","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
         'event: done',
         'data: {}',
       ];
@@ -314,7 +392,7 @@ describe('useChatStream', () => {
 
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"","assistantMessageId":"msg-123"}',
+        'data: {"userMessageId":"","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
         'event: done',
         'data: {}',
       ];
@@ -348,7 +426,7 @@ describe('useChatStream', () => {
     it('does not include credentials in trial mode', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"","assistantMessageId":"msg-123"}',
+        'data: {"userMessageId":"","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
         'event: done',
         'data: {}',
       ];
@@ -372,14 +450,16 @@ describe('useChatStream', () => {
       expect(callArgs[1].credentials).toBeUndefined();
     });
 
-    it('returns assistantMessageId and content on success', async () => {
+    it('returns models array on success', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"","assistantMessageId":"msg-456"}',
+        'data: {"userMessageId":"","models":[{"modelId":"gpt-4","assistantMessageId":"msg-456"}]}',
         'event: token',
-        'data: {"content":"Hello "}',
+        'data: {"modelId":"gpt-4","content":"Hello "}',
         'event: token',
-        'data: {"content":"world!"}',
+        'data: {"modelId":"gpt-4","content":"world!"}',
+        'event: model:done',
+        'data: {"modelId":"gpt-4","assistantMessageId":"msg-456","cost":"0.00100000"}',
         'event: done',
         'data: {}',
       ];
@@ -402,20 +482,18 @@ describe('useChatStream', () => {
 
       expect(streamResult).toEqual({
         userMessageId: '',
-        assistantMessageId: 'msg-456',
-        content: 'Hello world!',
-        cost: '0',
+        models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-456', cost: '0.00100000' }],
       });
     });
 
-    it('calls onToken callback for each token', async () => {
+    it('calls onToken callback for each token with modelId', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"","assistantMessageId":"msg-789"}',
+        'data: {"userMessageId":"","models":[{"modelId":"gpt-4","assistantMessageId":"msg-789"}]}',
         'event: token',
-        'data: {"content":"Hello "}',
+        'data: {"modelId":"gpt-4","content":"Hello "}',
         'event: token',
-        'data: {"content":"world!"}',
+        'data: {"modelId":"gpt-4","content":"world!"}',
         'event: done',
         'data: {}',
       ];
@@ -437,14 +515,14 @@ describe('useChatStream', () => {
       });
 
       expect(onToken).toHaveBeenCalledTimes(2);
-      expect(onToken).toHaveBeenNthCalledWith(1, 'Hello ');
-      expect(onToken).toHaveBeenNthCalledWith(2, 'world!');
+      expect(onToken).toHaveBeenNthCalledWith(1, 'Hello ', 'gpt-4');
+      expect(onToken).toHaveBeenNthCalledWith(2, 'world!', 'gpt-4');
     });
 
     it('sets isStreaming to true while streaming', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"","assistantMessageId":"msg-123"}',
+        'data: {"userMessageId":"","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
         'event: done',
         'data: {}',
       ];
@@ -548,7 +626,7 @@ describe('useChatStream', () => {
         await act(async () => {
           await result.current.startStream({
             conversationId: 'conv-123',
-            model: 'gpt-4',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
@@ -580,7 +658,7 @@ describe('useChatStream', () => {
         await act(async () => {
           await result.current.startStream({
             conversationId: 'conv-123',
-            model: 'gpt-4',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
@@ -610,7 +688,7 @@ describe('useChatStream', () => {
         await act(async () => {
           await result.current.startStream({
             conversationId: 'conv-123',
-            model: 'gpt-4',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
@@ -668,7 +746,7 @@ describe('useChatStream', () => {
         await act(async () => {
           await result.current.startStream({
             conversationId: 'conv-123',
-            model: 'gpt-4',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
@@ -713,9 +791,9 @@ describe('useChatStream', () => {
     it('throws ContextCapacityError on context_length_exceeded SSE error', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"user-123","assistantMessageId":"msg-123"}',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
         'event: error',
-        'data: {"message":"This conversation exceeds the model\'s memory limit. Start a new conversation or switch to a model with a larger context window.","code":"context_length_exceeded"}',
+        'data: {"message":"This conversation exceeds the model\'s memory limit. Start a new conversation or switch to a model with a larger context window.","code":"CONTEXT_LENGTH_EXCEEDED"}',
       ];
 
       mockFetch.mockResolvedValueOnce({
@@ -730,7 +808,7 @@ describe('useChatStream', () => {
         await act(async () => {
           await result.current.startStream({
             conversationId: 'conv-123',
-            model: 'gpt-4',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
@@ -739,7 +817,7 @@ describe('useChatStream', () => {
         expect.fail('Should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(ContextCapacityError);
-        expect((error as ContextCapacityError).code).toBe('context_length_exceeded');
+        expect((error as ContextCapacityError).code).toBe('CONTEXT_LENGTH_EXCEEDED');
         expect((error as ContextCapacityError).isContextCapacity).toBe(true);
       }
     });
@@ -747,7 +825,7 @@ describe('useChatStream', () => {
     it('throws regular Error on non-capacity SSE error', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"user-123","assistantMessageId":"msg-123"}',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
         'event: error',
         'data: {"message":"Model unavailable","code":"MODEL_ERROR"}',
       ];
@@ -764,7 +842,7 @@ describe('useChatStream', () => {
         await act(async () => {
           await result.current.startStream({
             conversationId: 'conv-123',
-            model: 'gpt-4',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
@@ -776,6 +854,109 @@ describe('useChatStream', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toBe('Model unavailable');
       }
+    });
+  });
+
+  describe('startRegenerateStream', () => {
+    it('calls POST /api/chat/:conversationId/regenerate with regeneration fields', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-regen"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"New response"}',
+        'event: model:done',
+        'data: {"modelId":"gpt-4","assistantMessageId":"msg-regen","cost":"0.00100000"}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      let streamResult:
+        | Awaited<ReturnType<typeof result.current.startRegenerateStream>>
+        | undefined;
+      await act(async () => {
+        streamResult = await result.current.startRegenerateStream({
+          conversationId: 'conv-123',
+          targetMessageId: 'msg-target',
+          action: 'retry',
+          model: 'gpt-4',
+          userMessage: { id: 'msg-1', content: 'Hello' },
+          messagesForInference: [{ role: 'user', content: 'Hello' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8787/api/chat/conv-123/regenerate',
+        expect.objectContaining({
+          method: 'POST',
+          credentials: 'include',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+          }),
+          body: JSON.stringify({
+            targetMessageId: 'msg-target',
+            action: 'retry',
+            model: 'gpt-4',
+            userMessage: { id: 'msg-1', content: 'Hello' },
+            messagesForInference: [{ role: 'user', content: 'Hello' }],
+            fundingSource: 'personal_balance',
+          }),
+        })
+      );
+
+      expect(streamResult).toEqual({
+        userMessageId: 'user-123',
+        models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-regen', cost: '0.00100000' }],
+      });
+    });
+
+    it('sets isStreaming during regeneration', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+      expect(result.current.isStreaming).toBe(false);
+
+      let streamPromise: Promise<unknown>;
+      act(() => {
+        streamPromise = result.current.startRegenerateStream({
+          conversationId: 'conv-123',
+          targetMessageId: 'msg-target',
+          action: 'regenerate',
+          model: 'gpt-4',
+          userMessage: { id: 'msg-1', content: 'Hello' },
+          messagesForInference: [{ role: 'user', content: 'Hello' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+      });
+
+      await act(async () => {
+        await streamPromise;
+      });
+
+      expect(result.current.isStreaming).toBe(false);
     });
   });
 
@@ -793,7 +974,7 @@ describe('useChatStream', () => {
         act(async () => {
           await result.current.startStream({
             conversationId: 'conv-123',
-            model: 'gpt-4',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
@@ -815,7 +996,7 @@ describe('useChatStream', () => {
         act(async () => {
           await result.current.startStream({
             conversationId: 'conv-123',
-            model: 'gpt-4',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
@@ -827,7 +1008,7 @@ describe('useChatStream', () => {
     it('throws error on stream error event', async () => {
       const sseEvents = [
         'event: start',
-        'data: {"userMessageId":"user-123","assistantMessageId":"msg-123"}',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
         'event: error',
         'data: {"message":"Model unavailable","code":"MODEL_ERROR"}',
       ];
@@ -844,13 +1025,329 @@ describe('useChatStream', () => {
         act(async () => {
           await result.current.startStream({
             conversationId: 'conv-123',
-            model: 'gpt-4',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
           });
         })
       ).rejects.toThrow('Model unavailable');
+    });
+  });
+
+  describe('multi-model streaming', () => {
+    it('returns multiple models in result when start event has multiple models', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-1","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1"},{"modelId":"claude-3","assistantMessageId":"asst-2"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"Hello"}',
+        'event: token',
+        'data: {"modelId":"claude-3","content":"Hi"}',
+        'event: model:done',
+        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1","cost":"0.00200000"}',
+        'event: model:done',
+        'data: {"modelId":"claude-3","assistantMessageId":"asst-2","cost":"0.00300000"}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      let streamResult: Awaited<ReturnType<typeof result.current.startStream>> | undefined;
+      await act(async () => {
+        streamResult = await result.current.startStream({
+          conversationId: 'conv-1',
+          models: ['gpt-4', 'claude-3'],
+          userMessage: { id: 'msg-1', content: 'Hello' },
+          messagesForInference: [{ role: 'user', content: 'Hello' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      expect(streamResult).toEqual({
+        userMessageId: 'user-1',
+        models: [
+          { modelId: 'gpt-4', assistantMessageId: 'asst-1', cost: '0.00200000' },
+          { modelId: 'claude-3', assistantMessageId: 'asst-2', cost: '0.00300000' },
+        ],
+      });
+    });
+
+    it('calls onToken with correct modelId for interleaved tokens', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-1","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1"},{"modelId":"claude-3","assistantMessageId":"asst-2"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"A"}',
+        'event: token',
+        'data: {"modelId":"claude-3","content":"X"}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"B"}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const onToken = vi.fn();
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream(
+          {
+            conversationId: 'conv-1',
+            models: ['gpt-4', 'claude-3'],
+            userMessage: { id: 'msg-1', content: 'Hello' },
+            messagesForInference: [{ role: 'user', content: 'Hello' }],
+            fundingSource: 'personal_balance',
+          },
+          { onToken }
+        );
+      });
+
+      expect(onToken).toHaveBeenCalledTimes(3);
+      expect(onToken).toHaveBeenNthCalledWith(1, 'A', 'gpt-4');
+      expect(onToken).toHaveBeenNthCalledWith(2, 'X', 'claude-3');
+      expect(onToken).toHaveBeenNthCalledWith(3, 'B', 'gpt-4');
+    });
+
+    it('calls onModelDone for each completed model', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-1","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1"},{"modelId":"claude-3","assistantMessageId":"asst-2"}]}',
+        'event: model:done',
+        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1","cost":"0.002"}',
+        'event: model:done',
+        'data: {"modelId":"claude-3","assistantMessageId":"asst-2","cost":"0.003"}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const onModelDone = vi.fn();
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream(
+          {
+            conversationId: 'conv-1',
+            models: ['gpt-4', 'claude-3'],
+            userMessage: { id: 'msg-1', content: 'Hello' },
+            messagesForInference: [{ role: 'user', content: 'Hello' }],
+            fundingSource: 'personal_balance',
+          },
+          { onModelDone }
+        );
+      });
+
+      expect(onModelDone).toHaveBeenCalledTimes(2);
+      expect(onModelDone).toHaveBeenNthCalledWith(1, {
+        modelId: 'gpt-4',
+        assistantMessageId: 'asst-1',
+        cost: '0.002',
+      });
+      expect(onModelDone).toHaveBeenNthCalledWith(2, {
+        modelId: 'claude-3',
+        assistantMessageId: 'asst-2',
+        cost: '0.003',
+      });
+    });
+
+    it('calls onModelError when a model fails', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-1","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1"},{"modelId":"claude-3","assistantMessageId":"asst-2"}]}',
+        'event: model:done',
+        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1","cost":"0.002"}',
+        'event: model:error',
+        'data: {"modelId":"claude-3","message":"Model unavailable"}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const onModelError = vi.fn();
+      const onModelDone = vi.fn();
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream(
+          {
+            conversationId: 'conv-1',
+            models: ['gpt-4', 'claude-3'],
+            userMessage: { id: 'msg-1', content: 'Hello' },
+            messagesForInference: [{ role: 'user', content: 'Hello' }],
+            fundingSource: 'personal_balance',
+          },
+          { onModelDone, onModelError }
+        );
+      });
+
+      expect(onModelDone).toHaveBeenCalledTimes(1);
+      expect(onModelError).toHaveBeenCalledTimes(1);
+      expect(onModelError).toHaveBeenCalledWith({
+        modelId: 'claude-3',
+        message: 'Model unavailable',
+      });
+    });
+
+    it('defaults cost to 0 for models without model:done event', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-1","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"Hello"}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      let streamResult: Awaited<ReturnType<typeof result.current.startStream>> | undefined;
+      await act(async () => {
+        streamResult = await result.current.startStream({
+          conversationId: 'conv-1',
+          models: ['gpt-4'],
+          userMessage: { id: 'msg-1', content: 'Hello' },
+          messagesForInference: [{ role: 'user', content: 'Hello' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      expect(streamResult).toEqual({
+        userMessageId: 'user-1',
+        models: [{ modelId: 'gpt-4', assistantMessageId: 'asst-1', cost: '0' }],
+      });
+    });
+  });
+
+  describe('streaming activity store integration', () => {
+    it('increments and decrements global stream counter during streaming', async () => {
+      const stateLog: number[] = [];
+      const unsubscribe = useStreamingActivityStore.subscribe((state) => {
+        stateLog.push(state.activeStreams);
+      });
+
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-123',
+          models: ['gpt-4'],
+          userMessage: { id: 'msg-1', content: 'Hello' },
+          messagesForInference: [{ role: 'user', content: 'Hello' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      unsubscribe();
+      expect(stateLog).toEqual([1, 0]);
+      expect(useStreamingActivityStore.getState().activeStreams).toBe(0);
+    });
+
+    it('decrements global stream counter even on stream error', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ code: 'INTERNAL' }),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      try {
+        await act(async () => {
+          await result.current.startStream({
+            conversationId: 'conv-123',
+            models: ['gpt-4'],
+            userMessage: { id: 'msg-1', content: 'Hello' },
+            messagesForInference: [{ role: 'user', content: 'Hello' }],
+            fundingSource: 'personal_balance',
+          });
+        });
+      } catch {
+        // Expected error
+      }
+
+      expect(result.current.isStreaming).toBe(false);
+      expect(useStreamingActivityStore.getState().activeStreams).toBe(0);
+    });
+
+    it('increments and decrements global stream counter during regeneration', async () => {
+      const stateLog: number[] = [];
+      const unsubscribe = useStreamingActivityStore.subscribe((state) => {
+        stateLog.push(state.activeStreams);
+      });
+
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startRegenerateStream({
+          conversationId: 'conv-123',
+          targetMessageId: 'msg-target',
+          action: 'retry',
+          model: 'gpt-4',
+          userMessage: { id: 'msg-1', content: 'Hello' },
+          messagesForInference: [{ role: 'user', content: 'Hello' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      unsubscribe();
+      expect(stateLog).toEqual([1, 0]);
+      expect(useStreamingActivityStore.getState().activeStreams).toBe(0);
     });
   });
 });

@@ -2180,6 +2180,65 @@ describe('OPAQUE auth routes', () => {
       expect(body.user.id).toBe('test-user-id');
     });
 
+    it('returns customInstructionsEncrypted as base64 when set', async () => {
+      await mockRedis.set('sessions:user:active:test-user-id:test-session-id', '1');
+
+      const instructionsBytes = new Uint8Array([1, 2, 3, 4, 5]);
+      mockDb.where = vi.fn().mockResolvedValue([
+        {
+          id: 'test-user-id',
+          email: 'test@example.com',
+          username: 'test_user',
+          emailVerified: true,
+          totpEnabled: false,
+          hasAcknowledgedPhrase: false,
+          passwordWrappedPrivateKey: new Uint8Array(32),
+          publicKey: new Uint8Array(32),
+          customInstructionsEncrypted: instructionsBytes,
+        },
+      ]);
+
+      const res = await app.request('/api/auth/me', {
+        method: 'GET',
+        headers: {
+          Cookie: 'hushbox_session=mock',
+        },
+      });
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{ customInstructionsEncrypted: string }>(res);
+      expect(body.customInstructionsEncrypted).toBe('AQIDBAU');
+    });
+
+    it('returns customInstructionsEncrypted as null when not set', async () => {
+      await mockRedis.set('sessions:user:active:test-user-id:test-session-id', '1');
+
+      mockDb.where = vi.fn().mockResolvedValue([
+        {
+          id: 'test-user-id',
+          email: 'test@example.com',
+          username: 'test_user',
+          emailVerified: true,
+          totpEnabled: false,
+          hasAcknowledgedPhrase: false,
+          passwordWrappedPrivateKey: new Uint8Array(32),
+          publicKey: new Uint8Array(32),
+          customInstructionsEncrypted: null,
+        },
+      ]);
+
+      const res = await app.request('/api/auth/me', {
+        method: 'GET',
+        headers: {
+          Cookie: 'hushbox_session=mock',
+        },
+      });
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{ customInstructionsEncrypted: string | null }>(res);
+      expect(body.customInstructionsEncrypted).toBeNull();
+    });
+
     it('returns 401 NOT_AUTHENTICATED when no session cookie', async () => {
       const res = await app.request('/api/auth/me', {
         method: 'GET',

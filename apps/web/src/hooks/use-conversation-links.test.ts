@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
+vi.mock('../lib/auth.js', () => ({
+  useAuthStore: vi.fn((selector: (s: { user: { id: string } | null }) => unknown) =>
+    selector({ user: { id: 'user-1' } })
+  ),
+}));
+
 vi.mock('../lib/api-client.js', () => ({
   client: {
     api: {
@@ -40,6 +46,9 @@ import {
   useChangeLinkPrivilege,
 } from './use-conversation-links.js';
 import { budgetKeys } from './use-conversation-budgets.js';
+import { useAuthStore } from '../lib/auth.js';
+
+const mockedUseAuthStore = vi.mocked(useAuthStore);
 
 const mockedUseQuery = vi.mocked(useQuery);
 const mockedUseMutation = vi.mocked(useMutation);
@@ -87,6 +96,21 @@ describe('useConversationLinks', () => {
     expect(mockedUseQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         queryKey: linkKeys.list(''),
+        enabled: false,
+      })
+    );
+  });
+
+  it('disables the query when user is null (link guest)', () => {
+    mockedUseAuthStore.mockImplementation((selector) =>
+      selector({ user: null } as Parameters<typeof selector>[0])
+    );
+    mockedUseQuery.mockReturnValue({ data: undefined } as ReturnType<typeof useQuery>);
+
+    renderHook(() => useConversationLinks('conv-1'));
+
+    expect(mockedUseQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
         enabled: false,
       })
     );

@@ -42,6 +42,17 @@ export function formatPricePer1k(pricePerToken: number): string {
 }
 
 /**
+ * Format a price range per 1000 tokens for display.
+ *
+ * @param minPricePerToken - Minimum price per single token
+ * @param maxPricePerToken - Maximum price per single token
+ * @returns Formatted string (e.g., "$0.0001 – $0.06 / 1k")
+ */
+export function formatPriceRange(minPricePerToken: number, maxPricePerToken: number): string {
+  return `${formatPricePer1k(minPricePerToken)} – ${formatPricePer1k(maxPricePerToken)} / 1k`;
+}
+
+/**
  * Format a cost value for display.
  * Shows full precision (up to 8 decimals, matching database storage)
  * with trailing zeros stripped for clean display.
@@ -78,13 +89,17 @@ export function shortenModelName(name: string): string {
     return '';
   }
 
+  // Strip provider prefix (e.g., "anthropic/claude-3-5-sonnet" → "claude-3-5-sonnet")
+  const slashIndex = trimmed.indexOf('/');
+  const withoutProvider = slashIndex === -1 ? trimmed : trimmed.slice(slashIndex + 1);
+
   // Pattern matches trailing date/version suffixes:
   // - Single group with 4+ digits (e.g., -20240806)
   // - Multiple groups of digits (e.g., -2024-08-06, -1-5)
   // Does NOT match single-digit suffixes like GPT-4
   const versionDatePattern = /-(\d{4,}|\d+(-\d+)+)$/;
 
-  return trimmed.replace(versionDatePattern, '');
+  return withoutProvider.replace(versionDatePattern, '');
 }
 
 export const CHAT_TITLE_MAX_LENGTH = 50;

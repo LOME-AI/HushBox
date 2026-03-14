@@ -231,10 +231,12 @@ describe('createLink', () => {
     // Step 0: Lock + verify epoch
     mockSelectChainWithFor(mockSelect, [{ currentEpoch: 1 }]);
     mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-current-1' }]);
-    // Steps 1-3: 3 upsert inserts
+    // Count existing links for default displayName
+    mockSelectChainNoOrder(mockSelect, [{ count: 0 }]);
+    // Steps 1-3: sharedLinks → conversationMembers → epochMembers
     mockInsertUpsertChain(mockInsert, [{ id: 'link-new-1' }]);
-    mockInsertUpsertChainNoReturn(mockInsert);
     mockInsertUpsertChain(mockInsert, [{ id: 'member-new-1' }]);
+    mockInsertUpsertChainNoReturn(mockInsert);
 
     await createLink(db as never, {
       conversationId: 'conv-1',
@@ -251,9 +253,10 @@ describe('createLink', () => {
   it('returns linkId and memberId', async () => {
     mockSelectChainWithFor(mockSelect, [{ currentEpoch: 2 }]);
     mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-current-2' }]);
+    mockSelectChainNoOrder(mockSelect, [{ count: 0 }]);
     mockInsertUpsertChain(mockInsert, [{ id: 'link-abc' }]);
-    mockInsertUpsertChainNoReturn(mockInsert);
     mockInsertUpsertChain(mockInsert, [{ id: 'member-def' }]);
+    mockInsertUpsertChainNoReturn(mockInsert);
 
     const result = await createLink(db as never, {
       conversationId: 'conv-1',
@@ -271,9 +274,10 @@ describe('createLink', () => {
   it('uses transaction for atomicity', async () => {
     mockSelectChainWithFor(mockSelect, [{ currentEpoch: 1 }]);
     mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-1' }]);
+    mockSelectChainNoOrder(mockSelect, [{ count: 0 }]);
     mockInsertUpsertChain(mockInsert, [{ id: 'link-tx' }]);
-    mockInsertUpsertChainNoReturn(mockInsert);
     mockInsertUpsertChain(mockInsert, [{ id: 'member-tx' }]);
+    mockInsertUpsertChainNoReturn(mockInsert);
 
     await createLink(db as never, {
       conversationId: 'conv-1',
@@ -290,10 +294,11 @@ describe('createLink', () => {
   it('returns existing link on duplicate linkPublicKey', async () => {
     mockSelectChainWithFor(mockSelect, [{ currentEpoch: 1 }]);
     mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-1' }]);
+    mockSelectChainNoOrder(mockSelect, [{ count: 0 }]);
     // Upsert returns existing row (no-op update)
     mockInsertUpsertChain(mockInsert, [{ id: 'existing-link' }]);
-    mockInsertUpsertChainNoReturn(mockInsert);
     mockInsertUpsertChain(mockInsert, [{ id: 'existing-member' }]);
+    mockInsertUpsertChainNoReturn(mockInsert);
 
     const result = await createLink(db as never, {
       conversationId: 'conv-1',
@@ -312,8 +317,8 @@ describe('createLink', () => {
     mockSelectChainWithFor(mockSelect, [{ currentEpoch: 1 }]);
     mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-1' }]);
     mockInsertUpsertChain(mockInsert, [{ id: 'link-named' }]);
-    mockInsertUpsertChainNoReturn(mockInsert);
     mockInsertUpsertChain(mockInsert, [{ id: 'member-named' }]);
+    mockInsertUpsertChainNoReturn(mockInsert);
 
     await createLink(db as never, {
       conversationId: 'conv-1',
@@ -334,12 +339,14 @@ describe('createLink', () => {
     );
   });
 
-  it('omits displayName from sharedLinks insert when not provided', async () => {
+  it('generates default displayName when not provided', async () => {
     mockSelectChainWithFor(mockSelect, [{ currentEpoch: 1 }]);
     mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-1' }]);
-    mockInsertUpsertChain(mockInsert, [{ id: 'link-no-name' }]);
+    // Count existing links → 2 existing
+    mockSelectChainNoOrder(mockSelect, [{ count: 2 }]);
+    mockInsertUpsertChain(mockInsert, [{ id: 'link-auto-name' }]);
+    mockInsertUpsertChain(mockInsert, [{ id: 'member-auto-name' }]);
     mockInsertUpsertChainNoReturn(mockInsert);
-    mockInsertUpsertChain(mockInsert, [{ id: 'member-no-name' }]);
 
     await createLink(db as never, {
       conversationId: 'conv-1',
@@ -350,12 +357,13 @@ describe('createLink', () => {
       currentEpochId: 'epoch-1',
     });
 
-    // First insert is sharedLinks — verify values() does NOT include displayName
+    // First insert is sharedLinks — verify values() includes generated displayName
     const firstInsertResult = mockInsert.mock.results[0];
     expect(firstInsertResult).toBeDefined();
     const valuesFunction = firstInsertResult!.value.values;
-    const valuesArgument = valuesFunction.mock.calls[0]![0] as Record<string, unknown>;
-    expect(valuesArgument).not.toHaveProperty('displayName');
+    expect(valuesFunction).toHaveBeenCalledWith(
+      expect.objectContaining({ displayName: 'Guest 3' })
+    );
   });
 
   it('throws StaleEpochError when epoch has rotated between query and transaction', async () => {
@@ -376,6 +384,46 @@ describe('createLink', () => {
     ).rejects.toThrow('Stale epoch');
 
     expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it('calls submitRotation instead of epochMembers insert when rotation is provided', async () => {
+    // Step 0: Lock + verify epoch
+    mockSelectChainWithFor(mockSelect, [{ currentEpoch: 1 }]);
+    mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-current-1' }]);
+    // Count existing links for default displayName
+    mockSelectChainNoOrder(mockSelect, [{ count: 0 }]);
+    // Steps 1-2: sharedLinks upsert + conversationMembers upsert (no epochMembers upsert)
+    mockInsertUpsertChain(mockInsert, [{ id: 'link-rot-1' }]);
+    mockInsertUpsertChain(mockInsert, [{ id: 'member-rot-1' }]);
+
+    const testRotation: SubmitRotationParams = {
+      conversationId: 'conv-1',
+      expectedEpoch: 1,
+      epochPublicKey: new Uint8Array(32).fill(1),
+      confirmationHash: new Uint8Array(32).fill(2),
+      chainLink: new Uint8Array(32).fill(3),
+      memberWraps: [
+        { memberPublicKey: new Uint8Array(32).fill(4), wrap: new Uint8Array(48).fill(5) },
+      ],
+      encryptedTitle: new Uint8Array(64).fill(6),
+    };
+
+    const result = await createLink(db as never, {
+      conversationId: 'conv-1',
+      linkPublicKey: new Uint8Array(32).fill(15),
+      memberWrap: new Uint8Array(48).fill(16),
+      privilege: 'read',
+      visibleFromEpoch: 2,
+      currentEpochId: 'epoch-current-1',
+      rotation: testRotation,
+    });
+
+    expect(result.linkId).toBe('link-rot-1');
+    expect(result.memberId).toBe('member-rot-1');
+    // submitRotation should be called instead of epochMembers insert
+    expect(mockSubmitRotation).toHaveBeenCalledTimes(1);
+    // Only 2 inserts (sharedLinks + conversationMembers), not 3
+    expect(mockInsert).toHaveBeenCalledTimes(2);
   });
 });
 

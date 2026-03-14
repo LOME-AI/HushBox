@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ResolveBillingInput } from '@hushbox/shared';
-import { buildBillingInput } from './resolve.js';
+import { buildBillingInput, buildGuestBillingInput } from './resolve.js';
 
 // ============================================================================
 // Mocks
@@ -93,7 +93,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
       });
 
       expect(result.input).toEqual<ResolveBillingInput>({
@@ -110,7 +110,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
       });
 
       expect(result.input.balanceCents).toBe(200);
@@ -121,7 +121,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'expensive/model',
+        models: ['expensive/model'],
       });
 
       expect(result.input.isPremiumModel).toBe(true);
@@ -132,7 +132,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
       });
 
       expect(result.input.isPremiumModel).toBe(false);
@@ -143,7 +143,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
       });
 
       expect(result.input.freeAllowanceCents).toBe(50);
@@ -154,7 +154,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
       });
 
       expect(result.input.estimatedMinimumCostCents).toBe(0);
@@ -165,7 +165,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
       });
 
       expect(result.input.group).toBeUndefined();
@@ -220,7 +220,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -277,7 +277,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -335,7 +335,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -382,7 +382,7 @@ describe('buildBillingInput', () => {
 
       await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -442,7 +442,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -503,7 +503,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -518,7 +518,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
       });
 
       expect(result.groupBudgetContext).toBeUndefined();
@@ -529,7 +529,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
       });
 
       // rawUserBalanceCents is the DB balance (1000), NOT the adjusted balance (700)
@@ -547,7 +547,7 @@ describe('buildBillingInput', () => {
 
       const result = await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
       });
 
       // rawFreeAllowanceCents is the DB value (500), NOT the adjusted value (300)
@@ -592,7 +592,7 @@ describe('buildBillingInput', () => {
 
       await buildBillingInput(mockDb, mockRedis, {
         userId: 'user-1',
-        model: 'cheap/model',
+        models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
         conversationId: 'conv-1',
       });
@@ -601,5 +601,264 @@ describe('buildBillingInput', () => {
       expect(mockGetUserTierInfo).toHaveBeenCalledWith(mockDb, 'user-1');
       expect(mockGetUserTierInfo).toHaveBeenCalledWith(mockDb, 'owner-1');
     });
+  });
+});
+
+// ============================================================================
+// buildGuestBillingInput
+// ============================================================================
+
+function setupGuestMocks(overrides: {
+  ownerTier?: 'paid' | 'free';
+  ownerBalanceCents?: number;
+  premiumIds?: string[];
+  conversationBudget?: string;
+  totalSpent?: string;
+  memberBudget?: string;
+  memberSpent?: string;
+  reserved?: { memberTotal: number; conversationTotal: number; payerTotal: number };
+  groupRemaining?: {
+    conversationRemainingCents: number;
+    memberRemainingCents: number;
+    ownerRemainingCents: number;
+  };
+}): void {
+  const ownerTier = overrides.ownerTier ?? 'paid';
+  const ownerBalanceCents = overrides.ownerBalanceCents ?? 5000;
+  const premiumIds = overrides.premiumIds ?? ['expensive/model'];
+  const conversationBudget = overrides.conversationBudget ?? '20.00';
+  const totalSpent = overrides.totalSpent ?? '0';
+  const memberBudget = overrides.memberBudget ?? '10.00';
+  const memberSpent = overrides.memberSpent ?? '0';
+  const reserved = overrides.reserved ?? { memberTotal: 0, conversationTotal: 0, payerTotal: 0 };
+  const groupRemaining = overrides.groupRemaining ?? {
+    conversationRemainingCents: 2000,
+    memberRemainingCents: 1000,
+    ownerRemainingCents: 5000,
+  };
+
+  mockGetUserTierInfo.mockResolvedValue({
+    tier: ownerTier,
+    balanceCents: ownerBalanceCents,
+    freeAllowanceCents: 0,
+    canAccessPremium: ownerTier === 'paid',
+  });
+
+  mockGetGroupReservedTotals.mockResolvedValue(reserved);
+
+  mockGetConversationBudgets.mockResolvedValue({
+    conversationBudget,
+    totalSpent,
+    memberBudgets: [
+      {
+        memberId: 'member-1',
+        userId: null,
+        linkId: 'link-1',
+        privilege: 'write' as const,
+        budget: memberBudget,
+        spent: memberSpent,
+      },
+    ],
+  });
+
+  mockComputeGroupRemaining.mockReturnValue(groupRemaining);
+
+  mockFetchModels.mockResolvedValue([]);
+  mockProcessModels.mockReturnValue({ models: [], premiumIds });
+}
+
+describe('buildGuestBillingInput', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns tier guest with zero personal balance', async () => {
+    setupGuestMocks({});
+
+    const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      ownerId: 'owner-1',
+      memberId: 'member-1',
+      models: ['cheap/model'],
+      conversationId: 'conv-1',
+    });
+
+    expect(result.input.tier).toBe('guest');
+    expect(result.input.balanceCents).toBe(0);
+    expect(result.input.freeAllowanceCents).toBe(0);
+  });
+
+  it('returns rawUserBalanceCents and rawFreeAllowanceCents as zero', async () => {
+    setupGuestMocks({});
+
+    const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      ownerId: 'owner-1',
+      memberId: 'member-1',
+      models: ['cheap/model'],
+      conversationId: 'conv-1',
+    });
+
+    expect(result.rawUserBalanceCents).toBe(0);
+    expect(result.rawFreeAllowanceCents).toBe(0);
+  });
+
+  it('includes group context with owner tier and budget data', async () => {
+    setupGuestMocks({
+      ownerTier: 'paid',
+      ownerBalanceCents: 5000,
+      groupRemaining: {
+        conversationRemainingCents: 2000,
+        memberRemainingCents: 1000,
+        ownerRemainingCents: 4900,
+      },
+    });
+
+    const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      ownerId: 'owner-1',
+      memberId: 'member-1',
+      models: ['cheap/model'],
+      conversationId: 'conv-1',
+    });
+
+    expect(result.input.group).toBeDefined();
+    expect(result.input.group!.ownerTier).toBe('paid');
+    expect(result.input.group!.effectiveCents).toBe(1000);
+  });
+
+  it('subtracts Redis reservations from owner balance in group context', async () => {
+    setupGuestMocks({
+      ownerBalanceCents: 3000,
+      reserved: { memberTotal: 0, conversationTotal: 0, payerTotal: 500 },
+      groupRemaining: {
+        conversationRemainingCents: 2000,
+        memberRemainingCents: 1000,
+        ownerRemainingCents: 2500,
+      },
+    });
+
+    const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      ownerId: 'owner-1',
+      memberId: 'member-1',
+      models: ['cheap/model'],
+      conversationId: 'conv-1',
+    });
+
+    expect(result.input.group!.ownerBalanceCents).toBe(2500);
+  });
+
+  it('identifies premium model from processModels premiumIds', async () => {
+    setupGuestMocks({ premiumIds: ['expensive/model'] });
+
+    const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      ownerId: 'owner-1',
+      memberId: 'member-1',
+      models: ['expensive/model'],
+      conversationId: 'conv-1',
+    });
+
+    expect(result.input.isPremiumModel).toBe(true);
+  });
+
+  it('returns non-premium when model not in premiumIds', async () => {
+    setupGuestMocks({ premiumIds: ['expensive/model'] });
+
+    const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      ownerId: 'owner-1',
+      memberId: 'member-1',
+      models: ['cheap/model'],
+      conversationId: 'conv-1',
+    });
+
+    expect(result.input.isPremiumModel).toBe(false);
+  });
+
+  it('defaults member budget to 0 when member not found in budgets result', async () => {
+    setupGuestMocks({});
+
+    // Override with empty member budgets
+    mockGetConversationBudgets.mockResolvedValue({
+      conversationBudget: '20.00',
+      totalSpent: '0',
+      memberBudgets: [],
+    });
+
+    await buildGuestBillingInput(mockDb, mockRedis, {
+      ownerId: 'owner-1',
+      memberId: 'member-1',
+      models: ['cheap/model'],
+      conversationId: 'conv-1',
+    });
+
+    expect(mockComputeGroupRemaining).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memberBudget: '0.00',
+        memberSpent: '0',
+      })
+    );
+  });
+
+  it('includes groupBudgetContext with raw budget values for race guard', async () => {
+    setupGuestMocks({
+      ownerBalanceCents: 5000,
+      conversationBudget: '20.00',
+      totalSpent: '5.00',
+      memberBudget: '10.00',
+      memberSpent: '2.00',
+      reserved: { memberTotal: 0, conversationTotal: 0, payerTotal: 100 },
+    });
+
+    const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      ownerId: 'owner-1',
+      memberId: 'member-1',
+      models: ['cheap/model'],
+      conversationId: 'conv-1',
+    });
+
+    expect(result.groupBudgetContext).toEqual({
+      conversationBudget: '20.00',
+      conversationSpent: '5.00',
+      memberBudget: '10.00',
+      memberSpent: '2.00',
+      ownerBalanceCents: 5000,
+    });
+  });
+
+  it('does not call getReservedTotal (no personal reservations for guests)', async () => {
+    setupGuestMocks({});
+
+    await buildGuestBillingInput(mockDb, mockRedis, {
+      ownerId: 'owner-1',
+      memberId: 'member-1',
+      models: ['cheap/model'],
+      conversationId: 'conv-1',
+    });
+
+    expect(mockGetReservedTotal).not.toHaveBeenCalled();
+  });
+
+  it('calls getUserTierInfo once for owner only', async () => {
+    setupGuestMocks({});
+
+    await buildGuestBillingInput(mockDb, mockRedis, {
+      ownerId: 'owner-1',
+      memberId: 'member-1',
+      models: ['cheap/model'],
+      conversationId: 'conv-1',
+    });
+
+    expect(mockGetUserTierInfo).toHaveBeenCalledTimes(1);
+    expect(mockGetUserTierInfo).toHaveBeenCalledWith(mockDb, 'owner-1');
+  });
+
+  it('sets estimatedMinimumCostCents to 0 (caller computes)', async () => {
+    setupGuestMocks({});
+
+    const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      ownerId: 'owner-1',
+      memberId: 'member-1',
+      models: ['cheap/model'],
+      conversationId: 'conv-1',
+    });
+
+    expect(result.input.estimatedMinimumCostCents).toBe(0);
   });
 });

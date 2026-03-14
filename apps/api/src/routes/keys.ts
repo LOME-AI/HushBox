@@ -1,30 +1,26 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import {
-  ERROR_CODE_UNAUTHORIZED,
-  ERROR_CODE_CONVERSATION_NOT_FOUND,
-  toBase64,
-} from '@hushbox/shared';
+import { ERROR_CODE_CONVERSATION_NOT_FOUND, toBase64 } from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
-import { requireAuth } from '../middleware/require-auth.js';
+import { requirePrivilege } from '../middleware/index.js';
 import { getKeyChain, getMemberKeys, verifyMembership } from '../services/keys/index.js';
 import type { AppEnv } from '../types.js';
 
 export const keysRoute = new Hono<AppEnv>()
-  .use('*', requireAuth())
   .get(
     '/:conversationId',
     zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('read', { allowLinkGuest: true }),
     async (c) => {
-      const user = c.get('user');
-      if (!user) {
-        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
+      const publicKey = c.get('user')?.publicKey ?? c.get('linkGuest')?.publicKey;
+      if (!publicKey) {
+        return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
       }
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
 
-      const result = await getKeyChain(db, conversationId, user.publicKey);
+      const result = await getKeyChain(db, conversationId, publicKey);
       if (!result) {
         return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
       }
@@ -51,11 +47,9 @@ export const keysRoute = new Hono<AppEnv>()
   .get(
     '/:conversationId/member-keys',
     zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('admin'),
     async (c) => {
-      const user = c.get('user');
-      if (!user) {
-        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-      }
+      const user = c.get('user')!;
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
 

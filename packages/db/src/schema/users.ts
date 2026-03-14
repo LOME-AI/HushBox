@@ -28,6 +28,9 @@ export const users = pgTable(
     // Recovery phrase acknowledgment
     hasAcknowledgedPhrase: boolean('has_acknowledged_phrase').notNull().default(false),
 
+    // Custom instructions (ECIES-encrypted with account public key)
+    customInstructionsEncrypted: bytea('custom_instructions_encrypted'),
+
     // E2E encryption keys
     publicKey: bytea('public_key').notNull(),
     passwordWrappedPrivateKey: bytea('password_wrapped_private_key').notNull(),

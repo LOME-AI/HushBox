@@ -4,6 +4,7 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { ChatWelcome } from './chat-welcome';
+import { useModelStore } from '@/stores/model';
 import type { PromptBudgetResult } from '@/hooks/use-prompt-budget';
 
 // Mock the api module — `api` object was removed; module now exports getApiUrl + ApiError
@@ -22,12 +23,14 @@ vi.mock('@/lib/api', () => ({
 }));
 
 // Mock hooks used by PromptInput (which is rendered inside ChatWelcome)
-vi.mock('@/stores/model', () => ({
-  useModelStore: vi.fn(() => ({
-    selectedModelId: 'test-model',
-    setSelectedModel: vi.fn(),
-  })),
-}));
+vi.mock('@/stores/model', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/model')>();
+  const store = vi.fn(() => ({
+    selectedModels: [{ id: 'test-model', name: 'Test Model' }],
+  }));
+  (store as unknown as Record<string, unknown>)['setState'] = vi.fn();
+  return { ...actual, useModelStore: store };
+});
 
 vi.mock('@/hooks/models', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/models')>();
@@ -82,6 +85,14 @@ vi.mock('@/hooks/use-prompt-budget', () => ({
     hasBlockingError: false,
     hasContent: input.value.trim().length > 0,
   }),
+}));
+
+vi.mock('@/providers/stability-provider', () => ({
+  useStability: () => ({ isStable: true }),
+}));
+
+vi.mock('@/components/shared/stable-content', () => ({
+  StableContent: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 // Mock framer-motion to avoid animation issues in tests
@@ -265,5 +276,44 @@ describe('ChatWelcome', () => {
     const tagline = screen.getByTestId('privacy-tagline');
     expect(tagline).toHaveTextContent('AI providers retain nothing');
     expect(tagline).toHaveTextContent('Sign up for encrypted storage');
+  });
+
+  it('renders search toggle button for authenticated users', () => {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.getByRole('button', { name: /internet search/i })).toBeInTheDocument();
+  });
+
+  it('renders search toggle button for unauthenticated users', () => {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.getByRole('button', { name: /internet search/i })).toBeInTheDocument();
+  });
+
+  it('renders ComparisonBar when multiple models are selected', () => {
+    vi.mocked(useModelStore).mockReturnValueOnce({
+      selectedModels: [
+        { id: 'model-1', name: 'Model One' },
+        { id: 'model-2', name: 'Model Two' },
+      ],
+    });
+
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.getByTestId('selected-models-bar')).toBeInTheDocument();
+  });
+
+  it('does not render ComparisonBar when single model is selected', () => {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.queryByTestId('selected-models-bar')).not.toBeInTheDocument();
   });
 });

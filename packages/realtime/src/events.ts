@@ -7,7 +7,7 @@ export const messageNewEventSchema = z.object({
   conversationId: z.string(),
   senderType: z.enum(['user', 'ai']),
   senderId: z.string().optional(),
-  senderDisplayName: z.string().optional(),
+  modelName: z.string().optional(),
   sequenceNumber: z.number().optional(),
   content: z.string().optional(),
 });
@@ -17,6 +17,7 @@ export const messageStreamEventSchema = z.object({
   timestamp: z.number(),
   messageId: z.string(),
   token: z.string(),
+  modelName: z.string().optional(),
 });
 
 export const messageCompleteEventSchema = z.object({
@@ -26,6 +27,7 @@ export const messageCompleteEventSchema = z.object({
   conversationId: z.string(),
   sequenceNumber: z.number(),
   epochNumber: z.number(),
+  modelName: z.string().optional(),
 });
 
 export const messageDeletedEventSchema = z.object({
@@ -97,6 +99,37 @@ export const presenceUpdateEventSchema = z.object({
   ),
 });
 
+export const forkCreatedEventSchema = z.object({
+  type: z.literal('fork:created'),
+  timestamp: z.number(),
+  forkId: z.string(),
+  conversationId: z.string(),
+  name: z.string(),
+  tipMessageId: z.string().nullable(),
+});
+
+export const forkDeletedEventSchema = z.object({
+  type: z.literal('fork:deleted'),
+  timestamp: z.number(),
+  forkId: z.string(),
+  conversationId: z.string(),
+});
+
+export const forkRenamedEventSchema = z.object({
+  type: z.literal('fork:renamed'),
+  timestamp: z.number(),
+  forkId: z.string(),
+  conversationId: z.string(),
+  name: z.string(),
+});
+
+export const messagesDeletedEventSchema = z.object({
+  type: z.literal('messages:deleted'),
+  timestamp: z.number(),
+  conversationId: z.string(),
+  deletedMessageIds: z.array(z.string()),
+});
+
 export const realtimeEventSchema = z.discriminatedUnion('type', [
   messageNewEventSchema,
   messageStreamEventSchema,
@@ -109,6 +142,10 @@ export const realtimeEventSchema = z.discriminatedUnion('type', [
   typingStartEventSchema,
   typingStopEventSchema,
   presenceUpdateEventSchema,
+  forkCreatedEventSchema,
+  forkDeletedEventSchema,
+  forkRenamedEventSchema,
+  messagesDeletedEventSchema,
 ]);
 
 export type MessageNewEvent = z.infer<typeof messageNewEventSchema>;
@@ -122,6 +159,10 @@ export type RotationCompleteEvent = z.infer<typeof rotationCompleteEventSchema>;
 export type TypingStartEvent = z.infer<typeof typingStartEventSchema>;
 export type TypingStopEvent = z.infer<typeof typingStopEventSchema>;
 export type PresenceUpdateEvent = z.infer<typeof presenceUpdateEventSchema>;
+export type ForkCreatedEvent = z.infer<typeof forkCreatedEventSchema>;
+export type ForkDeletedEvent = z.infer<typeof forkDeletedEventSchema>;
+export type ForkRenamedEvent = z.infer<typeof forkRenamedEventSchema>;
+export type MessagesDeletedEvent = z.infer<typeof messagesDeletedEventSchema>;
 export type RealtimeEvent = z.infer<typeof realtimeEventSchema>;
 
 export type RealtimeEventType = RealtimeEvent['type'];

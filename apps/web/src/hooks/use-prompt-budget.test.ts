@@ -4,13 +4,31 @@ import { usePromptBudget } from './use-prompt-budget';
 import type { BudgetCalculationResult, CapabilityId, ResolveBillingResult } from '@hushbox/shared';
 
 // Hoisted mock factories
-const { mockUseBudgetCalculation, mockUseConversationBudgets, mockUseResolveBilling } = vi.hoisted(
-  () => ({
-    mockUseBudgetCalculation: vi.fn(),
-    mockUseConversationBudgets: vi.fn(),
-    mockUseResolveBilling: vi.fn(),
-  })
-);
+const {
+  mockUseBudgetCalculation,
+  mockUseConversationBudgets,
+  mockUseResolveBilling,
+  mockSelectedModels,
+  mockModelsData,
+} = vi.hoisted(() => ({
+  mockUseBudgetCalculation: vi.fn(),
+  mockUseConversationBudgets: vi.fn(),
+  mockUseResolveBilling: vi.fn(),
+  mockSelectedModels: { current: [{ id: 'test-model', name: 'Test Model' }] },
+  mockModelsData: {
+    current: {
+      models: [
+        {
+          id: 'test-model',
+          contextLength: 128_000,
+          pricePerInputToken: 0.000_01,
+          pricePerOutputToken: 0.000_03,
+        },
+      ],
+      premiumIds: new Set<string>(),
+    },
+  },
+}));
 
 vi.mock('./use-budget-calculation', () => ({
   useBudgetCalculation: (...args: unknown[]) => mockUseBudgetCalculation(...args),
@@ -24,23 +42,17 @@ vi.mock('./use-resolve-billing', () => ({
   useResolveBilling: (...args: unknown[]) => mockUseResolveBilling(...args),
 }));
 
-vi.mock('@/stores/model', () => ({
-  useModelStore: () => ({ selectedModelId: 'test-model' }),
-}));
+vi.mock('@/stores/model', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/model')>();
+  return {
+    ...actual,
+    useModelStore: () => ({ selectedModels: mockSelectedModels.current }),
+  };
+});
 
 vi.mock('@/hooks/models', () => ({
   useModels: () => ({
-    data: {
-      models: [
-        {
-          id: 'test-model',
-          contextLength: 128_000,
-          pricePerInputToken: 0.000_01,
-          pricePerOutputToken: 0.000_03,
-        },
-      ],
-      premiumIds: new Set<string>(),
-    },
+    data: mockModelsData.current,
     isLoading: false,
   }),
 }));
@@ -59,6 +71,8 @@ vi.mock('@/lib/auth', () => ({
     },
     isPending: false,
   }),
+  useAuthStore: (selector: (state: { customInstructions: string | null }) => unknown) =>
+    selector({ customInstructions: null }),
 }));
 
 describe('usePromptBudget', () => {
@@ -321,6 +335,159 @@ describe('usePromptBudget', () => {
       const { result } = renderHook(() => usePromptBudget(defaultInput));
 
       expect(result.current.fundingSource).toBe('free_allowance');
+    });
+  });
+
+  describe('multi-model budget', () => {
+    it('passes all selected models pricing to useBudgetCalculation', () => {
+      mockSelectedModels.current = [
+        { id: 'model-a', name: 'Model A' },
+        { id: 'model-b', name: 'Model B' },
+      ];
+      mockModelsData.current = {
+        models: [
+          {
+            id: 'model-a',
+            contextLength: 128_000,
+            pricePerInputToken: 0.000_01,
+            pricePerOutputToken: 0.000_03,
+          },
+          {
+            id: 'model-b',
+            contextLength: 64_000,
+            pricePerInputToken: 0.000_02,
+            pricePerOutputToken: 0.000_06,
+          },
+        ],
+        premiumIds: new Set<string>(),
+      };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      const budgetInput = mockUseBudgetCalculation.mock.calls[0]![0] as { models: unknown[] };
+      expect(budgetInput.models).toHaveLength(2);
+    });
+
+    it('uses minimum context length across all selected models', () => {
+      mockSelectedModels.current = [
+        { id: 'model-a', name: 'Model A' },
+        { id: 'model-b', name: 'Model B' },
+      ];
+      mockModelsData.current = {
+        models: [
+          {
+            id: 'model-a',
+            contextLength: 128_000,
+            pricePerInputToken: 0.000_01,
+            pricePerOutputToken: 0.000_03,
+          },
+          {
+            id: 'model-b',
+            contextLength: 64_000,
+            pricePerInputToken: 0.000_02,
+            pricePerOutputToken: 0.000_06,
+          },
+        ],
+        premiumIds: new Set<string>(),
+      };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      // capacityMaxCapacity should reflect the minimum context length (64_000)
+      const budgetInput = mockUseBudgetCalculation.mock.calls[0]![0] as {
+        models: { contextLength: number }[];
+      };
+      const contextLengths = budgetInput.models.map((m) => m.contextLength);
+      expect(Math.min(...contextLengths)).toBe(64_000);
+    });
+
+    it('reports isPremiumModel true when any selected model is premium', () => {
+      mockSelectedModels.current = [
+        { id: 'model-a', name: 'Model A' },
+        { id: 'model-b', name: 'Model B' },
+      ];
+      mockModelsData.current = {
+        models: [
+          {
+            id: 'model-a',
+            contextLength: 128_000,
+            pricePerInputToken: 0.000_01,
+            pricePerOutputToken: 0.000_03,
+          },
+          {
+            id: 'model-b',
+            contextLength: 64_000,
+            pricePerInputToken: 0.000_02,
+            pricePerOutputToken: 0.000_06,
+          },
+        ],
+        premiumIds: new Set<string>(['model-b']),
+      };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      expect(mockUseResolveBilling).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isPremiumModel: true,
+        })
+      );
+    });
+
+    afterEach(() => {
+      // Reset to single-model defaults
+      mockSelectedModels.current = [{ id: 'test-model', name: 'Test Model' }];
+      mockModelsData.current = {
+        models: [
+          {
+            id: 'test-model',
+            contextLength: 128_000,
+            pricePerInputToken: 0.000_01,
+            pricePerOutputToken: 0.000_03,
+          },
+        ],
+        premiumIds: new Set<string>(),
+      };
+    });
+  });
+
+  describe('read-only privilege', () => {
+    it('hasBlockingError is true when privilege is read', () => {
+      const { result } = renderHook(() =>
+        usePromptBudget({
+          ...defaultInput,
+          conversationId: 'conv-1',
+          currentUserPrivilege: 'read',
+        })
+      );
+
+      expect(result.current.hasBlockingError).toBe(true);
+    });
+
+    it('fundingSource is denied when privilege is read', () => {
+      const { result } = renderHook(() =>
+        usePromptBudget({
+          ...defaultInput,
+          conversationId: 'conv-1',
+          currentUserPrivilege: 'read',
+        })
+      );
+
+      expect(result.current.fundingSource).toBe('denied');
+    });
+
+    it('includes read_only_notice notification when privilege is read', () => {
+      const { result } = renderHook(() =>
+        usePromptBudget({
+          ...defaultInput,
+          conversationId: 'conv-1',
+          currentUserPrivilege: 'read',
+        })
+      );
+
+      const hasReadOnlyNotice = result.current.notifications.some(
+        (n: { id: string }) => n.id === 'read_only_notice'
+      );
+      expect(hasReadOnlyNotice).toBe(true);
     });
   });
 

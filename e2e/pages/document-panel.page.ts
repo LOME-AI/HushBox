@@ -1,4 +1,5 @@
 import { type Page, type Locator, expect } from '@playwright/test';
+import { waitForConditionOrSettle } from '../helpers/settled';
 
 export class DocumentPanelPage {
   readonly page: Page;
@@ -84,7 +85,12 @@ export class DocumentPanelPage {
   // --- Waits ---
 
   async waitForCardAppear(timeout = 15_000): Promise<void> {
-    await this.documentCards().first().waitFor({ state: 'visible', timeout });
+    const card = this.documentCards().first();
+    await waitForConditionOrSettle(
+      this.page,
+      async () => card.isVisible().catch(() => false),
+      { timeout, errorMessage: 'App settled without document card appearing' }
+    );
   }
 
   async waitForPanelOpen(timeout = 5000): Promise<void> {

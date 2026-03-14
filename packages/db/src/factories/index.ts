@@ -12,3 +12,4 @@ export { epochFactory } from './epoch';
 export { epochMemberFactory } from './epoch-member';
 export { conversationMemberFactory } from './conversation-member';
 export { sharedLinkFactory } from './shared-link';
+export { conversationForkFactory } from './conversation-fork';

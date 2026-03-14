@@ -25,30 +25,40 @@ function createMockStream(): SSEStream & {
 
 describe('createSSEEventWriter', () => {
   describe('event writing', () => {
-    it('writes start event with userMessageId and assistantMessageId', async () => {
+    it('writes start event with userMessageId and models array', async () => {
       const stream = createMockStream();
       const writer = createSSEEventWriter(stream);
 
-      await writer.writeStart({ userMessageId: 'user-123', assistantMessageId: 'assistant-456' });
+      await writer.writeStart({
+        userMessageId: 'user-123',
+        models: [{ modelId: 'openai/gpt-4o', assistantMessageId: 'assistant-456' }],
+      });
 
       expect(stream.events).toHaveLength(1);
       expect(stream.events[0]).toEqual({
         event: 'start',
-        data: JSON.stringify({ userMessageId: 'user-123', assistantMessageId: 'assistant-456' }),
+        data: JSON.stringify({
+          userMessageId: 'user-123',
+          models: [{ modelId: 'openai/gpt-4o', assistantMessageId: 'assistant-456' }],
+        }),
       });
     });
 
-    it('writes start event with only assistantMessageId for trial users', async () => {
+    it('writes start event with multiple models', async () => {
       const stream = createMockStream();
       const writer = createSSEEventWriter(stream);
 
-      await writer.writeStart({ assistantMessageId: 'assistant-456' });
+      await writer.writeStart({
+        userMessageId: 'user-123',
+        models: [
+          { modelId: 'openai/gpt-4o', assistantMessageId: 'asst-1' },
+          { modelId: 'anthropic/claude', assistantMessageId: 'asst-2' },
+        ],
+      });
 
       expect(stream.events).toHaveLength(1);
-      expect(stream.events[0]).toEqual({
-        event: 'start',
-        data: JSON.stringify({ assistantMessageId: 'assistant-456' }),
-      });
+      const parsed = JSON.parse(stream.events[0]!.data);
+      expect(parsed.models).toHaveLength(2);
     });
 
     it('writes token event with content', async () => {
@@ -123,6 +133,109 @@ describe('createSSEEventWriter', () => {
       if (!firstEvent) throw new Error('Expected at least one SSE event');
       const parsed = JSON.parse(firstEvent.data) as Record<string, unknown>;
       expect(parsed).toStrictEqual(doneData);
+    });
+  });
+
+  describe('model-tagged events', () => {
+    it('writes model-tagged token event', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeModelToken({ modelId: 'openai/gpt-4o', content: 'Hello' });
+
+      expect(stream.events).toHaveLength(1);
+      expect(stream.events[0]).toEqual({
+        event: 'token',
+        data: JSON.stringify({ modelId: 'openai/gpt-4o', content: 'Hello' }),
+      });
+    });
+
+    it('writes model:done event per model', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeModelDone({
+        modelId: 'openai/gpt-4o',
+        assistantMessageId: 'asst-1',
+        cost: '0.00200000',
+      });
+
+      expect(stream.events).toHaveLength(1);
+      expect(stream.events[0]).toEqual({
+        event: 'model:done',
+        data: JSON.stringify({
+          modelId: 'openai/gpt-4o',
+          assistantMessageId: 'asst-1',
+          cost: '0.00200000',
+        }),
+      });
+    });
+
+    it('writes model:error event per model', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeModelError({
+        modelId: 'anthropic/claude-3.5-sonnet',
+        message: 'Model unavailable',
+        code: 'MODEL_ERROR',
+      });
+
+      expect(stream.events).toHaveLength(1);
+      expect(stream.events[0]).toEqual({
+        event: 'model:error',
+        data: JSON.stringify({
+          modelId: 'anthropic/claude-3.5-sonnet',
+          message: 'Model unavailable',
+          code: 'MODEL_ERROR',
+        }),
+      });
+    });
+
+    it('writes multi-model done event with models array', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeDone({
+        userMessageId: 'user-1',
+        assistantMessageId: 'asst-1',
+        userSequence: 1,
+        aiSequence: 2,
+        epochNumber: 1,
+        cost: '0.00500000',
+        models: [
+          {
+            modelId: 'openai/gpt-4o',
+            assistantMessageId: 'asst-1',
+            aiSequence: 2,
+            cost: '0.00200000',
+          },
+          {
+            modelId: 'anthropic/claude-3.5-sonnet',
+            assistantMessageId: 'asst-2',
+            aiSequence: 3,
+            cost: '0.00300000',
+          },
+        ],
+      });
+
+      const firstEvent = stream.events[0];
+      if (!firstEvent) throw new Error('Expected event');
+      const parsed = JSON.parse(firstEvent.data) as Record<string, unknown>;
+      expect(parsed['models']).toHaveLength(2);
+    });
+
+    it('skips model-tagged writes when disconnected', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      stream.triggerAbort();
+
+      await writer.writeModelToken({ modelId: 'openai/gpt-4o', content: 'Hello' });
+      await writer.writeModelDone({ modelId: 'openai/gpt-4o', assistantMessageId: 'a', cost: '0' });
+      await writer.writeModelError({ modelId: 'openai/gpt-4o', message: 'err' });
+
+      expect(stream.events).toHaveLength(0);
     });
   });
 

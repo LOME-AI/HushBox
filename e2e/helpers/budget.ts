@@ -91,6 +91,24 @@ export class BudgetHelper {
     }
     return member.memberId;
   }
+
+  /**
+   * Find a link member's conversation-member ID by shared link ID.
+   */
+  async findLinkMemberId(conversationId: string, linkId: string): Promise<string> {
+    const budgets = await this.getBudgets(conversationId);
+    const member = budgets.memberBudgets.find((mb) => mb.linkId === linkId);
+    if (!member) {
+      throw new Error(
+        `Link member with linkId ${linkId} not found in conversation ${conversationId}. ` +
+          `Available link members: ${budgets.memberBudgets
+            .filter((mb) => mb.linkId)
+            .map((mb) => mb.linkId)
+            .join(', ')}`
+      );
+    }
+    return member.memberId;
+  }
 }
 
 /**

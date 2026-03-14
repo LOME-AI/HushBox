@@ -4,6 +4,26 @@ import userEvent from '@testing-library/user-event';
 import { ModelSelectorModal } from './model-selector-modal';
 import type { Model } from '@hushbox/shared';
 
+// Mock the api module to break the import chain that requires VITE_API_URL
+vi.mock('@/lib/api', () => ({
+  getApiUrl: vi.fn(() => 'http://localhost:8787'),
+  ApiError: class ApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public data?: unknown
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
+  },
+}));
+
+vi.mock('@/lib/api-client', () => ({
+  client: {},
+  fetchJson: vi.fn(),
+}));
+
 // Mock Link component
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
@@ -39,9 +59,9 @@ const mockModels: Model[] = [
     contextLength: 128_000,
     pricePerInputToken: 0.000_01,
     pricePerOutputToken: 0.000_03,
-    capabilities: ['vision', 'functions', 'json-mode', 'streaming'],
+    capabilities: ['internet-search'],
     description: 'A powerful language model from OpenAI.',
-    supportedParameters: [],
+    supportedParameters: ['web_search_options'],
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
@@ -50,9 +70,9 @@ const mockModels: Model[] = [
     contextLength: 200_000,
     pricePerInputToken: 0.000_003,
     pricePerOutputToken: 0.000_015,
-    capabilities: ['vision', 'functions', 'streaming'],
+    capabilities: ['internet-search'],
     description: 'Anthropic most intelligent model.',
-    supportedParameters: [],
+    supportedParameters: ['web_search_options'],
   },
   {
     id: 'meta-llama/llama-3.1-70b-instruct',
@@ -61,7 +81,7 @@ const mockModels: Model[] = [
     contextLength: 131_072,
     pricePerInputToken: 0.000_000_59,
     pricePerOutputToken: 0.000_000_79,
-    capabilities: ['functions', 'streaming'],
+    capabilities: [],
     description: 'Open-weight model offering excellent performance.',
     supportedParameters: [],
   },
@@ -74,7 +94,7 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -90,7 +110,7 @@ describe('ModelSelectorModal', () => {
         open={false}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -105,7 +125,7 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -125,7 +145,7 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -144,7 +164,7 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -156,7 +176,7 @@ describe('ModelSelectorModal', () => {
     expect(screen.getByText(/Anthropic most intelligent model/)).toBeInTheDocument();
   });
 
-  it('calls onSelect and closes when model is double-clicked', async () => {
+  it('calls onSelect and closes when model is double-clicked then confirmed', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     const onOpenChange = vi.fn();
@@ -165,53 +185,57 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={onOpenChange}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={onSelect}
       />
     );
 
+    // Double-click toggles Claude into local selection
     await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
 
-    expect(onSelect).toHaveBeenCalledWith('anthropic/claude-3.5-sonnet');
+    // Click confirm button to trigger onSelect
+    await user.click(screen.getByRole('button', { name: /select.*model/i }));
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
+        { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+      ])
+    );
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('renders Quick Select Model header', () => {
+  it('does not render Quick Select section', () => {
     render(
       <ModelSelectorModal
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
 
-    expect(screen.getAllByText(/quick select model/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/quick select model/i)).not.toBeInTheDocument();
   });
 
-  it('renders sections in order: Quick Select, Sort By, Search', () => {
+  it('renders sections in order: Sort, Search', () => {
     render(
       <ModelSelectorModal
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
 
-    const quickSelectHeader = first(screen.getAllByText(/quick select model/i));
-    const sortByHeader = first(screen.getAllByText(/sort by/i));
+    const sortLabel = first(screen.getAllByText('Sort:'));
     const searchInput = first(screen.getAllByPlaceholderText('Search models'));
 
-    // Quick Select should come before Sort By in the DOM
+    // Sort should come before Search in the DOM
     expect(
-      quickSelectHeader.compareDocumentPosition(sortByHeader) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    // Sort By should come before Search in the DOM
-    expect(
-      sortByHeader.compareDocumentPosition(searchInput) & Node.DOCUMENT_POSITION_FOLLOWING
+      sortLabel.compareDocumentPosition(searchInput) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
   });
 
@@ -221,7 +245,7 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -230,72 +254,139 @@ describe('ModelSelectorModal', () => {
     expect(gpt4Item).toHaveTextContent('Capacity: 128k');
   });
 
-  it('renders Strongest button', () => {
-    render(
-      <ModelSelectorModal
-        open={true}
-        onOpenChange={vi.fn()}
-        models={mockModels}
-        selectedId="openai/gpt-4-turbo"
-        onSelect={vi.fn()}
-      />
-    );
+  describe('pinned model labels', () => {
+    const pinnedModels: Model[] = [
+      {
+        id: 'anthropic/claude-opus-4.6',
+        name: 'Claude Opus 4.6',
+        provider: 'Anthropic',
+        contextLength: 200_000,
+        pricePerInputToken: 0.000_015,
+        pricePerOutputToken: 0.000_075,
+        capabilities: ['internet-search'],
+        description: 'Most capable model.',
+        supportedParameters: ['web_search_options'],
+      },
+      {
+        id: 'deepseek/deepseek-r1',
+        name: 'DeepSeek R1',
+        provider: 'DeepSeek',
+        contextLength: 64_000,
+        pricePerInputToken: 0.000_000_55,
+        pricePerOutputToken: 0.000_002_19,
+        capabilities: [],
+        description: 'Best value reasoning model.',
+        supportedParameters: [],
+      },
+      {
+        id: 'openai/gpt-4o',
+        name: 'GPT-4o',
+        provider: 'OpenAI',
+        contextLength: 128_000,
+        pricePerInputToken: 0.000_005,
+        pricePerOutputToken: 0.000_015,
+        capabilities: ['internet-search'],
+        description: 'Fast and capable model.',
+        supportedParameters: ['web_search_options'],
+      },
+    ];
 
-    expect(screen.getAllByRole('button', { name: /strongest/i }).length).toBeGreaterThan(0);
-  });
+    it('shows "Strongest" label on strongest model subtitle row', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={pinnedModels}
+          selectedIds={new Set(['openai/gpt-4o'])}
+          onSelect={vi.fn()}
+          canAccessPremium={true}
+          isAuthenticated={true}
+        />
+      );
 
-  it('renders Value button', () => {
-    render(
-      <ModelSelectorModal
-        open={true}
-        onOpenChange={vi.fn()}
-        models={mockModels}
-        selectedId="openai/gpt-4-turbo"
-        onSelect={vi.fn()}
-      />
-    );
+      const strongestItem = screen.getByTestId('model-item-anthropic/claude-opus-4.6');
+      expect(strongestItem).toHaveTextContent('Strongest');
+    });
 
-    expect(screen.getAllByRole('button', { name: /value/i }).length).toBeGreaterThan(0);
-  });
+    it('shows "Best value" label on value model subtitle row', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={pinnedModels}
+          selectedIds={new Set(['openai/gpt-4o'])}
+          onSelect={vi.fn()}
+          canAccessPremium={true}
+          isAuthenticated={true}
+        />
+      );
 
-  it('selects strongest model and closes when Strongest button is clicked', async () => {
-    const user = userEvent.setup();
-    const onSelect = vi.fn();
-    const onOpenChange = vi.fn();
-    render(
-      <ModelSelectorModal
-        open={true}
-        onOpenChange={onOpenChange}
-        models={mockModels}
-        selectedId="openai/gpt-4-turbo"
-        onSelect={onSelect}
-      />
-    );
+      const valueItem = screen.getByTestId('model-item-deepseek/deepseek-r1');
+      expect(valueItem).toHaveTextContent('Best value');
+    });
 
-    await user.click(first(screen.getAllByRole('button', { name: /strongest/i })));
+    it('pins strongest and value models at top when no sort or filter is active', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={pinnedModels}
+          selectedIds={new Set(['openai/gpt-4o'])}
+          onSelect={vi.fn()}
+          canAccessPremium={true}
+          isAuthenticated={true}
+        />
+      );
 
-    expect(onSelect).toHaveBeenCalledWith('anthropic/claude-opus-4.6');
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
+      const modelItems = screen.getAllByRole('option');
+      expect(modelItems[0]).toHaveTextContent('Claude Opus 4.6');
+      expect(modelItems[1]).toHaveTextContent('DeepSeek R1');
+      expect(modelItems[2]).toHaveTextContent('GPT-4o');
+    });
 
-  it('selects value model and closes when Value button is clicked', async () => {
-    const user = userEvent.setup();
-    const onSelect = vi.fn();
-    const onOpenChange = vi.fn();
-    render(
-      <ModelSelectorModal
-        open={true}
-        onOpenChange={onOpenChange}
-        models={mockModels}
-        selectedId="openai/gpt-4-turbo"
-        onSelect={onSelect}
-      />
-    );
+    it('does not pin models when sort is active', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={pinnedModels}
+          selectedIds={new Set(['openai/gpt-4o'])}
+          onSelect={vi.fn()}
+          canAccessPremium={true}
+          isAuthenticated={true}
+        />
+      );
 
-    await user.click(first(screen.getAllByRole('button', { name: /value/i })));
+      await user.click(first(screen.getAllByRole('button', { name: /price/i })));
 
-    expect(onSelect).toHaveBeenCalledWith('deepseek/deepseek-r1');
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+      const modelItems = screen.getAllByRole('option');
+      // Sorted by price ascending — DeepSeek R1 is cheapest
+      expect(modelItems[0]).toHaveTextContent('DeepSeek R1');
+    });
+
+    it('shows labels regardless of sort state', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={pinnedModels}
+          selectedIds={new Set(['openai/gpt-4o'])}
+          onSelect={vi.fn()}
+          canAccessPremium={true}
+          isAuthenticated={true}
+        />
+      );
+
+      await user.click(first(screen.getAllByRole('button', { name: /price/i })));
+
+      const strongestItem = screen.getByTestId('model-item-anthropic/claude-opus-4.6');
+      expect(strongestItem).toHaveTextContent('Strongest');
+
+      const valueItem = screen.getByTestId('model-item-deepseek/deepseek-r1');
+      expect(valueItem).toHaveTextContent('Best value');
+    });
   });
 
   it('shows selected model highlighted', () => {
@@ -304,7 +395,7 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -319,7 +410,7 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -334,12 +425,12 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
 
-    expect(screen.getByText('vision')).toBeInTheDocument();
+    expect(screen.getByText('Internet Search')).toBeInTheDocument();
   });
 
   it('formats context length correctly', () => {
@@ -348,7 +439,7 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -362,7 +453,7 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -379,7 +470,7 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={onOpenChange}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -397,7 +488,7 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -405,7 +496,7 @@ describe('ModelSelectorModal', () => {
     expect(screen.getByRole('button', { name: /select model/i })).toBeInTheDocument();
   });
 
-  it('selects focused model and closes when Select model button is clicked', async () => {
+  it('confirms current selection and closes when Select model button is clicked', async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
     const onSelect = vi.fn();
@@ -414,31 +505,40 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={onOpenChange}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={onSelect}
       />
     );
 
+    // Click to focus Claude (does not change selection)
     await user.click(screen.getByText('Claude 3.5 Sonnet'));
-    await user.click(screen.getByRole('button', { name: /select model/i }));
+    // Double-click to toggle Claude into selection
+    await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
+    await user.click(screen.getByRole('button', { name: /select.*model/i }));
 
-    expect(onSelect).toHaveBeenCalledWith('anthropic/claude-3.5-sonnet');
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
+        { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+      ])
+    );
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   describe('sorting', () => {
-    it('renders Sort By section with Price and Context buttons', () => {
+    it('renders inline Sort label with Price and Capacity buttons', () => {
       render(
         <ModelSelectorModal
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="openai/gpt-4-turbo"
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
           onSelect={vi.fn()}
         />
       );
 
-      expect(screen.getAllByText(/sort by/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Sort:').length).toBeGreaterThan(0);
+      expect(screen.queryByText(/sort by/i)).not.toBeInTheDocument();
       expect(screen.getAllByRole('button', { name: /price/i }).length).toBeGreaterThan(0);
       expect(screen.getAllByRole('button', { name: /capacity/i }).length).toBeGreaterThan(0);
     });
@@ -450,7 +550,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="openai/gpt-4-turbo"
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
           onSelect={vi.fn()}
         />
       );
@@ -468,7 +568,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="openai/gpt-4-turbo"
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
           onSelect={vi.fn()}
         />
       );
@@ -489,7 +589,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="openai/gpt-4-turbo"
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
           onSelect={vi.fn()}
         />
       );
@@ -507,7 +607,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="openai/gpt-4-turbo"
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
           onSelect={vi.fn()}
         />
       );
@@ -525,7 +625,7 @@ describe('ModelSelectorModal', () => {
         open={true}
         onOpenChange={vi.fn()}
         models={mockModels}
-        selectedId="openai/gpt-4-turbo"
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
         onSelect={vi.fn()}
       />
     );
@@ -541,7 +641,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="openai/gpt-4-turbo"
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
           onSelect={vi.fn()}
         />
       );
@@ -556,7 +656,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="openai/gpt-4-turbo"
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
           onSelect={vi.fn()}
         />
       );
@@ -575,7 +675,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={vi.fn()}
           premiumIds={premiumIds}
         />
@@ -591,7 +691,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={vi.fn()}
           premiumIds={premiumIds}
           canAccessPremium={false}
@@ -609,7 +709,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={vi.fn()}
           premiumIds={premiumIds}
           canAccessPremium={false}
@@ -627,7 +727,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={vi.fn()}
           premiumIds={premiumIds}
           canAccessPremium={true}
@@ -645,7 +745,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={vi.fn()}
           premiumIds={premiumIds}
           canAccessPremium={false}
@@ -664,7 +764,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={vi.fn()}
           premiumIds={premiumIds}
           canAccessPremium={false}
@@ -684,7 +784,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={vi.fn()}
           premiumIds={premiumIds}
           canAccessPremium={false}
@@ -703,7 +803,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={vi.fn()}
           premiumIds={premiumIds}
           canAccessPremium={false}
@@ -722,7 +822,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={vi.fn()}
           premiumIds={premiumIds}
           canAccessPremium={false}
@@ -740,7 +840,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={vi.fn()}
           premiumIds={premiumIds}
           canAccessPremium={true}
@@ -761,16 +861,23 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={onOpenChange}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={onSelect}
           premiumIds={premiumIds}
           canAccessPremium={true}
         />
       );
 
+      // Double-click toggles GPT-4 Turbo into selection
       await user.dblClick(screen.getByText('GPT-4 Turbo'));
+      await user.click(screen.getByRole('button', { name: /select.*model/i }));
 
-      expect(onSelect).toHaveBeenCalledWith('openai/gpt-4-turbo');
+      expect(onSelect).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+          { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
+        ])
+      );
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
 
@@ -784,7 +891,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={onOpenChange}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={onSelect}
           premiumIds={premiumIds}
           canAccessPremium={false}
@@ -809,7 +916,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={onOpenChange}
           models={mockModels}
-          selectedId="openai/gpt-4-turbo"
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
           onSelect={onSelect}
           premiumIds={premiumIds}
           canAccessPremium={false}
@@ -817,14 +924,21 @@ describe('ModelSelectorModal', () => {
         />
       );
 
+      // Double-click toggles Claude into selection
       await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
+      await user.click(screen.getByRole('button', { name: /select.*model/i }));
 
-      expect(onSelect).toHaveBeenCalledWith('anthropic/claude-3.5-sonnet');
+      expect(onSelect).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
+          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+        ])
+      );
       expect(onOpenChange).toHaveBeenCalledWith(false);
       expect(onPremiumClick).not.toHaveBeenCalled();
     });
 
-    it('calls onPremiumClick when Select model button clicked with premium model focused', async () => {
+    it('calls onPremiumClick when premium model is double-clicked by non-paid user', async () => {
       const user = userEvent.setup();
       const onSelect = vi.fn();
       const onOpenChange = vi.fn();
@@ -834,7 +948,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={onOpenChange}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={onSelect}
           premiumIds={premiumIds}
           canAccessPremium={false}
@@ -842,8 +956,8 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.click(screen.getByText('GPT-4 Turbo'));
-      await user.click(screen.getByRole('button', { name: /select model/i }));
+      // Double-click on premium model triggers onPremiumClick instead of toggling
+      await user.dblClick(screen.getByText('GPT-4 Turbo'));
 
       expect(onPremiumClick).toHaveBeenCalledWith('openai/gpt-4-turbo');
       expect(onSelect).not.toHaveBeenCalled();
@@ -856,7 +970,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={vi.fn()}
           premiumIds={premiumIds}
         />
@@ -877,16 +991,23 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={onOpenChange}
           models={mockModels}
-          selectedId="anthropic/claude-3.5-sonnet"
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
           onSelect={onSelect}
           premiumIds={premiumIds}
         />
       );
 
+      // Double-click toggles GPT-4 Turbo into selection (canAccessPremium defaults to true)
       await user.dblClick(screen.getByText('GPT-4 Turbo'));
+      await user.click(screen.getByRole('button', { name: /select.*model/i }));
 
       // Should call onSelect since canAccessPremium defaults to true
-      expect(onSelect).toHaveBeenCalledWith('openai/gpt-4-turbo');
+      expect(onSelect).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+          { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
+        ])
+      );
     });
 
     describe('interlacing during sorting', () => {
@@ -946,7 +1067,7 @@ describe('ModelSelectorModal', () => {
             open={true}
             onOpenChange={vi.fn()}
             models={interlaceModels}
-            selectedId="basic-1"
+            selectedIds={new Set(['basic-1'])}
             onSelect={vi.fn()}
             premiumIds={interlacePremiumIds}
             canAccessPremium={false}
@@ -970,7 +1091,7 @@ describe('ModelSelectorModal', () => {
             open={true}
             onOpenChange={vi.fn()}
             models={interlaceModels}
-            selectedId="basic-1"
+            selectedIds={new Set(['basic-1'])}
             onSelect={vi.fn()}
             premiumIds={interlacePremiumIds}
             canAccessPremium={true}
@@ -994,7 +1115,7 @@ describe('ModelSelectorModal', () => {
             open={true}
             onOpenChange={vi.fn()}
             models={interlaceModels}
-            selectedId="basic-1"
+            selectedIds={new Set(['basic-1'])}
             onSelect={vi.fn()}
             premiumIds={interlacePremiumIds}
             canAccessPremium={false}
@@ -1013,7 +1134,7 @@ describe('ModelSelectorModal', () => {
       });
     });
 
-    describe('quick select for non-paid users', () => {
+    describe('pinned labels for non-paid users', () => {
       const quickSelectModels: Model[] = [
         {
           id: 'basic-cheap',
@@ -1051,98 +1172,429 @@ describe('ModelSelectorModal', () => {
       ];
       const quickSelectPremiumIds = new Set(['premium-model']);
 
-      it('selects highest cost basic model for "Strongest" when user is non-paid', async () => {
-        const user = userEvent.setup();
-        const onSelect = vi.fn();
-        const onOpenChange = vi.fn();
+      it('shows "Strongest" label on highest cost basic model for non-paid users', () => {
         render(
           <ModelSelectorModal
             open={true}
-            onOpenChange={onOpenChange}
+            onOpenChange={vi.fn()}
             models={quickSelectModels}
-            selectedId="basic-cheap"
-            onSelect={onSelect}
+            selectedIds={new Set(['basic-cheap'])}
+            onSelect={vi.fn()}
             premiumIds={quickSelectPremiumIds}
             canAccessPremium={false}
             isAuthenticated={true}
           />
         );
 
-        await user.click(first(screen.getAllByRole('button', { name: /strongest/i })));
-
-        expect(onSelect).toHaveBeenCalledWith('basic-expensive');
-        expect(onOpenChange).toHaveBeenCalledWith(false);
+        const strongestItem = screen.getByTestId('model-item-basic-expensive');
+        expect(strongestItem).toHaveTextContent('Strongest');
       });
 
-      it('selects lowest cost basic model for "Value" when user is non-paid', async () => {
-        const user = userEvent.setup();
-        const onSelect = vi.fn();
-        const onOpenChange = vi.fn();
+      it('shows "Best value" label on lowest cost basic model for non-paid users', () => {
         render(
           <ModelSelectorModal
             open={true}
-            onOpenChange={onOpenChange}
+            onOpenChange={vi.fn()}
             models={quickSelectModels}
-            selectedId="basic-cheap"
-            onSelect={onSelect}
+            selectedIds={new Set(['basic-cheap'])}
+            onSelect={vi.fn()}
             premiumIds={quickSelectPremiumIds}
             canAccessPremium={false}
             isAuthenticated={true}
           />
         );
 
-        await user.click(first(screen.getAllByRole('button', { name: /value/i })));
-
-        expect(onSelect).toHaveBeenCalledWith('basic-cheap');
-        expect(onOpenChange).toHaveBeenCalledWith(false);
+        const valueItem = screen.getByTestId('model-item-basic-cheap');
+        expect(valueItem).toHaveTextContent('Best value');
       });
 
-      it('uses hardcoded model IDs for paid users regardless of available models', async () => {
-        const user = userEvent.setup();
-        const onSelect = vi.fn();
-        const onOpenChange = vi.fn();
+      it('excludes premium models from strongest/value label calculation', () => {
         render(
           <ModelSelectorModal
             open={true}
-            onOpenChange={onOpenChange}
+            onOpenChange={vi.fn()}
             models={quickSelectModels}
-            selectedId="basic-cheap"
-            onSelect={onSelect}
-            premiumIds={quickSelectPremiumIds}
-            canAccessPremium={true}
-            isAuthenticated={true}
-          />
-        );
-
-        await user.click(first(screen.getAllByRole('button', { name: /strongest/i })));
-
-        expect(onSelect).toHaveBeenCalledWith('anthropic/claude-opus-4.6');
-        expect(onOpenChange).toHaveBeenCalledWith(false);
-      });
-
-      it('excludes premium models when calculating dynamic quick select for non-paid users', async () => {
-        const user = userEvent.setup();
-        const onSelect = vi.fn();
-        const onOpenChange = vi.fn();
-
-        // Even though premium-model has highest price, it should be excluded
-        render(
-          <ModelSelectorModal
-            open={true}
-            onOpenChange={onOpenChange}
-            models={quickSelectModels}
-            selectedId="basic-cheap"
-            onSelect={onSelect}
+            selectedIds={new Set(['basic-cheap'])}
+            onSelect={vi.fn()}
             premiumIds={quickSelectPremiumIds}
             canAccessPremium={false}
             isAuthenticated={false}
           />
         );
 
-        await user.click(first(screen.getAllByRole('button', { name: /strongest/i })));
-
-        expect(onSelect).toHaveBeenCalledWith('basic-expensive');
+        // Premium model should NOT have the Strongest label even though it's most expensive
+        const premiumItem = screen.getByTestId('model-item-premium-model');
+        expect(premiumItem).not.toHaveTextContent('Strongest');
+        expect(premiumItem).not.toHaveTextContent('Best value');
       });
+    });
+  });
+
+  describe('web search subtitle', () => {
+    it('shows "Web Search" in subtitle for models with web search capability', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const gptItem = screen.getByTestId('model-item-openai/gpt-4-turbo');
+      expect(gptItem).toHaveTextContent('Web Search');
+    });
+
+    it('does not show "Web Search" in subtitle for models without web search capability', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const llamaItem = screen.getByTestId('model-item-meta-llama/llama-3.1-70b-instruct');
+      expect(llamaItem).not.toHaveTextContent('Web Search');
+    });
+  });
+
+  describe('web search filter', () => {
+    it('renders Web Search filter button', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.getAllByRole('button', { name: /web search/i }).length).toBeGreaterThan(0);
+    });
+
+    it('filters to only web-search-capable models when active', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      await user.click(first(screen.getAllByRole('button', { name: /web search/i })));
+
+      expect(screen.getByText('GPT-4 Turbo')).toBeInTheDocument();
+      expect(screen.getByText('Claude 3.5 Sonnet')).toBeInTheDocument();
+      expect(screen.queryByText('Llama 3.1 70B')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('auto-router (Smart Model)', () => {
+    const autoRouterModel: Model = {
+      id: 'openrouter/auto',
+      name: 'Smart Model',
+      provider: 'OpenRouter',
+      contextLength: 2_000_000,
+      pricePerInputToken: 0.000_000_039,
+      pricePerOutputToken: 0.000_000_19,
+      capabilities: [],
+      description: 'Uses the best model for your task',
+      supportedParameters: [],
+      isAutoRouter: true,
+      minPricePerInputToken: 0.000_000_039,
+      minPricePerOutputToken: 0.000_000_19,
+      maxPricePerInputToken: 0.000_06,
+      maxPricePerOutputToken: 0.000_18,
+    };
+
+    const modelsWithAutoRouter: Model[] = [autoRouterModel, ...mockModels];
+
+    it('pins auto-router at the very top in default view', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={modelsWithAutoRouter}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const modelItems = screen.getAllByRole('option');
+      expect(modelItems[0]).toHaveTextContent('Smart Model');
+    });
+
+    it('pins auto-router to top when sort is active', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={modelsWithAutoRouter}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      await user.click(first(screen.getAllByRole('button', { name: /price/i })));
+
+      const modelItems = screen.getAllByRole('option');
+      expect(modelItems[0]).toHaveTextContent('Smart Model');
+    });
+
+    it('pins auto-router to top when search is active', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={modelsWithAutoRouter}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const searchInputs = screen.getAllByPlaceholderText('Search models');
+      await user.type(first(searchInputs), 'GPT');
+
+      const modelItems = screen.getAllByRole('option');
+      expect(modelItems[0]).toHaveTextContent('Smart Model');
+    });
+
+    it('shows price ranges instead of single prices in details panel', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={modelsWithAutoRouter}
+          selectedIds={new Set(['openrouter/auto'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByText('Smart Model'));
+
+      expect(screen.getByText('Input Price Range')).toBeInTheDocument();
+      expect(screen.getByText('Output Price Range')).toBeInTheDocument();
+    });
+
+    it('shows "How it works" section in details panel', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={modelsWithAutoRouter}
+          selectedIds={new Set(['openrouter/auto'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByText('Smart Model'));
+
+      expect(screen.getByText('How It Works')).toBeInTheDocument();
+    });
+
+    it('does not show expensive model warning for auto-router', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={modelsWithAutoRouter}
+          selectedIds={new Set(['openrouter/auto'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByTestId('expensive-model-warning')).not.toBeInTheDocument();
+    });
+
+    it('shows subtitle in list item', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={modelsWithAutoRouter}
+          selectedIds={new Set(['openrouter/auto'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const autoRouterItem = screen.getByTestId('model-item-openrouter/auto');
+      expect(autoRouterItem).toHaveTextContent('Auto-picks the best model');
+    });
+  });
+
+  describe('modal sizing', () => {
+    it('uses dvh units for modal height', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const modal = screen.getByTestId('model-selector-modal');
+      expect(modal.className).toMatch(/h-\[92dvh\]/);
+      expect(modal.className).toMatch(/sm:h-\[85dvh\]/);
+    });
+  });
+
+  describe('checkbox toggle', () => {
+    it('renders a checkbox button for each model', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const checkboxes = screen.getAllByTestId('model-checkbox');
+      expect(checkboxes.length).toBeGreaterThan(0);
+    });
+
+    it('toggles model selection when checkbox is clicked', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      // Click the checkbox on the unselected Claude model
+      const claudeItem = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
+      const checkbox = claudeItem.querySelector('[data-testid="model-checkbox"]')!;
+      await user.click(checkbox);
+
+      // Verify Claude is now selected (aria-selected)
+      expect(claudeItem).toHaveAttribute('data-selected', 'true');
+    });
+  });
+
+  describe('footer buttons', () => {
+    it('uses Title Case for single model button', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: 'Select Model' })).toBeInTheDocument();
+    });
+
+    it('uses Title Case for multi-model button', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      // Double-click Claude to add it
+      await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
+
+      expect(screen.getByRole('button', { name: 'Select 2 Models' })).toBeInTheDocument();
+    });
+
+    it('shows Clear Selected button when a single model is selected', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('clear-selection-button')).toBeInTheDocument();
+      expect(screen.getByTestId('clear-selection-button')).toHaveTextContent('Clear Selected');
+    });
+
+    it('shows Clear Selected button when multiple models are selected', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
+
+      expect(screen.getByTestId('clear-selection-button')).toBeInTheDocument();
+      expect(screen.getByTestId('clear-selection-button')).toHaveTextContent('Clear Selected');
+    });
+
+    it('clears all selections so next toggle results in single model', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      // Select a second model
+      await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
+      expect(screen.getByRole('button', { name: /Select 2 Models/i })).toBeInTheDocument();
+
+      // Clear selection
+      await user.click(screen.getByTestId('clear-selection-button'));
+
+      // Now toggle Llama — should be the ONLY selected model
+      await user.dblClick(screen.getByText('Llama 3.1 70B'));
+      expect(screen.getByRole('button', { name: 'Select Model' })).toBeInTheDocument();
+    });
+
+    it('does not render selection counter', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
+
+      expect(screen.queryByTestId('selection-counter')).not.toBeInTheDocument();
     });
   });
 
@@ -1181,7 +1633,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={expensiveModels}
-          selectedId="cheap-model"
+          selectedIds={new Set(['cheap-model'])}
           onSelect={vi.fn()}
         />
       );
@@ -1198,7 +1650,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={expensiveModels}
-          selectedId="cheap-model"
+          selectedIds={new Set(['cheap-model'])}
           onSelect={vi.fn()}
         />
       );
@@ -1214,7 +1666,7 @@ describe('ModelSelectorModal', () => {
           open={true}
           onOpenChange={vi.fn()}
           models={expensiveModels}
-          selectedId="expensive-model"
+          selectedIds={new Set(['expensive-model'])}
           onSelect={vi.fn()}
         />
       );

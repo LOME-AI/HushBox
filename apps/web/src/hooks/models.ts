@@ -1,6 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import type { Model, ModelsListResponse } from '@hushbox/shared';
-import { STRONGEST_MODEL_ID, VALUE_MODEL_ID, getModelCostPer1k } from '@hushbox/shared';
+import {
+  STRONGEST_MODEL_ID,
+  VALUE_MODEL_ID,
+  AUTO_ROUTER_MODEL_ID,
+  getModelCostPer1k,
+} from '@hushbox/shared';
 import { client, fetchJson } from '../lib/api-client.js';
 
 export interface ModelsData {
@@ -32,7 +37,7 @@ function findStrongestAndValueBasicModels(
   models: Model[],
   premiumIds: Set<string>
 ): { strongestId: string; valueId: string } {
-  const basicModels = models.filter((m) => !premiumIds.has(m.id));
+  const basicModels = models.filter((m) => !premiumIds.has(m.id) && m.id !== AUTO_ROUTER_MODEL_ID);
   if (basicModels.length === 0) {
     const fallback = models[0]?.id ?? '';
     return { strongestId: fallback, valueId: fallback };

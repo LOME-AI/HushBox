@@ -3,7 +3,6 @@ import { client, fetchJson } from '../lib/api-client.js';
 
 interface GuestNameInput {
   conversationId: string;
-  linkPublicKey: string;
   displayName: string;
 }
 
@@ -17,10 +16,11 @@ export function useGuestLinkName(): ReturnType<
   typeof useMutation<{ success: true }, Error, GuestNameInput>
 > {
   return useMutation({
-    mutationFn: ({ conversationId, linkPublicKey, displayName }: GuestNameInput) =>
+    mutationFn: ({ conversationId, displayName }: GuestNameInput) =>
       fetchJson<{ success: true }>(
-        client.api['link-guest'].name.$patch({
-          json: { conversationId, linkPublicKey, displayName },
+        client.api.links[':conversationId']['my-name'].$patch({
+          param: { conversationId },
+          json: { displayName },
         })
       ),
   });

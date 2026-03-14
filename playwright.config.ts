@@ -12,7 +12,9 @@ export default defineConfig({
   expect: {
     timeout: 10_000,
   },
-  reporter: isCI ? [['github'], ['html', { open: 'never' }]] : [['html', { open: 'on-failure' }]],
+  reporter: isCI
+    ? [['github'], ['html', { open: 'never' }]]
+    : [['html', { open: 'on-failure' }], ['./scripts/e2e-reporter.ts']],
   use: {
     baseURL: 'http://localhost:5173',
     trace: 'retain-on-failure',

@@ -12,6 +12,12 @@ vi.mock('@hushbox/realtime/events', () => ({
   parseEvent: (...args: unknown[]) => mockParseEvent(...args),
 }));
 
+// Mock link-guest-auth
+const mockGetLinkGuestAuth = vi.fn<() => string | null>(() => null);
+vi.mock('./link-guest-auth.js', () => ({
+  getLinkGuestAuth: () => mockGetLinkGuestAuth(),
+}));
+
 import { ConversationWebSocket, type ConversationWebSocketOptions } from './ws-client.js';
 
 // --- Mock WebSocket ---
@@ -90,6 +96,7 @@ describe('ConversationWebSocket', () => {
     vi.stubGlobal('WebSocket', TrackedMock);
     mockParseEvent.mockReset();
     mockGetApiUrl.mockReset().mockReturnValue('http://localhost:8787');
+    mockGetLinkGuestAuth.mockReset().mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -139,6 +146,22 @@ describe('ConversationWebSocket', () => {
       const client = createClient();
       client.connect();
       expect(getLastWebSocket().url).toBe('wss://api.hushbox.ai/api/ws/conv-123');
+    });
+
+    it('appends linkPublicKey query param for link guests', () => {
+      mockGetLinkGuestAuth.mockReturnValue('base64LinkPublicKey==');
+      const client = createClient();
+      client.connect();
+      expect(getLastWebSocket().url).toBe(
+        'ws://localhost:8787/api/ws/conv-123?linkPublicKey=base64LinkPublicKey%3D%3D'
+      );
+    });
+
+    it('does not append linkPublicKey when not a link guest', () => {
+      mockGetLinkGuestAuth.mockReturnValue(null);
+      const client = createClient();
+      client.connect();
+      expect(getLastWebSocket().url).toBe('ws://localhost:8787/api/ws/conv-123');
     });
 
     it('no-ops if already connected', () => {

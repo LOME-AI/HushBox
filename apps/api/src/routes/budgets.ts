@@ -6,8 +6,7 @@ import { conversations } from '@hushbox/db';
 import { effectiveBudgetCents, ERROR_CODE_CONVERSATION_NOT_FOUND } from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
 import type { AppEnv } from '../types.js';
-import { requireAuth } from '../middleware/require-auth.js';
-import { requirePrivilege } from '../middleware/require-privilege.js';
+import { requirePrivilege } from '../middleware/index.js';
 import {
   getConversationBudgets,
   updateMemberBudget,
@@ -18,11 +17,10 @@ import { getUserTierInfo } from '../services/billing/balance.js';
 import { getGroupReservedTotals } from '../lib/speculative-balance.js';
 
 export const budgetsRoute = new Hono<AppEnv>()
-  .use('*', requireAuth())
   .get(
     '/:conversationId',
     zValidator('param', z.object({ conversationId: z.string() })),
-    requirePrivilege('read'),
+    requirePrivilege('read', { allowLinkGuest: true }),
     async (c) => {
       const db = c.get('db');
       const redis = c.get('redis');
@@ -85,13 +83,13 @@ export const budgetsRoute = new Hono<AppEnv>()
   .patch(
     '/:conversationId/member/:memberId',
     zValidator('param', z.object({ conversationId: z.string(), memberId: z.string() })),
+    requirePrivilege('admin'),
     zValidator(
       'json',
       z.object({
         budgetCents: z.number().int().min(0),
       })
     ),
-    requirePrivilege('admin'),
     async (c) => {
       const db = c.get('db');
       const { memberId } = c.req.valid('param');
@@ -105,13 +103,13 @@ export const budgetsRoute = new Hono<AppEnv>()
   .patch(
     '/:conversationId/budget',
     zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('owner'),
     zValidator(
       'json',
       z.object({
         budgetCents: z.number().int().min(0),
       })
     ),
-    requirePrivilege('owner'),
     async (c) => {
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');

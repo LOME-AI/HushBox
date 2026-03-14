@@ -15,6 +15,7 @@ export interface PromptBuilderOptions {
   modelId: string;
   supportedCapabilities: CapabilityId[];
   chatHistory?: ChatMessage[];
+  customInstructions?: string;
 }
 
 export interface BuiltPrompt {

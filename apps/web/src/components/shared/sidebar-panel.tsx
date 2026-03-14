@@ -132,7 +132,7 @@ export function SidebarPanel({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side={side}
-          className="bg-sidebar text-sidebar-foreground flex w-72 flex-col p-0"
+          className="bg-sidebar text-sidebar-foreground flex w-72 flex-col gap-0 p-0"
           showCloseButton={false}
           {...(testId === undefined ? {} : { 'data-testid': testId })}
         >

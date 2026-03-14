@@ -16,6 +16,13 @@ vi.mock('mermaid', () => ({
   },
 }));
 
+vi.mock('@/hooks/models', () => ({
+  useModels: () => ({
+    data: { models: [], premiumIds: new Set() },
+    isLoading: false,
+  }),
+}));
+
 // Mock Virtuoso to render items directly (virtualization doesn't work in jsdom)
 vi.mock('react-virtuoso', () => ({
   Virtuoso: React.forwardRef(function MockVirtuoso(
@@ -121,8 +128,8 @@ describe('MessageList', () => {
     expect(container).toHaveClass('min-h-0');
   });
 
-  it('passes streamingMessageId to mark streaming message', () => {
-    render(<MessageList messages={messages} streamingMessageId="2" />);
+  it('passes streamingMessageIds to mark streaming message', () => {
+    render(<MessageList messages={messages} streamingMessageIds={new Set(['2'])} />);
     const messageItems = screen.getAllByTestId('message-item');
     expect(messageItems).toHaveLength(3);
   });
@@ -177,6 +184,118 @@ describe('MessageList', () => {
       render(<MessageList messages={messages} />);
 
       expect(screen.queryByLabelText('Share')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('action callbacks', () => {
+    it('passes onRegenerate to MessageItem so retry button renders on user messages', () => {
+      const onRegenerate = vi.fn();
+      render(<MessageList messages={messages} onRegenerate={onRegenerate} />);
+
+      // User messages should have a "Retry" button when onRegenerate is provided
+      const retryButtons = screen.getAllByLabelText('Retry');
+      expect(retryButtons.length).toBeGreaterThan(0);
+    });
+
+    it('passes onEdit to MessageItem so edit button renders on user messages', () => {
+      const onEdit = vi.fn();
+      render(<MessageList messages={messages} onEdit={onEdit} />);
+
+      const editButtons = screen.getAllByLabelText('Edit');
+      expect(editButtons.length).toBeGreaterThan(0);
+    });
+
+    it('passes onFork to MessageItem so fork button renders', () => {
+      const onFork = vi.fn();
+      render(<MessageList messages={messages} onFork={onFork} />);
+
+      const forkButtons = screen.getAllByLabelText('Fork');
+      expect(forkButtons.length).toBeGreaterThan(0);
+    });
+
+    it('does not render action buttons when callbacks are not provided', () => {
+      render(<MessageList messages={messages} />);
+
+      expect(screen.queryByLabelText('Retry')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Edit')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Fork')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('multi-model regeneration guard', () => {
+    const multiModelMessages: Message[] = [
+      {
+        id: 'u1',
+        conversationId: 'conv-1',
+        role: 'user',
+        content: 'Compare models',
+        createdAt: '2024-01-01T00:00:00Z',
+        parentMessageId: null,
+      },
+      {
+        id: 'a1',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'GPT response',
+        createdAt: '2024-01-01T00:00:01Z',
+        parentMessageId: 'u1',
+        modelName: 'GPT-4o',
+      },
+      {
+        id: 'a2',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Claude response',
+        createdAt: '2024-01-01T00:00:02Z',
+        parentMessageId: 'u1',
+        modelName: 'Claude 3.5',
+      },
+    ];
+
+    it('hides regenerate buttons on multi-model assistant messages', () => {
+      const onRegenerate = vi.fn();
+      render(<MessageList messages={multiModelMessages} onRegenerate={onRegenerate} />);
+
+      // Regenerate buttons should not render for multi-model responses
+      expect(screen.queryByLabelText('Regenerate')).not.toBeInTheDocument();
+    });
+
+    it('hides retry/edit buttons on user message with multiple assistant children', () => {
+      const onRegenerate = vi.fn();
+      const onEdit = vi.fn();
+      render(
+        <MessageList messages={multiModelMessages} onRegenerate={onRegenerate} onEdit={onEdit} />
+      );
+
+      // The user message's retry/edit should be hidden
+      expect(screen.queryByLabelText('Retry')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Edit')).not.toBeInTheDocument();
+    });
+
+    it('shows regenerate buttons on single-model messages', () => {
+      const singleModelMessages: Message[] = [
+        {
+          id: 'u1',
+          conversationId: 'conv-1',
+          role: 'user',
+          content: 'Hello',
+          createdAt: '2024-01-01T00:00:00Z',
+          parentMessageId: null,
+        },
+        {
+          id: 'a1',
+          conversationId: 'conv-1',
+          role: 'assistant',
+          content: 'Hi there',
+          createdAt: '2024-01-01T00:00:01Z',
+          parentMessageId: 'u1',
+        },
+      ];
+      const onRegenerate = vi.fn();
+      render(<MessageList messages={singleModelMessages} onRegenerate={onRegenerate} />);
+
+      expect(screen.getByLabelText('Retry')).toBeInTheDocument();
+      expect(screen.getByLabelText('Regenerate')).toBeInTheDocument();
     });
   });
 

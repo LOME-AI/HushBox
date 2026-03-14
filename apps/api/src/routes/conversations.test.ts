@@ -213,7 +213,6 @@ describe('conversations routes', () => {
         encryptedBlob: toBytes('encrypted-hello'),
         senderType: 'user',
         senderId: testUserId,
-        senderDisplayName: null,
         payerId: null,
         epochNumber: 1,
         sequenceNumber: 1,
@@ -224,7 +223,7 @@ describe('conversations routes', () => {
         encryptedBlob: toBytes('encrypted-hi-there'),
         senderType: 'ai',
         senderId: null,
-        senderDisplayName: 'GPT-4',
+        modelName: 'GPT-4',
         payerId: testUserId,
         epochNumber: 1,
         sequenceNumber: 2,
@@ -327,7 +326,7 @@ describe('conversations routes', () => {
     });
   });
 
-  describe('GET /conversations/:id', () => {
+  describe('GET /conversations/:conversationId', () => {
     function verifyConversationFields(json: ConversationDetailResponse, convId: string): void {
       expect(json.conversation).toBeDefined();
       expect(json.conversation.id).toBe(convId);
@@ -370,7 +369,7 @@ describe('conversations routes', () => {
       expect(aiMsg.sequenceNumber).toBe(2);
 
       expect(userMsg.senderId).toBe(userId);
-      expect(aiMsg.senderDisplayName).toBe('GPT-4');
+      expect(aiMsg.modelName).toBe('GPT-4');
 
       const first = messages[0];
       const second = messages[1];
@@ -423,6 +422,25 @@ describe('conversations routes', () => {
       // Verify acceptance fields (owner = auto-accepted)
       expect(json.accepted).toBe(true);
       expect(json.invitedByUsername).toBeNull();
+    });
+
+    it('includes callerId and privilege in GET response', async () => {
+      const convId = createdConversationIds[0];
+      if (!convId) throw new Error('Test setup failed: no conversation created');
+      const res = await app.request(`/conversations/${convId}`, {
+        headers: {
+          ...getAuthHeaders(testUserId),
+        },
+      });
+
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as ConversationDetailResponse & {
+        callerId: string;
+        privilege: string;
+      };
+
+      expect(json.callerId).toBe(testUserId);
+      expect(json.privilege).toBeDefined();
     });
   });
 
@@ -577,7 +595,7 @@ describe('conversations routes', () => {
     });
   });
 
-  describe('DELETE /conversations/:id', () => {
+  describe('DELETE /conversations/:conversationId', () => {
     it('returns 401 when not authenticated', async () => {
       const convId = createdConversationIds[0];
       if (!convId) throw new Error('Test setup failed: no conversation created');
@@ -641,7 +659,7 @@ describe('conversations routes', () => {
     });
   });
 
-  describe('PATCH /conversations/:id', () => {
+  describe('PATCH /conversations/:conversationId', () => {
     it('returns 401 when not authenticated', async () => {
       const convId = createdConversationIds[0];
       if (!convId) throw new Error('Test setup failed: no conversation created');
@@ -872,7 +890,7 @@ describe('conversations routes', () => {
       expect(conv?.privilege).toBe('write');
     });
 
-    it('GET /conversations/:id returns conversation for member', async () => {
+    it('GET /conversations/:conversationId returns conversation for member', async () => {
       const res = await app.request(`/conversations/${memberConvId}`, {
         headers: { ...getAuthHeaders(memberUserId) },
       });
@@ -883,7 +901,7 @@ describe('conversations routes', () => {
       expect(json.messages).toBeDefined();
     });
 
-    it('GET /conversations/:id filters messages by member visibleFromEpoch', async () => {
+    it('GET /conversations/:conversationId filters messages by member visibleFromEpoch', async () => {
       // Create a new conversation with messages in multiple epochs
       const epochConvId = `test-epoch-filter-${String(Date.now())}`;
       const [epochConv] = await db
@@ -935,6 +953,7 @@ describe('conversations routes', () => {
         conversationId: epochConv.id,
         encryptedBlob: toBytes('epoch-2-msg'),
         senderType: 'ai',
+        modelName: 'test-model',
         epochNumber: 2,
         sequenceNumber: 2,
       });
@@ -950,7 +969,7 @@ describe('conversations routes', () => {
       expect(json.messages[0]!.epochNumber).toBe(2);
     });
 
-    it('GET /conversations/:id returns 404 for ex-member', async () => {
+    it('GET /conversations/:conversationId returns 404 for ex-member', async () => {
       // Create a conversation and add member, then set leftAt
       const exConvId = `test-ex-member-${String(Date.now())}`;
       const [exConv] = await db

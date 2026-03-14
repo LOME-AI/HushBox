@@ -4,7 +4,8 @@ import type { TrialMessage } from '@/stores/trial-chat';
 export function createUserMessage(
   conversationId: string,
   content: string,
-  senderId?: string
+  senderId: string | undefined,
+  parentMessageId: string | null
 ): Message {
   return {
     id: crypto.randomUUID(),
@@ -13,12 +14,15 @@ export function createUserMessage(
     content,
     createdAt: new Date().toISOString(),
     ...(senderId !== undefined && { senderId }),
+    parentMessageId,
   };
 }
 
 export function createAssistantMessage(
   conversationId: string,
-  assistantMessageId: string
+  assistantMessageId: string,
+  modelName: string | undefined,
+  parentMessageId: string | null
 ): Message {
   return {
     id: assistantMessageId,
@@ -26,6 +30,8 @@ export function createAssistantMessage(
     role: 'assistant',
     content: '',
     createdAt: new Date().toISOString(),
+    ...(modelName !== undefined && { modelName }),
+    parentMessageId,
   };
 }
 

@@ -2,14 +2,23 @@ import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import type { PromptInputRef } from '@/components/chat/prompt-input';
-import { createUserMessage, createAssistantMessage } from '@/lib/chat-messages';
+import {
+  createUserMessage,
+  createAssistantMessage,
+  appendTokenToMessage,
+} from '@/lib/chat-messages';
+import { processStartEvent } from '@/lib/multi-model-stream';
+import { buildMessagesForRegeneration } from '@/lib/chat-regeneration';
 import { useChatPageState } from '@/hooks/use-chat-page';
 import {
   useChatStream,
   BalanceReservedError,
   BillingMismatchError,
   ContextCapacityError,
+  type RegenerateStreamRequest,
+  type ModelResult,
 } from '@/hooks/use-chat-stream';
+import type { StartEventData } from '@/lib/sse-client';
 import { useOptimisticMessages } from '@/hooks/use-optimistic-messages';
 import {
   useConversation,
@@ -19,7 +28,8 @@ import {
   DECRYPTING_TITLE,
 } from '@/hooks/chat';
 import { usePendingChatStore } from '@/stores/pending-chat';
-import { useModelStore } from '@/stores/model';
+import { useModelStore, getPrimaryModel } from '@/stores/model';
+import { useSearchStore } from '@/stores/search';
 import { useChatErrorStore, createChatError } from '@/stores/chat-error';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { billingKeys } from '@/hooks/billing';
@@ -40,16 +50,23 @@ import {
   toBase64,
   fromBase64,
   friendlyErrorMessage,
+  ERROR_CODE_CHAT_STREAM_FAILED,
   ROUTES,
   type FundingSource,
+  type MemberPrivilege,
 } from '@hushbox/shared';
 import type { Message } from '@/lib/api';
+import type { MessageResponse } from '@hushbox/shared';
 import { useAuthStore } from '@/lib/auth';
 import { useDecryptedMessages } from '@/hooks/use-decrypted-messages';
+import { useForks } from '@/hooks/forks';
+import { useForkMessages } from '@/hooks/use-fork-messages';
 import { client, fetchJson } from '@/lib/api-client';
 
 interface UseAuthenticatedChatInput {
   readonly routeConversationId: string;
+  readonly activeForkId?: string | null | undefined;
+  readonly privateKeyOverride?: Uint8Array | null | undefined;
 }
 
 type RenderState =
@@ -57,6 +74,8 @@ type RenderState =
   | { readonly type: 'not-found' }
   | { readonly type: 'loading'; readonly title?: string | undefined }
   | { readonly type: 'ready' };
+
+type RegenerateAction = 'retry' | 'edit';
 
 interface UseAuthenticatedChatResult {
   readonly state: ReturnType<typeof useChatPageState>;
@@ -68,12 +87,19 @@ interface UseAuthenticatedChatResult {
   readonly isStreaming: boolean;
   readonly handleSend: (fundingSource: FundingSource) => void;
   readonly handleSendUserOnly: () => void;
+  readonly handleRegenerate: (
+    targetMessageId: string,
+    action: RegenerateAction,
+    editedContent?: string
+  ) => void;
   readonly promptInputRef: React.RefObject<PromptInputRef | null>;
   readonly errorMessageId: string | undefined;
   readonly realConversationId: string | null;
+  readonly callerId: string | undefined;
+  readonly callerPrivilege: MemberPrivilege | undefined;
 }
 
-interface ComputeRenderStateParams {
+export interface ComputeRenderStateParams {
   isCreateMode: boolean;
   pendingMessage: string | null;
   localMessagesLength: number;
@@ -82,7 +108,7 @@ interface ComputeRenderStateParams {
   isMessagesLoading: boolean;
 }
 
-function shouldRedirect(
+export function shouldRedirect(
   isCreateMode: boolean,
   pendingMessage: string | null,
   localMessagesLength: number
@@ -90,7 +116,7 @@ function shouldRedirect(
   return isCreateMode && !pendingMessage && localMessagesLength === 0;
 }
 
-function computeRenderState(params: ComputeRenderStateParams): RenderState {
+export function computeRenderState(params: ComputeRenderStateParams): RenderState {
   const {
     isCreateMode,
     pendingMessage,
@@ -132,8 +158,141 @@ function attachCostToMessage(
   setter((previous) => previous.map((m) => (m.id === messageId ? { ...m, cost } : m)));
 }
 
+function navigateIfActive(
+  activeRef: React.RefObject<boolean>,
+  navigate: ReturnType<typeof useNavigate>,
+  route: string,
+  params?: Record<string, string>
+): void {
+  if (activeRef.current) {
+    void navigate({
+      to: route,
+      ...(params && { params }),
+      ...(params && { replace: true }),
+    });
+  }
+}
+
+function resolveUserContent(
+  action: RegenerateAction,
+  editedContent: string | undefined,
+  allMessages: Message[],
+  targetMessageId: string
+): string {
+  if (action === 'edit' && editedContent) return editedContent;
+  return allMessages.find((m) => m.id === targetMessageId)?.content ?? '';
+}
+
+export function pruneMessagesAfterTarget(
+  allMessages: Message[],
+  targetMessageId: string,
+  setLocalMessages: React.Dispatch<React.SetStateAction<Message[]>>
+): void {
+  const targetIndex = allMessages.findIndex((m) => m.id === targetMessageId);
+  if (targetIndex === -1) return;
+  const idsToKeep = new Set(allMessages.slice(0, targetIndex + 1).map((m) => m.id));
+  setLocalMessages((previous) => previous.filter((m) => idsToKeep.has(m.id)));
+}
+
+interface ChatError {
+  id: string;
+  content: string;
+}
+
+interface MergeMessagesInput {
+  isCreateMode: boolean;
+  realConversationId: string | null;
+  localMessages: Message[];
+  decryptedApiMessages: Message[];
+  optimisticMessages: Message[];
+  chatError: ChatError | null;
+}
+
+function mergeMessages(input: MergeMessagesInput): Message[] {
+  let messages: Message[];
+  if (input.isCreateMode || !input.realConversationId) {
+    messages = input.localMessages;
+  } else {
+    const apiMessageIds = new Set(input.decryptedApiMessages.map((m) => m.id));
+    const pendingOptimistic = input.optimisticMessages.filter((m) => !apiMessageIds.has(m.id));
+    messages = [...input.decryptedApiMessages, ...pendingOptimistic];
+    if (messages.length === 0 && input.localMessages.length > 0) {
+      messages = input.localMessages;
+    }
+  }
+  if (input.chatError) {
+    messages = [
+      ...messages,
+      {
+        id: input.chatError.id,
+        conversationId: input.realConversationId ?? '',
+        role: 'assistant',
+        content: input.chatError.content,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+  }
+  return messages;
+}
+
+function startStreamingIfNeeded(
+  assistantMessageIds: string[],
+  state: { startStreaming: (ids: string[]) => void }
+): void {
+  if (assistantMessageIds.length > 0) {
+    state.startStreaming(assistantMessageIds);
+  }
+}
+
+function attachCostsToMessages(
+  models: ModelResult[],
+  setter: React.Dispatch<React.SetStateAction<Message[]>>
+): void {
+  for (const mr of models) {
+    if (mr.cost && mr.cost !== '0') {
+      attachCostToMessage(setter, mr.assistantMessageId, mr.cost);
+    }
+  }
+}
+
+function handleRegenerationError(
+  error: unknown,
+  failedContent: string,
+  promptInputRef: React.RefObject<PromptInputRef | null>
+): void {
+  if (error instanceof BillingMismatchError || error instanceof BalanceReservedError) {
+    useChatErrorStore.getState().setError(
+      createChatError({
+        content: friendlyErrorMessage(error.code),
+        retryable: true,
+        failedContent,
+      })
+    );
+  } else if (error instanceof ContextCapacityError) {
+    useChatErrorStore.getState().setError(
+      createChatError({
+        content: friendlyErrorMessage(error.code),
+        retryable: false,
+        failedContent,
+      })
+    );
+  } else {
+    console.error('Regeneration failed:', error);
+    useChatErrorStore.getState().setError(
+      createChatError({
+        content: friendlyErrorMessage(ERROR_CODE_CHAT_STREAM_FAILED),
+        retryable: false,
+        failedContent,
+      })
+    );
+    promptInputRef.current?.focus();
+  }
+}
+
 export function useAuthenticatedChat({
   routeConversationId,
+  activeForkId,
+  privateKeyOverride,
 }: UseAuthenticatedChatInput): UseAuthenticatedChatResult {
   const state = useChatPageState();
   const navigate = useNavigate();
@@ -141,6 +300,13 @@ export function useAuthenticatedChat({
   const isMobile = useIsMobile();
   const promptInputRef = React.useRef<PromptInputRef>(null);
   const creationStartedRef = React.useRef(false);
+  const activeRef = React.useRef(true);
+  React.useEffect(() => {
+    activeRef.current = routeConversationId === 'new';
+    return () => {
+      activeRef.current = false;
+    };
+  }, [routeConversationId]);
 
   const isCreateMode = routeConversationId === 'new';
 
@@ -162,8 +328,9 @@ export function useAuthenticatedChat({
     resetOptimisticMessages,
   } = useOptimisticMessages();
 
-  const { selectedModelId } = useModelStore();
-  const { isStreaming, startStream } = useChatStream('authenticated');
+  const { selectedModels } = useModelStore();
+  const { webSearchEnabled } = useSearchStore();
+  const { isStreaming, startStream, startRegenerateStream } = useChatStream('authenticated');
   const chatError = useChatErrorStore((s) => s.error);
   const createConversation = useCreateConversation();
   const createConversationRef = React.useRef(createConversation.mutateAsync);
@@ -171,13 +338,27 @@ export function useAuthenticatedChat({
     createConversationRef.current = createConversation.mutateAsync;
   });
   const accountPrivateKey = useAuthStore((s) => s.privateKey);
-  const userId = useAuthStore((s) => s.user?.id);
+  const authUserId = useAuthStore((s) => s.user?.id);
+  const customInstructions = useAuthStore((s) => s.customInstructions);
 
-  const { data: conversation, isLoading: isConversationLoading } = useConversation(
-    realConversationId ?? ''
+  const queryId = realConversationId ?? '';
+  const conversationQuery = useConversation(queryId);
+  const conversation = conversationQuery.data;
+  const isConversationLoading = conversationQuery.isLoading;
+
+  const callerId = conversation?.callerId ?? authUserId;
+  const { data: apiMessages, isLoading: isMessagesLoading } = useMessages(queryId);
+  const decryptedApiMessages = useDecryptedMessages(
+    realConversationId,
+    apiMessages,
+    privateKeyOverride
   );
-  const { data: apiMessages, isLoading: isMessagesLoading } = useMessages(realConversationId ?? '');
-  const decryptedApiMessages = useDecryptedMessages(realConversationId, apiMessages);
+  const { data: forks } = useForks(queryId);
+  const forkFilteredDecrypted = useForkMessages(
+    decryptedApiMessages,
+    forks ?? [],
+    activeForkId ?? null
+  );
 
   const localMessagesRef = React.useRef<Message[]>([]);
   React.useEffect(() => {
@@ -187,13 +368,12 @@ export function useAuthenticatedChat({
   const conversationIdRef = React.useRef<string>('');
 
   React.useEffect(() => {
-    if (!isCreateMode && routeConversationId !== realConversationId) {
-      setRealConversationId(routeConversationId);
-      resetOptimisticMessages();
-      setLocalMessages([]);
-      setLocalTitle(null);
-      useChatErrorStore.getState().clearError();
-    }
+    if (isCreateMode || routeConversationId === realConversationId) return;
+    setRealConversationId(routeConversationId);
+    resetOptimisticMessages();
+    setLocalMessages([]);
+    setLocalTitle(null);
+    useChatErrorStore.getState().clearError();
   }, [isCreateMode, routeConversationId, realConversationId, resetOptimisticMessages]);
 
   React.useEffect(() => {
@@ -202,43 +382,55 @@ export function useAuthenticatedChat({
     };
   }, []);
 
+  const modelMessageMapRef = React.useRef(new Map<string, string>());
+
   const handleStreamStart = React.useCallback(
-    ({ assistantMessageId }: { assistantMessageId: string }) => {
-      const conversationId = conversationIdRef.current;
-      const assistantMessage = createAssistantMessage(conversationId, assistantMessageId);
-      setLocalMessages((previous) => [...previous, assistantMessage]);
-      state.startStreaming(assistantMessageId);
+    (data: StartEventData) => {
+      const { modelMap, messages, assistantMessageIds } = processStartEvent(
+        data,
+        conversationIdRef.current,
+        selectedModels,
+        data.userMessageId
+      );
+      modelMessageMapRef.current = modelMap;
+      setLocalMessages((previous) => [...previous, ...messages]);
+      startStreamingIfNeeded(assistantMessageIds, state);
     },
-    [state]
+    [state, selectedModels]
   );
 
-  const handleStreamToken = React.useCallback(
-    (token: string) => {
-      const msgId = state.streamingMessageIdRef.current;
-      if (msgId) {
-        setLocalMessages((previous) =>
-          previous.map((m) => (m.id === msgId ? { ...m, content: m.content + token } : m))
-        );
-      }
-    },
-    [state.streamingMessageIdRef]
-  );
+  const handleStreamToken = React.useCallback((token: string, modelId: string) => {
+    const msgId = modelMessageMapRef.current.get(modelId);
+    if (msgId) {
+      setLocalMessages((previous) => appendTokenToMessage(previous, msgId, token));
+    }
+  }, []);
+
+  const optimisticModelMapRef = React.useRef(new Map<string, string>());
 
   const createOptimisticStreamCallbacks = React.useCallback(
     (convId: string) => ({
-      onStart: ({ assistantMessageId: msgId }: { assistantMessageId: string }) => {
-        const assistantMessage = createAssistantMessage(convId, msgId);
-        addOptimisticMessage(assistantMessage);
-        state.startStreaming(msgId);
+      onStart: (data: StartEventData) => {
+        const { modelMap, messages, assistantMessageIds } = processStartEvent(
+          data,
+          convId,
+          selectedModels,
+          data.userMessageId
+        );
+        optimisticModelMapRef.current = modelMap;
+        for (const msg of messages) {
+          addOptimisticMessage(msg);
+        }
+        startStreamingIfNeeded(assistantMessageIds, state);
       },
-      onToken: (token: string) => {
-        const msgId = state.streamingMessageIdRef.current;
+      onToken: (token: string, modelId: string) => {
+        const msgId = optimisticModelMapRef.current.get(modelId);
         if (msgId) {
           updateOptimisticMessageContent(msgId, token);
         }
       },
     }),
-    [state, addOptimisticMessage, updateOptimisticMessageContent]
+    [state, addOptimisticMessage, updateOptimisticMessageContent, selectedModels]
   );
 
   interface ExecuteStreamParams {
@@ -246,29 +438,47 @@ export function useAuthenticatedChat({
     userMessageData: { id: string; content: string };
     messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[];
     fundingSource: FundingSource;
+    forkId?: string;
   }
 
   const executeStream = React.useCallback(
-    async (params: ExecuteStreamParams): Promise<{ assistantMessageId: string; cost: string }> => {
-      const { convId, userMessageData, messagesForInference, fundingSource } = params;
+    async (params: ExecuteStreamParams): Promise<{ models: ModelResult[] }> => {
+      const { convId, userMessageData, messagesForInference, fundingSource, forkId } = params;
       const callbacks = createOptimisticStreamCallbacks(convId);
-      const { assistantMessageId, cost } = await startStream(
+      const { models } = await startStream(
         {
           conversationId: convId,
-          model: selectedModelId,
+          models: selectedModels.map((m) => m.id),
           userMessage: userMessageData,
           messagesForInference,
           fundingSource,
+          webSearchEnabled,
+          ...(customInstructions != null && { customInstructions }),
+          ...(forkId != null && { forkId }),
         },
         callbacks
       );
       state.stopStreaming();
-      await queryClient.invalidateQueries({ queryKey: chatKeys.messages(convId) });
+      // When sending in a fork, invalidate the broader conversation key so the forks query
+      // (which includes tipMessageId) is also refetched. Otherwise the stale tip causes
+      // the new messages to be filtered out by fork filtering.
+      const invalidationKey = forkId
+        ? chatKeys.conversation(convId)
+        : chatKeys.messages(convId);
+      await queryClient.invalidateQueries({ queryKey: invalidationKey });
       void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
 
-      return { assistantMessageId, cost };
+      return { models };
     },
-    [createOptimisticStreamCallbacks, startStream, selectedModelId, state, queryClient]
+    [
+      createOptimisticStreamCallbacks,
+      startStream,
+      selectedModels,
+      webSearchEnabled,
+      customInstructions,
+      state,
+      queryClient,
+    ]
   );
 
   React.useEffect(() => {
@@ -280,10 +490,10 @@ export function useAuthenticatedChat({
     const conversationId = crypto.randomUUID();
     conversationIdRef.current = conversationId;
 
-    const userMessage = createUserMessage(conversationId, pendingMessage, userId);
+    const userMessage = createUserMessage(conversationId, pendingMessage, callerId, null);
     setLocalMessages([userMessage]);
 
-    void (async () => {
+    const createConversationAndStream = async (): Promise<void> => {
       try {
         const accountPublicKey = getPublicKeyFromPrivate(accountPrivateKey);
         const epoch = createFirstEpoch([accountPublicKey]);
@@ -307,78 +517,72 @@ export function useAuthenticatedChat({
           queryClient.setQueryData(chatKeys.conversation(realId), response.conversation);
           clearPendingMessage();
           setRealConversationId(realId);
-          void navigate({
-            to: ROUTES.CHAT_ID,
-            params: { id: realId },
-            replace: true,
-          });
+          navigateIfActive(activeRef, navigate, ROUTES.CHAT_ID, { id: realId });
           return;
         }
 
-        // Cache the epoch private key so sidebar can decrypt the title
         setEpochKey(realId, 1, epoch.epochPrivateKey);
 
-        const realUserMessage = createUserMessage(realId, pendingMessage, userId);
+        const realUserMessage = createUserMessage(realId, pendingMessage, callerId, null);
         setLocalMessages([realUserMessage]);
         setLocalTitle(titleText);
         clearPendingMessage();
         setRealConversationId(realId);
 
-        const userMsgId = crypto.randomUUID();
-
-        try {
-          const streamResult = await startStream(
-            {
-              conversationId: realId,
-              model: selectedModelId,
-              userMessage: {
-                id: userMsgId,
-                content: pendingMessage,
-              },
-              messagesForInference: [{ role: 'user', content: pendingMessage }],
-              fundingSource: pendingFundingSource ?? 'personal_balance',
-            },
-            { onStart: handleStreamStart, onToken: handleStreamToken }
-          );
-
-          // Attach cost to the local assistant message so it displays immediately
-          const streamingMsgId = state.streamingMessageIdRef.current;
-          if (streamingMsgId && streamResult.cost) {
-            attachCostToMessage(setLocalMessages, streamingMsgId, streamResult.cost);
-          }
-
-          queryClient.setQueryData(chatKeys.conversation(realId), response.conversation);
-          await queryClient.invalidateQueries({ queryKey: chatKeys.messages(realId) });
-          void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
-
-          state.stopStreaming();
-
-          void navigate({
-            to: ROUTES.CHAT_ID,
-            params: { id: realId },
-            replace: true,
-          });
-        } catch (streamError: unknown) {
-          console.error('Stream failed:', streamError);
-          state.stopStreaming();
-          useChatErrorStore.getState().setError(
-            createChatError({
-              content: friendlyErrorMessage('CHAT_STREAM_FAILED'),
-              retryable: false,
-              failedContent: pendingMessage,
-            })
-          );
-
-          void navigate({
-            to: ROUTES.CHAT_ID,
-            params: { id: realId },
-            replace: true,
-          });
-        }
+        await executeStreamAndFinalize(
+          realId,
+          pendingMessage,
+          response.conversation,
+          pendingFundingSource ?? 'personal_balance'
+        );
       } catch {
-        void navigate({ to: ROUTES.CHAT });
+        navigateIfActive(activeRef, navigate, ROUTES.CHAT);
       }
-    })();
+    };
+
+    const executeStreamAndFinalize = async (
+      realId: string,
+      message: string,
+      conversation: { id: string },
+      fundingSource: FundingSource
+    ): Promise<void> => {
+      const userMsgId = crypto.randomUUID();
+      try {
+        const streamResult = await startStream(
+          {
+            conversationId: realId,
+            models: selectedModels.map((m) => m.id),
+            userMessage: { id: userMsgId, content: message },
+            messagesForInference: [{ role: 'user', content: message }],
+            fundingSource,
+            webSearchEnabled,
+            ...(customInstructions != null && { customInstructions }),
+          },
+          { onStart: handleStreamStart, onToken: handleStreamToken }
+        );
+
+        attachCostsToMessages(streamResult.models, setLocalMessages);
+
+        queryClient.setQueryData(chatKeys.conversation(realId), conversation);
+        await queryClient.invalidateQueries({ queryKey: chatKeys.messages(realId) });
+        void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+
+        state.stopStreaming();
+      } catch (streamError: unknown) {
+        console.error('Stream failed:', streamError);
+        state.stopStreaming();
+        useChatErrorStore.getState().setError(
+          createChatError({
+            content: friendlyErrorMessage(ERROR_CODE_CHAT_STREAM_FAILED),
+            retryable: false,
+            failedContent: message,
+          })
+        );
+      }
+      navigateIfActive(activeRef, navigate, ROUTES.CHAT_ID, { id: realId });
+    };
+
+    void createConversationAndStream();
   }, [
     isCreateMode,
     pendingMessage,
@@ -387,7 +591,9 @@ export function useAuthenticatedChat({
     clearPendingMessage,
     handleStreamStart,
     handleStreamToken,
-    selectedModelId,
+    selectedModels,
+    webSearchEnabled,
+    customInstructions,
     startStream,
     queryClient,
     navigate,
@@ -410,12 +616,20 @@ export function useAuthenticatedChat({
 
       const userMessageId = crypto.randomUUID();
 
-      const optimisticUserMessage = createUserMessage(realConversationId, content, userId);
+      // Resolve parent: last message in the current view (fork-filtered + optimistic)
+      const allCurrentMessages = [...forkFilteredDecrypted, ...optimisticMessages];
+      const lastMessage = allCurrentMessages.at(-1);
+      const optimisticUserMessage = createUserMessage(
+        realConversationId,
+        content,
+        callerId,
+        lastMessage?.id ?? null
+      );
       addOptimisticMessage(optimisticUserMessage);
 
-      // Build messagesForInference from decrypted messages + new user message
+      // Build messagesForInference from fork-filtered decrypted messages + new user message
       const messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[] = [
-        ...decryptedApiMessages.map((m) => ({
+        ...forkFilteredDecrypted.map((m) => ({
           role: m.role,
           content: m.content,
         })),
@@ -428,7 +642,7 @@ export function useAuthenticatedChat({
 
       void (async () => {
         try {
-          const { assistantMessageId } = await executeStream({
+          const { models: modelResults } = await executeStream({
             convId: realConversationId,
             userMessageData: {
               id: userMessageId,
@@ -436,46 +650,17 @@ export function useAuthenticatedChat({
             },
             messagesForInference,
             fundingSource,
+            ...(activeForkId != null && { forkId: activeForkId }),
           });
           removeOptimisticMessage(optimisticUserMessage.id);
-          removeOptimisticMessage(assistantMessageId);
+          for (const mr of modelResults) {
+            removeOptimisticMessage(mr.assistantMessageId);
+          }
         } catch (error: unknown) {
           if (error instanceof BillingMismatchError) {
             await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
-            useChatErrorStore.getState().setError(
-              createChatError({
-                content: friendlyErrorMessage(error.code),
-                retryable: true,
-                failedContent: content,
-              })
-            );
-          } else if (error instanceof ContextCapacityError) {
-            useChatErrorStore.getState().setError(
-              createChatError({
-                content: friendlyErrorMessage(error.code),
-                retryable: false,
-                failedContent: content,
-              })
-            );
-          } else if (error instanceof BalanceReservedError) {
-            useChatErrorStore.getState().setError(
-              createChatError({
-                content: friendlyErrorMessage(error.code),
-                retryable: true,
-                failedContent: content,
-              })
-            );
-          } else {
-            console.error('Stream failed:', error);
-            useChatErrorStore.getState().setError(
-              createChatError({
-                content: friendlyErrorMessage('CHAT_STREAM_FAILED'),
-                retryable: false,
-                failedContent: content,
-              })
-            );
-            promptInputRef.current?.focus();
           }
+          handleRegenerationError(error, content, promptInputRef);
 
           removeOptimisticMessage(optimisticUserMessage.id);
           state.stopStreaming();
@@ -490,8 +675,9 @@ export function useAuthenticatedChat({
       addOptimisticMessage,
       removeOptimisticMessage,
       executeStream,
-      decryptedApiMessages,
+      forkFilteredDecrypted,
       optimisticMessages,
+      activeForkId,
     ]
   );
 
@@ -509,15 +695,22 @@ export function useAuthenticatedChat({
     }
 
     const messageId = crypto.randomUUID();
-    const optimisticUserMessage = createUserMessage(realConversationId, content, userId);
+    const allCurrentMessages = [...forkFilteredDecrypted, ...optimisticMessages];
+    const lastMsg = allCurrentMessages.at(-1);
+    const optimisticUserMessage = createUserMessage(
+      realConversationId,
+      content,
+      callerId,
+      lastMsg?.id ?? null
+    );
     addOptimisticMessage(optimisticUserMessage);
 
     void (async () => {
       try {
         await fetchJson(
-          client.api.chat.message.$post({
+          client.api.chat[':conversationId'].message.$post({
+            param: { conversationId: realConversationId },
             json: {
-              conversationId: realConversationId,
               messageId,
               content,
             },
@@ -539,43 +732,134 @@ export function useAuthenticatedChat({
     addOptimisticMessage,
     removeOptimisticMessage,
     queryClient,
+    forkFilteredDecrypted,
+    optimisticMessages,
   ]);
 
-  const allMessages = React.useMemo(() => {
-    let messages: Message[];
-    if (isCreateMode || !realConversationId) {
-      messages = localMessages;
-    } else {
-      const apiMessageIds = new Set(decryptedApiMessages.map((m) => m.id));
-      const pendingOptimistic = optimisticMessages.filter((m) => !apiMessageIds.has(m.id));
-      messages = [...decryptedApiMessages, ...pendingOptimistic];
-      // During create→existing transition, API messages haven't loaded yet.
-      // Fall back to local messages to avoid a flash of empty content.
-      if (messages.length === 0 && localMessages.length > 0) {
-        messages = localMessages;
+  const handleRegenerate = React.useCallback(
+    (targetMessageId: string, action: RegenerateAction, editedContent?: string) => {
+      if (!realConversationId) return;
+
+      useChatErrorStore.getState().clearError();
+
+      // Build messagesForInference from fork-filtered decrypted messages up to the target
+      const allMsgs = [...forkFilteredDecrypted, ...optimisticMessages];
+
+      const messagesForInference = buildMessagesForRegeneration(
+        allMsgs,
+        targetMessageId,
+        action,
+        editedContent
+      );
+
+      const userMessageId = crypto.randomUUID();
+      const userContent = resolveUserContent(action, editedContent, allMsgs, targetMessageId);
+
+      if (action === 'retry') {
+        pruneMessagesAfterTarget(allMsgs, targetMessageId, setLocalMessages);
+
+        // Optimistically update the query cache so forkFilteredDecrypted (which drives
+        // the displayed message list for existing conversations) reflects the pruning
+        // immediately, before streaming starts. On error, invalidateQueries restores state.
+        const targetIndex = allMsgs.findIndex((m) => m.id === targetMessageId);
+        if (targetIndex >= 0) {
+          const idsToRemove = new Set(allMsgs.slice(targetIndex + 1).map((m) => m.id));
+          queryClient.setQueryData(
+            chatKeys.messages(realConversationId),
+            (old: MessageResponse[] | undefined) =>
+              old ? old.filter((m) => !idsToRemove.has(m.id)) : old
+          );
+        }
       }
-    }
-    if (chatError) {
-      messages = [
-        ...messages,
-        {
-          id: chatError.id,
-          conversationId: realConversationId ?? '',
-          role: 'assistant',
-          content: chatError.content,
-          createdAt: new Date().toISOString(),
-        },
-      ];
-    }
-    return messages;
-  }, [
-    isCreateMode,
-    realConversationId,
-    localMessages,
-    decryptedApiMessages,
-    optimisticMessages,
-    chatError,
-  ]);
+
+      const request: RegenerateStreamRequest = {
+        conversationId: realConversationId,
+        targetMessageId,
+        action,
+        model: getPrimaryModel(selectedModels).id,
+        userMessage: { id: userMessageId, content: userContent },
+        messagesForInference,
+        fundingSource: 'personal_balance',
+        ...(activeForkId != null && { forkId: activeForkId }),
+        ...(webSearchEnabled && { webSearchEnabled }),
+        ...(customInstructions != null && { customInstructions }),
+      };
+
+      const assistantMsgId = crypto.randomUUID();
+      const assistantMsg = createAssistantMessage(realConversationId, assistantMsgId, getPrimaryModel(selectedModels).id, targetMessageId);
+      addOptimisticMessage(assistantMsg);
+      state.startStreaming([assistantMsgId]);
+
+      void (async () => {
+        try {
+          const streamResult = await startRegenerateStream(request, {
+            onStart: () => {
+              updateOptimisticMessageContent(assistantMsgId, '');
+            },
+            onToken: (token) => {
+              updateOptimisticMessageContent(assistantMsgId, token);
+            },
+          });
+
+          state.stopStreaming();
+          removeOptimisticMessage(assistantMsgId);
+          attachCostsToMessages(streamResult.models, setLocalMessages);
+
+          await queryClient.invalidateQueries({
+            queryKey: chatKeys.messages(realConversationId),
+          });
+          void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+        } catch (error: unknown) {
+          state.stopStreaming();
+          removeOptimisticMessage(assistantMsgId);
+
+          if (error instanceof BillingMismatchError) {
+            await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+          }
+          handleRegenerationError(error, userContent, promptInputRef);
+
+          await queryClient.invalidateQueries({
+            queryKey: chatKeys.messages(realConversationId),
+          });
+        }
+      })();
+    },
+    [
+      realConversationId,
+      activeForkId,
+      forkFilteredDecrypted,
+      optimisticMessages,
+      selectedModels,
+      webSearchEnabled,
+      customInstructions,
+      startRegenerateStream,
+      addOptimisticMessage,
+      removeOptimisticMessage,
+      updateOptimisticMessageContent,
+      state,
+      queryClient,
+    ]
+  );
+
+  const allMessages = React.useMemo(
+    () =>
+      mergeMessages({
+        isCreateMode,
+        realConversationId,
+        localMessages,
+        decryptedApiMessages: forkFilteredDecrypted,
+        optimisticMessages,
+        chatError,
+      }),
+    [
+      isCreateMode,
+      realConversationId,
+      localMessages,
+      forkFilteredDecrypted,
+      optimisticMessages,
+      chatError,
+    ]
+  );
 
   const historyCharacters = React.useMemo(() => {
     return allMessages.reduce((total, message) => total + message.content.length, 0);
@@ -637,8 +921,11 @@ export function useAuthenticatedChat({
     isStreaming,
     handleSend,
     handleSendUserOnly,
+    handleRegenerate,
     promptInputRef,
     errorMessageId,
     realConversationId,
+    callerId,
+    callerPrivilege: conversation?.callerPrivilege as MemberPrivilege | undefined,
   };
 }

@@ -5,12 +5,13 @@ export interface PhantomMessage {
   content: string;
   senderType: 'user' | 'ai';
   senderId?: string;
+  modelName?: string;
 }
 
 export function useRemoteStreaming(
   ws: ConversationWebSocket | null,
   currentUserId: string | null,
-  localStreamingIdRef?: React.RefObject<string | null>
+  localStreamingIdsRef?: React.RefObject<Set<string>>
 ): Map<string, PhantomMessage> {
   const [phantoms, setPhantoms] = React.useState<Map<string, PhantomMessage>>(new Map());
 
@@ -20,27 +21,32 @@ export function useRemoteStreaming(
     const unsubscribes = [
       ws.on('message:new', (event) => {
         if (currentUserId != null && event.senderId === currentUserId) return;
-        const { content, senderId, messageId } = event;
+        const { content, senderId, messageId, modelName } = event;
         if (content === undefined) return;
         setPhantoms((previous) => {
           const next = new Map(previous);
           next.set(messageId, {
             content,
-            senderType: 'user',
+            senderType: event.senderType,
             ...(senderId !== undefined && { senderId }),
+            ...(modelName !== undefined && { modelName }),
           });
           return next;
         });
       }),
       ws.on('message:stream', (event) => {
-        if (localStreamingIdRef?.current === event.messageId) return;
+        if (localStreamingIdsRef?.current.has(event.messageId)) return;
         setPhantoms((previous) => {
           const next = new Map(previous);
           const existing = next.get(event.messageId);
           if (existing) {
             next.set(event.messageId, { ...existing, content: existing.content + event.token });
           } else {
-            next.set(event.messageId, { content: event.token, senderType: 'ai' });
+            next.set(event.messageId, {
+              content: event.token,
+              senderType: 'ai',
+              ...(event.modelName !== undefined && { modelName: event.modelName }),
+            });
           }
           return next;
         });

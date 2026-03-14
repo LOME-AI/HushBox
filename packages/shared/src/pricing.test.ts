@@ -8,6 +8,8 @@ import {
   getModelCostPer1k,
   isExpensiveModel,
   effectiveOutputCostPerToken,
+  getModelPricing,
+  parseTokenPrice,
 } from './pricing.js';
 import type { MessageCostParams, MessageCostFromOpenRouterParams } from './pricing.js';
 import {
@@ -17,6 +19,28 @@ import {
   CHARS_PER_TOKEN_STANDARD,
   CHARS_PER_TOKEN_CONSERVATIVE,
 } from './constants.js';
+
+describe('parseTokenPrice', () => {
+  it('parses a valid positive price string', () => {
+    expect(parseTokenPrice('0.000015')).toBe(0.000_015);
+  });
+
+  it('returns 0 for OpenRouter negative sentinel "-1"', () => {
+    expect(parseTokenPrice('-1')).toBe(0);
+  });
+
+  it('parses zero as 0', () => {
+    expect(parseTokenPrice('0')).toBe(0);
+  });
+
+  it('returns 0 for empty string (NaN)', () => {
+    expect(parseTokenPrice('')).toBe(0);
+  });
+
+  it('returns 0 for any negative value', () => {
+    expect(parseTokenPrice('-0.5')).toBe(0);
+  });
+});
 
 describe('applyFees', () => {
   it('applies total fee rate (15%) to base price', () => {
@@ -265,6 +289,22 @@ describe('estimateMessageCostDevelopment', () => {
 
       expect(result).toBeGreaterThan(0);
       expect(Number.isFinite(result)).toBe(true);
+    });
+  });
+
+  describe('web search cost', () => {
+    it('adds webSearchCost with fees to total', () => {
+      const searchCost = 0.005;
+      const result = estimateMessageCostDevelopment({ ...baseParams, webSearchCost: searchCost });
+      const resultWithout = estimateMessageCostDevelopment(baseParams);
+
+      expect(result).toBeCloseTo(resultWithout + applyFees(searchCost), 10);
+    });
+
+    it('defaults webSearchCost to 0 when omitted', () => {
+      const withoutSearch = estimateMessageCostDevelopment(baseParams);
+      const withZeroSearch = estimateMessageCostDevelopment({ ...baseParams, webSearchCost: 0 });
+      expect(withoutSearch).toBe(withZeroSearch);
     });
   });
 
@@ -607,5 +647,46 @@ describe('effectiveOutputCostPerToken', () => {
     const freeResult = effectiveOutputCostPerToken(modelPrice, 'free');
     // Free uses 4 chars/token (pessimistic), paid uses 2 chars/token (optimistic)
     expect(freeResult).toBeGreaterThan(paidResult);
+  });
+});
+
+describe('getModelPricing', () => {
+  it('applies fees to input and output prices', () => {
+    const result = getModelPricing(0.000_01, 0.000_03, 128_000);
+
+    expect(result.inputPricePerToken).toBeCloseTo(applyFees(0.000_01), 15);
+    expect(result.outputPricePerToken).toBeCloseTo(applyFees(0.000_03), 15);
+  });
+
+  it('passes through context length unchanged', () => {
+    const result = getModelPricing(0.000_01, 0.000_03, 200_000);
+
+    expect(result.contextLength).toBe(200_000);
+  });
+
+  it('handles zero prices', () => {
+    const result = getModelPricing(0, 0, 128_000);
+
+    expect(result.inputPricePerToken).toBe(0);
+    expect(result.outputPricePerToken).toBe(0);
+    expect(result.contextLength).toBe(128_000);
+  });
+
+  it('handles very small prices (auto-router cheapest)', () => {
+    const result = getModelPricing(0.000_000_039, 0.000_000_19, 2_000_000);
+
+    expect(result.inputPricePerToken).toBeCloseTo(applyFees(0.000_000_039), 15);
+    expect(result.outputPricePerToken).toBeCloseTo(applyFees(0.000_000_19), 15);
+    expect(result.contextLength).toBe(2_000_000);
+  });
+
+  it('returns fee-inclusive prices matching applyFees exactly', () => {
+    // Verify the shared helper produces the same result as manual applyFees
+    const inputPrice = 0.000_015;
+    const outputPrice = 0.000_075;
+    const result = getModelPricing(inputPrice, outputPrice, 200_000);
+
+    expect(result.inputPricePerToken).toBe(applyFees(inputPrice));
+    expect(result.outputPricePerToken).toBe(applyFees(outputPrice));
   });
 });

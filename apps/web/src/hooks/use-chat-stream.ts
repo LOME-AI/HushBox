@@ -1,7 +1,16 @@
 import { useState, useCallback } from 'react';
+import { ERROR_CODE_CONTEXT_LENGTH_EXCEEDED } from '@hushbox/shared';
 import { getApiUrl } from '../lib/api';
 import { getTrialToken } from '../lib/trial-token';
-import { createSSEParser, type DoneEventData } from '../lib/sse-client';
+import { getLinkGuestAuth } from '../lib/link-guest-auth';
+import { useStreamingActivityStore } from '@/stores/streaming-activity';
+import {
+  createSSEParser,
+  type DoneEventData,
+  type StartEventData,
+  type ModelDoneData,
+  type ModelErrorData,
+} from '../lib/sse-client';
 
 // ============================================================================
 // Types
@@ -11,13 +20,15 @@ export type StreamMode = 'authenticated' | 'trial';
 
 interface AuthenticatedStreamRequest {
   conversationId: string;
-  model: string;
+  models: string[];
   userMessage: {
     id: string;
     content: string;
   };
   messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[];
   fundingSource: string;
+  webSearchEnabled?: boolean;
+  customInstructions?: string;
 }
 
 interface TrialStreamMessage {
@@ -30,18 +41,40 @@ interface TrialStreamRequest {
   model: string;
 }
 
+export interface RegenerateStreamRequest {
+  conversationId: string;
+  targetMessageId: string;
+  action: 'retry' | 'edit' | 'regenerate';
+  model: string;
+  userMessage: {
+    id: string;
+    content: string;
+  };
+  messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[];
+  fundingSource: string;
+  forkId?: string;
+  webSearchEnabled?: boolean;
+  customInstructions?: string;
+}
+
 export type StreamRequest = AuthenticatedStreamRequest | TrialStreamRequest;
 
-interface StreamResult {
-  userMessageId: string;
+export interface ModelResult {
+  modelId: string;
   assistantMessageId: string;
-  content: string;
   cost: string;
 }
 
+interface StreamResult {
+  userMessageId: string;
+  models: ModelResult[];
+}
+
 interface StreamOptions {
-  onToken?: (token: string) => void;
-  onStart?: (ids: { userMessageId: string; assistantMessageId: string }) => void;
+  onStart?: (data: StartEventData) => void;
+  onToken?: (token: string, modelId: string) => void;
+  onModelDone?: (data: ModelDoneData) => void;
+  onModelError?: (data: ModelErrorData) => void;
   signal?: AbortSignal;
 }
 
@@ -92,6 +125,10 @@ export class ContextCapacityError extends Error {
 interface ChatStreamHook {
   isStreaming: boolean;
   startStream: (request: StreamRequest, options?: StreamOptions) => Promise<StreamResult>;
+  startRegenerateStream: (
+    request: RegenerateStreamRequest,
+    options?: StreamOptions
+  ) => Promise<StreamResult>;
 }
 
 interface StreamRequestConfig {
@@ -104,17 +141,34 @@ function buildStreamRequest(
   request: StreamRequest,
   signal?: AbortSignal
 ): StreamRequestConfig {
-  const endpoint = mode === 'trial' ? '/api/trial/stream' : '/api/chat/stream';
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
 
   if (mode === 'trial') {
     headers['X-Trial-Token'] = getTrialToken();
   }
 
+  const linkKey = getLinkGuestAuth();
+  if (linkKey) {
+    headers['X-Link-Public-Key'] = linkKey;
+  }
+
+  let endpoint: string;
+  let body: string;
+  if (mode === 'trial') {
+    endpoint = '/api/trial/stream';
+    body = JSON.stringify(request);
+  } else {
+    const authRequest = request as AuthenticatedStreamRequest;
+    endpoint = `/api/chat/${authRequest.conversationId}/stream`;
+    // eslint-disable-next-line sonarjs/no-unused-vars -- destructuring rest requires binding the excluded key
+    const { conversationId: _conversationId, ...bodyWithoutConversationId } = authRequest;
+    body = JSON.stringify(bodyWithoutConversationId);
+  }
+
   const fetchOptions: RequestInit = {
     method: 'POST',
     headers,
-    body: JSON.stringify(request),
+    body,
     signal: signal ?? null,
   };
 
@@ -123,6 +177,31 @@ function buildStreamRequest(
   }
 
   return { url: `${getApiUrl()}${endpoint}`, options: fetchOptions };
+}
+
+function buildRegenerateRequest(
+  request: RegenerateStreamRequest,
+  signal?: AbortSignal
+): StreamRequestConfig {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+  const linkKey = getLinkGuestAuth();
+  if (linkKey) {
+    headers['X-Link-Public-Key'] = linkKey;
+  }
+
+  const { conversationId, ...bodyWithoutConversationId } = request;
+
+  return {
+    url: `${getApiUrl()}/api/chat/${conversationId}/regenerate`,
+    options: {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(bodyWithoutConversationId),
+      signal: signal ?? null,
+      credentials: 'include',
+    },
+  };
 }
 
 function extractErrorCode(data: unknown): string | undefined {
@@ -176,6 +255,8 @@ interface StreamState {
   error: Error | null;
   done: boolean;
   doneData: DoneEventData | null;
+  startData: StartEventData | null;
+  modelResults: Map<string, { cost: string }>;
 }
 
 type SSEParser = ReturnType<typeof createSSEParser>;
@@ -203,11 +284,15 @@ async function consumeSSEStream(
       }
     }
 
+    const models: ModelResult[] = (state.startData?.models ?? []).map((m) => ({
+      modelId: m.modelId,
+      assistantMessageId: m.assistantMessageId,
+      cost: state.modelResults.get(m.modelId)?.cost ?? '0',
+    }));
+
     return {
       userMessageId: parser.getUserMessageId(),
-      assistantMessageId: parser.getAssistantMessageId(),
-      content: parser.getContent(),
-      cost: state.doneData?.cost ?? '0',
+      models,
     };
   } finally {
     void (async () => {
@@ -220,47 +305,89 @@ async function consumeSSEStream(
   }
 }
 
+async function executeStream(
+  config: StreamRequestConfig,
+  errorMode: StreamMode,
+  options?: StreamOptions
+): Promise<StreamResult> {
+  const response = await fetch(config.url, config.options);
+
+  if (!response.ok) {
+    const data: unknown = await response.json();
+    handleStreamError(errorMode, response.status, data);
+  }
+
+  const reader = await validateSSEResponse(response);
+  const streamState: StreamState = {
+    error: null,
+    done: false,
+    doneData: null,
+    startData: null,
+    modelResults: new Map(),
+  };
+
+  const parser = createSSEParser({
+    onStart: (data) => {
+      streamState.startData = data;
+      options?.onStart?.(data);
+    },
+    onToken: (tokenData) => {
+      options?.onToken?.(tokenData.content, tokenData.modelId);
+    },
+    onModelDone: (data) => {
+      streamState.modelResults.set(data.modelId, { cost: data.cost });
+      options?.onModelDone?.(data);
+    },
+    onModelError: (data) => {
+      options?.onModelError?.(data);
+    },
+    onError: (errorData) => {
+      streamState.error =
+        errorData.code === ERROR_CODE_CONTEXT_LENGTH_EXCEEDED
+          ? new ContextCapacityError(errorData.code)
+          : new Error(errorData.message);
+    },
+    onDone: (doneData) => {
+      streamState.done = true;
+      streamState.doneData = doneData;
+    },
+  });
+
+  return await consumeSSEStream(reader, parser, streamState);
+}
+
 export function useChatStream(mode: StreamMode): ChatStreamHook {
   const [isStreaming, setIsStreaming] = useState(false);
 
   const startStream = useCallback(
     async (request: StreamRequest, options?: StreamOptions): Promise<StreamResult> => {
       setIsStreaming(true);
-
+      useStreamingActivityStore.getState().startStream();
       try {
-        const { url, options: fetchOptions } = buildStreamRequest(mode, request, options?.signal);
-        const response = await fetch(url, fetchOptions);
-
-        if (!response.ok) {
-          const data: unknown = await response.json();
-          handleStreamError(mode, response.status, data);
-        }
-
-        const reader = await validateSSEResponse(response);
-        const streamState: StreamState = { error: null, done: false, doneData: null };
-
-        const parser = createSSEParser({
-          onStart: (data) => options?.onStart?.(data),
-          onToken: (tokenContent) => options?.onToken?.(tokenContent),
-          onError: (errorData) => {
-            streamState.error =
-              errorData.code === 'context_length_exceeded'
-                ? new ContextCapacityError(errorData.code)
-                : new Error(errorData.message);
-          },
-          onDone: (doneData) => {
-            streamState.done = true;
-            streamState.doneData = doneData;
-          },
-        });
-
-        return await consumeSSEStream(reader, parser, streamState);
+        const config = buildStreamRequest(mode, request, options?.signal);
+        return await executeStream(config, mode, options);
       } finally {
         setIsStreaming(false);
+        useStreamingActivityStore.getState().endStream();
       }
     },
     [mode]
   );
 
-  return { isStreaming, startStream };
+  const startRegenerateStream = useCallback(
+    async (request: RegenerateStreamRequest, options?: StreamOptions): Promise<StreamResult> => {
+      setIsStreaming(true);
+      useStreamingActivityStore.getState().startStream();
+      try {
+        const config = buildRegenerateRequest(request, options?.signal);
+        return await executeStream(config, 'authenticated', options);
+      } finally {
+        setIsStreaming(false);
+        useStreamingActivityStore.getState().endStream();
+      }
+    },
+    []
+  );
+
+  return { isStreaming, startStream, startRegenerateStream };
 }

@@ -22,7 +22,10 @@ import {
   traverseChainLink,
   decryptMessage,
 } from '@hushbox/crypto';
-import { createOrGetConversation, getConversation } from '../services/conversations/index.js';
+import {
+  createOrGetConversation,
+  getConversationForMember,
+} from '../services/conversations/index.js';
 import { getKeyChain, submitRotation, StaleEpochError } from '../services/keys/keys.js';
 import { createLink, revokeLink } from '../services/links/links.js';
 
@@ -425,7 +428,7 @@ describe('member rotation integration', () => {
     expect(defined(memberBKeyChain).wraps).toHaveLength(1);
     expect(defined(defined(memberBKeyChain).wraps[0]).epochNumber).toBe(2);
 
-    const memberBConversation = await getConversation(db, conversationId, memberB.id);
+    const memberBConversation = await getConversationForMember(db, conversationId, 2, memberB.id);
     expect(defined(memberBConversation).messages).toHaveLength(1);
     expect(defined(defined(memberBConversation).messages[0]).epochNumber).toBe(2);
 
@@ -459,8 +462,9 @@ describe('member rotation integration', () => {
 
     const msg1 = decryptMessage(
       epoch1PrivateKey,
-      defined(defined(await getConversation(db, conversationId, memberC.id)).messages[0])
-        .encryptedBlob
+      defined(
+        defined(await getConversationForMember(db, conversationId, 1, memberC.id)).messages[0]
+      ).encryptedBlob
     );
     expect(msg1).toBe('epoch 1 message');
   });
@@ -822,7 +826,7 @@ describe('member rotation integration', () => {
     const chainLink2 = defined(kc.chainLinks.find((cl) => cl.epochNumber === 2));
     const epoch1PrivateKey = traverseChainLink(epoch2PrivateKey, chainLink2.chainLink);
 
-    const memberCConversation = await getConversation(db, conversationId, memberC.id);
+    const memberCConversation = await getConversationForMember(db, conversationId, 1, memberC.id);
     const msgs = defined(memberCConversation).messages;
     expect(msgs).toHaveLength(3);
 
@@ -1053,9 +1057,521 @@ describe('member rotation integration', () => {
       defined(kc.chainLinks[0]).chainLink
     );
 
-    const memberBConversation = await getConversation(db, conversationId, memberB.id);
+    const memberBConversation = await getConversationForMember(db, conversationId, 1, memberB.id);
     const msgs = defined(memberBConversation).messages;
     expect(msgs).toHaveLength(1);
     expect(decryptMessage(epoch1PrivateKey, defined(msgs[0]).encryptedBlob)).toBe('before removal');
+  });
+
+  it('no-history link guest creation succeeds with rotation (no WRAP_SET_MISMATCH)', async () => {
+    const owner = await createTestUser();
+    const { conversationId, epochResult: epoch1Result } = await createConversationWithEpoch(
+      owner.id,
+      owner.publicKey
+    );
+
+    const linkKeyPair = generateKeyPair();
+    const epoch1Id = await getEpochId(conversationId, 1);
+
+    // Perform rotation including both owner and new link guest
+    const rotation = performEpochRotation(epoch1Result.epochPrivateKey, [
+      owner.publicKey,
+      linkKeyPair.publicKey,
+    ]);
+    const ownerWrap = defined(
+      rotation.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
+      )
+    );
+    const linkWrap = defined(
+      rotation.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(linkKeyPair.publicKey))
+      )
+    );
+    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+
+    // createLink with rotation — should NOT throw WrapSetMismatchError
+    const result = await createLink(db, {
+      conversationId,
+      linkPublicKey: linkKeyPair.publicKey,
+      memberWrap: linkWrap.wrap,
+      privilege: 'read',
+      visibleFromEpoch: 2,
+      currentEpochId: epoch1Id,
+      rotation: {
+        conversationId,
+        expectedEpoch: 1,
+        epochPublicKey: rotation.epochPublicKey,
+        confirmationHash: rotation.confirmationHash,
+        chainLink: rotation.chainLink,
+        memberWraps: [
+          { memberPublicKey: owner.publicKey, wrap: ownerWrap.wrap },
+          { memberPublicKey: linkKeyPair.publicKey, wrap: linkWrap.wrap },
+        ],
+        encryptedTitle,
+      },
+    });
+
+    expect(result.linkId).toBeDefined();
+    expect(result.memberId).toBeDefined();
+
+    // Conversation should be at epoch 2
+    const [conv] = await db
+      .select({ currentEpoch: conversations.currentEpoch })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId));
+    expect(defined(conv).currentEpoch).toBe(2);
+
+    // epochMembers for epoch 2 should have wraps for both owner and link guest
+    const epoch2Id = await getEpochId(conversationId, 2);
+    const wraps = await db.select().from(epochMembers).where(eq(epochMembers.epochId, epoch2Id));
+    expect(wraps).toHaveLength(2);
+  });
+
+  it('no-history auth user cannot derive previous epoch key via chain links', async () => {
+    const owner = await createTestUser();
+    const memberB = await createTestUser();
+    const { conversationId, epochResult: epoch1Result } = await createConversationWithEpoch(
+      owner.id,
+      owner.publicKey
+    );
+
+    // Insert a message at epoch 1
+    const msg1 = encryptMessageForStorage(epoch1Result.epochPublicKey, 'secret epoch 1 message');
+    await db.insert(messages).values({
+      conversationId,
+      epochNumber: 1,
+      encryptedBlob: msg1,
+      senderId: owner.id,
+      senderType: 'user',
+      sequenceNumber: 1,
+    });
+
+    // Add member B without history — rotation from epoch 1 → 2
+    await db.insert(conversationMembers).values({
+      conversationId,
+      userId: memberB.id,
+      privilege: 'write',
+      visibleFromEpoch: 2,
+      acceptedAt: new Date(),
+    });
+
+    const rotation = performEpochRotation(epoch1Result.epochPrivateKey, [
+      owner.publicKey,
+      memberB.publicKey,
+    ]);
+    const ownerWrap = defined(
+      rotation.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
+      )
+    );
+    const memberBWrap = defined(
+      rotation.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
+      )
+    );
+    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+
+    await submitRotation(db, {
+      conversationId,
+      expectedEpoch: 1,
+      epochPublicKey: rotation.epochPublicKey,
+      confirmationHash: rotation.confirmationHash,
+      chainLink: rotation.chainLink,
+      memberWraps: [
+        { memberPublicKey: owner.publicKey, wrap: ownerWrap.wrap },
+        { memberPublicKey: memberB.publicKey, wrap: memberBWrap.wrap },
+      ],
+      encryptedTitle,
+    });
+
+    // Key chain for member B: should have wrap for epoch 2, NO chain links
+    const kc = defined(await getKeyChain(db, conversationId, memberB.publicKey));
+    expect(kc.wraps).toHaveLength(1);
+    expect(defined(kc.wraps[0]).visibleFromEpoch).toBe(2);
+    expect(kc.chainLinks).toHaveLength(0);
+
+    // Member B can unwrap epoch 2 key
+    const epoch2Key = unwrapEpochKey(memberB.accountKeyPair.privateKey, defined(kc.wraps[0]).wrap);
+    expect(epoch2Key).toBeDefined();
+
+    // Member B's messages are filtered to epoch 2+
+    const memberBConv = await getConversationForMember(db, conversationId, 2, memberB.id);
+    expect(defined(memberBConv).messages).toHaveLength(0);
+  });
+
+  it('no-history link guest cannot derive previous epoch key via chain links', async () => {
+    const owner = await createTestUser();
+    const { conversationId, epochResult: epoch1Result } = await createConversationWithEpoch(
+      owner.id,
+      owner.publicKey
+    );
+
+    // Insert a message at epoch 1
+    const epoch1Id = await getEpochId(conversationId, 1);
+    const msg1 = encryptMessageForStorage(epoch1Result.epochPublicKey, 'secret epoch 1 message');
+    await db.insert(messages).values({
+      conversationId,
+      epochNumber: 1,
+      encryptedBlob: msg1,
+      senderId: owner.id,
+      senderType: 'user',
+      sequenceNumber: 1,
+    });
+
+    // Create link guest without history — rotation from epoch 1 → 2
+    const linkKeyPair = generateKeyPair();
+    const rotation = performEpochRotation(epoch1Result.epochPrivateKey, [
+      owner.publicKey,
+      linkKeyPair.publicKey,
+    ]);
+    const ownerWrap = defined(
+      rotation.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
+      )
+    );
+    const linkWrap = defined(
+      rotation.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(linkKeyPair.publicKey))
+      )
+    );
+    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+
+    await createLink(db, {
+      conversationId,
+      linkPublicKey: linkKeyPair.publicKey,
+      memberWrap: linkWrap.wrap,
+      privilege: 'read',
+      visibleFromEpoch: 2,
+      currentEpochId: epoch1Id,
+      rotation: {
+        conversationId,
+        expectedEpoch: 1,
+        epochPublicKey: rotation.epochPublicKey,
+        confirmationHash: rotation.confirmationHash,
+        chainLink: rotation.chainLink,
+        memberWraps: [
+          { memberPublicKey: owner.publicKey, wrap: ownerWrap.wrap },
+          { memberPublicKey: linkKeyPair.publicKey, wrap: linkWrap.wrap },
+        ],
+        encryptedTitle,
+      },
+    });
+
+    // Key chain for link guest: should have wrap for epoch 2, NO chain links
+    const kc = defined(await getKeyChain(db, conversationId, linkKeyPair.publicKey));
+    expect(kc.wraps).toHaveLength(1);
+    expect(defined(kc.wraps[0]).visibleFromEpoch).toBe(2);
+    expect(kc.chainLinks).toHaveLength(0);
+
+    // Link guest can unwrap epoch 2 key
+    const epoch2Key = unwrapEpochKey(linkKeyPair.privateKey, defined(kc.wraps[0]).wrap);
+    expect(epoch2Key).toBeDefined();
+  });
+
+  it('with-history auth user can traverse chain links to epoch 1', async () => {
+    const owner = await createTestUser();
+    const memberB = await createTestUser();
+    const { conversationId, epochResult: epoch1Result } = await createConversationWithEpoch(
+      owner.id,
+      owner.publicKey
+    );
+
+    // Insert message at epoch 1
+    const msg1 = encryptMessageForStorage(epoch1Result.epochPublicKey, 'epoch 1 message');
+    await db.insert(messages).values({
+      conversationId,
+      epochNumber: 1,
+      encryptedBlob: msg1,
+      senderId: owner.id,
+      senderType: 'user',
+      sequenceNumber: 1,
+    });
+
+    // Rotation to epoch 2
+    const rotation = performEpochRotation(epoch1Result.epochPrivateKey, [
+      owner.publicKey,
+      memberB.publicKey,
+    ]);
+    const ownerWrap = defined(
+      rotation.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
+      )
+    );
+    const memberBWrap = defined(
+      rotation.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
+      )
+    );
+    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+
+    // Add member B with history (visibleFromEpoch = 1)
+    await db.insert(conversationMembers).values({
+      conversationId,
+      userId: memberB.id,
+      privilege: 'write',
+      visibleFromEpoch: 1,
+      acceptedAt: new Date(),
+    });
+
+    await submitRotation(db, {
+      conversationId,
+      expectedEpoch: 1,
+      epochPublicKey: rotation.epochPublicKey,
+      confirmationHash: rotation.confirmationHash,
+      chainLink: rotation.chainLink,
+      memberWraps: [
+        { memberPublicKey: owner.publicKey, wrap: ownerWrap.wrap },
+        { memberPublicKey: memberB.publicKey, wrap: memberBWrap.wrap },
+      ],
+      encryptedTitle,
+    });
+
+    // Key chain: wrap at epoch 2, chain link at epoch 2 connecting to epoch 1
+    const kc = defined(await getKeyChain(db, conversationId, memberB.publicKey));
+    expect(kc.wraps).toHaveLength(1);
+    expect(kc.chainLinks).toHaveLength(1);
+    expect(defined(kc.chainLinks[0]).epochNumber).toBe(2);
+
+    // Traverse: unwrap epoch 2 key, use chain link to derive epoch 1 key
+    const epoch2Key = unwrapEpochKey(memberB.accountKeyPair.privateKey, defined(kc.wraps[0]).wrap);
+    const epoch1Key = traverseChainLink(epoch2Key, defined(kc.chainLinks[0]).chainLink);
+
+    // Decrypt epoch 1 message
+    const memberBConv = await getConversationForMember(db, conversationId, 1, memberB.id);
+    const msgs = defined(memberBConv).messages;
+    expect(msgs).toHaveLength(1);
+    expect(decryptMessage(epoch1Key, defined(msgs[0]).encryptedBlob)).toBe('epoch 1 message');
+  });
+
+  it('with-history link guest can traverse chain links to epoch 1', async () => {
+    const owner = await createTestUser();
+    const { conversationId, epochResult: epoch1Result } = await createConversationWithEpoch(
+      owner.id,
+      owner.publicKey
+    );
+
+    // Insert message at epoch 1
+    const epoch1Id = await getEpochId(conversationId, 1);
+    const msg1 = encryptMessageForStorage(epoch1Result.epochPublicKey, 'epoch 1 link message');
+    await db.insert(messages).values({
+      conversationId,
+      epochNumber: 1,
+      encryptedBlob: msg1,
+      senderId: owner.id,
+      senderType: 'user',
+      sequenceNumber: 1,
+    });
+
+    // Create link guest with history (visibleFromEpoch = 1) — no rotation needed
+    const linkKeyPair = generateKeyPair();
+    const epoch1Wrap = createFirstEpoch([linkKeyPair.publicKey]);
+    const linkWrap = defined(epoch1Wrap.memberWraps[0]);
+
+    await createLink(db, {
+      conversationId,
+      linkPublicKey: linkKeyPair.publicKey,
+      memberWrap: linkWrap.wrap,
+      privilege: 'read',
+      visibleFromEpoch: 1,
+      currentEpochId: epoch1Id,
+    });
+
+    // Now rotate to epoch 2 (owner only + link)
+    const rotation = performEpochRotation(epoch1Result.epochPrivateKey, [
+      owner.publicKey,
+      linkKeyPair.publicKey,
+    ]);
+    const ownerWrap = defined(
+      rotation.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
+      )
+    );
+    const linkRotationWrap = defined(
+      rotation.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(linkKeyPair.publicKey))
+      )
+    );
+    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+
+    await submitRotation(db, {
+      conversationId,
+      expectedEpoch: 1,
+      epochPublicKey: rotation.epochPublicKey,
+      confirmationHash: rotation.confirmationHash,
+      chainLink: rotation.chainLink,
+      memberWraps: [
+        { memberPublicKey: owner.publicKey, wrap: ownerWrap.wrap },
+        { memberPublicKey: linkKeyPair.publicKey, wrap: linkRotationWrap.wrap },
+      ],
+      encryptedTitle,
+    });
+
+    // Key chain: wrap at epoch 2, chain link at epoch 2 connecting to epoch 1
+    const kc = defined(await getKeyChain(db, conversationId, linkKeyPair.publicKey));
+    expect(kc.wraps).toHaveLength(1);
+    expect(kc.chainLinks).toHaveLength(1);
+    expect(defined(kc.chainLinks[0]).epochNumber).toBe(2);
+
+    // Traverse: unwrap epoch 2 key, use chain link to derive epoch 1 key
+    const epoch2Key = unwrapEpochKey(linkKeyPair.privateKey, defined(kc.wraps[0]).wrap);
+    const epoch1Key = traverseChainLink(epoch2Key, defined(kc.chainLinks[0]).chainLink);
+
+    // Decrypt epoch 1 message
+    expect(decryptMessage(epoch1Key, msg1)).toBe('epoch 1 link message');
+  });
+
+  it('no-history member with later rotations can access from join epoch but not before', async () => {
+    const owner = await createTestUser();
+    const memberB = await createTestUser();
+    const { conversationId, epochResult: epoch1Result } = await createConversationWithEpoch(
+      owner.id,
+      owner.publicKey
+    );
+
+    // Message at epoch 1
+    const msg1 = encryptMessageForStorage(epoch1Result.epochPublicKey, 'epoch 1 secret');
+    await db.insert(messages).values({
+      conversationId,
+      epochNumber: 1,
+      encryptedBlob: msg1,
+      senderId: owner.id,
+      senderType: 'user',
+      sequenceNumber: 1,
+    });
+
+    // Rotation epoch 1 → 2 (owner only)
+    const rotation1to2 = performEpochRotation(epoch1Result.epochPrivateKey, [owner.publicKey]);
+    const ownerWrap2 = defined(rotation1to2.memberWraps[0]);
+    await submitRotation(db, {
+      conversationId,
+      expectedEpoch: 1,
+      epochPublicKey: rotation1to2.epochPublicKey,
+      confirmationHash: rotation1to2.confirmationHash,
+      chainLink: rotation1to2.chainLink,
+      memberWraps: [{ memberPublicKey: owner.publicKey, wrap: ownerWrap2.wrap }],
+      encryptedTitle: encryptMessageForStorage(rotation1to2.epochPublicKey, 'T'),
+    });
+
+    // Add member B at epoch 3 (visibleFromEpoch = 3), rotation epoch 2 → 3
+    await db.insert(conversationMembers).values({
+      conversationId,
+      userId: memberB.id,
+      privilege: 'write',
+      visibleFromEpoch: 3,
+      acceptedAt: new Date(),
+    });
+
+    const epoch2Key = unwrapEpochKey(owner.accountKeyPair.privateKey, ownerWrap2.wrap);
+    const rotation2to3 = performEpochRotation(epoch2Key, [owner.publicKey, memberB.publicKey]);
+    const ownerWrap3 = defined(
+      rotation2to3.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
+      )
+    );
+    const memberBWrap3 = defined(
+      rotation2to3.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
+      )
+    );
+    await submitRotation(db, {
+      conversationId,
+      expectedEpoch: 2,
+      epochPublicKey: rotation2to3.epochPublicKey,
+      confirmationHash: rotation2to3.confirmationHash,
+      chainLink: rotation2to3.chainLink,
+      memberWraps: [
+        { memberPublicKey: owner.publicKey, wrap: ownerWrap3.wrap },
+        { memberPublicKey: memberB.publicKey, wrap: memberBWrap3.wrap },
+      ],
+      encryptedTitle: encryptMessageForStorage(rotation2to3.epochPublicKey, 'T'),
+    });
+
+    // Message at epoch 3
+    const msg3 = encryptMessageForStorage(rotation2to3.epochPublicKey, 'epoch 3 visible');
+    await db.insert(messages).values({
+      conversationId,
+      epochNumber: 3,
+      encryptedBlob: msg3,
+      senderId: owner.id,
+      senderType: 'user',
+      sequenceNumber: 2,
+    });
+
+    // Rotation epoch 3 → 4
+    const epoch3Key = unwrapEpochKey(owner.accountKeyPair.privateKey, ownerWrap3.wrap);
+    const rotation3to4 = performEpochRotation(epoch3Key, [owner.publicKey, memberB.publicKey]);
+    const ownerWrap4 = defined(
+      rotation3to4.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
+      )
+    );
+    const memberBWrap4 = defined(
+      rotation3to4.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
+      )
+    );
+    await submitRotation(db, {
+      conversationId,
+      expectedEpoch: 3,
+      epochPublicKey: rotation3to4.epochPublicKey,
+      confirmationHash: rotation3to4.confirmationHash,
+      chainLink: rotation3to4.chainLink,
+      memberWraps: [
+        { memberPublicKey: owner.publicKey, wrap: ownerWrap4.wrap },
+        { memberPublicKey: memberB.publicKey, wrap: memberBWrap4.wrap },
+      ],
+      encryptedTitle: encryptMessageForStorage(rotation3to4.epochPublicKey, 'T'),
+    });
+
+    // Rotation epoch 4 → 5
+    const epoch4Key = unwrapEpochKey(owner.accountKeyPair.privateKey, ownerWrap4.wrap);
+    const rotation4to5 = performEpochRotation(epoch4Key, [owner.publicKey, memberB.publicKey]);
+    const ownerWrap5 = defined(
+      rotation4to5.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
+      )
+    );
+    const memberBWrap5 = defined(
+      rotation4to5.memberWraps.find((w) =>
+        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
+      )
+    );
+    await submitRotation(db, {
+      conversationId,
+      expectedEpoch: 4,
+      epochPublicKey: rotation4to5.epochPublicKey,
+      confirmationHash: rotation4to5.confirmationHash,
+      chainLink: rotation4to5.chainLink,
+      memberWraps: [
+        { memberPublicKey: owner.publicKey, wrap: ownerWrap5.wrap },
+        { memberPublicKey: memberB.publicKey, wrap: memberBWrap5.wrap },
+      ],
+      encryptedTitle: encryptMessageForStorage(rotation4to5.epochPublicKey, 'T'),
+    });
+
+    // Key chain for member B (visibleFromEpoch = 3):
+    // wraps: 1 (epoch 5), chainLinks: 2 (epochs 4 and 5, NOT epoch 3)
+    const kc = defined(await getKeyChain(db, conversationId, memberB.publicKey));
+    expect(kc.wraps).toHaveLength(1);
+    expect(kc.chainLinks).toHaveLength(2);
+    const chainEpochs = kc.chainLinks.map((cl) => cl.epochNumber);
+    expect(chainEpochs).toContain(4);
+    expect(chainEpochs).toContain(5);
+    expect(chainEpochs).not.toContain(3);
+
+    // Traversal: epoch 5 → 4 → 3
+    const epoch5Key = unwrapEpochKey(memberB.accountKeyPair.privateKey, defined(kc.wraps[0]).wrap);
+    const cl5 = defined(kc.chainLinks.find((cl) => cl.epochNumber === 5));
+    const derivedEpoch4Key = traverseChainLink(epoch5Key, cl5.chainLink);
+    const cl4 = defined(kc.chainLinks.find((cl) => cl.epochNumber === 4));
+    const derivedEpoch3Key = traverseChainLink(derivedEpoch4Key, cl4.chainLink);
+
+    // Can decrypt epoch 3 message
+    expect(decryptMessage(derivedEpoch3Key, msg3)).toBe('epoch 3 visible');
+
+    // Messages filtered to epoch 3+
+    const memberBConv = await getConversationForMember(db, conversationId, 3, memberB.id);
+    expect(defined(memberBConv).messages).toHaveLength(1);
   });
 });

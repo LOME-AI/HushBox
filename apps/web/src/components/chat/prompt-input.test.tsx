@@ -26,6 +26,12 @@ vi.mock('@/providers/stability-provider', () => ({
   useStability: () => mockUseStability(),
 }));
 
+// Mock StableContent — passthrough children when stable
+vi.mock('@/components/shared/stable-content', () => ({
+  StableContent: ({ isStable, children }: { isStable: boolean; children: React.ReactNode }) =>
+    isStable ? children : null,
+}));
+
 // Default budget result — approved, no notifications, not over capacity
 const defaultBudget: PromptBudgetResult = {
   fundingSource: 'personal_balance',
@@ -688,6 +694,436 @@ describe('PromptInput', () => {
       expect(() => {
         fireEvent.change(textarea, { target: { value: 'H' } });
       }).not.toThrow();
+    });
+  });
+
+  describe('search toggle', () => {
+    it('does not show search toggle by default', () => {
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      expect(screen.queryByRole('button', { name: /internet search/i })).not.toBeInTheDocument();
+    });
+
+    it('shows enabled search toggle when model supports search and user is authenticated', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          modelSupportsSearch
+          isAuthenticated
+          webSearchEnabled={false}
+          onToggleWebSearch={vi.fn()}
+        />
+      );
+      expect(screen.getByRole('button', { name: /internet search off/i })).toBeInTheDocument();
+    });
+
+    it('shows search on state when webSearchEnabled is true', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          modelSupportsSearch
+          isAuthenticated
+          webSearchEnabled
+          onToggleWebSearch={vi.fn()}
+        />
+      );
+      expect(screen.getByRole('button', { name: /internet search on/i })).toBeInTheDocument();
+    });
+
+    it('calls onToggleWebSearch when clicked', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const mockToggle = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          modelSupportsSearch
+          isAuthenticated
+          webSearchEnabled={false}
+          onToggleWebSearch={mockToggle}
+        />
+      );
+      await user.click(screen.getByRole('button', { name: /internet search off/i }));
+      expect(mockToggle).toHaveBeenCalled();
+    });
+
+    it('shows disabled search toggle when model does not support search', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          modelSupportsSearch={false}
+          isAuthenticated
+          webSearchEnabled={false}
+          onToggleWebSearch={vi.fn()}
+        />
+      );
+      const button = screen.getByRole('button', { name: /internet search unavailable/i });
+      expect(button).toBeDisabled();
+    });
+
+    it('shows disabled search toggle for unauthenticated users', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          modelSupportsSearch
+          isAuthenticated={false}
+          webSearchEnabled={false}
+          onToggleWebSearch={vi.fn()}
+        />
+      );
+      const button = screen.getByRole('button', { name: /internet search unavailable/i });
+      expect(button).toBeDisabled();
+    });
+  });
+
+  describe('toggle button tooltips', () => {
+    it('wraps disabled search toggle in span for tooltip accessibility', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          modelSupportsSearch={false}
+          isAuthenticated={false}
+          webSearchEnabled={false}
+          onToggleWebSearch={vi.fn()}
+        />
+      );
+
+      const button = screen.getByRole('button', { name: /internet search unavailable/i });
+      const wrapper = button.closest('span[data-slot="tooltip-trigger"]');
+      expect(wrapper).not.toBeNull();
+    });
+
+    it('wraps enabled search toggle in span for tooltip consistency', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          modelSupportsSearch
+          isAuthenticated
+          webSearchEnabled
+          onToggleWebSearch={vi.fn()}
+        />
+      );
+
+      const button = screen.getByRole('button', { name: /internet search on/i });
+      const wrapper = button.closest('span[data-slot="tooltip-trigger"]');
+      expect(wrapper).not.toBeNull();
+    });
+
+    it('wraps AI toggle in span for tooltip consistency', () => {
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} isGroupChat />
+      );
+
+      const button = screen.getByRole('button', { name: /AI response on/i });
+      const wrapper = button.closest('span[data-slot="tooltip-trigger"]');
+      expect(wrapper).not.toBeNull();
+    });
+
+    it('shows tooltip content when hovering search toggle', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          modelSupportsSearch
+          isAuthenticated
+          webSearchEnabled
+          onToggleWebSearch={vi.fn()}
+        />
+      );
+
+      const button = screen.getByRole('button', { name: /internet search on/i });
+      await user.hover(button);
+
+      const tooltip = await screen.findByRole('tooltip');
+      expect(tooltip).toHaveTextContent('Internet search on');
+    });
+
+    it('shows tooltip content when hovering AI toggle', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} isGroupChat />
+      );
+
+      const button = screen.getByRole('button', { name: /AI response on/i });
+      await user.hover(button);
+
+      const tooltip = await screen.findByRole('tooltip');
+      expect(tooltip).toHaveTextContent('AI response on');
+    });
+
+    it('updates search toggle tooltip text after state change', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+
+      function SearchToggleHarness(): React.JSX.Element {
+        const [searchOn, setSearchOn] = React.useState(false);
+        return (
+          <PromptInput
+            value="Hello"
+            onChange={mockOnChange}
+            onSubmit={mockOnSubmit}
+            modelSupportsSearch
+            isAuthenticated
+            webSearchEnabled={searchOn}
+            onToggleWebSearch={() => {
+              setSearchOn((previous) => !previous);
+            }}
+          />
+        );
+      }
+
+      const queryClient = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <SearchToggleHarness />
+        </QueryClientProvider>
+      );
+
+      const button = screen.getByRole('button', { name: /internet search off/i });
+      await user.hover(button);
+
+      const tooltip = await screen.findByRole('tooltip');
+      expect(tooltip).toHaveTextContent('Internet search off');
+
+      // Click to toggle search on — tooltip should stay visible with updated text
+      await user.click(button);
+
+      expect(screen.getByRole('button', { name: /internet search on/i })).toBeInTheDocument();
+      const updatedTooltip = screen.getByRole('tooltip');
+      expect(updatedTooltip).toHaveTextContent('Internet search on');
+    });
+  });
+
+  describe('edit mode', () => {
+    it('shows editing indicator when isEditing is true', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Edited content"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isEditing
+          onCancelEdit={vi.fn()}
+        />
+      );
+      expect(screen.getByText(/editing/i)).toBeInTheDocument();
+    });
+
+    it('does not show editing indicator when isEditing is false', () => {
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      expect(screen.queryByText(/editing/i)).not.toBeInTheDocument();
+    });
+
+    it('shows cancel button in edit mode', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Edited content"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isEditing
+          onCancelEdit={vi.fn()}
+        />
+      );
+      expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
+    });
+
+    it('calls onCancelEdit when cancel button is clicked', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const onCancelEdit = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value="Edited content"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isEditing
+          onCancelEdit={onCancelEdit}
+        />
+      );
+      await user.click(screen.getByRole('button', { name: /cancel/i }));
+      expect(onCancelEdit).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not show cancel button when not editing', () => {
+      renderWithProviders(
+        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
+      );
+      expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('privilege and conversationId forwarding to usePromptBudget', () => {
+    it('passes currentUserPrivilege to usePromptBudget even without conversationId', () => {
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        fundingSource: 'denied',
+        hasBlockingError: true,
+        notifications: [
+          {
+            id: 'read_only_notice',
+            type: 'info',
+            message: 'You have read-only access to this conversation.',
+          },
+        ],
+      });
+
+      renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          currentUserPrivilege="read"
+        />
+      );
+
+      expect(mockUsePromptBudget).toHaveBeenCalledWith(
+        expect.objectContaining({
+          currentUserPrivilege: 'read',
+        })
+      );
+    });
+
+    it('passes both conversationId and currentUserPrivilege to usePromptBudget', () => {
+      mockUsePromptBudget.mockReturnValue(defaultBudget);
+
+      renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          conversationId="conv-123"
+          currentUserPrivilege="write"
+        />
+      );
+
+      expect(mockUsePromptBudget).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: 'conv-123',
+          currentUserPrivilege: 'write',
+        })
+      );
+    });
+
+    it('passes conversationId without currentUserPrivilege to usePromptBudget', () => {
+      mockUsePromptBudget.mockReturnValue(defaultBudget);
+
+      renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          conversationId="conv-123"
+        />
+      );
+
+      expect(mockUsePromptBudget).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: 'conv-123',
+        })
+      );
+      expect(mockUsePromptBudget).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          currentUserPrivilege: expect.anything(),
+        })
+      );
+    });
+  });
+
+  describe('read-only privilege', () => {
+    it('send button is disabled when currentUserPrivilege is read', () => {
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        fundingSource: 'denied',
+        hasBlockingError: true,
+        notifications: [
+          {
+            id: 'read_only_notice',
+            type: 'info',
+            message: 'You have read-only access to this conversation.',
+          },
+        ],
+      });
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          currentUserPrivilege="read"
+        />
+      );
+      expect(screen.getByRole('button', { name: /send/i })).toBeDisabled();
+    });
+
+    it('read-only notification renders when currentUserPrivilege is read', () => {
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        fundingSource: 'denied',
+        hasBlockingError: true,
+        notifications: [
+          {
+            id: 'read_only_notice',
+            type: 'info',
+            message: 'You have read-only access to this conversation.',
+          },
+        ],
+      });
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          currentUserPrivilege="read"
+        />
+      );
+      expect(
+        screen.getByText('You have read-only access to this conversation.')
+      ).toBeInTheDocument();
+    });
+
+    it('Enter key does not submit when currentUserPrivilege is read', () => {
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        fundingSource: 'denied',
+        hasBlockingError: true,
+        notifications: [
+          {
+            id: 'read_only_notice',
+            type: 'info',
+            message: 'You have read-only access to this conversation.',
+          },
+        ],
+      });
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          currentUserPrivilege="read"
+        />
+      );
+      const textarea = screen.getByRole('textbox');
+      fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+      expect(mockOnSubmit).not.toHaveBeenCalled();
     });
   });
 

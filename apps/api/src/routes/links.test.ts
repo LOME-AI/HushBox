@@ -160,6 +160,8 @@ interface CreateMockDbConfig {
   memberCount?: number;
   /** If set, transaction epoch verification returns this instead — simulates rotation race */
   txCurrentEpoch?: { id: string; epochNumber: number };
+  /** When true, mock DB expects rotation path (2 inserts instead of 3) */
+  hasRotation?: boolean;
 }
 
 /**
@@ -194,6 +196,8 @@ function createCreateLinkMockDb(config: CreateMockDbConfig): unknown {
     txEpoch ? [{ currentEpoch: txEpoch.epochNumber }] : [],
     // TX Query 1: epoch ID lookup
     txEpoch ? [{ id: txEpoch.id }] : [],
+    // TX Query 2: count existing links for default displayName
+    [{ count: 0 }],
   ];
   const createTxQueryChain = createQueryChainFactory(txSelectResults, txIndexRef);
 
@@ -213,19 +217,19 @@ function createCreateLinkMockDb(config: CreateMockDbConfig): unknown {
         };
       }
       if (callIndex === 1) {
-        // 2. epochMembers upsert: insert().values().onConflictDoUpdate() (no returning)
+        // 2. conversationMembers upsert: insert().values().onConflictDoUpdate().returning()
         return {
           values: () => ({
-            onConflictDoUpdate: () => Promise.resolve(),
+            onConflictDoUpdate: () => ({
+              returning: () => Promise.resolve([{ id: 'new-member-id' }]),
+            }),
           }),
         };
       }
-      // 3. conversationMembers upsert: insert().values().onConflictDoUpdate().returning()
+      // 3. epochMembers upsert (full-history only): insert().values().onConflictDoUpdate() (no returning)
       return {
         values: () => ({
-          onConflictDoUpdate: () => ({
-            returning: () => Promise.resolve([{ id: 'new-member-id' }]),
-          }),
+          onConflictDoUpdate: () => Promise.resolve(),
         }),
       };
     },
@@ -406,7 +410,7 @@ describe('links route', () => {
 
       expect(res.status).toBe(404);
       const body = await res.json<{ code: string }>();
-      expect(body.code).toBe('NOT_FOUND');
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
     it('allows write-privilege members to list links', async () => {
@@ -525,7 +529,7 @@ describe('links route', () => {
 
       expect(res.status).toBe(404);
       const body = await res.json<{ code: string }>();
-      expect(body.code).toBe('NOT_FOUND');
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
     it('returns 403 when privilege is below admin', async () => {
@@ -677,6 +681,90 @@ describe('links route', () => {
       expect(body.code).toBe('STALE_EPOCH');
       expect(body.details.currentEpoch).toBe(2);
     });
+
+    it('creates no-history link with rotation and computes visibleFromEpoch', async () => {
+      const app = createCreateTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'admin' },
+          currentEpoch: { id: 'epoch-1', epochNumber: 1 },
+          hasRotation: true,
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          linkPublicKey: TEST_LINK_PUBLIC_KEY_BASE64,
+          memberWrap: TEST_MEMBER_WRAP_BASE64,
+          privilege: 'read',
+          giveFullHistory: false,
+          rotation: createTestRotation({ expectedEpoch: 1 }),
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = await res.json<{ linkId: string; memberId: string }>();
+      expect(body.linkId).toBeDefined();
+      expect(body.memberId).toBeDefined();
+    });
+
+    it('returns 400 when giveFullHistory is false and rotation is missing', async () => {
+      const app = createCreateTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'admin' },
+          currentEpoch: { id: 'epoch-1', epochNumber: 1 },
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          linkPublicKey: TEST_LINK_PUBLIC_KEY_BASE64,
+          memberWrap: TEST_MEMBER_WRAP_BASE64,
+          privilege: 'read',
+          giveFullHistory: false,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('broadcasts rotation:complete when creating no-history link with rotation', async () => {
+      mockBroadcastToRoom.mockClear();
+
+      const app = createCreateTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'admin' },
+          currentEpoch: { id: 'epoch-1', epochNumber: 1 },
+          hasRotation: true,
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          linkPublicKey: TEST_LINK_PUBLIC_KEY_BASE64,
+          memberWrap: TEST_MEMBER_WRAP_BASE64,
+          privilege: 'read',
+          giveFullHistory: false,
+          rotation: createTestRotation({ expectedEpoch: 1 }),
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      expect(mockBroadcastToRoom).toHaveBeenCalledWith(
+        expect.anything(),
+        TEST_CONVERSATION_ID,
+        expect.objectContaining({
+          type: 'rotation:complete',
+          conversationId: TEST_CONVERSATION_ID,
+          newEpochNumber: 2,
+        })
+      );
+    });
   });
 
   describe('POST /:conversationId/revoke', () => {
@@ -711,7 +799,7 @@ describe('links route', () => {
 
       expect(res.status).toBe(404);
       const body = await res.json<{ code: string }>();
-      expect(body.code).toBe('NOT_FOUND');
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
     it('returns 403 when privilege is below admin', async () => {

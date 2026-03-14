@@ -8,8 +8,14 @@ import {
   getCushionCents,
   generateNotifications,
   effectiveBudgetCents,
+  buildCostManifest,
+  calculateBudgetFromManifest,
+  canAffordModel,
   type BudgetCalculationInput,
   type NotificationInput,
+  type BuildCostManifestInput,
+  type CostManifest,
+  type CanAffordModelInput,
 } from './budget.js';
 import {
   MAX_ALLOWED_NEGATIVE_BALANCE_CENTS,
@@ -21,6 +27,7 @@ import {
   CAPACITY_RED_THRESHOLD,
   CAPACITY_YELLOW_THRESHOLD,
   STORAGE_COST_PER_CHARACTER,
+  MAX_SELECTED_MODELS,
 } from './constants.js';
 
 describe('estimateTokensForTier', () => {
@@ -130,9 +137,13 @@ describe('calculateBudget', () => {
     balanceCents: 1000, // $10
     freeAllowanceCents: 0,
     promptCharacterCount: 4000, // ~1000 tokens at 4 chars/token
-    modelInputPricePerToken: 0.000_03, // $0.03 per 1k input
-    modelOutputPricePerToken: 0.000_06, // $0.06 per 1k output
-    modelContextLength: 128_000,
+    models: [
+      {
+        modelInputPricePerToken: 0.000_03, // $0.03 per 1k input
+        modelOutputPricePerToken: 0.000_06, // $0.06 per 1k output
+        contextLength: 128_000,
+      },
+    ],
   };
 
   describe('token estimation', () => {
@@ -157,7 +168,7 @@ describe('calculateBudget', () => {
       // Storage: 4000 chars * $0.0000003 = $0.0012
       // Total: $0.0312
       const expectedInputCost =
-        1000 * baseInput.modelInputPricePerToken +
+        1000 * baseInput.models[0]!.modelInputPricePerToken +
         baseInput.promptCharacterCount * STORAGE_COST_PER_CHARACTER;
       expect(result.estimatedInputCost).toBeCloseTo(expectedInputCost, 10);
     });
@@ -170,13 +181,43 @@ describe('calculateBudget', () => {
       // Min output: 1000 * $0.0000606 = $0.0606
       // Total: $0.0312 + $0.0606 = $0.0918
       const expectedInputCost =
-        1000 * baseInput.modelInputPricePerToken +
+        1000 * baseInput.models[0]!.modelInputPricePerToken +
         baseInput.promptCharacterCount * STORAGE_COST_PER_CHARACTER;
       const outputCostPerToken =
-        baseInput.modelOutputPricePerToken +
+        baseInput.models[0]!.modelOutputPricePerToken +
         CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
       const expectedMinCost = expectedInputCost + MINIMUM_OUTPUT_TOKENS * outputCostPerToken;
       expect(result.estimatedMinimumCost).toBeCloseTo(expectedMinCost, 10);
+    });
+
+    it('includes webSearchCost in estimated input cost', () => {
+      const searchCost = 0.005;
+      const result = calculateBudget({ ...baseInput, webSearchCost: searchCost });
+      const expectedInputCost =
+        1000 * baseInput.models[0]!.modelInputPricePerToken +
+        baseInput.promptCharacterCount * STORAGE_COST_PER_CHARACTER +
+        searchCost;
+      expect(result.estimatedInputCost).toBeCloseTo(expectedInputCost, 10);
+    });
+
+    it('includes webSearchCost in estimated minimum cost', () => {
+      const searchCost = 0.005;
+      const result = calculateBudget({ ...baseInput, webSearchCost: searchCost });
+      const expectedInputCost =
+        1000 * baseInput.models[0]!.modelInputPricePerToken +
+        baseInput.promptCharacterCount * STORAGE_COST_PER_CHARACTER +
+        searchCost;
+      const outputCostPerToken =
+        baseInput.models[0]!.modelOutputPricePerToken +
+        CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
+      const expectedMinCost = expectedInputCost + MINIMUM_OUTPUT_TOKENS * outputCostPerToken;
+      expect(result.estimatedMinimumCost).toBeCloseTo(expectedMinCost, 10);
+    });
+
+    it('defaults webSearchCost to 0 when omitted', () => {
+      const withoutSearch = calculateBudget(baseInput);
+      const withZeroSearch = calculateBudget({ ...baseInput, webSearchCost: 0 });
+      expect(withoutSearch.estimatedInputCost).toBe(withZeroSearch.estimatedInputCost);
     });
   });
 
@@ -217,10 +258,10 @@ describe('calculateBudget', () => {
       // Output storage: paid tier → CONSERVATIVE (2) chars/tok (optimistic, inverted from input)
       // Output cost/token: $0.00006 + 2 * $0.0000003 = $0.0000606
       const expectedInputCost =
-        1000 * baseInput.modelInputPricePerToken +
+        1000 * baseInput.models[0]!.modelInputPricePerToken +
         baseInput.promptCharacterCount * STORAGE_COST_PER_CHARACTER;
       const outputCostPerToken =
-        baseInput.modelOutputPricePerToken +
+        baseInput.models[0]!.modelOutputPricePerToken +
         CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
       const remaining = 10.5 - expectedInputCost;
       expect(result.maxOutputTokens).toBe(Math.floor(remaining / outputCostPerToken));
@@ -244,8 +285,13 @@ describe('calculateBudget', () => {
         balanceCents: 10, // $0.10
         freeAllowanceCents: 0,
         promptCharacterCount: 400, // Small prompt
-        modelInputPricePerToken: 0.000_01, // Cheap input
-        modelOutputPricePerToken: 0.000_05, // Moderate output cost
+        models: [
+          {
+            modelInputPricePerToken: 0.000_01, // Cheap input
+            modelOutputPricePerToken: 0.000_05, // Moderate output cost
+            contextLength: 128_000,
+          },
+        ],
       });
       expect(result.maxOutputTokens).toBeGreaterThanOrEqual(MINIMUM_OUTPUT_TOKENS);
     });
@@ -261,7 +307,7 @@ describe('calculateBudget', () => {
       const result = calculateBudget({
         ...baseInput,
         promptCharacterCount: 4000, // 1000 tokens
-        modelContextLength: 10_000, // Small context for easy math
+        models: [{ ...baseInput.models[0]!, contextLength: 10_000 }], // Small context for easy math
       });
       // Current usage: 1000 + 1000 = 2000
       // Capacity: 2000 / 10000 = 20%
@@ -272,7 +318,7 @@ describe('calculateBudget', () => {
       const result = calculateBudget({
         ...baseInput,
         promptCharacterCount: 40_000, // 10000 tokens
-        modelContextLength: 12_000, // Small context
+        models: [{ ...baseInput.models[0]!, contextLength: 12_000 }], // Small context
       });
       // Current usage: 10000 + 1000 = 11000
       // Capacity: 11000 / 12000 = 91.67%
@@ -283,18 +329,18 @@ describe('calculateBudget', () => {
       const result = calculateBudget({
         ...baseInput,
         promptCharacterCount: 50_000, // 12500 tokens
-        modelContextLength: 10_000,
+        models: [{ ...baseInput.models[0]!, contextLength: 10_000 }],
       });
       // Current usage: 12500 + 1000 = 13500
       // Capacity: 13500 / 10000 = 135%
       expect(result.capacityPercent).toBeGreaterThan(100);
     });
 
-    it('returns capacityPercent 0 when modelContextLength is 0', () => {
+    it('returns capacityPercent 0 when contextLength is 0', () => {
       const result = calculateBudget({
         ...baseInput,
         promptCharacterCount: 100,
-        modelContextLength: 0,
+        models: [{ ...baseInput.models[0]!, contextLength: 0 }],
       });
       expect(result.capacityPercent).toBe(0);
     });
@@ -308,9 +354,13 @@ describe('calculateBudget integration', () => {
       balanceCents: 0,
       freeAllowanceCents: 500,
       promptCharacterCount: 4000,
-      modelInputPricePerToken: 0.000_03,
-      modelOutputPricePerToken: 0.000_06,
-      modelContextLength: 128_000,
+      models: [
+        {
+          modelInputPricePerToken: 0.000_03,
+          modelOutputPricePerToken: 0.000_06,
+          contextLength: 128_000,
+        },
+      ],
     });
 
     expect(result).toHaveProperty('maxOutputTokens');
@@ -332,15 +382,21 @@ describe('calculateBudget outputCostPerToken', () => {
     balanceCents: 1000,
     freeAllowanceCents: 0,
     promptCharacterCount: 4000,
-    modelInputPricePerToken: 0.000_03,
-    modelOutputPricePerToken: 0.000_06,
-    modelContextLength: 128_000,
+    models: [
+      {
+        modelInputPricePerToken: 0.000_03,
+        modelOutputPricePerToken: 0.000_06,
+        contextLength: 128_000,
+      },
+    ],
   };
 
   it('includes outputCostPerToken in result', () => {
     const result = calculateBudget(baseInput);
     expect(result).toHaveProperty('outputCostPerToken');
-    expect(result.outputCostPerToken).toBeGreaterThan(baseInput.modelOutputPricePerToken);
+    expect(result.outputCostPerToken).toBeGreaterThan(
+      baseInput.models[0]!.modelOutputPricePerToken
+    );
   });
 
   it('outputCostPerToken includes inverted tier-aware storage cost', () => {
@@ -348,7 +404,7 @@ describe('calculateBudget outputCostPerToken', () => {
     // Paid: CONSERVATIVE (2) = optimistic. Free: STANDARD (4) = pessimistic.
     const paidResult = calculateBudget(baseInput);
     const expectedPaid =
-      baseInput.modelOutputPricePerToken +
+      baseInput.models[0]!.modelOutputPricePerToken +
       CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
     expect(paidResult.outputCostPerToken).toBeCloseTo(expectedPaid, 15);
 
@@ -359,7 +415,8 @@ describe('calculateBudget outputCostPerToken', () => {
       freeAllowanceCents: 50_000,
     });
     const expectedFree =
-      baseInput.modelOutputPricePerToken + CHARS_PER_TOKEN_STANDARD * STORAGE_COST_PER_CHARACTER;
+      baseInput.models[0]!.modelOutputPricePerToken +
+      CHARS_PER_TOKEN_STANDARD * STORAGE_COST_PER_CHARACTER;
     expect(freeResult.outputCostPerToken).toBeCloseTo(expectedFree, 15);
   });
 });
@@ -373,9 +430,13 @@ describe('calculateBudget invariant', () => {
         balanceCents: 20,
         freeAllowanceCents: 0,
         promptCharacterCount: 4000,
-        modelInputPricePerToken: 0.000_000_075,
-        modelOutputPricePerToken: 0.000_000_075,
-        modelContextLength: 1_048_576,
+        models: [
+          {
+            modelInputPricePerToken: 0.000_000_075,
+            modelOutputPricePerToken: 0.000_000_075,
+            contextLength: 1_048_576,
+          },
+        ],
       },
       // Flash Lite: cheap model, huge context, higher balance
       {
@@ -383,9 +444,13 @@ describe('calculateBudget invariant', () => {
         balanceCents: 500,
         freeAllowanceCents: 0,
         promptCharacterCount: 4000,
-        modelInputPricePerToken: 0.000_000_075,
-        modelOutputPricePerToken: 0.000_000_075,
-        modelContextLength: 1_048_576,
+        models: [
+          {
+            modelInputPricePerToken: 0.000_000_075,
+            modelOutputPricePerToken: 0.000_000_075,
+            contextLength: 1_048_576,
+          },
+        ],
       },
       // Claude Opus: expensive model, small context, low balance
       {
@@ -393,9 +458,13 @@ describe('calculateBudget invariant', () => {
         balanceCents: 20,
         freeAllowanceCents: 0,
         promptCharacterCount: 4000,
-        modelInputPricePerToken: 0.000_015,
-        modelOutputPricePerToken: 0.000_075,
-        modelContextLength: 200_000,
+        models: [
+          {
+            modelInputPricePerToken: 0.000_015,
+            modelOutputPricePerToken: 0.000_075,
+            contextLength: 200_000,
+          },
+        ],
       },
       // Claude Opus: expensive model, higher balance
       {
@@ -403,9 +472,13 @@ describe('calculateBudget invariant', () => {
         balanceCents: 500,
         freeAllowanceCents: 0,
         promptCharacterCount: 4000,
-        modelInputPricePerToken: 0.000_015,
-        modelOutputPricePerToken: 0.000_075,
-        modelContextLength: 200_000,
+        models: [
+          {
+            modelInputPricePerToken: 0.000_015,
+            modelOutputPricePerToken: 0.000_075,
+            contextLength: 200_000,
+          },
+        ],
       },
       // Free model: zero pricing
       {
@@ -413,9 +486,9 @@ describe('calculateBudget invariant', () => {
         balanceCents: 0,
         freeAllowanceCents: 50,
         promptCharacterCount: 4000,
-        modelInputPricePerToken: 0,
-        modelOutputPricePerToken: 0,
-        modelContextLength: 128_000,
+        models: [
+          { modelInputPricePerToken: 0, modelOutputPricePerToken: 0, contextLength: 128_000 },
+        ],
       },
       // DeepSeek R1: mid-range
       {
@@ -423,9 +496,13 @@ describe('calculateBudget invariant', () => {
         balanceCents: 20,
         freeAllowanceCents: 0,
         promptCharacterCount: 4000,
-        modelInputPricePerToken: 0.000_000_55,
-        modelOutputPricePerToken: 0.000_000_55,
-        modelContextLength: 64_000,
+        models: [
+          {
+            modelInputPricePerToken: 0.000_000_55,
+            modelOutputPricePerToken: 0.000_000_55,
+            contextLength: 64_000,
+          },
+        ],
       },
       // GPT-4o: moderate pricing
       {
@@ -433,9 +510,13 @@ describe('calculateBudget invariant', () => {
         balanceCents: 20,
         freeAllowanceCents: 0,
         promptCharacterCount: 4000,
-        modelInputPricePerToken: 0.000_005,
-        modelOutputPricePerToken: 0.000_01,
-        modelContextLength: 128_000,
+        models: [
+          {
+            modelInputPricePerToken: 0.000_005,
+            modelOutputPricePerToken: 0.000_01,
+            contextLength: 128_000,
+          },
+        ],
       },
     ];
 
@@ -443,12 +524,13 @@ describe('calculateBudget invariant', () => {
       const budget = calculateBudget(input);
       if (budget.maxOutputTokens === 0) continue; // Can't afford — no invariant to check
 
+      const modelContextLength = Math.min(...input.models.map((m) => m.contextLength));
       const effectiveMaxOutputTokens =
         computeSafeMaxTokens({
           budgetMaxTokens: budget.maxOutputTokens,
-          modelContextLength: input.modelContextLength,
+          modelContextLength,
           estimatedInputTokens: budget.estimatedInputTokens,
-        }) ?? input.modelContextLength - budget.estimatedInputTokens;
+        }) ?? modelContextLength - budget.estimatedInputTokens;
 
       const worstCaseDollars =
         budget.estimatedInputCost + effectiveMaxOutputTokens * budget.outputCostPerToken;
@@ -465,9 +547,7 @@ describe('calculateBudget edge cases', () => {
       balanceCents: 0,
       freeAllowanceCents: 50,
       promptCharacterCount: 4000,
-      modelInputPricePerToken: 0,
-      modelOutputPricePerToken: 0,
-      modelContextLength: 128_000,
+      models: [{ modelInputPricePerToken: 0, modelOutputPricePerToken: 0, contextLength: 128_000 }],
     });
     expect(Number.isFinite(result.maxOutputTokens)).toBe(true);
     expect(result.maxOutputTokens).toBeGreaterThan(0);
@@ -479,9 +559,13 @@ describe('calculateBudget edge cases', () => {
       balanceCents: 20, // $0.20
       freeAllowanceCents: 0,
       promptCharacterCount: 4000,
-      modelInputPricePerToken: 0.000_000_075,
-      modelOutputPricePerToken: 0.000_000_075,
-      modelContextLength: 1_048_576,
+      models: [
+        {
+          modelInputPricePerToken: 0.000_000_075,
+          modelOutputPricePerToken: 0.000_000_075,
+          contextLength: 1_048_576,
+        },
+      ],
     });
     expect(result.maxOutputTokens).toBeLessThan(1_048_576);
   });
@@ -1632,6 +1716,745 @@ describe('getCushionCents', () => {
   });
 });
 
+describe('buildCostManifest', () => {
+  const baseManifestInput: BuildCostManifestInput = {
+    tier: 'paid',
+    promptCharacterCount: 4000,
+    models: [
+      {
+        modelInputPricePerToken: 0.000_03,
+        modelOutputPricePerToken: 0.000_06,
+      },
+    ],
+  };
+
+  describe('fixed items', () => {
+    it('includes text-input-tokens with tier-estimated token count', () => {
+      const manifest = buildCostManifest(baseManifestInput);
+      const inputItem = manifest.fixedItems.find((index) => index.type === 'text-input-tokens');
+      expect(inputItem).toBeDefined();
+      // paid tier: 4000 / 4 = 1000 tokens
+      expect(inputItem!.units).toBe(1000);
+      expect(inputItem!.costPerUnit).toBe(0.000_03);
+      expect(inputItem!.applyFees).toBe(false);
+    });
+
+    it('uses conservative token estimation for free tier', () => {
+      const manifest = buildCostManifest({ ...baseManifestInput, tier: 'free' });
+      const inputItem = manifest.fixedItems.find((index) => index.type === 'text-input-tokens');
+      // free tier: 4000 / 2 = 2000 tokens
+      expect(inputItem!.units).toBe(2000);
+    });
+
+    it('uses conservative token estimation for trial tier', () => {
+      const manifest = buildCostManifest({ ...baseManifestInput, tier: 'trial' });
+      const inputItem = manifest.fixedItems.find((index) => index.type === 'text-input-tokens');
+      // trial tier: 4000 / 2 = 2000 tokens
+      expect(inputItem!.units).toBe(2000);
+    });
+
+    it('uses conservative token estimation for guest tier', () => {
+      const manifest = buildCostManifest({ ...baseManifestInput, tier: 'guest' });
+      const inputItem = manifest.fixedItems.find((index) => index.type === 'text-input-tokens');
+      // guest tier: 4000 / 2 = 2000 tokens
+      expect(inputItem!.units).toBe(2000);
+    });
+
+    it('includes input-storage with character count', () => {
+      const manifest = buildCostManifest(baseManifestInput);
+      const storageItem = manifest.fixedItems.find((index) => index.type === 'input-storage');
+      expect(storageItem).toBeDefined();
+      expect(storageItem!.units).toBe(4000);
+      expect(storageItem!.costPerUnit).toBe(STORAGE_COST_PER_CHARACTER);
+      expect(storageItem!.applyFees).toBe(false);
+    });
+
+    it('does not include web-search when cost is 0', () => {
+      const manifest = buildCostManifest(baseManifestInput);
+      const searchItem = manifest.fixedItems.find((index) => index.type === 'web-search');
+      expect(searchItem).toBeUndefined();
+    });
+
+    it('does not include web-search when cost is omitted', () => {
+      // eslint-disable-next-line sonarjs/no-unused-vars -- destructuring rest requires binding the excluded key
+      const { webSearchCost: _webSearchCost, ...inputWithoutSearch } = baseManifestInput;
+      const manifest = buildCostManifest(inputWithoutSearch as BuildCostManifestInput);
+      const searchItem = manifest.fixedItems.find((index) => index.type === 'web-search');
+      expect(searchItem).toBeUndefined();
+    });
+
+    it('includes web-search when cost is provided', () => {
+      const manifest = buildCostManifest({ ...baseManifestInput, webSearchCost: 0.005 });
+      const searchItem = manifest.fixedItems.find((index) => index.type === 'web-search');
+      expect(searchItem).toBeDefined();
+      expect(searchItem!.units).toBe(1);
+      expect(searchItem!.costPerUnit).toBe(0.005);
+      expect(searchItem!.applyFees).toBe(false);
+    });
+
+    it('has zero input tokens for zero character count', () => {
+      const manifest = buildCostManifest({ ...baseManifestInput, promptCharacterCount: 0 });
+      const inputItem = manifest.fixedItems.find((index) => index.type === 'text-input-tokens');
+      expect(inputItem!.units).toBe(0);
+    });
+  });
+
+  describe('variable items', () => {
+    it('includes text-output-tokens with model price', () => {
+      const manifest = buildCostManifest(baseManifestInput);
+      const outputItem = manifest.variableItems.find(
+        (index) => index.type === 'text-output-tokens'
+      );
+      expect(outputItem).toBeDefined();
+      expect(outputItem!.costPerUnit).toBe(0.000_06);
+      expect(outputItem!.applyFees).toBe(false);
+    });
+
+    it('includes output-storage with tier-inverted chars/token ratio for paid', () => {
+      const manifest = buildCostManifest(baseManifestInput);
+      const storageItem = manifest.variableItems.find((index) => index.type === 'output-storage');
+      expect(storageItem).toBeDefined();
+      // paid tier output storage → CONSERVATIVE (2) chars/tok
+      expect(storageItem!.costPerUnit).toBe(
+        CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER
+      );
+      expect(storageItem!.applyFees).toBe(false);
+    });
+
+    it('uses standard chars/token for free tier output storage', () => {
+      const manifest = buildCostManifest({ ...baseManifestInput, tier: 'free' });
+      const storageItem = manifest.variableItems.find((index) => index.type === 'output-storage');
+      // free tier output storage → STANDARD (4) chars/tok
+      expect(storageItem!.costPerUnit).toBe(CHARS_PER_TOKEN_STANDARD * STORAGE_COST_PER_CHARACTER);
+    });
+
+    it('uses standard chars/token for trial tier output storage', () => {
+      const manifest = buildCostManifest({ ...baseManifestInput, tier: 'trial' });
+      const storageItem = manifest.variableItems.find((index) => index.type === 'output-storage');
+      expect(storageItem!.costPerUnit).toBe(CHARS_PER_TOKEN_STANDARD * STORAGE_COST_PER_CHARACTER);
+    });
+  });
+
+  describe('manifest matches effectiveOutputCostPerToken', () => {
+    it('variable items sum equals effectiveOutputCostPerToken for paid tier', () => {
+      const manifest = buildCostManifest(baseManifestInput);
+      const variableSum = manifest.variableItems.reduce((sum, item) => sum + item.costPerUnit, 0);
+      // effectiveOutputCostPerToken for paid: modelOutput + CONSERVATIVE * STORAGE
+      const expected =
+        baseManifestInput.models[0]!.modelOutputPricePerToken +
+        CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
+      expect(variableSum).toBeCloseTo(expected, 15);
+    });
+
+    it('variable items sum equals effectiveOutputCostPerToken for free tier', () => {
+      const manifest = buildCostManifest({ ...baseManifestInput, tier: 'free' });
+      const variableSum = manifest.variableItems.reduce((sum, item) => sum + item.costPerUnit, 0);
+      const expected =
+        baseManifestInput.models[0]!.modelOutputPricePerToken +
+        CHARS_PER_TOKEN_STANDARD * STORAGE_COST_PER_CHARACTER;
+      expect(variableSum).toBeCloseTo(expected, 15);
+    });
+  });
+});
+
+describe('buildCostManifest multi-model', () => {
+  const modelA = { modelInputPricePerToken: 0.000_03, modelOutputPricePerToken: 0.000_06 };
+  const modelB = { modelInputPricePerToken: 0.000_01, modelOutputPricePerToken: 0.000_02 };
+
+  it('sums input prices across models', () => {
+    const manifest = buildCostManifest({
+      tier: 'paid',
+      promptCharacterCount: 4000,
+      models: [modelA, modelB],
+    });
+    const inputItem = manifest.fixedItems.find((index) => index.type === 'text-input-tokens');
+    expect(inputItem!.costPerUnit).toBeCloseTo(
+      modelA.modelInputPricePerToken + modelB.modelInputPricePerToken,
+      15
+    );
+    // Same token count regardless of model count
+    expect(inputItem!.units).toBe(1000); // 4000 / 4 (paid tier)
+  });
+
+  it('stores input once regardless of model count', () => {
+    const manifest = buildCostManifest({
+      tier: 'paid',
+      promptCharacterCount: 4000,
+      models: [modelA, modelB],
+    });
+    const storageItem = manifest.fixedItems.find((index) => index.type === 'input-storage');
+    expect(storageItem!.units).toBe(4000);
+    expect(storageItem!.costPerUnit).toBe(STORAGE_COST_PER_CHARACTER);
+  });
+
+  it('web search units equals model count', () => {
+    const manifest = buildCostManifest({
+      tier: 'paid',
+      promptCharacterCount: 4000,
+      models: [modelA, modelB],
+      webSearchCost: 0.005,
+    });
+    const searchItem = manifest.fixedItems.find((index) => index.type === 'web-search');
+    expect(searchItem!.units).toBe(2);
+    expect(searchItem!.costPerUnit).toBe(0.005);
+  });
+
+  it('sums output prices across models', () => {
+    const manifest = buildCostManifest({
+      tier: 'paid',
+      promptCharacterCount: 4000,
+      models: [modelA, modelB],
+    });
+    const outputItem = manifest.variableItems.find((index) => index.type === 'text-output-tokens');
+    expect(outputItem!.costPerUnit).toBeCloseTo(
+      modelA.modelOutputPricePerToken + modelB.modelOutputPricePerToken,
+      15
+    );
+  });
+
+  it('scales output storage by model count', () => {
+    const manifest = buildCostManifest({
+      tier: 'paid',
+      promptCharacterCount: 4000,
+      models: [modelA, modelB],
+    });
+    const storageItem = manifest.variableItems.find((index) => index.type === 'output-storage');
+    // 2 models → 2x storage
+    expect(storageItem!.costPerUnit).toBeCloseTo(
+      CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER * 2,
+      15
+    );
+  });
+
+  it('produces identical results to single model when models has length 1', () => {
+    const singleManifest = buildCostManifest({
+      tier: 'paid',
+      promptCharacterCount: 4000,
+      models: [modelA],
+    });
+    const multiManifest = buildCostManifest({
+      tier: 'paid',
+      promptCharacterCount: 4000,
+      models: [modelA],
+    });
+    expect(singleManifest).toEqual(multiManifest);
+  });
+});
+
+describe('calculateBudget multi-model', () => {
+  const modelA = {
+    modelInputPricePerToken: 0.000_03,
+    modelOutputPricePerToken: 0.000_06,
+    contextLength: 128_000,
+  };
+  const modelB = {
+    modelInputPricePerToken: 0.000_01,
+    modelOutputPricePerToken: 0.000_02,
+    contextLength: 64_000,
+  };
+
+  it('uses minimum context length for capacity', () => {
+    const result = calculateBudget({
+      tier: 'paid',
+      balanceCents: 1000,
+      freeAllowanceCents: 0,
+      promptCharacterCount: 4000,
+      models: [modelA, modelB],
+    });
+    // Most restrictive model context: 64,000
+    // Current usage: 1000 + 1000 = 2000
+    // Capacity: 2000 / 64000 = 3.125%
+    expect(result.capacityPercent).toBeCloseTo((2000 / 64_000) * 100, 10);
+  });
+
+  it('costs more with two models than one', () => {
+    const singleResult = calculateBudget({
+      tier: 'paid',
+      balanceCents: 1000,
+      freeAllowanceCents: 0,
+      promptCharacterCount: 4000,
+      models: [modelA],
+    });
+    const multiResult = calculateBudget({
+      tier: 'paid',
+      balanceCents: 1000,
+      freeAllowanceCents: 0,
+      promptCharacterCount: 4000,
+      models: [modelA, modelB],
+    });
+    expect(multiResult.estimatedMinimumCost).toBeGreaterThan(singleResult.estimatedMinimumCost);
+    expect(multiResult.maxOutputTokens).toBeLessThan(singleResult.maxOutputTokens);
+  });
+
+  it('maintains budget invariant with multiple models', () => {
+    const result = calculateBudget({
+      tier: 'paid',
+      balanceCents: 1000,
+      freeAllowanceCents: 0,
+      promptCharacterCount: 4000,
+      models: [modelA, modelB],
+    });
+    if (result.maxOutputTokens === 0) return;
+
+    const modelContextLength = Math.min(...[modelA, modelB].map((m) => m.contextLength));
+    const effectiveMaxOutputTokens =
+      computeSafeMaxTokens({
+        budgetMaxTokens: result.maxOutputTokens,
+        modelContextLength,
+        estimatedInputTokens: result.estimatedInputTokens,
+      }) ?? modelContextLength - result.estimatedInputTokens;
+
+    const worstCaseDollars =
+      result.estimatedInputCost + effectiveMaxOutputTokens * result.outputCostPerToken;
+    expect(worstCaseDollars).toBeLessThanOrEqual(result.effectiveBalance);
+  });
+
+  it('web search cost scales with model count', () => {
+    const withSearch = calculateBudget({
+      tier: 'paid',
+      balanceCents: 1000,
+      freeAllowanceCents: 0,
+      promptCharacterCount: 4000,
+      models: [modelA, modelB],
+      webSearchCost: 0.005,
+    });
+    const withoutSearch = calculateBudget({
+      tier: 'paid',
+      balanceCents: 1000,
+      freeAllowanceCents: 0,
+      promptCharacterCount: 4000,
+      models: [modelA, modelB],
+    });
+    // Search cost: 2 models × $0.005 = $0.01
+    expect(withSearch.estimatedInputCost - withoutSearch.estimatedInputCost).toBeCloseTo(0.01, 10);
+  });
+});
+
+describe('calculateBudgetFromManifest', () => {
+  const paidManifest: CostManifest = {
+    fixedItems: [
+      { type: 'text-input-tokens', units: 1000, costPerUnit: 0.000_03, applyFees: false },
+      {
+        type: 'input-storage',
+        units: 4000,
+        costPerUnit: STORAGE_COST_PER_CHARACTER,
+        applyFees: false,
+      },
+    ],
+    variableItems: [
+      { type: 'text-output-tokens', costPerUnit: 0.000_06, applyFees: false },
+      {
+        type: 'output-storage',
+        costPerUnit: CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER,
+        applyFees: false,
+      },
+    ],
+  };
+
+  describe('totalFixedCost', () => {
+    it('sums fixed items correctly', () => {
+      const result = calculateBudgetFromManifest(paidManifest, 10);
+      // 1000 * 0.00003 + 4000 * 0.0000003 = 0.03 + 0.0012 = 0.0312
+      const expected = 1000 * 0.000_03 + 4000 * STORAGE_COST_PER_CHARACTER;
+      expect(result.totalFixedCost).toBeCloseTo(expected, 10);
+    });
+
+    it('includes web search cost when present', () => {
+      const manifestWithSearch: CostManifest = {
+        ...paidManifest,
+        fixedItems: [
+          ...paidManifest.fixedItems,
+          { type: 'web-search', units: 1, costPerUnit: 0.005, applyFees: false },
+        ],
+      };
+      const result = calculateBudgetFromManifest(manifestWithSearch, 10);
+      const expected = 1000 * 0.000_03 + 4000 * STORAGE_COST_PER_CHARACTER + 0.005;
+      expect(result.totalFixedCost).toBeCloseTo(expected, 10);
+    });
+  });
+
+  describe('variableCostPerToken', () => {
+    it('sums variable items correctly', () => {
+      const result = calculateBudgetFromManifest(paidManifest, 10);
+      const expected = 0.000_06 + CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
+      expect(result.variableCostPerToken).toBeCloseTo(expected, 15);
+    });
+  });
+
+  describe('estimatedMinimumCost', () => {
+    it('equals totalFixedCost + MINIMUM_OUTPUT_TOKENS * variableCostPerToken', () => {
+      const result = calculateBudgetFromManifest(paidManifest, 10);
+      const expectedFixed = 1000 * 0.000_03 + 4000 * STORAGE_COST_PER_CHARACTER;
+      const expectedVariable = 0.000_06 + CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
+      expect(result.estimatedMinimumCost).toBeCloseTo(
+        expectedFixed + MINIMUM_OUTPUT_TOKENS * expectedVariable,
+        10
+      );
+    });
+  });
+
+  describe('maxOutputTokens', () => {
+    it('calculates max tokens when balance is sufficient', () => {
+      const result = calculateBudgetFromManifest(paidManifest, 10);
+      const expectedFixed = 1000 * 0.000_03 + 4000 * STORAGE_COST_PER_CHARACTER;
+      const expectedVariable = 0.000_06 + CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
+      const expectedMax = Math.floor((10 - expectedFixed) / expectedVariable);
+      expect(result.maxOutputTokens).toBe(expectedMax);
+    });
+
+    it('returns 0 when balance is below minimum cost', () => {
+      const result = calculateBudgetFromManifest(paidManifest, 0.001);
+      expect(result.maxOutputTokens).toBe(0);
+    });
+
+    it('returns 0 when balance is exactly 0', () => {
+      const result = calculateBudgetFromManifest(paidManifest, 0);
+      expect(result.maxOutputTokens).toBe(0);
+    });
+
+    it('allows tokens when balance exactly equals minimum cost', () => {
+      const expectedFixed = 1000 * 0.000_03 + 4000 * STORAGE_COST_PER_CHARACTER;
+      const expectedVariable = 0.000_06 + CHARS_PER_TOKEN_CONSERVATIVE * STORAGE_COST_PER_CHARACTER;
+      const exactMinimum = expectedFixed + MINIMUM_OUTPUT_TOKENS * expectedVariable;
+      const result = calculateBudgetFromManifest(paidManifest, exactMinimum);
+      expect(result.maxOutputTokens).toBe(MINIMUM_OUTPUT_TOKENS);
+    });
+  });
+
+  describe('applyFees flag', () => {
+    it('applies fees to fixed items when flagged', () => {
+      const manifestWithFees: CostManifest = {
+        fixedItems: [{ type: 'future-cost', units: 1, costPerUnit: 1, applyFees: true }],
+        variableItems: [{ type: 'text-output-tokens', costPerUnit: 0.000_06, applyFees: false }],
+      };
+      const result = calculateBudgetFromManifest(manifestWithFees, 10);
+      // 1.0 * 1.15 = 1.15
+      expect(result.totalFixedCost).toBeCloseTo(1.15, 10);
+    });
+
+    it('applies fees to variable items when flagged', () => {
+      const manifestWithFees: CostManifest = {
+        fixedItems: [],
+        variableItems: [{ type: 'future-output', costPerUnit: 1, applyFees: true }],
+      };
+      const result = calculateBudgetFromManifest(manifestWithFees, 10);
+      expect(result.variableCostPerToken).toBeCloseTo(1.15, 10);
+    });
+
+    it('does not apply fees when flag is false', () => {
+      const manifestNoFees: CostManifest = {
+        fixedItems: [{ type: 'pre-applied', units: 1, costPerUnit: 1, applyFees: false }],
+        variableItems: [{ type: 'pre-applied-output', costPerUnit: 1, applyFees: false }],
+      };
+      const result = calculateBudgetFromManifest(manifestNoFees, 10);
+      expect(result.totalFixedCost).toBeCloseTo(1, 10);
+      expect(result.variableCostPerToken).toBeCloseTo(1, 10);
+    });
+  });
+
+  describe('empty manifest', () => {
+    it('handles empty fixed items', () => {
+      const manifest: CostManifest = {
+        fixedItems: [],
+        variableItems: [{ type: 'text-output-tokens', costPerUnit: 0.000_06, applyFees: false }],
+      };
+      const result = calculateBudgetFromManifest(manifest, 10);
+      expect(result.totalFixedCost).toBe(0);
+      expect(result.estimatedMinimumCost).toBe(MINIMUM_OUTPUT_TOKENS * 0.000_06);
+    });
+  });
+
+  describe('consistency with calculateBudget', () => {
+    it('produces identical results when built from same inputs (paid)', () => {
+      const budgetInput: BudgetCalculationInput = {
+        tier: 'paid',
+        balanceCents: 1000,
+        freeAllowanceCents: 0,
+        promptCharacterCount: 4000,
+        models: [
+          {
+            modelInputPricePerToken: 0.000_03,
+            modelOutputPricePerToken: 0.000_06,
+            contextLength: 128_000,
+          },
+        ],
+      };
+      const budgetResult = calculateBudget(budgetInput);
+
+      const manifest = buildCostManifest({
+        tier: 'paid',
+        promptCharacterCount: 4000,
+        models: [{ modelInputPricePerToken: 0.000_03, modelOutputPricePerToken: 0.000_06 }],
+      });
+      const effectiveBalance = getEffectiveBalance('paid', 1000, 0);
+      const manifestResult = calculateBudgetFromManifest(manifest, effectiveBalance);
+
+      expect(manifestResult.totalFixedCost).toBeCloseTo(budgetResult.estimatedInputCost, 10);
+      expect(manifestResult.variableCostPerToken).toBeCloseTo(budgetResult.outputCostPerToken, 15);
+      expect(manifestResult.estimatedMinimumCost).toBeCloseTo(
+        budgetResult.estimatedMinimumCost,
+        10
+      );
+      expect(manifestResult.maxOutputTokens).toBe(budgetResult.maxOutputTokens);
+    });
+
+    it('produces identical results when built from same inputs (free)', () => {
+      const budgetInput: BudgetCalculationInput = {
+        tier: 'free',
+        balanceCents: 0,
+        freeAllowanceCents: 500,
+        promptCharacterCount: 2000,
+        models: [
+          {
+            modelInputPricePerToken: 0.000_01,
+            modelOutputPricePerToken: 0.000_02,
+            contextLength: 128_000,
+          },
+        ],
+      };
+      const budgetResult = calculateBudget(budgetInput);
+
+      const manifest = buildCostManifest({
+        tier: 'free',
+        promptCharacterCount: 2000,
+        models: [{ modelInputPricePerToken: 0.000_01, modelOutputPricePerToken: 0.000_02 }],
+      });
+      const effectiveBalance = getEffectiveBalance('free', 0, 500);
+      const manifestResult = calculateBudgetFromManifest(manifest, effectiveBalance);
+
+      expect(manifestResult.totalFixedCost).toBeCloseTo(budgetResult.estimatedInputCost, 10);
+      expect(manifestResult.variableCostPerToken).toBeCloseTo(budgetResult.outputCostPerToken, 15);
+      expect(manifestResult.estimatedMinimumCost).toBeCloseTo(
+        budgetResult.estimatedMinimumCost,
+        10
+      );
+      expect(manifestResult.maxOutputTokens).toBe(budgetResult.maxOutputTokens);
+    });
+
+    it('produces identical results when built from same inputs (trial)', () => {
+      const budgetInput: BudgetCalculationInput = {
+        tier: 'trial',
+        balanceCents: 0,
+        freeAllowanceCents: 0,
+        promptCharacterCount: 100,
+        models: [
+          {
+            modelInputPricePerToken: 0.000_001,
+            modelOutputPricePerToken: 0.000_002,
+            contextLength: 128_000,
+          },
+        ],
+      };
+      const budgetResult = calculateBudget(budgetInput);
+
+      const manifest = buildCostManifest({
+        tier: 'trial',
+        promptCharacterCount: 100,
+        models: [{ modelInputPricePerToken: 0.000_001, modelOutputPricePerToken: 0.000_002 }],
+      });
+      const effectiveBalance = getEffectiveBalance('trial', 0, 0);
+      const manifestResult = calculateBudgetFromManifest(manifest, effectiveBalance);
+
+      expect(manifestResult.totalFixedCost).toBeCloseTo(budgetResult.estimatedInputCost, 10);
+      expect(manifestResult.variableCostPerToken).toBeCloseTo(budgetResult.outputCostPerToken, 15);
+      expect(manifestResult.estimatedMinimumCost).toBeCloseTo(
+        budgetResult.estimatedMinimumCost,
+        10
+      );
+      expect(manifestResult.maxOutputTokens).toBe(budgetResult.maxOutputTokens);
+    });
+
+    it('produces identical results with web search cost', () => {
+      const budgetInput: BudgetCalculationInput = {
+        tier: 'paid',
+        balanceCents: 1000,
+        freeAllowanceCents: 0,
+        promptCharacterCount: 4000,
+        models: [
+          {
+            modelInputPricePerToken: 0.000_03,
+            modelOutputPricePerToken: 0.000_06,
+            contextLength: 128_000,
+          },
+        ],
+        webSearchCost: 0.005,
+      };
+      const budgetResult = calculateBudget(budgetInput);
+
+      const manifest = buildCostManifest({
+        tier: 'paid',
+        promptCharacterCount: 4000,
+        models: [{ modelInputPricePerToken: 0.000_03, modelOutputPricePerToken: 0.000_06 }],
+        webSearchCost: 0.005,
+      });
+      const effectiveBalance = getEffectiveBalance('paid', 1000, 0);
+      const manifestResult = calculateBudgetFromManifest(manifest, effectiveBalance);
+
+      expect(manifestResult.totalFixedCost).toBeCloseTo(budgetResult.estimatedInputCost, 10);
+      expect(manifestResult.estimatedMinimumCost).toBeCloseTo(
+        budgetResult.estimatedMinimumCost,
+        10
+      );
+      expect(manifestResult.maxOutputTokens).toBe(budgetResult.maxOutputTokens);
+    });
+  });
+});
+
+describe('canAffordModel', () => {
+  const baseAffordInput: CanAffordModelInput = {
+    tier: 'paid',
+    balanceCents: 1000, // $10
+    freeAllowanceCents: 0,
+    promptCharacterCount: 4000,
+    modelInputPricePerToken: 0.000_03,
+    modelOutputPricePerToken: 0.000_06,
+    isPremium: false,
+  };
+
+  describe('affordability', () => {
+    it('returns affordable true when balance covers minimum cost', () => {
+      const result = canAffordModel(baseAffordInput);
+      expect(result.affordable).toBe(true);
+      expect(result.maxOutputTokens).toBeGreaterThan(0);
+    });
+
+    it('returns affordable false when balance is insufficient', () => {
+      const result = canAffordModel({
+        ...baseAffordInput,
+        balanceCents: 0,
+        freeAllowanceCents: 0,
+        tier: 'free',
+      });
+      expect(result.affordable).toBe(false);
+      expect(result.maxOutputTokens).toBe(0);
+    });
+
+    it('returns affordable true for free user with sufficient allowance', () => {
+      const result = canAffordModel({
+        ...baseAffordInput,
+        tier: 'free',
+        balanceCents: 0,
+        freeAllowanceCents: 500, // $5
+      });
+      expect(result.affordable).toBe(true);
+      expect(result.maxOutputTokens).toBeGreaterThan(0);
+    });
+
+    it('returns affordable true for trial user with cheap model', () => {
+      const result = canAffordModel({
+        ...baseAffordInput,
+        tier: 'trial',
+        balanceCents: 0,
+        freeAllowanceCents: 0,
+        modelInputPricePerToken: 0.000_001,
+        modelOutputPricePerToken: 0.000_002,
+      });
+      expect(result.affordable).toBe(true);
+    });
+
+    it('returns affordable false for trial user with expensive model', () => {
+      const result = canAffordModel({
+        ...baseAffordInput,
+        tier: 'trial',
+        balanceCents: 0,
+        freeAllowanceCents: 0,
+        modelInputPricePerToken: 0.0001,
+        modelOutputPricePerToken: 0.0002,
+        promptCharacterCount: 10_000,
+      });
+      expect(result.affordable).toBe(false);
+    });
+  });
+
+  describe('premium gating', () => {
+    it('returns affordable false for premium model when user cannot access premium', () => {
+      const result = canAffordModel({
+        ...baseAffordInput,
+        tier: 'free',
+        balanceCents: 0,
+        freeAllowanceCents: 5000,
+        isPremium: true,
+      });
+      expect(result.affordable).toBe(false);
+    });
+
+    it('returns affordable false for premium model for trial user', () => {
+      const result = canAffordModel({
+        ...baseAffordInput,
+        tier: 'trial',
+        isPremium: true,
+      });
+      expect(result.affordable).toBe(false);
+    });
+
+    it('returns affordable false for premium model for guest user', () => {
+      const result = canAffordModel({
+        ...baseAffordInput,
+        tier: 'guest',
+        isPremium: true,
+      });
+      expect(result.affordable).toBe(false);
+    });
+
+    it('returns affordable true for premium model for paid user with balance', () => {
+      const result = canAffordModel({
+        ...baseAffordInput,
+        isPremium: true,
+      });
+      expect(result.affordable).toBe(true);
+    });
+  });
+
+  describe('estimatedMinimumCost', () => {
+    it('matches calculateBudget estimatedMinimumCost for same inputs', () => {
+      const budgetResult = calculateBudget({
+        tier: baseAffordInput.tier,
+        balanceCents: baseAffordInput.balanceCents,
+        freeAllowanceCents: baseAffordInput.freeAllowanceCents,
+        promptCharacterCount: baseAffordInput.promptCharacterCount,
+        models: [
+          {
+            modelInputPricePerToken: baseAffordInput.modelInputPricePerToken,
+            modelOutputPricePerToken: baseAffordInput.modelOutputPricePerToken,
+            contextLength: 128_000,
+          },
+        ],
+      });
+      const affordResult = canAffordModel(baseAffordInput);
+      expect(affordResult.estimatedMinimumCost).toBeCloseTo(budgetResult.estimatedMinimumCost, 10);
+    });
+
+    it('includes web search cost', () => {
+      const withoutSearch = canAffordModel(baseAffordInput);
+      const withSearch = canAffordModel({
+        ...baseAffordInput,
+        webSearchCost: 0.005,
+      });
+      expect(withSearch.estimatedMinimumCost).toBeGreaterThan(withoutSearch.estimatedMinimumCost);
+    });
+  });
+
+  describe('maxOutputTokens', () => {
+    it('matches calculateBudget maxOutputTokens for same inputs', () => {
+      const budgetResult = calculateBudget({
+        tier: baseAffordInput.tier,
+        balanceCents: baseAffordInput.balanceCents,
+        freeAllowanceCents: baseAffordInput.freeAllowanceCents,
+        promptCharacterCount: baseAffordInput.promptCharacterCount,
+        models: [
+          {
+            modelInputPricePerToken: baseAffordInput.modelInputPricePerToken,
+            modelOutputPricePerToken: baseAffordInput.modelOutputPricePerToken,
+            contextLength: 128_000,
+          },
+        ],
+      });
+      const affordResult = canAffordModel(baseAffordInput);
+      expect(affordResult.maxOutputTokens).toBe(budgetResult.maxOutputTokens);
+    });
+  });
+});
+
 describe('constants verification', () => {
   it('uses correct character/token ratios', () => {
     expect(CHARS_PER_TOKEN_CONSERVATIVE).toBe(2);
@@ -1648,5 +2471,9 @@ describe('constants verification', () => {
     expect(MAX_TRIAL_MESSAGE_COST_CENTS).toBe(1);
     expect(MINIMUM_OUTPUT_TOKENS).toBe(1000);
     expect(LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD).toBe(10_000);
+  });
+
+  it('uses correct multi-model constant', () => {
+    expect(MAX_SELECTED_MODELS).toBe(5);
   });
 });

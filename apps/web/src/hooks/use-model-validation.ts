@@ -30,7 +30,7 @@ export function useModelValidation(): void {
   const { data: session, isPending: isSessionPending } = useSession();
   const { data: balanceData } = useBalance();
   const { data: modelsData } = useModels();
-  const { selectedModelId, setSelectedModel } = useModelStore();
+  const { selectedModels, setSelectedModel } = useModelStore();
 
   React.useEffect(() => {
     const isAuthenticated = Boolean(session?.user);
@@ -44,7 +44,9 @@ export function useModelValidation(): void {
     if (!state.isReady || !modelsData) return;
 
     const { premiumIds, models } = modelsData;
-    const isSelectedModelPremium = premiumIds.has(selectedModelId);
+    const firstModel = selectedModels[0];
+    if (!firstModel) return;
+    const isSelectedModelPremium = premiumIds.has(firstModel.id);
 
     if (!state.canAccessPremium && isSelectedModelPremium) {
       const { strongestId } = getAccessibleModelIds(models, premiumIds, false);
@@ -53,5 +55,5 @@ export function useModelValidation(): void {
         setSelectedModel(strongestId, strongestModel.name);
       }
     }
-  }, [modelsData, session?.user, isSessionPending, balanceData, selectedModelId, setSelectedModel]);
+  }, [modelsData, session?.user, isSessionPending, balanceData, selectedModels, setSelectedModel]);
 }

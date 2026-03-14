@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const modelCapabilitySchema = z.enum(['vision', 'functions', 'json-mode', 'streaming']);
+export const modelCapabilitySchema = z.enum(['internet-search']);
 
 export type ModelCapability = z.infer<typeof modelCapabilitySchema>;
 
@@ -39,8 +39,26 @@ export const modelSchema = z.object({
    */
   supportedParameters: z.array(z.string()).default([]),
 
+  /** Per-search cost in USD from OpenRouter metadata */
+  webSearchPrice: z.number().nonnegative().optional(),
+
   /** Unix timestamp when the model was created */
   created: z.number().optional(),
+
+  /** Whether this model is the auto-router (Smart Model) */
+  isAutoRouter: z.boolean().optional(),
+
+  /** Minimum input price per token across the auto-router's model pool (for price range display) */
+  minPricePerInputToken: z.number().nonnegative().optional(),
+
+  /** Minimum output price per token across the auto-router's model pool (for price range display) */
+  minPricePerOutputToken: z.number().nonnegative().optional(),
+
+  /** Maximum input price per token across the auto-router's model pool (for price range display) */
+  maxPricePerInputToken: z.number().nonnegative().optional(),
+
+  /** Maximum output price per token across the auto-router's model pool (for price range display) */
+  maxPricePerOutputToken: z.number().nonnegative().optional(),
 });
 
 export type Model = z.infer<typeof modelSchema>;

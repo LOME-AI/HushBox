@@ -15,7 +15,7 @@ import {
   CAPACITY_RED_THRESHOLD,
   STORAGE_COST_PER_CHARACTER,
 } from './constants.js';
-import { effectiveOutputCostPerToken } from './pricing.js';
+import { applyFees } from './pricing.js';
 import type { UserTier } from './tiers.js';
 import type { FundingSource, ResolveBillingResult, DenialReason } from './resolve-billing.js';
 
@@ -31,6 +31,11 @@ export interface NotificationInput {
   hasDelegatedBudget?: boolean;
 }
 
+export interface ModelPricingWithContext extends ManifestModelPricing {
+  /** Model's maximum context length in tokens */
+  contextLength: number;
+}
+
 export interface BudgetCalculationInput {
   /** User's tier: 'trial', 'guest', 'free', or 'paid' */
   tier: UserTier;
@@ -40,12 +45,10 @@ export interface BudgetCalculationInput {
   freeAllowanceCents: number;
   /** Total character count: system prompt + history + user message */
   promptCharacterCount: number;
-  /** Model's input price per token (with fees applied) */
-  modelInputPricePerToken: number;
-  /** Model's output price per token (with fees applied) */
-  modelOutputPricePerToken: number;
-  /** Model's maximum context length in tokens */
-  modelContextLength: number;
+  /** Models to include in budget calculation (1 to MAX_SELECTED_MODELS) */
+  models: ModelPricingWithContext[];
+  /** Per-search cost in USD (with fees applied). 0 or omitted if search disabled. */
+  webSearchCost?: number;
 }
 
 export interface BudgetCalculationResult {
@@ -87,6 +90,52 @@ export interface BudgetError {
   message: string;
   /** Structured message with optional links for rendering */
   segments?: MessageSegment[];
+}
+
+// ============================================================================
+// Cost Manifest Types
+// ============================================================================
+
+/**
+ * A fixed cost item known before generation starts.
+ * Examples: input tokens, input storage, web search, image input.
+ */
+export interface FixedCostItem {
+  /** Cost category identifier */
+  type: string;
+  /** Number of units (tokens, characters, images, searches) */
+  units: number;
+  /** Cost per unit in USD (before fees) */
+  costPerUnit: number;
+  /** Whether the 15% HushBox fee applies to this cost */
+  applyFees: boolean;
+}
+
+/**
+ * A variable cost item that scales with output token count.
+ * Examples: output tokens, output storage.
+ */
+export interface VariableCostItem {
+  /** Cost category identifier */
+  type: string;
+  /** Cost per output token in USD (before fees) */
+  costPerUnit: number;
+  /** Whether the 15% HushBox fee applies to this cost */
+  applyFees: boolean;
+}
+
+/**
+ * A cost manifest describing all costs for a request as line items.
+ * Separates "what costs exist" from "how to calculate budget from costs".
+ *
+ * Adding a new cost type (images, audio, etc.) means adding a line item
+ * to the appropriate array — the budget calculation function is unchanged.
+ */
+export interface CostManifest {
+  /** Costs known before generation (input tokens, storage, search, etc.) */
+  fixedItems: FixedCostItem[];
+  /** Costs that scale with output token count (output tokens, output storage) */
+  variableItems: VariableCostItem[];
 }
 
 // ============================================================================
@@ -340,6 +389,220 @@ export function generateNotifications(input: NotificationInput): BudgetError[] {
 }
 
 // ============================================================================
+// Cost Manifest Builder
+// ============================================================================
+
+export interface ManifestModelPricing {
+  /** Model's input price per token (with fees already applied) */
+  modelInputPricePerToken: number;
+  /** Model's output price per token (with fees already applied) */
+  modelOutputPricePerToken: number;
+}
+
+export interface BuildCostManifestInput {
+  /** User's tier for token estimation */
+  tier: UserTier;
+  /** Total character count: system prompt + history + user message */
+  promptCharacterCount: number;
+  /** Models to include in cost calculation (1 to MAX_SELECTED_MODELS) */
+  models: ManifestModelPricing[];
+  /** Per-search cost in USD (with fees already applied). 0 or omitted if search disabled. */
+  webSearchCost?: number;
+}
+
+/**
+ * Build a cost manifest describing all costs for a request.
+ * Single source of truth for cost structure — replaces inline formulas.
+ *
+ * All prices are fee-inclusive (fees applied before calling this function).
+ * Manifest items use applyFees=false since fees are already baked in.
+ * Future cost types with base prices can use applyFees=true.
+ */
+export function buildCostManifest(input: BuildCostManifestInput): CostManifest {
+  const { tier, promptCharacterCount, models, webSearchCost = 0 } = input;
+
+  const modelCount = models.length;
+  const estimatedInputTokens = estimateTokensForTier(tier, promptCharacterCount);
+
+  // Sum input prices across all models — each model charges for the same input tokens
+  const sumInputPrice = models.reduce((sum, m) => sum + m.modelInputPricePerToken, 0);
+
+  const fixedItems: FixedCostItem[] = [
+    {
+      type: 'text-input-tokens',
+      units: estimatedInputTokens,
+      costPerUnit: sumInputPrice,
+      applyFees: false,
+    },
+    {
+      type: 'input-storage',
+      units: promptCharacterCount,
+      costPerUnit: STORAGE_COST_PER_CHARACTER,
+      applyFees: false,
+    },
+  ];
+
+  if (webSearchCost > 0) {
+    fixedItems.push({
+      type: 'web-search',
+      units: modelCount,
+      costPerUnit: webSearchCost,
+      applyFees: false,
+    });
+  }
+
+  // Output storage chars-per-token is tier-inverted:
+  // paid → CONSERVATIVE (2), free/trial/guest → STANDARD (4)
+  const outputCharsPerToken =
+    tier === 'paid' ? CHARS_PER_TOKEN_CONSERVATIVE : CHARS_PER_TOKEN_STANDARD;
+
+  // Sum output prices across all models — each model generates output tokens
+  const sumOutputPrice = models.reduce((sum, m) => sum + m.modelOutputPricePerToken, 0);
+
+  const variableItems: VariableCostItem[] = [
+    {
+      type: 'text-output-tokens',
+      costPerUnit: sumOutputPrice,
+      applyFees: false,
+    },
+    {
+      type: 'output-storage',
+      costPerUnit: outputCharsPerToken * STORAGE_COST_PER_CHARACTER * modelCount,
+      applyFees: false,
+    },
+  ];
+
+  return { fixedItems, variableItems };
+}
+
+// ============================================================================
+// Cost Manifest Calculator
+// ============================================================================
+
+export interface ManifestBudgetResult {
+  /** Total fixed cost (input tokens + storage + search) in dollars */
+  totalFixedCost: number;
+  /** Cost per output token (model + storage) in dollars */
+  variableCostPerToken: number;
+  /** Estimated minimum cost (fixed + MINIMUM_OUTPUT_TOKENS * variable) in dollars */
+  estimatedMinimumCost: number;
+  /** Maximum output tokens the balance can cover (0 if insufficient) */
+  maxOutputTokens: number;
+}
+
+/**
+ * Calculate budget from a cost manifest.
+ * Pure math — sums fixed costs, computes variable cost per token,
+ * derives maxOutputTokens and minimumCost.
+ *
+ * @param manifest - Cost line items
+ * @param effectiveBalance - What the user can spend, in dollars
+ * @returns Budget calculation results
+ */
+export function calculateBudgetFromManifest(
+  manifest: CostManifest,
+  effectiveBalance: number
+): ManifestBudgetResult {
+  let totalFixedCost = 0;
+  for (const item of manifest.fixedItems) {
+    const raw = item.units * item.costPerUnit;
+    totalFixedCost += item.applyFees ? applyFees(raw) : raw;
+  }
+
+  let variableCostPerToken = 0;
+  for (const item of manifest.variableItems) {
+    const raw = item.costPerUnit;
+    variableCostPerToken += item.applyFees ? applyFees(raw) : raw;
+  }
+
+  const estimatedMinimumCost = totalFixedCost + MINIMUM_OUTPUT_TOKENS * variableCostPerToken;
+
+  const personalCanAfford = effectiveBalance >= estimatedMinimumCost;
+  let maxOutputTokens = 0;
+  if (personalCanAfford) {
+    const remainingBudget = effectiveBalance - totalFixedCost;
+    maxOutputTokens = Math.floor(remainingBudget / variableCostPerToken);
+  }
+
+  return { totalFixedCost, variableCostPerToken, estimatedMinimumCost, maxOutputTokens };
+}
+
+// ============================================================================
+// Can Afford Model
+// ============================================================================
+
+export interface CanAffordModelInput {
+  /** User's tier */
+  tier: UserTier;
+  /** User's primary balance in cents */
+  balanceCents: number;
+  /** User's free daily allowance remaining in cents */
+  freeAllowanceCents: number;
+  /** Total character count: system prompt + history + user message */
+  promptCharacterCount: number;
+  /** Model's input price per token (with fees applied) */
+  modelInputPricePerToken: number;
+  /** Model's output price per token (with fees applied) */
+  modelOutputPricePerToken: number;
+  /** Whether the model is premium (requires paid tier) */
+  isPremium: boolean;
+  /** Per-search cost in USD (with fees applied). 0 or omitted if search disabled. */
+  webSearchCost?: number;
+}
+
+export interface CanAffordModelResult {
+  /** Whether the user can afford to send a message with this model */
+  affordable: boolean;
+  /** Estimated minimum cost in dollars */
+  estimatedMinimumCost: number;
+  /** Maximum output tokens the user's balance can cover */
+  maxOutputTokens: number;
+}
+
+/**
+ * Single function answering "can this user send a message with this model?"
+ *
+ * Combines premium gating + budget calculation. Used by the auto-router
+ * to build the allowed models list and by validateBilling for affordability checks.
+ */
+export function canAffordModel(input: CanAffordModelInput): CanAffordModelResult {
+  const {
+    tier,
+    balanceCents,
+    freeAllowanceCents,
+    promptCharacterCount,
+    modelInputPricePerToken,
+    modelOutputPricePerToken,
+    isPremium,
+    webSearchCost,
+  } = input;
+
+  // Premium models require paid tier
+  if (isPremium && tier !== 'paid') {
+    return { affordable: false, estimatedMinimumCost: 0, maxOutputTokens: 0 };
+  }
+
+  const manifestInput: BuildCostManifestInput = {
+    tier,
+    promptCharacterCount,
+    models: [{ modelInputPricePerToken, modelOutputPricePerToken }],
+  };
+  if (webSearchCost !== undefined) {
+    manifestInput.webSearchCost = webSearchCost;
+  }
+  const manifest = buildCostManifest(manifestInput);
+
+  const effectiveBalance = getEffectiveBalance(tier, balanceCents, freeAllowanceCents);
+  const result = calculateBudgetFromManifest(manifest, effectiveBalance);
+
+  return {
+    affordable: result.maxOutputTokens > 0,
+    estimatedMinimumCost: result.estimatedMinimumCost,
+    maxOutputTokens: result.maxOutputTokens,
+  };
+}
+
+// ============================================================================
 // Main Calculation
 // ============================================================================
 
@@ -347,6 +610,9 @@ export function generateNotifications(input: NotificationInput): BudgetError[] {
  * Calculate budget math for a message.
  * Pure math only — no billing decisions or notifications.
  * Used by frontend for real-time UI and backend for cost estimation.
+ *
+ * Internally builds a CostManifest and calculates from it.
+ * This preserves the existing API while using the manifest pattern.
  *
  * Billing decisions (can you send? who pays?) are handled by `resolveBilling()`.
  * Notifications (what to show the user) are handled by `generateNotifications()`.
@@ -360,44 +626,38 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
     balanceCents,
     freeAllowanceCents,
     promptCharacterCount,
-    modelInputPricePerToken,
-    modelOutputPricePerToken,
-    modelContextLength,
+    models,
+    webSearchCost = 0,
   } = input;
 
-  // 1. Estimate input tokens based on tier
-  const estimatedInputTokens = estimateTokensForTier(tier, promptCharacterCount);
+  // 1. Build manifest and calculate
+  const manifest = buildCostManifest({
+    tier,
+    promptCharacterCount,
+    models,
+    webSearchCost,
+  });
 
-  // 2. Calculate costs (model + storage)
-  const inputStorageCost = promptCharacterCount * STORAGE_COST_PER_CHARACTER;
-  const estimatedInputCost = estimatedInputTokens * modelInputPricePerToken + inputStorageCost;
-  const outputCostPerToken = effectiveOutputCostPerToken(modelOutputPricePerToken, tier);
-  const minimumOutputCost = MINIMUM_OUTPUT_TOKENS * outputCostPerToken;
-  const estimatedMinimumCost = estimatedInputCost + minimumOutputCost;
-
-  // 3. Determine effective balance
   const effectiveBalance = getEffectiveBalance(tier, balanceCents, freeAllowanceCents);
+  const manifestResult = calculateBudgetFromManifest(manifest, effectiveBalance);
 
-  // 4. Calculate max output tokens from personal balance
-  const personalCanAfford = effectiveBalance >= estimatedMinimumCost;
-  let maxOutputTokens = 0;
-  if (personalCanAfford) {
-    const remainingBudget = effectiveBalance - estimatedInputCost;
-    maxOutputTokens = Math.floor(remainingBudget / outputCostPerToken);
-  }
+  // 2. Extract estimatedInputTokens from the manifest's text-input-tokens item
+  const inputTokenItem = manifest.fixedItems.find((item) => item.type === 'text-input-tokens');
+  const estimatedInputTokens = inputTokenItem?.units ?? 0;
 
-  // 5. Calculate capacity (always use standard 4 chars/token - model context is fixed regardless of tier)
+  // 3. Calculate capacity using the most restrictive model context length
+  const modelContextLength = Math.min(...models.map((m) => m.contextLength));
   const capacityInputTokens = Math.ceil(promptCharacterCount / CHARS_PER_TOKEN_STANDARD);
   const currentUsage = capacityInputTokens + MINIMUM_OUTPUT_TOKENS;
   const capacityPercent = modelContextLength > 0 ? (currentUsage / modelContextLength) * 100 : 0;
 
   return {
-    maxOutputTokens,
+    maxOutputTokens: manifestResult.maxOutputTokens,
     estimatedInputTokens,
-    estimatedInputCost,
-    estimatedMinimumCost,
+    estimatedInputCost: manifestResult.totalFixedCost,
+    estimatedMinimumCost: manifestResult.estimatedMinimumCost,
     effectiveBalance,
-    outputCostPerToken,
+    outputCostPerToken: manifestResult.variableCostPerToken,
     currentUsage,
     capacityPercent,
   };

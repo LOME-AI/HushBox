@@ -157,27 +157,6 @@ describe('RecoveryPhraseModal', () => {
       });
     });
 
-    it('shows payment gate message when fromPaymentGate is true', async () => {
-      render(<RecoveryPhraseModal {...defaultProps} fromPaymentGate={true} />);
-
-      await waitFor(() => {
-        expect(
-          screen.getByText(/before adding credits, please save your recovery phrase/i)
-        ).toBeInTheDocument();
-      });
-    });
-
-    it('does not show payment gate message when fromPaymentGate is false', async () => {
-      render(<RecoveryPhraseModal {...defaultProps} fromPaymentGate={false} />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Your Recovery Phrase')).toBeInTheDocument();
-      });
-      expect(
-        screen.queryByText(/before adding credits, please save your recovery phrase/i)
-      ).not.toBeInTheDocument();
-    });
-
     it('shows warning about recovery', async () => {
       render(<RecoveryPhraseModal {...defaultProps} />);
 
@@ -433,48 +412,7 @@ describe('RecoveryPhraseModal', () => {
       expect(screen.getByText(/your account is now protected/i)).toBeInTheDocument();
     });
 
-    it('shows "Continue to Payment" button when fromPaymentGate is true', async () => {
-      const user = userEvent.setup();
-      render(<RecoveryPhraseModal {...defaultProps} fromPaymentGate={true} />);
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /i've saved it/i })).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByRole('button', { name: /i've saved it/i }));
-
-      const labels = screen.getAllByText(/word #\d+/i);
-      const inputs = screen.getAllByRole('textbox');
-      const words = [
-        'apple',
-        'brave',
-        'candy',
-        'delta',
-        'eagle',
-        'frost',
-        'globe',
-        'happy',
-        'ivory',
-        'joker',
-        'kite',
-        'lemon',
-      ];
-
-      for (const [index, label] of labels.entries()) {
-        if (!label.textContent) continue;
-        const wordNumber = Number.parseInt(/\d+/.exec(label.textContent)?.[0] ?? '0', 10);
-        const expectedWord = words[wordNumber - 1];
-        const input = inputs[index];
-        if (!input) throw new Error(`Expected input at index ${String(index)}`);
-        await user.type(input, expectedWord ?? '');
-      }
-
-      await user.click(screen.getByRole('button', { name: /verify/i }));
-
-      expect(screen.getByRole('button', { name: /continue to payment/i })).toBeInTheDocument();
-    });
-
-    it('shows "Done" button when fromPaymentGate is false', async () => {
+    it('shows "Done" button on success step', async () => {
       await goToStep3();
 
       expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument();

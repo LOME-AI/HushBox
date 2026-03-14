@@ -1,12 +1,11 @@
 import * as React from 'react';
 import { displayUsername } from '@hushbox/shared';
+import { DotPulseIndicator } from './dot-pulse-indicator';
 
 interface TypingIndicatorProps {
   typingUserIds: Set<string>;
   members: { userId: string; username: string }[];
 }
-
-const DOT_DELAYS = ['0s', '0.16s', '0.32s'] as const;
 
 function resolveUsername(
   userId: string,
@@ -52,15 +51,7 @@ export function TypingIndicator({
       className="text-foreground mb-2 flex items-center justify-center gap-1 text-sm"
     >
       <span>{label}</span>
-      <span className="inline-flex items-center gap-0.5" aria-hidden="true">
-        {DOT_DELAYS.map((delay) => (
-          <span
-            key={delay}
-            className="animate-dot-pulse inline-block h-1 w-1 rounded-full bg-current"
-            style={{ animationDelay: delay }}
-          />
-        ))}
-      </span>
+      <DotPulseIndicator />
     </div>
   );
 }

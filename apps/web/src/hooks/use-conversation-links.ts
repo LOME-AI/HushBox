@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { StreamChatRotation } from '@hushbox/shared';
 import { client, fetchJson } from '../lib/api-client.js';
+import { useAuthStore } from '../lib/auth.js';
 import { budgetKeys } from './use-conversation-budgets.js';
 
 function invalidateLinkAndBudget(
@@ -23,6 +24,7 @@ export const linkKeys = {
 };
 
 export function useConversationLinks(conversationId: string | null): ReturnType<typeof useQuery> {
+  const user = useAuthStore((s) => s.user);
   return useQuery({
     queryKey: linkKeys.list(conversationId ?? ''),
     queryFn: () =>
@@ -31,7 +33,7 @@ export function useConversationLinks(conversationId: string | null): ReturnType<
           param: { conversationId: conversationId ?? '' },
         })
       ),
-    enabled: !!conversationId,
+    enabled: !!user && !!conversationId,
   });
 }
 
@@ -46,6 +48,7 @@ export function useCreateLink() {
       privilege,
       giveFullHistory,
       displayName,
+      rotation,
     }: {
       conversationId: string;
       linkPublicKey: string;
@@ -53,6 +56,7 @@ export function useCreateLink() {
       privilege: string;
       giveFullHistory: boolean;
       displayName?: string;
+      rotation?: StreamChatRotation;
     }) =>
       fetchJson(
         client.api.links[':conversationId'].$post({
@@ -63,6 +67,7 @@ export function useCreateLink() {
             privilege,
             giveFullHistory,
             ...(displayName !== undefined && { displayName }),
+            ...(rotation !== undefined && { rotation }),
           },
         })
       ),

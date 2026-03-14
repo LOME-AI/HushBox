@@ -12,6 +12,10 @@ import {
   updateConversationResponseSchema,
   deleteConversationResponseSchema,
   streamChatRequestSchema,
+  forkResponseSchema,
+  createForkRequestSchema,
+  renameForkRequestSchema,
+  regenerateRequestSchema,
 } from './conversations.js';
 
 // ============================================================
@@ -272,13 +276,11 @@ describe('rotationSchema', () => {
 // ============================================================
 
 describe('streamChatRequestSchema', () => {
-  const validId = '550e8400-e29b-41d4-a716-446655440000';
   const validMsgId = '550e8400-e29b-41d4-a716-446655440001';
 
-  it('accepts valid stream request with plaintext user message', () => {
+  it('accepts valid stream request with single model', () => {
     const result = streamChatRequestSchema.parse({
-      conversationId: validId,
-      model: 'gpt-4',
+      models: ['gpt-4'],
       userMessage: {
         id: validMsgId,
         content: 'Hello, how are you?',
@@ -286,18 +288,58 @@ describe('streamChatRequestSchema', () => {
       messagesForInference: [{ role: 'user', content: 'Hello, how are you?' }],
       fundingSource: 'personal_balance',
     });
-    expect(result.conversationId).toBe(validId);
-    expect(result.model).toBe('gpt-4');
+    expect(result.models).toEqual(['gpt-4']);
     expect(result.userMessage.id).toBe(validMsgId);
     expect(result.userMessage.content).toBe('Hello, how are you?');
     expect(result.messagesForInference).toHaveLength(1);
   });
 
+  it('accepts multiple models', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['gpt-4', 'claude-3-sonnet', 'gemini-pro'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+    });
+    expect(result.models).toEqual(['gpt-4', 'claude-3-sonnet', 'gemini-pro']);
+  });
+
+  it('rejects empty models array', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: [],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+      })
+    ).toThrow();
+  });
+
+  it('rejects models array exceeding MAX_SELECTED_MODELS', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['m1', 'm2', 'm3', 'm4', 'm5', 'm6'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+      })
+    ).toThrow();
+  });
+
+  it('accepts models array at exactly MAX_SELECTED_MODELS', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['m1', 'm2', 'm3', 'm4', 'm5'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+    });
+    expect(result.models).toHaveLength(5);
+  });
+
   it('requires at least one message for inference', () => {
     expect(() =>
       streamChatRequestSchema.parse({
-        conversationId: validId,
-        model: 'gpt-4',
+        models: ['gpt-4'],
         userMessage: {
           id: validMsgId,
           content: 'Hello',
@@ -310,8 +352,7 @@ describe('streamChatRequestSchema', () => {
 
   it('accepts multiple messages for inference', () => {
     const result = streamChatRequestSchema.parse({
-      conversationId: validId,
-      model: 'gpt-4',
+      models: ['gpt-4'],
       userMessage: {
         id: validMsgId,
         content: 'How are you?',
@@ -326,39 +367,9 @@ describe('streamChatRequestSchema', () => {
     expect(result.messagesForInference).toHaveLength(3);
   });
 
-  it('rejects non-UUID conversationId', () => {
+  it('rejects missing models', () => {
     expect(() =>
       streamChatRequestSchema.parse({
-        conversationId: 'not-a-uuid',
-        model: 'gpt-4',
-        userMessage: {
-          id: validMsgId,
-          content: 'Hello',
-        },
-        messagesForInference: [{ role: 'user', content: 'Hello' }],
-        fundingSource: 'personal_balance',
-      })
-    ).toThrow();
-  });
-
-  it('rejects missing conversationId', () => {
-    expect(() =>
-      streamChatRequestSchema.parse({
-        model: 'gpt-4',
-        userMessage: {
-          id: validMsgId,
-          content: 'Hello',
-        },
-        messagesForInference: [{ role: 'user', content: 'Hello' }],
-        fundingSource: 'personal_balance',
-      })
-    ).toThrow();
-  });
-
-  it('rejects missing model', () => {
-    expect(() =>
-      streamChatRequestSchema.parse({
-        conversationId: validId,
         userMessage: {
           id: validMsgId,
           content: 'Hello',
@@ -372,8 +383,7 @@ describe('streamChatRequestSchema', () => {
   it('rejects empty user message content', () => {
     expect(() =>
       streamChatRequestSchema.parse({
-        conversationId: validId,
-        model: 'gpt-4',
+        models: ['gpt-4'],
         userMessage: {
           id: validMsgId,
           content: '',
@@ -387,8 +397,7 @@ describe('streamChatRequestSchema', () => {
   it('rejects missing user message content', () => {
     expect(() =>
       streamChatRequestSchema.parse({
-        conversationId: validId,
-        model: 'gpt-4',
+        models: ['gpt-4'],
         userMessage: {
           id: validMsgId,
         },
@@ -399,12 +408,10 @@ describe('streamChatRequestSchema', () => {
   });
 
   it('accepts valid fundingSource values', () => {
-    const validId = '550e8400-e29b-41d4-a716-446655440000';
-    const validMsgId = '550e8400-e29b-41d4-a716-446655440001';
+    const validMsgId_ = '550e8400-e29b-41d4-a716-446655440001';
     const base = {
-      conversationId: validId,
-      model: 'gpt-4',
-      userMessage: { id: validMsgId, content: 'Hello' },
+      models: ['gpt-4'],
+      userMessage: { id: validMsgId_, content: 'Hello' },
       messagesForInference: [{ role: 'user' as const, content: 'Hello' }],
     };
 
@@ -417,8 +424,7 @@ describe('streamChatRequestSchema', () => {
   it('rejects missing fundingSource (required)', () => {
     expect(() =>
       streamChatRequestSchema.parse({
-        conversationId: '550e8400-e29b-41d4-a716-446655440000',
-        model: 'gpt-4',
+        models: ['gpt-4'],
         userMessage: { id: '550e8400-e29b-41d4-a716-446655440001', content: 'Hello' },
         messagesForInference: [{ role: 'user', content: 'Hello' }],
       })
@@ -428,8 +434,7 @@ describe('streamChatRequestSchema', () => {
   it('rejects invalid fundingSource value', () => {
     expect(() =>
       streamChatRequestSchema.parse({
-        conversationId: '550e8400-e29b-41d4-a716-446655440000',
-        model: 'gpt-4',
+        models: ['gpt-4'],
         userMessage: { id: '550e8400-e29b-41d4-a716-446655440001', content: 'Hello' },
         messagesForInference: [{ role: 'user', content: 'Hello' }],
         fundingSource: 'invalid_source',
@@ -437,10 +442,108 @@ describe('streamChatRequestSchema', () => {
     ).toThrow();
   });
 
+  it('accepts optional webSearchEnabled boolean', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['gpt-4'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+      webSearchEnabled: true,
+    });
+    expect(result.webSearchEnabled).toBe(true);
+  });
+
+  it('allows omitting webSearchEnabled', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['gpt-4'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+    });
+    expect(result.webSearchEnabled).toBeUndefined();
+  });
+
+  it('accepts optional customInstructions string', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['gpt-4'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+      customInstructions: 'Always respond in bullet points',
+    });
+    expect(result.customInstructions).toBe('Always respond in bullet points');
+  });
+
+  it('allows omitting customInstructions', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['gpt-4'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+    });
+    expect(result.customInstructions).toBeUndefined();
+  });
+
+  it('rejects customInstructions exceeding 5000 characters', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['gpt-4'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        customInstructions: 'x'.repeat(5001),
+      })
+    ).toThrow();
+  });
+
+  it('accepts customInstructions at exactly 5000 characters', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['gpt-4'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+      customInstructions: 'x'.repeat(5000),
+    });
+    expect(result.customInstructions).toHaveLength(5000);
+  });
+
+  it('accepts optional forkId as valid UUID', () => {
+    const forkUuid = '660e8400-e29b-41d4-a716-446655440099';
+    const result = streamChatRequestSchema.parse({
+      models: ['gpt-4'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+      forkId: forkUuid,
+    });
+    expect(result.forkId).toBe(forkUuid);
+  });
+
+  it('allows omitting forkId', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['gpt-4'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+    });
+    expect(result.forkId).toBeUndefined();
+  });
+
+  it('rejects invalid forkId (non-UUID string)', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['gpt-4'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        forkId: 'not-a-uuid',
+      })
+    ).toThrow();
+  });
+
   it('does not accept contentEncrypted or iv on userMessage', () => {
     const result = streamChatRequestSchema.parse({
-      conversationId: validId,
-      model: 'gpt-4',
+      models: ['gpt-4'],
       userMessage: {
         id: validMsgId,
         content: 'Hello',
@@ -577,29 +680,49 @@ describe('conversationResponseSchema', () => {
 });
 
 describe('messageResponseSchema', () => {
-  it('accepts valid epoch-based message', () => {
+  it('accepts valid epoch-based message with parentMessageId', () => {
     const result = messageResponseSchema.parse({
       id: 'msg-123',
       conversationId: 'conv-456',
       encryptedBlob: 'base64eciesblob',
       senderType: 'user',
       senderId: 'user-789',
-      senderDisplayName: 'Alice',
+      modelName: 'Alice',
       payerId: null,
       cost: null,
       epochNumber: 1,
       sequenceNumber: 0,
+      parentMessageId: null,
       createdAt: '2024-01-01T00:00:00Z',
     });
     expect(result.id).toBe('msg-123');
     expect(result.encryptedBlob).toBe('base64eciesblob');
     expect(result.senderType).toBe('user');
     expect(result.senderId).toBe('user-789');
-    expect(result.senderDisplayName).toBe('Alice');
+    expect(result.modelName).toBe('Alice');
     expect(result.payerId).toBeNull();
     expect(result.cost).toBeNull();
     expect(result.epochNumber).toBe(1);
     expect(result.sequenceNumber).toBe(0);
+    expect(result.parentMessageId).toBeNull();
+  });
+
+  it('accepts message with non-null parentMessageId', () => {
+    const result = messageResponseSchema.parse({
+      id: 'msg-124',
+      conversationId: 'conv-456',
+      encryptedBlob: 'base64blob',
+      senderType: 'ai',
+      senderId: null,
+      modelName: null,
+      payerId: 'user-789',
+      cost: '0.00136000',
+      epochNumber: 1,
+      sequenceNumber: 1,
+      parentMessageId: 'msg-123',
+      createdAt: '2024-01-01T00:00:00Z',
+    });
+    expect(result.parentMessageId).toBe('msg-123');
   });
 
   it('accepts AI message with null senderId and payerId', () => {
@@ -609,16 +732,17 @@ describe('messageResponseSchema', () => {
       encryptedBlob: 'base64airesponseblob',
       senderType: 'ai',
       senderId: null,
-      senderDisplayName: null,
+      modelName: null,
       payerId: 'user-789',
       cost: '0.00136000',
       epochNumber: 1,
       sequenceNumber: 1,
+      parentMessageId: null,
       createdAt: '2024-01-01T00:00:00Z',
     });
     expect(result.senderType).toBe('ai');
     expect(result.senderId).toBeNull();
-    expect(result.senderDisplayName).toBeNull();
+    expect(result.modelName).toBeNull();
     expect(result.payerId).toBe('user-789');
     expect(result.cost).toBe('0.00136000');
   });
@@ -630,11 +754,12 @@ describe('messageResponseSchema', () => {
       encryptedBlob: 'base64blob',
       senderType: 'user',
       senderId: 'user-789',
-      senderDisplayName: null,
+      modelName: null,
       payerId: null,
       cost: null,
       epochNumber: 1,
       sequenceNumber: 0,
+      parentMessageId: null,
       createdAt: '2024-01-01T00:00:00Z',
     });
     expect(result.cost).toBeNull();
@@ -648,11 +773,12 @@ describe('messageResponseSchema', () => {
         encryptedBlob: 'base64eciesblob',
         senderType: 'system',
         senderId: null,
-        senderDisplayName: null,
+        modelName: null,
         payerId: null,
         cost: null,
         epochNumber: 1,
         sequenceNumber: 0,
+        parentMessageId: null,
         createdAt: '2024-01-01T00:00:00Z',
       })
     ).toThrow();
@@ -665,7 +791,7 @@ describe('messageResponseSchema', () => {
         conversationId: 'conv-456',
         senderType: 'user',
         senderId: null,
-        senderDisplayName: null,
+        modelName: null,
         payerId: null,
         cost: null,
         epochNumber: 1,
@@ -683,7 +809,7 @@ describe('messageResponseSchema', () => {
         encryptedBlob: 'base64eciesblob',
         senderType: 'user',
         senderId: null,
-        senderDisplayName: null,
+        modelName: null,
         payerId: null,
         cost: null,
         epochNumber: 1.5,
@@ -701,7 +827,7 @@ describe('messageResponseSchema', () => {
         encryptedBlob: 'base64eciesblob',
         senderType: 'user',
         senderId: null,
-        senderDisplayName: null,
+        modelName: null,
         payerId: null,
         cost: null,
         epochNumber: 1,
@@ -719,7 +845,7 @@ describe('messageResponseSchema', () => {
         encryptedBlob: 'base64eciesblob',
         senderType: 'user',
         senderId: null,
-        senderDisplayName: null,
+        modelName: null,
         payerId: null,
         cost: null,
         sequenceNumber: 0,
@@ -736,7 +862,7 @@ describe('messageResponseSchema', () => {
         encryptedBlob: 'base64eciesblob',
         senderType: 'user',
         senderId: null,
-        senderDisplayName: null,
+        modelName: null,
         payerId: null,
         cost: null,
         epochNumber: 0,
@@ -754,7 +880,7 @@ describe('messageResponseSchema', () => {
         encryptedBlob: 'base64eciesblob',
         senderType: 'user',
         senderId: null,
-        senderDisplayName: null,
+        modelName: null,
         payerId: null,
         cost: null,
         epochNumber: 1,
@@ -772,7 +898,7 @@ describe('messageResponseSchema', () => {
         encryptedBlob: 'base64eciesblob',
         senderType: 'user',
         senderId: null,
-        senderDisplayName: null,
+        modelName: null,
         payerId: null,
         cost: null,
         epochNumber: 1,
@@ -789,11 +915,12 @@ describe('messageResponseSchema', () => {
       encryptedBlob: 'base64eciesblob',
       senderType: 'user',
       senderId: null,
-      senderDisplayName: null,
+      modelName: null,
       payerId: null,
       cost: null,
       epochNumber: 1,
       sequenceNumber: 0,
+      parentMessageId: null,
       createdAt: '2024-01-01T00:00:00Z',
       // old fields — should be stripped
       role: 'user',
@@ -1005,16 +1132,19 @@ describe('getConversationResponseSchema', () => {
           encryptedBlob: 'base64blob',
           senderType: 'user',
           senderId: 'user-456',
-          senderDisplayName: 'Alice',
+          modelName: 'Alice',
           payerId: null,
           cost: null,
           epochNumber: 1,
           sequenceNumber: 0,
+          parentMessageId: null,
           createdAt: '2024-01-01T00:00:00Z',
         },
       ],
       accepted: true,
       invitedByUsername: null,
+      callerId: 'user-456',
+      privilege: 'owner',
     });
     expect(result.conversation.id).toBe('conv-123');
     expect(result.messages).toHaveLength(1);
@@ -1037,6 +1167,8 @@ describe('getConversationResponseSchema', () => {
       messages: [],
       accepted: false,
       invitedByUsername: 'sarah',
+      callerId: 'user-456',
+      privilege: 'write',
     });
     expect(result.accepted).toBe(false);
     expect(result.invitedByUsername).toBe('sarah');
@@ -1057,6 +1189,8 @@ describe('getConversationResponseSchema', () => {
         },
         messages: [],
         invitedByUsername: null,
+        callerId: 'user-456',
+        privilege: 'owner',
       })
     ).toThrow();
   });
@@ -1076,8 +1210,118 @@ describe('getConversationResponseSchema', () => {
         },
         messages: [],
         accepted: true,
+        callerId: 'user-456',
+        privilege: 'owner',
       })
     ).toThrow();
+  });
+
+  it('rejects missing callerId field', () => {
+    expect(() =>
+      getConversationResponseSchema.parse({
+        conversation: {
+          id: 'conv-123',
+          userId: 'user-456',
+          title: 'base64encryptedtitle',
+          currentEpoch: 1,
+          titleEpochNumber: 1,
+          nextSequence: 0,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        messages: [],
+        accepted: true,
+        invitedByUsername: null,
+        privilege: 'owner',
+      })
+    ).toThrow();
+  });
+
+  it('rejects missing privilege field', () => {
+    expect(() =>
+      getConversationResponseSchema.parse({
+        conversation: {
+          id: 'conv-123',
+          userId: 'user-456',
+          title: 'base64encryptedtitle',
+          currentEpoch: 1,
+          titleEpochNumber: 1,
+          nextSequence: 0,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        messages: [],
+        accepted: true,
+        invitedByUsername: null,
+        callerId: 'user-456',
+      })
+    ).toThrow();
+  });
+
+  it('rejects invalid privilege value', () => {
+    expect(() =>
+      getConversationResponseSchema.parse({
+        conversation: {
+          id: 'conv-123',
+          userId: 'user-456',
+          title: 'base64encryptedtitle',
+          currentEpoch: 1,
+          titleEpochNumber: 1,
+          nextSequence: 0,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        messages: [],
+        accepted: true,
+        invitedByUsername: null,
+        callerId: 'user-456',
+        privilege: 'invalid_privilege',
+      })
+    ).toThrow();
+  });
+
+  it('accepts callerId and privilege fields', () => {
+    const result = getConversationResponseSchema.parse({
+      conversation: {
+        id: 'conv-123',
+        userId: 'user-456',
+        title: 'base64encryptedtitle',
+        currentEpoch: 1,
+        titleEpochNumber: 1,
+        nextSequence: 0,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+      },
+      messages: [],
+      accepted: true,
+      invitedByUsername: null,
+      callerId: 'user-456',
+      privilege: 'owner',
+    });
+    expect(result.callerId).toBe('user-456');
+    expect(result.privilege).toBe('owner');
+  });
+
+  it('accepts link guest callerId', () => {
+    const result = getConversationResponseSchema.parse({
+      conversation: {
+        id: 'conv-123',
+        userId: 'user-456',
+        title: 'base64encryptedtitle',
+        currentEpoch: 1,
+        titleEpochNumber: 1,
+        nextSequence: 0,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+      },
+      messages: [],
+      accepted: true,
+      invitedByUsername: null,
+      callerId: 'link-guest-abc',
+      privilege: 'read',
+    });
+    expect(result.callerId).toBe('link-guest-abc');
+    expect(result.privilege).toBe('read');
   });
 });
 
@@ -1117,11 +1361,12 @@ describe('createConversationResponseSchema', () => {
           encryptedBlob: 'base64blob',
           senderType: 'user',
           senderId: 'user-456',
-          senderDisplayName: 'Alice',
+          modelName: 'Alice',
           payerId: null,
           cost: null,
           epochNumber: 1,
           sequenceNumber: 0,
+          parentMessageId: null,
           createdAt: '2024-01-01T00:00:00Z',
         },
       ],
@@ -1142,11 +1387,12 @@ describe('createConversationResponseSchema', () => {
         encryptedBlob: 'base64blob',
         senderType: 'user',
         senderId: 'user-456',
-        senderDisplayName: 'Alice',
+        modelName: 'Alice',
         payerId: null,
         cost: null,
         epochNumber: 1,
         sequenceNumber: 0,
+        parentMessageId: null,
         createdAt: '2024-01-01T00:00:00Z',
       },
       isNew: true,
@@ -1232,5 +1478,307 @@ describe('deleteConversationResponseSchema', () => {
 
   it('rejects missing deleted field', () => {
     expect(() => deleteConversationResponseSchema.parse({})).toThrow();
+  });
+});
+
+// ============================================================
+// Fork Schemas
+// ============================================================
+
+describe('forkResponseSchema', () => {
+  it('accepts valid fork response', () => {
+    const result = forkResponseSchema.parse({
+      id: 'fork-1',
+      conversationId: 'conv-1',
+      name: 'Main',
+      tipMessageId: 'msg-5',
+      createdAt: '2026-03-03T00:00:00Z',
+    });
+    expect(result.id).toBe('fork-1');
+    expect(result.name).toBe('Main');
+    expect(result.tipMessageId).toBe('msg-5');
+  });
+
+  it('accepts fork with null tipMessageId', () => {
+    const result = forkResponseSchema.parse({
+      id: 'fork-1',
+      conversationId: 'conv-1',
+      name: 'Fork 1',
+      tipMessageId: null,
+      createdAt: '2026-03-03T00:00:00Z',
+    });
+    expect(result.tipMessageId).toBeNull();
+  });
+
+  it('rejects missing name', () => {
+    expect(() =>
+      forkResponseSchema.parse({
+        id: 'fork-1',
+        conversationId: 'conv-1',
+        tipMessageId: null,
+        createdAt: '2026-03-03T00:00:00Z',
+      })
+    ).toThrow();
+  });
+});
+
+describe('createForkRequestSchema', () => {
+  const validId = '550e8400-e29b-41d4-a716-446655440000';
+  const validMsgId = '550e8400-e29b-41d4-a716-446655440001';
+
+  it('accepts valid request with id and fromMessageId', () => {
+    const result = createForkRequestSchema.parse({
+      id: validId,
+      fromMessageId: validMsgId,
+    });
+    expect(result.id).toBe(validId);
+    expect(result.fromMessageId).toBe(validMsgId);
+    expect(result.name).toBeUndefined();
+  });
+
+  it('accepts optional name', () => {
+    const result = createForkRequestSchema.parse({
+      id: validId,
+      fromMessageId: validMsgId,
+      name: 'My Branch',
+    });
+    expect(result.name).toBe('My Branch');
+  });
+
+  it('rejects name exceeding 50 characters', () => {
+    expect(() =>
+      createForkRequestSchema.parse({
+        id: validId,
+        fromMessageId: validMsgId,
+        name: 'x'.repeat(51),
+      })
+    ).toThrow();
+  });
+
+  it('rejects empty name', () => {
+    expect(() =>
+      createForkRequestSchema.parse({
+        id: validId,
+        fromMessageId: validMsgId,
+        name: '',
+      })
+    ).toThrow();
+  });
+
+  it('rejects non-UUID id', () => {
+    expect(() =>
+      createForkRequestSchema.parse({
+        id: 'not-a-uuid',
+        fromMessageId: validMsgId,
+      })
+    ).toThrow();
+  });
+
+  it('rejects non-UUID fromMessageId', () => {
+    expect(() =>
+      createForkRequestSchema.parse({
+        id: validId,
+        fromMessageId: 'not-a-uuid',
+      })
+    ).toThrow();
+  });
+});
+
+describe('renameForkRequestSchema', () => {
+  it('accepts valid name', () => {
+    const result = renameForkRequestSchema.parse({ name: 'My Branch' });
+    expect(result.name).toBe('My Branch');
+  });
+
+  it('rejects empty name', () => {
+    expect(() => renameForkRequestSchema.parse({ name: '' })).toThrow();
+  });
+
+  it('rejects name exceeding 50 characters', () => {
+    expect(() => renameForkRequestSchema.parse({ name: 'x'.repeat(51) })).toThrow();
+  });
+
+  it('rejects missing name', () => {
+    expect(() => renameForkRequestSchema.parse({})).toThrow();
+  });
+});
+
+// ============================================================
+// Regeneration Schema
+// ============================================================
+
+describe('regenerateRequestSchema', () => {
+  const validMsgId = '550e8400-e29b-41d4-a716-446655440001';
+  const validTargetId = '550e8400-e29b-41d4-a716-446655440002';
+
+  const validRequest = {
+    targetMessageId: validTargetId,
+    action: 'retry' as const,
+    model: 'gpt-4',
+    userMessage: { id: validMsgId, content: 'Hello' },
+    messagesForInference: [{ role: 'user' as const, content: 'Hello' }],
+    fundingSource: 'personal_balance' as const,
+  };
+
+  it('accepts valid retry request', () => {
+    const result = regenerateRequestSchema.parse(validRequest);
+    expect(result.action).toBe('retry');
+    expect(result.targetMessageId).toBe(validTargetId);
+  });
+
+  it('accepts valid edit request', () => {
+    const result = regenerateRequestSchema.parse({ ...validRequest, action: 'edit' });
+    expect(result.action).toBe('edit');
+  });
+
+  it('accepts valid regenerate request', () => {
+    const result = regenerateRequestSchema.parse({ ...validRequest, action: 'regenerate' });
+    expect(result.action).toBe('regenerate');
+  });
+
+  it('rejects invalid action', () => {
+    expect(() => regenerateRequestSchema.parse({ ...validRequest, action: 'delete' })).toThrow();
+  });
+
+  it('accepts optional forkId', () => {
+    const forkId = '550e8400-e29b-41d4-a716-446655440003';
+    const result = regenerateRequestSchema.parse({ ...validRequest, forkId });
+    expect(result.forkId).toBe(forkId);
+  });
+
+  it('allows omitting forkId', () => {
+    const result = regenerateRequestSchema.parse(validRequest);
+    expect(result.forkId).toBeUndefined();
+  });
+
+  it('accepts optional webSearchEnabled', () => {
+    const result = regenerateRequestSchema.parse({
+      ...validRequest,
+      webSearchEnabled: true,
+    });
+    expect(result.webSearchEnabled).toBe(true);
+  });
+
+  it('accepts optional customInstructions', () => {
+    const result = regenerateRequestSchema.parse({
+      ...validRequest,
+      customInstructions: 'Be concise',
+    });
+    expect(result.customInstructions).toBe('Be concise');
+  });
+
+  it('rejects customInstructions exceeding 5000 characters', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({
+        ...validRequest,
+        customInstructions: 'x'.repeat(5001),
+      })
+    ).toThrow();
+  });
+
+  it('requires at least one message for inference', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({
+        ...validRequest,
+        messagesForInference: [],
+      })
+    ).toThrow();
+  });
+
+  it('rejects empty user message content', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({
+        ...validRequest,
+        userMessage: { id: validMsgId, content: '' },
+      })
+    ).toThrow();
+  });
+
+  it('rejects non-UUID targetMessageId', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({
+        ...validRequest,
+        targetMessageId: 'not-a-uuid',
+      })
+    ).toThrow();
+  });
+});
+
+// ============================================================
+// Response schemas include forks
+// ============================================================
+
+describe('getConversationResponseSchema with forks', () => {
+  it('accepts response with forks array', () => {
+    const result = getConversationResponseSchema.parse({
+      conversation: {
+        id: 'conv-123',
+        userId: 'user-456',
+        title: 'base64title',
+        currentEpoch: 1,
+        titleEpochNumber: 1,
+        nextSequence: 2,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+      },
+      messages: [],
+      forks: [
+        {
+          id: 'fork-1',
+          conversationId: 'conv-123',
+          name: 'Main',
+          tipMessageId: 'msg-5',
+          createdAt: '2024-01-01T00:00:00Z',
+        },
+      ],
+      accepted: true,
+      invitedByUsername: null,
+      callerId: 'user-456',
+      privilege: 'owner',
+    });
+    expect(result.forks).toHaveLength(1);
+    expect(result.forks[0]?.name).toBe('Main');
+  });
+
+  it('defaults forks to empty array when not provided', () => {
+    const result = getConversationResponseSchema.parse({
+      conversation: {
+        id: 'conv-123',
+        userId: 'user-456',
+        title: 'base64title',
+        currentEpoch: 1,
+        titleEpochNumber: 1,
+        nextSequence: 0,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+      },
+      messages: [],
+      accepted: true,
+      invitedByUsername: null,
+      callerId: 'user-456',
+      privilege: 'owner',
+    });
+    expect(result.forks).toEqual([]);
+  });
+});
+
+describe('createConversationResponseSchema with forks', () => {
+  it('defaults forks to empty array when not provided', () => {
+    const result = createConversationResponseSchema.parse({
+      conversation: {
+        id: 'conv-123',
+        userId: 'user-456',
+        title: 'base64title',
+        currentEpoch: 1,
+        titleEpochNumber: 1,
+        nextSequence: 0,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+      },
+      isNew: true,
+      accepted: true,
+      invitedByUsername: null,
+    });
+    expect(result.forks).toEqual([]);
   });
 });

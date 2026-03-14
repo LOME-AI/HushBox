@@ -15,7 +15,6 @@ interface RecoveryPhraseModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
-  fromPaymentGate?: boolean;
 }
 
 type Step = 'display' | 'verify' | 'success';
@@ -138,7 +137,6 @@ export function RecoveryPhraseModal({
   open,
   onOpenChange,
   onSuccess,
-  fromPaymentGate = false,
 }: Readonly<RecoveryPhraseModalProps>): React.JSX.Element | null {
   const isMobile = useIsMobile();
   const [step, setStep] = useState<Step>('display');
@@ -225,7 +223,6 @@ export function RecoveryPhraseModal({
       onOpenAutoFocus={handleOpenAutoFocus}
       currentStep={currentStep}
       {...(showBackButton && { onBack: handleBack })}
-      showCloseButton={step !== 'success' || !fromPaymentGate}
     >
       <div
         data-testid="recovery-phrase-modal"
@@ -236,7 +233,6 @@ export function RecoveryPhraseModal({
         {step === 'display' && phrase && (
           <DisplayStep
             words={words}
-            fromPaymentGate={fromPaymentGate}
             copied={copied}
             onCopy={() => {
               void handleCopy();
@@ -265,7 +261,7 @@ export function RecoveryPhraseModal({
           <ModalSuccessStep
             heading="Recovery Phrase Saved"
             description="Your account is now protected. If you forget your password, use this phrase to recover your data."
-            primaryLabel={fromPaymentGate ? 'Continue to Payment' : 'Done'}
+            primaryLabel="Done"
             onDone={handleDone}
           />
         )}
@@ -276,7 +272,6 @@ export function RecoveryPhraseModal({
 
 interface DisplayStepProps {
   words: string[];
-  fromPaymentGate: boolean;
   copied: boolean;
   onCopy: () => void;
   onProceed: () => void;
@@ -285,7 +280,6 @@ interface DisplayStepProps {
 
 function DisplayStep({
   words,
-  fromPaymentGate,
   copied,
   onCopy,
   onProceed,
@@ -293,12 +287,6 @@ function DisplayStep({
 }: Readonly<DisplayStepProps>): React.JSX.Element {
   return (
     <div className="space-y-4">
-      {fromPaymentGate && (
-        <div className="bg-muted/50 rounded-md p-3 text-sm">
-          Before adding credits, please save your recovery phrase.
-        </div>
-      )}
-
       <div>
         <h2 className="text-lg font-semibold">Your Recovery Phrase</h2>
         <p className="text-muted-foreground mt-1 text-sm">

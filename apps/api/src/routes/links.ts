@@ -15,15 +15,13 @@ import {
 import { createEvent } from '@hushbox/realtime/events';
 import { toRotationParams, handleRotationError } from '../services/keys/keys.js';
 import type { AppEnv } from '../types.js';
-import { requireAuth } from '../middleware/require-auth.js';
-import { requirePrivilege } from '../middleware/require-privilege.js';
+import { requirePrivilege, requireLinkGuest } from '../middleware/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { broadcastToRoom } from '../lib/broadcast.js';
 import { fireAndForget } from '../lib/fire-and-forget.js';
 import { listLinks, createLink, revokeLink, changeLinkPrivilege } from '../services/links/index.js';
 
 export const linksRoute = new Hono<AppEnv>()
-  .use('*', requireAuth())
   .get(
     '/:conversationId',
     zValidator('param', z.object({ conversationId: z.string() })),
@@ -51,17 +49,22 @@ export const linksRoute = new Hono<AppEnv>()
   .post(
     '/:conversationId',
     zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('admin'),
     zValidator(
       'json',
-      z.object({
-        linkPublicKey: z.string(),
-        memberWrap: z.string(),
-        privilege: z.string(),
-        giveFullHistory: z.boolean(),
-        displayName: z.string().min(1).max(100).optional(),
-      })
+      z
+        .object({
+          linkPublicKey: z.string(),
+          memberWrap: z.string(),
+          privilege: z.string(),
+          giveFullHistory: z.boolean(),
+          displayName: z.string().min(1).max(100).optional(),
+          rotation: rotationSchema.optional(),
+        })
+        .refine((d) => d.giveFullHistory || d.rotation !== undefined, {
+          message: 'rotation required when giveFullHistory is false',
+        })
     ),
-    requirePrivilege('admin'),
     async (c) => {
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
@@ -91,7 +94,7 @@ export const linksRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_MEMBER_LIMIT_REACHED), 400);
       }
 
-      const visibleFromEpoch = body.giveFullHistory ? 1 : currentEpoch.epochNumber;
+      const visibleFromEpoch = body.giveFullHistory ? 1 : body.rotation!.expectedEpoch + 1;
 
       try {
         const result = await createLink(db, {
@@ -102,7 +105,25 @@ export const linksRoute = new Hono<AppEnv>()
           visibleFromEpoch,
           currentEpochId: currentEpoch.id,
           ...(body.displayName !== undefined && { displayName: body.displayName }),
+          ...(body.rotation !== undefined && {
+            rotation: toRotationParams(conversationId, body.rotation),
+          }),
         });
+
+        // Broadcast rotation:complete if epoch rotated
+        if (body.rotation) {
+          fireAndForget(
+            broadcastToRoom(
+              c.env,
+              conversationId,
+              createEvent('rotation:complete', {
+                conversationId,
+                newEpochNumber: body.rotation.expectedEpoch + 1,
+              })
+            ),
+            'broadcast rotation:complete after link creation'
+          );
+        }
 
         return c.json({ linkId: result.linkId, memberId: result.memberId }, 201);
       } catch (error) {
@@ -113,6 +134,7 @@ export const linksRoute = new Hono<AppEnv>()
   .post(
     '/:conversationId/revoke',
     zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('admin'),
     zValidator(
       'json',
       z.object({
@@ -120,7 +142,6 @@ export const linksRoute = new Hono<AppEnv>()
         rotation: rotationSchema,
       })
     ),
-    requirePrivilege('admin'),
     async (c) => {
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
@@ -172,8 +193,8 @@ export const linksRoute = new Hono<AppEnv>()
   .patch(
     '/:conversationId/:linkId/privilege',
     zValidator('param', z.object({ conversationId: z.string(), linkId: z.string() })),
-    zValidator('json', z.object({ privilege: z.enum(['read', 'write']) })),
     requirePrivilege('admin'),
+    zValidator('json', z.object({ privilege: z.enum(['read', 'write']) })),
     async (c) => {
       const db = c.get('db');
       const { conversationId, linkId } = c.req.valid('param');
@@ -206,8 +227,8 @@ export const linksRoute = new Hono<AppEnv>()
   .patch(
     '/:conversationId/:linkId/name',
     zValidator('param', z.object({ conversationId: z.string(), linkId: z.string() })),
-    zValidator('json', z.object({ displayName: z.string().min(1).max(100) })),
     requirePrivilege('admin'),
+    zValidator('json', z.object({ displayName: z.string().min(1).max(100) })),
     async (c) => {
       const db = c.get('db');
       const { linkId } = c.req.valid('param');
@@ -227,6 +248,21 @@ export const linksRoute = new Hono<AppEnv>()
 
       // Update display name
       await db.update(sharedLinks).set({ displayName }).where(eq(sharedLinks.id, linkId));
+
+      return c.json({ success: true }, 200);
+    }
+  )
+  .patch(
+    '/:conversationId/my-name',
+    zValidator('param', z.object({ conversationId: z.string() })),
+    requireLinkGuest(),
+    zValidator('json', z.object({ displayName: z.string().min(1).max(100) })),
+    async (c) => {
+      const db = c.get('db');
+      const linkGuest = c.get('linkGuest')!;
+      const { displayName } = c.req.valid('json');
+
+      await db.update(sharedLinks).set({ displayName }).where(eq(sharedLinks.id, linkGuest.linkId));
 
       return c.json({ success: true }, 200);
     }

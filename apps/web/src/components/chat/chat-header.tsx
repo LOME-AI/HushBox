@@ -5,13 +5,12 @@ import { PageHeader } from '@/components/shared/page-header';
 import { ModelSelectorButton } from './model-selector-button';
 import { MemberFacepile } from './member-facepile';
 import type { Model } from '@hushbox/shared';
+import type { SelectedModelEntry } from '@/stores/model';
 
 interface ChatHeaderProps {
   models: Model[];
-  selectedModelId: string;
-  /** Fallback name to display before models load (prevents flash) */
-  selectedModelName?: string | undefined;
-  onModelSelect: (modelId: string, modelName: string) => void;
+  selectedModels: SelectedModelEntry[];
+  onModelSelect: (models: SelectedModelEntry[]) => void;
   title?: string | undefined;
   /** Set of premium model IDs */
   premiumIds?: Set<string> | undefined;
@@ -31,8 +30,7 @@ interface ChatHeaderProps {
 
 export function ChatHeader({
   models,
-  selectedModelId,
-  selectedModelName,
+  selectedModels,
   onModelSelect,
   title,
   premiumIds,
@@ -54,8 +52,7 @@ export function ChatHeader({
       center={
         <ModelSelectorButton
           models={models}
-          selectedId={selectedModelId}
-          selectedName={selectedModelName}
+          selectedModels={selectedModels}
           onSelect={onModelSelect}
           premiumIds={premiumIds}
           canAccessPremium={canAccessPremium}

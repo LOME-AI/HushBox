@@ -10,6 +10,15 @@ async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> 
 vi.mock('@hushbox/db', () => ({
   createDb: vi.fn(() => ({ mocked: 'db' })),
   LOCAL_NEON_DEV_CONFIG: { mocked: 'config' },
+  users: {
+    id: 'users.id',
+    email: 'users.email',
+    username: 'users.username',
+    emailVerified: 'users.emailVerified',
+    totpEnabled: 'users.totpEnabled',
+    hasAcknowledgedPhrase: 'users.hasAcknowledgedPhrase',
+    publicKey: 'users.publicKey',
+  },
 }));
 
 vi.mock('../services/email/index.js', () => ({
@@ -161,6 +170,26 @@ describe('sessionMiddleware', () => {
     expect(body).toEqual({ code: 'NOT_AUTHENTICATED' });
   });
 
+  it('passes through without setting user when link guest header is present', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.use('*', dbMiddleware());
+    app.use('*', sessionMiddleware());
+    app.get('/', (c) => {
+      const user = c.get('user');
+      return c.json({ hasUser: !!user });
+    });
+
+    const res = await app.request(
+      '/',
+      { headers: { 'x-link-public-key': 'some-base64-key' } },
+      { DATABASE_URL: 'postgres://test' }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ hasUser: false });
+  });
+
   it('returns 401 when session is not active in Redis', async () => {
     const app = new Hono<AppEnv>();
     app.use('*', envMiddleware());
@@ -240,6 +269,270 @@ describe('sessionMiddleware', () => {
       }
     );
     expect(res.status).toBe(401);
+  });
+
+  it('falls back to link guest when session is revoked and link header present', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.use('*', dbMiddleware());
+    app.use('*', redisMiddleware());
+    app.use('*', (c, next) => {
+      c.set('sessionData', {
+        sessionId: 'test-session-id',
+        userId: 'test-user-id',
+        email: 'test@example.com',
+        username: 'test_user',
+        emailVerified: true,
+        totpEnabled: false,
+        hasAcknowledgedPhrase: false,
+        pending2FA: false,
+        pending2FAExpiresAt: 0,
+        createdAt: Date.now(),
+      });
+      return next();
+    });
+    app.use('*', sessionMiddleware());
+    app.get('/', (c) => {
+      const user = c.get('user');
+      return c.json({ hasUser: !!user });
+    });
+
+    const res = await app.request(
+      '/',
+      { headers: { 'x-link-public-key': 'some-base64-key' } },
+      {
+        DATABASE_URL: 'postgres://test',
+        UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+        UPSTASH_REDIS_REST_TOKEN: 'test-token',
+      }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ hasUser: false });
+  });
+
+  it('still returns 401 when session is revoked and no link header', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.use('*', dbMiddleware());
+    app.use('*', redisMiddleware());
+    app.use('*', (c, next) => {
+      c.set('sessionData', {
+        sessionId: 'test-session-id',
+        userId: 'test-user-id',
+        email: 'test@example.com',
+        username: 'test_user',
+        emailVerified: true,
+        totpEnabled: false,
+        hasAcknowledgedPhrase: false,
+        pending2FA: false,
+        pending2FAExpiresAt: 0,
+        createdAt: Date.now(),
+      });
+      return next();
+    });
+    app.use('*', sessionMiddleware());
+    app.get('/', (c) => c.json({ message: 'should not reach here' }));
+
+    const res = await app.request(
+      '/',
+      {},
+      {
+        DATABASE_URL: 'postgres://test',
+        UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+        UPSTASH_REDIS_REST_TOKEN: 'test-token',
+      }
+    );
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body).toEqual({ code: 'SESSION_REVOKED' });
+  });
+
+  it('falls back to link guest when password changed and link header present', async () => {
+    const app = new Hono<AppEnv>();
+    const createdAt = Date.now() - 10_000;
+    const passwordChangedAt = Date.now();
+
+    app.use('*', envMiddleware());
+    app.use('*', dbMiddleware());
+    app.use('*', redisMiddleware());
+    app.use('*', async (c, next) => {
+      const redis = c.get('redis');
+      const { redisSet } = await import('../lib/redis-registry.js');
+      await redisSet(redis, 'sessionActive', '1', 'test-user-id', 'test-session-id');
+      await redisSet(redis, 'passwordChangedAt', passwordChangedAt, 'test-user-id');
+      c.set('sessionData', {
+        sessionId: 'test-session-id',
+        userId: 'test-user-id',
+        email: 'test@example.com',
+        username: 'test_user',
+        emailVerified: true,
+        totpEnabled: false,
+        hasAcknowledgedPhrase: false,
+        pending2FA: false,
+        pending2FAExpiresAt: 0,
+        createdAt,
+      });
+      return next();
+    });
+    app.use('*', sessionMiddleware());
+    app.get('/', (c) => {
+      const user = c.get('user');
+      return c.json({ hasUser: !!user });
+    });
+
+    const res = await app.request(
+      '/',
+      { headers: { 'x-link-public-key': 'some-base64-key' } },
+      {
+        DATABASE_URL: 'postgres://test',
+        UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+        UPSTASH_REDIS_REST_TOKEN: 'test-token',
+      }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ hasUser: false });
+  });
+
+  it('falls back to link guest when 2FA expired and link header present', async () => {
+    const app = new Hono<AppEnv>();
+
+    app.use('*', envMiddleware());
+    app.use('*', dbMiddleware());
+    app.use('*', redisMiddleware());
+    app.use('*', async (c, next) => {
+      const redis = c.get('redis');
+      const { redisSet } = await import('../lib/redis-registry.js');
+      await redisSet(redis, 'sessionActive', '1', 'test-user-id', 'test-session-id');
+      c.set('sessionData', {
+        sessionId: 'test-session-id',
+        userId: 'test-user-id',
+        email: 'test@example.com',
+        username: 'test_user',
+        emailVerified: true,
+        totpEnabled: true,
+        hasAcknowledgedPhrase: false,
+        pending2FA: true,
+        pending2FAExpiresAt: Date.now() - 1000, // expired
+        createdAt: Date.now(),
+      });
+      return next();
+    });
+    app.use('*', sessionMiddleware());
+    app.get('/', (c) => {
+      const user = c.get('user');
+      return c.json({ hasUser: !!user });
+    });
+
+    const res = await app.request(
+      '/',
+      { headers: { 'x-link-public-key': 'some-base64-key' } },
+      {
+        DATABASE_URL: 'postgres://test',
+        UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+        UPSTASH_REDIS_REST_TOKEN: 'test-token',
+      }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ hasUser: false });
+  });
+
+  it('does NOT fall back for 2FA_REQUIRED even with link header', async () => {
+    const app = new Hono<AppEnv>();
+
+    app.use('*', envMiddleware());
+    app.use('*', dbMiddleware());
+    app.use('*', redisMiddleware());
+    app.use('*', async (c, next) => {
+      const redis = c.get('redis');
+      const { redisSet } = await import('../lib/redis-registry.js');
+      await redisSet(redis, 'sessionActive', '1', 'test-user-id', 'test-session-id');
+      c.set('sessionData', {
+        sessionId: 'test-session-id',
+        userId: 'test-user-id',
+        email: 'test@example.com',
+        username: 'test_user',
+        emailVerified: true,
+        totpEnabled: true,
+        hasAcknowledgedPhrase: false,
+        pending2FA: true,
+        pending2FAExpiresAt: Date.now() + 60_000, // not expired
+        createdAt: Date.now(),
+      });
+      return next();
+    });
+    app.use('*', sessionMiddleware());
+    app.get('/', (c) => c.json({ message: 'should not reach here' }));
+
+    const res = await app.request(
+      '/',
+      { headers: { 'x-link-public-key': 'some-base64-key' } },
+      {
+        DATABASE_URL: 'postgres://test',
+        UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+        UPSTASH_REDIS_REST_TOKEN: 'test-token',
+      }
+    );
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body).toEqual({ code: '2FA_REQUIRED' });
+  });
+
+  it('falls back to link guest when user not found and link header present', async () => {
+    const app = new Hono<AppEnv>();
+    /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
+    const emptyDb = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            then: (resolve: (v: unknown[]) => unknown) => Promise.resolve(resolve([])),
+          }),
+        }),
+      }),
+    };
+    /* eslint-enable unicorn/no-thenable */
+
+    app.use('*', envMiddleware());
+    app.use('*', redisMiddleware());
+    app.use('*', async (c, next) => {
+      c.set('db', emptyDb as unknown as AppEnv['Variables']['db']);
+      const redis = c.get('redis');
+      const { redisSet } = await import('../lib/redis-registry.js');
+      await redisSet(redis, 'sessionActive', '1', 'test-user-id', 'test-session-id');
+      c.set('sessionData', {
+        sessionId: 'test-session-id',
+        userId: 'test-user-id',
+        email: 'test@example.com',
+        username: 'test_user',
+        emailVerified: true,
+        totpEnabled: false,
+        hasAcknowledgedPhrase: false,
+        pending2FA: false,
+        pending2FAExpiresAt: 0,
+        createdAt: Date.now(),
+      });
+      return next();
+    });
+    app.use('*', sessionMiddleware());
+    app.get('/', (c) => {
+      const user = c.get('user');
+      return c.json({ hasUser: !!user });
+    });
+
+    const res = await app.request(
+      '/',
+      { headers: { 'x-link-public-key': 'some-base64-key' } },
+      {
+        DATABASE_URL: 'postgres://test',
+        UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+        UPSTASH_REDIS_REST_TOKEN: 'test-token',
+      }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ hasUser: false });
   });
 });
 

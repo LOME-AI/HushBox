@@ -67,12 +67,16 @@ vi.mock('@/stores/chat-error', () => ({
 }));
 
 // Mock hooks used by PromptInput
-vi.mock('@/stores/model', () => ({
-  useModelStore: vi.fn(() => ({
-    selectedModelId: 'test-model',
-    setSelectedModel: vi.fn(),
-  })),
-}));
+vi.mock('@/stores/model', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/model')>();
+  return {
+    ...actual,
+    useModelStore: vi.fn(() => ({
+      selectedModels: [{ id: 'test-model', name: 'Test Model' }],
+      setSelectedModel: vi.fn(),
+    })),
+  };
+});
 
 vi.mock('@/hooks/models', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/models')>();
@@ -268,6 +272,7 @@ describe('ChatIndex', () => {
       expect(mockNavigate).toHaveBeenCalledWith({
         to: '/chat/$id',
         params: { id: 'new' },
+        search: { fork: undefined },
       });
     });
   });

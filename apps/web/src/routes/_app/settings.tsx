@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useState, useCallback } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } from '@hushbox/ui';
-import { Shield, Key, FileText, Scale, ChevronRight } from 'lucide-react';
+import { Shield, Key, FileText, Scale, ChevronRight, MessageSquare } from 'lucide-react';
 import { PRIVACY_POLICY_META } from '@hushbox/shared/legal';
 import { requireAuth, changePassword, useAuthStore } from '@/lib/auth';
 import { ROUTES } from '@hushbox/shared';
@@ -13,6 +13,7 @@ import { TwoFactorSetup } from '@/components/auth/TwoFactorSetup';
 import { DisableTwoFactorModal } from '@/components/auth/DisableTwoFactorModal';
 import { RecoveryPhraseModal } from '@/components/auth/RecoveryPhraseModal';
 import { RegenerateConfirmModal } from '@/components/auth/RegenerateConfirmModal';
+import { CustomInstructionsModal } from '@/components/settings/CustomInstructionsModal';
 
 export const Route = createFileRoute('/_app/settings')({
   beforeLoad: async () => {
@@ -39,18 +40,20 @@ function SettingItem({
   return (
     <Button
       variant="ghost"
-      className="h-auto w-full justify-between gap-3 p-4 text-left whitespace-normal"
+      className="h-auto w-full p-4 text-left whitespace-normal"
       onClick={onClick}
     >
-      <div className="min-w-0 flex-1">
+      <div className="w-full">
         <div className="flex items-center gap-2">
           <Icon className="text-muted-foreground h-4 w-4 shrink-0" />
           <span className="min-w-0 truncate font-medium">{title}</span>
           {statusBadge}
         </div>
-        <p className="text-muted-foreground mt-0.5 text-sm">{description}</p>
+        <div className="mt-0.5 flex items-center gap-2">
+          <p className="text-muted-foreground min-w-0 flex-1 text-sm">{description}</p>
+          <ChevronRight className="text-muted-foreground h-5 w-5 shrink-0" />
+        </div>
       </div>
-      <ChevronRight className="text-muted-foreground h-5 w-5 shrink-0" />
     </Button>
   );
 }
@@ -66,7 +69,9 @@ function StatusBadge({
   };
 
   return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${classes[variant]}`}>
+    <span
+      className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${classes[variant]}`}
+    >
       {label}
     </span>
   );
@@ -133,9 +138,15 @@ function TwoFactorSettingSection({
 
 export function SettingsPage(): React.JSX.Element {
   const user = useAuthStore((s) => s.user);
+  const customInstructions = useAuthStore((s) => s.customInstructions);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showRecoveryPhrase, setShowRecoveryPhrase] = useState(false);
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
+  const [showCustomInstructions, setShowCustomInstructions] = useState(false);
+
+  const handleCustomInstructionsSuccess = useCallback(() => {
+    setShowCustomInstructions(false);
+  }, []);
 
   const handleChangePasswordSuccess = useCallback(() => {
     setShowChangePassword(false);
@@ -183,14 +194,38 @@ export function SettingsPage(): React.JSX.Element {
             <CardDescription>Your account information</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="min-w-0 text-lg font-medium break-all">{user?.email}</p>
+            <p className="text-lg font-medium break-all">
+              {user?.email}{' '}
               {user?.emailVerified ? (
                 <StatusBadge label="Verified" variant="green" />
               ) : (
                 <StatusBadge label="Not verified" variant="amber" />
               )}
-            </div>
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-[#ec4755]">Preferences</CardTitle>
+            <CardDescription>Customize how AI responds to you</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SettingItem
+              icon={MessageSquare}
+              title="Custom Instructions"
+              description="Tell the AI about yourself and how you'd like it to respond"
+              onClick={() => {
+                setShowCustomInstructions(true);
+              }}
+              statusBadge={
+                customInstructions == null ? (
+                  <StatusBadge label="Not set" variant="muted" />
+                ) : (
+                  <StatusBadge label="Active" variant="green" />
+                )
+              }
+            />
           </CardContent>
         </Card>
 
@@ -245,6 +280,12 @@ export function SettingsPage(): React.JSX.Element {
           </CardContent>
         </Card>
       </div>
+
+      <CustomInstructionsModal
+        open={showCustomInstructions}
+        onOpenChange={setShowCustomInstructions}
+        onSuccess={handleCustomInstructionsSuccess}
+      />
 
       <RegenerateConfirmModal
         open={showRegenerateConfirm}

@@ -6,9 +6,11 @@ import { PromptInput } from './prompt-input';
 import type { PromptInputRef } from './prompt-input';
 import { SuggestionChips } from './suggestion-chips';
 import { ChatHeader } from './chat-header';
+import { ComparisonBar } from './comparison-bar';
 import { getGreeting } from '@/lib/greetings';
-import { useModelStore } from '@/stores/model';
-import { useModels } from '@/hooks/models';
+import { useModelStore, type SelectedModelEntry } from '@/stores/model';
+import { useSearchStore } from '@/stores/search';
+import { useSelectedModelCapabilities } from '@/hooks/use-selected-model-capabilities';
 import { useStableBalance } from '@/hooks/use-stable-balance';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
 import type { FundingSource } from '@hushbox/shared';
@@ -78,11 +80,18 @@ export function ChatWelcome({
   const viewportHeight = useVisualViewportHeight();
   const isMobile = useIsMobile();
 
-  const { selectedModelId, selectedModelName, setSelectedModel } = useModelStore();
+  const { selectedModels } = useModelStore();
+  const { webSearchEnabled, toggleWebSearch } = useSearchStore();
 
-  const { data: modelsData } = useModels();
-  const models = modelsData?.models ?? [];
-  const premiumIds = modelsData?.premiumIds ?? new Set<string>();
+  const { models, premiumIds, supportsSearch } = useSelectedModelCapabilities();
+
+  const handleModelSelect = React.useCallback((entries: SelectedModelEntry[]): void => {
+    useModelStore.setState({ selectedModels: entries });
+  }, []);
+
+  const handleRemoveModel = React.useCallback((modelId: string): void => {
+    useModelStore.getState().removeModel(modelId);
+  }, []);
 
   // Premium access requires authentication AND positive balance
   const { displayBalance } = useStableBalance();
@@ -131,13 +140,17 @@ export function ChatWelcome({
     >
       <ChatHeader
         models={models}
-        selectedModelId={selectedModelId}
-        selectedModelName={selectedModelName}
-        onModelSelect={setSelectedModel}
+        selectedModels={selectedModels}
+        onModelSelect={handleModelSelect}
         premiumIds={premiumIds}
         canAccessPremium={canAccessPremium}
         isAuthenticated={isAuthenticated}
         onPremiumClick={onPremiumClick}
+      />
+      <ComparisonBar
+        models={models}
+        selectedModels={selectedModels}
+        onRemoveModel={handleRemoveModel}
       />
 
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-4 py-8">
@@ -157,6 +170,10 @@ export function ChatWelcome({
               placeholder="Ask me anything..."
               rows={6}
               disabled={isLoading}
+              webSearchEnabled={webSearchEnabled}
+              modelSupportsSearch={supportsSearch}
+              isAuthenticated={isAuthenticated}
+              onToggleWebSearch={toggleWebSearch}
             />
           </div>
 

@@ -472,14 +472,17 @@ describe('dev service', () => {
         senderType: string;
         senderId: string | null;
         sequenceNumber: number;
+        modelName?: string;
       }[];
       expect(msgRows).toHaveLength(2);
       expect(msgRows[0]?.senderType).toBe('user');
       expect(msgRows[0]?.senderId).toBe('alice-id');
       expect(msgRows[0]?.sequenceNumber).toBe(1);
+      expect(msgRows[0]?.modelName).toBeUndefined();
       expect(msgRows[1]?.senderType).toBe('ai');
       expect(msgRows[1]?.senderId).toBeNull();
       expect(msgRows[1]?.sequenceNumber).toBe(2);
+      expect(msgRows[1]?.modelName).toBe('anthropic/claude-3.5-sonnet');
     });
 
     it('does not insert messages when none provided', async () => {

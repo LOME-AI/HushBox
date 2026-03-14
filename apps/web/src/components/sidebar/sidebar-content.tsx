@@ -43,6 +43,54 @@ function filterConversationsBySearch(
   };
 }
 
+interface SidebarPanelsProps {
+  activeTab: SidebarTab;
+  unacceptedCount: number;
+  sidebarOpen: boolean;
+  filteredAccepted: Conversation[];
+  filteredUnaccepted: Conversation[];
+  activeConversationId?: string | undefined;
+  isAuthenticated: boolean;
+}
+
+function SidebarPanels({
+  activeTab,
+  unacceptedCount,
+  sidebarOpen,
+  filteredAccepted,
+  filteredUnaccepted,
+  activeConversationId,
+  isAuthenticated,
+}: Readonly<SidebarPanelsProps>): React.JSX.Element {
+  return (
+    <div className="scrollbar-hide min-h-0 flex-1 overflow-hidden">
+      <div
+        className={`flex h-full transition-transform duration-300 ease-in-out ${
+          activeTab === 'inbox' && unacceptedCount > 0 ? '-translate-x-full' : 'translate-x-0'
+        }`}
+      >
+        <div
+          data-testid="chat-list-scroll-container"
+          className={`h-full w-full flex-shrink-0 overflow-y-auto${
+            sidebarOpen ? '' : ' scrollbar-hide'
+          }`}
+        >
+          <ChatList
+            conversations={filteredAccepted}
+            activeId={activeConversationId}
+            isAuthenticated={isAuthenticated}
+          />
+        </div>
+        {unacceptedCount > 0 && (
+          <div className="h-full w-full flex-shrink-0 overflow-y-auto px-1">
+            <InboxContent conversations={filteredUnaccepted} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface SidebarContentProps {
   conversations: Conversation[];
   activeConversationId?: string;
@@ -161,27 +209,15 @@ export function SidebarContent({
         />
       )}
 
-      {/* Sliding content panels */}
-      <div className="scrollbar-hide min-h-0 flex-1 overflow-hidden">
-        <div
-          className={`flex h-full transition-transform duration-300 ease-in-out ${
-            activeTab === 'inbox' && unaccepted.length > 0 ? '-translate-x-full' : 'translate-x-0'
-          }`}
-        >
-          <div className="h-full w-full flex-shrink-0 overflow-y-auto">
-            <ChatList
-              conversations={filteredAccepted}
-              activeId={activeConversationId}
-              isAuthenticated={isAuthenticated}
-            />
-          </div>
-          {unaccepted.length > 0 && (
-            <div className="h-full w-full flex-shrink-0 overflow-y-auto px-1">
-              <InboxContent conversations={filteredUnaccepted} />
-            </div>
-          )}
-        </div>
-      </div>
+      <SidebarPanels
+        activeTab={activeTab}
+        unacceptedCount={unaccepted.length}
+        sidebarOpen={sidebarOpen}
+        filteredAccepted={filteredAccepted}
+        filteredUnaccepted={filteredUnaccepted}
+        activeConversationId={activeConversationId}
+        isAuthenticated={isAuthenticated}
+      />
 
       {FEATURE_FLAGS.PROJECTS_ENABLED && (
         <>

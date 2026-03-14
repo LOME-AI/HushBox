@@ -17,21 +17,32 @@ interface MemberInfo {
   username: string;
 }
 
+export interface LinkInfo {
+  id: string;
+  displayName: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Functions
 // ---------------------------------------------------------------------------
 
+export interface SenderLabelInput {
+  senderId: string | undefined;
+  currentUserId: string;
+  members: readonly MemberInfo[];
+  isGroupChat: boolean;
+  links?: readonly LinkInfo[];
+}
+
 /**
  * Resolve a senderId to a display label for group chats.
  *
+ * Checks members first (by userId), then links (by link id).
  * Returns undefined if not in a group chat or if senderId is absent.
  */
-export function getSenderLabel(
-  senderId: string | undefined,
-  currentUserId: string,
-  members: readonly MemberInfo[],
-  isGroupChat: boolean
-): string | undefined {
+export function getSenderLabel(input: SenderLabelInput): string | undefined {
+  const { senderId, currentUserId, members, isGroupChat, links } = input;
+
   if (!isGroupChat || senderId === undefined) {
     return undefined;
   }
@@ -43,6 +54,13 @@ export function getSenderLabel(
   const member = members.find((m) => m.userId === senderId);
   if (member) {
     return member.username;
+  }
+
+  if (links) {
+    const link = links.find((l) => l.id === senderId);
+    if (link) {
+      return link.displayName ?? 'Guest';
+    }
   }
 
   return 'This user has left the conversation';

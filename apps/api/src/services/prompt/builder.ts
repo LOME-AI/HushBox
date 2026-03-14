@@ -10,7 +10,7 @@ export function buildPrompt(options: PromptBuilderOptions): BuiltPrompt {
 
   const activeModules = TOOL_MODULES.filter((m) => capabilitySet.has(m.capability));
 
-  const systemPrompt = buildSystemPrompt(options.supportedCapabilities);
+  const systemPrompt = buildSystemPrompt(options.supportedCapabilities, options.customInstructions);
   const tools = activeModules.flatMap((m) => m.getTools());
 
   return { systemPrompt, tools };

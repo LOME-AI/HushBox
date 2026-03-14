@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook } from '@testing-library/react';
 import { redirect } from '@tanstack/react-router';
 import {
   useAuthStore,
@@ -44,9 +45,11 @@ vi.mock('@tanstack/react-router', () => ({
   redirect: vi.fn((options) => options),
 }));
 
-vi.mock('zustand/react/shallow', () => ({
-  useShallow: (function_: unknown) => function_,
-}));
+vi.mock('zustand/react/shallow', async () => {
+  const actual =
+    await vi.importActual<typeof import('zustand/react/shallow')>('zustand/react/shallow');
+  return actual;
+});
 
 const { mockQueryClientClear } = vi.hoisted(() => ({
   mockQueryClientClear: vi.fn(),
@@ -67,6 +70,10 @@ vi.mock('./auth-client.js', () => ({
   getStoredAuth: vi.fn(),
   clearStoredAuth: vi.fn(),
   restoreSession: vi.fn(),
+}));
+
+vi.mock('./link-guest-auth.js', () => ({
+  getLinkGuestAuth: vi.fn(() => null),
 }));
 
 vi.mock('@hushbox/crypto', () => ({
@@ -97,6 +104,8 @@ vi.mock('@hushbox/crypto', () => ({
   unwrapAccountKeyWithPassword: vi.fn(() => new Uint8Array([60, 61, 62])),
   rewrapAccountKeyForPasswordChange: vi.fn(() => new Uint8Array([70, 71, 72])),
   recoverAccountFromMnemonic: vi.fn(() => Promise.resolve(new Uint8Array([80, 81, 82]))),
+  decryptMessage: vi.fn(() => 'decrypted instructions'),
+  getPublicKeyFromPrivate: vi.fn(() => new Uint8Array([90, 91, 92])),
 }));
 
 vi.mock('@hushbox/shared', async (importOriginal) => {
@@ -120,8 +129,12 @@ import {
   unwrapAccountKeyWithPassword,
   rewrapAccountKeyForPasswordChange,
   recoverAccountFromMnemonic,
+  decryptMessage,
 } from '@hushbox/crypto';
 import { toBase64 } from '@hushbox/shared';
+import { getLinkGuestAuth } from './link-guest-auth.js';
+
+const mockedGetLinkGuestAuth = vi.mocked(getLinkGuestAuth);
 
 describe('auth', () => {
   beforeEach(() => {
@@ -259,10 +272,54 @@ describe('auth', () => {
   });
 
   describe('useSession', () => {
-    // useSession uses useShallow (React hook) so cannot be tested outside React.
-    // Test the underlying logic via authClient.getSession and useAuthStore instead.
     it('should be exported as a function', () => {
       expect(typeof useSession).toBe('function');
+    });
+
+    it('returns session data when user is authenticated', () => {
+      useAuthStore.setState({ user: testUser, isLoading: false, isAuthenticated: true });
+
+      const { result } = renderHook(() => useSession());
+
+      expect(result.current.data).toEqual({ user: testUser, session: { id: testUser.id } });
+      expect(result.current.isPending).toBe(false);
+    });
+
+    it('returns null data when no user', () => {
+      useAuthStore.setState({ user: null, isLoading: false, isAuthenticated: false });
+
+      const { result } = renderHook(() => useSession());
+
+      expect(result.current.data).toBeNull();
+      expect(result.current.isPending).toBe(false);
+    });
+
+    it('returns isPending true when loading', () => {
+      useAuthStore.setState({ user: null, isLoading: true, isAuthenticated: false });
+
+      const { result } = renderHook(() => useSession());
+
+      expect(result.current.isPending).toBe(true);
+    });
+
+    it('masks session when link guest auth is active', () => {
+      useAuthStore.setState({ user: testUser, isLoading: false, isAuthenticated: true });
+      mockedGetLinkGuestAuth.mockReturnValue('some-link-public-key');
+
+      const { result } = renderHook(() => useSession());
+
+      expect(result.current.data).toBeNull();
+      expect(result.current.isPending).toBe(false);
+    });
+
+    it('returns normal session when link guest auth is not active', () => {
+      useAuthStore.setState({ user: testUser, isLoading: false, isAuthenticated: true });
+      mockedGetLinkGuestAuth.mockReturnValue(null);
+
+      const { result } = renderHook(() => useSession());
+
+      expect(result.current.data).toEqual({ user: testUser, session: { id: testUser.id } });
+      expect(result.current.isPending).toBe(false);
     });
   });
 
@@ -1486,6 +1543,7 @@ describe('auth', () => {
         privateKey: mockPrivateKey,
         userId: 'user-123',
         user: testUser,
+        customInstructionsEncrypted: null,
       });
 
       await initAuth();
@@ -1547,6 +1605,7 @@ describe('auth', () => {
         privateKey: mockPrivateKey,
         userId: 'user-123',
         user: testUser,
+        customInstructionsEncrypted: null,
       });
       await initAuth();
 
@@ -1571,6 +1630,7 @@ describe('auth', () => {
         privateKey: mockPrivateKey,
         userId: 'user-123',
         user: testUser,
+        customInstructionsEncrypted: null,
       });
       await initAuth();
 
@@ -1587,6 +1647,7 @@ describe('auth', () => {
         privateKey: mockPrivateKey,
         userId: 'user-123',
         user: testUser,
+        customInstructionsEncrypted: null,
       });
 
       // First call: succeeds
@@ -1597,6 +1658,63 @@ describe('auth', () => {
       await initAuth();
 
       expect(restoreSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('should decrypt custom instructions on restore', async () => {
+      const mockPrivateKey = new Uint8Array([60, 61, 62]);
+      const mockKEK = new Uint8Array([19, 20, 21]);
+
+      vi.mocked(getStoredAuth).mockReturnValue({ userId: 'user-123', kek: mockKEK });
+      vi.mocked(restoreSession).mockResolvedValue({
+        privateKey: mockPrivateKey,
+        userId: 'user-123',
+        user: testUser,
+        customInstructionsEncrypted: 'encrypted-blob-base64',
+      });
+      vi.mocked(decryptMessage).mockReturnValue('Be concise and direct');
+
+      await initAuth();
+
+      expect(decryptMessage).toHaveBeenCalled();
+      expect(useAuthStore.getState().customInstructions).toBe('Be concise and direct');
+    });
+
+    it('should set customInstructions to null when not set on server', async () => {
+      const mockPrivateKey = new Uint8Array([60, 61, 62]);
+      const mockKEK = new Uint8Array([19, 20, 21]);
+
+      vi.mocked(getStoredAuth).mockReturnValue({ userId: 'user-123', kek: mockKEK });
+      vi.mocked(restoreSession).mockResolvedValue({
+        privateKey: mockPrivateKey,
+        userId: 'user-123',
+        user: testUser,
+        customInstructionsEncrypted: null,
+      });
+
+      await initAuth();
+
+      expect(decryptMessage).not.toHaveBeenCalled();
+      expect(useAuthStore.getState().customInstructions).toBeNull();
+    });
+
+    it('should set customInstructions to null when decryption fails', async () => {
+      const mockPrivateKey = new Uint8Array([60, 61, 62]);
+      const mockKEK = new Uint8Array([19, 20, 21]);
+
+      vi.mocked(getStoredAuth).mockReturnValue({ userId: 'user-123', kek: mockKEK });
+      vi.mocked(restoreSession).mockResolvedValue({
+        privateKey: mockPrivateKey,
+        userId: 'user-123',
+        user: testUser,
+        customInstructionsEncrypted: 'corrupted-data',
+      });
+      vi.mocked(decryptMessage).mockImplementation(() => {
+        throw new Error('Decryption failed');
+      });
+
+      await initAuth();
+
+      expect(useAuthStore.getState().customInstructions).toBeNull();
     });
   });
 
@@ -1620,6 +1738,7 @@ describe('auth', () => {
         privateKey: mockPrivateKey,
         userId: 'user-123',
         user: testUser,
+        customInstructionsEncrypted: null,
       });
 
       const result = await requireAuth();
@@ -1677,6 +1796,7 @@ describe('auth', () => {
         privateKey: mockPrivateKey,
         userId: 'user-123',
         user: testUser,
+        customInstructionsEncrypted: null,
       });
 
       const result = await authClient.getSession();

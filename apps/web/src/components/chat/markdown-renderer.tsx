@@ -85,7 +85,6 @@ function MarkdownRenderFallback({ content }: Readonly<{ content: string }>): Rea
 export function MarkdownRenderer({
   content,
   className,
-  isError,
   isStreaming,
 }: Readonly<MarkdownRendererProps>): React.JSX.Element {
   const components = React.useMemo<Partial<Components>>(
@@ -130,7 +129,7 @@ export function MarkdownRenderer({
       }: React.AnchorHTMLAttributes<HTMLAnchorElement> & {
         children?: React.ReactNode;
       }) => (
-        <a href={href} {...(isError ? { style: { color: 'var(--brand-red)' } } : {})} {...props}>
+        <a href={href} style={{ color: 'var(--brand-red)' }} {...props}>
           {children}
         </a>
       )) as NonNullable<Components['a']>,
@@ -138,7 +137,7 @@ export function MarkdownRenderer({
     // `content` excluded: ref reads happen at execution time, not closure time.
     // Streamdown re-renders on children change independently.
 
-    [isError]
+    []
   );
 
   return (

@@ -88,9 +88,6 @@ describe('billing routes', () => {
   const TEST_EMAIL = `test-billing-${testSuffix}@example.com`;
   const TEST_USERNAME = `tb_${testSuffix}`;
 
-  // Toggle for phrase guard tests — defaults to true so most tests pass the guard
-  let mockHasAcknowledgedPhrase = true;
-
   // Track created IDs for cleanup
   const createdPaymentIds: string[] = [];
   const createdLedgerEntryIds: string[] = [];
@@ -151,7 +148,7 @@ describe('billing routes', () => {
           username: TEST_USERNAME,
           emailVerified: true,
           totpEnabled: false,
-          hasAcknowledgedPhrase: mockHasAcknowledgedPhrase,
+          hasAcknowledgedPhrase: false,
           pending2FA: false,
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
@@ -162,7 +159,7 @@ describe('billing routes', () => {
           username: TEST_USERNAME,
           emailVerified: true,
           totpEnabled: false,
-          hasAcknowledgedPhrase: mockHasAcknowledgedPhrase,
+          hasAcknowledgedPhrase: false,
           publicKey: new Uint8Array(32),
         });
         c.set('session', sessionData);
@@ -191,49 +188,6 @@ describe('billing routes', () => {
     if (testUserId) {
       await db.delete(users).where(eq(users.id, testUserId));
     }
-  });
-
-  describe('phrase guard', () => {
-    beforeAll(() => {
-      mockHasAcknowledgedPhrase = false;
-    });
-
-    afterAll(() => {
-      mockHasAcknowledgedPhrase = true;
-    });
-
-    it('allows GET /billing/balance without phrase acknowledgment (read-only)', async () => {
-      const res = await app.request('/billing/balance', {
-        headers: getAuthHeaders(testUserId),
-      });
-
-      // Read routes should not require phrase acknowledgment
-      expect(res.status).toBe(200);
-    });
-
-    it('returns 403 for POST /billing/payments when phrase not acknowledged', async () => {
-      const res = await app.request('/billing/payments', {
-        method: 'POST',
-        headers: {
-          ...getAuthHeaders(testUserId),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ amount: '10.00000000' }),
-      });
-
-      expect(res.status).toBe(403);
-      const body = (await res.json()) as ErrorResponse;
-      expect(body.code).toBe('PHRASE_REQUIRED');
-    });
-
-    it('allows GET /billing/transactions without phrase acknowledgment (read-only)', async () => {
-      const res = await app.request('/billing/transactions', {
-        headers: getAuthHeaders(testUserId),
-      });
-
-      // Read routes should not require phrase acknowledgment
-      expect(res.status).toBe(200);
-    });
   });
 
   describe('GET /billing/balance', () => {

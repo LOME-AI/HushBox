@@ -1,39 +1,20 @@
-import { eq, sql } from 'drizzle-orm';
-import { messages, conversations, epochs, type Database } from '@hushbox/db';
-import { encryptMessageForStorage } from '@hushbox/crypto';
-import { chargeForUsage } from '../billing/transaction-writer.js';
-import { updateGroupSpending } from '../billing/budgets.js';
-
-interface EpochKeyResult {
-  epochPublicKey: Uint8Array;
-  epochNumber: number;
-}
-
-/** Fetches the epoch public key for a conversation's current epoch. */
-async function fetchEpochPublicKey(
-  tx: Database,
-  conversationId: string,
-  currentEpoch: number
-): Promise<EpochKeyResult> {
-  const [epoch] = await tx
-    .select({ epochPublicKey: epochs.epochPublicKey })
-    .from(epochs)
-    .where(
-      sql`${epochs.conversationId} = ${conversationId} AND ${epochs.epochNumber} = ${currentEpoch}`
-    );
-
-  if (!epoch) {
-    throw new Error('Epoch not found');
-  }
-
-  return { epochPublicKey: epoch.epochPublicKey, epochNumber: currentEpoch };
-}
+import { type Database } from '@hushbox/db';
+import {
+  assignSequenceNumbers,
+  fetchEpochPublicKey,
+  insertEncryptedMessage,
+  chargeAndTrackUsage,
+  updateForkTip,
+} from './message-helpers.js';
 
 export interface SaveUserOnlyMessageParams {
   conversationId: string;
   userId: string;
+  senderId: string;
   messageId: string;
   content: string;
+  parentMessageId: string | null;
+  forkId?: string;
 }
 
 export interface SaveUserOnlyMessageResult {
@@ -50,58 +31,65 @@ export async function saveUserOnlyMessage(
   db: Database,
   params: SaveUserOnlyMessageParams
 ): Promise<SaveUserOnlyMessageResult> {
-  const { conversationId, userId, messageId, content } = params;
+  const { conversationId, senderId, messageId, content, parentMessageId, forkId } = params;
 
   return db.transaction(async (tx) => {
-    // 1. Assign ONE sequence number atomically
-    const [updated] = await tx
-      .update(conversations)
-      .set({
-        nextSequence: sql`${conversations.nextSequence} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(conversations.id, conversationId))
-      .returning({
-        seq: sql<number>`${conversations.nextSequence} - 1`,
-        currentEpoch: conversations.currentEpoch,
-      });
+    const { sequences, currentEpoch } = await assignSequenceNumbers(
+      tx as unknown as Database,
+      conversationId,
+      1
+    );
+    const seq = sequences[0]!;
 
-    if (!updated) {
-      throw new Error('Conversation not found');
-    }
-
-    const { seq, currentEpoch } = updated;
-
-    // 2. Fetch epoch public key from current epoch
     const { epochPublicKey, epochNumber } = await fetchEpochPublicKey(
       tx as unknown as Database,
       conversationId,
       currentEpoch
     );
 
-    // 3. Encrypt user message
-    const blob = encryptMessageForStorage(epochPublicKey, content);
-
-    // 4. Insert user message (no cost, no billing)
-    await tx.insert(messages).values({
+    await insertEncryptedMessage(tx as unknown as Database, {
       id: messageId,
       conversationId,
-      encryptedBlob: blob,
-      senderType: 'user',
-      senderId: userId,
+      content,
+      epochPublicKey,
       epochNumber,
       sequenceNumber: seq,
+      senderType: 'user',
+      senderId,
+      parentMessageId,
     });
+
+    if (forkId) {
+      await updateForkTip(tx as unknown as Database, forkId, messageId);
+    }
 
     return { sequenceNumber: seq, epochNumber };
   });
 }
 
-export interface SaveChatTurnParams {
+export interface AssistantMessageInput {
+  id: string;
+  content: string;
+  model: string;
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens?: number;
+}
+
+interface SaveChatTurnBaseParams {
   conversationId: string;
   userId: string;
+  senderId: string;
   userMessageId: string;
   userContent: string;
+  /** When present, atomically increments group spending tables. Only set when a member uses the owner's balance. */
+  groupBillingContext?: { memberId: string };
+  parentMessageId: string | null;
+  forkId?: string;
+}
+
+interface SaveChatTurnLegacyParams extends SaveChatTurnBaseParams {
   assistantMessageId: string;
   assistantContent: string;
   model: string;
@@ -109,8 +97,18 @@ export interface SaveChatTurnParams {
   inputTokens: number;
   outputTokens: number;
   cachedTokens?: number;
-  /** When present, atomically increments group spending tables. Only set when a member uses the owner's balance. */
-  groupBillingContext?: { memberId: string };
+}
+
+interface SaveChatTurnMultiParams extends SaveChatTurnBaseParams {
+  assistantMessages: AssistantMessageInput[];
+}
+
+export type SaveChatTurnParams = SaveChatTurnLegacyParams | SaveChatTurnMultiParams;
+
+export interface AssistantResult {
+  aiSequence: number;
+  cost: string;
+  usageRecordId: string;
 }
 
 export interface SaveChatTurnResult {
@@ -119,11 +117,29 @@ export interface SaveChatTurnResult {
   epochNumber: number;
   cost: string;
   usageRecordId: string;
+  assistantResults: AssistantResult[];
+}
+
+function normalizeAssistantMessages(params: SaveChatTurnParams): AssistantMessageInput[] {
+  if ('assistantMessages' in params) {
+    return params.assistantMessages;
+  }
+  return [
+    {
+      id: params.assistantMessageId,
+      content: params.assistantContent,
+      model: params.model,
+      cost: params.totalCost,
+      inputTokens: params.inputTokens,
+      outputTokens: params.outputTokens,
+      ...(params.cachedTokens !== undefined && { cachedTokens: params.cachedTokens }),
+    },
+  ];
 }
 
 /**
- * Atomically saves both user + assistant messages, assigns sequence numbers,
- * encrypts with epoch public key, and charges the user's wallet.
+ * Atomically saves user + N assistant messages, assigns sequence numbers,
+ * encrypts with epoch public key, and charges the user's wallet per model.
  *
  * All steps run inside a single database transaction. If any step fails,
  * the entire operation rolls back -- no partial state.
@@ -135,105 +151,107 @@ export async function saveChatTurn(
   const {
     conversationId,
     userId,
+    senderId,
     userMessageId,
     userContent,
-    assistantMessageId,
-    assistantContent,
-    model,
-    totalCost,
-    inputTokens,
-    outputTokens,
-    cachedTokens,
     groupBillingContext,
+    parentMessageId,
+    forkId,
   } = params;
 
-  const costAmount = totalCost.toFixed(8);
+  const assistantMsgs = normalizeAssistantMessages(params);
+
+  for (const msg of assistantMsgs) {
+    if (msg.cost < 0) {
+      console.error(
+        JSON.stringify({
+          event: 'negative_cost_detected',
+          totalCost: msg.cost,
+          costAmount: msg.cost.toFixed(8),
+          conversationId,
+          model: msg.model,
+          userId,
+        })
+      );
+    }
+  }
 
   return db.transaction(async (tx) => {
-    // 1. Assign sequences atomically
-    const [updated] = await tx
-      .update(conversations)
-      .set({
-        nextSequence: sql`${conversations.nextSequence} + 2`,
-        updatedAt: new Date(),
-      })
-      .where(eq(conversations.id, conversationId))
-      .returning({
-        userSeq: sql<number>`${conversations.nextSequence} - 2`,
-        aiSeq: sql<number>`${conversations.nextSequence} - 1`,
-        currentEpoch: conversations.currentEpoch,
-      });
+    const { sequences, currentEpoch } = await assignSequenceNumbers(
+      tx as unknown as Database,
+      conversationId,
+      1 + assistantMsgs.length
+    );
+    const userSeq = sequences[0]!;
 
-    if (!updated) {
-      throw new Error('Conversation not found');
-    }
-
-    const { userSeq, aiSeq, currentEpoch } = updated;
-
-    // 2. Fetch epoch public key from current epoch
     const { epochPublicKey, epochNumber } = await fetchEpochPublicKey(
       tx as unknown as Database,
       conversationId,
       currentEpoch
     );
 
-    // 3. Encrypt user message
-    const userBlob = encryptMessageForStorage(epochPublicKey, userContent);
-
-    // 4. Insert user message
-    await tx.insert(messages).values({
+    await insertEncryptedMessage(tx as unknown as Database, {
       id: userMessageId,
       conversationId,
-      encryptedBlob: userBlob,
-      senderType: 'user',
-      senderId: userId,
+      content: userContent,
+      epochPublicKey,
       epochNumber,
       sequenceNumber: userSeq,
+      senderType: 'user',
+      senderId,
+      parentMessageId,
     });
 
-    // 5. Encrypt AI message
-    const aiBlob = encryptMessageForStorage(epochPublicKey, assistantContent);
+    const assistantResults: AssistantResult[] = [];
 
-    // 6. Insert AI message
-    await tx.insert(messages).values({
-      id: assistantMessageId,
-      conversationId,
-      encryptedBlob: aiBlob,
-      senderType: 'ai',
-      payerId: userId,
-      cost: costAmount,
-      epochNumber,
-      sequenceNumber: aiSeq,
-    });
+    for (const [index, assistantMsg] of assistantMsgs.entries()) {
+      const msg = assistantMsg;
+      const aiSeq = sequences[1 + index]!;
+      const costAmount = msg.cost.toFixed(8);
 
-    // 7. Charge wallet via chargeForUsage (pass tx for atomicity)
-    const chargeResult = await chargeForUsage(tx as unknown as Database, {
-      userId,
-      cost: costAmount,
-      model,
-      provider: 'openrouter',
-      inputTokens,
-      outputTokens,
-      cachedTokens,
-      sourceType: 'message',
-      sourceId: assistantMessageId,
-    });
-
-    // 8. Increment group spending tables (only when member uses owner's balance)
-    if (groupBillingContext !== undefined) {
-      await updateGroupSpending(tx as unknown as Database, {
+      await insertEncryptedMessage(tx as unknown as Database, {
+        id: msg.id,
         conversationId,
-        memberId: groupBillingContext.memberId,
-        costDollars: costAmount,
+        content: msg.content,
+        epochPublicKey,
+        epochNumber,
+        sequenceNumber: aiSeq,
+        senderType: 'ai',
+        modelName: msg.model,
+        payerId: userId,
+        cost: costAmount,
+        parentMessageId: userMessageId,
       });
+
+      const { usageRecordId } = await chargeAndTrackUsage(tx as unknown as Database, {
+        userId,
+        cost: costAmount,
+        model: msg.model,
+        assistantMessageId: msg.id,
+        conversationId,
+        inputTokens: msg.inputTokens,
+        outputTokens: msg.outputTokens,
+        ...(msg.cachedTokens !== undefined && { cachedTokens: msg.cachedTokens }),
+        ...(groupBillingContext !== undefined && { groupBillingContext }),
+      });
+
+      assistantResults.push({ aiSequence: aiSeq, cost: costAmount, usageRecordId });
     }
+
+    if (forkId) {
+      const lastAssistantId = assistantMsgs.at(-1)!.id;
+      await updateForkTip(tx as unknown as Database, forkId, lastAssistantId);
+    }
+
+    const firstResult = assistantResults[0]!;
 
     return {
       userSequence: userSeq,
-      aiSequence: aiSeq,
+      aiSequence: firstResult.aiSequence,
       epochNumber,
-      cost: costAmount,
-      usageRecordId: chargeResult.usageRecordId,
+      cost: firstResult.cost,
+      usageRecordId: firstResult.usageRecordId,
+      assistantResults,
     };
   });
 }

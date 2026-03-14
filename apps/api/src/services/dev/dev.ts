@@ -289,6 +289,7 @@ export async function createDevGroupChat(
 
     // Insert messages if provided
     if (params.messages && params.messages.length > 0) {
+      const messageIds = params.messages.map(() => crypto.randomUUID());
       await tx.insert(messages).values(
         params.messages.map((msg, index) => {
           const senderId =
@@ -298,13 +299,15 @@ export async function createDevGroupChat(
               : null;
 
           return {
-            id: crypto.randomUUID(),
+            id: messageIds[index]!,
             conversationId,
             encryptedBlob: encryptMessageForStorage(epochResult.epochPublicKey, msg.content),
             senderType: msg.senderType,
             senderId,
+            ...(msg.senderType === 'ai' ? { modelName: 'anthropic/claude-3.5-sonnet' } : {}),
             epochNumber: 1,
             sequenceNumber: index + 1,
+            ...(index > 0 ? { parentMessageId: messageIds[index - 1]! } : {}),
           };
         })
       );

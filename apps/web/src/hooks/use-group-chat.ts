@@ -1,8 +1,13 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { wrapEpochKeyForNewMember } from '@hushbox/crypto';
-import { fromBase64, isOwner, toBase64, type StreamChatRotation } from '@hushbox/shared';
-import { useAuthStore } from '../lib/auth.js';
+import {
+  fromBase64,
+  isOwner,
+  toBase64,
+  type MemberPrivilege,
+  type StreamChatRotation,
+} from '@hushbox/shared';
 import {
   useConversationMembers,
   useAddMember,
@@ -28,11 +33,11 @@ import type { GroupChatProps } from '../components/chat/chat-layout.js';
 
 export function useGroupChat(
   conversationId: string | null,
+  callerId: string | undefined,
   plaintextTitle?: string,
-  localStreamingIdRef?: React.RefObject<string | null>
+  localStreamingIdsRef?: React.RefObject<Set<string>>
 ): GroupChatProps | undefined {
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
 
   const membersQuery = useConversationMembers(conversationId);
   const linksQuery = useConversationLinks(conversationId);
@@ -41,8 +46,8 @@ export function useGroupChat(
   const isGroup = (members?.length ?? 0) > 1;
   const ws = useConversationWebSocket(isGroup ? conversationId : null);
   const presenceMap = usePresence(ws);
-  useRealtimeSync(ws, conversationId, user?.id ?? null);
-  const remoteStreamingMessages = useRemoteStreaming(ws, user?.id ?? null, localStreamingIdRef);
+  useRealtimeSync(ws, conversationId, callerId ?? null);
+  const remoteStreamingMessages = useRemoteStreaming(ws, callerId ?? null, localStreamingIdsRef);
   const typingUserIds = useTypingIndicators(ws);
 
   const removeMember = useRemoveMember();
@@ -81,9 +86,9 @@ export function useGroupChat(
   adminNameRef.current = adminLinkName.mutateAsync;
 
   return React.useMemo((): GroupChatProps | undefined => {
-    if (!conversationId || !members || !user) return undefined;
+    if (!conversationId || !members || !callerId) return undefined;
 
-    const currentMember = members.find((m) => m.userId === user.id);
+    const currentMember = members.find((m) => m.userId === callerId);
     if (!currentMember) return undefined;
 
     const epochNumber = getCurrentEpoch(conversationId);
@@ -111,8 +116,8 @@ export function useGroupChat(
         createdAt: l.createdAt,
       })),
       onlineMemberIds,
-      currentUserId: user.id,
-      currentUserPrivilege: currentMember.privilege,
+      currentUserId: callerId,
+      currentUserPrivilege: currentMember.privilege as MemberPrivilege,
       currentEpochPrivateKey: epochKey,
       currentEpochNumber: epochNumber,
       typingUserIds,
@@ -189,7 +194,7 @@ export function useGroupChat(
           const filter = (keys: MemberKeyResponse[]): RotationMember[] => {
             const result: RotationMember[] = [];
             for (const k of keys) {
-              if (k.userId !== user.id) result.push({ publicKey: fromBase64(k.publicKey) });
+              if (k.userId !== callerId) result.push({ publicKey: fromBase64(k.publicKey) });
             }
             return result;
           };
@@ -256,7 +261,7 @@ export function useGroupChat(
     conversationId,
     members,
     links,
-    user,
+    callerId,
     presenceMap,
     typingUserIds,
     remoteStreamingMessages,

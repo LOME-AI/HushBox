@@ -40,6 +40,7 @@ interface MockMemberRow {
   visibleFromEpoch: number;
   joinedAt: Date;
   username: string | null;
+  linkDisplayName?: string | null;
 }
 
 /**
@@ -590,7 +591,7 @@ describe('members route', () => {
 
       expect(res.status).toBe(404);
       const body = await res.json<{ code: string }>();
-      expect(body.code).toBe('NOT_FOUND');
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
     it('returns members list for valid member', async () => {
@@ -682,7 +683,7 @@ describe('members route', () => {
       expect(usernames).toContain('joined_user');
     });
 
-    it('excludes link-only members from response', async () => {
+    it('includes guest members with display name from shared link', async () => {
       const members: MockMemberRow[] = [
         {
           id: 'member-1',
@@ -701,6 +702,7 @@ describe('members route', () => {
           visibleFromEpoch: 1,
           joinedAt: new Date('2024-06-03T12:00:00Z'),
           username: null,
+          linkDisplayName: 'Guest Bob',
         },
       ];
       const app = createTestApp({ members });
@@ -708,9 +710,47 @@ describe('members route', () => {
       const res = await app.request(`/${TEST_CONVERSATION_ID}`);
 
       expect(res.status).toBe(200);
-      const body = await res.json<{ members: { id: string }[] }>();
-      expect(body.members).toHaveLength(1);
-      expect(body.members[0]?.id).toBe('member-1');
+      const body = await res.json<{
+        members: { id: string; userId: string; username: string | null }[];
+      }>();
+      expect(body.members).toHaveLength(2);
+      const guest = body.members.find((m) => m.id === 'member-link-1');
+      expect(guest).toBeDefined();
+      expect(guest?.username).toBe('Guest Bob');
+    });
+
+    it('maps guest userId to linkId for sender resolution', async () => {
+      const members: MockMemberRow[] = [
+        {
+          id: 'member-1',
+          userId: TEST_USER_ID,
+          linkId: null,
+          privilege: 'owner',
+          visibleFromEpoch: 1,
+          joinedAt: new Date('2024-06-01T12:00:00Z'),
+          username: 'test_user',
+        },
+        {
+          id: 'member-guest-42',
+          userId: null,
+          linkId: 'link-xyz',
+          privilege: 'write',
+          visibleFromEpoch: 2,
+          joinedAt: new Date('2024-06-05T12:00:00Z'),
+          username: null,
+          linkDisplayName: 'Guest Alice',
+        },
+      ];
+      const app = createTestApp({ members });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}`);
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{ members: { id: string; userId: string }[] }>();
+      const guest = body.members.find((m) => m.id === 'member-guest-42');
+      expect(guest).toBeDefined();
+      // Guest userId should be linkId so it matches senderId on messages (callerId = linkId)
+      expect(guest?.userId).toBe('link-xyz');
     });
 
     it('serializes joinedAt as ISO string', async () => {
@@ -773,6 +813,38 @@ describe('members route', () => {
       expect(member?.privilege).toBe('owner');
       expect(member?.visibleFromEpoch).toBe(3);
       expect(typeof member?.joinedAt).toBe('string');
+    });
+
+    it('returns Unknown username when a member has no resolvable username', async () => {
+      const members: MockMemberRow[] = [
+        {
+          id: 'member-1',
+          userId: TEST_USER_ID,
+          linkId: null,
+          privilege: 'owner',
+          visibleFromEpoch: 1,
+          joinedAt: new Date('2024-06-01T12:00:00Z'),
+          username: 'test_user',
+        },
+        {
+          id: 'member-broken',
+          userId: null,
+          linkId: 'link-orphan',
+          privilege: 'read',
+          visibleFromEpoch: 1,
+          joinedAt: new Date('2024-06-03T12:00:00Z'),
+          username: null,
+          linkDisplayName: null,
+        },
+      ];
+      const app = createTestApp({ members });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}`);
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{ members: { id: string; username: string }[] }>();
+      const brokenMember = body.members.find((m) => m.id === 'member-broken');
+      expect(brokenMember?.username).toBe('Unknown');
     });
   });
 
@@ -846,7 +918,7 @@ describe('members route', () => {
 
       expect(res.status).toBe(404);
       const body = await res.json<{ code: string }>();
-      expect(body.code).toBe('NOT_FOUND');
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
     it('returns 404 when target user not found', async () => {
@@ -1317,7 +1389,7 @@ describe('members route', () => {
 
       expect(res.status).toBe(404);
       const body = await res.json<{ code: string }>();
-      expect(body.code).toBe('NOT_FOUND');
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
     it('returns 404 when target member not found', async () => {
@@ -1646,7 +1718,7 @@ describe('members route', () => {
 
       expect(res.status).toBe(404);
       const body = await res.json<{ code: string }>();
-      expect(body.code).toBe('NOT_FOUND');
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
     it('returns 404 when target member not found', async () => {
@@ -1838,7 +1910,7 @@ describe('members route', () => {
 
       expect(res.status).toBe(404);
       const body = await res.json<{ code: string }>();
-      expect(body.code).toBe('NOT_FOUND');
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
     it('owner leaving deletes conversation and returns deleted:true', async () => {
@@ -2106,7 +2178,7 @@ describe('members route', () => {
 
       expect(res.status).toBe(404);
       const body = await res.json<{ code: string }>();
-      expect(body.code).toBe('NOT_FOUND');
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
     it('accepts membership and returns accepted:true', async () => {

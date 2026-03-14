@@ -19,13 +19,6 @@ export interface ConversationListRow {
   privilege: string;
 }
 
-export interface ConversationWithMessages {
-  conversation: Conversation;
-  messages: Message[];
-  acceptedAt: Date | null;
-  invitedByUsername: string | null;
-}
-
 export interface UpdateConversationParams {
   title: Uint8Array;
   titleEpochNumber: number;
@@ -130,60 +123,6 @@ export async function listConversations(
 }
 
 /**
- * Get a single conversation with its messages.
- * Returns null if conversation not found or user is not an active member.
- * Message visibility is automatically filtered by the member's visibleFromEpoch.
- */
-export async function getConversation(
-  db: Database,
-  conversationId: string,
-  userId: string
-): Promise<ConversationWithMessages | null> {
-  const inviter = alias(users, 'inviter');
-
-  const rows = await db
-    .select({
-      conversation: conversations,
-      visibleFromEpoch: conversationMembers.visibleFromEpoch,
-      acceptedAt: conversationMembers.acceptedAt,
-      invitedByUsername: inviter.username,
-    })
-    .from(conversationMembers)
-    .innerJoin(conversations, eq(conversationMembers.conversationId, conversations.id))
-    .leftJoin(inviter, eq(conversationMembers.invitedByUserId, inviter.id))
-    .where(
-      and(
-        eq(conversationMembers.conversationId, conversationId),
-        eq(conversationMembers.userId, userId),
-        isNull(conversationMembers.leftAt)
-      )
-    )
-    .limit(1);
-
-  const row = rows[0];
-  if (!row) {
-    return null;
-  }
-
-  const { conversation, visibleFromEpoch, acceptedAt, invitedByUsername } = row;
-
-  const conversationMessages = await db
-    .select()
-    .from(messages)
-    .where(
-      visibleFromEpoch > 1
-        ? and(
-            eq(messages.conversationId, conversationId),
-            gte(messages.epochNumber, visibleFromEpoch)
-          )
-        : eq(messages.conversationId, conversationId)
-    )
-    .orderBy(asc(messages.sequenceNumber));
-
-  return { conversation, messages: conversationMessages, acceptedAt, invitedByUsername };
-}
-
-/**
  * Creates a conversation or returns existing if ID already exists for this user.
  * Returns null if ID exists but belongs to different user (caller should return 404).
  *
@@ -277,6 +216,87 @@ export async function createOrGetConversation(
 
     return { conversation, isNew: true };
   });
+}
+
+export interface ConversationForMember {
+  conversation: Conversation;
+  messages: Message[];
+  acceptedAt: Date | null;
+  invitedByUsername: string | null;
+}
+
+/**
+ * Get a single conversation with messages, using a pre-resolved visibleFromEpoch.
+ * Used when membership is already verified by middleware (e.g. requirePrivilege).
+ * Returns null if conversation not found.
+ *
+ * If userId is provided, queries membership for acceptedAt and invitedByUsername.
+ * If userId is NOT provided (link guest), returns acceptedAt as current date and invitedByUsername as null.
+ */
+export async function getConversationForMember(
+  db: Database,
+  conversationId: string,
+  visibleFromEpoch: number,
+  userId?: string
+): Promise<ConversationForMember | null> {
+  const [conversation] = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+
+  if (!conversation) {
+    return null;
+  }
+
+  const conversationMessages = await db
+    .select()
+    .from(messages)
+    .where(
+      visibleFromEpoch > 1
+        ? and(
+            eq(messages.conversationId, conversationId),
+            gte(messages.epochNumber, visibleFromEpoch)
+          )
+        : eq(messages.conversationId, conversationId)
+    )
+    .orderBy(asc(messages.sequenceNumber));
+
+  if (!userId) {
+    return {
+      conversation,
+      messages: conversationMessages,
+      acceptedAt: new Date(),
+      invitedByUsername: null,
+    };
+  }
+
+  // Query membership for acceptance data
+  const inviter = alias(users, 'inviter');
+  const memberRows = await db
+    .select({
+      acceptedAt: conversationMembers.acceptedAt,
+      invitedByUsername: inviter.username,
+    })
+    .from(conversationMembers)
+    .leftJoin(inviter, eq(conversationMembers.invitedByUserId, inviter.id))
+    .where(
+      and(
+        eq(conversationMembers.conversationId, conversationId),
+        eq(conversationMembers.userId, userId),
+        isNull(conversationMembers.leftAt)
+      )
+    )
+    .limit(1);
+
+  const memberRow = memberRows[0];
+
+  return {
+    conversation,
+    messages: conversationMessages,
+    acceptedAt: memberRow?.acceptedAt ?? null,
+    invitedByUsername: memberRow?.invitedByUsername ?? null,
+  };
 }
 
 /**

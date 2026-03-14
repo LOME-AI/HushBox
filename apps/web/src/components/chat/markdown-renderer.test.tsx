@@ -152,21 +152,19 @@ describe('MarkdownRenderer', () => {
     expect(screen.getByTestId('markdown-renderer')).toBeInTheDocument();
   });
 
-  describe('error link styling', () => {
-    it('applies red styling to links when isError is true', () => {
-      render(<MarkdownRenderer content="See [the docs](https://example.com) for help" isError />);
+  describe('link styling', () => {
+    it('applies red styling to links', () => {
+      render(<MarkdownRenderer content="See [the docs](https://example.com) for help" />);
 
       const link = screen.getByRole('link', { name: 'the docs' });
       expect(link).toHaveStyle({ color: 'var(--brand-red)' });
     });
 
-    it('does not apply red styling to links when isError is false', () => {
-      render(
-        <MarkdownRenderer content="See [the docs](https://example.com) for help" isError={false} />
-      );
+    it('applies red styling to links in error messages', () => {
+      render(<MarkdownRenderer content="See [the docs](https://example.com) for help" isError />);
 
       const link = screen.getByRole('link', { name: 'the docs' });
-      expect(link).not.toHaveStyle({ color: 'var(--brand-red)' });
+      expect(link).toHaveStyle({ color: 'var(--brand-red)' });
     });
   });
 

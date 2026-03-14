@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement } from 'react';
 import type { Model } from '@hushbox/shared';
-import { STRONGEST_MODEL_ID, VALUE_MODEL_ID } from '@hushbox/shared';
+import { STRONGEST_MODEL_ID, VALUE_MODEL_ID, AUTO_ROUTER_MODEL_ID } from '@hushbox/shared';
 import { useModels, getAccessibleModelIds } from './models.js';
 
 // Mock the api-client module
@@ -32,8 +32,8 @@ const MOCK_MODELS: Model[] = [
     contextLength: 128_000,
     pricePerInputToken: 0.000_01,
     pricePerOutputToken: 0.000_03,
-    capabilities: ['streaming', 'functions'],
-    supportedParameters: ['temperature', 'tools', 'tool_choice'],
+    capabilities: ['internet-search'],
+    supportedParameters: ['temperature', 'tools', 'tool_choice', 'web_search_options'],
     created: Math.floor(Date.now() / 1000),
   },
   {
@@ -44,7 +44,7 @@ const MOCK_MODELS: Model[] = [
     contextLength: 200_000,
     pricePerInputToken: 0.000_003,
     pricePerOutputToken: 0.000_015,
-    capabilities: ['streaming'],
+    capabilities: [],
     supportedParameters: ['temperature', 'max_tokens'],
     created: Math.floor(Date.now() / 1000),
   },
@@ -259,6 +259,31 @@ describe('getAccessibleModelIds', () => {
 
     expect(result.strongestId).not.toBe('premium-model');
     expect(result.valueId).not.toBe('premium-model');
+  });
+
+  it('excludes auto-router from strongest/value calculation', () => {
+    const modelsWithAutoRouter: Model[] = [
+      ...testModels,
+      {
+        id: AUTO_ROUTER_MODEL_ID,
+        name: 'Smart Model',
+        description: 'Auto-router model',
+        provider: 'OpenRouter',
+        contextLength: 2_000_000,
+        pricePerInputToken: 0.000_000_039,
+        pricePerOutputToken: 0.000_000_19,
+        capabilities: [],
+        supportedParameters: [],
+        isAutoRouter: true,
+        created: Math.floor(Date.now() / 1000),
+      },
+    ];
+
+    // Auto-router has lowest price but should not be selected as "Best value"
+    const result = getAccessibleModelIds(modelsWithAutoRouter, premiumIds, false);
+
+    expect(result.strongestId).not.toBe(AUTO_ROUTER_MODEL_ID);
+    expect(result.valueId).not.toBe(AUTO_ROUTER_MODEL_ID);
   });
 
   it('uses combined input+output price for sorting', () => {

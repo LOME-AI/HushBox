@@ -893,6 +893,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         hasAcknowledgedPhrase: users.hasAcknowledgedPhrase,
         passwordWrappedPrivateKey: users.passwordWrappedPrivateKey,
         publicKey: users.publicKey,
+        customInstructionsEncrypted: users.customInstructionsEncrypted,
       })
       .from(users)
       .where(eq(users.id, sessionData.userId));
@@ -919,6 +920,9 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         user,
         passwordWrappedPrivateKey: toBase64(row.passwordWrappedPrivateKey),
         publicKey: toBase64(row.publicKey),
+        customInstructionsEncrypted: row.customInstructionsEncrypted
+          ? toBase64(row.customInstructionsEncrypted)
+          : null,
       },
       200
     );

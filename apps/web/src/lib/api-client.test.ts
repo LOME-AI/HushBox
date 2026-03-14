@@ -41,9 +41,36 @@ describe('api-client', () => {
     await client.api.health.$get();
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const callArgs = fetchSpy.mock.calls[0] as [Request | string | URL];
+    type FetchCallArgs = [Request | string | URL];
+    const callArgs = fetchSpy.mock.calls[0] as FetchCallArgs;
     const requestUrl = callArgs[0] instanceof Request ? callArgs[0].url : String(callArgs[0]);
     expect(requestUrl).toContain('http://localhost:8787/api/health');
+  });
+
+  it('uses credentials omit and sets header when link guest auth is active', async () => {
+    const { setLinkGuestAuth, clearLinkGuestAuth } = await import('./link-guest-auth.js');
+    setLinkGuestAuth('test-public-key-base64');
+
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        Response.json(
+          { status: 'ok', timestamp: '2024-01-01T00:00:00.000Z' },
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+    const { client } = await import('./api-client.js');
+    await client.api.health.$get();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const callArgs = fetchSpy.mock.calls[0] as [Request | string | URL, RequestInit | undefined];
+    const requestInit = callArgs[1];
+    expect(requestInit?.credentials).toBe('omit');
+    const headers = new Headers(requestInit?.headers);
+    expect(headers.get('X-Link-Public-Key')).toBe('test-public-key-base64');
+
+    clearLinkGuestAuth();
   });
 
   it('includes credentials include in requests', async () => {

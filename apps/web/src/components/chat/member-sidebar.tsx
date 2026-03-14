@@ -139,6 +139,17 @@ function MemberAvatar({
 
 const PRIVILEGE_ORDER = ['owner', 'admin', 'write', 'read'] as const;
 
+function groupByPrivilege<T extends { privilege: string }>(items: T[]): Record<string, T[]> {
+  const grouped: Record<string, T[]> = {};
+  for (const privilege of PRIVILEGE_ORDER) {
+    const matching = items.filter((item) => item.privilege === privilege);
+    if (matching.length > 0) {
+      grouped[privilege] = matching;
+    }
+  }
+  return grouped;
+}
+
 function buildOptionalCallbackProps(
   props: Readonly<MemberSidebarProps>
 ): Partial<MemberSidebarBodyProps> {
@@ -385,16 +396,10 @@ function MemberSidebarBody({
     return members.filter((m) => m.username.includes(normalizedQuery));
   }, [members, searchQuery]);
 
-  const membersByPrivilege = React.useMemo(() => {
-    const grouped: Record<string, typeof filteredMembers> = {};
-    for (const privilege of PRIVILEGE_ORDER) {
-      const matching = filteredMembers.filter((m) => m.privilege === privilege);
-      if (matching.length > 0) {
-        grouped[privilege] = matching;
-      }
-    }
-    return grouped;
-  }, [filteredMembers]);
+  const membersByPrivilege = React.useMemo(
+    () => groupByPrivilege(filteredMembers),
+    [filteredMembers]
+  );
 
   const filteredLinks = React.useMemo(() => {
     if (searchQuery.trim() === '') return links;
@@ -402,16 +407,7 @@ function MemberSidebarBody({
     return links.filter((l) => (l.displayName ?? '').toLowerCase().includes(query));
   }, [links, searchQuery]);
 
-  const linksByPrivilege = React.useMemo(() => {
-    const grouped: Record<string, typeof filteredLinks> = {};
-    for (const privilege of PRIVILEGE_ORDER) {
-      const matching = filteredLinks.filter((l) => l.privilege === privilege);
-      if (matching.length > 0) {
-        grouped[privilege] = matching;
-      }
-    }
-    return grouped;
-  }, [filteredLinks]);
+  const linksByPrivilege = React.useMemo(() => groupByPrivilege(filteredLinks), [filteredLinks]);
 
   const handleRequestRemove = React.useCallback(
     (memberId: string): void => {
@@ -432,7 +428,7 @@ function MemberSidebarBody({
     return (
       <div
         data-testid="member-sidebar-content"
-        className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto"
+        className="scrollbar-hide flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto"
       >
         {isAdmin && (
           <AdminActionButtons collapsed onAddMember={onAddMember} onInviteLink={onInviteLink} />

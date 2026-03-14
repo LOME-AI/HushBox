@@ -16,6 +16,24 @@ export interface HmacWebhookVerifyParams {
   webhookId: string;
 }
 
+/** Encode a base64 secret and import it as an HMAC-SHA256 CryptoKey. */
+async function importHmacKey(secret: string): Promise<CryptoKey> {
+  const secretBytes = fromStandardBase64(secret);
+
+  return crypto.subtle.importKey(
+    'raw',
+    secretBytes.buffer as ArrayBuffer,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+}
+
+/** Compute an HMAC-SHA256 signature over a UTF-8 encoded message. */
+async function computeHmacSignature(key: CryptoKey, message: string): Promise<ArrayBuffer> {
+  return crypto.subtle.sign('HMAC', key, textEncoder.encode(message));
+}
+
 /**
  * Sign a webhook payload with HMAC-SHA256.
  * Returns a versioned signature string in the format "v1,<base64>".
@@ -24,17 +42,8 @@ export async function signHmacSha256Webhook(params: HmacWebhookSignParams): Prom
   const { secret, payload, timestamp, webhookId } = params;
   const message = `${webhookId}.${timestamp}.${payload}`;
 
-  const secretBytes = fromStandardBase64(secret);
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    secretBytes.buffer as ArrayBuffer,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-
-  const signatureBuffer = await crypto.subtle.sign('HMAC', key, textEncoder.encode(message));
+  const key = await importHmacKey(secret);
+  const signatureBuffer = await computeHmacSignature(key, message);
   const signature = toStandardBase64(new Uint8Array(signatureBuffer));
 
   return `v1,${signature}`;
@@ -50,17 +59,8 @@ export async function verifyHmacSha256Webhook(params: HmacWebhookVerifyParams): 
   try {
     const message = `${webhookId}.${timestamp}.${payload}`;
 
-    const secretBytes = fromStandardBase64(secret);
-
-    const key = await crypto.subtle.importKey(
-      'raw',
-      secretBytes.buffer as ArrayBuffer,
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
-    );
-
-    const signatureBuffer = await crypto.subtle.sign('HMAC', key, textEncoder.encode(message));
+    const key = await importHmacKey(secret);
+    const signatureBuffer = await computeHmacSignature(key, message);
     const computedSignature = toStandardBase64(new Uint8Array(signatureBuffer));
 
     const signatures = parseSignatures(signatureHeader);

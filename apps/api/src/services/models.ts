@@ -5,6 +5,12 @@
  */
 
 import type { Model, ModelCapability } from '@hushbox/shared';
+import {
+  AUTO_ROUTER_MODEL_ID,
+  AUTO_ROUTER_INPUT_PRICE_PER_TOKEN,
+  AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN,
+  parseTokenPrice,
+} from '@hushbox/shared';
 
 import { isPremiumModel, PREMIUM_PRICE_PERCENTILE } from './models/premium-check.js';
 
@@ -18,8 +24,8 @@ const TOP_CONTEXT_PERCENTILE = 0.95;
 /** Maximum age for models (2 years in milliseconds) */
 const MAX_AGE_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 
-/** Minimum combined price per 1K tokens ($0.001) */
-const MIN_PRICE_PER_1K_TOKENS = 0.001;
+/** Minimum combined price per 1K tokens ($0.0002) */
+const MIN_PRICE_PER_1K_TOKENS = 0.0002;
 
 /** Name patterns for utility models that should always be excluded */
 const EXCLUDED_NAME_PATTERNS = [/body builder/i, /auto router/i, /audio/i, /image/i];
@@ -46,7 +52,7 @@ export interface OpenRouterModel {
   name: string;
   description: string;
   context_length: number;
-  pricing: { prompt: string; completion: string };
+  pricing: { prompt: string; completion: string; web_search?: string };
   supported_parameters: string[];
   created: number;
   architecture: {
@@ -69,7 +75,7 @@ export interface ProcessedModels {
  * Get the combined price of a model (prompt + completion per token).
  */
 function getCombinedPrice(model: OpenRouterModel): number {
-  return Number.parseFloat(model.pricing.prompt) + Number.parseFloat(model.pricing.completion);
+  return parseTokenPrice(model.pricing.prompt) + parseTokenPrice(model.pricing.completion);
 }
 
 /**
@@ -107,7 +113,7 @@ function isExcludedAlways(model: OpenRouterModel): boolean {
  * Check if model should be excluded by standard criteria.
  * These can be bypassed by top context models.
  * - Age: older than 2 years
- * - Minimum price: cheaper than $0.001 per 1K tokens
+ * - Minimum price: cheaper than $0.0002 per 1K tokens
  */
 function isExcludedByStandardCriteria(model: OpenRouterModel): boolean {
   const cutoffMs = Date.now() - MAX_AGE_MS;
@@ -135,19 +141,13 @@ function extractProvider(model: OpenRouterModel): { provider: string; displayNam
 
 /**
  * Derive capabilities from supported_parameters.
- * - 'tools' or 'tool_choice' → functions
- * - 'response_format' → json-mode
- * - All models support streaming by default
+ * Only 'internet-search' is currently tracked — detected via 'web_search_options'.
  */
 function deriveCapabilities(params: string[]): ModelCapability[] {
-  const caps: ModelCapability[] = ['streaming'];
+  const caps: ModelCapability[] = [];
 
-  if (params.includes('tools') || params.includes('tool_choice')) {
-    caps.push('functions');
-  }
-
-  if (params.includes('response_format')) {
-    caps.push('json-mode');
+  if (params.includes('web_search_options')) {
+    caps.push('internet-search');
   }
 
   return caps;
@@ -164,10 +164,13 @@ function transform(model: OpenRouterModel): Model {
     description: model.description,
     provider,
     contextLength: model.context_length,
-    pricePerInputToken: Number.parseFloat(model.pricing.prompt),
-    pricePerOutputToken: Number.parseFloat(model.pricing.completion),
+    pricePerInputToken: parseTokenPrice(model.pricing.prompt),
+    pricePerOutputToken: parseTokenPrice(model.pricing.completion),
     capabilities: deriveCapabilities(model.supported_parameters),
     supportedParameters: model.supported_parameters,
+    webSearchPrice: model.pricing.web_search
+      ? Number.parseFloat(model.pricing.web_search) || undefined
+      : undefined,
     created: model.created,
   };
 }
@@ -181,12 +184,37 @@ function transform(model: OpenRouterModel): Model {
  *
  * Filtering rules:
  * - Always excluded: free models, utility models (body builder, auto router, image)
- * - Standard exclusion (bypassed by top 5% context): age > 2 years, price < $0.001/1K tokens
+ * - Standard exclusion (bypassed by top 5% context): age > 2 years, price < $0.0002/1K tokens
  *
  * Premium classification:
  * - Price >= 75th percentile of filtered models, OR
  * - Released within the last year
  */
+/**
+ * Build auto-router Model entry with price ranges derived from the model pool.
+ */
+function buildAutoRouterModel(autoRouterRaw: OpenRouterModel, pool: OpenRouterModel[]): Model {
+  const inputPrices = pool.map((m) => parseTokenPrice(m.pricing.prompt));
+  const outputPrices = pool.map((m) => parseTokenPrice(m.pricing.completion));
+
+  return {
+    id: AUTO_ROUTER_MODEL_ID,
+    name: 'Smart Model',
+    description: autoRouterRaw.description,
+    provider: 'OpenRouter',
+    contextLength: autoRouterRaw.context_length,
+    pricePerInputToken: AUTO_ROUTER_INPUT_PRICE_PER_TOKEN,
+    pricePerOutputToken: AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN,
+    capabilities: deriveCapabilities(autoRouterRaw.supported_parameters),
+    supportedParameters: autoRouterRaw.supported_parameters,
+    isAutoRouter: true,
+    minPricePerInputToken: Math.min(...inputPrices),
+    minPricePerOutputToken: Math.min(...outputPrices),
+    maxPricePerInputToken: Math.max(...inputPrices),
+    maxPricePerOutputToken: Math.max(...outputPrices),
+  };
+}
+
 export function processModels(
   rawModels: OpenRouterModel[],
   zdrModelIds: Set<string>
@@ -194,12 +222,17 @@ export function processModels(
   // ZDR filter: only include models with ZDR-compliant providers
   const zdrFiltered = rawModels.filter((m) => zdrModelIds.has(m.id));
 
-  // Calculate context threshold from ZDR-filtered list (needed for filtering decision)
-  const contexts = zdrFiltered.map((m) => m.context_length);
+  // Extract auto-router from full list (it enforces ZDR via provider config, so it
+  // doesn't need to appear in the /endpoints/zdr response)
+  const autoRouterRaw = rawModels.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
+  const modelsForFiltering = zdrFiltered.filter((m) => m.id !== AUTO_ROUTER_MODEL_ID);
+
+  // Calculate context threshold from non-auto-router models
+  const contexts = modelsForFiltering.map((m) => m.context_length);
   const contextThreshold = calculatePercentileThreshold(contexts, TOP_CONTEXT_PERCENTILE);
 
   // Filter
-  const filtered = zdrFiltered.filter((model) => {
+  const filtered = modelsForFiltering.filter((model) => {
     if (isExcludedAlways(model)) {
       return false;
     }
@@ -222,6 +255,11 @@ export function processModels(
     if (isPremiumModel(model, priceThreshold)) {
       premiumIds.push(model.id);
     }
+  }
+
+  // Inject auto-router if present in ZDR list and pool has models
+  if (autoRouterRaw && filtered.length > 0) {
+    models.push(buildAutoRouterModel(autoRouterRaw, filtered));
   }
 
   return { models, premiumIds };
