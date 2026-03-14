@@ -136,7 +136,7 @@ async function waitForChatMessages(page: import('playwright').Page): Promise<voi
     const url = page.url();
     const testIds = await page
       .locator('[data-testid]')
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, unicorn/prefer-dom-node-dataset -- browser context inside evaluateAll; no DOM types in scripts tsconfig
+      // eslint-disable-next-line unicorn/prefer-dom-node-dataset -- browser context inside evaluateAll; no DOM types in scripts tsconfig
       .evaluateAll((els) => els.map((el) => el.getAttribute('data-testid')));
     console.error(`  Page URL: ${url}`);
     console.error(`  Visible testids: ${testIds.join(', ')}`);

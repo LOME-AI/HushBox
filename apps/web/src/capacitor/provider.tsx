@@ -9,6 +9,7 @@ import { useAppLifecycle } from './hooks/use-app-lifecycle.js';
 import { useNetworkStatus } from './hooks/use-network-status.js';
 import { useSplashScreen } from './hooks/use-splash-screen.js';
 import { usePushNotifications } from './hooks/use-push-notifications.js';
+import { useLiveUpdate } from './hooks/use-live-update.js';
 
 interface CapacitorProviderProps {
   isAppStable: boolean;
@@ -59,6 +60,7 @@ export function CapacitorProvider({
   useAppLifecycle();
   useNetworkStatus();
   useSplashScreen(isAppStable);
+  useLiveUpdate();
   usePushNotifications({
     onTokenReceived: handleTokenReceived,
     onNotificationTap: handleNotificationTap,

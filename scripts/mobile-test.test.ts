@@ -23,6 +23,7 @@ import {
   installMaestro,
   installAndroidSdk,
   startEmulator,
+  stopEmulator,
   startDevStack,
   buildApk,
   installApk,
@@ -501,6 +502,25 @@ describe('mobile-test script', () => {
     });
   });
 
+  describe('stopEmulator', () => {
+    it('runs docker compose down with mobile profile', async () => {
+      await stopEmulator();
+
+      expect(mockExeca).toHaveBeenCalledWith('docker', ['compose', '--profile', 'mobile', 'down'], {
+        stdio: 'inherit',
+      });
+    });
+
+    it('does not throw when docker compose down fails', async () => {
+      mockExeca.mockRejectedValueOnce(new Error('container not found'));
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(stopEmulator()).resolves.toBeUndefined();
+
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to stop emulator'));
+    });
+  });
+
   describe('runMaestro', () => {
     it('kills adb server to clear ghost devices', async () => {
       process.env['HB_EMULATOR_ADB_PORT'] = '5555';
@@ -656,7 +676,7 @@ describe('mobile-test script', () => {
         { cmd: 'stat', label: 'detect-kvm-gid', result: { stdout: '993' } },
         { cmd: 'docker', argument: 'info', label: 'check-docker' },
         { cmd: 'maestro', argument: '--version', label: 'check-maestro' },
-        { cmd: 'docker', argument: '--profile', label: 'start-emulator' },
+        { cmd: 'docker', argument: 'up', label: 'start-emulator' },
         {
           cmd: 'adb',
           argument: 'connect',
@@ -672,6 +692,7 @@ describe('mobile-test script', () => {
         { cmd: 'adb', argument: 'kill-server', label: 'kill-adb-server' },
         { cmd: 'adb', argument: 'start-server', label: 'start-adb-server' },
         { cmd: 'maestro', argument: 'test', label: 'run-maestro' },
+        { cmd: 'docker', argument: 'down', label: 'stop-emulator' },
       ];
 
       mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
@@ -702,6 +723,7 @@ describe('mobile-test script', () => {
         'start-adb-server',
         'adb-connect',
         'run-maestro',
+        'stop-emulator',
       ]);
       // installAndroidSdk runs but only calls existsSync (no execa), so it won't appear in callOrder
     });
@@ -710,6 +732,36 @@ describe('mobile-test script', () => {
       mockExeca.mockRejectedValueOnce(new Error('Docker not running'));
 
       await expect(main()).rejects.toThrow('Docker is not running');
+
+      // stopEmulator should NOT be called since emulator was never started
+      const downCalls = mockExeca.mock.calls.filter(
+        (call) => call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('down')
+      );
+      expect(downCalls).toHaveLength(0);
+    });
+
+    it('stops emulator even when a later step fails', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
+        if (cmd === 'stat') return Promise.resolve({ stdout: '993' } as never);
+        const argumentList = Array.isArray(args) ? [...args] : [];
+        if (cmd === 'adb') {
+          if (argumentList.includes('connect'))
+            return Promise.resolve({ stdout: 'connected to localhost:5555' } as never);
+          if (argumentList.includes('getprop')) return Promise.resolve({ stdout: '1' } as never);
+        }
+        if (cmd === 'pnpm' && argumentList.includes('build'))
+          return Promise.reject(new Error('build failed'));
+        return mockSubprocess();
+      }) as never);
+
+      await expect(main()).rejects.toThrow('build failed');
+
+      const downCalls = mockExeca.mock.calls.filter(
+        (call) => call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('down')
+      );
+      expect(downCalls).toHaveLength(1);
     });
   });
 });

@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
+import { useAppVersionStore } from '@/stores/app-version';
 
 vi.mock('@capacitor/splash-screen', () => ({
   SplashScreen: {
@@ -12,6 +13,10 @@ vi.mock('../platform.js', () => ({
 }));
 
 describe('useSplashScreen', () => {
+  beforeEach(() => {
+    useAppVersionStore.setState({ upgradeRequired: false });
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -56,5 +61,35 @@ describe('useSplashScreen', () => {
     });
 
     expect(SplashScreen.hide).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides splash when upgradeRequired is true even if app is not stable', async () => {
+    const { isNative } = await import('../platform.js');
+    vi.mocked(isNative).mockReturnValue(true);
+    useAppVersionStore.setState({ upgradeRequired: true });
+
+    const { SplashScreen } = await import('@capacitor/splash-screen');
+    const { useSplashScreen } = await import('./use-splash-screen.js');
+
+    renderHook(() => {
+      useSplashScreen(false);
+    });
+
+    expect(SplashScreen.hide).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not hide when both app is not stable and upgradeRequired is false', async () => {
+    const { isNative } = await import('../platform.js');
+    vi.mocked(isNative).mockReturnValue(true);
+    useAppVersionStore.setState({ upgradeRequired: false });
+
+    const { SplashScreen } = await import('@capacitor/splash-screen');
+    const { useSplashScreen } = await import('./use-splash-screen.js');
+
+    renderHook(() => {
+      useSplashScreen(false);
+    });
+
+    expect(SplashScreen.hide).not.toHaveBeenCalled();
   });
 });

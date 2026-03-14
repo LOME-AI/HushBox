@@ -23,6 +23,9 @@ vi.mock('./hooks/use-splash-screen.js', () => ({
 vi.mock('./hooks/use-push-notifications.js', () => ({
   usePushNotifications: vi.fn(),
 }));
+vi.mock('./hooks/use-live-update.js', () => ({
+  useLiveUpdate: vi.fn(),
+}));
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: vi.fn(() => mockNavigate),
 }));
@@ -138,6 +141,7 @@ describe('CapacitorProvider', () => {
     const { useNetworkStatus } = await import('./hooks/use-network-status.js');
     const { useSplashScreen } = await import('./hooks/use-splash-screen.js');
     const { usePushNotifications } = await import('./hooks/use-push-notifications.js');
+    const { useLiveUpdate } = await import('./hooks/use-live-update.js');
 
     const { CapacitorProvider } = await import('./provider.js');
 
@@ -155,6 +159,7 @@ describe('CapacitorProvider', () => {
     expect(useAppLifecycle).toHaveBeenCalled();
     expect(useNetworkStatus).toHaveBeenCalled();
     expect(useSplashScreen).toHaveBeenCalledWith(true);
+    expect(useLiveUpdate).toHaveBeenCalled();
     expect(usePushNotifications).toHaveBeenCalledWith(
       expect.objectContaining({
         onTokenReceived: expect.any(Function),

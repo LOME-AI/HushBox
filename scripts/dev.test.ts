@@ -15,6 +15,11 @@ vi.mock('./seed.js', () => ({
   seed: vi.fn(),
 }));
 
+// Mock docker-cleanup to avoid real docker/git calls in tests
+vi.mock('./docker-cleanup.js', () => ({
+  cleanupOrphanedProjects: vi.fn().mockResolvedValue({ orphaned: [], removed: [], failed: [] }),
+}));
+
 // Mock worktree to avoid .git file system reads in tests
 vi.mock('./worktree.js', () => ({
   getWorktreeConfig: vi.fn().mockReturnValue({
@@ -38,10 +43,12 @@ vi.mock('./worktree.js', () => ({
 
 import { execa } from 'execa';
 import { seed } from './seed.js';
+import { cleanupOrphanedProjects } from './docker-cleanup.js';
 import { startDocker, runMigrations, startDrizzleStudio, startTurbo, main } from './dev';
 
 const mockExeca = vi.mocked(execa);
 const mockSeed = vi.mocked(seed);
+const mockCleanup = vi.mocked(cleanupOrphanedProjects);
 
 describe('dev script', () => {
   beforeEach(() => {
@@ -145,8 +152,13 @@ describe('dev script', () => {
   });
 
   describe('main', () => {
-    it('executes steps in correct order: docker, migrations, studio, seed, turbo', async () => {
+    it('executes steps in correct order: cleanup, docker, migrations, studio, seed, turbo', async () => {
       const callOrder: string[] = [];
+
+      mockCleanup.mockImplementation(() => {
+        callOrder.push('cleanup');
+        return Promise.resolve({ orphaned: [], removed: [], failed: [] });
+      });
 
       mockExeca.mockImplementation(((cmd: string | URL, args?: readonly string[]) => {
         if (cmd === 'docker') callOrder.push('docker');
@@ -165,7 +177,27 @@ describe('dev script', () => {
 
       await main();
 
-      expect(callOrder).toEqual(['docker', 'migrations', 'studio', 'seed', 'turbo']);
+      expect(callOrder).toEqual(['cleanup', 'docker', 'migrations', 'studio', 'seed', 'turbo']);
+    });
+
+    it('calls cleanupOrphanedProjects with dryRun false', async () => {
+      await main();
+
+      expect(mockCleanup).toHaveBeenCalledWith({ dryRun: false });
+    });
+
+    it('continues startup when cleanup fails (non-fatal)', async () => {
+      mockCleanup.mockRejectedValueOnce(new Error('git not found'));
+
+      // Should not throw — cleanup failure is caught
+      await main();
+
+      // Docker should still have been called
+      expect(mockExeca).toHaveBeenCalledWith(
+        'docker',
+        expect.arrayContaining(['compose', 'up']),
+        expect.any(Object)
+      );
     });
 
     it('stops execution if docker fails', async () => {

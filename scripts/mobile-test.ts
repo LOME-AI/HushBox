@@ -188,6 +188,18 @@ async function logPollError(error: unknown, connected: boolean, index: number): 
   console.log(`[poll ${String(index)}] container: ${status}`);
 }
 
+export async function stopEmulator(): Promise<void> {
+  console.log('Stopping Android emulator...');
+  try {
+    await execa('docker', ['compose', '--profile', 'mobile', 'down'], {
+      stdio: 'inherit',
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to stop emulator: ${message}`);
+  }
+}
+
 export async function startEmulator(): Promise<void> {
   // Detect host KVM group ID so the container user can access /dev/kvm
   const kvmStat = await execa('stat', ['-c', '%g', '/dev/kvm']);
@@ -420,14 +432,19 @@ export async function main(): Promise<void> {
   await checkPrerequisites();
   await installMaestro();
   await installAndroidSdk();
-  await startEmulator();
-  await startDevStack();
-  await buildApk();
-  await installApk();
-  await configureAppLinks();
-  await runMaestro(smoke);
 
-  console.log('Mobile tests complete!');
+  try {
+    await startEmulator();
+    await startDevStack();
+    await buildApk();
+    await installApk();
+    await configureAppLinks();
+    await runMaestro(smoke);
+
+    console.log('Mobile tests complete!');
+  } finally {
+    await stopEmulator();
+  }
 }
 
 // CLI entry point
