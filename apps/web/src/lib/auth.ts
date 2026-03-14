@@ -178,6 +178,34 @@ export function useSession(): SessionHookResult {
 // signIn (OPAQUE protocol)
 // ---------------------------------------------------------------------------
 
+/**
+ * Unwrap account key, persist export key, set private key, and fetch /me to hydrate user store.
+ * Shared by both 2FA and non-2FA login paths.
+ */
+async function finalizeLoginWithKey(
+  exportKey: Uint8Array,
+  wrappedPrivateKey: Uint8Array,
+  userId: string,
+  keepSignedIn: boolean
+): Promise<void> {
+  const accountPrivateKey = unwrapAccountKeyWithPassword(exportKey, wrappedPrivateKey);
+  persistExportKey(exportKey, userId, keepSignedIn);
+  useAuthStore.getState().setPrivateKey(accountPrivateKey);
+
+  const meResponse = await fetch(`${getApiUrl()}/api/auth/me`, {
+    credentials: 'include',
+  });
+  if (meResponse.ok) {
+    const meData = (await meResponse.json()) as MeResponse;
+    useAuthStore.getState().setUser(meData.user);
+    useAuthStore
+      .getState()
+      .setCustomInstructions(
+        decryptCustomInstructions(accountPrivateKey, meData.customInstructionsEncrypted)
+      );
+  }
+}
+
 async function signInEmail(options: {
   identifier: string;
   password: string;
@@ -257,27 +285,12 @@ async function signInEmail(options: {
               passwordWrappedPrivateKey: string;
             };
 
-            // Unwrap account private key using OPAQUE export key
-            const accountPrivateKey = unwrapAccountKeyWithPassword(
+            await finalizeLoginWithKey(
               exportKey,
-              fromBase64(verifyResponse.passwordWrappedPrivateKey)
+              fromBase64(verifyResponse.passwordWrappedPrivateKey),
+              verifyResponse.userId,
+              keepSignedIn
             );
-            persistExportKey(exportKey, verifyResponse.userId, keepSignedIn);
-            useAuthStore.getState().setPrivateKey(accountPrivateKey);
-
-            // Fetch full user data
-            const meResponse = await fetch(`${getApiUrl()}/api/auth/me`, {
-              credentials: 'include',
-            });
-            if (meResponse.ok) {
-              const meData = (await meResponse.json()) as MeResponse;
-              useAuthStore.getState().setUser(meData.user);
-              useAuthStore
-                .getState()
-                .setCustomInstructions(
-                  decryptCustomInstructions(accountPrivateKey, meData.customInstructionsEncrypted)
-                );
-            }
 
             return { success: true };
           } catch {
@@ -292,26 +305,15 @@ async function signInEmail(options: {
       return { error: { message: friendlyErrorMessage('ENCRYPTION_NOT_SETUP') } };
     }
 
-    const accountPrivateKey = unwrapAccountKeyWithPassword(
+    await finalizeLoginWithKey(
       exportKey,
-      fromBase64(finishData.passwordWrappedPrivateKey)
+      fromBase64(finishData.passwordWrappedPrivateKey),
+      finishData.userId,
+      keepSignedIn
     );
-    persistExportKey(exportKey, finishData.userId, keepSignedIn);
-    useAuthStore.getState().setPrivateKey(accountPrivateKey);
 
-    // Fetch full user data from /me for complete profile
-    const meResponse = await fetch(`${getApiUrl()}/api/auth/me`, {
-      credentials: 'include',
-    });
-    if (meResponse.ok) {
-      const meData = (await meResponse.json()) as MeResponse;
-      useAuthStore.getState().setUser(meData.user);
-      useAuthStore
-        .getState()
-        .setCustomInstructions(
-          decryptCustomInstructions(accountPrivateKey, meData.customInstructionsEncrypted)
-        );
-    } else {
+    // finalizeLoginWithKey fetches /me; if that failed, fallback to minimal info
+    if (!useAuthStore.getState().user) {
       // Fallback to minimal user info from login response
       useAuthStore.getState().setUser({
         id: finishData.userId,

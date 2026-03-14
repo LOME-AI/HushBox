@@ -87,7 +87,8 @@ async function fetchForks(db: Database, conversationId: string): Promise<Convers
 
 export const conversationsRoute = new Hono<AppEnv>()
   .get('/', requireAuth(), async (c) => {
-    const user = c.get('user')!;
+    const user = c.get('user');
+    if (!user) throw new Error('User required after requireAuth');
     const db = c.get('db');
 
     const userConversations = await listConversations(db, user.id);
@@ -135,7 +136,7 @@ export const conversationsRoute = new Hono<AppEnv>()
         {
           conversation: serializeConversation(result.conversation),
           messages: result.messages.map((msg) => serializeMessage(msg)),
-          forks: forks.map(serializeFork),
+          forks: forks.map((f) => serializeFork(f)),
           accepted,
           invitedByUsername,
           callerId,
@@ -146,7 +147,8 @@ export const conversationsRoute = new Hono<AppEnv>()
     }
   )
   .post('/', requireAuth(), zValidator('json', createConversationRequestSchema), async (c) => {
-    const user = c.get('user')!;
+    const user = c.get('user');
+    if (!user) throw new Error('User required after requireAuth');
     const db = c.get('db');
     const body = c.req.valid('json');
 
@@ -170,7 +172,7 @@ export const conversationsRoute = new Hono<AppEnv>()
     const response = {
       conversation: serializeConversation(result.conversation),
       messages: result.messages?.map((msg) => serializeMessage(msg)),
-      forks: existingForks.map(serializeFork),
+      forks: existingForks.map((f) => serializeFork(f)),
       isNew: result.isNew,
       accepted: true as const, // creator is always auto-accepted
       invitedByUsername: null as string | null,
@@ -186,7 +188,8 @@ export const conversationsRoute = new Hono<AppEnv>()
     requirePrivilege('owner'),
     zValidator('json', updateConversationRequestSchema),
     async (c) => {
-      const user = c.get('user')!;
+      const user = c.get('user');
+      if (!user) throw new Error('User required after requirePrivilege');
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const body = c.req.valid('json');
@@ -215,7 +218,8 @@ export const conversationsRoute = new Hono<AppEnv>()
     zValidator('param', z.object({ conversationId: z.string() })),
     requirePrivilege('owner'),
     async (c) => {
-      const user = c.get('user')!;
+      const user = c.get('user');
+      if (!user) throw new Error('User required after requirePrivilege');
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
 

@@ -9,10 +9,32 @@ import { useChatStream, TrialRateLimitError } from '@/hooks/use-chat-stream';
 import { useTrialChatStore } from '@/stores/trial-chat';
 import { useModelStore, getPrimaryModel } from '@/stores/model';
 import { useChatErrorStore, createChatError } from '@/stores/chat-error';
+import { useChatEditStore } from '@/stores/chat-edit';
 import { useSession } from '@/lib/auth';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import type { Message } from '@/lib/api';
 import { ROUTES, friendlyErrorMessage, customUserMessage } from '@hushbox/shared';
+
+/**
+ * Trial messages lack parentMessageId, so resolve assistant targets to
+ * the preceding user message by position (mirrors resolveRegenerateTarget
+ * which uses parentMessageId for authenticated messages).
+ */
+function resolveTrialTarget(
+  messages: { id: string; role: string }[],
+  targetMessageId: string
+): { resolvedId: string; targetRole: string } {
+  const target = messages.find((m) => m.id === targetMessageId);
+  if (!target) return { resolvedId: targetMessageId, targetRole: 'user' };
+
+  if (target.role === 'assistant') {
+    const targetIndex = messages.findIndex((m) => m.id === targetMessageId);
+    const precedingUser = messages.slice(0, targetIndex).findLast((m) => m.role === 'user');
+    return { resolvedId: precedingUser?.id ?? targetMessageId, targetRole: 'assistant' };
+  }
+
+  return { resolvedId: targetMessageId, targetRole: target.role };
+}
 
 export function TrialChatPage(): React.JSX.Element {
   const state = useChatPageState();
@@ -26,6 +48,7 @@ export function TrialChatPage(): React.JSX.Element {
 
   const { selectedModels } = useModelStore();
   const { isStreaming, startStream } = useChatStream('trial');
+  const { editingMessageId, startEditing, clearEditing } = useChatEditStore();
 
   const {
     messages: trialMessages,
@@ -130,9 +153,53 @@ export function TrialChatPage(): React.JSX.Element {
     }
   }, [trialPendingMessage, isStreaming, handleTrialFirstMessage]);
 
+  const handleTrialRegenerate = React.useCallback(
+    async (targetMessageId: string, editedContent?: string): Promise<void> => {
+      if (isStreaming || isRateLimited) return;
+      if (!trialMessages.some((m) => m.id === targetMessageId)) return;
+
+      const { resolvedId, targetRole } = resolveTrialTarget(trialMessages, targetMessageId);
+
+      useChatErrorStore.getState().clearError();
+
+      const effectiveAction = editedContent ? ('edit' as const) : ('retry' as const);
+      const inferenceMessages = buildMessagesForRegeneration(
+        trialMessages,
+        resolvedId,
+        effectiveAction,
+        editedContent
+      );
+      const apiMessages = inferenceMessages.map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }));
+
+      // Truncation by original target role, not by action
+      if (targetRole === 'assistant') {
+        const targetIndex = trialMessages.findIndex((m) => m.id === targetMessageId);
+        const precedingMessage = trialMessages[targetIndex - 1];
+        if (targetIndex > 0 && precedingMessage) {
+          removeMessagesAfter(precedingMessage.id);
+        }
+      } else {
+        removeMessagesAfter(targetMessageId);
+      }
+
+      await executeStream(apiMessages);
+    },
+    [isStreaming, isRateLimited, trialMessages, removeMessagesAfter, executeStream]
+  );
+
   const handleTrialSubmit = React.useCallback(async () => {
     const content = state.inputValue.trim();
     if (!content || isStreaming || isRateLimited) return;
+
+    // Handle edit submission
+    if (editingMessageId) {
+      void handleTrialRegenerate(editingMessageId, content);
+      clearEditing();
+      return;
+    }
 
     useChatErrorStore.getState().clearError();
     state.clearInput();
@@ -149,44 +216,31 @@ export function TrialChatPage(): React.JSX.Element {
     }));
 
     await executeStream(apiMessages);
-  }, [state, isStreaming, isRateLimited, isMobile, trialMessages, addTrialMessage, executeStream]);
+  }, [
+    state,
+    isStreaming,
+    isRateLimited,
+    isMobile,
+    trialMessages,
+    addTrialMessage,
+    executeStream,
+    editingMessageId,
+    clearEditing,
+    handleTrialRegenerate,
+  ]);
 
-  const handleTrialRegenerate = React.useCallback(
-    async (targetMessageId: string): Promise<void> => {
-      if (isStreaming || isRateLimited) return;
-
-      const target = trialMessages.find((m) => m.id === targetMessageId);
-      if (!target) return;
-
-      useChatErrorStore.getState().clearError();
-
-      const action = target.role === 'assistant' ? 'regenerate' : 'retry';
-      const inferenceMessages = buildMessagesForRegeneration(
-        trialMessages,
-        targetMessageId,
-        action
-      );
-      const apiMessages = inferenceMessages.map((m) => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      }));
-
-      // For regenerate, truncate before the AI message (keep the preceding user message)
-      // For retry, truncate after the user message (keep the user message)
-      if (action === 'regenerate') {
-        const targetIndex = trialMessages.findIndex((m) => m.id === targetMessageId);
-        const precedingMessage = trialMessages[targetIndex - 1];
-        if (targetIndex > 0 && precedingMessage) {
-          removeMessagesAfter(precedingMessage.id);
-        }
-      } else {
-        removeMessagesAfter(targetMessageId);
-      }
-
-      await executeStream(apiMessages);
+  const handleEdit = React.useCallback(
+    (messageId: string, content: string): void => {
+      startEditing(messageId, content);
+      state.setInputValue(content);
     },
-    [isStreaming, isRateLimited, trialMessages, removeMessagesAfter, executeStream]
+    [startEditing, state]
   );
+
+  const handleCancelEdit = React.useCallback((): void => {
+    clearEditing();
+    state.setInputValue('');
+  }, [clearEditing, state]);
 
   if (!isSessionPending && isAuthenticated) {
     return <Navigate to={ROUTES.CHAT} />;
@@ -226,6 +280,9 @@ export function TrialChatPage(): React.JSX.Element {
       promptInputRef={promptInputRef}
       errorMessageId={chatError?.id}
       onRegenerate={(messageId: string) => void handleTrialRegenerate(messageId)}
+      onEdit={handleEdit}
+      isEditing={editingMessageId !== null}
+      onCancelEdit={handleCancelEdit}
     />
   );
 }

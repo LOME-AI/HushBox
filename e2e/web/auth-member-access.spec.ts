@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
+import { searchAndSelectMember } from '../helpers/add-member.js';
 
 test.describe('Auth Member Access', () => {
   test.describe.configure({ mode: 'serial' });
@@ -19,30 +20,20 @@ test.describe('Auth Member Access', () => {
       const sidebar = new MemberSidebarPage(authenticatedPage);
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
-      await sidebar.clickNewMember();
 
-      const modal = authenticatedPage.getByTestId('add-member-modal');
-      await expect(modal).toBeVisible();
-
-      const searchInput = authenticatedPage.getByTestId('add-member-search-input');
-      await searchInput.fill('test dave');
-
-      const result = authenticatedPage.getByTestId(/^add-member-result-/);
-      await expect(result.first()).toBeVisible({ timeout: 5000 });
-      await result.first().click();
-
-      await expect(authenticatedPage.getByTestId('add-member-selected')).toBeVisible();
+      await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
 
       // Set read privilege
-      const privilegeSelect = authenticatedPage.getByTestId('add-member-privilege-select');
-      await privilegeSelect.selectOption('read');
+      await authenticatedPage.getByTestId('add-member-privilege-select').selectOption('read');
 
       // Check history checkbox
-      const historyCheckbox = authenticatedPage.getByTestId('add-member-history-checkbox');
-      await historyCheckbox.getByRole('checkbox').check();
+      await authenticatedPage
+        .getByTestId('add-member-history-checkbox')
+        .getByRole('checkbox')
+        .check();
 
       await authenticatedPage.getByTestId('add-member-submit-button').click();
-      await expect(modal).not.toBeVisible();
+      await expect(authenticatedPage.getByTestId('add-member-modal')).not.toBeVisible();
     });
 
     await test.step('Dave sees all messages and cannot send', async () => {
@@ -96,32 +87,18 @@ test.describe('Auth Member Access', () => {
     await test.step('add Dave as read+no-history member', async () => {
       const sidebar = new MemberSidebarPage(authenticatedPage);
 
-      await sidebar.clickNewMember();
-
-      const modal = authenticatedPage.getByTestId('add-member-modal');
-      await expect(modal).toBeVisible();
-
-      const searchInput = authenticatedPage.getByTestId('add-member-search-input');
-      await searchInput.fill('test dave');
-
-      const result = authenticatedPage.getByTestId(/^add-member-result-/);
-      await expect(result.first()).toBeVisible({ timeout: 5000 });
-      await result.first().click();
-
-      await expect(authenticatedPage.getByTestId('add-member-selected')).toBeVisible();
+      await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
 
       // Set read privilege
-      const privilegeSelect = authenticatedPage.getByTestId('add-member-privilege-select');
-      await privilegeSelect.selectOption('read');
+      await authenticatedPage.getByTestId('add-member-privilege-select').selectOption('read');
 
       // History checkbox left unchecked (no history)
-      const historyCheckbox = authenticatedPage
-        .getByTestId('add-member-history-checkbox')
-        .getByRole('checkbox');
-      await expect(historyCheckbox).not.toBeChecked();
+      await expect(
+        authenticatedPage.getByTestId('add-member-history-checkbox').getByRole('checkbox')
+      ).not.toBeChecked();
 
       await authenticatedPage.getByTestId('add-member-submit-button').click();
-      await expect(modal).not.toBeVisible();
+      await expect(authenticatedPage.getByTestId('add-member-modal')).not.toBeVisible();
     });
 
     await test.step('Alice sends message in new epoch', async () => {

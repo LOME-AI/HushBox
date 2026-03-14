@@ -22,6 +22,19 @@ import { requireAuth } from '../middleware/require-auth.js';
 import { getClientIp } from '../lib/client-ip.js';
 import { checkUserBalance } from '../services/billing/index.js';
 import type { AppEnv } from '../types.js';
+import type { Database } from '@hushbox/db';
+
+async function findPaymentByIdAndUser(
+  db: Database,
+  paymentId: string,
+  userId: string
+): Promise<typeof payments.$inferSelect | undefined> {
+  const [payment] = await db
+    .select()
+    .from(payments)
+    .where(and(eq(payments.id, paymentId), eq(payments.userId, userId)));
+  return payment;
+}
 
 export const billingRoute = new Hono<AppEnv>()
   .use('*', requireAuth())
@@ -36,10 +49,6 @@ export const billingRoute = new Hono<AppEnv>()
     await redisSet(redis, 'billingLoginToken', { userId: user.id }, token);
     return c.json({ token }, 200);
   })
-
-  .use('/payments', requirePhrase())
-  .use('/payments/*', requirePhrase())
-
 
   .get('/balance', async (c) => {
     const user = c.get('user');
@@ -186,10 +195,7 @@ export const billingRoute = new Hono<AppEnv>()
       const { id: paymentId } = c.req.valid('param');
       const body = c.req.valid('json');
 
-      const [payment] = await db
-        .select()
-        .from(payments)
-        .where(and(eq(payments.id, paymentId), eq(payments.userId, user.id)));
+      const payment = await findPaymentByIdAndUser(db, paymentId, user.id);
 
       if (!payment) {
         return c.json(createErrorResponse(ERROR_CODE_PAYMENT_NOT_FOUND), 404);
@@ -275,10 +281,7 @@ export const billingRoute = new Hono<AppEnv>()
     const db = c.get('db');
     const { id: paymentId } = c.req.valid('param');
 
-    const [payment] = await db
-      .select()
-      .from(payments)
-      .where(and(eq(payments.id, paymentId), eq(payments.userId, user.id)));
+    const payment = await findPaymentByIdAndUser(db, paymentId, user.id);
 
     if (!payment) {
       return c.json(createErrorResponse(ERROR_CODE_PAYMENT_NOT_FOUND), 404);

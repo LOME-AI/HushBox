@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
+import { createInviteLink } from '../helpers/invite-link.js';
 
 test.describe('Shared Content', () => {
   test('invite link: shared conversation view and revoked link error', async ({
@@ -21,31 +22,14 @@ test.describe('Shared Content', () => {
     let linkId: string;
 
     await test.step('create invite link and capture URL', async () => {
-      await sidebar.clickInviteLink();
-      const modal = authenticatedPage.getByTestId('invite-link-modal');
-      await expect(modal).toBeVisible();
-
-      // Check history checkbox so guest can see existing messages
-      await authenticatedPage
-        .getByTestId('invite-link-history-checkbox')
-        .getByRole('checkbox')
-        .check();
-
-      await authenticatedPage.getByTestId('invite-link-generate-button').click();
-
-      const urlEl = authenticatedPage.getByTestId('invite-link-url');
-      await expect(urlEl).toBeVisible();
-      inviteUrl = (await urlEl.textContent()) ?? '';
+      const result = await createInviteLink(authenticatedPage, sidebar, {
+        withHistory: true,
+        closeMethod: 'escape',
+      });
+      inviteUrl = result.url;
+      linkId = result.linkId;
       expect(inviteUrl).toContain('/share/c/');
       expect(inviteUrl).toContain('#');
-
-      await authenticatedPage.keyboard.press('Escape');
-
-      // Capture linkId from sidebar for later revocation
-      const linkRow = sidebar.content.locator('[data-testid^="link-item-"]').first();
-      await expect(linkRow).toBeVisible();
-      const testId = await linkRow.getAttribute('data-testid');
-      linkId = testId!.replace('link-item-', '');
     });
 
     await test.step('unauthenticated user sees decrypted messages', async () => {

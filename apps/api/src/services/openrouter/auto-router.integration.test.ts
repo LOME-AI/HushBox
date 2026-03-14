@@ -38,7 +38,7 @@ describe('Auto-Router Integration', () => {
   let db: Database | null = null;
   let evidenceConfig: EvidenceConfig | undefined;
 
-  beforeAll(async () => {
+  beforeAll(() => {
     if (env.isLocalDev) {
       client = createFastMockOpenRouterClient({
         streamContent: 'AUTO_ROUTER_TEST_OK',

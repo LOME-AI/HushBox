@@ -7,7 +7,7 @@ import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { signUp } from '@/lib/auth';
 import { FormInput } from '@/components/shared/form-input';
 import { AuthButton } from '@/components/auth/AuthButton';
-import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
+import { PasswordField, ConfirmPasswordField } from '@/components/auth/password-field';
 import { AuthFeatureList } from '@/components/auth/auth-feature-list';
 import { AuthShakeError } from '@/components/auth/auth-shake-error';
 import { ExternalPageLink } from '@/components/shared/external-page-link';
@@ -42,11 +42,6 @@ export function SignupPage(): React.JSX.Element {
 
   const usernameValidation = touched.username ? validateUsername(username) : { isValid: false };
   const emailValidation = touched.email ? validateEmail(email) : { isValid: false };
-  const passwordValidation = touched.password ? validatePassword(password) : { isValid: false };
-  const confirmPasswordValidation = touched.confirmPassword
-    ? validateConfirmPassword(password, confirmPassword)
-    : { isValid: false };
-
   async function handleSubmit(e: React.SyntheticEvent): Promise<void> {
     e.preventDefault();
 
@@ -136,31 +131,28 @@ export function SignupPage(): React.JSX.Element {
           success={emailValidation.success}
         />
 
-        <AuthPasswordInput
+        <PasswordField
           id="password"
           label="Password"
-          value={password}
-          onChange={(e) => {
-            setPassword(e.target.value);
-            if (!touched.password) setTouched((t) => ({ ...t, password: true }));
+          password={password}
+          setPassword={setPassword}
+          touched={touched.password}
+          markTouched={() => {
+            setTouched((t) => ({ ...t, password: true }));
           }}
-          aria-invalid={!!passwordValidation.error}
-          error={passwordValidation.error}
-          success={passwordValidation.success}
           showStrength
         />
 
-        <AuthPasswordInput
+        <ConfirmPasswordField
           id="confirmPassword"
           label="Confirm password"
-          value={confirmPassword}
-          onChange={(e) => {
-            setConfirmPassword(e.target.value);
-            if (!touched.confirmPassword) setTouched((t) => ({ ...t, confirmPassword: true }));
+          newPassword={password}
+          confirmPassword={confirmPassword}
+          setConfirmPassword={setConfirmPassword}
+          touched={touched.confirmPassword}
+          markTouched={() => {
+            setTouched((t) => ({ ...t, confirmPassword: true }));
           }}
-          aria-invalid={!!confirmPasswordValidation.error}
-          error={confirmPasswordValidation.error}
-          success={confirmPasswordValidation.success}
         />
 
         <AuthShakeError error={error} errorKey={errorKey} />

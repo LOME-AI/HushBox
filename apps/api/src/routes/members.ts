@@ -23,6 +23,7 @@ import {
   ERROR_CODE_CANNOT_REMOVE_SELF,
   ERROR_CODE_MEMBER_LIMIT_REACHED,
   ERROR_CODE_ROTATION_REQUIRED,
+  ERROR_CODE_UNAUTHORIZED,
   MAX_CONVERSATION_MEMBERS,
   memberPrivilegeSchema,
   rotationSchema,
@@ -41,18 +42,23 @@ import { submitRotation, toRotationParams, handleRotationError } from '../servic
 import { broadcastToRoom } from '../lib/broadcast.js';
 import { fireAndForget } from '../lib/fire-and-forget.js';
 
+interface BroadcastEventOptions<T extends RealtimeEventType> {
+  env: Bindings | undefined;
+  conversationId: string;
+  type: T;
+  data: Omit<Extract<RealtimeEvent, { type: T }>, 'type' | 'timestamp'>;
+  errorContext: string;
+}
+
 /**
  * Fire-and-forget broadcast of a realtime event to a conversation room.
  * Captures the repeated `fireAndForget(broadcastToRoom(env, id, createEvent(...)))` pattern.
  */
-function broadcastEvent<T extends RealtimeEventType>(
-  env: Bindings | undefined,
-  conversationId: string,
-  type: T,
-  data: Omit<Extract<RealtimeEvent, { type: T }>, 'type' | 'timestamp'>,
-  errorContext: string
-): void {
-  fireAndForget(broadcastToRoom(env, conversationId, createEvent(type, data)), errorContext);
+function broadcastEvent<T extends RealtimeEventType>(options: BroadcastEventOptions<T>): void {
+  fireAndForget(
+    broadcastToRoom(options.env, options.conversationId, createEvent(options.type, options.data)),
+    options.errorContext
+  );
 }
 
 export const membersRoute = new Hono<AppEnv>()
@@ -119,9 +125,10 @@ export const membersRoute = new Hono<AppEnv>()
           message: 'wrap required for full history, rotation required without history',
         })
     ),
-    // eslint-disable-next-line sonarjs/cognitive-complexity -- add-member handler has inherent branching from giveFullHistory/rotation/wrap guards
+    // eslint-disable-next-line sonarjs/cognitive-complexity, complexity -- add-member handler has inherent branching from giveFullHistory/rotation/wrap guards
     async (c) => {
-      const user = c.get('user')!;
+      const user = c.get('user');
+      if (!user) throw new Error('User required after requirePrivilege');
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const {
@@ -239,31 +246,31 @@ export const membersRoute = new Hono<AppEnv>()
         }
 
         // 5. Broadcast member:added event (fire-and-forget)
-        broadcastEvent(
-          c.env,
+        broadcastEvent({
+          env: c.env,
           conversationId,
-          'member:added',
-          {
+          type: 'member:added',
+          data: {
             conversationId,
             memberId: newMember.id,
             userId: targetUserId,
             privilege,
           },
-          'broadcast member:added event'
-        );
+          errorContext: 'broadcast member:added event',
+        });
 
         // 6. Broadcast rotation:complete if epoch rotated (no rotation for full history)
         if (!giveFullHistory && rotation) {
-          broadcastEvent(
-            c.env,
+          broadcastEvent({
+            env: c.env,
             conversationId,
-            'rotation:complete',
-            {
+            type: 'rotation:complete',
+            data: {
               conversationId,
               newEpochNumber: rotation.expectedEpoch + 1,
             },
-            'broadcast rotation:complete after add-member rotation'
-          );
+            errorContext: 'broadcast rotation:complete after add-member rotation',
+          });
         }
 
         return c.json(
@@ -296,7 +303,8 @@ export const membersRoute = new Hono<AppEnv>()
       })
     ),
     async (c) => {
-      const user = c.get('user')!;
+      const user = c.get('user');
+      if (!user) throw new Error('User required after requirePrivilege');
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const { memberId, rotation } = c.req.valid('json');
@@ -342,29 +350,29 @@ export const membersRoute = new Hono<AppEnv>()
       }
 
       // 6. Broadcast member:removed event (fire-and-forget)
-      broadcastEvent(
-        c.env,
+      broadcastEvent({
+        env: c.env,
         conversationId,
-        'member:removed',
-        {
+        type: 'member:removed',
+        data: {
           conversationId,
           memberId,
           ...(targetMember.userId != null && { userId: targetMember.userId }),
         },
-        'broadcast member:removed event'
-      );
+        errorContext: 'broadcast member:removed event',
+      });
 
       // 7. Broadcast rotation:complete (fire-and-forget)
-      broadcastEvent(
-        c.env,
+      broadcastEvent({
+        env: c.env,
         conversationId,
-        'rotation:complete',
-        {
+        type: 'rotation:complete',
+        data: {
           conversationId,
           newEpochNumber: rotation.expectedEpoch + 1,
         },
-        'broadcast rotation:complete after member removal'
-      );
+        errorContext: 'broadcast rotation:complete after member removal',
+      });
 
       return c.json({ removed: true }, 200);
     }
@@ -381,7 +389,8 @@ export const membersRoute = new Hono<AppEnv>()
       })
     ),
     async (c) => {
-      const user = c.get('user')!;
+      const user = c.get('user');
+      if (!user) throw new Error('User required after requirePrivilege');
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const { memberId, privilege: newPrivilege } = c.req.valid('json');
@@ -411,17 +420,17 @@ export const membersRoute = new Hono<AppEnv>()
         .where(eq(conversationMembers.id, memberId));
 
       // 5. Broadcast privilege change (fire-and-forget)
-      broadcastEvent(
-        c.env,
+      broadcastEvent({
+        env: c.env,
         conversationId,
-        'member:privilege-changed',
-        {
+        type: 'member:privilege-changed',
+        data: {
           conversationId,
           memberId,
           privilege: newPrivilege,
         },
-        'broadcast member:privilege-changed event'
-      );
+        errorContext: 'broadcast member:privilege-changed event',
+      });
 
       return c.json(
         {
@@ -444,7 +453,8 @@ export const membersRoute = new Hono<AppEnv>()
       })
     ),
     async (c) => {
-      const user = c.get('user')!;
+      const user = c.get('user');
+      if (!user) throw new Error('User required after requirePrivilege');
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const { rotation } = c.req.valid('json');
@@ -479,29 +489,29 @@ export const membersRoute = new Hono<AppEnv>()
       }
 
       // Broadcast member:removed event (fire-and-forget)
-      broadcastEvent(
-        c.env,
+      broadcastEvent({
+        env: c.env,
         conversationId,
-        'member:removed',
-        {
+        type: 'member:removed',
+        data: {
           conversationId,
           memberId: requesterMember.id,
           userId: user.id,
         },
-        'broadcast member:removed event after leave'
-      );
+        errorContext: 'broadcast member:removed event after leave',
+      });
 
       // Broadcast rotation:complete (fire-and-forget)
-      broadcastEvent(
-        c.env,
+      broadcastEvent({
+        env: c.env,
         conversationId,
-        'rotation:complete',
-        {
+        type: 'rotation:complete',
+        data: {
           conversationId,
           newEpochNumber: rotation.expectedEpoch + 1,
         },
-        'broadcast rotation:complete after leave'
-      );
+        errorContext: 'broadcast rotation:complete after leave',
+      });
 
       return c.json({ left: true }, 200);
     }
@@ -540,7 +550,8 @@ export const membersRoute = new Hono<AppEnv>()
     zValidator('param', z.object({ conversationId: z.string() })),
     requirePrivilege('read'),
     async (c) => {
-      const user = c.get('user')!;
+      const user = c.get('user');
+      if (!user) throw new Error('User required after requirePrivilege');
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
 

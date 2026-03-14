@@ -39,36 +39,36 @@ describe('useIsSettled', () => {
     expect(result.current).toBe(false);
   });
 
-  it('returns true after debounce period when idle', async () => {
+  it('returns true after debounce period when idle', () => {
     const { result } = renderHook(() => useIsSettled(), { wrapper: createWrapper() });
 
-    await act(async () => {
+    act(() => {
       vi.advanceTimersByTime(300);
     });
 
     expect(result.current).toBe(true);
   });
 
-  it('returns false when streams are active', async () => {
+  it('returns false when streams are active', () => {
     mockedUseStreamingActivityStore.mockReturnValue(1);
 
     const { result } = renderHook(() => useIsSettled(), { wrapper: createWrapper() });
 
-    await act(async () => {
+    act(() => {
       vi.advanceTimersByTime(500);
     });
 
     expect(result.current).toBe(false);
   });
 
-  it('transitions from false to true when streams end', async () => {
+  it('transitions from false to true when streams end', () => {
     mockedUseStreamingActivityStore.mockReturnValue(1);
 
     const { result, rerender } = renderHook(() => useIsSettled(), {
       wrapper: createWrapper(),
     });
 
-    await act(async () => {
+    act(() => {
       vi.advanceTimersByTime(500);
     });
     expect(result.current).toBe(false);
@@ -76,20 +76,20 @@ describe('useIsSettled', () => {
     mockedUseStreamingActivityStore.mockReturnValue(0);
     rerender();
 
-    await act(async () => {
+    act(() => {
       vi.advanceTimersByTime(300);
     });
 
     expect(result.current).toBe(true);
   });
 
-  it('resets to false when activity starts during debounce', async () => {
+  it('resets to false when activity starts during debounce', () => {
     const { result, rerender } = renderHook(() => useIsSettled(), {
       wrapper: createWrapper(),
     });
 
     // Advance partway through debounce
-    await act(async () => {
+    act(() => {
       vi.advanceTimersByTime(200);
     });
     expect(result.current).toBe(false);
@@ -99,7 +99,7 @@ describe('useIsSettled', () => {
     rerender();
 
     // Complete original debounce window
-    await act(async () => {
+    act(() => {
       vi.advanceTimersByTime(200);
     });
 

@@ -110,10 +110,7 @@ export function useRenameFork(): ReturnType<
     onSuccess: (_data, variables) => {
       queryClient.setQueryData<ForkResponse[]>(
         [...chatKeys.conversation(variables.conversationId), 'forks'],
-        (old) =>
-          old?.map((f) =>
-            f.id === variables.forkId ? { ...f, name: variables.name } : f
-          )
+        (old) => old?.map((f) => (f.id === variables.forkId ? { ...f, name: variables.name } : f))
       );
     },
   });

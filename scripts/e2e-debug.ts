@@ -124,22 +124,22 @@ export interface DebugReport {
   failed: FailedTest[];
 }
 
-// eslint-disable-next-line no-control-regex
-const ANSI_REGEX = /[\u001b\u009b][[()#;?]*(?:\d{1,4}(?:;\d{0,4})*)?[\dA-ORZcf-nqry=><]/g;
+// eslint-disable-next-line no-control-regex, sonarjs/no-control-regex
+const ANSI_REGEX = /[\u001B\u009B][[()#;?]*(?:\d{1,4}(?:;\d{0,4})*)?[\dA-ORZcf-nqry=><]/g;
 
 export function stripAnsi(text: string): string {
-  return text.replace(ANSI_REGEX, '');
+  return text.replaceAll(ANSI_REGEX, '');
 }
 
 export function slugify(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replaceAll(/[^a-z0-9]+/g, '-')
+    .replaceAll(/^-+|-+$/g, '');
 }
 
 export function buildRerunCommand(test: { title: string; file: string; project: string }): string {
-  const escapedTitle = test.title.replace(/"/g, '\\"');
+  const escapedTitle = test.title.replaceAll('"', String.raw`\"`);
   return `pnpm e2e -- ${test.file} -g "${escapedTitle}" --project=${test.project}`;
 }
 
@@ -153,9 +153,9 @@ export function formatDuration(ms: number): string {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
+  if (hours > 0) return `${String(hours)}h ${String(minutes)}m ${String(seconds)}s`;
+  if (minutes > 0) return `${String(minutes)}m ${String(seconds)}s`;
+  return `${String(seconds)}s`;
 }
 
 export function categorizeTests(tests: FlattenedTestResult[]): CategorizedTests {
@@ -276,93 +276,117 @@ export function generateDebugReport(report: PlaywrightReport): DebugReport {
 
 const MAX_ERROR_LENGTH = 2000;
 
-export function generateMarkdownReport(report: DebugReport): string {
-  const lines: string[] = [];
-  const { summary } = report;
+function renderHeader(summary: DebugReportSummary): string[] {
   const status = summary.failed > 0 ? 'FAILED' : 'PASSED';
+  return [
+    '# E2E Test Report',
+    '',
+    `**Date:** ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`,
+    `**Duration:** ${formatDuration(summary.duration)}`,
+    `**Result:** ${status} (${String(summary.passed)} passed, ${String(summary.flaky)} flaky, ${String(summary.failed)} failed)`,
+  ];
+}
 
-  lines.push('# E2E Test Report');
-  lines.push('');
-  lines.push(`**Date:** ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`);
-  lines.push(`**Duration:** ${formatDuration(summary.duration)}`);
-  lines.push(
-    `**Result:** ${status} (${summary.passed} passed, ${summary.flaky} flaky, ${summary.failed} failed)`
-  );
+function truncateError(rawError: string): string {
+  const error = stripAnsi(rawError);
+  if (error.length > MAX_ERROR_LENGTH) {
+    return error.slice(0, MAX_ERROR_LENGTH) + '\n... (truncated)';
+  }
+  return error;
+}
 
-  if (report.failed.length > 0) {
-    lines.push('');
-    lines.push('---');
-    lines.push('');
-    lines.push('## Failed Tests');
+function renderSingleFailedTest(test: FailedTest): string[] {
+  const lines: string[] = [
+    '',
+    `#### ${test.title} [${test.project}]`,
+    '',
+    `**Re-run:** \`${buildRerunCommand(test)}\``,
+    '',
+    '**Error:**',
+    '```',
+    truncateError(test.error),
+    '```',
+    '',
+  ];
 
-    const byFile = new Map<string, FailedTest[]>();
-    for (const test of report.failed) {
-      const existing = byFile.get(test.file) ?? [];
-      existing.push(test);
-      byFile.set(test.file, existing);
-    }
+  if (test.artifacts.screenshot) {
+    const fname = screenshotFileName(test);
+    lines.push(`**Screenshot:** \`e2e/report/screenshots/${fname}\``);
+  } else {
+    lines.push('**Screenshot:** none');
+  }
 
-    for (const [file, tests] of byFile) {
-      lines.push('');
-      lines.push(`### \`${file}\``);
+  return lines;
+}
 
-      for (const test of tests) {
-        lines.push('');
-        lines.push(`#### ${test.title} [${test.project}]`);
-        lines.push('');
-        lines.push(`**Re-run:** \`${buildRerunCommand(test)}\``);
-        lines.push('');
+function renderFailedTests(failed: FailedTest[]): string[] {
+  if (failed.length === 0) return [];
 
-        let error = stripAnsi(test.error);
-        if (error.length > MAX_ERROR_LENGTH) {
-          error = error.slice(0, MAX_ERROR_LENGTH) + '\n... (truncated)';
-        }
-        lines.push('**Error:**');
-        lines.push('```');
-        lines.push(error);
-        lines.push('```');
-        lines.push('');
+  const lines: string[] = ['', '---', '', '## Failed Tests'];
 
-        if (test.artifacts.screenshot) {
-          const fname = screenshotFileName(test);
-          lines.push(`**Screenshot:** \`e2e/report/screenshots/${fname}\``);
-        } else {
-          lines.push('**Screenshot:** none');
-        }
-      }
+  const byFile = new Map<string, FailedTest[]>();
+  for (const test of failed) {
+    const existing = byFile.get(test.file) ?? [];
+    existing.push(test);
+    byFile.set(test.file, existing);
+  }
+
+  for (const [file, tests] of byFile) {
+    lines.push('', `### \`${file}\``);
+    for (const test of tests) {
+      lines.push(...renderSingleFailedTest(test));
     }
   }
 
-  if (report.flaky.length > 0) {
-    lines.push('');
-    lines.push('---');
-    lines.push('');
-    lines.push('## Flaky Tests');
-    lines.push('');
-    lines.push('| Test | File | Project | Attempts |');
-    lines.push('|------|------|---------|----------|');
-    for (const test of report.flaky) {
-      lines.push(`| ${test.title} | \`${test.file}\` | ${test.project} | ${test.attempts} |`);
-    }
-  }
+  return lines;
+}
 
-  if (report.passed.length > 0) {
-    lines.push('');
-    lines.push('---');
-    lines.push('');
-    lines.push(`## Passed Tests (${report.passed.length})`);
-    lines.push('');
-    lines.push('<details>');
-    lines.push('<summary>Expand</summary>');
-    lines.push('');
-    for (const test of report.passed) {
-      lines.push(`- ${test.title} [\`${test.file}\`] [${test.project}]`);
-    }
-    lines.push('');
-    lines.push('</details>');
-  }
+function renderFlakyTests(flaky: FlakyTest[]): string[] {
+  if (flaky.length === 0) return [];
 
-  lines.push('');
+  const lines: string[] = [
+    '',
+    '---',
+    '',
+    '## Flaky Tests',
+    '',
+    '| Test | File | Project | Attempts |',
+    '|------|------|---------|----------|',
+  ];
+  for (const test of flaky) {
+    lines.push(`| ${test.title} | \`${test.file}\` | ${test.project} | ${String(test.attempts)} |`);
+  }
+  return lines;
+}
+
+function renderPassedTests(passed: PassedTest[]): string[] {
+  if (passed.length === 0) return [];
+
+  const lines: string[] = [
+    '',
+    '---',
+    '',
+    `## Passed Tests (${String(passed.length)})`,
+    '',
+    '<details>',
+    '<summary>Expand</summary>',
+    '',
+  ];
+  for (const test of passed) {
+    lines.push(`- ${test.title} [\`${test.file}\`] [${test.project}]`);
+  }
+  lines.push('', '</details>');
+  return lines;
+}
+
+export function generateMarkdownReport(report: DebugReport): string {
+  const lines: string[] = [
+    ...renderHeader(report.summary),
+    ...renderFailedTests(report.failed),
+    ...renderFlakyTests(report.flaky),
+    ...renderPassedTests(report.passed),
+    '',
+  ];
   return lines.join('\n');
 }
 
@@ -372,12 +396,11 @@ export function writeReport(report: DebugReport, reportDir: string): void {
 
   for (const test of report.failed) {
     if (test.artifacts.screenshot && existsSync(test.artifacts.screenshot)) {
-      const dest = path.join(reportDir, 'screenshots', screenshotFileName(test));
-      copyFileSync(test.artifacts.screenshot, dest);
+      const destination = path.join(reportDir, 'screenshots', screenshotFileName(test));
+      copyFileSync(test.artifacts.screenshot, destination);
     }
   }
 
   const markdown = generateMarkdownReport(report);
   writeFileSync(path.join(reportDir, 'REPORT.md'), markdown, 'utf8');
 }
-

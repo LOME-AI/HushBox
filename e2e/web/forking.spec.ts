@@ -285,3 +285,96 @@ test.describe('Group Chat Forking', () => {
     });
   });
 });
+
+test.describe('Fork History Preservation', () => {
+  test('fork preserves all message history in both branches', async ({ authenticatedPage }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.waitForAppStable();
+
+    await test.step('send 3 exchanges (6 messages total)', async () => {
+      const msg1 = `History test 1 ${String(Date.now())}`;
+      await chatPage.sendNewChatMessage(msg1);
+      await chatPage.waitForConversation();
+      await chatPage.waitForAIResponse();
+
+      const msg2 = `History test 2 ${String(Date.now())}`;
+      await chatPage.sendFollowUpMessage(msg2);
+      await chatPage.waitForAIResponse();
+
+      const msg3 = `History test 3 ${String(Date.now())}`;
+      await chatPage.sendFollowUpMessage(msg3);
+      await chatPage.waitForAIResponse();
+    });
+
+    const totalMessages = await chatPage.getMessageCount();
+    expect(totalMessages).toBe(6);
+
+    await test.step('fork from 4th message (2nd AI response)', async () => {
+      await chatPage.clickFork(3);
+      await chatPage.expectForkTabCount(2);
+      await chatPage.expectActiveForkTab('Fork 1');
+    });
+
+    await test.step('Fork 1 shows messages up to fork point', async () => {
+      const forkCount = await chatPage.getMessageCount();
+      expect(forkCount).toBe(4);
+    });
+
+    await test.step('Main still has all 6 messages', async () => {
+      await expect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
+      await chatPage.clickForkTab('Main');
+      await chatPage.expectActiveForkTab('Main');
+      const mainCount = await chatPage.getMessageCount();
+      expect(mainCount).toBe(6);
+    });
+
+    await test.step('switching back to Fork 1 preserves 4 messages', async () => {
+      await chatPage.clickForkTab('Fork 1');
+      await chatPage.expectActiveForkTab('Fork 1');
+      const forkCount = await chatPage.getMessageCount();
+      expect(forkCount).toBe(4);
+    });
+  });
+
+  test('fork from multi-model response preserves sibling AI messages', async ({
+    authenticatedPage,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.waitForAppStable();
+
+    await test.step('select 2 models and send message', async () => {
+      await chatPage.selectModels(2);
+      await chatPage.expectComparisonBarVisible();
+      const testMessage = `Multi-model fork ${String(Date.now())}`;
+      await chatPage.sendNewChatMessage(testMessage);
+      await chatPage.waitForConversation();
+      await chatPage.waitForMultiModelResponses(2);
+    });
+
+    const totalMessages = await chatPage.getMessageCount();
+    expect(totalMessages).toBe(3); // 1 user + 2 AI
+
+    await test.step('fork from first AI message', async () => {
+      await chatPage.clickFork(1);
+      await chatPage.expectForkTabCount(2);
+      await chatPage.expectActiveForkTab('Fork 1');
+    });
+
+    await test.step('Fork 1 preserves all messages including sibling AI', async () => {
+      const forkCount = await chatPage.getMessageCount();
+      expect(forkCount).toBe(3);
+    });
+
+    await test.step('Main still has all 3 messages', async () => {
+      await expect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
+      await chatPage.clickForkTab('Main');
+      await chatPage.expectActiveForkTab('Main');
+      const mainCount = await chatPage.getMessageCount();
+      expect(mainCount).toBe(3);
+    });
+  });
+});

@@ -31,21 +31,19 @@ export class ChatPage {
 
   async waitForAppStable(timeout = 15_000): Promise<void> {
     const locator = this.page.locator('[data-app-stable="true"]');
-    await waitForConditionOrSettle(
-      this.page,
-      async () => locator.isVisible().catch(() => false),
-      { timeout, errorMessage: 'App failed to stabilize (settled without data-app-stable="true")' }
-    );
+    await waitForConditionOrSettle(this.page, async () => locator.isVisible().catch(() => false), {
+      timeout,
+      errorMessage: 'App failed to stabilize (settled without data-app-stable="true")',
+    });
   }
 
   /** Wait for the group chat WebSocket to be connected. Use before actions that send events via WebSocket. */
   async waitForWebSocketConnected(timeout = 15_000): Promise<void> {
     const locator = this.page.locator('[data-ws-connected="true"]');
-    await waitForConditionOrSettle(
-      this.page,
-      async () => locator.isVisible().catch(() => false),
-      { timeout, errorMessage: 'App settled without WebSocket connection' }
-    );
+    await waitForConditionOrSettle(this.page, async () => locator.isVisible().catch(() => false), {
+      timeout,
+      errorMessage: 'App settled without WebSocket connection',
+    });
   }
 
   /** Wait for a conversation page to load (message list visible). Use instead of waitForAppStable on conversation pages. */
@@ -78,11 +76,10 @@ export class ChatPage {
 
   async waitForConversation(timeout = 10_000): Promise<string> {
     const urlPattern = /\/chat\/[a-f0-9-]+(\?.*)?$/;
-    await waitForConditionOrSettle(
-      this.page,
-      async () => urlPattern.test(this.page.url()),
-      { timeout, errorMessage: 'App settled without navigating to conversation URL' }
-    );
+    await waitForConditionOrSettle(this.page, () => urlPattern.test(this.page.url()), {
+      timeout,
+      errorMessage: 'App settled without navigating to conversation URL',
+    });
     const url = new URL(this.page.url());
     return url.pathname.split('/').pop() ?? '';
   }
@@ -110,11 +107,10 @@ export class ChatPage {
       ? assistantMessages.getByText(expectedContent, { exact: false }).first()
       : assistantMessages.getByText(/^Echo:/).first();
 
-    await waitForConditionOrSettle(
-      this.page,
-      async () => target.isVisible().catch(() => false),
-      { timeout, errorMessage: 'App settled without AI response appearing' }
-    );
+    await waitForConditionOrSettle(this.page, async () => target.isVisible().catch(() => false), {
+      timeout,
+      errorMessage: 'App settled without AI response appearing',
+    });
   }
 
   async expectAssistantMessageContains(text: string): Promise<void> {

@@ -155,7 +155,9 @@ describe('deleteMessagesAfterAnchor', () => {
         .from(messages)
         .where(eq(messages.conversationId, setup.conversation.id));
       expect(remaining).toHaveLength(2);
-      expect(remaining.map((m) => m.id).sort()).toEqual([msg1.id, msg2.id].sort());
+      expect(remaining.map((m) => m.id).toSorted((a, b) => a.localeCompare(b))).toEqual(
+        [msg1.id, msg2.id].toSorted((a, b) => a.localeCompare(b))
+      );
     });
 
     it('returns empty array when no messages exist after anchor', async () => {
@@ -410,8 +412,10 @@ describe('deleteMessagesAfterAnchor', () => {
         .from(messages)
         .where(eq(messages.conversationId, setup.conversation.id));
       expect(remaining).toHaveLength(3);
-      const remainingIds = remaining.map((m) => m.id).sort();
-      expect(remainingIds).toEqual([msg1.id, msg2.id, msg4.id].sort());
+      const remainingIds = remaining.map((m) => m.id).toSorted((a, b) => a.localeCompare(b));
+      expect(remainingIds).toEqual(
+        [msg1.id, msg2.id, msg4.id].toSorted((a, b) => a.localeCompare(b))
+      );
     });
 
     it('does not delete the anchor message', async () => {

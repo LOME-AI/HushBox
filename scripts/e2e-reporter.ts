@@ -40,7 +40,7 @@ function mapTestCase(test: TestCase, projectName: string): PlaywrightSpec {
   const mappedTest: PlaywrightTest = {
     projectName,
     status: test.outcome(),
-    results: test.results.map(mapTestResult),
+    results: test.results.map((r) => mapTestResult(r)),
   };
   return {
     title: test.title,
@@ -54,17 +54,15 @@ function mapSuite(suite: Suite): PlaywrightSuite {
 
   return {
     title: suite.title,
-    file: suite.location?.file
-      ? path.relative(process.cwd(), suite.location.file)
-      : '',
+    file: suite.location?.file ? path.relative(process.cwd(), suite.location.file) : '',
     specs: suite.tests.map((test) => mapTestCase(test, projectName)),
-    suites: suite.suites.map(mapSuite),
+    suites: suite.suites.map((s) => mapSuite(s)),
   };
 }
 
 export function buildPlaywrightReport(rootSuite: Suite, result: FullResult): PlaywrightReport {
   return {
-    suites: rootSuite.suites.map(mapSuite),
+    suites: rootSuite.suites.map((s) => mapSuite(s)),
     config: {},
     stats: { duration: result.duration },
   };
@@ -88,7 +86,7 @@ export default class E2EReportWriter implements Reporter {
 
     const { summary } = debugReport;
     console.log(
-      `\nE2E report: e2e/report/REPORT.md (${summary.failed} failed, ${summary.flaky} flaky, ${summary.passed} passed)`
+      `\nE2E report: e2e/report/REPORT.md (${String(summary.failed)} failed, ${String(summary.flaky)} flaky, ${String(summary.passed)} passed)`
     );
     console.log('View screenshots: e2e/report/screenshots/\n');
   }

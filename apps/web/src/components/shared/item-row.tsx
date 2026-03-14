@@ -33,16 +33,7 @@ export function ItemRow({
       )}
     >
       {children}
-      {showMenu && (
-        <ThreeDotsMenu
-          align={menuProps?.align}
-          className={menuProps?.className}
-          data-testid={menuProps?.['data-testid']}
-          onClick={menuProps?.onClick}
-        >
-          {menuContent}
-        </ThreeDotsMenu>
-      )}
+      {showMenu && <ThreeDotsMenu {...menuProps}>{menuContent}</ThreeDotsMenu>}
     </div>
   );
 }

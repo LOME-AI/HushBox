@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ItemRow } from './item-row';
 
@@ -132,5 +132,4 @@ describe('ItemRow', () => {
     expect(screen.getByText('content')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /more options/i })).toBeInTheDocument();
   });
-
 });

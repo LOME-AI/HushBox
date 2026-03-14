@@ -465,6 +465,30 @@ function AIMessageNametag({
   );
 }
 
+function buildUserActionProps(
+  onRegenerate?: (messageId: string) => void,
+  onEdit?: (messageId: string, content: string) => void,
+  onFork?: (messageId: string) => void
+): Record<string, unknown> {
+  return {
+    ...(onRegenerate != null && { onRegenerate }),
+    ...(onEdit != null && { onEdit }),
+    ...(onFork != null && { onFork }),
+  };
+}
+
+function buildAssistantActionProps(
+  onShare?: (messageId: string) => void,
+  onRegenerate?: (messageId: string) => void,
+  onFork?: (messageId: string) => void
+): Record<string, unknown> {
+  return {
+    ...(onShare != null && { onShare }),
+    ...(onRegenerate != null && { onRegenerate }),
+    ...(onFork != null && { onFork }),
+  };
+}
+
 function MessageActionButtons({
   isUser,
   primaryMessage,
@@ -480,11 +504,11 @@ function MessageActionButtons({
   isUser: boolean;
   primaryMessage: Message;
   allowedActions: Set<MessageAction>;
-  onRetry?: () => void;
-  onShare?: (messageId: string) => void;
-  onRegenerate?: (messageId: string) => void;
-  onEdit?: (messageId: string, content: string) => void;
-  onFork?: (messageId: string) => void;
+  onRetry?: (() => void) | undefined;
+  onShare?: ((messageId: string) => void) | undefined;
+  onRegenerate?: ((messageId: string) => void) | undefined;
+  onEdit?: ((messageId: string, content: string) => void) | undefined;
+  onFork?: ((messageId: string) => void) | undefined;
   copied: boolean;
   onCopy: () => void;
 }>): React.JSX.Element | null {
@@ -497,9 +521,7 @@ function MessageActionButtons({
         <UserMessageActions
           message={primaryMessage}
           allowedActions={allowedActions}
-          {...(onRegenerate != null && { onRegenerate })}
-          {...(onEdit != null && { onEdit })}
-          {...(onFork != null && { onFork })}
+          {...buildUserActionProps(onRegenerate, onEdit, onFork)}
           copied={copied}
           onCopy={onCopy}
         />
@@ -513,9 +535,7 @@ function MessageActionButtons({
       <MessageActions
         primaryMessage={primaryMessage}
         allowedActions={allowedActions}
-        {...(onShare != null && { onShare })}
-        {...(onRegenerate != null && { onRegenerate })}
-        {...(onFork != null && { onFork })}
+        {...buildAssistantActionProps(onShare, onRegenerate, onFork)}
         copied={copied}
         onCopy={onCopy}
       />
@@ -612,11 +632,11 @@ export function MessageItem({
             isUser={isUser}
             primaryMessage={primaryMessage}
             allowedActions={allowedActions}
-            {...(onRetry != null && { onRetry })}
-            {...(onShare != null && { onShare })}
-            {...(onRegenerate != null && { onRegenerate })}
-            {...(onEdit != null && { onEdit })}
-            {...(onFork != null && { onFork })}
+            onRetry={onRetry}
+            onShare={onShare}
+            onRegenerate={onRegenerate}
+            onEdit={onEdit}
+            onFork={onFork}
             copied={copied}
             onCopy={() => void handleCopy()}
           />

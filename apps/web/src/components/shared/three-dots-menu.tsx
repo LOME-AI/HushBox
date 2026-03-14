@@ -20,7 +20,12 @@ export function ThreeDotsMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <IconButton className={className} data-testid={props['data-testid']} data-menu-trigger="" onClick={onClick}>
+        <IconButton
+          className={className}
+          data-testid={props['data-testid']}
+          data-menu-trigger=""
+          onClick={onClick}
+        >
           <MoreVertical className="h-4 w-4" />
           <span className="sr-only">More options</span>
         </IconButton>

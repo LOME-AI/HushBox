@@ -72,18 +72,34 @@ export async function listLinks(db: Database, conversationId: string): Promise<L
     .orderBy(desc(sharedLinks.createdAt));
 }
 
+/** Resolves the display name for a link, generating "Guest N" if not provided. */
+async function resolveDisplayName(
+  txDb: Database,
+  conversationId: string,
+  providedName?: string
+): Promise<string> {
+  if (providedName !== undefined) return providedName;
+  const [row] = await txDb
+    .select({ count: sql<number>`count(*)::int` })
+    .from(sharedLinks)
+    .where(eq(sharedLinks.conversationId, conversationId));
+  return `Guest ${String((row?.count ?? 0) + 1)}`;
+}
+
 /**
  * Atomically creates a shared link with its associated epoch member
  * and conversation member rows.
  */
+
 export async function createLink(
   db: Database,
   params: CreateLinkParams
 ): Promise<CreateLinkResult> {
   return db.transaction(async (tx) => {
+    const txDb = tx as unknown as Database;
+
     // Step 0: Lock conversation row and verify epoch freshness.
-    // FOR UPDATE blocks concurrent submitRotation() from changing currentEpoch.
-    const [conv] = await tx
+    const [conv] = await txDb
       .select({ currentEpoch: conversations.currentEpoch })
       .from(conversations)
       .where(eq(conversations.id, params.conversationId))
@@ -93,7 +109,7 @@ export async function createLink(
       throw new Error('Conversation not found');
     }
 
-    const [epoch] = await tx
+    const [epoch] = await txDb
       .select({ id: epochs.id })
       .from(epochs)
       .where(
@@ -107,18 +123,11 @@ export async function createLink(
       throw new StaleEpochError(conv.currentEpoch);
     }
 
-    // 1. Resolve display name — generate "Guest N" if not provided
-    let displayName = params.displayName;
-    if (displayName === undefined) {
-      const [row] = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(sharedLinks)
-        .where(eq(sharedLinks.conversationId, params.conversationId));
-      displayName = `Guest ${(row?.count ?? 0) + 1}`;
-    }
+    // 1. Resolve display name
+    const displayName = await resolveDisplayName(txDb, params.conversationId, params.displayName);
 
     // 2. Upsert sharedLinks row — idempotent on duplicate linkPublicKey
-    const [link] = await tx
+    const [link] = await (tx as unknown as Database)
       .insert(sharedLinks)
       .values({
         conversationId: params.conversationId,
@@ -135,9 +144,8 @@ export async function createLink(
       throw new Error('Failed to insert shared link');
     }
 
-    // 3. Upsert conversationMembers row — idempotent on active (conversationId, linkId)
-    //    Must happen BEFORE submitRotation so validation sees the new link as an active member.
-    const [member] = await tx
+    // 3. Upsert conversationMembers row
+    const [member] = await (tx as unknown as Database)
       .insert(conversationMembers)
       .values({
         conversationId: params.conversationId,
@@ -160,11 +168,9 @@ export async function createLink(
 
     // 4. Either rotate epoch or insert epochMembers wrap
     if (params.rotation) {
-      // No-history path: rotate epoch (creates new epoch + wraps for all members)
-      await submitRotation(tx as unknown as Database, params.rotation);
+      await submitRotation(txDb, params.rotation);
     } else {
-      // Full-history path: insert wrap for current epoch
-      await tx
+      await (tx as unknown as Database)
         .insert(epochMembers)
         .values({
           epochId: params.currentEpochId,

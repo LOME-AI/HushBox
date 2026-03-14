@@ -84,44 +84,30 @@ async function deleteLinear(
 // Fork-aware deletion
 // ============================================================================
 
-async function deleteForkChain(
-  tx: Database,
-  conversationId: string,
-  anchorMessageId: string,
-  forkTipMessageId: string
-): Promise<DeleteMessagesAfterAnchorResult> {
-  // If tip equals anchor, nothing to delete
-  if (forkTipMessageId === anchorMessageId) {
-    return { deletedIds: [] };
-  }
-
-  // Get all messages for this conversation to walk the chain
-  const allMessages = await tx
-    .select({
-      id: messages.id,
-      parentMessageId: messages.parentMessageId,
-    })
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId));
-
-  const messageMap = new Map(allMessages.map((m) => [m.id, m]));
-
-  // Walk from tip to anchor, collecting candidate IDs (excluding anchor)
+/** Walks from tip to anchor, collecting candidate message IDs (excluding anchor). */
+function collectCandidates(
+  messageMap: Map<string, { id: string; parentMessageId: string | null }>,
+  tipId: string,
+  anchorId: string
+): Set<string> {
   const candidates = new Set<string>();
-  let currentId: string | null = forkTipMessageId;
+  let currentId: string | null = tipId;
 
-  while (currentId && currentId !== anchorMessageId) {
+  while (currentId && currentId !== anchorId) {
     if (candidates.has(currentId)) break; // cycle protection
     candidates.add(currentId);
     const msg = messageMap.get(currentId);
     currentId = msg?.parentMessageId ?? null;
   }
 
-  if (candidates.size === 0) {
-    return { deletedIds: [] };
-  }
+  return candidates;
+}
 
-  // Build a children map to check for shared messages
+/** Filters candidates to only those without children outside the candidate set. */
+function findExclusiveCandidates(
+  allMessages: { id: string; parentMessageId: string | null }[],
+  candidates: Set<string>
+): string[] {
   const childrenMap = new Map<string, string[]>();
   for (const msg of allMessages) {
     if (msg.parentMessageId) {
@@ -131,7 +117,6 @@ async function deleteForkChain(
     }
   }
 
-  // A candidate is shared if it has children outside the candidate set
   const toDelete: string[] = [];
   for (const candidateId of candidates) {
     const children = childrenMap.get(candidateId) ?? [];
@@ -141,11 +126,40 @@ async function deleteForkChain(
     }
   }
 
+  return toDelete;
+}
+
+async function deleteForkChain(
+  tx: Database,
+  conversationId: string,
+  anchorMessageId: string,
+  forkTipMessageId: string
+): Promise<DeleteMessagesAfterAnchorResult> {
+  if (forkTipMessageId === anchorMessageId) {
+    return { deletedIds: [] };
+  }
+
+  const allMessages = await tx
+    .select({
+      id: messages.id,
+      parentMessageId: messages.parentMessageId,
+    })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId));
+
+  const messageMap = new Map(allMessages.map((m) => [m.id, m]));
+  const candidates = collectCandidates(messageMap, forkTipMessageId, anchorMessageId);
+
+  if (candidates.size === 0) {
+    return { deletedIds: [] };
+  }
+
+  const toDelete = findExclusiveCandidates(allMessages, candidates);
+
   if (toDelete.length === 0) {
     return { deletedIds: [] };
   }
 
-  // Delete the non-shared candidates
   await tx.delete(messages).where(inArray(messages.id, toDelete));
 
   return { deletedIds: toDelete };

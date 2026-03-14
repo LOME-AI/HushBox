@@ -8,6 +8,7 @@ function createMockWriter(): SSEEventWriter & {
   const events: { method: string; args: unknown[] }[] = [];
   const record =
     (method: string) =>
+    // eslint-disable-next-line @typescript-eslint/require-await
     async (...args: unknown[]): Promise<void> => {
       events.push({ method, args });
     };
@@ -25,6 +26,7 @@ function createMockWriter(): SSEEventWriter & {
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/require-await
 async function* createTokenStream(
   tokens: string[],
   generationId?: string
@@ -37,6 +39,7 @@ async function* createTokenStream(
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/require-await
 async function* createFailingStream(
   tokensBeforeError: string[],
   error: Error
@@ -126,7 +129,10 @@ describe('collectMultiModelStreams', () => {
     const doneEvents = writer.events.filter((e) => e.method === 'writeModelDone');
     expect(doneEvents).toHaveLength(2);
     const modelIds = doneEvents.map((e) => (e.args[0] as { modelId: string }).modelId);
-    expect(modelIds.sort()).toEqual(['anthropic/claude-3.5-sonnet', 'openai/gpt-4o']);
+    expect(modelIds.toSorted((a, b) => a.localeCompare(b))).toEqual([
+      'anthropic/claude-3.5-sonnet',
+      'openai/gpt-4o',
+    ]);
   });
 
   it('handles partial failure — captures error per model', async () => {

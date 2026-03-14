@@ -95,13 +95,29 @@ test.describe('Group Chat Billing', () => {
     });
   });
 
-  test('member budget exhausted: falls through to free allowance', async ({
-    authenticatedPage: _alice,
-    testBobPage,
-    authenticatedRequest,
-    groupConversation,
-  }) => {
-    const helper = new BudgetHelper(authenticatedRequest);
+  // Both tests below fall through to Bob's personal free_allowance billing,
+  // reserving against the same Redis key (chatReservedBalance:{bobUserId}).
+  // Serial mode prevents concurrent reservations from exceeding Bob's 5¢ allowance.
+  // beforeEach resets Bob's wallet to ensure each test starts with a clean 5¢ balance.
+  test.describe('personal free-allowance fallthrough', () => {
+    test.describe.configure({ mode: 'serial' });
+
+    test.beforeEach(async ({ authenticatedRequest }) => {
+      await setWalletBalance(
+        authenticatedRequest,
+        'test-bob@test.hushbox.ai',
+        'free_tier',
+        '0.05000000'
+      );
+    });
+
+    test('member budget exhausted: falls through to free allowance', async ({
+      authenticatedPage: _alice,
+      testBobPage,
+      authenticatedRequest,
+      groupConversation,
+    }) => {
+      const helper = new BudgetHelper(authenticatedRequest);
 
       await test.step('setup: conv=$10, member=$0 (default)', async () => {
         // Set high conversation budget but do NOT set Bob's member budget (stays 0)

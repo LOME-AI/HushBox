@@ -89,7 +89,9 @@ function nextAutoName(existingForks: ForkRecord[]): string {
   for (const fork of existingForks) {
     const match = /^Fork (\d+)$/.exec(fork.name);
     if (match) {
-      const number_ = Number.parseInt(match[1]!, 10);
+      const matchedDigits = match[1];
+      if (!matchedDigits) continue;
+      const number_ = Number.parseInt(matchedDigits, 10);
       if (number_ > maxNumber) {
         maxNumber = number_;
       }
@@ -122,39 +124,105 @@ async function collectAncestorChain(
   return chain;
 }
 
+/** Checks if an error message indicates a unique constraint violation. */
+function hasUniqueViolationMessage(message: string): boolean {
+  return (
+    message.includes('duplicate key') ||
+    message.includes('unique constraint') ||
+    message.includes('conversation_forks_conv_name_idx')
+  );
+}
+
 /**
  * Checks if a unique constraint violation occurred on the (conversation_id, name) index.
  * Drizzle wraps postgres errors in DrizzleQueryError with the original error as `cause`.
  */
 function isUniqueViolation(error: unknown): boolean {
-  if (error instanceof Error) {
-    // Check the error message itself
-    const message = error.message;
-    if (
-      message.includes('duplicate key') ||
-      message.includes('unique constraint') ||
-      message.includes('conversation_forks_conv_name_idx')
-    ) {
-      return true;
-    }
-    // Check the cause (DrizzleQueryError wraps postgres errors)
-    const cause = (error as { cause?: unknown }).cause;
-    if (cause instanceof Error) {
-      const causeMessage = cause.message;
-      if (
-        causeMessage.includes('duplicate key') ||
-        causeMessage.includes('unique constraint') ||
-        causeMessage.includes('conversation_forks_conv_name_idx')
-      ) {
-        return true;
-      }
-    }
-    // Check postgres error code 23505 (unique_violation) on cause
-    if (cause && typeof cause === 'object' && 'code' in cause && cause.code === '23505') {
-      return true;
-    }
+  if (!(error instanceof Error)) return false;
+
+  if (hasUniqueViolationMessage(error.message)) return true;
+
+  // Check the cause (DrizzleQueryError wraps postgres errors)
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause instanceof Error && hasUniqueViolationMessage(cause.message)) return true;
+
+  // Check postgres error code 23505 (unique_violation) on cause
+  if (cause && typeof cause === 'object' && 'code' in cause && cause.code === '23505') {
+    return true;
   }
+
   return false;
+}
+
+// =============================================================================
+// Fork insertion helpers
+// =============================================================================
+
+/** Wraps an insert with unique-violation → ForkError re-throw. */
+async function insertWithUniqueCheck(
+  insertFunction: () => PromiseLike<unknown>,
+  forkName: string
+): Promise<void> {
+  try {
+    await insertFunction();
+  } catch (error: unknown) {
+    if (isUniqueViolation(error)) {
+      throw new ForkError(ERROR_CODE_FORK_NAME_TAKEN, `Fork name "${forkName}" already taken`);
+    }
+    throw error;
+  }
+}
+
+interface InsertForksParams {
+  db: Database;
+  conversationId: string;
+  id: string;
+  forkName: string;
+  fromMessageId: string;
+}
+
+/** Creates the initial "Main" + new fork when no forks exist yet. */
+async function insertFirstForks(params: InsertForksParams): Promise<void> {
+  const { db, conversationId, id, forkName, fromMessageId } = params;
+  const [latestMessage] = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(desc(messages.sequenceNumber))
+    .limit(1);
+
+  const mainTip = latestMessage?.id ?? null;
+  const now = new Date();
+
+  await insertWithUniqueCheck(
+    () =>
+      db.insert(conversationForks).values([
+        { conversationId, name: 'Main', tipMessageId: mainTip, createdAt: now },
+        {
+          id,
+          conversationId,
+          name: forkName,
+          tipMessageId: fromMessageId,
+          createdAt: new Date(now.getTime() + 1),
+        },
+      ]),
+    forkName
+  );
+}
+
+/** Creates a subsequent fork when forks already exist. */
+async function insertAdditionalFork(params: InsertForksParams): Promise<void> {
+  const { db, conversationId, id, forkName, fromMessageId } = params;
+  await insertWithUniqueCheck(
+    () =>
+      db.insert(conversationForks).values({
+        id,
+        conversationId,
+        name: forkName,
+        tipMessageId: fromMessageId,
+      }),
+    forkName
+  );
 }
 
 // =============================================================================
@@ -198,56 +266,11 @@ export async function createFork(
 
   const forkName = name ?? nextAutoName(existingForks);
 
+  const insertParams: InsertForksParams = { db, conversationId, id, forkName, fromMessageId };
   if (existingForks.length === 0) {
-    // First fork — create Main + new fork
-    // Find latest message by sequence_number
-    const [latestMessage] = await db
-      .select({ id: messages.id })
-      .from(messages)
-      .where(eq(messages.conversationId, conversationId))
-      .orderBy(desc(messages.sequenceNumber))
-      .limit(1);
-
-    const mainTip = latestMessage?.id ?? null;
-
-    const now = new Date();
-    try {
-      await db.insert(conversationForks).values([
-        {
-          conversationId,
-          name: 'Main',
-          tipMessageId: mainTip,
-          createdAt: now,
-        },
-        {
-          id,
-          conversationId,
-          name: forkName,
-          tipMessageId: fromMessageId,
-          createdAt: new Date(now.getTime() + 1),
-        },
-      ]);
-    } catch (error: unknown) {
-      if (isUniqueViolation(error)) {
-        throw new ForkError(ERROR_CODE_FORK_NAME_TAKEN, `Fork name "${forkName}" already taken`);
-      }
-      throw error;
-    }
+    await insertFirstForks(insertParams);
   } else {
-    // Subsequent fork — create only the new one
-    try {
-      await db.insert(conversationForks).values({
-        id,
-        conversationId,
-        name: forkName,
-        tipMessageId: fromMessageId,
-      });
-    } catch (error: unknown) {
-      if (isUniqueViolation(error)) {
-        throw new ForkError(ERROR_CODE_FORK_NAME_TAKEN, `Fork name "${forkName}" already taken`);
-      }
-      throw error;
-    }
+    await insertAdditionalFork(insertParams);
   }
 
   const forks = await fetchAllForks(db, conversationId);

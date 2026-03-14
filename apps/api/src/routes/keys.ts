@@ -49,7 +49,8 @@ export const keysRoute = new Hono<AppEnv>()
     zValidator('param', z.object({ conversationId: z.string() })),
     requirePrivilege('admin'),
     async (c) => {
-      const user = c.get('user')!;
+      const user = c.get('user');
+      if (!user) throw new Error('User required after requirePrivilege');
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
 

@@ -4,6 +4,7 @@ import type { Model } from '@hushbox/shared';
 import { shortenModelName } from '@hushbox/shared';
 import { DEFAULT_MODEL_NAME } from '@/stores/model';
 import { ModelSelectorModal } from './model-selector-modal';
+import type { ModelSelectorGatingProps } from './model-selector-types';
 
 function getModelDisplayText(
   selectedModels: { id: string; name: string }[],
@@ -17,19 +18,11 @@ function getModelDisplayText(
   return shortenModelName(rawName);
 }
 
-export interface ModelSelectorButtonProps {
+export interface ModelSelectorButtonProps extends ModelSelectorGatingProps {
   models: Model[];
   selectedModels: { id: string; name: string }[];
   onSelect: (models: { id: string; name: string }[]) => void;
   disabled?: boolean | undefined;
-  /** Set of premium model IDs */
-  premiumIds?: Set<string> | undefined;
-  /** Whether the user can access premium models (defaults to true) */
-  canAccessPremium?: boolean | undefined;
-  /** Whether the user is authenticated (defaults to true) */
-  isAuthenticated?: boolean | undefined;
-  /** Called when user clicks a premium model they cannot access */
-  onPremiumClick?: ((modelId: string) => void) | undefined;
 }
 
 /**
@@ -45,6 +38,7 @@ export function ModelSelectorButton({
   canAccessPremium = true,
   isAuthenticated = true,
   onPremiumClick,
+  onMultiModelClick,
 }: Readonly<ModelSelectorButtonProps>): React.JSX.Element {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -87,6 +81,7 @@ export function ModelSelectorButton({
         canAccessPremium={canAccessPremium}
         isAuthenticated={isAuthenticated}
         onPremiumClick={onPremiumClick}
+        onMultiModelClick={onMultiModelClick}
       />
     </>
   );

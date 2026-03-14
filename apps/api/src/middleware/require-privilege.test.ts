@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import { toBase64 } from '@hushbox/shared';
+import type { MemberPrivilege } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
 import { requirePrivilege } from './require-privilege.js';
@@ -62,7 +63,7 @@ function createMockDb(
 interface TestAppOptions {
   user?: AppEnv['Variables']['user'] | null;
   memberRow?: { id: string; privilege: string; visibleFromEpoch: number } | null;
-  minLevel: 'read' | 'write' | 'admin' | 'owner';
+  minLevel: MemberPrivilege;
 }
 
 function createTestApp(options: TestAppOptions): Hono<AppEnv> {
@@ -373,7 +374,7 @@ describe('requirePrivilege middleware', () => {
     /* eslint-enable unicorn/no-thenable */
 
     function createLinkGuestTestApp(options: {
-      minLevel: 'read' | 'write' | 'admin' | 'owner';
+      minLevel: MemberPrivilege;
       sharedLinkRow?: { id: string } | null;
       linkMemberRow?: { id: string; privilege: string; visibleFromEpoch: number } | null;
     }): Hono<AppEnv> {
@@ -758,7 +759,7 @@ describe('requirePrivilege middleware', () => {
     function createOwnerIdTestApp(options: {
       memberRow?: { id: string; privilege: string; visibleFromEpoch: number } | null;
       conversationRow?: { userId: string } | null;
-      minLevel: 'read' | 'write' | 'admin' | 'owner';
+      minLevel: MemberPrivilege;
     }): Hono<AppEnv> {
       const { memberRow = null, conversationRow = null, minLevel } = options;
       const app = new Hono<AppEnv>();
@@ -850,7 +851,7 @@ describe('requirePrivilege middleware', () => {
 
       app.get('/:conversationId/test', requirePrivilege('read'), (c) => {
         const conversationOwnerId = c.get('conversationOwnerId');
-        return c.json({ conversationOwnerId: conversationOwnerId ?? null }, 200);
+        return c.json({ conversationOwnerId }, 200);
       });
 
       const res = await app.request(`/${TEST_CONVERSATION_ID}/test`);

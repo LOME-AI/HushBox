@@ -217,18 +217,14 @@ describe('resolveRegenerateTarget', () => {
   });
 
   it('falls back to same ID when assistant has no parentMessageId', () => {
-    const messages: TestMsg[] = [
-      { id: 'a1', role: 'assistant', parentMessageId: null },
-    ];
+    const messages: TestMsg[] = [{ id: 'a1', role: 'assistant', parentMessageId: null }];
 
     const result = resolveRegenerateTarget(messages, 'a1');
     expect(result).toEqual({ targetMessageId: 'a1', action: 'retry' });
   });
 
   it('returns the same ID when message is not found', () => {
-    const messages: TestMsg[] = [
-      { id: 'u1', role: 'user', parentMessageId: null },
-    ];
+    const messages: TestMsg[] = [{ id: 'u1', role: 'user', parentMessageId: null }];
 
     const result = resolveRegenerateTarget(messages, 'nonexistent');
     expect(result).toEqual({ targetMessageId: 'nonexistent', action: 'retry' });
@@ -311,11 +307,7 @@ describe('buildMessagesForRegeneration', () => {
 
   describe('edge cases', () => {
     it('returns all messages when target not found', () => {
-      const result = buildMessagesForRegeneration(
-        [userMsg, assistantMsg],
-        'nonexistent',
-        'retry'
-      );
+      const result = buildMessagesForRegeneration([userMsg, assistantMsg], 'nonexistent', 'retry');
 
       expect(result).toEqual([
         { role: 'user', content: 'Hello' },

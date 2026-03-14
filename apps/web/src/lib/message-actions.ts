@@ -48,7 +48,7 @@ const BASE_PERMISSIONS: Record<
     read: ['copy'],
   },
   trial: {
-    none: ['copy', 'retry', 'regenerate'],
+    none: ['copy', 'retry', 'regenerate', 'edit'],
   },
   'link-guest': {
     write: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'retry-error'],
@@ -82,7 +82,7 @@ const ACTION_GUARDS: Partial<
     !msg.isError &&
     !msg.isMultiModel &&
     msg.canRegenerate,
-  fork: (_chat, msg) => !msg.isStreaming && !msg.isError,
+  fork: (_chat, msg) => msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError,
   share: (_chat, msg) => msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError,
   'retry-error': (_chat, msg) => msg.isError,
 };

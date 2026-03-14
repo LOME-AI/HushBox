@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { Search, ChevronUp, ChevronDown, Lock, Square, CheckSquare } from 'lucide-react';
 import { ModalOverlay, Input, Button, ModalActions, ScrollArea, cn } from '@hushbox/ui';
 import type { Model } from '@hushbox/shared';
+import type { ModelSelectorGatingProps } from './model-selector-types';
 import {
   ROUTES,
   MAX_SELECTED_MODELS,
@@ -495,20 +496,12 @@ function ModelSelectorFooter({
   );
 }
 
-interface ModelSelectorModalProps {
+interface ModelSelectorModalProps extends ModelSelectorGatingProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   models: Model[];
   selectedIds: Set<string>;
   onSelect: (models: { id: string; name: string }[]) => void;
-  /** Set of premium model IDs */
-  premiumIds?: Set<string> | undefined;
-  /** Whether the user can access premium models (defaults to true) */
-  canAccessPremium?: boolean | undefined;
-  /** Whether the user is authenticated (defaults to true) */
-  isAuthenticated?: boolean | undefined;
-  /** Called when user clicks a premium model they cannot access */
-  onPremiumClick?: ((modelId: string) => void) | undefined;
 }
 
 /**
@@ -524,6 +517,7 @@ export function ModelSelectorModal({
   canAccessPremium = true,
   isAuthenticated = true,
   onPremiumClick,
+  onMultiModelClick,
 }: Readonly<ModelSelectorModalProps>): React.JSX.Element {
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -599,10 +593,23 @@ export function ModelSelectorModal({
         return;
       }
 
+      // Block multi-model selection for unauthenticated users
+      if (!isAuthenticated && !localSelectedIds.has(modelId) && localSelectedIds.size > 0) {
+        onMultiModelClick?.();
+        return;
+      }
+
       setFocusedModelId(modelId);
       setLocalSelectedIds((previous) => updateSelectedIds(previous, modelId));
     },
-    [canAccessPremium, premiumIds, onPremiumClick]
+    [
+      canAccessPremium,
+      premiumIds,
+      onPremiumClick,
+      isAuthenticated,
+      localSelectedIds,
+      onMultiModelClick,
+    ]
   );
 
   const handleConfirmSelection = React.useCallback((): void => {

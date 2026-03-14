@@ -6,9 +6,9 @@ interface StubTestResult {
   status: 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted';
   retry: number;
   duration: number;
-  errors: Array<{ message?: string; stack?: string }>;
-  steps: Array<{ title: string; duration: number }>;
-  attachments: Array<{ name: string; path?: string; contentType: string }>;
+  errors: { message?: string; stack?: string }[];
+  steps: { title: string; duration: number }[];
+  attachments: { name: string; path?: string; contentType: string }[];
 }
 
 interface StubTestCase {
@@ -39,12 +39,14 @@ function createStubResult(overrides: Partial<StubTestResult> = {}): StubTestResu
   };
 }
 
-function createStubTest(overrides: {
-  title?: string;
-  file?: string;
-  results?: StubTestResult[];
-  outcome?: 'expected' | 'unexpected' | 'flaky' | 'skipped';
-} = {}): StubTestCase {
+function createStubTest(
+  overrides: {
+    title?: string;
+    file?: string;
+    results?: StubTestResult[];
+    outcome?: 'expected' | 'unexpected' | 'flaky' | 'skipped';
+  } = {}
+): StubTestCase {
   const outcomeVal = overrides.outcome ?? 'expected';
   return {
     title: overrides.title ?? 'test title',
@@ -54,13 +56,15 @@ function createStubTest(overrides: {
   };
 }
 
-function createStubSuite(overrides: {
-  title?: string;
-  type?: StubSuite['type'];
-  suites?: StubSuite[];
-  tests?: StubTestCase[];
-  projectName?: string;
-} = {}): StubSuite {
+function createStubSuite(
+  overrides: {
+    title?: string;
+    type?: StubSuite['type'];
+    suites?: StubSuite[];
+    tests?: StubTestCase[];
+    projectName?: string;
+  } = {}
+): StubSuite {
   const name = overrides.projectName;
   return {
     title: overrides.title ?? 'Suite',
@@ -122,7 +126,9 @@ describe('e2e-reporter', () => {
             retry: 1,
             errors: [{ message: 'Timeout', stack: 'at line 42' }],
             attachments: [
+              // eslint-disable-next-line sonarjs/publicly-writable-directories -- test fixture paths, not production code
               { name: 'screenshot', path: '/tmp/screenshot.png', contentType: 'image/png' },
+              // eslint-disable-next-line sonarjs/publicly-writable-directories -- test fixture paths, not production code
               { name: 'trace', path: '/tmp/trace.zip', contentType: 'application/zip' },
             ],
           }),
@@ -159,6 +165,7 @@ describe('e2e-reporter', () => {
       expect(testResult.retry).toBe(1);
       expect(testResult.errors![0]!.message).toBe('Timeout');
       expect(testResult.attachments![0]!.name).toBe('screenshot');
+      // eslint-disable-next-line sonarjs/publicly-writable-directories -- test fixture path, not production code
       expect(testResult.attachments![0]!.path).toBe('/tmp/screenshot.png');
     });
 

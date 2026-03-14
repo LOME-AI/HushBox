@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
+import { searchAndSelectMember } from '../helpers/add-member.js';
 
 test.describe('Group Chat Admin', () => {
   test.describe.configure({ mode: 'serial' });
@@ -196,19 +197,7 @@ test.describe('Group Chat Admin', () => {
     // --- Add Dave ---
 
     await test.step('open add member modal and search for Dave', async () => {
-      await sidebar.clickNewMember();
-      const modal = authenticatedPage.getByTestId('add-member-modal');
-      await expect(modal).toBeVisible();
-
-      const searchInput = authenticatedPage.getByTestId('add-member-search-input');
-      await searchInput.fill('test dave');
-
-      // Wait for search results
-      const result = authenticatedPage.getByTestId(/^add-member-result-/);
-      await expect(result.first()).toBeVisible({ timeout: 5000 });
-      await result.first().click();
-
-      await expect(authenticatedPage.getByTestId('add-member-selected')).toBeVisible();
+      await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
     });
 
     await test.step('set privilege and history, submit', async () => {
@@ -608,31 +597,18 @@ test.describe('Group Chat Admin', () => {
       const sidebar = new MemberSidebarPage(authenticatedPage);
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
-      await sidebar.clickNewMember();
 
-      const modal = authenticatedPage.getByTestId('add-member-modal');
-      await expect(modal).toBeVisible();
+      await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
 
-      const searchInput = authenticatedPage.getByTestId('add-member-search-input');
-      await searchInput.fill('test dave');
-
-      const result = authenticatedPage.getByTestId(/^add-member-result-/);
-      await expect(result.first()).toBeVisible({ timeout: 5000 });
-      await result.first().click();
-
-      await expect(authenticatedPage.getByTestId('add-member-selected')).toBeVisible();
-
-      const privilegeSelect = authenticatedPage.getByTestId('add-member-privilege-select');
-      await privilegeSelect.selectOption('write');
+      await authenticatedPage.getByTestId('add-member-privilege-select').selectOption('write');
 
       // Do NOT check history checkbox — leave unchecked for "without history"
-      const historyCheckbox = authenticatedPage
-        .getByTestId('add-member-history-checkbox')
-        .getByRole('checkbox');
-      await expect(historyCheckbox).not.toBeChecked();
+      await expect(
+        authenticatedPage.getByTestId('add-member-history-checkbox').getByRole('checkbox')
+      ).not.toBeChecked();
 
       await authenticatedPage.getByTestId('add-member-submit-button').click();
-      await expect(modal).not.toBeVisible();
+      await expect(authenticatedPage.getByTestId('add-member-modal')).not.toBeVisible();
     });
 
     await test.step('Alice refreshes page and still sees old messages', async () => {

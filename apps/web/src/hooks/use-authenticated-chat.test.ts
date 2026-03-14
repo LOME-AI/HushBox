@@ -45,7 +45,10 @@ import {
   DECRYPTING_TITLE,
 } from './use-authenticated-chat';
 
-function makeMessage(id: string, role: 'user' | 'assistant' = 'user'): {
+function makeMessage(
+  id: string,
+  role: 'user' | 'assistant' = 'user'
+): {
   id: string;
   conversationId: string;
   role: 'user' | 'assistant';
@@ -71,8 +74,8 @@ describe('pruneMessagesAfterTarget', () => {
   it('keeps target and removes messages after it', () => {
     const messages = [makeMessage('u1'), makeMessage('a1', 'assistant'), makeMessage('u2')];
     let result: typeof messages = [];
-    const setter = (fn: (prev: typeof messages) => typeof messages): void => {
-      result = fn(messages);
+    const setter = (function_: (previous: typeof messages) => typeof messages): void => {
+      result = function_(messages);
     };
 
     pruneMessagesAfterTarget(messages, 'a1', setter as never);
@@ -82,8 +85,8 @@ describe('pruneMessagesAfterTarget', () => {
   it('keeps user message target and removes AI after it', () => {
     const messages = [makeMessage('u1'), makeMessage('a1', 'assistant')];
     let result: typeof messages = [];
-    const setter = (fn: (prev: typeof messages) => typeof messages): void => {
-      result = fn(messages);
+    const setter = (function_: (previous: typeof messages) => typeof messages): void => {
+      result = function_(messages);
     };
 
     pruneMessagesAfterTarget(messages, 'u1', setter as never);
@@ -98,8 +101,8 @@ describe('pruneMessagesAfterTarget', () => {
       makeMessage('a2', 'assistant'),
     ];
     let result: typeof messages = [];
-    const setter = (fn: (prev: typeof messages) => typeof messages): void => {
-      result = fn(messages);
+    const setter = (function_: (previous: typeof messages) => typeof messages): void => {
+      result = function_(messages);
     };
 
     pruneMessagesAfterTarget(messages, 'u1', setter as never);

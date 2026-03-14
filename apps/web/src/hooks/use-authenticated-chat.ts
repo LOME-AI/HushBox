@@ -263,6 +263,41 @@ function attachCostsToMessages(
   }
 }
 
+function computeDisplayTitle(
+  localTitle: string | null,
+  conversation: { title: string; titleEpochNumber: number } | undefined,
+  realConversationId: string | null
+): string | undefined {
+  if (localTitle) return localTitle;
+  if (!conversation?.title || !realConversationId) return;
+  const epochKey = getEpochKey(realConversationId, conversation.titleEpochNumber);
+  if (!epochKey) return DECRYPTING_TITLE;
+  try {
+    return decryptMessage(epochKey, fromBase64(conversation.title));
+  } catch {
+    return 'Encrypted conversation';
+  }
+}
+
+function resolveQueryId(realConversationId: string | null): string {
+  return realConversationId ?? '';
+}
+
+function resolveCallerId(
+  conversationCallerId: string | undefined,
+  authUserId: string | undefined
+): string | undefined {
+  return conversationCallerId ?? authUserId;
+}
+
+function checkDecryptionPending(
+  isCreateMode: boolean,
+  apiMessageCount: number,
+  decryptedCount: number
+): boolean {
+  return !isCreateMode && apiMessageCount > 0 && decryptedCount === 0;
+}
+
 function handleRegenerationError(
   error: unknown,
   failedContent: string,
@@ -349,12 +384,12 @@ export function useAuthenticatedChat({
   const authUserId = useAuthStore((s) => s.user?.id);
   const customInstructions = useAuthStore((s) => s.customInstructions);
 
-  const queryId = realConversationId ?? '';
+  const queryId = resolveQueryId(realConversationId);
   const conversationQuery = useConversation(queryId);
   const conversation = conversationQuery.data;
   const isConversationLoading = conversationQuery.isLoading;
 
-  const callerId = conversation?.callerId ?? authUserId;
+  const callerId = resolveCallerId(conversation?.callerId, authUserId);
   const { data: apiMessages, isLoading: isMessagesLoading } = useMessages(queryId);
   const decryptedApiMessages = useDecryptedMessages(
     realConversationId,
@@ -397,14 +432,13 @@ export function useAuthenticatedChat({
       const { modelMap, messages, assistantMessageIds } = processStartEvent(
         data,
         conversationIdRef.current,
-        selectedModels,
         data.userMessageId
       );
       modelMessageMapRef.current = modelMap;
       setLocalMessages((previous) => [...previous, ...messages]);
       startStreamingIfNeeded(assistantMessageIds, state);
     },
-    [state, selectedModels]
+    [state]
   );
 
   const handleStreamToken = React.useCallback((token: string, modelId: string) => {
@@ -422,7 +456,6 @@ export function useAuthenticatedChat({
         const { modelMap, messages, assistantMessageIds } = processStartEvent(
           data,
           convId,
-          selectedModels,
           data.userMessageId
         );
         optimisticModelMapRef.current = modelMap;
@@ -438,7 +471,7 @@ export function useAuthenticatedChat({
         }
       },
     }),
-    [state, addOptimisticMessage, updateOptimisticMessageContent, selectedModels]
+    [state, addOptimisticMessage, updateOptimisticMessageContent]
   );
 
   interface ExecuteStreamParams {
@@ -470,9 +503,7 @@ export function useAuthenticatedChat({
       // When sending in a fork, invalidate the broader conversation key so the forks query
       // (which includes tipMessageId) is also refetched. Otherwise the stale tip causes
       // the new messages to be filtered out by fork filtering.
-      const invalidationKey = forkId
-        ? chatKeys.conversation(convId)
-        : chatKeys.messages(convId);
+      const invalidationKey = forkId ? chatKeys.conversation(convId) : chatKeys.messages(convId);
       await queryClient.invalidateQueries({ queryKey: invalidationKey });
       void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
 
@@ -608,19 +639,33 @@ export function useAuthenticatedChat({
     state,
   ]);
 
+  /** Validate input, clear it, refocus, and return trimmed content + conversationId (or null). */
+  const prepareMessageInput = React.useCallback((): {
+    content: string;
+    convId: string;
+  } | null => {
+    const content = state.inputValue.trim();
+    if (!content || !realConversationId) {
+      return null;
+    }
+
+    useChatErrorStore.getState().clearError();
+
+    state.clearInput();
+    if (!isMobile) {
+      promptInputRef.current?.focus();
+    }
+
+    return { content, convId: realConversationId };
+  }, [state, realConversationId, isMobile, promptInputRef]);
+
   const handleSend = React.useCallback(
     (fundingSource: FundingSource) => {
-      const content = state.inputValue.trim();
-      if (!content || !realConversationId) {
+      const prepared = prepareMessageInput();
+      if (!prepared) {
         return;
       }
-
-      useChatErrorStore.getState().clearError();
-
-      state.clearInput();
-      if (!isMobile) {
-        promptInputRef.current?.focus();
-      }
+      const { content, convId } = prepared;
 
       const userMessageId = crypto.randomUUID();
 
@@ -628,7 +673,7 @@ export function useAuthenticatedChat({
       const allCurrentMessages = [...forkFilteredDecrypted, ...optimisticMessages];
       const lastMessage = allCurrentMessages.at(-1);
       const optimisticUserMessage = createUserMessage(
-        realConversationId,
+        convId,
         content,
         callerId,
         lastMessage?.id ?? null
@@ -651,7 +696,7 @@ export function useAuthenticatedChat({
       void (async () => {
         try {
           const { models: modelResults } = await executeStream({
-            convId: realConversationId,
+            convId,
             userMessageData: {
               id: userMessageId,
               content,
@@ -676,48 +721,37 @@ export function useAuthenticatedChat({
       })();
     },
     [
-      state,
-      realConversationId,
-      isMobile,
-      promptInputRef,
+      prepareMessageInput,
       addOptimisticMessage,
       removeOptimisticMessage,
       executeStream,
       forkFilteredDecrypted,
       optimisticMessages,
       activeForkId,
+      state,
+      realConversationId,
+      promptInputRef,
     ]
   );
 
   const handleSendUserOnly = React.useCallback(() => {
-    const content = state.inputValue.trim();
-    if (!content || !realConversationId) {
+    const prepared = prepareMessageInput();
+    if (!prepared) {
       return;
     }
-
-    useChatErrorStore.getState().clearError();
-
-    state.clearInput();
-    if (!isMobile) {
-      promptInputRef.current?.focus();
-    }
+    const { content, convId } = prepared;
 
     const messageId = crypto.randomUUID();
     const allCurrentMessages = [...forkFilteredDecrypted, ...optimisticMessages];
     const lastMsg = allCurrentMessages.at(-1);
-    const optimisticUserMessage = createUserMessage(
-      realConversationId,
-      content,
-      callerId,
-      lastMsg?.id ?? null
-    );
+    const optimisticUserMessage = createUserMessage(convId, content, callerId, lastMsg?.id ?? null);
     addOptimisticMessage(optimisticUserMessage);
 
     void (async () => {
       try {
         await fetchJson(
           client.api.chat[':conversationId'].message.$post({
-            param: { conversationId: realConversationId },
+            param: { conversationId: convId },
             json: {
               messageId,
               content,
@@ -725,7 +759,7 @@ export function useAuthenticatedChat({
           })
         );
         removeOptimisticMessage(optimisticUserMessage.id);
-        await queryClient.invalidateQueries({ queryKey: chatKeys.messages(realConversationId) });
+        await queryClient.invalidateQueries({ queryKey: chatKeys.messages(convId) });
       } catch (error: unknown) {
         console.error('User-only message failed:', error);
         removeOptimisticMessage(optimisticUserMessage.id);
@@ -733,15 +767,14 @@ export function useAuthenticatedChat({
       }
     })();
   }, [
-    state,
-    realConversationId,
-    isMobile,
-    promptInputRef,
+    prepareMessageInput,
     addOptimisticMessage,
     removeOptimisticMessage,
     queryClient,
     forkFilteredDecrypted,
     optimisticMessages,
+    state,
+    realConversationId,
   ]);
 
   const handleRegenerate = React.useCallback(
@@ -770,7 +803,7 @@ export function useAuthenticatedChat({
         // the displayed message list for existing conversations) reflects the pruning
         // immediately, before streaming starts. On error, invalidateQueries restores state.
         const targetIndex = allMsgs.findIndex((m) => m.id === targetMessageId);
-        if (targetIndex >= 0) {
+        if (targetIndex !== -1) {
           const idsToRemove = new Set(allMsgs.slice(targetIndex + 1).map((m) => m.id));
           queryClient.setQueryData(
             chatKeys.messages(realConversationId),
@@ -794,7 +827,12 @@ export function useAuthenticatedChat({
       };
 
       const assistantMsgId = crypto.randomUUID();
-      const assistantMsg = createAssistantMessage(realConversationId, assistantMsgId, getPrimaryModel(selectedModels).id, targetMessageId);
+      const assistantMsg = createAssistantMessage(
+        realConversationId,
+        assistantMsgId,
+        getPrimaryModel(selectedModels).id,
+        targetMessageId
+      );
       addOptimisticMessage(assistantMsg);
       state.startStreaming([assistantMsgId]);
 
@@ -873,8 +911,11 @@ export function useAuthenticatedChat({
     return allMessages.reduce((total, message) => total + message.content.length, 0);
   }, [allMessages]);
 
-  const isDecryptionPending =
-    !isCreateMode && (apiMessages?.length ?? 0) > 0 && decryptedApiMessages.length === 0;
+  const isDecryptionPending = checkDecryptionPending(
+    isCreateMode,
+    apiMessages?.length ?? 0,
+    decryptedApiMessages.length
+  );
 
   const renderState = React.useMemo(
     () =>
@@ -908,18 +949,10 @@ export function useAuthenticatedChat({
   const epochCacheVersion = React.useSyncExternalStore(epochCacheSubscribe, epochCacheSnapshot);
 
   // Decrypt conversation title from API (base64 ECIES blob) using cached epoch key
-  const displayTitle = React.useMemo(() => {
-    // Local title (from just-created conversation) takes priority
-    if (localTitle) return localTitle;
-    if (!conversation?.title || !realConversationId) return;
-    const epochKey = getEpochKey(realConversationId, conversation.titleEpochNumber);
-    if (!epochKey) return DECRYPTING_TITLE;
-    try {
-      return decryptMessage(epochKey, fromBase64(conversation.title));
-    } catch {
-      return 'Encrypted conversation';
-    }
-  }, [conversation, realConversationId, localTitle, epochCacheVersion]);
+  const displayTitle = React.useMemo(
+    () => computeDisplayTitle(localTitle, conversation, realConversationId),
+    [conversation, realConversationId, localTitle, epochCacheVersion]
+  );
   const inputDisabled = isCreateMode && !realConversationId;
 
   const errorMessageId: string | undefined = chatError?.id;

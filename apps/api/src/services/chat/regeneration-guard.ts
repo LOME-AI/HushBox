@@ -26,6 +26,54 @@ export interface CanRegenerateParams {
  * If forkTipMessageId is not provided in a group chat, uses the message
  * with the highest sequence number as the tip.
  */
+/** Resolves the effective tip message ID for regeneration checks. */
+async function resolveTipMessageId(
+  tx: Database,
+  conversationId: string,
+  forkTipMessageId?: string
+): Promise<string | null> {
+  if (forkTipMessageId) return forkTipMessageId;
+
+  const [lastMsg] = await tx
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(desc(messages.sequenceNumber))
+    .limit(1);
+
+  return lastMsg?.id ?? null;
+}
+
+/** Walks from tip to target, returns false if a different user sent a message between them. */
+function checkChainForOtherUsers(
+  messageMap: Map<
+    string,
+    { id: string; parentMessageId: string | null; senderType: string; senderId: string | null }
+  >,
+  tipMessageId: string,
+  targetMessageId: string,
+  userId: string
+): boolean {
+  const visited = new Set<string>();
+  let currentId: string | null = tipMessageId;
+
+  while (currentId && currentId !== targetMessageId) {
+    if (visited.has(currentId)) break;
+    visited.add(currentId);
+
+    const msg = messageMap.get(currentId);
+    if (!msg) break;
+
+    if (msg.senderType === 'user' && msg.senderId && msg.senderId !== userId) {
+      return false;
+    }
+
+    currentId = msg.parentMessageId ?? null;
+  }
+
+  return true;
+}
+
 export async function canRegenerate(tx: Database, params: CanRegenerateParams): Promise<boolean> {
   // Check if this is a group chat (has more than one member)
   const members = await tx
@@ -38,35 +86,22 @@ export async function canRegenerate(tx: Database, params: CanRegenerateParams): 
       )
     );
 
-  // Solo chat (no members in conversationMembers table) → always allowed
-  // The conversation owner is stored in conversations.userId, not in conversationMembers.
-  // Any entry in conversationMembers means other users have been added → group chat.
+  // Solo chat → always allowed
   if (members.length === 0) {
     return true;
   }
 
-  // Group chat → need to check the chain
-  let tipMessageId = params.forkTipMessageId;
+  // Group chat → resolve tip and check chain
+  const tipMessageId = await resolveTipMessageId(
+    tx,
+    params.conversationId,
+    params.forkTipMessageId
+  );
 
-  if (!tipMessageId) {
-    // Find the message with the highest sequence number
-    const [lastMsg] = await tx
-      .select({ id: messages.id })
-      .from(messages)
-      .where(eq(messages.conversationId, params.conversationId))
-      .orderBy(desc(messages.sequenceNumber))
-      .limit(1);
-
-    if (!lastMsg) return true;
-    tipMessageId = lastMsg.id;
-  }
-
-  // If target is the tip, no messages between them
-  if (tipMessageId === params.targetMessageId) {
+  if (!tipMessageId || tipMessageId === params.targetMessageId) {
     return true;
   }
 
-  // Get all messages to walk the chain
   const allMessages = await tx
     .select({
       id: messages.id,
@@ -79,24 +114,5 @@ export async function canRegenerate(tx: Database, params: CanRegenerateParams): 
 
   const messageMap = new Map(allMessages.map((m) => [m.id, m]));
 
-  // Walk from tip toward target, checking user messages
-  const visited = new Set<string>();
-  let currentId: string | null = tipMessageId;
-
-  while (currentId && currentId !== params.targetMessageId) {
-    if (visited.has(currentId)) break; // cycle protection
-    visited.add(currentId);
-
-    const msg = messageMap.get(currentId);
-    if (!msg) break;
-
-    // Check if this is a user message from a different user
-    if (msg.senderType === 'user' && msg.senderId && msg.senderId !== params.userId) {
-      return false;
-    }
-
-    currentId = msg.parentMessageId ?? null;
-  }
-
-  return true;
+  return checkChainForOtherUsers(messageMap, tipMessageId, params.targetMessageId, params.userId);
 }

@@ -80,6 +80,37 @@ export function getDevAssetPath(rootDir: string, filename: string): string {
 
 const DEV_SERVER_URL = 'http://localhost:5173';
 
+/** Ensure output directories exist. */
+function ensureAssetDirectories(rootDir: string): void {
+  mkdirSync(path.join(rootDir, 'apps', 'web', 'resources', 'generated'), { recursive: true });
+  mkdirSync(path.join(rootDir, 'apps', 'web', 'public', 'dev-assets'), { recursive: true });
+}
+
+/** Render a single asset: open page, screenshot, copy to dev-assets, close. */
+async function captureAsset(
+  browser: import('playwright').Browser,
+  rootDir: string,
+  config: AssetConfig
+): Promise<void> {
+  const context = await browser.newContext({
+    viewport: { width: config.cssWidth, height: config.cssHeight },
+    deviceScaleFactor: config.dpr,
+  });
+  const page = await context.newPage();
+
+  await page.goto(`${DEV_SERVER_URL}${config.renderUrl}`, {
+    waitUntil: 'networkidle',
+  });
+
+  const outputPath = getOutputPath(rootDir, config.filename);
+  await page.screenshot({ path: outputPath, fullPage: false });
+
+  const devPath = getDevAssetPath(rootDir, config.filename);
+  copyFileSync(outputPath, devPath);
+
+  await context.close();
+}
+
 /**
  * Generate all native asset PNGs using Playwright.
  * Requires the Vite dev server to be running on port 5173.
@@ -90,11 +121,7 @@ export async function generateAssets(rootDir: string): Promise<void> {
 
   const configs = getAssetConfigs();
 
-  // Ensure output directories exist
-  const generatedDir = path.join(rootDir, 'apps', 'web', 'resources', 'generated');
-  const devAssetsDir = path.join(rootDir, 'apps', 'web', 'public', 'dev-assets');
-  mkdirSync(generatedDir, { recursive: true });
-  mkdirSync(devAssetsDir, { recursive: true });
+  ensureAssetDirectories(rootDir);
 
   const browser = await chromium.launch();
 
@@ -104,24 +131,7 @@ export async function generateAssets(rootDir: string): Promise<void> {
         `Generating ${config.filename} (${String(config.outputWidth)}x${String(config.outputHeight)} @ ${String(config.dpr)}x)...`
       );
 
-      const context = await browser.newContext({
-        viewport: { width: config.cssWidth, height: config.cssHeight },
-        deviceScaleFactor: config.dpr,
-      });
-      const page = await context.newPage();
-
-      await page.goto(`${DEV_SERVER_URL}${config.renderUrl}`, {
-        waitUntil: 'networkidle',
-      });
-
-      const outputPath = getOutputPath(rootDir, config.filename);
-      await page.screenshot({ path: outputPath, fullPage: false });
-
-      // Copy to public/dev-assets for Vite static serving
-      const devPath = getDevAssetPath(rootDir, config.filename);
-      copyFileSync(outputPath, devPath);
-
-      await context.close();
+      await captureAsset(browser, rootDir, config);
       console.log(`  -> ${config.filename}`);
     }
   } finally {
@@ -143,31 +153,12 @@ export async function generateSingleAsset(rootDir: string, assetName: string): P
 
   const { chromium } = await import('playwright');
 
-  const generatedDir = path.join(rootDir, 'apps', 'web', 'resources', 'generated');
-  const devAssetsDir = path.join(rootDir, 'apps', 'web', 'public', 'dev-assets');
-  mkdirSync(generatedDir, { recursive: true });
-  mkdirSync(devAssetsDir, { recursive: true });
+  ensureAssetDirectories(rootDir);
 
   const browser = await chromium.launch();
 
   try {
-    const context = await browser.newContext({
-      viewport: { width: config.cssWidth, height: config.cssHeight },
-      deviceScaleFactor: config.dpr,
-    });
-    const page = await context.newPage();
-
-    await page.goto(`${DEV_SERVER_URL}${config.renderUrl}`, {
-      waitUntil: 'networkidle',
-    });
-
-    const outputPath = getOutputPath(rootDir, config.filename);
-    await page.screenshot({ path: outputPath, fullPage: false });
-
-    const devPath = getDevAssetPath(rootDir, config.filename);
-    copyFileSync(outputPath, devPath);
-
-    await context.close();
+    await captureAsset(browser, rootDir, config);
   } finally {
     await browser.close();
   }

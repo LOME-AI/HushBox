@@ -9,7 +9,8 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
 });
 
 vi.mock('./broadcast.js', () => ({
-  broadcastToRoom: vi.fn().mockResolvedValue(),
+  // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
+  broadcastToRoom: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@hushbox/realtime/events', () => ({
@@ -110,7 +111,7 @@ describe('lookupModelPricing', () => {
   });
 
   it('falls back to 128_000 context length when model is not found', () => {
-    const result = lookupModelPricing([], 'missing/model');
+    lookupModelPricing([], 'missing/model');
 
     expect(getModelPricing).toHaveBeenCalledWith(0, 0, 128_000);
   });
@@ -191,7 +192,12 @@ describe('buildOpenRouterRequest', () => {
   ];
 
   it('builds a basic request with model and messages', () => {
-    const result = buildOpenRouterRequest('openai/gpt-4o', messages, undefined, false);
+    const result = buildOpenRouterRequest({
+      model: 'openai/gpt-4o',
+      messages,
+      safeMaxTokens: undefined,
+      webSearchEnabled: false,
+    });
 
     expect(result).toEqual({
       model: 'openai/gpt-4o',
@@ -200,7 +206,12 @@ describe('buildOpenRouterRequest', () => {
   });
 
   it('includes max_tokens when safeMaxTokens is provided', () => {
-    const result = buildOpenRouterRequest('openai/gpt-4o', messages, 4096, false);
+    const result = buildOpenRouterRequest({
+      model: 'openai/gpt-4o',
+      messages,
+      safeMaxTokens: 4096,
+      webSearchEnabled: false,
+    });
 
     expect(result).toEqual({
       model: 'openai/gpt-4o',
@@ -210,33 +221,60 @@ describe('buildOpenRouterRequest', () => {
   });
 
   it('omits max_tokens when safeMaxTokens is undefined', () => {
-    const result = buildOpenRouterRequest('openai/gpt-4o', messages, undefined, false);
+    const result = buildOpenRouterRequest({
+      model: 'openai/gpt-4o',
+      messages,
+      safeMaxTokens: undefined,
+      webSearchEnabled: false,
+    });
 
     expect(result).not.toHaveProperty('max_tokens');
   });
 
   it('includes web plugin when webSearchEnabled is true', () => {
-    const result = buildOpenRouterRequest('openai/gpt-4o', messages, undefined, true);
+    const result = buildOpenRouterRequest({
+      model: 'openai/gpt-4o',
+      messages,
+      safeMaxTokens: undefined,
+      webSearchEnabled: true,
+    });
 
     expect(result.plugins).toEqual([{ id: 'web' }]);
   });
 
   it('omits plugins when webSearchEnabled is false and no autoRouterAllowedModels', () => {
-    const result = buildOpenRouterRequest('openai/gpt-4o', messages, undefined, false);
+    const result = buildOpenRouterRequest({
+      model: 'openai/gpt-4o',
+      messages,
+      safeMaxTokens: undefined,
+      webSearchEnabled: false,
+    });
 
     expect(result).not.toHaveProperty('plugins');
   });
 
   it('includes auto-router plugin with allowed_models when autoRouterAllowedModels is provided', () => {
     const allowed = ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet'];
-    const result = buildOpenRouterRequest('openrouter/auto', messages, undefined, false, allowed);
+    const result = buildOpenRouterRequest({
+      model: 'openrouter/auto',
+      messages,
+      safeMaxTokens: undefined,
+      webSearchEnabled: false,
+      autoRouterAllowedModels: allowed,
+    });
 
     expect(result.plugins).toEqual([{ id: 'auto-router', allowed_models: allowed }]);
   });
 
   it('includes both auto-router and web plugins when both are enabled', () => {
     const allowed = ['openai/gpt-4o'];
-    const result = buildOpenRouterRequest('openrouter/auto', messages, 2048, true, allowed);
+    const result = buildOpenRouterRequest({
+      model: 'openrouter/auto',
+      messages,
+      safeMaxTokens: 2048,
+      webSearchEnabled: true,
+      autoRouterAllowedModels: allowed,
+    });
 
     expect(result.plugins).toEqual([{ id: 'auto-router', allowed_models: allowed }, { id: 'web' }]);
     expect(result.max_tokens).toBe(2048);
@@ -244,14 +282,26 @@ describe('buildOpenRouterRequest', () => {
 
   it('preserves plugin order: auto-router before web', () => {
     const allowed = ['model/a'];
-    const result = buildOpenRouterRequest('model', messages, undefined, true, allowed);
+    const result = buildOpenRouterRequest({
+      model: 'model',
+      messages,
+      safeMaxTokens: undefined,
+      webSearchEnabled: true,
+      autoRouterAllowedModels: allowed,
+    });
 
     expect(result.plugins![0]!.id).toBe('auto-router');
     expect(result.plugins![1]!.id).toBe('web');
   });
 
   it('handles empty autoRouterAllowedModels array', () => {
-    const result = buildOpenRouterRequest('model', messages, undefined, false, []);
+    const result = buildOpenRouterRequest({
+      model: 'model',
+      messages,
+      safeMaxTokens: undefined,
+      webSearchEnabled: false,
+      autoRouterAllowedModels: [],
+    });
 
     expect(result.plugins).toEqual([{ id: 'auto-router', allowed_models: [] }]);
   });
@@ -383,7 +433,7 @@ describe('handleBillingResult', () => {
 
     const result = await handleBillingResult({
       c,
-      billingPromise: Promise.reject('string error'),
+      billingPromise: Promise.reject(new Error('string error')),
       assistantMessageId: 'asst-789',
       userId: 'user-3',
       model: 'model/x',
@@ -470,6 +520,7 @@ describe('withBroadcast', () => {
     return items;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async function* tokenStream(
     tokens: string[]
   ): AsyncIterable<{ content: string; generationId?: string }> {
@@ -514,7 +565,7 @@ describe('withBroadcast', () => {
     await collectAll(wrapped);
 
     const eventPayload = vi.mocked(createEvent).mock.calls[0]![1] as Record<string, unknown>;
-    expect(eventPayload.modelName).toBe('openai/gpt-4o');
+    expect(eventPayload['modelName']).toBe('openai/gpt-4o');
   });
 
   it('omits modelName from broadcast events when undefined', async () => {
@@ -558,7 +609,8 @@ describe('broadcastAndFinish', () => {
   });
 
   it('broadcasts message:complete and writes done event', async () => {
-    const writeDone = vi.fn().mockResolvedValue();
+    // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
+    const writeDone = vi.fn().mockResolvedValue(undefined);
     const writer = { writeDone } as unknown as ReturnType<
       typeof import('./stream-handler.js').createSSEEventWriter
     >;
@@ -605,7 +657,8 @@ describe('broadcastAndFinish', () => {
   });
 
   it('omits modelName from broadcast when undefined', async () => {
-    const writeDone = vi.fn().mockResolvedValue();
+    // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
+    const writeDone = vi.fn().mockResolvedValue(undefined);
     const writer = { writeDone } as unknown as ReturnType<
       typeof import('./stream-handler.js').createSSEEventWriter
     >;

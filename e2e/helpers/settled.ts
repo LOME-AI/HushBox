@@ -10,7 +10,7 @@ import { type Page, expect } from '@playwright/test';
  */
 export async function waitForConditionOrSettle(
   page: Page,
-  condition: () => Promise<boolean>,
+  condition: () => boolean | Promise<boolean>,
   options: { timeout: number; errorMessage: string }
 ): Promise<void> {
   await expect

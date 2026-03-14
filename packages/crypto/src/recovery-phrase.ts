@@ -1,5 +1,5 @@
 import * as bip39 from '@scure/bip39';
-// eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- wordlist is string[] but TS can't resolve types through .js subpath export
+
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 
 export const MNEMONIC_STRENGTH = 128; // 12 words

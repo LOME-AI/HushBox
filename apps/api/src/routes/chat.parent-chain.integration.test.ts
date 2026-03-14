@@ -122,7 +122,9 @@ describe('parent chain integration', () => {
 
   async function fetchMessages(
     conversationId: string
-  ): Promise<{ id: string; parentMessageId: string | null; senderType: string; sequenceNumber: number }[]> {
+  ): Promise<
+    { id: string; parentMessageId: string | null; senderType: string; sequenceNumber: number }[]
+  > {
     return db
       .select({
         id: messages.id,
@@ -146,7 +148,7 @@ describe('parent chain integration', () => {
       chain.push(current.id);
       current = current.parentMessageId ? map.get(current.parentMessageId) : undefined;
     }
-    return chain.reverse();
+    return chain.toReversed();
   }
 
   describe('saveChatTurn with resolveParentMessageId builds complete parent chain', () => {

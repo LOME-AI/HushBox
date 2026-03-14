@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Input, Separator } from '@hushbox/ui';
+import { cn, Input, Separator } from '@hushbox/ui';
 import { Search } from 'lucide-react';
 import { FEATURE_FLAGS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
@@ -72,9 +72,10 @@ function SidebarPanels({
       >
         <div
           data-testid="chat-list-scroll-container"
-          className={`h-full w-full flex-shrink-0 overflow-y-auto${
-            sidebarOpen ? '' : ' scrollbar-hide'
-          }`}
+          className={cn(
+            'h-full w-full flex-shrink-0 overflow-y-auto',
+            !sidebarOpen && 'scrollbar-hide'
+          )}
         >
           <ChatList
             conversations={filteredAccepted}

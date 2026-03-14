@@ -207,6 +207,30 @@ function useForkManagement(
   };
 }
 
+function ForkDialogs({ fm }: Readonly<{ fm: ForkManagement }>): React.JSX.Element | null {
+  return (
+    <>
+      <RenameConversationDialog
+        open={fm.renamingFork !== null}
+        onOpenChange={(open) => {
+          if (!open) fm.setRenamingFork(null);
+        }}
+        value={fm.renameValue}
+        onValueChange={fm.setRenameValue}
+        onConfirm={fm.handleConfirmRename}
+      />
+      <DeleteConversationDialog
+        open={fm.deletingFork !== null}
+        onOpenChange={(open) => {
+          if (!open) fm.setDeletingFork(null);
+        }}
+        title={fm.deletingFork?.name ?? ''}
+        onConfirm={fm.handleConfirmDelete}
+      />
+    </>
+  );
+}
+
 export function AuthenticatedChatPage({
   routeConversationId,
   initialForkId,
@@ -331,7 +355,7 @@ export function AuthenticatedChatPage({
     <>
       <ChatLayout
         title={chat.displayTitle}
-        messages={messagesWithPhantoms as Message[]}
+        messages={messagesWithPhantoms}
         streamingMessageIds={effectiveStreamingIds}
         inputValue={chat.state.inputValue}
         onInputChange={chat.state.setInputValue}
@@ -358,23 +382,7 @@ export function AuthenticatedChatPage({
         isEditing={editingMessageId !== null}
         onCancelEdit={handleCancelEdit}
       />
-      <RenameConversationDialog
-        open={fm.renamingFork !== null}
-        onOpenChange={(open) => {
-          if (!open) fm.setRenamingFork(null);
-        }}
-        value={fm.renameValue}
-        onValueChange={fm.setRenameValue}
-        onConfirm={fm.handleConfirmRename}
-      />
-      <DeleteConversationDialog
-        open={fm.deletingFork !== null}
-        onOpenChange={(open) => {
-          if (!open) fm.setDeletingFork(null);
-        }}
-        title={fm.deletingFork?.name ?? ''}
-        onConfirm={fm.handleConfirmDelete}
-      />
+      <ForkDialogs fm={fm} />
     </>
   );
 }

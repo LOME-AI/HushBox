@@ -24,12 +24,12 @@ import {
 describe('e2e-debug', () => {
   describe('stripAnsi', () => {
     it('removes color codes from text', () => {
-      const input = '\u001b[31mError\u001b[0m: something failed';
+      const input = '\u001B[31mError\u001B[0m: something failed';
       expect(stripAnsi(input)).toBe('Error: something failed');
     });
 
     it('removes bold and underline codes', () => {
-      const input = '\u001b[1mbold\u001b[22m \u001b[4munderline\u001b[24m';
+      const input = '\u001B[1mbold\u001B[22m \u001B[4munderline\u001B[24m';
       expect(stripAnsi(input)).toBe('bold underline');
     });
 
@@ -43,7 +43,7 @@ describe('e2e-debug', () => {
     });
 
     it('removes multiple ANSI sequences', () => {
-      const input = '\u001b[32m✓\u001b[0m \u001b[90mtest passed\u001b[0m';
+      const input = '\u001B[32m✓\u001B[0m \u001B[90mtest passed\u001B[0m';
       expect(stripAnsi(input)).toBe('✓ test passed');
     });
   });
@@ -133,7 +133,7 @@ describe('e2e-debug', () => {
         project: 'webkit',
       });
       expect(result).toBe(
-        'pnpm e2e -- e2e/web/chat.spec.ts -g "handles \\"edge\\" case" --project=webkit'
+        String.raw`pnpm e2e -- e2e/web/chat.spec.ts -g "handles \"edge\" case" --project=webkit`
       );
     });
   });
@@ -605,7 +605,11 @@ describe('e2e-debug', () => {
             file: 'e2e/web/billing.spec.ts',
             project: 'webkit',
             error: 'Timeout waiting for selector',
-            artifacts: { trace: undefined, screenshot: '/abs/path/screenshot.png', video: undefined },
+            artifacts: {
+              trace: undefined,
+              screenshot: '/abs/path/screenshot.png',
+              video: undefined,
+            },
           },
         ],
       };
@@ -687,7 +691,7 @@ describe('e2e-debug', () => {
             title: 'test',
             file: 'e2e/test.spec.ts',
             project: 'chromium',
-            error: '\u001b[31mError\u001b[0m: failed',
+            error: '\u001B[31mError\u001B[0m: failed',
             artifacts: { trace: undefined, screenshot: undefined, video: undefined },
           },
         ],
@@ -696,7 +700,7 @@ describe('e2e-debug', () => {
       const md = generateMarkdownReport(report);
 
       expect(md).toContain('Error: failed');
-      expect(md).not.toContain('\u001b[31m');
+      expect(md).not.toContain('\u001B[31m');
     });
 
     it('truncates long error messages', () => {
@@ -733,7 +737,11 @@ describe('e2e-debug', () => {
             file: 'e2e/test.spec.ts',
             project: 'chromium',
             error: 'error',
-            artifacts: { trace: undefined, screenshot: '/some/path/screenshot.png', video: undefined },
+            artifacts: {
+              trace: undefined,
+              screenshot: '/some/path/screenshot.png',
+              video: undefined,
+            },
           },
         ],
       };
@@ -780,17 +788,17 @@ describe('e2e-debug', () => {
   });
 
   describe('writeReport', () => {
-    let tempDir: string;
+    let temporaryDir: string;
 
     afterEach(() => {
-      if (tempDir && existsSync(tempDir)) {
-        rmSync(tempDir, { recursive: true, force: true });
+      if (temporaryDir && existsSync(temporaryDir)) {
+        rmSync(temporaryDir, { recursive: true, force: true });
       }
     });
 
     it('creates report directory and writes REPORT.md', () => {
-      tempDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
-      const reportDir = path.join(tempDir, 'report');
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const reportDir = path.join(temporaryDir, 'report');
 
       const report: DebugReport = {
         summary: { total: 1, passed: 1, flaky: 0, failed: 0, duration: 1000 },
@@ -807,9 +815,9 @@ describe('e2e-debug', () => {
     });
 
     it('copies screenshot files when present', () => {
-      tempDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
-      const reportDir = path.join(tempDir, 'report');
-      const sourceScreenshot = path.join(tempDir, 'source-screenshot.png');
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const reportDir = path.join(temporaryDir, 'report');
+      const sourceScreenshot = path.join(temporaryDir, 'source-screenshot.png');
       writeFileSync(sourceScreenshot, 'fake-png-data');
 
       const report: DebugReport = {
@@ -831,16 +839,13 @@ describe('e2e-debug', () => {
 
       const screenshotsDir = path.join(reportDir, 'screenshots');
       expect(existsSync(screenshotsDir)).toBe(true);
-      const expectedFile = path.join(
-        screenshotsDir,
-        'e2e-test-spec-ts--chromium--broken-test.png'
-      );
+      const expectedFile = path.join(screenshotsDir, 'e2e-test-spec-ts--chromium--broken-test.png');
       expect(existsSync(expectedFile)).toBe(true);
     });
 
     it('wipes existing report directory on re-run', () => {
-      tempDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
-      const reportDir = path.join(tempDir, 'report');
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const reportDir = path.join(temporaryDir, 'report');
       mkdirSync(reportDir, { recursive: true });
       writeFileSync(path.join(reportDir, 'old-file.txt'), 'stale data');
 
@@ -858,8 +863,8 @@ describe('e2e-debug', () => {
     });
 
     it('handles missing screenshot source gracefully', () => {
-      tempDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
-      const reportDir = path.join(tempDir, 'report');
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const reportDir = path.join(temporaryDir, 'report');
 
       const report: DebugReport = {
         summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
@@ -880,7 +885,9 @@ describe('e2e-debug', () => {
         ],
       };
 
-      expect(() => writeReport(report, reportDir)).not.toThrow();
+      expect(() => {
+        writeReport(report, reportDir);
+      }).not.toThrow();
       expect(existsSync(path.join(reportDir, 'REPORT.md'))).toBe(true);
     });
   });

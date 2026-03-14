@@ -162,9 +162,27 @@ describe('useRenameFork', () => {
     });
     const forksCacheKey = ['chat', 'conversations', 'conv-1', 'forks'];
     const initialForks = [
-      { id: 'fork-main', conversationId: 'conv-1', name: 'Main', tipMessageId: 'msg-5', createdAt: '2026-03-01' },
-      { id: 'fork-1', conversationId: 'conv-1', name: 'Fork 1', tipMessageId: 'msg-3', createdAt: '2026-03-02' },
-      { id: 'fork-2', conversationId: 'conv-1', name: 'Fork 2', tipMessageId: 'msg-4', createdAt: '2026-03-03' },
+      {
+        id: 'fork-main',
+        conversationId: 'conv-1',
+        name: 'Main',
+        tipMessageId: 'msg-5',
+        createdAt: '2026-03-01',
+      },
+      {
+        id: 'fork-1',
+        conversationId: 'conv-1',
+        name: 'Fork 1',
+        tipMessageId: 'msg-3',
+        createdAt: '2026-03-02',
+      },
+      {
+        id: 'fork-2',
+        conversationId: 'conv-1',
+        name: 'Fork 2',
+        tipMessageId: 'msg-4',
+        createdAt: '2026-03-03',
+      },
     ];
     queryClient.setQueryData(forksCacheKey, initialForks);
 
@@ -185,7 +203,7 @@ describe('useRenameFork', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    const cached = queryClient.getQueryData(forksCacheKey) as typeof initialForks;
+    const cached = queryClient.getQueryData<{ id: string; name: string }[]>(forksCacheKey)!;
     expect(cached).toHaveLength(3);
     expect(cached[0]!.id).toBe('fork-main');
     expect(cached[1]!.id).toBe('fork-1');

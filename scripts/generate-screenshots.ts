@@ -122,6 +122,57 @@ export function getScreenshotDevAssetPath(
 const DEV_SERVER_URL = 'http://localhost:5173';
 const MESSAGE_LIST_TIMEOUT = 15_000;
 
+/** Ensure output + dev-asset directories exist for all resolutions. */
+function ensureScreenshotDirectories(rootDir: string, resolutionConfigs: ResolutionConfig[]): void {
+  for (const resolution of resolutionConfigs) {
+    mkdirSync(
+      path.join(rootDir, 'apps', 'web', 'resources', 'generated', 'screenshots', resolution.name),
+      { recursive: true }
+    );
+    mkdirSync(
+      path.join(rootDir, 'apps', 'web', 'public', 'dev-assets', 'screenshots', resolution.name),
+      { recursive: true }
+    );
+  }
+}
+
+/** Capture a single screenshot at one resolution: open page, setup, screenshot, copy, close. */
+async function captureScreenshot(
+  browser: import('playwright').Browser,
+  options: {
+    rootDir: string;
+    storageStatePath: string;
+    resolution: ResolutionConfig;
+    conversationId: string;
+    screenshot: ScreenshotConfig;
+  }
+): Promise<void> {
+  const { rootDir, storageStatePath, resolution, conversationId, screenshot } = options;
+
+  const context = await browser.newContext({
+    storageState: storageStatePath,
+    viewport: { width: resolution.cssWidth, height: resolution.cssHeight },
+    deviceScaleFactor: resolution.dpr,
+  });
+  const page = await context.newPage();
+
+  await page.goto(`${DEV_SERVER_URL}/chat/${conversationId}`, {
+    waitUntil: 'networkidle',
+  });
+
+  await waitForChatMessages(page);
+  await runScreenshotSetup(page, screenshot.name);
+
+  const outputPath = getScreenshotOutputPath(rootDir, resolution.name, screenshot.filename);
+  await page.screenshot({ path: outputPath, fullPage: false });
+
+  const devPath = getScreenshotDevAssetPath(rootDir, resolution.name, screenshot.filename);
+  copyFileSync(outputPath, devPath);
+
+  await context.close();
+  console.log(`  -> ${resolution.name}/${screenshot.filename}`);
+}
+
 /**
  * Wait for the chat message list to be visible, with diagnostic output on failure.
  * Logs the page URL and visible data-testid attributes to identify the failure mode.
@@ -260,29 +311,7 @@ export async function generateScreenshots(rootDir: string): Promise<void> {
   const screenshotConfigs = getScreenshotConfigs();
   const resolutionConfigs = getResolutionConfigs();
 
-  // Ensure output directories exist
-  for (const resolution of resolutionConfigs) {
-    const generatedDir = path.join(
-      rootDir,
-      'apps',
-      'web',
-      'resources',
-      'generated',
-      'screenshots',
-      resolution.name
-    );
-    const devDir = path.join(
-      rootDir,
-      'apps',
-      'web',
-      'public',
-      'dev-assets',
-      'screenshots',
-      resolution.name
-    );
-    mkdirSync(generatedDir, { recursive: true });
-    mkdirSync(devDir, { recursive: true });
-  }
+  ensureScreenshotDirectories(rootDir, resolutionConfigs);
 
   const browser = await chromium.launch();
   const temporaryDir = mkdtempSync(path.join(tmpdir(), 'hushbox-screenshots-'));
@@ -300,29 +329,13 @@ export async function generateScreenshots(rootDir: string): Promise<void> {
           `Capturing ${screenshot.name} at ${resolution.name} (${String(resolution.outputWidth)}x${String(resolution.outputHeight)} @ ${String(resolution.dpr)}x)...`
         );
 
-        const context = await browser.newContext({
-          storageState: storageStatePath,
-          viewport: { width: resolution.cssWidth, height: resolution.cssHeight },
-          deviceScaleFactor: resolution.dpr,
+        await captureScreenshot(browser, {
+          rootDir,
+          storageStatePath,
+          resolution,
+          conversationId,
+          screenshot,
         });
-        const page = await context.newPage();
-
-        await page.goto(`${DEV_SERVER_URL}/chat/${conversationId}`, {
-          waitUntil: 'networkidle',
-        });
-
-        await waitForChatMessages(page);
-
-        await runScreenshotSetup(page, screenshot.name);
-
-        const outputPath = getScreenshotOutputPath(rootDir, resolution.name, screenshot.filename);
-        await page.screenshot({ path: outputPath, fullPage: false });
-
-        const devPath = getScreenshotDevAssetPath(rootDir, resolution.name, screenshot.filename);
-        copyFileSync(outputPath, devPath);
-
-        await context.close();
-        console.log(`  -> ${resolution.name}/${screenshot.filename}`);
       }
     }
   } finally {
@@ -353,28 +366,7 @@ export async function generateSingleScreenshot(
 
   const resolutionConfigs = getResolutionConfigs();
 
-  for (const resolution of resolutionConfigs) {
-    const generatedDir = path.join(
-      rootDir,
-      'apps',
-      'web',
-      'resources',
-      'generated',
-      'screenshots',
-      resolution.name
-    );
-    const devDir = path.join(
-      rootDir,
-      'apps',
-      'web',
-      'public',
-      'dev-assets',
-      'screenshots',
-      resolution.name
-    );
-    mkdirSync(generatedDir, { recursive: true });
-    mkdirSync(devDir, { recursive: true });
-  }
+  ensureScreenshotDirectories(rootDir, resolutionConfigs);
 
   const browser = await chromium.launch();
   const temporaryDir = mkdtempSync(path.join(tmpdir(), 'hushbox-screenshots-'));
@@ -388,29 +380,13 @@ export async function generateSingleScreenshot(
         `Capturing ${config.name} at ${resolution.name} (${String(resolution.cssWidth)}x${String(resolution.cssHeight)})...`
       );
 
-      const context = await browser.newContext({
-        storageState: storageStatePath,
-        viewport: { width: resolution.cssWidth, height: resolution.cssHeight },
-        deviceScaleFactor: resolution.dpr,
+      await captureScreenshot(browser, {
+        rootDir,
+        storageStatePath,
+        resolution,
+        conversationId,
+        screenshot: config,
       });
-      const page = await context.newPage();
-
-      await page.goto(`${DEV_SERVER_URL}/chat/${conversationId}`, {
-        waitUntil: 'networkidle',
-      });
-
-      await waitForChatMessages(page);
-
-      await runScreenshotSetup(page, config.name);
-
-      const outputPath = getScreenshotOutputPath(rootDir, resolution.name, config.filename);
-      await page.screenshot({ path: outputPath, fullPage: false });
-
-      const devPath = getScreenshotDevAssetPath(rootDir, resolution.name, config.filename);
-      copyFileSync(outputPath, devPath);
-
-      await context.close();
-      console.log(`  -> ${resolution.name}/${config.filename}`);
     }
   } finally {
     await browser.close();

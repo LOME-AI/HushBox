@@ -1,4 +1,11 @@
-import { test as base, expect, type Page, type APIRequestContext } from '@playwright/test';
+import {
+  test as base,
+  expect,
+  type Browser,
+  type Page,
+  type APIRequestContext,
+  type TestInfo,
+} from '@playwright/test';
 import { ChatPage } from './pages';
 import { requireEnv } from './helpers/env.js';
 
@@ -20,6 +27,31 @@ function attachConsoleErrors(page: Page): { errors: string[]; cleanup: () => voi
       page.off('console', onConsole);
       page.off('pageerror', onPageError);
     },
+  };
+}
+
+type StorageState = string | { cookies: []; origins: [] };
+
+function createPageFixture(
+  storageState: StorageState
+): (
+  deps: { browser: Browser },
+  use: (page: Page) => Promise<void>,
+  testInfo: TestInfo
+) => Promise<void> {
+  return async ({ browser }, use, testInfo) => {
+    const context = await browser.newContext({ storageState });
+    const page = await context.newPage();
+    const { errors, cleanup } = attachConsoleErrors(page);
+    await use(page);
+    if (testInfo.status !== testInfo.expectedStatus && errors.length > 0) {
+      await testInfo.attach('console-errors', {
+        body: errors.join('\n'),
+        contentType: 'text/plain',
+      });
+    }
+    cleanup();
+    await context.close();
   };
 }
 
@@ -60,40 +92,10 @@ interface CustomFixtures {
 }
 
 export const test = base.extend<CustomFixtures>({
-  authenticatedPage: async ({ browser }, use, testInfo) => {
-    const context = await browser.newContext({
-      storageState: 'e2e/.auth/test-alice.json',
-    });
-    const page = await context.newPage();
-    const { errors, cleanup } = attachConsoleErrors(page);
-    await use(page);
-    if (testInfo.status !== testInfo.expectedStatus && errors.length > 0) {
-      await testInfo.attach('console-errors', {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-    cleanup();
-    await context.close();
-  },
+  authenticatedPage: createPageFixture('e2e/.auth/test-alice.json'),
 
-  unauthenticatedPage: async ({ browser }, use, testInfo) => {
-    // Explicitly clear storage state to override project-level default auth
-    const context = await browser.newContext({
-      storageState: { cookies: [], origins: [] },
-    });
-    const page = await context.newPage();
-    const { errors, cleanup } = attachConsoleErrors(page);
-    await use(page);
-    if (testInfo.status !== testInfo.expectedStatus && errors.length > 0) {
-      await testInfo.attach('console-errors', {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-    cleanup();
-    await context.close();
-  },
+  // Explicitly clear storage state to override project-level default auth
+  unauthenticatedPage: createPageFixture({ cookies: [], origins: [] }),
 
   authenticatedRequest: async ({ playwright }, use) => {
     const context = await playwright.request.newContext({
@@ -105,108 +107,14 @@ export const test = base.extend<CustomFixtures>({
   },
 
   // 2FA test user (has TOTP enabled)
-  test2FAPage: async ({ browser }, use, testInfo) => {
-    const context = await browser.newContext({
-      storageState: 'e2e/.auth/test-2fa.json',
-    });
-    const page = await context.newPage();
-    const { errors, cleanup } = attachConsoleErrors(page);
-    await use(page);
-    if (testInfo.status !== testInfo.expectedStatus && errors.length > 0) {
-      await testInfo.attach('console-errors', {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-    cleanup();
-    await context.close();
-  },
+  test2FAPage: createPageFixture('e2e/.auth/test-2fa.json'),
 
   // Dedicated billing test users (isolated balance state between tests)
-  billingSuccessPage: async ({ browser }, use, testInfo) => {
-    const context = await browser.newContext({
-      storageState: 'e2e/.auth/test-billing-success.json',
-    });
-    const page = await context.newPage();
-    const { errors, cleanup } = attachConsoleErrors(page);
-    await use(page);
-    if (testInfo.status !== testInfo.expectedStatus && errors.length > 0) {
-      await testInfo.attach('console-errors', {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-    cleanup();
-    await context.close();
-  },
-
-  billingSuccessPage2: async ({ browser }, use, testInfo) => {
-    const context = await browser.newContext({
-      storageState: 'e2e/.auth/test-billing-success-2.json',
-    });
-    const page = await context.newPage();
-    const { errors, cleanup } = attachConsoleErrors(page);
-    await use(page);
-    if (testInfo.status !== testInfo.expectedStatus && errors.length > 0) {
-      await testInfo.attach('console-errors', {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-    cleanup();
-    await context.close();
-  },
-
-  billingFailurePage: async ({ browser }, use, testInfo) => {
-    const context = await browser.newContext({
-      storageState: 'e2e/.auth/test-billing-failure.json',
-    });
-    const page = await context.newPage();
-    const { errors, cleanup } = attachConsoleErrors(page);
-    await use(page);
-    if (testInfo.status !== testInfo.expectedStatus && errors.length > 0) {
-      await testInfo.attach('console-errors', {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-    cleanup();
-    await context.close();
-  },
-
-  billingValidationPage: async ({ browser }, use, testInfo) => {
-    const context = await browser.newContext({
-      storageState: 'e2e/.auth/test-billing-validation.json',
-    });
-    const page = await context.newPage();
-    const { errors, cleanup } = attachConsoleErrors(page);
-    await use(page);
-    if (testInfo.status !== testInfo.expectedStatus && errors.length > 0) {
-      await testInfo.attach('console-errors', {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-    cleanup();
-    await context.close();
-  },
-
-  billingDevModePage: async ({ browser }, use, testInfo) => {
-    const context = await browser.newContext({
-      storageState: 'e2e/.auth/test-billing-devmode.json',
-    });
-    const page = await context.newPage();
-    const { errors, cleanup } = attachConsoleErrors(page);
-    await use(page);
-    if (testInfo.status !== testInfo.expectedStatus && errors.length > 0) {
-      await testInfo.attach('console-errors', {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-    cleanup();
-    await context.close();
-  },
+  billingSuccessPage: createPageFixture('e2e/.auth/test-billing-success.json'),
+  billingSuccessPage2: createPageFixture('e2e/.auth/test-billing-success-2.json'),
+  billingFailurePage: createPageFixture('e2e/.auth/test-billing-failure.json'),
+  billingValidationPage: createPageFixture('e2e/.auth/test-billing-validation.json'),
+  billingDevModePage: createPageFixture('e2e/.auth/test-billing-devmode.json'),
 
   // Group chat: creates conversation with seeded messages via dev endpoint
   groupConversation: async (
@@ -251,40 +159,10 @@ export const test = base.extend<CustomFixtures>({
   },
 
   // Second browser context logged in as test-bob
-  testBobPage: async ({ browser }, use, testInfo) => {
-    const context = await browser.newContext({
-      storageState: 'e2e/.auth/test-bob.json',
-    });
-    const page = await context.newPage();
-    const { errors, cleanup } = attachConsoleErrors(page);
-    await use(page);
-    if (testInfo.status !== testInfo.expectedStatus && errors.length > 0) {
-      await testInfo.attach('console-errors', {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-    cleanup();
-    await context.close();
-  },
+  testBobPage: createPageFixture('e2e/.auth/test-bob.json'),
 
   // Browser context logged in as test-dave (verified, no group membership by default)
-  testDavePage: async ({ browser }, use, testInfo) => {
-    const context = await browser.newContext({
-      storageState: 'e2e/.auth/test-dave.json',
-    });
-    const page = await context.newPage();
-    const { errors, cleanup } = attachConsoleErrors(page);
-    await use(page);
-    if (testInfo.status !== testInfo.expectedStatus && errors.length > 0) {
-      await testInfo.attach('console-errors', {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-    cleanup();
-    await context.close();
-  },
+  testDavePage: createPageFixture('e2e/.auth/test-dave.json'),
 
   // API request context for test-bob (used for owner-privilege budget operations)
   testBobRequest: async ({ playwright }, use) => {

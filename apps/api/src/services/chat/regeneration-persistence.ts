@@ -87,13 +87,16 @@ async function insertChargeAndFinalizeFork(
 // Private helper: build charge params from shared billing fields + epoch data
 // ============================================================================
 
-function buildChargeParams(
-  params: SharedBillingParams,
-  epochPublicKey: Uint8Array,
-  epochNumber: number,
-  aiSequence: number,
-  parentMessageId: string
-): InsertChargeAndFinalizeForkParams {
+interface BuildChargeParamsInput {
+  params: SharedBillingParams;
+  epochPublicKey: Uint8Array;
+  epochNumber: number;
+  aiSequence: number;
+  parentMessageId: string;
+}
+
+function buildChargeParams(input: BuildChargeParamsInput): InsertChargeAndFinalizeForkParams {
+  const { params, epochPublicKey, epochNumber, aiSequence, parentMessageId } = input;
   return {
     conversationId: params.conversationId,
     userId: params.userId,
@@ -147,19 +150,8 @@ async function assignSequencesAndFetchEpoch(
 // saveRegeneratedResponse
 // ============================================================================
 
-export interface SaveRegeneratedResponseParams {
-  conversationId: string;
-  userId: string;
+export interface SaveRegeneratedResponseParams extends SharedBillingParams {
   anchorMessageId: string;
-  assistantMessageId: string;
-  assistantContent: string;
-  model: string;
-  totalCost: number;
-  inputTokens: number;
-  outputTokens: number;
-  cachedTokens?: number;
-  groupBillingContext?: { memberId: string };
-  forkId?: string;
   forkTipMessageId?: string;
 }
 
@@ -198,15 +190,16 @@ export async function saveRegeneratedResponse(
       conversationId,
       1
     );
-    const aiSeq = sequences[0]!;
+    const aiSeq = sequences[0];
+    if (aiSeq === undefined) throw new Error('invariant: expected at least one sequence number');
 
-    const chargeParams = buildChargeParams(
+    const chargeParams = buildChargeParams({
       params,
       epochPublicKey,
       epochNumber,
-      aiSeq,
-      anchorMessageId
-    );
+      aiSequence: aiSeq,
+      parentMessageId: anchorMessageId,
+    });
     const { cost, usageRecordId } = await insertChargeAndFinalizeFork(txDb, chargeParams);
 
     return {
@@ -222,22 +215,11 @@ export async function saveRegeneratedResponse(
 // saveEditedChatTurn
 // ============================================================================
 
-export interface SaveEditedChatTurnParams {
-  conversationId: string;
-  userId: string;
+export interface SaveEditedChatTurnParams extends SharedBillingParams {
   senderId: string;
   targetMessageId: string;
   newUserMessageId: string;
   newUserContent: string;
-  assistantMessageId: string;
-  assistantContent: string;
-  model: string;
-  totalCost: number;
-  inputTokens: number;
-  outputTokens: number;
-  cachedTokens?: number;
-  groupBillingContext?: { memberId: string };
-  forkId?: string;
   forkTipMessageId?: string;
 }
 
@@ -322,13 +304,13 @@ export async function saveEditedChatTurn(
       parentMessageId: targetParentId ?? null,
     });
 
-    const chargeParams = buildChargeParams(
+    const chargeParams = buildChargeParams({
       params,
       epochPublicKey,
       epochNumber,
-      aiSeq,
-      newUserMessageId
-    );
+      aiSequence: aiSeq,
+      parentMessageId: newUserMessageId,
+    });
     const { cost, usageRecordId } = await insertChargeAndFinalizeFork(txDb, chargeParams);
 
     return {

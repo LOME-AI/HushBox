@@ -6,7 +6,7 @@ import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { CheckboxField } from '@/components/shared/checkbox-field';
 import { IdentifierInput } from '@/components/auth/identifier-input';
 import { AuthButton } from '@/components/auth/AuthButton';
-import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
+import { PasswordField, ConfirmPasswordField } from '@/components/auth/password-field';
 import { TwoFactorInput } from '@/components/auth/TwoFactorInput';
 import { AuthFeatureList } from '@/components/auth/auth-feature-list';
 import { AuthShakeError } from '@/components/auth/auth-shake-error';
@@ -23,6 +23,35 @@ export const Route = createFileRoute('/_auth/login')({
 });
 
 type Mode = 'login' | 'recovery-phrase' | 'recovery-new-password' | 'recovery-success';
+
+interface IdentifierFieldProps {
+  identifier: string;
+  setIdentifier: (value: string) => void;
+  touched: boolean;
+  markTouched: () => void;
+}
+
+function IdentifierField({
+  identifier,
+  setIdentifier,
+  touched,
+  markTouched,
+}: Readonly<IdentifierFieldProps>): React.JSX.Element {
+  const validation = touched ? validateIdentifier(identifier) : { isValid: false };
+  return (
+    <IdentifierInput
+      id="identifier"
+      value={identifier}
+      onChange={(e) => {
+        setIdentifier(e.target.value);
+        if (!touched) markTouched();
+      }}
+      aria-invalid={!!validation.error}
+      error={validation.error}
+      success={validation.success}
+    />
+  );
+}
 
 interface RecoveryPhraseFormProps {
   identifier: string;
@@ -45,9 +74,6 @@ function RecoveryPhraseForm({
   const formRef = useRef<HTMLFormElement>(null);
   useFormEnterNav(formRef);
 
-  const identifierValidation = touched.identifier
-    ? validateIdentifier(identifier)
-    : { isValid: false };
   const phraseValidation = touched.recoveryPhrase
     ? validateRecoveryPhrase(recoveryPhrase)
     : { isValid: false };
@@ -83,16 +109,13 @@ function RecoveryPhraseForm({
         className="space-y-2"
         noValidate
       >
-        <IdentifierInput
-          id="identifier"
-          value={identifier}
-          onChange={(e) => {
-            setIdentifier(e.target.value);
-            if (!touched.identifier) setTouched((t) => ({ ...t, identifier: true }));
+        <IdentifierField
+          identifier={identifier}
+          setIdentifier={setIdentifier}
+          touched={touched.identifier}
+          markTouched={() => {
+            setTouched((t) => ({ ...t, identifier: true }));
           }}
-          aria-invalid={!!identifierValidation.error}
-          error={identifierValidation.error}
-          success={identifierValidation.success}
         />
 
         <div>
@@ -177,13 +200,6 @@ function RecoveryNewPasswordForm({
   const formRef = useRef<HTMLFormElement>(null);
   useFormEnterNav(formRef);
 
-  const passwordValidation = touched.newPassword
-    ? validatePassword(newPassword)
-    : { isValid: false };
-  const confirmPasswordValidation = touched.confirmPassword
-    ? validateConfirmPassword(newPassword, confirmPassword)
-    : { isValid: false };
-
   async function handleSubmit(): Promise<void> {
     setTouched({ newPassword: true, confirmPassword: true });
 
@@ -213,31 +229,28 @@ function RecoveryNewPasswordForm({
         className="space-y-2"
         noValidate
       >
-        <AuthPasswordInput
+        <PasswordField
           id="new-password"
           label="New Password"
-          value={newPassword}
-          onChange={(e) => {
-            setNewPassword(e.target.value);
-            if (!touched.newPassword) setTouched((t) => ({ ...t, newPassword: true }));
+          password={newPassword}
+          setPassword={setNewPassword}
+          touched={touched.newPassword}
+          markTouched={() => {
+            setTouched((t) => ({ ...t, newPassword: true }));
           }}
-          aria-invalid={!!passwordValidation.error}
-          error={passwordValidation.error}
-          success={passwordValidation.success}
           showStrength
         />
 
-        <AuthPasswordInput
+        <ConfirmPasswordField
           id="confirm-password"
           label="Confirm Password"
-          value={confirmPassword}
-          onChange={(e) => {
-            setConfirmPassword(e.target.value);
-            if (!touched.confirmPassword) setTouched((t) => ({ ...t, confirmPassword: true }));
+          newPassword={newPassword}
+          confirmPassword={confirmPassword}
+          setConfirmPassword={setConfirmPassword}
+          touched={touched.confirmPassword}
+          markTouched={() => {
+            setTouched((t) => ({ ...t, confirmPassword: true }));
           }}
-          aria-invalid={!!confirmPasswordValidation.error}
-          error={confirmPasswordValidation.error}
-          success={confirmPasswordValidation.success}
         />
 
         <AuthShakeError error={error} errorKey={errorKey} />
@@ -312,11 +325,6 @@ export function LoginPage(): React.JSX.Element {
   >(null);
   const loginFormRef = useRef<HTMLFormElement>(null);
   useFormEnterNav(loginFormRef);
-
-  const identifierValidation = touched.identifier
-    ? validateIdentifier(identifier)
-    : { isValid: false };
-  const passwordValidation = touched.password ? validatePassword(password) : { isValid: false };
 
   function handleRecoveryPhraseNext(): void {
     setMode('recovery-new-password');
@@ -438,29 +446,24 @@ export function LoginPage(): React.JSX.Element {
         className="space-y-2"
         noValidate
       >
-        <IdentifierInput
-          id="identifier"
-          value={identifier}
-          onChange={(e) => {
-            setIdentifier(e.target.value);
-            if (!touched.identifier) setTouched((t) => ({ ...t, identifier: true }));
+        <IdentifierField
+          identifier={identifier}
+          setIdentifier={setIdentifier}
+          touched={touched.identifier}
+          markTouched={() => {
+            setTouched((t) => ({ ...t, identifier: true }));
           }}
-          aria-invalid={!!identifierValidation.error}
-          error={identifierValidation.error}
-          success={identifierValidation.success}
         />
 
-        <AuthPasswordInput
+        <PasswordField
           id="password"
           label="Password"
-          value={password}
-          onChange={(e) => {
-            setPassword(e.target.value);
-            if (!touched.password) setTouched((t) => ({ ...t, password: true }));
+          password={password}
+          setPassword={setPassword}
+          touched={touched.password}
+          markTouched={() => {
+            setTouched((t) => ({ ...t, password: true }));
           }}
-          aria-invalid={!!passwordValidation.error}
-          error={passwordValidation.error}
-          success={passwordValidation.success}
         />
 
         <div className="flex items-center justify-between">

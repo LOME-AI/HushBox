@@ -321,7 +321,7 @@ describe('fork routes', () => {
         .from(conversationForks)
         .where(eq(conversationForks.conversationId, convId));
 
-      const existingForkId = forks.find((f) => f.id !== undefined)?.id;
+      const existingForkId = forks[0]?.id;
       if (!existingForkId) throw new Error('Expected fork to exist from previous test');
 
       const res = await app.request(`/forks/${convId}`, {

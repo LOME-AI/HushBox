@@ -1256,7 +1256,9 @@ describe('saveChatTurn', () => {
           )
         );
       expect(completions).toHaveLength(2);
-      const completionModels = completions.map((c) => c.model).sort();
+      const completionModels = completions
+        .map((c) => c.model)
+        .toSorted((a, b) => a.localeCompare(b));
       expect(completionModels).toEqual(['anthropic/claude-3.5-sonnet', 'openai/gpt-4o']);
     });
 

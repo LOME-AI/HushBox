@@ -159,7 +159,7 @@ describe('resolveMessageActions', () => {
       expect(actions.has('share')).toBe(true);
     });
 
-    it('shows copy, retry, edit, fork on own user message', () => {
+    it('shows copy, retry, edit on own user message', () => {
       const actions = resolveMessageActions(
         soloCtx,
         makeMsgContext({ message: { role: 'user', senderId: 'user-1' } })
@@ -168,7 +168,7 @@ describe('resolveMessageActions', () => {
       expect(actions.has('copy')).toBe(true);
       expect(actions.has('retry')).toBe(true);
       expect(actions.has('edit')).toBe(true);
-      expect(actions.has('fork')).toBe(true);
+      expect(actions.has('fork')).toBe(false);
     });
 
     it('does not show regenerate on user message', () => {
@@ -243,7 +243,7 @@ describe('resolveMessageActions', () => {
       expect(actions.has('retry')).toBe(false);
       expect(actions.has('edit')).toBe(false);
       expect(actions.has('copy')).toBe(true);
-      expect(actions.has('fork')).toBe(true);
+      expect(actions.has('fork')).toBe(false);
     });
   });
 
@@ -266,16 +266,16 @@ describe('resolveMessageActions', () => {
       expect(actions.has('copy')).toBe(true);
       expect(actions.has('retry')).toBe(true);
       expect(actions.has('edit')).toBe(true);
-      expect(actions.has('fork')).toBe(true);
+      expect(actions.has('fork')).toBe(false);
     });
 
-    it('shows only copy and fork on other user message', () => {
+    it('shows only copy on other user message', () => {
       const actions = resolveMessageActions(
         groupWriteCtx,
         makeMsgContext({ message: { role: 'user', senderId: 'user-2' } })
       );
 
-      expect(actionsArray(actions)).toEqual(['copy', 'fork']);
+      expect(actionsArray(actions)).toEqual(['copy']);
     });
 
     it('shows full AI actions including share', () => {
@@ -395,16 +395,16 @@ describe('resolveMessageActions', () => {
       expect(actionsArray(actions)).toEqual(['copy', 'regenerate']);
     });
 
-    it('shows copy and retry on user message', () => {
+    it('shows copy, edit, and retry on user message', () => {
       const actions = resolveMessageActions(
         trialCtx,
         makeMsgContext({ message: { role: 'user' } })
       );
 
-      expect(actionsArray(actions)).toEqual(['copy', 'retry']);
+      expect(actionsArray(actions)).toEqual(['copy', 'edit', 'retry']);
     });
 
-    it('does not show edit, fork, or share', () => {
+    it('does not show fork or share', () => {
       const aiActions = resolveMessageActions(
         trialCtx,
         makeMsgContext({ message: { role: 'assistant' } })
@@ -416,7 +416,7 @@ describe('resolveMessageActions', () => {
 
       expect(aiActions.has('fork')).toBe(false);
       expect(aiActions.has('share')).toBe(false);
-      expect(userActions.has('edit')).toBe(false);
+      expect(aiActions.has('edit')).toBe(false);
       expect(userActions.has('fork')).toBe(false);
     });
 
@@ -462,7 +462,7 @@ describe('resolveMessageActions', () => {
       expect(actions.has('share')).toBe(false);
     });
 
-    it('shows copy, retry, edit, fork on own user message', () => {
+    it('shows copy, retry, edit on own user message (no fork)', () => {
       const actions = resolveMessageActions(
         linkWriteCtx,
         makeMsgContext({ message: { role: 'user', senderId: 'guest-1' } })
@@ -471,7 +471,7 @@ describe('resolveMessageActions', () => {
       expect(actions.has('copy')).toBe(true);
       expect(actions.has('retry')).toBe(true);
       expect(actions.has('edit')).toBe(true);
-      expect(actions.has('fork')).toBe(true);
+      expect(actions.has('fork')).toBe(false);
     });
 
     it('shows retry-error on error AI message', () => {
@@ -576,7 +576,7 @@ describe('resolveMessageActions', () => {
 
       expect(actions.has('retry')).toBe(false);
       expect(actions.has('edit')).toBe(false);
-      expect(actions.has('fork')).toBe(true);
+      expect(actions.has('fork')).toBe(false);
     });
   });
 });

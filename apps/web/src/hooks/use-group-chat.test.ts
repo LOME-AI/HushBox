@@ -171,6 +171,7 @@ describe('useGroupChat', () => {
   });
 
   it('returns undefined when callerId is undefined', () => {
+    // eslint-disable-next-line unicorn/no-useless-undefined -- callerId is a required positional argument
     const { result } = renderHook(() => useGroupChat('conv-1', undefined));
 
     expect(result.current).toBeUndefined();

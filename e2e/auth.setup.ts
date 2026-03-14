@@ -25,6 +25,24 @@ setup.beforeAll(() => {
   }
 });
 
+/** Verify session persisted in Redis, save storage state, and close context. */
+async function verifyAndPersistSession(
+  context: import('@playwright/test').BrowserContext,
+  page: import('@playwright/test').Page,
+  personaName: string,
+  outputPath: string
+): Promise<void> {
+  const verifyResponse = await page.request.get('/api/conversations');
+  if (verifyResponse.status() === 401) {
+    throw new Error(
+      `Session verification failed for ${personaName}: session not persisted in Redis`
+    );
+  }
+
+  await context.storageState({ path: outputPath });
+  await context.close();
+}
+
 // Standard personas: fast login via persona card
 for (const persona of standardPersonas) {
   setup(`authenticate ${persona.name}`, async ({ browser }) => {
@@ -35,16 +53,7 @@ for (const persona of standardPersonas) {
     await page.locator(`[data-testid="persona-card-${persona.name}"]`).click();
     await page.waitForURL('/chat', { timeout: 30_000 });
 
-    // Verify session persisted in Redis (catches silent SRH proxy failures)
-    const verifyResponse = await page.request.get('/api/conversations');
-    if (verifyResponse.status() === 401) {
-      throw new Error(
-        `Session verification failed for ${persona.name}: session not persisted in Redis`
-      );
-    }
-
-    await context.storageState({ path: path.join(authDir, `${persona.name}.json`) });
-    await context.close();
+    await verifyAndPersistSession(context, page, persona.name, path.join(authDir, `${persona.name}.json`));
   });
 }
 
@@ -75,15 +84,6 @@ for (const persona of twoFactorPersonas) {
 
     await page.waitForURL('/chat', { timeout: 30_000 });
 
-    // Verify session persisted in Redis (catches silent SRH proxy failures)
-    const verifyResponse = await page.request.get('/api/conversations');
-    if (verifyResponse.status() === 401) {
-      throw new Error(
-        `Session verification failed for ${persona.name}: session not persisted in Redis`
-      );
-    }
-
-    await context.storageState({ path: path.join(authDir, `${persona.name}.json`) });
-    await context.close();
+    await verifyAndPersistSession(context, page, persona.name, path.join(authDir, `${persona.name}.json`));
   });
 }

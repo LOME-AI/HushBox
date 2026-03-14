@@ -67,11 +67,15 @@ function createTestApp(options: TestAppOptions = {}): Hono<AppEnv> {
   return app;
 }
 
-function createMockDbForUpdate(): { update: ReturnType<typeof vi.fn> } {
-  const where = vi.fn().mockResolvedValue();
+function createMockDbForUpdate(): {
+  update: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
+} {
+  // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
+  const where = vi.fn().mockResolvedValue(undefined);
   const set = vi.fn().mockReturnValue({ where });
   const update = vi.fn().mockReturnValue({ set });
-  return { update };
+  return { update, set };
 }
 
 describe('users route', () => {
@@ -256,7 +260,7 @@ describe('users route', () => {
         body: JSON.stringify({ customInstructionsEncrypted: blob }),
       });
 
-      const setCall = mockDb.update().set as ReturnType<typeof vi.fn>;
+      const setCall = mockDb.set;
       expect(setCall).toHaveBeenCalledWith({
         customInstructionsEncrypted: expect.any(Uint8Array),
       });
@@ -272,7 +276,7 @@ describe('users route', () => {
         body: JSON.stringify({ customInstructionsEncrypted: null }),
       });
 
-      const setCall = mockDb.update().set as ReturnType<typeof vi.fn>;
+      const setCall = mockDb.set;
       expect(setCall).toHaveBeenCalledWith({
         customInstructionsEncrypted: null,
       });

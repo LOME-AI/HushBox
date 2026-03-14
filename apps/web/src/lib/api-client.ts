@@ -8,7 +8,10 @@ import { getPlatform } from '@/capacitor/platform.js';
 const customFetch: typeof fetch = (input, init) => {
   const headers = new Headers(init?.headers);
   headers.set('X-HushBox-Platform', getPlatform());
-  headers.set('X-App-Version', (import.meta.env['VITE_APP_VERSION'] as string | undefined) ?? 'dev-local');
+  headers.set(
+    'X-App-Version',
+    (import.meta.env['VITE_APP_VERSION'] as string | undefined) ?? 'dev-local'
+  );
 
   const linkKey = getLinkGuestAuth();
   if (linkKey) {

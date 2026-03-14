@@ -39,7 +39,8 @@ export async function saveUserOnlyMessage(
       conversationId,
       1
     );
-    const seq = sequences[0]!;
+    const seq = sequences[0];
+    if (seq === undefined) throw new Error('invariant: expected at least one sequence number');
 
     const { epochPublicKey, epochNumber } = await fetchEpochPublicKey(
       tx as unknown as Database,
@@ -182,7 +183,8 @@ export async function saveChatTurn(
       conversationId,
       1 + assistantMsgs.length
     );
-    const userSeq = sequences[0]!;
+    const userSeq = sequences[0];
+    if (userSeq === undefined) throw new Error('invariant: expected at least one sequence number');
 
     const { epochPublicKey, epochNumber } = await fetchEpochPublicKey(
       tx as unknown as Database,
@@ -206,7 +208,9 @@ export async function saveChatTurn(
 
     for (const [index, assistantMsg] of assistantMsgs.entries()) {
       const msg = assistantMsg;
-      const aiSeq = sequences[1 + index]!;
+      const aiSeq = sequences[1 + index];
+      if (aiSeq === undefined)
+        throw new Error(`invariant: expected sequence number at index ${String(1 + index)}`);
       const costAmount = msg.cost.toFixed(8);
 
       await insertEncryptedMessage(tx as unknown as Database, {
@@ -239,11 +243,14 @@ export async function saveChatTurn(
     }
 
     if (forkId) {
-      const lastAssistantId = assistantMsgs.at(-1)!.id;
+      const lastAssistant = assistantMsgs.at(-1);
+      if (!lastAssistant) throw new Error('invariant: assistantMsgs must not be empty');
+      const lastAssistantId = lastAssistant.id;
       await updateForkTip(tx as unknown as Database, forkId, lastAssistantId);
     }
 
-    const firstResult = assistantResults[0]!;
+    const firstResult = assistantResults[0];
+    if (!firstResult) throw new Error('invariant: assistantResults must not be empty');
 
     return {
       userSequence: userSeq,

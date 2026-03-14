@@ -23,7 +23,7 @@ export default defineConfig({
   use: {
     baseURL: viteUrl,
     trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
+    screenshot: isCI ? 'only-on-failure' : 'on',
     video: 'retain-on-failure',
   },
   webServer: [

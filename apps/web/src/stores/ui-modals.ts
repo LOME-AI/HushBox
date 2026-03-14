@@ -13,6 +13,7 @@ interface UIModalsState {
   inviteLinkModalOpen: boolean;
   shareMessageModalOpen: boolean;
   shareMessageId: string | null;
+  multiModelModalOpen: boolean;
 
   openSignupModal: (modelName?: string) => void;
   closeSignupModal: () => void;
@@ -43,6 +44,8 @@ interface UIModalsState {
 
   openShareMessageModal: (messageId: string) => void;
   closeShareMessageModal: () => void;
+
+  setMultiModelModalOpen: (open: boolean) => void;
 }
 
 export const useUIModalsStore = create<UIModalsState>()(
@@ -59,6 +62,7 @@ export const useUIModalsStore = create<UIModalsState>()(
       inviteLinkModalOpen: false,
       shareMessageModalOpen: false,
       shareMessageId: null,
+      multiModelModalOpen: false,
 
       openSignupModal: (modelName) => {
         set({ signupModalOpen: true, premiumModelName: modelName });
@@ -155,6 +159,10 @@ export const useUIModalsStore = create<UIModalsState>()(
 
       closeShareMessageModal: () => {
         set({ shareMessageModalOpen: false, shareMessageId: null });
+      },
+
+      setMultiModelModalOpen: (open) => {
+        set({ multiModelModalOpen: open });
       },
     }),
     {

@@ -101,9 +101,10 @@ function processSSELines(lines: string[]): SSELinesResult {
   return { contents, streamDone: false };
 }
 
-async function* parseSSEStream(
+/** Read from an SSE stream, buffering partial lines, and yield complete line batches. */
+async function* readSSELineChunks(
   reader: ReadableStreamDefaultReader<Uint8Array>
-): AsyncIterable<string> {
+): AsyncGenerator<string[]> {
   const decoder = new TextDecoder();
   let buffer = '';
 
@@ -116,6 +117,14 @@ async function* parseSSEStream(
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
 
+    yield lines;
+  }
+}
+
+async function* parseSSEStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>
+): AsyncIterable<string> {
+  for await (const lines of readSSELineChunks(reader)) {
     const { contents, streamDone } = processSSELines(lines);
     for (const content of contents) {
       yield content;
@@ -200,19 +209,9 @@ function processSSELinesWithState(lines: string[], state: SSELineState): SSELine
 async function* parseSSEStreamWithMetadata(
   reader: ReadableStreamDefaultReader<Uint8Array>
 ): AsyncIterable<StreamToken> {
-  const decoder = new TextDecoder();
-  let buffer = '';
   let state: SSELineState = { generationId: undefined, isFirstTokenWithId: true };
 
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- standard SSE parsing loop
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-
+  for await (const lines of readSSELineChunks(reader)) {
     const result = processSSELinesWithState(lines, state);
     state = result.state;
     for (const token of result.tokens) yield token;

@@ -173,14 +173,19 @@ export function resolveWebSearchCost(
   return parseTokenPrice(modelInfo.pricing.web_search);
 }
 
+export interface BuildOpenRouterRequestOptions {
+  model: string;
+  messages: ChatMessage[];
+  safeMaxTokens: number | undefined;
+  webSearchEnabled: boolean;
+  autoRouterAllowedModels?: string[] | undefined;
+}
+
 /** Build the ChatCompletionRequest for OpenRouter, conditionally adding max_tokens and plugins. */
 export function buildOpenRouterRequest(
-  model: string,
-  messages: ChatMessage[],
-  safeMaxTokens: number | undefined,
-  webSearchEnabled: boolean,
-  autoRouterAllowedModels?: string[]
+  options: BuildOpenRouterRequestOptions
 ): ChatCompletionRequest {
+  const { model, messages, safeMaxTokens, webSearchEnabled, autoRouterAllowedModels } = options;
   const plugins: { id: string; allowed_models?: string[] }[] = [];
 
   if (autoRouterAllowedModels) {
@@ -213,43 +218,38 @@ export function withBroadcast(
       let lastBroadcastTime = Date.now();
       let done = false;
 
+      function flushTokenBuffer(): void {
+        if (tokenBuffer) {
+          void broadcastToRoom(
+            broadcast.env,
+            broadcast.conversationId,
+            createEvent('message:stream', {
+              messageId: broadcast.assistantMessageId,
+              token: tokenBuffer,
+              ...(broadcast.modelName !== undefined && { modelName: broadcast.modelName }),
+            })
+          );
+          tokenBuffer = '';
+        }
+      }
+
       return {
         async next() {
           const result = await iterator.next();
           if (result.done) {
             // Flush remaining buffered tokens on completion
-            if (!done && tokenBuffer) {
-              void broadcastToRoom(
-                broadcast.env,
-                broadcast.conversationId,
-                createEvent('message:stream', {
-                  messageId: broadcast.assistantMessageId,
-                  token: tokenBuffer,
-                  ...(broadcast.modelName !== undefined && { modelName: broadcast.modelName }),
-                })
-              );
-              tokenBuffer = '';
-            }
+            if (!done) flushTokenBuffer();
             done = true;
-            return result;
+            return { done: true as const, value: undefined };
           }
 
           tokenBuffer += result.value.content;
           if (Date.now() - lastBroadcastTime >= BATCH_INTERVAL_MS) {
-            void broadcastToRoom(
-              broadcast.env,
-              broadcast.conversationId,
-              createEvent('message:stream', {
-                messageId: broadcast.assistantMessageId,
-                token: tokenBuffer,
-                ...(broadcast.modelName !== undefined && { modelName: broadcast.modelName }),
-              })
-            );
-            tokenBuffer = '';
+            flushTokenBuffer();
             lastBroadcastTime = Date.now();
           }
 
-          return result;
+          return { done: false as const, value: result.value };
         },
       };
     },
@@ -384,12 +384,15 @@ export async function resolveAndReserveBilling(
   const allPricing = models.map((m) => lookupModelPricing(openrouterModels, m));
 
   // 1b. Resolve web search cost — sum across all models that support it
-  const webSearchCostDollars = input.webSearchEnabled
-    ? models.reduce((sum, m) => {
-        const info = openrouterModels.find((om) => om.id === m);
-        return sum + (info?.pricing.web_search ? parseTokenPrice(info.pricing.web_search) : 0);
-      }, 0)
-    : 0;
+  let webSearchCostDollars = 0;
+  if (input.webSearchEnabled) {
+    for (const m of models) {
+      const info = openrouterModels.find((om) => om.id === m);
+      if (info?.pricing.web_search) {
+        webSearchCostDollars += parseTokenPrice(info.pricing.web_search);
+      }
+    }
+  }
 
   // 2. Character count for budget computation
   const systemPromptForBudget = buildSystemPrompt([], input.customInstructions);
@@ -444,10 +447,12 @@ export async function resolveAndReserveBilling(
     }
 
     // Override pricing with worst-case (most expensive allowed model)
+    const existingPricing = allPricing[0];
+    if (!existingPricing) throw new Error('invariant: allPricing must have at least one entry');
     allPricing[0] = {
       inputPricePerToken: Math.max(...allowed.map((m) => m.inputPrice)),
       outputPricePerToken: Math.max(...allowed.map((m) => m.outputPrice)),
-      contextLength: allPricing[0]!.contextLength,
+      contextLength: existingPricing.contextLength,
     };
     autoRouterAllowedModels = allowed.map((m) => m.id);
   }
@@ -624,6 +629,86 @@ export interface StreamPipelineInput {
   parentMessageId: string | null;
 }
 
+/** Writes the first stream error to the SSE writer when all models fail. */
+async function writeFirstStreamError(
+  multiResults: Map<string, StreamResult>,
+  writer: SSEEventWriter
+): Promise<void> {
+  const firstError = [...multiResults.values()].find((r) => r.error !== null)?.error;
+  if (firstError) {
+    const code =
+      firstError instanceof ContextCapacityError
+        ? ERROR_CODE_CONTEXT_LENGTH_EXCEEDED
+        : ERROR_CODE_STREAM_ERROR;
+    await writer.writeError({ message: firstError.message, code });
+  } else {
+    await writer.writeError({
+      message: 'No content generated',
+      code: ERROR_CODE_STREAM_ERROR,
+    });
+  }
+}
+
+interface BuildAssistantMessagesOptions {
+  successfulModels: [string, StreamResult][];
+  getAssistantId: (modelId: string) => string;
+  openrouterModels: Awaited<ReturnType<typeof fetchModels>>;
+  openrouter: {
+    chatCompletionStreamWithMetadata: unknown;
+    isMock: boolean;
+    getGenerationStats: (generationId: string) => Promise<{ total_cost: number }>;
+  };
+  lastInferenceMessage: { content: string } | undefined;
+  webSearchEnabled: boolean;
+}
+
+/** Builds the assistant message array from successful model results for persistence. */
+async function buildAssistantMessages(options: BuildAssistantMessagesOptions): Promise<
+  {
+    id: string;
+    content: string;
+    model: string;
+    cost: number;
+    inputTokens: number;
+    outputTokens: number;
+  }[]
+> {
+  const {
+    successfulModels,
+    getAssistantId,
+    openrouterModels,
+    openrouter,
+    lastInferenceMessage,
+    webSearchEnabled,
+  } = options;
+  return Promise.all(
+    successfulModels.map(async ([modelId, result]) => {
+      const assistantMessageId = getAssistantId(modelId);
+      const modelInfo = openrouterModels.find((m) => m.id === modelId);
+      const totalCost = await calculateMessageCost({
+        openrouter: {
+          isMock: openrouter.isMock,
+          getGenerationStats: openrouter.getGenerationStats,
+        },
+        modelInfo,
+        generationId: result.generationId,
+        inputContent: lastInferenceMessage?.content ?? '',
+        outputContent: result.fullContent,
+        webSearchCost: resolveWebSearchCost(webSearchEnabled, modelId, openrouterModels),
+      });
+
+      return {
+        id: assistantMessageId,
+        content: result.fullContent,
+        model: modelId,
+        cost: totalCost,
+        inputTokens: estimateTokenCount(lastInferenceMessage?.content ?? ''),
+        outputTokens: estimateTokenCount(result.fullContent),
+      };
+    })
+  );
+}
+
 /**
  * Execute the full SSE streaming pipeline: generate IDs, build prompt,
  * broadcast user message, stream AI responses, calculate costs, persist,
@@ -647,7 +732,8 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
     parentMessageId,
   } = input;
   const { safeMaxTokens, openrouterModels, billingUserId } = billingValidation;
-  const model = models[0]!;
+  const model = models[0];
+  if (!model) throw new Error('invariant: models must have at least one entry');
   const db = c.get('db');
   const openrouter = c.get('openrouter');
 
@@ -655,6 +741,12 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
   const modelAssistantIds = new Map<string, string>();
   for (const m of models) {
     modelAssistantIds.set(m, crypto.randomUUID());
+  }
+
+  function getAssistantId(modelId: string): string {
+    const id = modelAssistantIds.get(modelId);
+    if (!id) throw new Error(`invariant: no assistantMessageId for model ${modelId}`);
+    return id;
   }
 
   const { systemPrompt } = buildPrompt({
@@ -682,14 +774,14 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
 
   // Build one stream entry per model, wrapping each with broadcast for group chat
   const streamEntries: ModelStreamEntry[] = models.map((modelId) => {
-    const assistantMsgId = modelAssistantIds.get(modelId)!;
-    const openRouterRequest = buildOpenRouterRequest(
-      modelId,
-      openRouterMessages,
+    const assistantMsgId = getAssistantId(modelId);
+    const openRouterRequest = buildOpenRouterRequest({
+      model: modelId,
+      messages: openRouterMessages,
       safeMaxTokens,
       webSearchEnabled,
-      billingValidation.autoRouterAllowedModels
-    );
+      autoRouterAllowedModels: billingValidation.autoRouterAllowedModels,
+    });
     const rawStream = openrouter.chatCompletionStreamWithMetadata(openRouterRequest);
     return {
       modelId,
@@ -710,7 +802,7 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
         userMessageId: userMessage.id,
         models: models.map((modelId) => ({
           modelId,
-          assistantMessageId: modelAssistantIds.get(modelId)!,
+          assistantMessageId: getAssistantId(modelId),
         })),
       });
 
@@ -722,47 +814,19 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
       );
 
       if (successfulModels.length === 0) {
-        // Find first error for reporting
-        const firstError = [...multiResults.values()].find((r) => r.error !== null)?.error;
-        if (firstError) {
-          const code =
-            firstError instanceof ContextCapacityError
-              ? ERROR_CODE_CONTEXT_LENGTH_EXCEEDED
-              : ERROR_CODE_STREAM_ERROR;
-          await writer.writeError({ message: firstError.message, code });
-        } else {
-          await writer.writeError({
-            message: 'No content generated',
-            code: ERROR_CODE_STREAM_ERROR,
-          });
-        }
+        await writeFirstStreamError(multiResults, writer);
         return;
       }
 
       // Build assistant messages array from successful models
-      const assistantMessages = await Promise.all(
-        successfulModels.map(async ([modelId, result]) => {
-          const assistantMessageId = modelAssistantIds.get(modelId)!;
-          const modelInfo = openrouterModels.find((m) => m.id === modelId);
-          const totalCost = await calculateMessageCost({
-            openrouter,
-            modelInfo,
-            generationId: result.generationId,
-            inputContent: lastInferenceMessage?.content ?? '',
-            outputContent: result.fullContent,
-            webSearchCost: resolveWebSearchCost(webSearchEnabled, modelId, openrouterModels),
-          });
-
-          return {
-            id: assistantMessageId,
-            content: result.fullContent,
-            model: modelId,
-            cost: totalCost,
-            inputTokens: estimateTokenCount(lastInferenceMessage?.content ?? ''),
-            outputTokens: estimateTokenCount(result.fullContent),
-          };
-        })
-      );
+      const assistantMessages = await buildAssistantMessages({
+        successfulModels,
+        getAssistantId,
+        openrouterModels,
+        openrouter,
+        lastInferenceMessage,
+        webSearchEnabled,
+      });
 
       const billingPromise = saveChatTurn(db, {
         userMessageId: userMessage.id,
@@ -779,11 +843,11 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
         ...(forkId !== undefined && { forkId }),
       });
 
-      const primaryModel = models[0]!;
+      const primaryModel = model; // models[0] — already validated above
       const billingResult = await handleBillingResult({
         c,
         billingPromise,
-        assistantMessageId: modelAssistantIds.get(primaryModel)!,
+        assistantMessageId: getAssistantId(primaryModel),
         userId: billingUserId,
         model: primaryModel,
         generationId: multiResults.get(primaryModel)?.generationId,
@@ -794,7 +858,7 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
           c,
           conversationId,
           userMessageId: userMessage.id,
-          assistantMessageId: modelAssistantIds.get(primaryModel)!,
+          assistantMessageId: getAssistantId(primaryModel),
           billingResult,
           writer,
           modelName: primaryModel,
@@ -807,7 +871,7 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
             c.env,
             conversationId,
             createEvent('message:complete', {
-              messageId: modelAssistantIds.get(modelId)!,
+              messageId: getAssistantId(modelId),
               conversationId,
               sequenceNumber: billingResult.aiSequence,
               epochNumber: billingResult.epochNumber,

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { processStartEvent } from './multi-model-stream';
 import type { StartEventData } from './sse-client';
-import type { SelectedModelEntry } from '@/stores/model';
 
 vi.mock('./chat-messages', () => ({
   createAssistantMessage: (
@@ -29,12 +28,8 @@ describe('processStartEvent', () => {
         { modelId: 'claude-3', assistantMessageId: 'ast-2' },
       ],
     };
-    const selectedModels: SelectedModelEntry[] = [
-      { id: 'gpt-4', name: 'GPT-4' },
-      { id: 'claude-3', name: 'Claude 3' },
-    ];
 
-    const result = processStartEvent(data, 'conv-1', selectedModels, 'user-1');
+    const result = processStartEvent(data, 'conv-1', 'user-1');
 
     expect(result.modelMap.get('gpt-4')).toBe('ast-1');
     expect(result.modelMap.get('claude-3')).toBe('ast-2');
@@ -49,19 +44,25 @@ describe('processStartEvent', () => {
         { modelId: 'claude-3', assistantMessageId: 'ast-2' },
       ],
     };
-    const selectedModels: SelectedModelEntry[] = [
-      { id: 'gpt-4', name: 'GPT-4' },
-      { id: 'claude-3', name: 'Claude 3' },
-    ];
 
-    const result = processStartEvent(data, 'conv-1', selectedModels, 'user-1');
+    const result = processStartEvent(data, 'conv-1', 'user-1');
 
     expect(result.messages).toHaveLength(2);
     expect(result.messages[0]).toEqual(
-      expect.objectContaining({ id: 'ast-1', conversationId: 'conv-1', modelName: 'gpt-4', parentMessageId: 'user-1' })
+      expect.objectContaining({
+        id: 'ast-1',
+        conversationId: 'conv-1',
+        modelName: 'gpt-4',
+        parentMessageId: 'user-1',
+      })
     );
     expect(result.messages[1]).toEqual(
-      expect.objectContaining({ id: 'ast-2', conversationId: 'conv-1', modelName: 'claude-3', parentMessageId: 'user-1' })
+      expect.objectContaining({
+        id: 'ast-2',
+        conversationId: 'conv-1',
+        modelName: 'claude-3',
+        parentMessageId: 'user-1',
+      })
     );
   });
 
@@ -74,7 +75,7 @@ describe('processStartEvent', () => {
       ],
     };
 
-    const result = processStartEvent(data, 'conv-1', [], 'user-1');
+    const result = processStartEvent(data, 'conv-1', 'user-1');
 
     expect(result.assistantMessageIds).toEqual(['ast-1', 'ast-2']);
   });
@@ -85,7 +86,7 @@ describe('processStartEvent', () => {
       models: [],
     };
 
-    const result = processStartEvent(data, 'conv-1', [], 'user-1');
+    const result = processStartEvent(data, 'conv-1', 'user-1');
 
     expect(result.assistantMessageIds).toEqual([]);
     expect(result.messages).toEqual([]);
@@ -97,12 +98,16 @@ describe('processStartEvent', () => {
       userMessageId: 'user-1',
       models: [{ modelId: 'unknown-model', assistantMessageId: 'ast-1' }],
     };
-    const selectedModels: SelectedModelEntry[] = [{ id: 'gpt-4', name: 'GPT-4' }];
 
-    const result = processStartEvent(data, 'conv-1', selectedModels, 'user-1');
+    const result = processStartEvent(data, 'conv-1', 'user-1');
 
     expect(result.messages[0]).toEqual(
-      expect.objectContaining({ id: 'ast-1', conversationId: 'conv-1', modelName: 'unknown-model', parentMessageId: 'user-1' })
+      expect.objectContaining({
+        id: 'ast-1',
+        conversationId: 'conv-1',
+        modelName: 'unknown-model',
+        parentMessageId: 'user-1',
+      })
     );
   });
 
@@ -111,9 +116,8 @@ describe('processStartEvent', () => {
       userMessageId: 'user-1',
       models: [{ modelId: 'gpt-4', assistantMessageId: 'ast-1' }],
     };
-    const selectedModels: SelectedModelEntry[] = [{ id: 'gpt-4', name: 'GPT-4' }];
 
-    const result = processStartEvent(data, 'conv-1', selectedModels, 'user-1');
+    const result = processStartEvent(data, 'conv-1', 'user-1');
 
     expect(result.modelMap.size).toBe(1);
     expect(result.messages).toHaveLength(1);
@@ -126,7 +130,7 @@ describe('processStartEvent', () => {
       models: [{ modelId: 'gpt-4', assistantMessageId: 'ast-1' }],
     };
 
-    const result = processStartEvent(data, 'conv-1', [], null);
+    const result = processStartEvent(data, 'conv-1', null);
 
     expect(result.messages[0]?.parentMessageId).toBeNull();
   });

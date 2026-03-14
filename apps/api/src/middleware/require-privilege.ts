@@ -1,4 +1,4 @@
-import type { Context, MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler, Next } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { conversationMembers, conversations } from '@hushbox/db';
 import type { Database } from '@hushbox/db';
@@ -42,12 +42,13 @@ async function setConversationOwner(
   c: Context<AppEnv>,
   db: Database,
   conversationId: string
-): Promise<Response | void> {
+): Promise<Response | undefined> {
   const ownerId = await lookupConversationOwner(db, conversationId);
   if (!ownerId) {
     return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
   }
   c.set('conversationOwnerId', ownerId);
+  return undefined;
 }
 
 /**
@@ -58,8 +59,8 @@ async function tryResolveLinkGuest(
   c: Context<AppEnv>,
   minLevel: MemberPrivilege,
   includeOwnerId: boolean,
-  next: () => Promise<void | Response>
-): Promise<Response | void | null> {
+  next: Next
+): Promise<Response | null | undefined> {
   const resolved = await resolveLinkGuest(c);
   if (!resolved) {
     return null;
@@ -77,11 +78,55 @@ async function tryResolveLinkGuest(
 
   if (includeOwnerId) {
     const conversationId = c.req.param('conversationId');
+    if (!conversationId) {
+      return c.json(createErrorResponse(ERROR_CODE_VALIDATION), 400);
+    }
     const errorResponse = await setConversationOwner(c, c.get('db'), conversationId);
     if (errorResponse) return errorResponse;
   }
 
-  return next();
+  // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-condition -- Hono's next() returns void | Response; we must propagate the response
+  return (await next()) ?? undefined;
+}
+
+/** Looks up the active membership row for a user in a conversation. */
+async function lookupMember(
+  db: Database,
+  conversationId: string,
+  userId: string
+): Promise<{ id: string; privilege: string; visibleFromEpoch: number } | undefined> {
+  const rows = await db
+    .select({
+      id: conversationMembers.id,
+      privilege: conversationMembers.privilege,
+      visibleFromEpoch: conversationMembers.visibleFromEpoch,
+    })
+    .from(conversationMembers)
+    .where(
+      and(
+        eq(conversationMembers.conversationId, conversationId),
+        eq(conversationMembers.userId, userId),
+        isNull(conversationMembers.leftAt)
+      )
+    )
+    .limit(1);
+  return rows[0];
+}
+
+interface LinkGuestFallbackOptions {
+  c: Context<AppEnv>;
+  minLevel: MemberPrivilege;
+  includeOwnerId: boolean;
+  allowLinkGuest: boolean;
+  next: Next;
+}
+
+/** Attempts link guest fallback. Returns a response/next result, or null if it fails. */
+async function tryLinkGuestFallback(
+  options: LinkGuestFallbackOptions
+): Promise<Response | null | undefined> {
+  if (!options.allowLinkGuest) return null;
+  return tryResolveLinkGuest(options.c, options.minLevel, options.includeOwnerId, options.next);
 }
 
 /**
@@ -104,12 +149,14 @@ export function requirePrivilege(
     const user = c.get('user');
 
     if (!user) {
-      if (allowLinkGuest) {
-        const result = await tryResolveLinkGuest(c, minLevel, includeOwnerId, next);
-        if (result !== null) return result;
-        return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
-      }
-
+      const fallback = await tryLinkGuestFallback({
+        c,
+        minLevel,
+        includeOwnerId,
+        allowLinkGuest,
+        next,
+      });
+      if (fallback !== null) return fallback;
       return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
     }
 
@@ -119,29 +166,17 @@ export function requirePrivilege(
       return c.json(createErrorResponse(ERROR_CODE_VALIDATION), 400);
     }
 
-    const member = await db
-      .select({
-        id: conversationMembers.id,
-        privilege: conversationMembers.privilege,
-        visibleFromEpoch: conversationMembers.visibleFromEpoch,
-      })
-      .from(conversationMembers)
-      .where(
-        and(
-          eq(conversationMembers.conversationId, conversationId),
-          eq(conversationMembers.userId, user.id),
-          isNull(conversationMembers.leftAt)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0]);
+    const member = await lookupMember(db, conversationId, user.id);
 
     if (!member) {
-      // User is authenticated but not a member — try link guest fallback
-      if (allowLinkGuest) {
-        const result = await tryResolveLinkGuest(c, minLevel, includeOwnerId, next);
-        if (result !== null) return result;
-      }
+      const fallback = await tryLinkGuestFallback({
+        c,
+        minLevel,
+        includeOwnerId,
+        allowLinkGuest,
+        next,
+      });
+      if (fallback !== null) return fallback;
       return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
     }
 
@@ -156,11 +191,26 @@ export function requirePrivilege(
       visibleFromEpoch: member.visibleFromEpoch,
     });
 
-    if (includeOwnerId) {
-      const errorResponse = await setConversationOwner(c, db, conversationId);
-      if (errorResponse) return errorResponse;
-    }
-
-    return next();
+    return finalizeMemberContext({ c, db, conversationId, includeOwnerId, next });
   };
+}
+
+interface FinalizeMemberContextOptions {
+  c: Context<AppEnv>;
+  db: Database;
+  conversationId: string;
+  includeOwnerId: boolean;
+  next: Next;
+}
+
+/** Sets conversation owner if needed, then calls next(). */
+async function finalizeMemberContext(
+  options: FinalizeMemberContextOptions
+): Promise<Response | undefined> {
+  if (options.includeOwnerId) {
+    const errorResponse = await setConversationOwner(options.c, options.db, options.conversationId);
+    if (errorResponse) return errorResponse;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-condition -- Hono's next() returns void | Response; we must propagate the response
+  return (await options.next()) ?? undefined;
 }

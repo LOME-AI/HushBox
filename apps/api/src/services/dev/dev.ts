@@ -298,8 +298,11 @@ export async function createDevGroupChat(
                 null)
               : null;
 
+          const msgId = messageIds[index];
+          if (!msgId) throw new Error(`invariant: messageIds[${String(index)}] is undefined`);
+
           return {
-            id: messageIds[index]!,
+            id: msgId,
             conversationId,
             encryptedBlob: encryptMessageForStorage(epochResult.epochPublicKey, msg.content),
             senderType: msg.senderType,
@@ -307,7 +310,16 @@ export async function createDevGroupChat(
             ...(msg.senderType === 'ai' ? { modelName: 'anthropic/claude-3.5-sonnet' } : {}),
             epochNumber: 1,
             sequenceNumber: index + 1,
-            ...(index > 0 ? { parentMessageId: messageIds[index - 1]! } : {}),
+            ...(index > 0
+              ? {
+                  parentMessageId: (() => {
+                    const parentId = messageIds[index - 1];
+                    if (!parentId)
+                      throw new Error(`invariant: messageIds[${String(index - 1)}] is undefined`);
+                    return parentId;
+                  })(),
+                }
+              : {}),
           };
         })
       );

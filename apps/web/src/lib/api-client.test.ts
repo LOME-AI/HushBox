@@ -12,6 +12,8 @@ class ApiError extends Error {
   }
 }
 
+type FetchCallWithInit = [Request | string | URL, RequestInit | undefined];
+
 vi.mock('./api.js', () => ({
   getApiUrl: () => 'http://localhost:8787',
   ApiError,
@@ -69,7 +71,7 @@ describe('api-client', () => {
     await client.api.health.$get();
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const callArgs = fetchSpy.mock.calls[0] as [Request | string | URL, RequestInit | undefined];
+    const callArgs = fetchSpy.mock.calls[0] as FetchCallWithInit;
     const requestInit = callArgs[1];
     expect(requestInit?.credentials).toBe('omit');
     const headers = new Headers(requestInit?.headers);
@@ -93,7 +95,7 @@ describe('api-client', () => {
     await client.api.health.$get();
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const callArgs = fetchSpy.mock.calls[0] as [Request | string | URL, RequestInit | undefined];
+    const callArgs = fetchSpy.mock.calls[0] as FetchCallWithInit;
     const requestInit = callArgs[1];
     expect(requestInit?.credentials).toBe('include');
   });

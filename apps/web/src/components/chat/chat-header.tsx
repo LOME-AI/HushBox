@@ -6,20 +6,13 @@ import { ModelSelectorButton } from './model-selector-button';
 import { MemberFacepile } from './member-facepile';
 import type { Model } from '@hushbox/shared';
 import type { SelectedModelEntry } from '@/stores/model';
+import type { ModelSelectorGatingProps } from './model-selector-types';
 
-interface ChatHeaderProps {
+interface ChatHeaderProps extends ModelSelectorGatingProps {
   models: Model[];
   selectedModels: SelectedModelEntry[];
   onModelSelect: (models: SelectedModelEntry[]) => void;
   title?: string | undefined;
-  /** Set of premium model IDs */
-  premiumIds?: Set<string> | undefined;
-  /** Whether the user can access premium models (defaults to true) */
-  canAccessPremium?: boolean | undefined;
-  /** Whether the user is authenticated (defaults to true) */
-  isAuthenticated?: boolean | undefined;
-  /** Called when user clicks a premium model they cannot access */
-  onPremiumClick?: ((modelId: string) => void) | undefined;
   /** Members for facepile display (undefined = no group chat features shown) */
   members?: { id: string; username: string }[] | undefined;
   /** Set of online member IDs from WebSocket presence */
@@ -37,6 +30,7 @@ export function ChatHeader({
   canAccessPremium,
   isAuthenticated,
   onPremiumClick,
+  onMultiModelClick,
   members,
   onlineMemberIds,
   onFacepileClick,
@@ -58,6 +52,7 @@ export function ChatHeader({
           canAccessPremium={canAccessPremium}
           isAuthenticated={isAuthenticated}
           onPremiumClick={onPremiumClick}
+          onMultiModelClick={onMultiModelClick}
         />
       }
       right={

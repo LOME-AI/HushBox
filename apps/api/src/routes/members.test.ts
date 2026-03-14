@@ -2248,7 +2248,7 @@ describe('members route', () => {
 
       expect(res.status).toBe(404);
       const body = await res.json<{ code: string }>();
-      expect(body.code).toBe('NOT_FOUND');
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
     it('returns 400 when muted field is missing', async () => {

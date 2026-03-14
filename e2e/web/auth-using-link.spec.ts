@@ -1,6 +1,12 @@
 import { test, expect } from '../fixtures.js';
-import { ChatPage, MemberSidebarPage } from '../pages/index.js';
-import { BudgetHelper } from '../helpers/budget.js';
+import { setupGroupConversationWithSidebar } from '../helpers/group-test-setup.js';
+import { createInviteLink, createWriteLinkWithBudget } from '../helpers/invite-link.js';
+import {
+  expectSharedConversationLoaded,
+  expectNoDecryptionErrors,
+  expectNoSendInput,
+  sendMessageAsGuest,
+} from '../helpers/link-assertions.js';
 
 test.describe('Auth User Using Link', () => {
   test.describe.configure({ mode: 'serial' });
@@ -13,45 +19,24 @@ test.describe('Auth User Using Link', () => {
   }) => {
     test.slow();
 
-    const chatPage = new ChatPage(authenticatedPage);
-    await chatPage.gotoConversation(groupConversation.id);
-    await chatPage.waitForConversationLoaded();
-
-    const sidebar = new MemberSidebarPage(authenticatedPage);
-    await sidebar.openViaFacepile();
-    await sidebar.waitForLoaded();
-
-    const helper = new BudgetHelper(authenticatedRequest);
+    const { sidebar, helper } = await setupGroupConversationWithSidebar(
+      authenticatedPage,
+      authenticatedRequest,
+      groupConversation.id
+    );
 
     let readUrl: string;
     let writeUrl: string;
-    let writeLinkId: string;
 
     await test.step('create read+history link', async () => {
-      await sidebar.clickInviteLink();
-      const modal = authenticatedPage.getByTestId('invite-link-modal');
-      await expect(modal).toBeVisible();
-
-      await authenticatedPage
-        .getByTestId('invite-link-history-checkbox')
-        .getByRole('checkbox')
-        .check();
-
-      await authenticatedPage.getByTestId('invite-link-generate-button').click();
-
-      const urlEl = authenticatedPage.getByTestId('invite-link-url');
-      await expect(urlEl).toBeVisible();
-      readUrl = (await urlEl.textContent()) ?? '';
-
-      await authenticatedPage.locator('[data-slot="modal-overlay-close"]').click();
+      const result = await createInviteLink(authenticatedPage, sidebar, { withHistory: true });
+      readUrl = result.url;
     });
 
     await test.step('Bob opens read link — messages decrypt correctly', async () => {
       await testBobPage.goto(readUrl);
 
-      await expect(testBobPage.getByTestId('shared-conversation-loading')).not.toBeVisible({
-        timeout: 15_000,
-      });
+      await expectSharedConversationLoaded(testBobPage);
 
       // Messages should decrypt without errors (Bug 2 fix: credentials omit)
       await expect(testBobPage.getByText('Hello from Alice').first()).toBeVisible({
@@ -59,77 +44,38 @@ test.describe('Auth User Using Link', () => {
       });
       await expect(testBobPage.getByText('Hi from Bob').first()).toBeVisible();
 
-      // No decryption errors
-      await expect(testBobPage.getByText('[decryption failed')).not.toBeVisible();
-
-      // Read privilege: no send input
-      const sendInput = testBobPage.getByRole('textbox', { name: 'Ask me anything...' });
-      await expect(sendInput).not.toBeVisible();
+      await expectNoDecryptionErrors(testBobPage);
+      await expectNoSendInput(testBobPage, 'Ask me anything...');
     });
 
-    await test.step('create write+history link', async () => {
+    await test.step('create write+history link and setup budgets', async () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      await sidebar.clickInviteLink();
-      const modal = authenticatedPage.getByTestId('invite-link-modal');
-      await expect(modal).toBeVisible();
-
-      await authenticatedPage.getByTestId('invite-link-privilege-select').selectOption('write');
-
-      await authenticatedPage
-        .getByTestId('invite-link-history-checkbox')
-        .getByRole('checkbox')
-        .check();
-
-      await authenticatedPage.getByTestId('invite-link-generate-button').click();
-
-      const urlEl = authenticatedPage.getByTestId('invite-link-url');
-      await expect(urlEl).toBeVisible();
-      writeUrl = (await urlEl.textContent()) ?? '';
-
-      await authenticatedPage.locator('[data-slot="modal-overlay-close"]').click();
-
-      // Capture linkId for budget setup
-      const linkRow = sidebar.content.locator('[data-testid^="link-item-"]').first();
-      await expect(linkRow).toBeVisible({ timeout: 10_000 });
-      const testId = await linkRow.getAttribute('data-testid');
-      writeLinkId = testId!.replace('link-item-', '');
-    });
-
-    await test.step('setup budgets for write link', async () => {
-      await helper.setConversationBudget(groupConversation.id, 1000);
-      const linkMemberId = await helper.findLinkMemberId(groupConversation.id, writeLinkId);
-      await helper.setMemberBudget(groupConversation.id, linkMemberId, 500);
+      const result = await createWriteLinkWithBudget(
+        authenticatedPage,
+        sidebar,
+        helper,
+        groupConversation.id,
+        { withHistory: true }
+      );
+      writeUrl = result.url;
     });
 
     await test.step('Bob opens write link — messages decrypt, can send', async () => {
       await testBobPage.goto(writeUrl);
 
-      await expect(testBobPage.getByTestId('shared-conversation-loading')).not.toBeVisible({
-        timeout: 15_000,
-      });
+      await expectSharedConversationLoaded(testBobPage);
 
       // Messages decrypt correctly
       await expect(testBobPage.getByText('Hello from Alice').first()).toBeVisible({
         timeout: 10_000,
       });
 
-      // No decryption errors
-      await expect(testBobPage.getByText('[decryption failed')).not.toBeVisible();
+      await expectNoDecryptionErrors(testBobPage);
 
       // Can send a message
-      const bobInput = testBobPage.getByRole('textbox', { name: 'Ask me anything...' });
-      await expect(bobInput).toBeVisible({ timeout: 5000 });
-
-      const bobMessage = `Bob via link ${String(Date.now())}`;
-      await bobInput.fill(bobMessage);
-
-      const sendButton = testBobPage.getByTestId('send-button');
-      await expect(sendButton).toBeEnabled({ timeout: 5000 });
-      await sendButton.click();
-
-      await expect(testBobPage.getByText(bobMessage).first()).toBeVisible({ timeout: 10_000 });
+      await sendMessageAsGuest(testBobPage, `Bob via link ${String(Date.now())}`);
     });
   });
 
@@ -141,38 +87,18 @@ test.describe('Auth User Using Link', () => {
   }) => {
     test.slow();
 
-    const chatPage = new ChatPage(authenticatedPage);
-    await chatPage.gotoConversation(groupConversation.id);
-    await chatPage.waitForConversationLoaded();
-
-    const helper = new BudgetHelper(authenticatedRequest);
-
-    const sidebar = new MemberSidebarPage(authenticatedPage);
-    await sidebar.openViaFacepile();
-    await sidebar.waitForLoaded();
+    const { chatPage, sidebar, helper } = await setupGroupConversationWithSidebar(
+      authenticatedPage,
+      authenticatedRequest,
+      groupConversation.id
+    );
 
     let readUrl: string;
     let writeUrl: string;
-    let writeLinkId: string;
 
     await test.step('create read+no-history link', async () => {
-      await sidebar.clickInviteLink();
-      const modal = authenticatedPage.getByTestId('invite-link-modal');
-      await expect(modal).toBeVisible();
-
-      // History checkbox left unchecked
-      const historyCheckbox = authenticatedPage
-        .getByTestId('invite-link-history-checkbox')
-        .getByRole('checkbox');
-      await expect(historyCheckbox).not.toBeChecked();
-
-      await authenticatedPage.getByTestId('invite-link-generate-button').click();
-
-      const urlEl = authenticatedPage.getByTestId('invite-link-url');
-      await expect(urlEl).toBeVisible();
-      readUrl = (await urlEl.textContent()) ?? '';
-
-      await authenticatedPage.locator('[data-slot="modal-overlay-close"]').click();
+      const result = await createInviteLink(authenticatedPage, sidebar);
+      readUrl = result.url;
     });
 
     await test.step('Alice sends message in new epoch', async () => {
@@ -184,9 +110,7 @@ test.describe('Auth User Using Link', () => {
     await test.step('Bob opens read link — sees only new messages, no errors', async () => {
       await testBobPage.goto(readUrl);
 
-      await expect(testBobPage.getByTestId('shared-conversation-loading')).not.toBeVisible({
-        timeout: 15_000,
-      });
+      await expectSharedConversationLoaded(testBobPage);
 
       // Should NOT see pre-rotation messages
       await expect(testBobPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
@@ -196,49 +120,21 @@ test.describe('Auth User Using Link', () => {
         timeout: 10_000,
       });
 
-      // No decryption errors
-      await expect(testBobPage.getByText('[decryption failed')).not.toBeVisible();
-
-      // No send input (read privilege)
-      const sendInput = testBobPage.getByRole('textbox', { name: 'Ask me anything...' });
-      await expect(sendInput).not.toBeVisible();
+      await expectNoDecryptionErrors(testBobPage);
+      await expectNoSendInput(testBobPage, 'Ask me anything...');
     });
 
-    await test.step('create write+no-history link', async () => {
+    await test.step('create write+no-history link and setup budgets', async () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      await sidebar.clickInviteLink();
-      const modal = authenticatedPage.getByTestId('invite-link-modal');
-      await expect(modal).toBeVisible();
-
-      await authenticatedPage.getByTestId('invite-link-privilege-select').selectOption('write');
-
-      // History checkbox left unchecked
-      const historyCheckbox = authenticatedPage
-        .getByTestId('invite-link-history-checkbox')
-        .getByRole('checkbox');
-      await expect(historyCheckbox).not.toBeChecked();
-
-      await authenticatedPage.getByTestId('invite-link-generate-button').click();
-
-      const urlEl = authenticatedPage.getByTestId('invite-link-url');
-      await expect(urlEl).toBeVisible();
-      writeUrl = (await urlEl.textContent()) ?? '';
-
-      await authenticatedPage.locator('[data-slot="modal-overlay-close"]').click();
-
-      // Capture linkId for budget setup
-      const linkRow = sidebar.content.locator('[data-testid^="link-item-"]').first();
-      await expect(linkRow).toBeVisible({ timeout: 10_000 });
-      const testId = await linkRow.getAttribute('data-testid');
-      writeLinkId = testId!.replace('link-item-', '');
-    });
-
-    await test.step('setup budgets for write link', async () => {
-      await helper.setConversationBudget(groupConversation.id, 1000);
-      const linkMemberId = await helper.findLinkMemberId(groupConversation.id, writeLinkId);
-      await helper.setMemberBudget(groupConversation.id, linkMemberId, 500);
+      const result = await createWriteLinkWithBudget(
+        authenticatedPage,
+        sidebar,
+        helper,
+        groupConversation.id
+      );
+      writeUrl = result.url;
     });
 
     await test.step('Alice sends another message', async () => {
@@ -250,9 +146,7 @@ test.describe('Auth User Using Link', () => {
     await test.step('Bob opens write link — sees only new, can send, no errors', async () => {
       await testBobPage.goto(writeUrl);
 
-      await expect(testBobPage.getByTestId('shared-conversation-loading')).not.toBeVisible({
-        timeout: 15_000,
-      });
+      await expectSharedConversationLoaded(testBobPage);
 
       // Should NOT see old messages
       await expect(testBobPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
@@ -262,21 +156,10 @@ test.describe('Auth User Using Link', () => {
         timeout: 10_000,
       });
 
-      // No decryption errors
-      await expect(testBobPage.getByText('[decryption failed')).not.toBeVisible();
+      await expectNoDecryptionErrors(testBobPage);
 
       // Can send a message
-      const bobInput = testBobPage.getByRole('textbox', { name: 'Ask me anything...' });
-      await expect(bobInput).toBeVisible({ timeout: 5000 });
-
-      const bobMessage = `Bob no-history write ${String(Date.now())}`;
-      await bobInput.fill(bobMessage);
-
-      const sendButton = testBobPage.getByTestId('send-button');
-      await expect(sendButton).toBeEnabled({ timeout: 5000 });
-      await sendButton.click();
-
-      await expect(testBobPage.getByText(bobMessage).first()).toBeVisible({ timeout: 10_000 });
+      await sendMessageAsGuest(testBobPage, `Bob no-history write ${String(Date.now())}`);
     });
   });
 });

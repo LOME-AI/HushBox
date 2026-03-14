@@ -114,11 +114,10 @@ export class DocumentPanelPage {
 
   async waitForCardAppear(timeout = 15_000): Promise<void> {
     const card = this.documentCards().first();
-    await waitForConditionOrSettle(
-      this.page,
-      async () => card.isVisible().catch(() => false),
-      { timeout, errorMessage: 'App settled without document card appearing' }
-    );
+    await waitForConditionOrSettle(this.page, async () => card.isVisible().catch(() => false), {
+      timeout,
+      errorMessage: 'App settled without document card appearing',
+    });
   }
 
   async waitForPanelOpen(timeout = 5000): Promise<void> {

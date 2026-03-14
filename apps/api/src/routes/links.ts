@@ -94,7 +94,15 @@ export const linksRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_MEMBER_LIMIT_REACHED), 400);
       }
 
-      const visibleFromEpoch = body.giveFullHistory ? 1 : body.rotation!.expectedEpoch + 1;
+      let visibleFromEpoch: number;
+      if (body.giveFullHistory) {
+        visibleFromEpoch = 1;
+      } else {
+        if (!body.rotation) {
+          throw new Error('invariant: rotation required when giveFullHistory is false');
+        }
+        visibleFromEpoch = body.rotation.expectedEpoch + 1;
+      }
 
       try {
         const result = await createLink(db, {
@@ -259,7 +267,8 @@ export const linksRoute = new Hono<AppEnv>()
     zValidator('json', z.object({ displayName: z.string().min(1).max(100) })),
     async (c) => {
       const db = c.get('db');
-      const linkGuest = c.get('linkGuest')!;
+      const linkGuest = c.get('linkGuest');
+      if (!linkGuest) throw new Error('Link guest required after requireLinkGuest');
       const { displayName } = c.req.valid('json');
 
       await db.update(sharedLinks).set({ displayName }).where(eq(sharedLinks.id, linkGuest.linkId));
