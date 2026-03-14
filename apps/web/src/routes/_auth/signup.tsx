@@ -10,6 +10,7 @@ import { AuthButton } from '@/components/auth/AuthButton';
 import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
 import { AuthFeatureList } from '@/components/auth/auth-feature-list';
 import { AuthShakeError } from '@/components/auth/auth-shake-error';
+import { ExternalPageLink } from '@/components/shared/external-page-link';
 import {
   validateUsername,
   validateEmail,
@@ -46,7 +47,7 @@ export function SignupPage(): React.JSX.Element {
     ? validateConfirmPassword(password, confirmPassword)
     : { isValid: false };
 
-  async function handleSubmit(e: React.FormEvent): Promise<void> {
+  async function handleSubmit(e: React.SyntheticEvent): Promise<void> {
     e.preventDefault();
 
     setTouched({ username: true, email: true, password: true, confirmPassword: true });
@@ -94,7 +95,7 @@ export function SignupPage(): React.JSX.Element {
     <div>
       <div className="mb-5 text-center">
         <h1 className="text-foreground mb-2 text-3xl font-bold">Create your account</h1>
-        <p className="text-primary text-lg font-medium">One interface. Every AI model. Private.</p>
+        <p className="text-primary text-lg font-medium">One interface. Every feature. Private.</p>
       </div>
 
       <form
@@ -166,23 +167,13 @@ export function SignupPage(): React.JSX.Element {
 
         <p className="text-muted-foreground text-center text-xs">
           By creating an account, you agree to our{' '}
-          <a
-            href={ROUTES.TERMS}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
+          <ExternalPageLink path={ROUTES.TERMS} className="text-primary hover:underline">
             Terms of Service
-          </a>{' '}
+          </ExternalPageLink>{' '}
           and{' '}
-          <a
-            href={ROUTES.PRIVACY}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
+          <ExternalPageLink path={ROUTES.PRIVACY} className="text-primary hover:underline">
             Privacy Policy
-          </a>
+          </ExternalPageLink>
           .
         </p>
 

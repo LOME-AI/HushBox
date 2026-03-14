@@ -46,10 +46,12 @@ export function useModelValidation(): void {
     const { premiumIds, models } = modelsData;
     const firstModel = selectedModels[0];
     if (!firstModel) return;
+    const modelExists = models.some((m) => m.id === firstModel.id);
     const isSelectedModelPremium = premiumIds.has(firstModel.id);
+    const needsReset = !modelExists || (!state.canAccessPremium && isSelectedModelPremium);
 
-    if (!state.canAccessPremium && isSelectedModelPremium) {
-      const { strongestId } = getAccessibleModelIds(models, premiumIds, false);
+    if (needsReset) {
+      const { strongestId } = getAccessibleModelIds(models, premiumIds, state.canAccessPremium);
       const strongestModel = models.find((m) => m.id === strongestId);
       if (strongestModel) {
         setSelectedModel(strongestId, strongestModel.name);

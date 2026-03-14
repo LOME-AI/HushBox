@@ -5,13 +5,38 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  # ── Version computation (main only) ────────────────────
+  version:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 3
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      version_name: ${{ steps.compute.outputs.version_name }}
+      version_code: ${{ steps.compute.outputs.version_code }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-blacksmith
+      - name: Compute next version
+        id: compute
+        run: pnpm tsx scripts/compute-next-version.ts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # ── Quick lint jobs (Blacksmith 2 vCPU) ──────────────────
   lint:
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
@@ -20,14 +45,18 @@ jobs:
 
   typecheck:
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
       - name: Type check
         run: pnpm typecheck
+      - name: Verify typecheck coverage
+        run: pnpm verify:typecheck-coverage
 
   duplication:
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
@@ -36,14 +65,18 @@ jobs:
 
   unused:
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
+      - name: Generate environment files
+        run: pnpm generate:env
       - name: Check unused code
         run: pnpm lint:unused
 
   gitleaks:
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
     environment: ci
     steps:
       - uses: actions/checkout@v6
@@ -58,6 +91,7 @@ jobs:
   # ── Test job (Blacksmith 4 vCPU + Docker) ────────────────
   test:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
     environment: ci
     needs: [gitleaks]
     steps:
@@ -84,25 +118,10 @@ jobs:
           if ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
             echo "Loading cached Docker images..."
             for img in /tmp/docker-cache/*.tar; do
-              docker load -i "$img"
+              docker load -i "$img" &
             done
+            wait
           fi
-
-      - name: Start database
-        run: pnpm db:up
-
-      - name: Save Docker images for next run
-        run: |
-          if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
-            mkdir -p /tmp/docker-cache
-            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar
-            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar
-            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar
-            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar
-          fi
-
-      - name: Run migrations
-        run: pnpm db:migrate
 
       - name: Generate environment files
         run: pnpm generate:env --mode=ciVitest
@@ -113,6 +132,23 @@ jobs:
 
       - name: Verify environment configuration
         run: pnpm verify:env --mode=ciVitest
+
+      - name: Start database
+        run: pnpm db:up
+
+      - name: Save Docker images for next run
+        run: |
+          if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            mkdir -p /tmp/docker-cache
+            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar &
+            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar &
+            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar &
+            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar &
+            wait
+          fi
+
+      - name: Run migrations
+        run: pnpm db:migrate
 
       - name: Run tests
         run: pnpm test
@@ -127,8 +163,10 @@ jobs:
   # ── Build job (Blacksmith 4 vCPU) ────────────────────────
   build:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 8
     environment: ci
-    needs: [gitleaks]
+    needs: [gitleaks, version]
+    if: always() && needs.gitleaks.result == 'success' && (needs.version.result == 'success' || needs.version.result == 'skipped')
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
@@ -151,6 +189,9 @@ jobs:
         env:
           VITE_API_URL: https://api.hushbox.ai
           VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          VITE_OPAQUE_SERVER_ID: hushbox.ai
+          VITE_PLATFORM: web
+          VITE_APP_VERSION: ${{ needs.version.outputs.version }}
         # END GENERATED: build-env
 
       - name: Merge marketing into web dist
@@ -165,6 +206,7 @@ jobs:
   # ── E2E tests (Blacksmith 4 vCPU + Docker + Playwright) ──
   e2e:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
     environment: ci
     needs: [gitleaks]
     strategy:
@@ -203,8 +245,9 @@ jobs:
         run: |
           if ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
             for img in /tmp/docker-cache/*.tar; do
-              docker load -i "$img"
+              docker load -i "$img" &
             done
+            wait
           fi
 
       - name: Generate environment files
@@ -234,10 +277,11 @@ jobs:
         run: |
           if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
             mkdir -p /tmp/docker-cache
-            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar
-            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar
-            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar
-            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar
+            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar &
+            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar &
+            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar &
+            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar &
+            wait
           fi
 
       - name: Run migrations
@@ -295,15 +339,140 @@ jobs:
         if: always()
         run: pnpm db:down
 
+  # ── Mobile tests (Maestro + Android emulator via Docker) ──
+  mobile-test:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    environment: ci
+    needs: [gitleaks]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-blacksmith
+
+      - name: Cache Turbo
+        uses: useblacksmith/cache@v5
+        with:
+          path: .turbo
+          key: turbo-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ github.ref_name }}-
+            turbo-main-
+
+      - name: Cache Docker images
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: docker-mobile-${{ hashFiles('docker-compose.yml') }}
+          path: /tmp/docker-cache
+
+      - name: Load cached Docker images
+        run: |
+          if ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            echo "Loading cached Docker images..."
+            for img in /tmp/docker-cache/*.tar; do
+              docker load -i "$img" &
+            done
+            wait
+          fi
+
+      - name: Cache Android SDK
+        uses: useblacksmith/cache@v5
+        with:
+          path: ~/Android/Sdk
+          key: android-sdk-android-36-cmdtools-11076708
+
+      - name: Cache Gradle
+        uses: useblacksmith/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('apps/web/android/gradle/wrapper/gradle-wrapper.properties', 'apps/web/android/**/*.gradle') }}
+          restore-keys: |
+            gradle-
+
+      - name: Cache Maestro CLI
+        uses: useblacksmith/cache@v5
+        with:
+          path: ~/.maestro
+          key: maestro-cli
+
+      - name: Generate environment files
+        run: pnpm generate:env --mode=ciE2E
+        # BEGIN GENERATED: e2e-env
+        env:
+          HELCIM_API_TOKEN_SANDBOX: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
+          HELCIM_WEBHOOK_VERIFIER_SANDBOX: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
+          VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
+        # END GENERATED: e2e-env
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Run mobile tests
+        run: pnpm mobile:test
+
+      - name: Save Docker images for next run
+        run: |
+          if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            mkdir -p /tmp/docker-cache
+            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar &
+            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar &
+            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar &
+            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar &
+            docker save budtmo/docker-android:emulator_14.0 -o /tmp/docker-cache/android-emulator.tar &
+            wait
+          fi
+
+      - name: Dump emulator logs
+        if: failure()
+        run: |
+          docker compose --profile mobile logs android-emulator > emulator-logs.txt 2>&1 || true
+          CONTAINER_ID=$(docker compose --profile mobile ps -q android-emulator 2>/dev/null || true)
+          if [ -n "$CONTAINER_ID" ]; then
+            docker inspect "$CONTAINER_ID" > emulator-inspect.json 2>&1 || true
+          fi
+
+      - name: Upload results
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: maestro-results
+          path: |
+            maestro-results/
+            emulator-logs.txt
+            emulator-inspect.json
+          retention-days: 7
+
+      - name: Stop services
+        if: always()
+        run: |
+          pnpm mobile:down
+          pnpm db:down
+
   # ── Deploy (GitHub-hosted — hyper-secrets) ───────────────
   deploy:
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, duplication, unused, test, build, e2e]
+    timeout-minutes: 10
+    needs: [lint, typecheck, duplication, unused, test, build, e2e, mobile-test, version]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: production
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
+
+      - name: Verify version
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: Version is empty"
+            exit 1
+          fi
+          echo "Deploying version: $VERSION"
 
       - name: Download web build artifact
         uses: actions/download-artifact@v7
@@ -320,7 +489,10 @@ jobs:
           echo "${{ secrets.UPSTASH_REDIS_REST_TOKEN }}" | pnpm exec wrangler secret put UPSTASH_REDIS_REST_TOKEN
           echo "${{ secrets.OPAQUE_MASTER_SECRET }}" | pnpm exec wrangler secret put OPAQUE_MASTER_SECRET
           echo "${{ secrets.IRON_SESSION_SECRET }}" | pnpm exec wrangler secret put IRON_SESSION_SECRET
+          echo "${{ needs.version.outputs.version }}" | pnpm exec wrangler secret put APP_VERSION
           echo "${{ secrets.RESEND_API_KEY }}" | pnpm exec wrangler secret put RESEND_API_KEY
+          echo "${{ secrets.FCM_PROJECT_ID }}" | pnpm exec wrangler secret put FCM_PROJECT_ID
+          echo "${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}" | pnpm exec wrangler secret put FCM_SERVICE_ACCOUNT_JSON
           echo "${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}" | pnpm exec wrangler secret put OPENROUTER_API_KEY
           echo "${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_API_TOKEN
           echo "${{ secrets.HELCIM_WEBHOOK_VERIFIER_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_WEBHOOK_VERIFIER
@@ -334,7 +506,7 @@ jobs:
         run: |
           secrets=$(pnpm exec wrangler secret list)
           # BEGIN GENERATED: verify-secrets
-          for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET RESEND_API_KEY OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do
+          for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET APP_VERSION RESEND_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do
           # END GENERATED: verify-secrets
             if ! echo "$secrets" | grep -q "$secret"; then
               echo "ERROR: Secret $secret not found in Workers"
@@ -369,3 +541,20 @@ jobs:
         run: |
           sleep 10
           curl -f https://hushbox-api.${{ vars.WORKERS_SUBDOMAIN }}.workers.dev/api/health || exit 1
+
+      - name: Zip web dist for R2
+        run: cd apps/web/dist && zip -r ../../../web-dist.zip .
+
+      - name: Upload build to R2
+        working-directory: apps/api
+        run: pnpm exec wrangler r2 object put "hushbox-app-builds/builds/${{ needs.version.outputs.version }}.zip" --file ../../web-dist.zip --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Tag release
+        run: |
+          git tag "v${{ needs.version.outputs.version }}"
+          git push origin "v${{ needs.version.outputs.version }}"
+        env:
+          HUSKY: '0'

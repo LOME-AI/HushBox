@@ -762,6 +762,7 @@ describe('selectConversationMemberSchema', () => {
       joinedAt: new Date(),
       leftAt: null,
       acceptedAt: null,
+      muted: false,
       invitedByUserId: null,
     });
     expect(result.success).toBe(true);

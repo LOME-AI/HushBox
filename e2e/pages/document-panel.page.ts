@@ -1,6 +1,8 @@
 import { type Page, type Locator, expect } from '@playwright/test';
 import { waitForConditionOrSettle } from '../helpers/settled';
 
+import type { ChatPage } from './chat.page.js';
+
 export class DocumentPanelPage {
   readonly page: Page;
   readonly panel: Locator;
@@ -83,6 +85,32 @@ export class DocumentPanelPage {
   }
 
   // --- Waits ---
+
+  /**
+   * Scroll through the Virtuoso message list until the nth document card is rendered.
+   *
+   * Virtuoso only renders items in/near the viewport. This method scans from the
+   * top of the list, scrolling down in 40%-viewport increments, checking at each
+   * position whether the target card has appeared in the DOM.
+   */
+  async scrollToNthCard(chatPage: ChatPage, index: number, timeout = 15_000): Promise<void> {
+    if (
+      await this.documentCard(index)
+        .isVisible()
+        .catch(() => false)
+    )
+      return;
+
+    await chatPage.scrollToTop();
+    await this.page.waitForTimeout(300);
+
+    await expect(async () => {
+      await chatPage.viewport.evaluate((el) => {
+        el.scrollTop += el.clientHeight * 0.4;
+      });
+      await expect(this.documentCard(index)).toBeVisible({ timeout: 500 });
+    }).toPass({ timeout });
+  }
 
   async waitForCardAppear(timeout = 15_000): Promise<void> {
     const card = this.documentCards().first();

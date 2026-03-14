@@ -5,34 +5,30 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+      "outputs": ["dist/**"]
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "passThroughEnv": ["HB_*"]
     },
     "lint": {
-      "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", "eslint.config.js", "../../packages/config/eslint.config.js"],
       "outputs": []
     },
     "typecheck": {
-      "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", "tsconfig.json", "../../packages/config/tsconfig.base.json"],
       "outputs": []
     },
     "test": {
-      "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", "**/*.test.{ts,tsx}"],
       "outputs": []
     },
     "test:e2e": {
-      "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", "e2e/**"],
       "outputs": []
     },
     "test:coverage": {
-      "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$"],
       "outputs": ["coverage/**"]
     },

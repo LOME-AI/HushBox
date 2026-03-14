@@ -16,6 +16,7 @@ import {
   ERROR_CODE_PAYMENT_MISSING_TRANSACTION_ID,
   PAYMENT_EXPIRATION_MS,
 } from '@hushbox/shared';
+import { redisSet } from '../lib/redis-registry.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { requireAuth } from '../middleware/require-auth.js';
 import { getClientIp } from '../lib/client-ip.js';
@@ -24,6 +25,21 @@ import type { AppEnv } from '../types.js';
 
 export const billingRoute = new Hono<AppEnv>()
   .use('*', requireAuth())
+
+  .post('/login-link', async (c) => {
+    const user = c.get('user');
+    if (!user) {
+      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
+    }
+    const redis = c.get('redis');
+    const token = crypto.randomUUID();
+    await redisSet(redis, 'billingLoginToken', { userId: user.id }, token);
+    return c.json({ token }, 200);
+  })
+
+  .use('/payments', requirePhrase())
+  .use('/payments/*', requirePhrase())
+
 
   .get('/balance', async (c) => {
     const user = c.get('user');
@@ -209,8 +225,6 @@ export const billingRoute = new Hono<AppEnv>()
 
       if (result.status === 'approved') {
         if (!result.transactionId) {
-          // This should never happen - Helcim approved but gave no transaction ID
-          console.error('[ERROR] Helcim approved payment but returned no transactionId');
           return c.json(createErrorResponse(ERROR_CODE_PAYMENT_MISSING_TRANSACTION_ID), 500);
         }
 
@@ -228,7 +242,6 @@ export const billingRoute = new Hono<AppEnv>()
           .returning();
 
         if (!updated) {
-          console.error(`Payment UPDATE failed: id=${payment.id}, status may have changed`);
           return c.json(createErrorResponse(ERROR_CODE_PAYMENT_ALREADY_PROCESSED), 400);
         }
 

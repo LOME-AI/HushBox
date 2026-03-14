@@ -5,6 +5,25 @@ import { client, fetchJson } from '../lib/api-client.js';
 import { budgetKeys } from './use-conversation-budgets.js';
 import { chatKeys } from './chat.js';
 
+export function useMuteConversation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ conversationId, muted }: { conversationId: string; muted: boolean }) =>
+      fetchJson(
+        client.api.members[':conversationId'].mute.$patch({
+          param: { conversationId },
+          json: { muted },
+        })
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: chatKeys.conversations(),
+      });
+    },
+  });
+}
+
 function invalidateMemberAndBudget(
   queryClient: QueryClient
 ): (_data: unknown, variables: { conversationId: string }) => Promise<void> {

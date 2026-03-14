@@ -134,6 +134,13 @@ const ERROR_MESSAGES = {
   FORK_LIMIT_REACHED: 'Maximum number of forks reached for this conversation.',
   TARGET_MESSAGE_NOT_FOUND: 'Target message not found.',
   CANNOT_REGENERATE_WHILE_STREAMING: 'Please wait for the current response to finish.',
+
+  // Mobile codes
+  UPGRADE_REQUIRED: 'A new version is available. Please update to continue.',
+  LOGIN_TOKEN_INVALID: 'This login link has expired or already been used.',
+  BILLING_SESSION_RESTRICTED:
+    'This session can only access billing. Please log in normally for full access.',
+  BUILD_NOT_FOUND: 'The requested app version was not found.',
 } as const satisfies Record<string, string>;
 
 /** Known error code — union of all keys in the error message map. */
@@ -147,7 +154,7 @@ const FALLBACK_MESSAGE = 'Something went wrong. Please try again.';
  * Accepts `ErrorCode` (for autocomplete) or any string (for network-parsed codes).
  * Unknown codes return the generic fallback.
  */
-// eslint-disable-next-line sonarjs/no-useless-intersection -- preserves IDE autocomplete for ErrorCode while accepting arbitrary strings
+
 export function friendlyErrorMessage(code: ErrorCode | (string & {})): UserFacingMessage {
   const message = (ERROR_MESSAGES as Record<string, string>)[code] ?? FALLBACK_MESSAGE;
   return message as UserFacingMessage;

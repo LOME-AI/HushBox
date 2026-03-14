@@ -1,6 +1,6 @@
 ---
 import ThemeScript from '../components/ThemeScript.astro';
-import Header from '../components/Header.astro';
+import LandingHeader from '../components/LandingHeader.astro';
 import faviconUrl from '@hushbox/ui/assets/favicon.ico';
 import '../styles/global.css';
 
@@ -25,12 +25,12 @@ const { title, description } = Astro.props;
     <link rel="icon" type="image/x-icon" href={faviconUrl} />
     <ThemeScript />
   </head>
-  <body class="min-h-screen bg-background text-foreground antialiased">
-    <Header />
-    <main class="mx-auto max-w-5xl px-6 py-12">
+  <body class="bg-background text-foreground min-h-svh antialiased">
+    <LandingHeader />
+    <main class="mx-auto max-w-5xl px-6 pt-24 pb-12">
       <slot />
     </main>
-    <footer class="border-t py-8 text-center text-sm text-foreground-muted">
+    <footer class="text-foreground-muted border-t py-8 text-center text-sm">
       <p>&copy; {new Date().getFullYear()} LOME-AI LLC. All rights reserved.</p>
     </footer>
   </body>

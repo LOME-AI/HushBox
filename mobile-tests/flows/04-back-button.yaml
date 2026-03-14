@@ -1,0 +1,34 @@
+appId: ai.hushbox.app
+name: Android hardware back button navigates correctly
+tags:
+  - must
+androidWebViewHierarchy: devtools
+---
+- launchApp:
+    clearState: true
+
+# Wait for app to stabilize
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 15000
+
+# Navigate to login page via deep link (avoids WebView tap issues with sidebar Sheet)
+- openLink: https://hushbox.ai/login
+- extendedWaitUntil:
+    visible: 'Welcome back'
+    timeout: 10000
+
+# Navigate to signup via in-app link (creates a browser history entry)
+- tapOn: 'Sign up'
+- extendedWaitUntil:
+    visible: 'Create your account'
+    timeout: 10000
+
+# Press hardware back button — should navigate back to login
+- back
+- extendedWaitUntil:
+    visible: 'Welcome back'
+    timeout: 10000
+
+# Verify we returned to the login page
+- assertVisible: 'Welcome back'

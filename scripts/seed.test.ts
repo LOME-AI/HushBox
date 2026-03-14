@@ -71,6 +71,11 @@ function createMockDb() {
     insert: vi.fn(() => ({
       values: vi.fn(() => Promise.resolve()),
     })),
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => Promise.resolve()),
+      })),
+    })),
   };
 }
 
@@ -245,6 +250,7 @@ import {
   upsertEntity,
   seed,
   seedUUID,
+  createScreenshotConversations,
 } from './seed';
 
 describe('seed script', () => {
@@ -424,16 +430,22 @@ describe('seed script', () => {
       expect(mockDb.insert).toHaveBeenCalled();
     });
 
-    it('returns "exists" when entity already exists', async () => {
-      const mockDb = createTestMockDb([{ id: 'test-1' }]);
+    it('returns "updated" and calls update when entity already exists', async () => {
+      const mockSetChain = { where: vi.fn(() => Promise.resolve()) };
+      const mockDb = {
+        select: vi.fn(() => createMockSelectChain([{ id: 'test-1', name: 'old' }])),
+        insert: vi.fn(() => ({ values: vi.fn(() => Promise.resolve()) })),
+        update: vi.fn(() => ({ set: vi.fn(() => mockSetChain) })),
+      };
 
       const result = await upsertEntity(
         mockDb as never,
         { id: 'id' } as never,
-        { id: 'test-1' } as never
+        { id: 'test-1', name: 'new-value' } as never
       );
 
-      expect(result).toBe('exists');
+      expect(result).toBe('updated');
+      expect(mockDb.update).toHaveBeenCalled();
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
   });
@@ -518,11 +530,11 @@ describe('seed script', () => {
       expect(aliceProjects).toHaveLength(2);
     });
 
-    it('alice has exactly 3 conversations', async () => {
+    it('alice has exactly 8 conversations (3 sample + 5 screenshot)', async () => {
       const data = await generatePersonaData();
       const aliceId = seedUUID('dev-user-alice');
       const aliceConversations = data.conversations.filter((c) => c.userId === aliceId);
-      expect(aliceConversations).toHaveLength(3);
+      expect(aliceConversations).toHaveLength(8);
     });
 
     it('sets emailVerified correctly from persona definition', async () => {
@@ -629,16 +641,17 @@ describe('seed script', () => {
       }
     });
 
-    it('alice conversations have conversation members', async () => {
+    it('alice conversations have conversation members with alice as owner', async () => {
       const data = await generatePersonaData();
       const aliceId = seedUUID('dev-user-alice');
       const aliceConversations = data.conversations.filter((c) => c.userId === aliceId);
 
       for (const conv of aliceConversations) {
         const convMembers = data.conversationMembers.filter((m) => m.conversationId === conv.id);
-        expect(convMembers).toHaveLength(1);
-        expect(convMembers[0]?.userId).toBe(aliceId);
-        expect(convMembers[0]?.privilege).toBe('owner');
+        expect(convMembers.length).toBeGreaterThanOrEqual(1);
+        const aliceMember = convMembers.find((m) => m.userId === aliceId);
+        expect(aliceMember).toBeDefined();
+        expect(aliceMember?.privilege).toBe('owner');
       }
     });
   });
@@ -763,6 +776,121 @@ describe('seed script', () => {
         const convMembers = data.conversationMembers.filter((m) => m.conversationId === conv.id);
         expect(convMembers).toHaveLength(1);
         expect(convMembers[0]?.userId).toBe(testAliceId);
+      }
+    });
+  });
+
+  describe('createScreenshotConversations', () => {
+    function buildScreenshotParams() {
+      return {
+        aliceUserId: seedUUID('dev-user-alice'),
+        alicePublicKey: mockCryptoBytes(32),
+        bobUserId: seedUUID('dev-user-bob'),
+        bobPublicKey: mockCryptoBytes(32),
+        charlieUserId: seedUUID('dev-user-charlie'),
+        charliePublicKey: mockCryptoBytes(32),
+        now: new Date(),
+      };
+    }
+
+    it('creates exactly 5 conversations', () => {
+      const result = createScreenshotConversations(buildScreenshotParams());
+      expect(result.conversations).toHaveLength(5);
+    });
+
+    it('uses deterministic screenshot-conv-* UUIDs', () => {
+      const result = createScreenshotConversations(buildScreenshotParams());
+      const ids = result.conversations.map((c) => c.id);
+      expect(ids).toContain(seedUUID('screenshot-conv-chat'));
+      expect(ids).toContain(seedUUID('screenshot-conv-group-chat'));
+      expect(ids).toContain(seedUUID('screenshot-conv-code'));
+      expect(ids).toContain(seedUUID('screenshot-conv-mermaid'));
+      expect(ids).toContain(seedUUID('screenshot-conv-privacy'));
+    });
+
+    it('all conversations belong to alice', () => {
+      const params = buildScreenshotParams();
+      const result = createScreenshotConversations(params);
+      for (const conv of result.conversations) {
+        expect(conv.userId).toBe(params.aliceUserId);
+      }
+    });
+
+    it('creates 5 epochs (one per conversation)', () => {
+      const result = createScreenshotConversations(buildScreenshotParams());
+      expect(result.epochs).toHaveLength(5);
+    });
+
+    it('creates 7 epoch members (4 solo + 3 group)', () => {
+      const result = createScreenshotConversations(buildScreenshotParams());
+      expect(result.epochMembers).toHaveLength(7);
+    });
+
+    it('creates 7 conversation members (4 solo + 3 group)', () => {
+      const result = createScreenshotConversations(buildScreenshotParams());
+      expect(result.conversationMembers).toHaveLength(7);
+    });
+
+    it('group chat has 3 epoch members', () => {
+      const result = createScreenshotConversations(buildScreenshotParams());
+      const groupConvId = seedUUID('screenshot-conv-group-chat');
+      const groupEpoch = result.epochs.find((e) => e.conversationId === groupConvId);
+      expect(groupEpoch).toBeDefined();
+      const groupEpochMembers = result.epochMembers.filter((em) => em.epochId === groupEpoch!.id);
+      expect(groupEpochMembers).toHaveLength(3);
+    });
+
+    it('group chat has 3 conversation members with correct privileges', () => {
+      const params = buildScreenshotParams();
+      const result = createScreenshotConversations(params);
+      const groupConvId = seedUUID('screenshot-conv-group-chat');
+      const members = result.conversationMembers.filter((m) => m.conversationId === groupConvId);
+      expect(members).toHaveLength(3);
+      const aliceMember = members.find((m) => m.userId === params.aliceUserId);
+      const bobMember = members.find((m) => m.userId === params.bobUserId);
+      const charlieMember = members.find((m) => m.userId === params.charlieUserId);
+      expect(aliceMember?.privilege).toBe('owner');
+      expect(bobMember?.privilege).toBe('write');
+      expect(charlieMember?.privilege).toBe('write');
+    });
+
+    it('creates exactly 12 messages total', () => {
+      const result = createScreenshotConversations(buildScreenshotParams());
+      expect(result.messages).toHaveLength(12);
+    });
+
+    it('group chat has 4 messages with correct senders', () => {
+      const params = buildScreenshotParams();
+      const result = createScreenshotConversations(params);
+      const groupConvId = seedUUID('screenshot-conv-group-chat');
+      const groupMessages = result.messages.filter((m) => m.conversationId === groupConvId);
+      expect(groupMessages).toHaveLength(4);
+      expect(groupMessages[0]!.senderType).toBe('user');
+      expect(groupMessages[0]!.senderId).toBe(params.aliceUserId);
+      expect(groupMessages[1]!.senderType).toBe('user');
+      expect(groupMessages[1]!.senderId).toBe(params.bobUserId);
+      expect(groupMessages[2]!.senderType).toBe('user');
+      expect(groupMessages[2]!.senderId).toBe(params.charlieUserId);
+      expect(groupMessages[3]!.senderType).toBe('ai');
+      expect(groupMessages[3]!.senderId).toBeNull();
+    });
+
+    it('solo conversations each have 2 messages (user + ai)', () => {
+      const result = createScreenshotConversations(buildScreenshotParams());
+      const soloNames = ['chat', 'code', 'mermaid', 'privacy'];
+      for (const name of soloNames) {
+        const convId = seedUUID(`screenshot-conv-${name}`);
+        const msgs = result.messages.filter((m) => m.conversationId === convId);
+        expect(msgs).toHaveLength(2);
+        expect(msgs[0]!.senderType).toBe('user');
+        expect(msgs[1]!.senderType).toBe('ai');
+      }
+    });
+
+    it('all messages are encrypted', () => {
+      const result = createScreenshotConversations(buildScreenshotParams());
+      for (const msg of result.messages) {
+        expect(msg.encryptedBlob).toBeInstanceOf(Uint8Array);
       }
     });
   });

@@ -346,7 +346,7 @@ export function LoginPage(): React.JSX.Element {
     void navigate({ to: ROUTES.CHAT });
   }, [navigate]);
 
-  async function handleSubmit(e: React.FormEvent): Promise<void> {
+  async function handleSubmit(e: React.SyntheticEvent): Promise<void> {
     e.preventDefault();
 
     setTouched({ identifier: true, password: true });
@@ -427,7 +427,7 @@ export function LoginPage(): React.JSX.Element {
     <div>
       <div className="mb-5 text-center">
         <h1 className="text-foreground mb-2 text-3xl font-bold">Welcome back</h1>
-        <p className="text-primary text-lg font-medium">One interface. Every AI model. Private.</p>
+        <p className="text-primary text-lg font-medium">One interface. Every feature. Private.</p>
       </div>
 
       <form

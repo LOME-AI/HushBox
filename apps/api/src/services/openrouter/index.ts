@@ -13,13 +13,12 @@ export type {
   OpenRouterClient,
   ToolCall,
   ToolDefinition,
-  ZdrEndpoint,
 } from './types.js';
 
 export type { EvidenceConfig } from './openrouter.js';
 
 export { createMockOpenRouterClient } from './mock.js';
-export { createOpenRouterClient, fetchModels, fetchZdrModelIds, getModel } from './openrouter.js';
+export { createOpenRouterClient, getModel } from './openrouter.js';
 
 interface OpenRouterEnv extends EnvContext {
   OPENROUTER_API_KEY?: string;

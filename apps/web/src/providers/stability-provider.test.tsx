@@ -27,7 +27,6 @@ const mockedUseBalance = vi.mocked(useBalance);
 const mockedInitAuth = vi.mocked(initAuth);
 
 function createWrapper(): ({ children }: Readonly<{ children: ReactNode }>) => ReactNode {
-  // eslint-disable-next-line sonarjs/function-return-type -- test wrapper returns children
   function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
     return <StabilityProvider>{children}</StabilityProvider>;
   }

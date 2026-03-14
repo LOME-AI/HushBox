@@ -193,6 +193,41 @@ describe('envConfig', () => {
     });
   });
 
+  describe('VITE_APP_VERSION', () => {
+    it('goes to Frontend only', () => {
+      expect(envConfig.VITE_APP_VERSION.to).toEqual([Destination.Frontend]);
+    });
+
+    it('has dev-local for development', () => {
+      expect(resolveRaw(envConfig.VITE_APP_VERSION, Mode.Development)).toBe('dev-local');
+    });
+
+    it('production value is a literal (not a secret) — CI BUILD_VARIANTS override it', () => {
+      const raw = resolveRaw(envConfig.VITE_APP_VERSION, Mode.Production);
+      expect(isSecret(raw)).toBe(false);
+      expect(raw).toBe('set-by-ci');
+    });
+  });
+
+  describe('VITE_OPAQUE_SERVER_ID', () => {
+    it('goes to Frontend only', () => {
+      expect(envConfig.VITE_OPAQUE_SERVER_ID.to).toEqual([Destination.Frontend]);
+    });
+
+    it('is not set in development (web uses location.host)', () => {
+      expect(resolveRaw(envConfig.VITE_OPAQUE_SERVER_ID, Mode.Development)).toBeUndefined();
+    });
+
+    it('is not set in CI (web uses location.host)', () => {
+      expect(resolveRaw(envConfig.VITE_OPAQUE_SERVER_ID, Mode.CiVitest)).toBeUndefined();
+      expect(resolveRaw(envConfig.VITE_OPAQUE_SERVER_ID, Mode.CiE2E)).toBeUndefined();
+    });
+
+    it('has production value matching FRONTEND_URL host', () => {
+      expect(resolveRaw(envConfig.VITE_OPAQUE_SERVER_ID, Mode.Production)).toBe('hushbox.ai');
+    });
+  });
+
   describe('VITE_CI', () => {
     it('goes to Frontend only', () => {
       expect(envConfig.VITE_CI.to).toEqual([Destination.Frontend]);
@@ -235,6 +270,7 @@ describe('backendEnvSchema', () => {
       DATABASE_URL: 'postgres://localhost:5432/test',
       API_URL: 'http://localhost:8787',
       FRONTEND_URL: 'http://localhost:5173',
+      APP_VERSION: 'dev-local',
       UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
       UPSTASH_REDIS_REST_TOKEN: 'local_dev_token',
       OPAQUE_MASTER_SECRET: 'dev-opaque-master-secret-32-bytes-minimum', // gitleaks:allow
@@ -251,6 +287,7 @@ describe('backendEnvSchema', () => {
       DATABASE_URL: 'postgres://neon.tech:5432/prod',
       API_URL: 'https://api.hushbox.ai',
       FRONTEND_URL: 'https://hushbox.ai',
+      APP_VERSION: 'abc1234',
       RESEND_API_KEY: 're_123456789',
       OPENROUTER_API_KEY: 'sk-or-123',
       HELCIM_API_TOKEN: 'helcim-token',
@@ -302,6 +339,7 @@ describe('backendEnvSchema', () => {
       DATABASE_URL: 'postgres://localhost:5432/test',
       API_URL: 'http://localhost:8787',
       FRONTEND_URL: 'http://localhost:5173',
+      APP_VERSION: 'dev-local',
       UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
       UPSTASH_REDIS_REST_TOKEN: 'local_dev_token',
       OPAQUE_MASTER_SECRET: 'dev-opaque-master-secret-32-bytes-minimum', // gitleaks:allow
@@ -357,6 +395,26 @@ describe('frontendEnvSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.VITE_HELCIM_JS_TOKEN).toBe('some-token');
+    }
+  });
+
+  it('allows VITE_OPAQUE_SERVER_ID to be optional', () => {
+    const result = frontendEnvSchema.safeParse({
+      VITE_API_URL: 'http://localhost:8787',
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts VITE_OPAQUE_SERVER_ID when provided', () => {
+    const result = frontendEnvSchema.safeParse({
+      VITE_API_URL: 'http://localhost:8787',
+      VITE_OPAQUE_SERVER_ID: 'hushbox.ai',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.VITE_OPAQUE_SERVER_ID).toBe('hushbox.ai');
     }
   });
 });

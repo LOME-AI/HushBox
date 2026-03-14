@@ -4,6 +4,7 @@ import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { createReadStream, readFileSync } from 'node:fs';
 import { resolve } from 'path';
+import { transformStreamdownSource } from './src/lib/inline-streamdown-lazy-imports';
 
 const envDir = resolve(__dirname, '../..');
 
@@ -30,23 +31,43 @@ function apiPreconnectPlugin(apiUrl: string | undefined): Plugin {
 }
 
 function marketingRedirectPlugin(): Plugin {
+  const astroPort = process.env['HB_ASTRO_PORT']!;
   return {
     name: 'marketing-redirect',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url?.split('?')[0] ?? '';
+        if (url === '/') {
+          res.writeHead(301, { Location: `http://localhost:${astroPort}/welcome` });
+          res.end();
+          return;
+        }
         if (
+          url === '/welcome' ||
+          url === '/welcome/' ||
           url === '/privacy' ||
           url === '/privacy/' ||
           url === '/terms' ||
           url === '/terms/'
         ) {
-          res.writeHead(302, { Location: `http://localhost:4321${url}` });
+          res.writeHead(302, { Location: `http://localhost:${astroPort}${url}` });
           res.end();
           return;
         }
         next();
       });
+    },
+  };
+}
+
+function inlineStreamdownLazyImports(): Plugin {
+  return {
+    name: 'inline-streamdown-lazy-imports',
+    apply: 'build',
+    transform(code, id) {
+      if (!id.includes('node_modules') || !id.includes('streamdown')) return null;
+      const result = transformStreamdownSource(code);
+      return result ? { code: result, map: null } : null;
     },
   };
 }
@@ -84,6 +105,7 @@ export default defineConfig(({ mode }) => {
       }),
       react(),
       apiPreconnectPlugin(env['VITE_API_URL']),
+      inlineStreamdownLazyImports(),
       sharedFaviconPlugin(),
       marketingRedirectPlugin(),
     ],
@@ -105,9 +127,10 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      port: Number(process.env['HB_VITE_PORT']!),
       proxy: {
         '/api/ws': {
-          target: 'http://localhost:8787',
+          target: env['VITE_API_URL']!,
           ws: true,
         },
       },

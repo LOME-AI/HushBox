@@ -23,7 +23,8 @@ import {
   ERROR_CODE_BILLING_MISMATCH,
   ERROR_CODE_PRIVILEGE_INSUFFICIENT,
 } from '@hushbox/shared';
-import { ContextCapacityError, clearModelCache } from '../services/openrouter/openrouter.js';
+import { ContextCapacityError } from '../services/openrouter/openrouter.js';
+import { clearModelCache } from '@hushbox/shared/models';
 import { generateKeyPair } from '@hushbox/crypto';
 
 /** Type-safe JSON response parser for test assertions. */

@@ -70,9 +70,14 @@ vi.mock('@/hooks/chat', () => ({
 
 // Mock leave conversation hook
 const mockLeaveMutate = vi.fn();
+const mockMuteMutate = vi.fn();
 vi.mock('@/hooks/use-conversation-members', () => ({
   useLeaveConversation: () => ({
     mutate: mockLeaveMutate,
+    isPending: false,
+  }),
+  useMuteConversation: () => ({
+    mutate: mockMuteMutate,
     isPending: false,
   }),
 }));
@@ -84,6 +89,7 @@ describe('ChatItem', () => {
     currentEpoch: 2,
     updatedAt: new Date().toISOString(),
     privilege: 'owner',
+    muted: false,
   };
 
   beforeEach(() => {
@@ -91,6 +97,7 @@ describe('ChatItem', () => {
     mockDeleteMutate.mockClear();
     mockUpdateMutate.mockClear();
     mockLeaveMutate.mockClear();
+    mockMuteMutate.mockClear();
     useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false });
   });
 
@@ -374,6 +381,63 @@ describe('ChatItem', () => {
       expect(screen.getByText('Rename')).toBeInTheDocument();
       expect(screen.getByText('Delete')).toBeInTheDocument();
       expect(screen.queryByText('Leave')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('mute action', () => {
+    it('shows Mute option for unmuted conversation', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={mockConversation} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+
+      expect(screen.getByText('Mute')).toBeInTheDocument();
+      expect(screen.queryByText('Unmute')).not.toBeInTheDocument();
+    });
+
+    it('shows Unmute option for muted conversation', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={{ ...mockConversation, muted: true }} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+
+      expect(screen.getByText('Unmute')).toBeInTheDocument();
+      expect(screen.queryByText('Mute')).not.toBeInTheDocument();
+    });
+
+    it('calls mute mutation when Mute is clicked', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={mockConversation} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByText('Mute'));
+
+      expect(mockMuteMutate).toHaveBeenCalledWith({
+        conversationId: 'conv-123',
+        muted: true,
+      });
+    });
+
+    it('calls unmute mutation when Unmute is clicked', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={{ ...mockConversation, muted: true }} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByText('Unmute'));
+
+      expect(mockMuteMutate).toHaveBeenCalledWith({
+        conversationId: 'conv-123',
+        muted: false,
+      });
+    });
+
+    it('shows Mute option for non-owner members', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={{ ...mockConversation, privilege: 'write' }} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+
+      expect(screen.getByText('Mute')).toBeInTheDocument();
     });
   });
 });

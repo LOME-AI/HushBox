@@ -1,0 +1,27 @@
+appId: ai.hushbox.app
+name: Deep links open correct routes
+tags:
+  - must
+androidWebViewHierarchy: devtools
+---
+- launchApp:
+    clearState: true
+
+# Wait for app to stabilize
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 15000
+
+# Deep link to login page (declared in AndroidManifest.xml)
+- openLink: https://hushbox.ai/login
+- extendedWaitUntil:
+    visible: 'Welcome back'
+    timeout: 10000
+- assertVisible: 'Welcome back'
+
+# Deep link to signup page
+- openLink: https://hushbox.ai/signup
+- extendedWaitUntil:
+    visible: 'Create your account'
+    timeout: 10000
+- assertVisible: 'Create your account'

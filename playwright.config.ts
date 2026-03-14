@@ -1,6 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const isCI = !!process.env['CI'];
+const vitePort = process.env['HB_VITE_PORT']!;
+const apiPort = process.env['HB_API_PORT']!;
+const viteUrl = `http://localhost:${vitePort}`;
+const viteHealthUrl = `${viteUrl}/@vite/client`;
+const apiUrl = `http://localhost:${apiPort}`;
 
 export default defineConfig({
   testDir: './e2e',
@@ -16,7 +21,7 @@ export default defineConfig({
     ? [['github'], ['html', { open: 'never' }]]
     : [['html', { open: 'on-failure' }], ['./scripts/e2e-reporter.ts']],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: viteUrl,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -24,12 +29,12 @@ export default defineConfig({
   webServer: [
     {
       command: 'pnpm --filter @hushbox/web dev',
-      url: 'http://localhost:5173',
+      url: viteHealthUrl,
       reuseExistingServer: !process.env['CI'],
     },
     {
       command: 'pnpm --filter @hushbox/api dev',
-      url: 'http://localhost:8787/api/health',
+      url: `${apiUrl}/api/health`,
       reuseExistingServer: !process.env['CI'],
     },
   ],

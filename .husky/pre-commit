@@ -3,4 +3,4 @@
 pnpm generate:readme
 git add README.md
 pnpm generate:env
-git add .env.development apps/api/wrangler.toml .github/workflows/ci.yml
+git add apps/api/wrangler.toml .github/workflows/ci.yml

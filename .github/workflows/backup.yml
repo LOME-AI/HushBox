@@ -7,10 +7,14 @@ on:
     - cron: '0 3 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   backup-database:
     name: Backup Database
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     environment: backup
     if: github.event.schedule == '0 2 * * *' || github.event_name == 'workflow_dispatch'
     steps:
@@ -35,6 +39,7 @@ jobs:
   backup-storage:
     name: Backup Storage
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: backup
     if: github.event.schedule == '0 3 * * *' || github.event_name == 'workflow_dispatch'
     steps:

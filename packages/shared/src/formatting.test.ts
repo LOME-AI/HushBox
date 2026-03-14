@@ -158,6 +158,14 @@ describe('formatting utilities', () => {
       expect(shortenModelName('Claude 3.5 Sonnet')).toBe('Claude 3.5 Sonnet');
       expect(shortenModelName('GPT-4')).toBe('GPT-4');
     });
+
+    it('resists ReDoS on long hyphenated-digit suffixes', () => {
+      const malicious = 'Model-' + '1-'.repeat(100) + '1X';
+      const start = performance.now();
+      shortenModelName(malicious);
+      const elapsed = performance.now() - start;
+      expect(elapsed).toBeLessThan(100);
+    });
   });
 
   describe('generateChatTitle', () => {

@@ -6,6 +6,7 @@ import { Shield, Key, FileText, Scale, ChevronRight, MessageSquare } from 'lucid
 import { PRIVACY_POLICY_META } from '@hushbox/shared/legal';
 import { requireAuth, changePassword, useAuthStore } from '@/lib/auth';
 import { ROUTES } from '@hushbox/shared';
+import { openExternalPage } from '@/capacitor';
 import { PageHeader } from '@/components/shared/page-header';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { ChangePasswordModal } from '@/components/auth/ChangePasswordModal';
@@ -266,14 +267,22 @@ export function SettingsPage(): React.JSX.Element {
             <CardDescription>Terms and policies</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <a href={ROUTES.TERMS} className="flex items-center gap-3 text-sm hover:underline">
+            <button
+              type="button"
+              onClick={() => void openExternalPage(ROUTES.TERMS)}
+              className="flex items-center gap-3 text-sm hover:underline"
+            >
               <Scale className="h-4 w-4" />
               Terms of Service
-            </a>
-            <a href={ROUTES.PRIVACY} className="flex items-center gap-3 text-sm hover:underline">
+            </button>
+            <button
+              type="button"
+              onClick={() => void openExternalPage(ROUTES.PRIVACY)}
+              className="flex items-center gap-3 text-sm hover:underline"
+            >
               <Shield className="h-4 w-4" />
               Privacy Policy
-            </a>
+            </button>
             <p className="text-muted-foreground text-xs">
               Effective: {PRIVACY_POLICY_META.effectiveDate}
             </p>

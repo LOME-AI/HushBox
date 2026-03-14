@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+
+const mockUseStatusBar = vi.fn();
+vi.mock('@/capacitor/hooks/use-status-bar', () => ({
+  useStatusBar: (...args: unknown[]) => mockUseStatusBar(...args),
+}));
+
 import { ThemeProvider, useTheme } from './theme-provider';
 
 // Mock localStorage
@@ -44,6 +50,7 @@ function TestConsumer(): React.JSX.Element {
 describe('ThemeProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseStatusBar.mockClear();
     localStorageMock.clear();
     delete document.documentElement.dataset['theme'];
     document.documentElement.classList.remove('dark');
@@ -160,5 +167,26 @@ describe('ThemeProvider', () => {
       </ThemeProvider>
     );
     expect(document.documentElement.classList.contains('dark')).toBe(true);
+  });
+
+  it('calls useStatusBar with current mode', () => {
+    render(
+      <ThemeProvider>
+        <TestConsumer />
+      </ThemeProvider>
+    );
+    expect(mockUseStatusBar).toHaveBeenCalledWith('light');
+  });
+
+  it('calls useStatusBar with dark mode after toggle', () => {
+    render(
+      <ThemeProvider>
+        <TestConsumer />
+      </ThemeProvider>
+    );
+
+    fireEvent.click(screen.getByTestId('toggle'));
+
+    expect(mockUseStatusBar).toHaveBeenCalledWith('dark');
   });
 });

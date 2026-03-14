@@ -93,6 +93,11 @@ vi.mock('@hushbox/crypto', () => ({
   toBase64: vi.fn(() => 'base64-encoded-key'),
 }));
 
+const mockOpenExternalPage = vi.fn();
+vi.mock('@/capacitor', () => ({
+  openExternalPage: (...args: unknown[]) => mockOpenExternalPage(...args),
+}));
+
 document.elementFromPoint = vi.fn(() => null);
 
 const mockClipboardWrite = vi.fn().mockImplementation(() => Promise.resolve());
@@ -210,18 +215,24 @@ describe('SettingsPage', () => {
       expect(screen.getByText('Terms and policies')).toBeInTheDocument();
     });
 
-    it('renders Terms of Service link', () => {
+    it('renders Terms of Service button that opens external page', async () => {
+      const user = userEvent.setup();
       render(<SettingsPage />);
 
-      const termsLink = screen.getByRole('link', { name: /terms of service/i });
-      expect(termsLink).toHaveAttribute('href', '/terms');
+      const termsButton = screen.getByRole('button', { name: /terms of service/i });
+      await user.click(termsButton);
+
+      expect(mockOpenExternalPage).toHaveBeenCalledWith('/terms');
     });
 
-    it('renders Privacy Policy link', () => {
+    it('renders Privacy Policy button that opens external page', async () => {
+      const user = userEvent.setup();
       render(<SettingsPage />);
 
-      const privacyLink = screen.getByRole('link', { name: /privacy policy/i });
-      expect(privacyLink).toHaveAttribute('href', '/privacy');
+      const privacyButton = screen.getByRole('button', { name: /privacy policy/i });
+      await user.click(privacyButton);
+
+      expect(mockOpenExternalPage).toHaveBeenCalledWith('/privacy');
     });
 
     it('renders effective date', () => {

@@ -507,6 +507,35 @@ export const membersRoute = new Hono<AppEnv>()
     }
   )
   .patch(
+    '/:conversationId/mute',
+    zValidator('param', z.object({ conversationId: z.string() })),
+    zValidator('json', z.object({ muted: z.boolean() })),
+    requirePrivilege('read'),
+    async (c) => {
+      const user = c.get('user');
+      if (!user) {
+        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
+      }
+      const db = c.get('db');
+      const { conversationId } = c.req.valid('param');
+      const { muted } = c.req.valid('json');
+
+      await db
+        .update(conversationMembers)
+        .set({ muted })
+        .where(
+          and(
+            eq(conversationMembers.conversationId, conversationId),
+            eq(conversationMembers.userId, user.id),
+            isNull(conversationMembers.leftAt)
+          )
+        )
+        .returning({ id: conversationMembers.id });
+
+      return c.json({ muted }, 200);
+    }
+  )
+  .patch(
     '/:conversationId/accept',
     zValidator('param', z.object({ conversationId: z.string() })),
     requirePrivilege('read'),

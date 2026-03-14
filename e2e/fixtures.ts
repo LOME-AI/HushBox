@@ -1,5 +1,8 @@
 import { test as base, expect, type Page, type APIRequestContext } from '@playwright/test';
 import { ChatPage } from './pages';
+import { requireEnv } from './helpers/env.js';
+
+const apiUrl = requireEnv('VITE_API_URL');
 
 function attachConsoleErrors(page: Page): { errors: string[]; cleanup: () => void } {
   const errors: string[] = [];
@@ -94,7 +97,7 @@ export const test = base.extend<CustomFixtures>({
 
   authenticatedRequest: async ({ playwright }, use) => {
     const context = await playwright.request.newContext({
-      baseURL: 'http://localhost:8787',
+      baseURL: apiUrl,
       storageState: 'e2e/.auth/test-alice.json',
     });
     await use(context);
@@ -286,7 +289,7 @@ export const test = base.extend<CustomFixtures>({
   // API request context for test-bob (used for owner-privilege budget operations)
   testBobRequest: async ({ playwright }, use) => {
     const context = await playwright.request.newContext({
-      baseURL: 'http://localhost:8787',
+      baseURL: apiUrl,
       storageState: 'e2e/.auth/test-bob.json',
     });
     await use(context);

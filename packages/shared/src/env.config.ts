@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ref, secret, Destination, Mode, type VariableConfig } from './env-types.js';
+import { VALID_PLATFORMS } from './platform.js';
 
 // Re-export everything from env-types for convenience
 export * from './env-types.js';
@@ -106,10 +107,38 @@ export const envConfig = {
     [Mode.Production]: secret('IRON_SESSION_SECRET'),
   },
 
+  APP_VERSION: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'dev-local',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.Production]: secret('APP_VERSION'),
+  },
+
   RESEND_API_KEY: {
     to: [Destination.Backend],
     [Mode.Production]: secret('RESEND_API_KEY'),
     // NOT in CI - email service uses console client when CI=true
+  },
+
+  FCM_PROJECT_ID: {
+    to: [Destination.Backend],
+    [Mode.Production]: secret('FCM_PROJECT_ID'),
+    // NOT in dev/CI - push service uses console client
+  },
+
+  FCM_SERVICE_ACCOUNT_JSON: {
+    to: [Destination.Backend],
+    [Mode.Production]: secret('FCM_SERVICE_ACCOUNT_JSON'),
+    // NOT in dev/CI - push service uses console client
+  },
+
+  GOOGLE_SERVICES_JSON_BASE64: {
+    to: [Destination.Scripts],
+    [Mode.Development]: 'ewogICJwcm9qZWN0X2luZm8iOiB7CiAgICAicHJvamVjdF9udW1iZXIiOiAiMTAwNjQwMjYyNjAzOSIsCiAgICAicHJvamVjdF9pZCI6ICJodXNoYm94LWxvY2FsZGV2IiwKICAgICJzdG9yYWdlX2J1Y2tldCI6ICJodXNoYm94LWxvY2FsZGV2LmZpcmViYXNlc3RvcmFnZS5hcHAiCiAgfSwKICAiY2xpZW50IjogWwogICAgewogICAgICAiY2xpZW50X2luZm8iOiB7CiAgICAgICAgIm1vYmlsZXNka19hcHBfaWQiOiAiMToxMDA2NDAyNjI2MDM5OmFuZHJvaWQ6MjQ1MTRiMmRlMDEyY2MxNWEwY2VmMiIsCiAgICAgICAgImFuZHJvaWRfY2xpZW50X2luZm8iOiB7CiAgICAgICAgICAicGFja2FnZV9uYW1lIjogImFpLmh1c2hib3guYXBwIgogICAgICAgIH0KICAgICAgfSwKICAgICAgIm9hdXRoX2NsaWVudCI6IFtdLAogICAgICAiYXBpX2tleSI6IFsKICAgICAgICB7CiAgICAgICAgICAiY3VycmVudF9rZXkiOiAiQUl6YVN5QzlobVR2Rm95V05GZ0VYdDV3dW51TTlaSkRvSFdsYkVrIgogICAgICAgIH0KICAgICAgXSwKICAgICAgInNlcnZpY2VzIjogewogICAgICAgICJhcHBpbnZpdGVfc2VydmljZSI6IHsKICAgICAgICAgICJvdGhlcl9wbGF0Zm9ybV9vYXV0aF9jbGllbnQiOiBbXQogICAgICAgIH0KICAgICAgfQogICAgfQogIF0sCiAgImNvbmZpZ3VyYXRpb25fdmVyc2lvbiI6ICIxIgp9',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.Production]: secret('GOOGLE_SERVICES_JSON_BASE64'),
   },
 
   OPENROUTER_API_KEY: {
@@ -148,6 +177,29 @@ export const envConfig = {
     [Mode.Production]: secret('VITE_HELCIM_JS_TOKEN_PRODUCTION'),
   },
 
+  VITE_OPAQUE_SERVER_ID: {
+    to: [Destination.Frontend],
+    [Mode.Production]: 'hushbox.ai',
+    // Dev/CI: not set — getOpaqueServerIdentifier() falls back to location.host which is correct on web.
+    // Mobile builds override via BUILD_VARIANTS or mobile-test.ts.
+  },
+
+  VITE_PLATFORM: {
+    to: [Destination.Frontend],
+    [Mode.Development]: 'web',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.Production]: 'web', // Mobile builds override via CI env
+  },
+
+  VITE_APP_VERSION: {
+    to: [Destination.Frontend],
+    [Mode.Development]: 'dev-local',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.Production]: 'set-by-ci', // All BUILD_VARIANTS override this; literal documents intent
+  },
+
   VITE_CI: {
     to: [Destination.Frontend],
     [Mode.CiVitest]: 'true',
@@ -177,10 +229,13 @@ export const backendEnvSchema = z.object({
   API_URL: z.string().url(),
   FRONTEND_URL: z.string().url(),
   DATABASE_URL: z.string().min(1),
+  APP_VERSION: z.string().min(1),
   RESEND_API_KEY: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
   HELCIM_API_TOKEN: z.string().optional(),
   HELCIM_WEBHOOK_VERIFIER: z.string().optional(),
+  FCM_PROJECT_ID: z.string().optional(),
+  FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
   // Redis
   UPSTASH_REDIS_REST_URL: z.string().url(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1),
@@ -193,6 +248,9 @@ export type BackendEnv = z.infer<typeof backendEnvSchema>;
 
 export const frontendEnvSchema = z.object({
   VITE_API_URL: z.string().url(),
+  VITE_OPAQUE_SERVER_ID: z.string().optional(),
+  VITE_PLATFORM: z.enum(VALID_PLATFORMS).default('web'),
+  VITE_APP_VERSION: z.string().min(1).default('dev-local'),
   VITE_HELCIM_JS_TOKEN: z.string().optional(),
 });
 

@@ -1,5 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { execa, type ResultPromise } from 'execa';
+import { requireEnv } from '../helpers/env.js';
+
+const apiUrl = requireEnv('VITE_API_URL');
 
 const PREVIEW_URL = 'http://localhost:4173';
 
@@ -31,7 +34,7 @@ test.describe('Production Build Smoke Tests', () => {
 
     await execa('pnpm', ['--filter', '@hushbox/web', 'build'], {
       stdio: 'inherit',
-      env: { ...process.env, VITE_API_URL: 'http://localhost:8787' },
+      env: { ...process.env, VITE_API_URL: apiUrl },
     });
     previewProcess = execa('pnpm', ['--filter', '@hushbox/web', 'preview', '--port', '4173'], {
       stdio: 'inherit',

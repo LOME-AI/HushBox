@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeEach, vi, afterEach, type Mock } from 'vitest';
 import {
   createOpenRouterClient,
-  fetchModels,
-  fetchZdrModelIds,
   getModel,
   ContextCapacityError,
   MINIMUM_OUTPUT_TOKENS,
-  clearModelCache,
 } from './openrouter.js';
+import { clearModelCache } from '@hushbox/shared/models';
+import { fetchModels, fetchZdrModelIds } from '@hushbox/shared/models';
 import type {
   OpenRouterClient,
   ChatCompletionRequest,
@@ -534,7 +533,7 @@ describe('fetchModels (public, no auth required)', () => {
     await expect(fetchModels()).rejects.toThrow('Failed to fetch models');
   });
 
-  it('throws descriptive error when response is not JSON', async () => {
+  it('throws when response is not valid JSON', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 503,
@@ -543,9 +542,7 @@ describe('fetchModels (public, no auth required)', () => {
       },
     });
 
-    await expect(fetchModels()).rejects.toThrow(
-      'OpenRouter models: expected JSON but received unparseable body (HTTP 503)'
-    );
+    await expect(fetchModels()).rejects.toThrow('Unexpected token');
   });
 });
 

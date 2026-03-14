@@ -42,7 +42,7 @@ import {
   shouldRedirect,
   computeRenderState,
   pruneMessagesAfterTarget,
-  type ComputeRenderStateParams,
+  DECRYPTING_TITLE,
 } from './use-authenticated-chat';
 
 function makeMessage(id: string, role: 'user' | 'assistant' = 'user'): {
@@ -53,6 +53,18 @@ function makeMessage(id: string, role: 'user' | 'assistant' = 'user'): {
   createdAt: string;
 } {
   return { id, conversationId: 'conv-1', role, content: `msg-${id}`, createdAt: '' };
+}
+
+function baseParams(): Parameters<typeof computeRenderState>[0] {
+  return {
+    isCreateMode: false,
+    pendingMessage: null,
+    localMessagesLength: 0,
+    conversation: { title: 'Test' },
+    isConversationLoading: false,
+    isMessagesLoading: false,
+    isDecryptionPending: false,
+  };
 }
 
 describe('pruneMessagesAfterTarget', () => {
@@ -129,18 +141,9 @@ describe('shouldRedirect', () => {
 });
 
 describe('computeRenderState', () => {
-  const baseParams: ComputeRenderStateParams = {
-    isCreateMode: false,
-    pendingMessage: null,
-    localMessagesLength: 0,
-    conversation: undefined,
-    isConversationLoading: false,
-    isMessagesLoading: false,
-  };
-
-  it('returns redirecting when shouldRedirect is true', () => {
+  it('returns redirecting when create mode with no pending message and no local messages', () => {
     const result = computeRenderState({
-      ...baseParams,
+      ...baseParams(),
       isCreateMode: true,
       pendingMessage: null,
       localMessagesLength: 0,
@@ -148,55 +151,68 @@ describe('computeRenderState', () => {
     expect(result).toEqual({ type: 'redirecting' });
   });
 
-  it('returns ready when in create mode with a pending message', () => {
+  it('returns ready in create mode with pending message', () => {
     const result = computeRenderState({
-      ...baseParams,
+      ...baseParams(),
       isCreateMode: true,
       pendingMessage: 'hello',
-      localMessagesLength: 0,
     });
     expect(result).toEqual({ type: 'ready' });
   });
 
-  it('returns not-found when conversation is missing and not loading', () => {
+  it('returns not-found when no conversation and not loading', () => {
     const result = computeRenderState({
-      ...baseParams,
-      isCreateMode: false,
+      ...baseParams(),
       conversation: undefined,
       isConversationLoading: false,
     });
     expect(result).toEqual({ type: 'not-found' });
   });
 
-  it('returns loading with decrypting title when conversation is loading', () => {
+  it('returns loading when conversation is loading', () => {
     const result = computeRenderState({
-      ...baseParams,
-      isCreateMode: false,
-      conversation: { title: 'test' },
+      ...baseParams(),
       isConversationLoading: true,
-      isMessagesLoading: false,
     });
-    expect(result).toEqual({ type: 'loading', title: 'Decrypting...' });
+    expect(result).toEqual({ type: 'loading', title: DECRYPTING_TITLE });
   });
 
-  it('returns ready when conversation is loading but local messages exist', () => {
+  it('returns loading when messages are loading', () => {
     const result = computeRenderState({
-      ...baseParams,
-      isCreateMode: false,
-      conversation: { title: 'test' },
-      isConversationLoading: true,
-      localMessagesLength: 2,
+      ...baseParams(),
+      isMessagesLoading: true,
+    });
+    expect(result).toEqual({ type: 'loading', title: DECRYPTING_TITLE });
+  });
+
+  it('returns ready when loading but local messages exist', () => {
+    const result = computeRenderState({
+      ...baseParams(),
+      isMessagesLoading: true,
+      localMessagesLength: 3,
     });
     expect(result).toEqual({ type: 'ready' });
   });
 
-  it('returns ready when conversation exists and not loading', () => {
+  it('returns ready when everything loaded and no decryption pending', () => {
+    const result = computeRenderState(baseParams());
+    expect(result).toEqual({ type: 'ready' });
+  });
+
+  it('returns loading with decrypting title when decryption is pending', () => {
     const result = computeRenderState({
-      ...baseParams,
-      isCreateMode: false,
-      conversation: { title: 'test' },
-      isConversationLoading: false,
-      isMessagesLoading: false,
+      ...baseParams(),
+      isDecryptionPending: true,
+    });
+    expect(result).toEqual({ type: 'loading', title: DECRYPTING_TITLE });
+  });
+
+  it('returns ready when decryption pending but in create mode', () => {
+    const result = computeRenderState({
+      ...baseParams(),
+      isCreateMode: true,
+      pendingMessage: 'hello',
+      isDecryptionPending: true,
     });
     expect(result).toEqual({ type: 'ready' });
   });

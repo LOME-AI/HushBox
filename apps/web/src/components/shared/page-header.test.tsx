@@ -30,6 +30,12 @@ describe('PageHeader', () => {
       expect(header).toHaveClass('sticky', 'top-0', 'backdrop-blur');
     });
 
+    it('does not apply per-component safe-area padding (handled globally by body)', () => {
+      render(<PageHeader />);
+      const header = screen.getByTestId('page-header');
+      expect(header).not.toHaveClass('pt-safe');
+    });
+
     it('has overflow-hidden to prevent visual overflow', () => {
       render(<PageHeader />);
       const header = screen.getByTestId('page-header');

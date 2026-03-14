@@ -1,6 +1,7 @@
 import type { APIRequestContext } from '@playwright/test';
+import { requireEnv } from './env.js';
 
-const API_BASE = 'http://localhost:8787';
+const API_BASE = requireEnv('VITE_API_URL');
 
 interface MemberBudget {
   memberId: string;

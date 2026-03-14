@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion -- json() returns any, assertions provide documentation */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { Hono } from 'hono';
 import { eq, inArray } from 'drizzle-orm';
 import {
@@ -816,5 +816,121 @@ describe('billing routes', () => {
         expect(overlap.length).toBe(0);
       }
     });
+  });
+});
+
+// ─── POST /billing/login-link ───────────────────────────────────────────────
+// Lightweight test setup — only needs Redis, no real DB
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface LoginLinkResponse {
+  token: string;
+}
+
+function createMapRedis(): {
+  get: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
+  store: Map<string, unknown>;
+} {
+  const store = new Map<string, unknown>();
+  return {
+    store,
+    get: vi.fn((key: string) => Promise.resolve(store.get(key) ?? null)),
+    set: vi.fn((key: string, value: unknown) => {
+      store.set(key, value);
+      return Promise.resolve('OK');
+    }),
+  };
+}
+
+function createLoginLinkTestApp(options?: {
+  user?: AppEnv['Variables']['user'] | null;
+  redis?: unknown;
+}): { app: Hono<AppEnv>; redis: ReturnType<typeof createMapRedis> } {
+  const redis = options?.redis
+    ? (options.redis as ReturnType<typeof createMapRedis>)
+    : createMapRedis();
+  const user =
+    options?.user === undefined
+      ? {
+          id: 'user-login-link',
+          email: 'login-link@example.com',
+          username: 'login_link_user',
+          emailVerified: true,
+          totpEnabled: false,
+          hasAcknowledgedPhrase: true,
+          publicKey: new Uint8Array(32),
+        }
+      : options.user;
+
+  const testApp = new Hono<AppEnv>();
+
+  testApp.use('*', async (c, next) => {
+    c.set('redis', redis as unknown as AppEnv['Variables']['redis']);
+    if (user) {
+      c.set('user', user);
+      const sessionData: SessionData = {
+        sessionId: `test-session-${user.id}`,
+        userId: user.id,
+        email: user.email,
+        username: user.username,
+        emailVerified: true,
+        totpEnabled: false,
+        hasAcknowledgedPhrase: true,
+        pending2FA: false,
+        pending2FAExpiresAt: 0,
+        createdAt: Date.now(),
+      };
+      c.set('session', sessionData);
+      c.set('sessionData', sessionData);
+    }
+    await next();
+  });
+
+  testApp.route('/billing', billingRoute);
+  return { app: testApp, redis };
+}
+
+describe('POST /billing/login-link', () => {
+  it('returns 401 when not authenticated', async () => {
+    const { app: testApp } = createLoginLinkTestApp({ user: null });
+
+    const res = await testApp.request('/billing/login-link', { method: 'POST' });
+
+    expect(res.status).toBe(401);
+  });
+
+  it('returns a token string on success', async () => {
+    const { app: testApp } = createLoginLinkTestApp();
+
+    const res = await testApp.request('/billing/login-link', { method: 'POST' });
+
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as LoginLinkResponse;
+    expect(typeof data.token).toBe('string');
+    expect(data.token.length).toBeGreaterThan(0);
+  });
+
+  it('stores userId in Redis under the token key', async () => {
+    const { app: testApp, redis } = createLoginLinkTestApp();
+
+    const res = await testApp.request('/billing/login-link', { method: 'POST' });
+    const data = (await res.json()) as LoginLinkResponse;
+
+    // redisSet uses the billingLoginToken buildKey: `billing:login-token:${token}`
+    const expectedKey = `billing:login-token:${data.token}`;
+    expect(redis.set).toHaveBeenCalledWith(expectedKey, { userId: 'user-login-link' }, { ex: 60 });
+  });
+
+  it('generates unique tokens on repeated calls', async () => {
+    const { app: testApp } = createLoginLinkTestApp();
+
+    const res1 = await testApp.request('/billing/login-link', { method: 'POST' });
+    const data1 = (await res1.json()) as LoginLinkResponse;
+
+    const res2 = await testApp.request('/billing/login-link', { method: 'POST' });
+    const data2 = (await res2.json()) as LoginLinkResponse;
+
+    expect(data1.token).not.toBe(data2.token);
   });
 });

@@ -26,9 +26,13 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 // Mock CipherWall to avoid Canvas API in JSDOM
-vi.mock('@/components/auth/cipher-wall', () => ({
-  CipherWall: () => <div data-testid="cipher-wall">cipher wall</div>,
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    CipherWall: () => <div data-testid="cipher-wall">cipher wall</div>,
+  };
+});
 
 describe('AuthLayout component', () => {
   beforeEach(() => {
@@ -55,6 +59,30 @@ describe('AuthLayout component', () => {
       expect(logoLink).toBeInTheDocument();
       expect(logoLink).toHaveAttribute('href', '/chat');
     });
+  });
+
+  it('positions logo at top-4 left-4 (safe area handled globally by body)', async () => {
+    const { AuthLayout } = await import('./_auth');
+    render(<AuthLayout />);
+    const logoLink = screen.getByRole('link', { name: /hushbox/i });
+    const logoContainer = logoLink.parentElement!;
+    expect(logoContainer).toHaveClass('top-4', 'left-4');
+  });
+
+  it('positions theme toggle at top-4 right-4 (safe area handled globally by body)', async () => {
+    const { AuthLayout } = await import('./_auth');
+    render(<AuthLayout />);
+    const themeToggle = screen.getByTestId('theme-toggle');
+    const toggleContainer = themeToggle.parentElement!;
+    expect(toggleContainer).toHaveClass('top-4', 'right-4');
+  });
+
+  it('uses pt-14 for content padding (safe area handled globally by body)', async () => {
+    const { AuthLayout } = await import('./_auth');
+    render(<AuthLayout />);
+    const layout = screen.getByTestId('auth-layout');
+    const formArea = layout.children[0] as HTMLElement;
+    expect(formArea).toHaveClass('pt-14');
   });
 
   it('renders split-screen layout', async () => {

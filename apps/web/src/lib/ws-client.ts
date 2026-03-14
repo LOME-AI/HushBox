@@ -2,6 +2,7 @@ import type { RealtimeEvent, RealtimeEventType } from '@hushbox/realtime/events'
 import { parseEvent } from '@hushbox/realtime/events';
 import { getApiUrl } from './api.js';
 import { getLinkGuestAuth } from './link-guest-auth.js';
+import { useNetworkStore } from '../stores/network.js';
 
 type EventListener<T extends RealtimeEventType> = (
   event: Extract<RealtimeEvent, { type: T }>
@@ -32,6 +33,8 @@ export class ConversationWebSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private currentBackoff: number;
   private intentionalClose = false;
+  private shouldBeConnected = false;
+  private networkUnsubscribe: (() => void) | null = null;
   private listeners = new Map<string, Set<AnyEventListener>>();
 
   constructor(options: ConversationWebSocketOptions) {
@@ -46,12 +49,19 @@ export class ConversationWebSocket {
   connect(): void {
     if (this.ws) return;
     this.intentionalClose = false;
+    this.shouldBeConnected = true;
+    this.subscribeToNetwork();
+
+    if (useNetworkStore.getState().isOffline) return;
+
     this.createConnection();
   }
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.shouldBeConnected = false;
     this.clearReconnectTimer();
+    this.unsubscribeFromNetwork();
     if (this.ws) {
       if (this.ws.readyState === WebSocket.OPEN) {
         this.ws.close(1000, 'Client disconnect');
@@ -145,6 +155,7 @@ export class ConversationWebSocket {
 
   private scheduleReconnect(): void {
     this.clearReconnectTimer();
+    if (useNetworkStore.getState().isOffline) return;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.createConnection();
@@ -157,5 +168,31 @@ export class ConversationWebSocket {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+  }
+
+  private subscribeToNetwork(): void {
+    if (this.networkUnsubscribe) return;
+    let wasOffline = useNetworkStore.getState().isOffline;
+    this.networkUnsubscribe = useNetworkStore.subscribe((state) => {
+      const isNowOffline = state.isOffline;
+      if (wasOffline && !isNowOffline) this.onNetworkRestored();
+      else if (!wasOffline && isNowOffline) this.onNetworkLost();
+      wasOffline = isNowOffline;
+    });
+  }
+
+  private unsubscribeFromNetwork(): void {
+    this.networkUnsubscribe?.();
+    this.networkUnsubscribe = null;
+  }
+
+  private onNetworkLost(): void {
+    this.clearReconnectTimer();
+  }
+
+  private onNetworkRestored(): void {
+    if (!this.shouldBeConnected || this.intentionalClose) return;
+    this.currentBackoff = this.options.initialBackoffMs;
+    if (!this.ws) this.createConnection();
   }
 }

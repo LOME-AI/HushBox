@@ -6,7 +6,8 @@
     },
     "apps/web": {
       "entry": ["src/main.tsx"],
-      "project": ["src/**/*.{ts,tsx}"]
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["@capacitor/ios"]
     },
     "packages/shared": {
       "project": ["src/**/*.ts"]
@@ -19,7 +20,7 @@
     },
     "packages/config": {
       "project": ["**/*.{js,ts}"],
-      "ignore": ["tailwind/**"]
+      "ignore": ["tailwind/**", "import-meta-env.d.ts"]
     },
     "scripts": {
       "entry": ["*.ts", "!*.test.ts"],
@@ -36,10 +37,11 @@
     "apps/marketing": {
       "entry": ["src/pages/**/*.astro"],
       "project": ["src/**/*.{astro,ts,tsx}"],
-      "ignore": ["src/styles/**"]
+      "ignore": ["src/styles/**"],
+      "ignoreDependencies": ["zod"]
     }
   },
   "ignoreDependencies": ["eslint-formatter-summary", "tailwindcss", "tw-animate-css", "vite"],
-  "ignoreBinaries": ["lsof"],
+  "ignoreBinaries": ["maestro", "adb", "cap", "db:up", "db:migrate", "db:seed"],
   "ignoreExportsUsedInFile": true
 }

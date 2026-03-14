@@ -12,6 +12,53 @@ import {
   type EnvMode,
   type VariableConfig,
 } from '../packages/shared/src/env.config.js';
+import { getWorktreeConfig, BASE_PORTS, type WorktreeConfig, type PortKey } from './worktree.js';
+
+/**
+ * Build variants for release workflows.
+ * Each variant overrides specific frontend env vars in the generated build-env section.
+ * Keys not in the overrides map use the default envConfig production values.
+ */
+const BUILD_VARIANTS: Record<string, Record<string, string>> = {
+  'build-env': {
+    VITE_APP_VERSION: '${{ needs.version.outputs.version }}',
+  },
+  'build-env-web-release': {
+    VITE_PLATFORM: 'web',
+    VITE_APP_VERSION: '${{ steps.version.outputs.version }}',
+  },
+  'build-env-android-play': {
+    VITE_PLATFORM: 'android',
+    VITE_APP_VERSION: '${{ needs.prepare.outputs.version }}',
+  },
+  'build-env-android-direct': {
+    VITE_PLATFORM: 'android-direct',
+    VITE_APP_VERSION: '${{ inputs.version }}',
+  },
+  'build-env-mobile-test': {
+    // eslint-disable-next-line sonarjs/no-clear-text-protocols -- Android emulator loopback; HTTPS not applicable
+    VITE_API_URL: 'http://10.0.2.2:8787',
+    VITE_PLATFORM: 'android-direct',
+    VITE_APP_VERSION: 'ci-mobile-test',
+    VITE_OPAQUE_SERVER_ID: 'localhost:5173', // Matches dev API's FRONTEND_URL
+  },
+};
+
+/**
+ * Deploy secret overrides.
+ * Keys here use the specified value instead of `${{ secrets.X }}` in
+ * the generated deploy-secrets section. Used to source APP_VERSION
+ * from the version job output rather than a GitHub secret.
+ */
+const DEPLOY_SECRET_OVERRIDES: Record<string, string> = {
+  APP_VERSION: '${{ needs.version.outputs.version }}',
+};
+
+const WORKFLOW_FILES = [
+  '.github/workflows/ci.yml',
+  '.github/workflows/release.yml',
+  '.github/workflows/build-android-apk.yml',
+];
 
 /**
  * Escape a value for dotenv format.
@@ -21,6 +68,46 @@ export function escapeEnvValue(value: string): string {
   // Escape backslashes first, then double quotes
   const escaped = value.replaceAll('\\', '\\\\').replaceAll('"', String.raw`\"`);
   return `"${escaped}"`;
+}
+
+/**
+ * Apply worktree port offsets to a resolved env value.
+ * Replaces localhost:BASE_PORT with localhost:COMPUTED_PORT.
+ */
+export function applyWorktreePorts(value: string, worktree: WorktreeConfig): string {
+  let result = value;
+  for (const [key, base] of Object.entries(BASE_PORTS)) {
+    const computed = worktree.ports[key as keyof typeof BASE_PORTS];
+    result = result.replaceAll(`localhost:${String(base)}`, `localhost:${String(computed)}`);
+  }
+  return result;
+}
+
+/**
+ * Generate port env lines for .env.scripts.
+ * Always writes HB_*_PORT vars (base ports for CI, worktree-offset ports for dev).
+ * Only writes COMPOSE_PROJECT_NAME when in a worktree.
+ */
+function generatePortLines(
+  ports: Record<PortKey, number>,
+  worktree: WorktreeConfig | null
+): string[] {
+  const lines = ['', worktree ? '# Worktree configuration' : '# Port configuration'];
+  if (worktree) {
+    lines.push(`COMPOSE_PROJECT_NAME=${escapeEnvValue(worktree.projectName)}`);
+  }
+  lines.push(
+    `HB_VITE_PORT=${escapeEnvValue(String(ports.vite))}`,
+    `HB_API_PORT=${escapeEnvValue(String(ports.api))}`,
+    `HB_POSTGRES_PORT=${escapeEnvValue(String(ports.postgres))}`,
+    `HB_NEON_PORT=${escapeEnvValue(String(ports.neon))}`,
+    `HB_REDIS_PORT=${escapeEnvValue(String(ports.redis))}`,
+    `HB_REDIS_HTTP_PORT=${escapeEnvValue(String(ports.redisHttp))}`,
+    `HB_ASTRO_PORT=${escapeEnvValue(String(ports.astro))}`,
+    `HB_EMULATOR_ADB_PORT=${escapeEnvValue(String(ports.emulatorAdb))}`,
+    `HB_EMULATOR_VNC_PORT=${escapeEnvValue(String(ports.emulatorVnc))}`
+  );
+  return lines;
 }
 
 /**
@@ -36,9 +123,13 @@ export function escapeEnvValue(value: string): string {
  * - ciVitest: Generate files for CI unit tests
  * - ciE2E: Include CI secrets from process.env for E2E tests
  * - production: Ensure wrangler.toml has production values
+ *
+ * In development mode, worktree detection applies port offsets so
+ * multiple worktrees can run simultaneously without collisions.
  */
 export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Development): void {
   const missing: string[] = [];
+  const worktree = (mode as Mode) === Mode.Development ? getWorktreeConfig(rootDir) : null;
 
   const getSecret = (name: string): string => {
     const val = process.env[name];
@@ -54,10 +145,14 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
     Object.entries(envConfig)
       .filter(([, config]) => getDestinations(config as VariableConfig, mode).includes(destination))
       .map(([key, config]) => {
-        const val = resolveValue(config as VariableConfig, mode, getSecret);
+        let val = resolveValue(config as VariableConfig, mode, getSecret);
         // Return null if val is null (defensive, filtered out by subsequent .filter())
         /* istanbul ignore next -- @preserve defensive check */
         if (val === null) return null;
+        // Apply worktree port offsets in development mode
+        if (worktree) {
+          val = applyWorktreePorts(val, worktree);
+        }
         return `${key}=${escapeEnvValue(val)}`;
       })
       .filter((line): line is string => line !== null);
@@ -89,17 +184,19 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
   writeFileSync(path.resolve(rootDir, '.env.development'), envDevContent);
   console.log('  Generated .env.development');
 
-  // Write .env.scripts (Scripts)
+  // Write .env.scripts (Scripts) — includes port vars for all modes
+  const ports = worktree?.ports ?? BASE_PORTS;
+  const portLines = generatePortLines(ports, worktree);
   const envScriptsContent =
-    ['# Auto-generated - do not edit', '', ...scriptsLines].join('\n') + '\n';
+    ['# Auto-generated - do not edit', '', ...scriptsLines, ...portLines].join('\n') + '\n';
   writeFileSync(path.resolve(rootDir, '.env.scripts'), envScriptsContent);
   console.log('  Generated .env.scripts');
 
   // Update wrangler.toml [vars] with production values
   updateWranglerToml(rootDir);
 
-  // Update CI workflow with generated env sections
-  updateCiWorkflow(rootDir);
+  // Update workflow files with generated env sections
+  updateWorkflows(rootDir);
 
   console.log('✓ All environment files generated');
 }
@@ -193,13 +290,19 @@ function generateSecretsEnv(mode: EnvMode): string {
 
 /**
  * Generate the build-env section (production frontend values).
+ * Overrides replace envConfig values for specific keys (e.g., VITE_PLATFORM, VITE_APP_VERSION).
  */
-function generateBuildEnv(): string {
+function generateBuildEnv(overrides: Record<string, string> = {}): string {
   const lines: string[] = ['env:'];
 
   for (const [key, config] of Object.entries(envConfig)) {
     const destinations = getDestinations(config as VariableConfig, Mode.Production);
     if (!destinations.includes(Destination.Frontend)) continue;
+
+    if (key in overrides) {
+      lines.push(`  ${key}: ${overrides[key] ?? ''}`);
+      continue;
+    }
 
     const raw = resolveRaw(config as VariableConfig, Mode.Production);
     // All frontend vars have production values
@@ -229,7 +332,12 @@ function generateDeploySecrets(): string {
 
     const raw = resolveRaw(config as VariableConfig, Mode.Production);
     if (raw && isSecret(raw)) {
-      lines.push(`echo "\${{ secrets.${raw.name} }}" | pnpm exec wrangler secret put ${key}`);
+      if (key in DEPLOY_SECRET_OVERRIDES) {
+        const override = DEPLOY_SECRET_OVERRIDES[key] ?? '';
+        lines.push(`echo "${override}" | pnpm exec wrangler secret put ${key}`);
+      } else {
+        lines.push(`echo "\${{ secrets.${raw.name} }}" | pnpm exec wrangler secret put ${key}`);
+      }
     }
   }
 
@@ -245,27 +353,52 @@ function generateVerifySecrets(): string {
 }
 
 /**
- * Update CI workflow with generated env sections.
- * Skips if ci.yml doesn't exist (e.g., in test fixtures).
+ * Generate the decode-google-services section (base64 decode command for workflow).
  */
-export function updateCiWorkflow(rootDir: string): void {
-  const ciPath = path.resolve(rootDir, '.github/workflows/ci.yml');
+function generateGoogleServicesDecode(): string {
+  const config = envConfig.GOOGLE_SERVICES_JSON_BASE64;
+  const raw = resolveRaw(config as VariableConfig, Mode.Production);
+  /* istanbul ignore next -- @preserve defensive check */
+  if (!raw || !isSecret(raw)) return '';
 
-  if (!existsSync(ciPath)) {
-    return;
+  const lines = [
+    `run: echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > apps/web/android/app/google-services.json`,
+    `env:`,
+    `  GOOGLE_SERVICES_JSON_BASE64: \${{ secrets.${raw.name} }}`,
+  ];
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * Update workflow files with generated env sections.
+ * Processes all known workflow files, applying all known markers.
+ * replaceSection is a no-op when a marker doesn't exist in a file.
+ */
+export function updateWorkflows(rootDir: string): void {
+  // Build all section generators
+  const sections: Record<string, string> = {
+    'vitest-env': generateSecretsEnv(Mode.CiVitest),
+    'e2e-env': generateSecretsEnv(Mode.CiE2E),
+    'deploy-secrets': generateDeploySecrets(),
+    'verify-secrets': generateVerifySecrets(),
+    'decode-google-services': generateGoogleServicesDecode(),
+  };
+
+  for (const [marker, overrides] of Object.entries(BUILD_VARIANTS)) {
+    sections[marker] = generateBuildEnv(overrides);
   }
 
-  let content = readFileSync(ciPath, 'utf8');
+  for (const relativePath of WORKFLOW_FILES) {
+    const fullPath = path.resolve(rootDir, relativePath);
+    if (!existsSync(fullPath)) continue;
 
-  // Generate and replace each section
-  content = replaceSection(content, 'vitest-env', generateSecretsEnv(Mode.CiVitest));
-  content = replaceSection(content, 'e2e-env', generateSecretsEnv(Mode.CiE2E));
-  content = replaceSection(content, 'build-env', generateBuildEnv());
-  content = replaceSection(content, 'deploy-secrets', generateDeploySecrets());
-  content = replaceSection(content, 'verify-secrets', generateVerifySecrets());
-
-  writeFileSync(ciPath, content);
-  console.log('  Updated .github/workflows/ci.yml');
+    let content = readFileSync(fullPath, 'utf8');
+    for (const [marker, generated] of Object.entries(sections)) {
+      content = replaceSection(content, marker, generated);
+    }
+    writeFileSync(fullPath, content);
+    console.log(`  Updated ${relativePath}`);
+  }
 }
 
 export function parseArgs(args: string[]): EnvMode {

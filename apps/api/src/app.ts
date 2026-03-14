@@ -4,6 +4,7 @@ import {
   devOnly,
   errorHandler,
   envMiddleware,
+  platformMiddleware,
   dbMiddleware,
   redisMiddleware,
   sessionMiddleware,
@@ -12,6 +13,7 @@ import {
   ironSessionMiddleware,
   csrfProtection,
   securityHeaders,
+  versionCheck,
 } from './middleware/index.js';
 import {
   healthRoute,
@@ -32,6 +34,9 @@ import {
   budgetsRoute,
   usersRoute,
   forksRoute,
+  deviceTokensRoute,
+  tokenLoginRoute,
+  updatesRoute,
 } from './routes/index.js';
 import type { AppEnv } from './types.js';
 
@@ -43,7 +48,9 @@ export function createApp() {
   // Global middleware
   base.use('*', cors());
   base.use('*', securityHeaders());
+  base.use('*', platformMiddleware());
   base.use('*', envMiddleware());
+  base.use('*', versionCheck());
   base.onError(errorHandler);
 
   // Per-route middleware (all on base, before chaining)
@@ -130,6 +137,12 @@ export function createApp() {
   base.use('/api/users/*', ironSessionMiddleware());
   base.use('/api/users/*', sessionMiddleware());
 
+  base.use('/api/device-tokens/*', csrfProtection());
+  base.use('/api/device-tokens/*', dbMiddleware());
+  base.use('/api/device-tokens/*', redisMiddleware());
+  base.use('/api/device-tokens/*', ironSessionMiddleware());
+  base.use('/api/device-tokens/*', sessionMiddleware());
+
   base.use('/api/dev/*', csrfProtection());
   base.use('/api/dev/*', devOnly());
   base.use('/api/dev/*', dbMiddleware());
@@ -154,6 +167,9 @@ export function createApp() {
     .route('/api/ws', websocketRoute)
     .route('/api/budgets', budgetsRoute)
     .route('/api/users', usersRoute)
+    .route('/api/device-tokens', deviceTokensRoute)
+    .route('/api/auth/token-login', tokenLoginRoute)
+    .route('/api/updates', updatesRoute)
     .route('/api/dev', devRoute);
 
   return app;

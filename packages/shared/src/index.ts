@@ -22,3 +22,5 @@ export * from './utils/base64.js';
 export * from './legal/index.js';
 export * from './error-messages.js';
 export * from './mobile.js';
+export * from './platform.js';
+export * from './models/index.js';

@@ -1,0 +1,52 @@
+appId: ai.hushbox.app
+name: Core user flow — login and send message
+tags:
+  - should
+androidWebViewHierarchy: devtools
+env:
+  TEST_EMAIL: test-alice@test.hushbox.ai
+  TEST_PASSWORD: password123
+---
+- launchApp:
+    clearState: true
+
+# Wait for app to stabilize
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 15000
+
+# Navigate to login page via deep link (avoids WebView tap issues with sidebar Sheet)
+- openLink: https://hushbox.ai/login
+- extendedWaitUntil:
+    visible: 'Welcome back'
+    timeout: 10000
+
+# Fill login form
+- tapOn: 'Email or Username'
+- inputText: ${TEST_EMAIL}
+- hideKeyboard
+
+- tapOn: 'Password'
+- inputText: ${TEST_PASSWORD}
+- hideKeyboard
+
+# Submit login
+- tapOn: 'Log in'
+
+# Wait for authenticated chat page (use element unique to chat, not login page)
+- extendedWaitUntil:
+    visible: 'Select model'
+    timeout: 15000
+
+# Use a suggestion chip to set the textarea value via React state.
+# Direct inputText via IME doesn't reliably trigger React onChange in WebViews.
+- tapOn: 'Explain a concept'
+
+# Tap send button (id="send-button" on the prompt input button)
+- tapOn:
+    id: 'send-button'
+
+# Wait for AI mock response — the dev mock echoes with "Echo:" prefix
+- extendedWaitUntil:
+    visible: 'Echo:'
+    timeout: 15000

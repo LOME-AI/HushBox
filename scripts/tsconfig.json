@@ -2,8 +2,7 @@
   "extends": "../packages/config/tsconfig.base.json",
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo",
-    "noEmit": true,
-    "lib": ["ES2023", "WebWorker"]
+    "noEmit": true
   },
   "include": ["**/*.ts"]
 }

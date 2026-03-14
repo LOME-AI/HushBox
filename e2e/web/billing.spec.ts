@@ -126,8 +126,9 @@ test.describe('Billing & Payments', () => {
       // Webhook flow: Helcim → Hookdeck → CI runner → signature verified → balance credited
 
       // Wait for payment to complete (either immediate mock or webhook-based real)
+      // Real Helcim + Hookdeck webhook can take 10-30s (tokenize + API + webhook delivery + poll)
       try {
-        await billingPage.expectPaymentSuccess();
+        await billingPage.expectPaymentSuccess(45_000);
       } catch (error) {
         await testInfo.attach('diagnostic-report-full-payment', {
           body: JSON.stringify(
@@ -219,7 +220,7 @@ test.describe('Billing & Payments', () => {
       await billingPage.submitPayment();
 
       try {
-        await billingPage.expectPaymentSuccess();
+        await billingPage.expectPaymentSuccess(45_000);
       } catch (error) {
         await testInfo.attach('diagnostic-report-webhook-signature', {
           body: JSON.stringify(

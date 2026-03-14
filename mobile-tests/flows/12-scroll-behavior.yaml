@@ -1,0 +1,46 @@
+appId: ai.hushbox.app
+name: Message list scrolls correctly
+tags:
+  - should
+androidWebViewHierarchy: devtools
+env:
+  TEST_EMAIL: test-alice@test.hushbox.ai
+  TEST_PASSWORD: password123
+---
+- launchApp:
+    clearState: true
+
+# Wait for app to stabilize
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 15000
+
+# Navigate to login page via deep link (avoids WebView tap issues with sidebar Sheet)
+- openLink: https://hushbox.ai/login
+- extendedWaitUntil:
+    visible: 'Welcome back'
+    timeout: 10000
+- tapOn: 'Email or Username'
+- inputText: ${TEST_EMAIL}
+- hideKeyboard
+- tapOn: 'Password'
+- inputText: ${TEST_PASSWORD}
+- hideKeyboard
+- tapOn: 'Log in'
+
+# Wait for authenticated chat page (use element unique to chat, not login page)
+- extendedWaitUntil:
+    visible: 'Select model'
+    timeout: 15000
+
+# Send a message using suggestion chip (IME inputText doesn't trigger React onChange)
+- tapOn: 'Explain a concept'
+- tapOn:
+    id: 'send-button'
+- extendedWaitUntil:
+    visible: 'Echo:'
+    timeout: 15000
+
+# Scroll to verify the message list handles scroll correctly
+- scroll
+- waitForAnimationToEnd

@@ -18,6 +18,7 @@ interface Conversation {
   privilege: string;
   accepted?: boolean;
   invitedByUsername?: string | null;
+  muted: boolean;
 }
 
 interface FilteredConversations {

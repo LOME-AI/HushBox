@@ -1,0 +1,14 @@
+appId: ai.hushbox.app
+name: App launches without crashing
+tags:
+  - smoke
+  - must
+---
+# Launch app with clean state to test cold start
+- launchApp:
+    clearState: true
+
+# If the app crashes, Maestro will fail here.
+# Wait for the Android activity to settle.
+- waitForAnimationToEnd:
+    timeout: 10000

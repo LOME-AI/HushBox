@@ -1,0 +1,13 @@
+changelog:
+  categories:
+    - title: Features
+      labels:
+        - enhancement
+    - title: Bug Fixes
+      labels:
+        - bug
+    - title: Infrastructure
+      labels:
+        - dependencies
+        - github_actions
+        - docker_compose

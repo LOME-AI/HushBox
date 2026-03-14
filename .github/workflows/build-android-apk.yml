@@ -1,0 +1,107 @@
+name: Build Android APK
+
+on:
+  workflow_call:
+    inputs:
+      version-name:
+        required: true
+        type: string
+      version-code:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      prerelease:
+        required: false
+        type: boolean
+        default: false
+      release-title-suffix:
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Decode keystore
+        run: echo "$KEYSTORE_B64" | base64 -d > /tmp/hushbox-release.jks
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - name: Verify keystore
+        run: |
+          echo "Keystore file exists: $(test -s /tmp/hushbox-release.jks && echo YES || echo NO)"
+          echo "Store password set: $(test -n "$ANDROID_KEYSTORE_PASSWORD" && echo YES || echo NO)"
+          echo "Key alias set: $(test -n "$ANDROID_KEY_ALIAS" && echo YES || echo NO)"
+          echo "Key password set: $(test -n "$ANDROID_KEY_PASSWORD" && echo YES || echo NO)"
+          keytool -list -keystore /tmp/hushbox-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" > /dev/null 2>&1 && echo "Store password: CORRECT" || echo "Store password: WRONG"
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Decode google-services.json
+        # BEGIN GENERATED: decode-google-services
+        run: echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > apps/web/android/app/google-services.json
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        # END GENERATED: decode-google-services
+
+      - name: Build web for APK
+        run: pnpm --filter web build
+        # BEGIN GENERATED: build-env-android-direct
+        env:
+          VITE_API_URL: https://api.hushbox.ai
+          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          VITE_OPAQUE_SERVER_ID: hushbox.ai
+          VITE_PLATFORM: android-direct
+          VITE_APP_VERSION: ${{ inputs.version }}
+        # END GENERATED: build-env-android-direct
+
+      - name: Sync Android
+        working-directory: apps/web
+        run: npx cap sync android
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: apps/web/android
+
+      - name: Build APK
+        working-directory: apps/web/android
+        run: bundle exec fastlane github_release
+        env:
+          ANDROID_KEYSTORE_PATH: /tmp/hushbox-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_CODE: ${{ inputs.version-code }}
+          VERSION_NAME: ${{ inputs.version-name }}
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "v${{ inputs.version-name }}" \
+            apps/web/android/app/build/outputs/apk/release/app-release.apk \
+            --title "v${{ inputs.version-name }}${{ inputs.release-title-suffix }}" \
+            --generate-notes \
+            ${{ inputs.prerelease && '--prerelease' || '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}

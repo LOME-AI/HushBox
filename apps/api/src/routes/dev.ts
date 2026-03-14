@@ -12,8 +12,55 @@ import {
   createDevGroupChat,
   setWalletBalance,
 } from '../services/dev/index.js';
+import {
+  verificationEmail,
+  passwordChangedEmail,
+  twoFactorEnabledEmail,
+  twoFactorDisabledEmail,
+  accountLockedEmail,
+  welcomeEmail,
+} from '../services/email/templates/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
+import { setVersionOverride } from '../lib/version-override.js';
 import type { AppEnv } from '../types.js';
+
+const EMAIL_TEMPLATES = [
+  {
+    name: 'verification',
+    label: 'Email Verification',
+    render: (): string =>
+      verificationEmail({
+        verificationUrl: 'https://hushbox.ai/verify?token=sample-token-abc123',
+        userName: 'Alice',
+        expiresInHours: 24,
+      }).html,
+  },
+  {
+    name: 'password-changed',
+    label: 'Password Changed',
+    render: (): string => passwordChangedEmail({ userName: 'Alice' }).html,
+  },
+  {
+    name: 'two-factor-enabled',
+    label: 'Two-Factor Enabled',
+    render: (): string => twoFactorEnabledEmail({ userName: 'Alice' }).html,
+  },
+  {
+    name: 'two-factor-disabled',
+    label: 'Two-Factor Disabled',
+    render: (): string => twoFactorDisabledEmail({ userName: 'Alice' }).html,
+  },
+  {
+    name: 'account-locked',
+    label: 'Account Locked',
+    render: (): string => accountLockedEmail({ userName: 'Alice', lockoutMinutes: 15 }).html,
+  },
+  {
+    name: 'welcome',
+    label: 'Welcome',
+    render: (): string => welcomeEmail({ userName: 'Alice' }).html,
+  },
+];
 
 export const devRoute = new Hono<AppEnv>()
   .get(
@@ -114,4 +161,17 @@ export const devRoute = new Hono<AppEnv>()
         throw error;
       }
     }
-  );
+  )
+  .get('/emails', (c) => {
+    const templates = EMAIL_TEMPLATES.map(({ name, label, render }) => ({
+      name,
+      label,
+      html: render(),
+    }));
+    return c.json({ templates });
+  })
+  .post('/set-version', zValidator('json', z.object({ version: z.string().min(1) })), (c) => {
+    const { version } = c.req.valid('json');
+    setVersionOverride(version);
+    return c.json({ success: true, version }, 200);
+  });

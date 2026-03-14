@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { generateEnvFiles, updateCiWorkflow, parseArgs, escapeEnvValue } from './generate-env.js';
+import { generateEnvFiles, updateWorkflows, parseArgs, escapeEnvValue } from './generate-env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEST_DIR_ENV = path.resolve(__dirname, '__test-fixtures-env__');
@@ -15,6 +15,9 @@ describe('generateEnvFiles', () => {
     mkdirSync(TEST_DIR_ENV, { recursive: true });
     mkdirSync(path.join(TEST_DIR_ENV, 'apps/api'), { recursive: true });
 
+    // Simulate main repo (.git as directory) for worktree detection
+    mkdirSync(path.join(TEST_DIR_ENV, '.git'), { recursive: true });
+
     // Create minimal wrangler.toml
     writeFileSync(
       path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'),
@@ -23,7 +26,7 @@ name = "test-api"
 main = "src/index.ts"
 
 [dev]
-port = 8787
+local_protocol = "http"
 `
     );
 
@@ -173,7 +176,10 @@ port = 8787
       generateEnvFiles(TEST_DIR_ENV);
 
       const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
-      expect(content).not.toContain('VITE_');
+      expect(content).not.toContain('VITE_API_URL');
+      expect(content).not.toContain('VITE_HELCIM');
+      expect(content).not.toContain('VITE_CI');
+      expect(content).not.toContain('VITE_E2E');
     });
   });
 
@@ -221,7 +227,6 @@ port = 8787
       const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'), 'utf8');
       expect(content).toContain('name = "test-api"');
       expect(content).toContain('[dev]');
-      expect(content).toContain('port = 8787');
     });
 
     it('replaces existing [vars] section if present', () => {
@@ -233,7 +238,7 @@ port = 8787
 OLD_VAR = "should-be-replaced"
 
 [dev]
-port = 8787
+local_protocol = "http"
 `
       );
 
@@ -288,6 +293,28 @@ port = 8787
       expect(content).toContain('VITE_CI="true"');
     });
 
+    it('includes base port vars in .env.scripts', () => {
+      generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
+
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
+      expect(content).toContain('HB_VITE_PORT="5173"');
+      expect(content).toContain('HB_API_PORT="8787"');
+      expect(content).toContain('HB_POSTGRES_PORT="5432"');
+      expect(content).toContain('HB_NEON_PORT="4444"');
+      expect(content).toContain('HB_REDIS_PORT="6379"');
+      expect(content).toContain('HB_REDIS_HTTP_PORT="8079"');
+      expect(content).toContain('HB_ASTRO_PORT="4321"');
+      expect(content).toContain('HB_EMULATOR_ADB_PORT="5555"');
+      expect(content).toContain('HB_EMULATOR_VNC_PORT="6080"');
+    });
+
+    it('does not include COMPOSE_PROJECT_NAME in CI mode', () => {
+      generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
+
+      const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
+      expect(content).not.toContain('COMPOSE_PROJECT_NAME');
+    });
+
     it('throws if required ciE2E secrets are missing', () => {
       delete process.env['HELCIM_API_TOKEN_SANDBOX'];
 
@@ -309,7 +336,7 @@ port = 8787
   });
 });
 
-describe('updateCiWorkflow', () => {
+describe('updateWorkflows', () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR_CI, { recursive: true });
     mkdirSync(path.join(TEST_DIR_CI, '.github/workflows'), { recursive: true });
@@ -335,7 +362,7 @@ old content
 # END GENERATED: e2e-env
 rest of file`);
 
-      updateCiWorkflow(TEST_DIR_CI);
+      updateWorkflows(TEST_DIR_CI);
 
       const content = readCiYml();
       expect(content).toContain(
@@ -360,7 +387,7 @@ old content
 # END GENERATED: e2e-env
 after`);
 
-      updateCiWorkflow(TEST_DIR_CI);
+      updateWorkflows(TEST_DIR_CI);
 
       const content = readCiYml();
       expect(content).toContain('name: CI');
@@ -376,7 +403,7 @@ after`);
 old content
 # END GENERATED: build-env`);
 
-      updateCiWorkflow(TEST_DIR_CI);
+      updateWorkflows(TEST_DIR_CI);
 
       const content = readCiYml();
       expect(content).toContain('VITE_API_URL: https://api.hushbox.ai');
@@ -388,12 +415,36 @@ old content
 old content
 # END GENERATED: build-env`);
 
-      updateCiWorkflow(TEST_DIR_CI);
+      updateWorkflows(TEST_DIR_CI);
 
       const content = readCiYml();
       expect(content).toContain(
         'VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}'
       );
+    });
+
+    it('overrides VITE_APP_VERSION with version job output', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: build-env
+old content
+# END GENERATED: build-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).toContain('VITE_APP_VERSION: ${{ needs.version.outputs.version }}');
+    });
+
+    it('does not use VITE_APP_VERSION secret in build-env', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: build-env
+old content
+# END GENERATED: build-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).not.toContain('secrets.VITE_APP_VERSION');
     });
   });
 
@@ -404,7 +455,7 @@ old content
 old content
 # END GENERATED: deploy-secrets`);
 
-      updateCiWorkflow(TEST_DIR_CI);
+      updateWorkflows(TEST_DIR_CI);
 
       const content = readCiYml();
       expect(content).toContain(
@@ -424,13 +475,28 @@ old content
       );
     });
 
+    it('uses version job output for APP_VERSION instead of secret', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: deploy-secrets
+old content
+# END GENERATED: deploy-secrets`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).toContain(
+        'echo "${{ needs.version.outputs.version }}" | pnpm exec wrangler secret put APP_VERSION'
+      );
+      expect(content).not.toContain('secrets.APP_VERSION');
+    });
+
     it('uses production secret names for Helcim deploy secrets', () => {
       createCiYml(`name: CI
 # BEGIN GENERATED: deploy-secrets
 old content
 # END GENERATED: deploy-secrets`);
 
-      updateCiWorkflow(TEST_DIR_CI);
+      updateWorkflows(TEST_DIR_CI);
 
       const content = readCiYml();
       expect(content).toContain(
@@ -442,6 +508,26 @@ old content
     });
   });
 
+  describe('decode-google-services section', () => {
+    it('generates base64 decode command with production secret reference', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: decode-google-services
+old content
+# END GENERATED: decode-google-services`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).toContain(
+        'run: echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > apps/web/android/app/google-services.json'
+      );
+      expect(content).toContain('env:');
+      expect(content).toContain(
+        'GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}'
+      );
+    });
+  });
+
   describe('verify-secrets section', () => {
     it('generates for loop with all backend secret keys', () => {
       createCiYml(`name: CI
@@ -449,11 +535,11 @@ old content
 old content
 # END GENERATED: verify-secrets`);
 
-      updateCiWorkflow(TEST_DIR_CI);
+      updateWorkflows(TEST_DIR_CI);
 
       const content = readCiYml();
       expect(content).toContain(
-        'for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET RESEND_API_KEY OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do'
+        'for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET APP_VERSION RESEND_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do'
       );
     });
   });
@@ -479,7 +565,7 @@ old verify
 # END GENERATED: verify-secrets
 `);
 
-      updateCiWorkflow(TEST_DIR_CI);
+      updateWorkflows(TEST_DIR_CI);
 
       const content = readCiYml();
       expect(content).not.toContain('old e2e');
@@ -496,7 +582,7 @@ old verify
   });
 });
 
-describe('updateCiWorkflow edge cases', () => {
+describe('updateWorkflows edge cases', () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR_EDGE, { recursive: true });
     mkdirSync(path.join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true });
@@ -510,7 +596,7 @@ describe('updateCiWorkflow edge cases', () => {
     writeFileSync(path.join(TEST_DIR_EDGE, '.github/workflows/ci.yml'), 'name: CI\njobs: {}');
 
     // Should not throw
-    updateCiWorkflow(TEST_DIR_EDGE);
+    updateWorkflows(TEST_DIR_EDGE);
 
     const content = readFileSync(path.join(TEST_DIR_EDGE, '.github/workflows/ci.yml'), 'utf8');
     expect(content).toBe('name: CI\njobs: {}');
@@ -523,7 +609,7 @@ describe('updateCiWorkflow edge cases', () => {
 
     // Should not throw
     expect(() => {
-      updateCiWorkflow(TEST_DIR_EDGE);
+      updateWorkflows(TEST_DIR_EDGE);
     }).not.toThrow();
   });
 });
@@ -603,5 +689,403 @@ describe('escapeEnvValue', () => {
 
   it('handles values with newlines', () => {
     expect(escapeEnvValue('line1\nline2')).toBe('"line1\nline2"');
+  });
+});
+
+describe('worktree port integration', () => {
+  const TEST_DIR_WT = path.resolve(__dirname, '__test-fixtures-worktree-env__');
+
+  beforeEach(() => {
+    mkdirSync(TEST_DIR_WT, { recursive: true });
+    mkdirSync(path.join(TEST_DIR_WT, 'apps/api'), { recursive: true });
+
+    writeFileSync(
+      path.join(TEST_DIR_WT, 'apps/api/wrangler.toml'),
+      `# Wrangler configuration
+name = "test-api"
+main = "src/index.ts"
+
+[dev]
+local_protocol = "http"
+`
+    );
+
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    rmSync(TEST_DIR_WT, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  describe('main repo (slot 0)', () => {
+    beforeEach(() => {
+      mkdirSync(path.join(TEST_DIR_WT, '.git'), { recursive: true });
+    });
+
+    it('uses base ports in .dev.vars', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, 'apps/api/.dev.vars'), 'utf8');
+      expect(content).toContain('API_URL="http://localhost:8787"');
+      expect(content).toContain('FRONTEND_URL="http://localhost:5173"');
+    });
+
+    it('uses base ports in .env.development', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, '.env.development'), 'utf8');
+      expect(content).toContain('VITE_API_URL="http://localhost:8787"');
+    });
+
+    it('uses base ports in .env.scripts', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, '.env.scripts'), 'utf8');
+      expect(content).toContain('localhost:4444');
+      expect(content).toContain('localhost:5432');
+    });
+
+    it('appends worktree vars to .env.scripts', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, '.env.scripts'), 'utf8');
+      expect(content).toContain('COMPOSE_PROJECT_NAME="hushbox"');
+      expect(content).toContain('HB_VITE_PORT="5173"');
+      expect(content).toContain('HB_API_PORT="8787"');
+      expect(content).toContain('HB_POSTGRES_PORT="5432"');
+      expect(content).toContain('HB_NEON_PORT="4444"');
+      expect(content).toContain('HB_REDIS_PORT="6379"');
+      expect(content).toContain('HB_REDIS_HTTP_PORT="8079"');
+      expect(content).toContain('HB_ASTRO_PORT="4321"');
+      expect(content).toContain('HB_EMULATOR_ADB_PORT="5555"');
+      expect(content).toContain('HB_EMULATOR_VNC_PORT="6080"');
+    });
+  });
+
+  describe('worktree (slot > 0)', () => {
+    beforeEach(() => {
+      writeFileSync(
+        path.join(TEST_DIR_WT, '.git'),
+        'gitdir: /home/user/repo/.git/worktrees/my-feature\n'
+      );
+    });
+
+    it('offsets ports in .dev.vars', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, 'apps/api/.dev.vars'), 'utf8');
+      // Should NOT contain base ports
+      expect(content).not.toContain('localhost:8787');
+      expect(content).not.toContain('localhost:5173');
+      expect(content).not.toContain('localhost:4444');
+      expect(content).not.toContain('localhost:8079');
+    });
+
+    it('offsets ports in .env.development', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, '.env.development'), 'utf8');
+      expect(content).not.toContain('localhost:8787');
+    });
+
+    it('offsets ports in .env.scripts', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, '.env.scripts'), 'utf8');
+      expect(content).not.toContain('localhost:4444');
+      expect(content).not.toContain('localhost:5432');
+    });
+
+    it('appends worktree vars with offset ports to .env.scripts', () => {
+      generateEnvFiles(TEST_DIR_WT);
+
+      const content = readFileSync(path.join(TEST_DIR_WT, '.env.scripts'), 'utf8');
+      expect(content).toContain('COMPOSE_PROJECT_NAME="hushbox-');
+      expect(content).not.toContain('HB_VITE_PORT="5173"');
+      expect(content).not.toContain('HB_API_PORT="8787"');
+    });
+
+    it('does not offset ports in non-development modes', () => {
+      // Set up required CI secrets
+      process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test';
+      process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test';
+      process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'] = 'test';
+
+      generateEnvFiles(TEST_DIR_WT, 'ciE2E');
+
+      const content = readFileSync(path.join(TEST_DIR_WT, 'apps/api/.dev.vars'), 'utf8');
+      expect(content).toContain('localhost:8787');
+      expect(content).toContain('localhost:5173');
+
+      delete process.env['HELCIM_API_TOKEN_SANDBOX'];
+      delete process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'];
+      delete process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'];
+    });
+  });
+});
+
+const TEST_DIR_VARIANTS = path.resolve(__dirname, '__test-fixtures-variants__');
+
+describe('build-env variants', () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR_VARIANTS, { recursive: true });
+    mkdirSync(path.join(TEST_DIR_VARIANTS, '.github/workflows'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(TEST_DIR_VARIANTS, { recursive: true, force: true });
+  });
+
+  const createWorkflow = (filename: string, content: string): void => {
+    writeFileSync(path.join(TEST_DIR_VARIANTS, '.github/workflows', filename), content);
+  };
+
+  const readWorkflow = (filename: string): string => {
+    return readFileSync(path.join(TEST_DIR_VARIANTS, '.github/workflows', filename), 'utf8');
+  };
+
+  describe('build-env-android-direct', () => {
+    it('overrides VITE_PLATFORM to android-direct', () => {
+      createWorkflow(
+        'build-android-apk.yml',
+        `name: APK
+        # BEGIN GENERATED: build-env-android-direct
+        old content
+        # END GENERATED: build-env-android-direct`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const content = readWorkflow('build-android-apk.yml');
+      expect(content).toContain('VITE_PLATFORM: android-direct');
+    });
+
+    it('overrides VITE_APP_VERSION to use inputs.version', () => {
+      createWorkflow(
+        'build-android-apk.yml',
+        `name: APK
+        # BEGIN GENERATED: build-env-android-direct
+        old content
+        # END GENERATED: build-env-android-direct`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const content = readWorkflow('build-android-apk.yml');
+      expect(content).toContain('VITE_APP_VERSION: ${{ inputs.version }}');
+    });
+
+    it('does not use VITE_APP_VERSION secret', () => {
+      createWorkflow(
+        'build-android-apk.yml',
+        `name: APK
+        # BEGIN GENERATED: build-env-android-direct
+        old content
+        # END GENERATED: build-env-android-direct`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const content = readWorkflow('build-android-apk.yml');
+      expect(content).not.toContain('secrets.VITE_APP_VERSION');
+    });
+
+    it('includes VITE_OPAQUE_SERVER_ID from envConfig production value', () => {
+      createWorkflow(
+        'build-android-apk.yml',
+        `name: APK
+        # BEGIN GENERATED: build-env-android-direct
+        old content
+        # END GENERATED: build-env-android-direct`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const content = readWorkflow('build-android-apk.yml');
+      expect(content).toContain('VITE_OPAQUE_SERVER_ID: hushbox.ai');
+    });
+  });
+
+  describe('build-env-mobile-test', () => {
+    it('overrides VITE_OPAQUE_SERVER_ID for dev API', () => {
+      createWorkflow(
+        'ci.yml',
+        `name: CI
+        # BEGIN GENERATED: build-env-mobile-test
+        old content
+        # END GENERATED: build-env-mobile-test`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const content = readWorkflow('ci.yml');
+      expect(content).toContain('VITE_OPAQUE_SERVER_ID: localhost:5173');
+    });
+  });
+
+  describe('build-env-web-release', () => {
+    it('overrides VITE_PLATFORM to web', () => {
+      createWorkflow(
+        'release.yml',
+        `name: Release
+        # BEGIN GENERATED: build-env-web-release
+        old content
+        # END GENERATED: build-env-web-release`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const content = readWorkflow('release.yml');
+      expect(content).toContain('VITE_PLATFORM: web');
+    });
+
+    it('overrides VITE_APP_VERSION to use step output', () => {
+      createWorkflow(
+        'release.yml',
+        `name: Release
+        # BEGIN GENERATED: build-env-web-release
+        old content
+        # END GENERATED: build-env-web-release`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const content = readWorkflow('release.yml');
+      expect(content).toContain('VITE_APP_VERSION: ${{ steps.version.outputs.version }}');
+    });
+  });
+
+  describe('build-env-android-play', () => {
+    it('overrides VITE_PLATFORM to android', () => {
+      createWorkflow(
+        'release.yml',
+        `name: Release
+        # BEGIN GENERATED: build-env-android-play
+        old content
+        # END GENERATED: build-env-android-play`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const content = readWorkflow('release.yml');
+      expect(content).toContain('VITE_PLATFORM: android');
+    });
+
+    it('overrides VITE_APP_VERSION to use job output', () => {
+      createWorkflow(
+        'release.yml',
+        `name: Release
+        # BEGIN GENERATED: build-env-android-play
+        old content
+        # END GENERATED: build-env-android-play`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const content = readWorkflow('release.yml');
+      expect(content).toContain('VITE_APP_VERSION: ${{ needs.prepare.outputs.version }}');
+    });
+  });
+
+  describe('shared values across variants', () => {
+    it('all variants include VITE_API_URL from envConfig', () => {
+      createWorkflow(
+        'build-android-apk.yml',
+        `name: APK
+        # BEGIN GENERATED: build-env-android-direct
+        old
+        # END GENERATED: build-env-android-direct`
+      );
+      createWorkflow(
+        'release.yml',
+        `name: Release
+        # BEGIN GENERATED: build-env-web-release
+        old
+        # END GENERATED: build-env-web-release
+        # BEGIN GENERATED: build-env-android-play
+        old
+        # END GENERATED: build-env-android-play`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const apk = readWorkflow('build-android-apk.yml');
+      const release = readWorkflow('release.yml');
+      expect(apk).toContain('VITE_API_URL: https://api.hushbox.ai');
+      expect(release).toContain('VITE_API_URL: https://api.hushbox.ai');
+    });
+
+    it('all variants include VITE_HELCIM_JS_TOKEN from envConfig', () => {
+      createWorkflow(
+        'build-android-apk.yml',
+        `name: APK
+        # BEGIN GENERATED: build-env-android-direct
+        old
+        # END GENERATED: build-env-android-direct`
+      );
+      createWorkflow(
+        'release.yml',
+        `name: Release
+        # BEGIN GENERATED: build-env-web-release
+        old
+        # END GENERATED: build-env-web-release`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const apk = readWorkflow('build-android-apk.yml');
+      const release = readWorkflow('release.yml');
+      expect(apk).toContain('VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}');
+      expect(release).toContain(
+        'VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}'
+      );
+    });
+  });
+
+  describe('multi-file processing', () => {
+    it('updates markers across multiple workflow files', () => {
+      createWorkflow(
+        'ci.yml',
+        `name: CI
+        # BEGIN GENERATED: build-env
+        old ci
+        # END GENERATED: build-env`
+      );
+      createWorkflow(
+        'release.yml',
+        `name: Release
+        # BEGIN GENERATED: build-env-web-release
+        old release
+        # END GENERATED: build-env-web-release`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const ci = readWorkflow('ci.yml');
+      const release = readWorkflow('release.yml');
+      expect(ci).toContain('VITE_API_URL: https://api.hushbox.ai');
+      expect(ci).not.toContain('old ci');
+      expect(release).toContain('VITE_API_URL: https://api.hushbox.ai');
+      expect(release).not.toContain('old release');
+    });
+
+    it('skips missing workflow files gracefully', () => {
+      // Only create ci.yml, not release.yml or build-android-apk.yml
+      createWorkflow(
+        'ci.yml',
+        `name: CI
+        # BEGIN GENERATED: build-env
+        old
+        # END GENERATED: build-env`
+      );
+
+      expect(() => {
+        updateWorkflows(TEST_DIR_VARIANTS);
+      }).not.toThrow();
+
+      const ci = readWorkflow('ci.yml');
+      expect(ci).toContain('VITE_API_URL:');
+    });
   });
 });

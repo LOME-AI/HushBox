@@ -1,8 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { modelSchema } from '@hushbox/shared';
-import { fetchModels, fetchZdrModelIds } from '../services/openrouter/index.js';
-import { processModels } from '../services/models.js';
+import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
 import type { AppEnv } from '../types.js';
 
 const modelsListResponseSchema = z.object({

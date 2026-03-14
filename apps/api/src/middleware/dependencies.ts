@@ -9,6 +9,7 @@ import {
   ERROR_CODE_2FA_EXPIRED,
   ERROR_CODE_2FA_REQUIRED,
   ERROR_CODE_USER_NOT_FOUND,
+  ERROR_CODE_BILLING_SESSION_RESTRICTED,
 } from '@hushbox/shared';
 import { createRedisClient } from '../lib/redis.js';
 import { createIronSessionMiddleware } from './iron-session.js';
@@ -44,6 +45,50 @@ export function redisMiddleware(): MiddlewareHandler<AppEnv> {
   };
 }
 
+/** Validates session state against Redis. Returns error code + status or null if valid. */
+async function validateSessionState(
+  sessionData: {
+    userId: string;
+    sessionId: string;
+    createdAt: number;
+    pending2FA: boolean;
+    pending2FAExpiresAt: number;
+    billingOnly?: boolean;
+  },
+  redis: AppEnv['Variables']['redis'],
+  requestPath: string
+): Promise<{ code: string; status: 401 | 403 } | null> {
+  const { redisGet } = await import('../lib/redis-registry.js');
+
+  const sessionActive = await redisGet(
+    redis,
+    'sessionActive',
+    sessionData.userId,
+    sessionData.sessionId
+  );
+  if (!sessionActive) return { code: ERROR_CODE_SESSION_REVOKED, status: 401 };
+
+  const passwordChangedAt = await redisGet(redis, 'passwordChangedAt', sessionData.userId);
+  if (passwordChangedAt && sessionData.createdAt < passwordChangedAt) {
+    return { code: ERROR_CODE_PASSWORD_CHANGED, status: 401 };
+  }
+
+  if (sessionData.pending2FA) {
+    if (sessionData.pending2FAExpiresAt < Date.now()) {
+      return { code: ERROR_CODE_2FA_EXPIRED, status: 401 };
+    }
+    return { code: ERROR_CODE_2FA_REQUIRED, status: 403 };
+  }
+
+  if (sessionData.billingOnly) {
+    const isBillingOrAuth =
+      requestPath.startsWith('/api/billing') || requestPath.startsWith('/api/auth');
+    if (!isBillingOrAuth) return { code: ERROR_CODE_BILLING_SESSION_RESTRICTED, status: 403 };
+  }
+
+  return null;
+}
+
 export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
   // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
@@ -55,35 +100,13 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
       return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
     }
 
-    // Check session is active in Redis
-    const redis = c.get('redis');
-    const { redisGet } = await import('../lib/redis-registry.js');
-    const sessionActive = await redisGet(
-      redis,
-      'sessionActive',
-      sessionData.userId,
-      sessionData.sessionId
-    );
-    if (!sessionActive) {
-      if (hasLinkHeader) return next();
-      return c.json(createErrorResponse(ERROR_CODE_SESSION_REVOKED), 401);
-    }
-
-    // Check session predates password change
-    const passwordChangedAt = await redisGet(redis, 'passwordChangedAt', sessionData.userId);
-    if (passwordChangedAt && sessionData.createdAt < passwordChangedAt) {
-      if (hasLinkHeader) return next();
-      return c.json(createErrorResponse(ERROR_CODE_PASSWORD_CHANGED), 401);
-    }
-
-    // Check pending 2FA gate
-    if (sessionData.pending2FA) {
-      if (sessionData.pending2FAExpiresAt < Date.now()) {
-        if (hasLinkHeader) return next();
-        return c.json(createErrorResponse(ERROR_CODE_2FA_EXPIRED), 401);
-      }
+    const rejection = await validateSessionState(sessionData, c.get('redis'), c.req.path);
+    if (rejection) {
       // 2FA_REQUIRED (403): do NOT fall back to link guest — user must complete 2FA
-      return c.json(createErrorResponse(ERROR_CODE_2FA_REQUIRED), 403);
+      if (hasLinkHeader && rejection.code !== ERROR_CODE_2FA_REQUIRED) {
+        return next();
+      }
+      return c.json(createErrorResponse(rejection.code), rejection.status);
     }
 
     const db = c.get('db');

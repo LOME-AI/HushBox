@@ -27,6 +27,7 @@ import {
   chatKeys,
   DECRYPTING_TITLE,
 } from '@/hooks/chat';
+
 import { usePendingChatStore } from '@/stores/pending-chat';
 import { useModelStore, getPrimaryModel } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
@@ -106,6 +107,7 @@ export interface ComputeRenderStateParams {
   conversation: { title: string } | undefined;
   isConversationLoading: boolean;
   isMessagesLoading: boolean;
+  isDecryptionPending: boolean;
 }
 
 export function shouldRedirect(
@@ -144,6 +146,12 @@ export function computeRenderState(params: ComputeRenderStateParams): RenderStat
     if (localMessagesLength > 0) {
       return { type: 'ready' };
     }
+    return { type: 'loading', title: DECRYPTING_TITLE };
+  }
+
+  // API returned messages but decryption hasn't completed yet (key chain loading).
+  // Stay in loading state to show "Decrypting..." instead of a blank page.
+  if (params.isDecryptionPending) {
     return { type: 'loading', title: DECRYPTING_TITLE };
   }
 
@@ -865,6 +873,9 @@ export function useAuthenticatedChat({
     return allMessages.reduce((total, message) => total + message.content.length, 0);
   }, [allMessages]);
 
+  const isDecryptionPending =
+    !isCreateMode && (apiMessages?.length ?? 0) > 0 && decryptedApiMessages.length === 0;
+
   const renderState = React.useMemo(
     () =>
       computeRenderState({
@@ -874,6 +885,7 @@ export function useAuthenticatedChat({
         conversation,
         isConversationLoading,
         isMessagesLoading,
+        isDecryptionPending,
       }),
     [
       isCreateMode,
@@ -882,6 +894,7 @@ export function useAuthenticatedChat({
       conversation,
       isConversationLoading,
       isMessagesLoading,
+      isDecryptionPending,
     ]
   );
 
@@ -929,3 +942,5 @@ export function useAuthenticatedChat({
     callerPrivilege: conversation?.callerPrivilege as MemberPrivilege | undefined,
   };
 }
+
+export { DECRYPTING_TITLE } from '@/hooks/chat';

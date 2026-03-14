@@ -1,0 +1,30 @@
+---
+import ThemeScript from '../components/ThemeScript.astro';
+import faviconUrl from '@hushbox/ui/assets/favicon.ico';
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} | HushBox</title>
+    {description && <meta name="description" content={description} />}
+    <meta property="og:title" content={`${title} | HushBox`} />
+    {description && <meta property="og:description" content={description} />}
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/x-icon" href={faviconUrl} />
+    <ThemeScript />
+  </head>
+  <body class="bg-background text-foreground min-h-svh antialiased">
+    <slot />
+  </body>
+</html>

@@ -17,8 +17,7 @@ import {
 import type { AppEnv } from '../types.js';
 import { buildPrompt } from '../services/prompt/builder.js';
 import { consumeTrialMessage } from '../services/billing/index.js';
-import { processModels } from '../services/models.js';
-import { fetchModels, fetchZdrModelIds } from '../services/openrouter/index.js';
+import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
 import { validateLastMessageIsFromUser, buildOpenRouterMessages } from '../services/chat/index.js';
 import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createErrorResponse } from '../lib/error-response.js';

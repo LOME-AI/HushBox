@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { ROUTES } from '@hushbox/shared';
 import { SidebarFooter } from './sidebar-footer';
 import { useUIStore } from '@/stores/ui';
 
@@ -68,6 +69,14 @@ vi.mock('@/lib/env', () => ({
 
 vi.mock('@/hooks/use-is-mobile', () => ({
   useIsMobile: mockUseIsMobile,
+}));
+
+vi.mock('@/capacitor/platform', () => ({
+  isNative: (): boolean => false,
+}));
+
+vi.mock('@/capacitor/browser', () => ({
+  openExternalPage: vi.fn(),
 }));
 
 describe('SidebarFooter', () => {
@@ -165,6 +174,16 @@ describe('SidebarFooter', () => {
       expect(githubLink).toBeInTheDocument();
       expect(githubLink).toHaveAttribute('href', 'https://github.com/lome-ai/hushbox');
       expect(githubLink).toHaveAttribute('target', '_blank');
+    });
+
+    it('shows About HushBox link in dropdown', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      const link = screen.getByTestId('menu-marketing');
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute('href', ROUTES.MARKETING);
     });
 
     it('shows Log Out option in dropdown', async () => {
@@ -311,6 +330,68 @@ describe('SidebarFooter', () => {
     });
   });
 
+  describe('dev-only Emails option', () => {
+    it('shows Emails option in dev mode when authenticated', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      expect(screen.getByTestId('menu-emails')).toBeInTheDocument();
+    });
+
+    it('shows Emails option in dev mode when unauthenticated', async () => {
+      mockUseSession.mockReturnValue({ data: null });
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      expect(screen.getByTestId('menu-emails')).toBeInTheDocument();
+    });
+
+    it('navigates to /dev/emails when Emails is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-emails'));
+
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: '/dev/emails',
+      });
+    });
+  });
+
+  describe('dev-only Assets option', () => {
+    it('shows Assets option in dev mode when authenticated', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      expect(screen.getByTestId('menu-assets')).toBeInTheDocument();
+    });
+
+    it('shows Assets option in dev mode when unauthenticated', async () => {
+      mockUseSession.mockReturnValue({ data: null });
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      expect(screen.getByTestId('menu-assets')).toBeInTheDocument();
+    });
+
+    it('navigates to /dev/assets when Assets is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-assets'));
+
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: '/dev/assets',
+      });
+    });
+  });
+
   describe('unauthenticated state', () => {
     beforeEach(() => {
       mockUseSession.mockReturnValue({ data: null });
@@ -380,6 +461,16 @@ describe('SidebarFooter', () => {
 
       await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-github')).toBeInTheDocument();
+    });
+
+    it('shows About HushBox link', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      const link = screen.getByTestId('menu-marketing');
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute('href', ROUTES.MARKETING);
     });
   });
 

@@ -18,6 +18,15 @@ vi.mock('@/lib/auth', () => ({
   },
 }));
 
+// Mock capacitor (used by ExternalPageLink)
+vi.mock('@/capacitor/platform', () => ({
+  isNative: (): boolean => false,
+}));
+
+vi.mock('@/capacitor/browser', () => ({
+  openExternalPage: vi.fn(),
+}));
+
 // Mock UI components
 vi.mock('@hushbox/ui', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),

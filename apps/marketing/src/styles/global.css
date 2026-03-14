@@ -1,6 +1,7 @@
 @import '../../../../packages/config/tailwind/index.css';
 
 @source '../../../../packages/ui/src/components/marketing/**/*.tsx';
+@source '../../../../packages/ui/src/components/cipher-wall/**/*.tsx';
 
 /* ScrollReveal animations */
 [data-slot='scroll-reveal'][data-visible='false'] {
@@ -90,5 +91,19 @@
   }
   to {
     transform: scaleY(1);
+  }
+}
+
+/* CipherWall fade-in on load */
+[data-cipher-bg] {
+  animation: cipherFadeIn 2.5s ease-in forwards;
+}
+
+@keyframes cipherFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }

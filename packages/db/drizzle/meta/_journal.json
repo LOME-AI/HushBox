@@ -197,6 +197,13 @@
       "when": 1772236800000,
       "tag": "0027_sender_id_constraint",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1772323200000,
+      "tag": "0028_device_tokens_and_muted",
+      "breakpoints": true
     }
   ]
 }

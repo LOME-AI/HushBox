@@ -36,6 +36,10 @@ vi.mock('@/hooks/use-conversation-members', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+  useMuteConversation: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
 }));
 
 // Mock @hushbox/shared with feature flags (partial mock)
@@ -114,7 +118,7 @@ function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
       },
     },
   });
-  // eslint-disable-next-line sonarjs/function-return-type -- test wrapper returns children
+
   function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   }
@@ -155,6 +159,7 @@ describe('Sidebar', () => {
           accepted: true,
           invitedByUsername: null,
           privilege: 'owner',
+          muted: false,
         },
       ],
       isLoading: false,
@@ -299,6 +304,7 @@ describe('Sidebar', () => {
             accepted: true,
             invitedByUsername: null,
             privilege: 'owner',
+            muted: false,
           },
           {
             id: 'conv-2',
@@ -312,6 +318,7 @@ describe('Sidebar', () => {
             accepted: true,
             invitedByUsername: null,
             privilege: 'write',
+            muted: false,
           },
         ],
         isLoading: false,
@@ -343,6 +350,7 @@ describe('Sidebar', () => {
             accepted: true,
             invitedByUsername: null,
             privilege: 'owner',
+            muted: false,
           },
         ],
         isLoading: false,
@@ -416,6 +424,7 @@ describe('Sidebar', () => {
             accepted: true,
             invitedByUsername: null,
             privilege: 'owner',
+            muted: false,
           },
         ]
       );
@@ -429,7 +438,6 @@ describe('Sidebar', () => {
         isLoading: false,
       });
 
-      // eslint-disable-next-line sonarjs/function-return-type -- test wrapper returns children
       function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
         return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
       }

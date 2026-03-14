@@ -9,10 +9,10 @@
   },
   "devDependencies": {
     "@hushbox/config": "workspace:*",
-    "@hushbox/shared": "workspace:*",
-    "@playwright/test": "^1.57.0",
-    "@types/node": "^22.13.14",
     "@hushbox/crypto": "workspace:*",
-    "typescript": "^5.7.2"
+    "@hushbox/shared": "workspace:*",
+    "@playwright/test": "^1.58.2",
+    "@types/node": "^25.4.0",
+    "typescript": "^5.9.3"
   }
 }

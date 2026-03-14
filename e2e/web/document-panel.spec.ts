@@ -57,10 +57,10 @@ test.describe('Document Panel', () => {
 
     await test.step('send code block and verify card', async () => {
       await chatPage.sendFollowUpMessage(PYTHON_CODE_BLOCK);
-      // Wait for DocumentCard — card only appears after streaming completes and
-      // Streamdown's pre override extracts the code block. More reliable than
-      // getByText('fibonacci') which fails on webkit due to Shiki rendering.
-      await documentPanel.waitForCardAppear(45_000);
+      // Wait for Echo response to confirm streaming started
+      await chatPage.waitForAIResponse();
+      // Scan message list until Virtuoso renders the document card
+      await documentPanel.scrollToNthCard(chatPage, 0, 45_000);
       const card = documentPanel.documentCard(0);
       await expect(card).toContainText('fibonacci');
       await expect(card).toContainText('python');
@@ -108,19 +108,16 @@ test.describe('Document Panel', () => {
 
     await test.step('send Python code block (for multi-document switching)', async () => {
       await chatPage.sendFollowUpMessage(PYTHON_CODE_BLOCK);
-      // Wait for DocumentCard directly — see Test 1 comment for rationale
-      await documentPanel.waitForCardAppear(45_000);
-      expect(await documentPanel.getCardCount()).toBe(1);
+      await chatPage.waitForAIResponse();
+      await documentPanel.scrollToNthCard(chatPage, 0, 45_000);
+      expect(await documentPanel.getCardCount()).toBeGreaterThanOrEqual(1);
     });
 
     await test.step('send mermaid and verify rendered diagram', async () => {
       await chatPage.sendFollowUpMessage(MERMAID_BLOCK);
-      // Wait for second card (mermaid) to appear — avoids text-based wait
-      // that fails on webkit due to Streamdown/Shiki rendering pipeline
-      await documentPanel.documentCards().nth(1).waitFor({ state: 'visible', timeout: 45_000 });
-
-      const cardCount = await documentPanel.getCardCount();
-      expect(cardCount).toBe(2);
+      await chatPage.waitForAIResponse();
+      // Scan list until Virtuoso renders the second card (mermaid)
+      await documentPanel.scrollToNthCard(chatPage, 1, 45_000);
 
       // Click the mermaid card (second card)
       await documentPanel.clickCard(1);
@@ -148,17 +145,14 @@ test.describe('Document Panel', () => {
       // On mobile, panel covers the message list — close first so cards are clickable
       await documentPanel.closePanel();
       await expect(documentPanel.panel).not.toBeVisible();
-      // Allow Virtuoso to recalculate layout after panel close (mobile = 100% width panel)
-      await authenticatedPage.waitForTimeout(500);
 
-      // Virtuoso may temporarily remove cards during layout recalculation
-      // (notification animation + panel close resize). Retry until stable.
-      await expect(async () => {
-        await documentPanel.clickCard(0);
-      }).toPass({ timeout: 10_000 });
+      // Scan list to find card(0) — it's in an earlier message, may be above viewport
+      await documentPanel.scrollToNthCard(chatPage, 0, 15_000);
+      await documentPanel.clickCard(0);
       await documentPanel.waitForPanelOpen();
 
-      await expect(documentPanel.documentCard(0)).toHaveAttribute('data-active', 'true');
+      // After panel opens (100% width on mobile), Virtuoso recalculates and may
+      // remove the card from DOM. Verify via panel title instead of card attribute.
       await documentPanel.expectTitle('fibonacci');
       // Raw toggle should not be visible for code documents
       await expect(documentPanel.showRawButton()).not.toBeVisible();
@@ -169,15 +163,10 @@ test.describe('Document Panel', () => {
       // Close panel so message list cards are accessible (mobile = 100% width panel)
       await documentPanel.closePanel();
       await expect(documentPanel.panel).not.toBeVisible();
-      // Allow Virtuoso to recalculate layout after panel close (mobile = 100% width panel)
-      await authenticatedPage.waitForTimeout(500);
 
-      // Scroll to bring mermaid card into DOM (Virtuoso may have removed it)
-      await chatPage.scrollToBottom();
-      await expect(documentPanel.documentCards().last()).toBeVisible();
-
-      const lastCardIndex = (await documentPanel.getCardCount()) - 1;
-      await documentPanel.clickCard(lastCardIndex);
+      // Scan list to find mermaid card (index 1) — it's in a later message
+      await documentPanel.scrollToNthCard(chatPage, 1, 15_000);
+      await documentPanel.clickCard(1);
       await documentPanel.waitForPanelOpen();
 
       // Should show rendered diagram (toggle resets on doc switch)

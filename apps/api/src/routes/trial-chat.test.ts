@@ -4,7 +4,7 @@ import type { AppEnv } from '../types.js';
 import type { OpenRouterClient } from '../services/openrouter/types.js';
 import { trialChatRoute } from './trial-chat.js';
 import { createFastMockOpenRouterClient } from '../test-helpers/index.js';
-import { clearModelCache } from '../services/openrouter/openrouter.js';
+import { clearModelCache } from '@hushbox/shared/models';
 
 interface MockFetchResponse {
   ok: boolean;
@@ -356,28 +356,27 @@ describe('trial chat routes', () => {
 
     it('returns 402 when message exceeds trial cost limit', async () => {
       const oneYearAgoSeconds = Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60;
-      // Create models with expensive test model below 75th percentile but still expensive enough
-      // to exceed trial budget. Need multiple models so premium classification works correctly.
+      // Model must be cheap enough to pass trial affordability (non-premium),
+      // but a very long message pushes total cost over $0.01 via storage cost alone.
+      // 50K chars × $0.0000003/char storage = $0.015 > $0.01 trial budget.
       const budgetTestModels = [
         {
           id: 'budget-test/model',
           name: 'Budget Test Model',
           description: 'Model for budget testing',
           context_length: 128_000,
-          // Moderately expensive: With fees, a 50k char message = ~25k tokens at conservative rate
-          // 25000 * 0.001 = $25 input + $25 output minimum = $50+ >> $0.01 trial limit
-          pricing: { prompt: '0.001', completion: '0.001' },
+          pricing: { prompt: '0.0000001', completion: '0.0000001' }, // Very cheap — passes trial affordability
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds, // Old model (non-premium by recency)
           architecture: { input_modalities: ['text'], output_modalities: ['text'] },
         },
-        // Add expensive models to push threshold above our test model's price
+        // Add expensive models to push price percentile threshold above our test model
         {
           id: 'super-expensive/model-1',
           name: 'Super Expensive 1',
           description: 'Very expensive',
           context_length: 128_000,
-          pricing: { prompt: '0.1', completion: '0.1' }, // Much more expensive
+          pricing: { prompt: '0.1', completion: '0.1' },
           supported_parameters: ['temperature'],
           created: oneYearAgoSeconds,
           architecture: { input_modalities: ['text'], output_modalities: ['text'] },

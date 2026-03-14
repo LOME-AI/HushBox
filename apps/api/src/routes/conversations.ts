@@ -94,11 +94,12 @@ export const conversationsRoute = new Hono<AppEnv>()
     return c.json(
       {
         conversations: userConversations.map(
-          ({ conversation, acceptedAt, invitedByUsername, privilege }) => ({
+          ({ conversation, acceptedAt, invitedByUsername, privilege, muted }) => ({
             ...serializeConversation(conversation),
             accepted: acceptedAt !== null,
             invitedByUsername,
             privilege,
+            muted,
           })
         ),
       },

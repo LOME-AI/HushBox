@@ -63,6 +63,10 @@ vi.mock('@/hooks/use-conversation-members', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+  useMuteConversation: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
 }));
 
 describe('SidebarContent', () => {
@@ -73,6 +77,7 @@ describe('SidebarContent', () => {
       currentEpoch: 1,
       updatedAt: new Date().toISOString(),
       privilege: 'owner',
+      muted: false,
     },
   ];
 
@@ -148,6 +153,7 @@ describe('SidebarContent', () => {
         accepted: true,
         invitedByUsername: null,
         privilege: 'owner',
+        muted: false,
       },
       {
         id: 'conv-2',
@@ -157,6 +163,7 @@ describe('SidebarContent', () => {
         accepted: true,
         invitedByUsername: null,
         privilege: 'write',
+        muted: false,
       },
     ];
 
@@ -169,6 +176,7 @@ describe('SidebarContent', () => {
         accepted: false,
         invitedByUsername: 'sarah',
         privilege: 'write',
+        muted: false,
       },
     ];
 

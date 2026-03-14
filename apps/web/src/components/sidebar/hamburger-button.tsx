@@ -18,6 +18,7 @@ export function HamburgerButton(): React.JSX.Element {
         setMobileSidebarOpen(true);
       }}
       className="md:hidden"
+      id="hamburger-button"
       data-testid="hamburger-button"
       aria-label="Open menu"
     >

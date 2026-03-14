@@ -53,6 +53,22 @@ async function handleErrorResponse(response: Response): Promise<{ success: false
   return { success: false, error: parseErrorMessage(body) };
 }
 
+/**
+ * OPAQUE server identifier for key agreement.
+ *
+ * Must match the server's `getServerIdentifier(FRONTEND_URL)` — i.e. the
+ * `.host` portion of the API's `FRONTEND_URL` env var.
+ *
+ * On the web this is simply `getOpaqueServerIdentifier()` (e.g. `localhost:5173`
+ * or `hushbox.ai`).  In a Capacitor WebView `location.host` is `localhost`
+ * (no port), which won't match, so we allow an explicit build-time override
+ * via `VITE_OPAQUE_SERVER_ID`.
+ */
+function getOpaqueServerIdentifier(): string {
+  const envOverride = import.meta.env['VITE_OPAQUE_SERVER_ID'] as string | undefined;
+  return envOverride ?? globalThis.location.host;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -193,7 +209,7 @@ async function signInEmail(options: {
     };
 
     // 2. OPAQUE login finish (client-side) — gives us exportKey
-    const loginResult = await finishLogin(client, ke2, globalThis.location.host);
+    const loginResult = await finishLogin(client, ke2, getOpaqueServerIdentifier());
     const exportKey = new Uint8Array(loginResult.exportKey);
 
     // 3. Send ke3 to server
@@ -361,7 +377,7 @@ async function signUpEmail(options: {
     const { record, exportKey } = await finishRegistration(
       client,
       registrationResponse,
-      globalThis.location.host
+      getOpaqueServerIdentifier()
     );
 
     // 3. Create account crypto material using OPAQUE export key
@@ -448,13 +464,13 @@ export async function changePassword(
     };
 
     // 4. Finish OPAQUE login (proves current password, gives us KE3)
-    const loginResult = await finishLogin(loginClient, ke2, globalThis.location.host);
+    const loginResult = await finishLogin(loginClient, ke2, getOpaqueServerIdentifier());
 
     // 5. Finish OPAQUE registration (gives us new export key)
     const newRegResult = await finishRegistration(
       regClient,
       newRegistrationResponse,
-      globalThis.location.host
+      getOpaqueServerIdentifier()
     );
 
     // 6. Get account private key from store
@@ -562,7 +578,7 @@ export async function resetPasswordViaRecovery(
     const { record, exportKey } = await finishRegistration(
       client,
       newRegistrationResponse,
-      globalThis.location.host
+      getOpaqueServerIdentifier()
     );
 
     // 6. Re-wrap account private key with new OPAQUE export key
@@ -625,7 +641,7 @@ export async function disable2FAInit(
     }
     const { ke2 } = (await initResponse.json()) as { ke2: number[] };
 
-    const loginResult = await finishLogin(client, ke2, globalThis.location.host);
+    const loginResult = await finishLogin(client, ke2, getOpaqueServerIdentifier());
     return { success: true, ke3: loginResult.ke3 };
   } catch {
     return { success: false, error: friendlyErrorMessage('DISABLE_2FA_INIT_FAILED') };

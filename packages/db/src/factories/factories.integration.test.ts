@@ -57,7 +57,7 @@ describe('factory integration', () => {
 
     const [msg] = await db
       .insert(messages)
-      .values(messageFactory.build({ conversationId: conv.id }))
+      .values(messageFactory.build({ conversationId: conv.id, senderId: user.id }))
       .returning();
     if (msg === undefined) {
       throw new Error('Message insert failed - no record returned');

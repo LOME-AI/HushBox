@@ -1,0 +1,247 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Hoisted mocks
+const {
+  mockIsNative,
+  mockGetApiUrl,
+  mockCurrent,
+  mockDownload,
+  mockSet,
+  mockNotifyAppReady,
+  mockSetUpgradeRequired,
+} = vi.hoisted(() => ({
+  mockIsNative: vi.fn(() => false),
+  mockGetApiUrl: vi.fn(() => 'http://localhost:8787'),
+  mockCurrent: vi.fn(),
+  mockDownload: vi.fn(),
+  mockSet: vi.fn(),
+  mockNotifyAppReady: vi.fn(),
+  mockSetUpgradeRequired: vi.fn(),
+}));
+
+vi.mock('./platform.js', () => ({
+  isNative: mockIsNative,
+}));
+
+vi.mock('@/lib/api.js', () => ({
+  getApiUrl: mockGetApiUrl,
+}));
+
+vi.mock('@capgo/capacitor-updater', () => ({
+  CapacitorUpdater: {
+    current: mockCurrent,
+    download: mockDownload,
+    set: mockSet,
+    notifyAppReady: mockNotifyAppReady,
+  },
+}));
+
+vi.mock('@/stores/app-version.js', () => ({
+  useAppVersionStore: {
+    getState: () => ({
+      setUpgradeRequired: mockSetUpgradeRequired,
+    }),
+  },
+}));
+
+// Global fetch mock
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
+
+import { checkForUpdate, applyUpdate, getAppVersion, getServerVersion } from './live-update';
+
+describe('live-update', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('getAppVersion', () => {
+    it('returns "web" when not native', async () => {
+      mockIsNative.mockReturnValue(false);
+
+      const version = await getAppVersion();
+
+      expect(version).toBe('web');
+      expect(mockCurrent).not.toHaveBeenCalled();
+    });
+
+    it('returns bundle version from CapacitorUpdater when native', async () => {
+      mockIsNative.mockReturnValue(true);
+      mockCurrent.mockResolvedValue({
+        bundle: { version: '1.2.3', id: 'abc', downloaded: '', checksum: '', status: 'set' },
+        native: '1.0.0',
+      });
+
+      const version = await getAppVersion();
+
+      expect(version).toBe('1.2.3');
+    });
+
+    it('returns native version when bundle version is builtin or empty', async () => {
+      mockIsNative.mockReturnValue(true);
+      mockCurrent.mockResolvedValue({
+        bundle: { version: 'builtin', id: '', downloaded: '', checksum: '', status: 'success' },
+        native: '1.0.0',
+      });
+
+      const version = await getAppVersion();
+
+      expect(version).toBe('1.0.0');
+    });
+  });
+
+  describe('getServerVersion', () => {
+    it('fetches version from /api/updates/current', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ version: 'abc123' }),
+      });
+
+      const version = await getServerVersion();
+
+      expect(version).toBe('abc123');
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8787/api/updates/current');
+    });
+
+    it('returns null when fetch fails', async () => {
+      mockFetch.mockResolvedValue({ ok: false });
+
+      const version = await getServerVersion();
+
+      expect(version).toBeNull();
+    });
+
+    it('returns null when fetch throws', async () => {
+      mockFetch.mockRejectedValue(new Error('Network error'));
+
+      const version = await getServerVersion();
+
+      expect(version).toBeNull();
+    });
+  });
+
+  describe('applyUpdate', () => {
+    it('does nothing when not native', async () => {
+      mockIsNative.mockReturnValue(false);
+
+      await applyUpdate('1.2.3');
+
+      expect(mockDownload).not.toHaveBeenCalled();
+    });
+
+    it('downloads bundle and applies it', async () => {
+      mockIsNative.mockReturnValue(true);
+      mockDownload.mockResolvedValue({
+        id: 'bundle-id',
+        version: '1.2.3',
+        downloaded: '',
+        checksum: '',
+        status: 'set',
+      });
+      // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
+      mockSet.mockResolvedValue(undefined);
+
+      await applyUpdate('1.2.3');
+
+      expect(mockDownload).toHaveBeenCalledWith({
+        url: 'http://localhost:8787/api/updates/download/1.2.3',
+        version: '1.2.3',
+      });
+      expect(mockSet).toHaveBeenCalledWith({ id: 'bundle-id' });
+    });
+
+    it('sets upgradeRequired on download failure', async () => {
+      mockIsNative.mockReturnValue(true);
+      mockDownload.mockRejectedValue(new Error('Download failed'));
+
+      await applyUpdate('1.2.3');
+
+      expect(mockSetUpgradeRequired).toHaveBeenCalledWith(true);
+      expect(mockSet).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('checkForUpdate', () => {
+    it('does nothing when not native', async () => {
+      mockIsNative.mockReturnValue(false);
+
+      const result = await checkForUpdate();
+
+      expect(result).toEqual({ updateAvailable: false });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('notifies app ready and returns no update when versions match', async () => {
+      mockIsNative.mockReturnValue(true);
+      mockCurrent.mockResolvedValue({
+        bundle: { version: 'abc123', id: 'some-id', downloaded: '', checksum: '', status: 'set' },
+        native: '1.0.0',
+      });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ version: 'abc123' }),
+      });
+
+      const result = await checkForUpdate();
+
+      expect(result).toEqual({ updateAvailable: false });
+      expect(mockNotifyAppReady).toHaveBeenCalled();
+    });
+
+    it('notifies app ready and returns update info when versions differ', async () => {
+      mockIsNative.mockReturnValue(true);
+      mockCurrent.mockResolvedValue({
+        bundle: {
+          version: 'old-version',
+          id: 'some-id',
+          downloaded: '',
+          checksum: '',
+          status: 'set',
+        },
+        native: '1.0.0',
+      });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ version: 'new-version' }),
+      });
+
+      const result = await checkForUpdate();
+
+      expect(result).toEqual({
+        updateAvailable: true,
+        serverVersion: 'new-version',
+      });
+      expect(mockNotifyAppReady).toHaveBeenCalled();
+    });
+
+    it('skips version check when server version is dev-local', async () => {
+      mockIsNative.mockReturnValue(true);
+      mockCurrent.mockResolvedValue({
+        bundle: { version: '1.0.0', id: 'some-id', downloaded: '', checksum: '', status: 'set' },
+        native: '1.0.0',
+      });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ version: 'dev-local' }),
+      });
+
+      const result = await checkForUpdate();
+
+      expect(result).toEqual({ updateAvailable: false });
+    });
+
+    it('returns no update when server version fetch fails', async () => {
+      mockIsNative.mockReturnValue(true);
+      mockCurrent.mockResolvedValue({
+        bundle: { version: '1.0.0', id: 'some-id', downloaded: '', checksum: '', status: 'set' },
+        native: '1.0.0',
+      });
+      mockFetch.mockResolvedValue({ ok: false });
+
+      const result = await checkForUpdate();
+
+      expect(result).toEqual({ updateAvailable: false });
+      expect(mockNotifyAppReady).toHaveBeenCalled();
+    });
+  });
+});

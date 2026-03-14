@@ -1065,6 +1065,41 @@ describe('conversationListItemSchema', () => {
       })
     ).toThrow();
   });
+
+  it('accepts muted field as boolean', () => {
+    const result = conversationListItemSchema.parse({
+      id: 'conv-1',
+      userId: 'user-1',
+      title: 'base64title1',
+      currentEpoch: 1,
+      titleEpochNumber: 1,
+      nextSequence: 5,
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+      accepted: true,
+      invitedByUsername: null,
+      privilege: 'owner',
+      muted: true,
+    });
+    expect(result.muted).toBe(true);
+  });
+
+  it('defaults muted to false when not provided', () => {
+    const result = conversationListItemSchema.parse({
+      id: 'conv-1',
+      userId: 'user-1',
+      title: 'base64title1',
+      currentEpoch: 1,
+      titleEpochNumber: 1,
+      nextSequence: 5,
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+      accepted: true,
+      invitedByUsername: null,
+      privilege: 'owner',
+    });
+    expect(result.muted).toBe(false);
+  });
 });
 
 describe('listConversationsResponseSchema', () => {

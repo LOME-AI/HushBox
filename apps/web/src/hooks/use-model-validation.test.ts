@@ -323,6 +323,68 @@ describe('useModelValidation', () => {
     expect(mockSetSelectedModel).not.toHaveBeenCalled();
   });
 
+  it('resets model when selected model does not exist in available models (trial user)', () => {
+    // Trial user with a model that doesn't exist in the models list
+    mockedUseSession.mockReturnValue({
+      data: null,
+      isPending: false,
+    } as ReturnType<typeof useSession>);
+    mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
+    mockedUseModels.mockReturnValue({
+      data: {
+        models: testModels,
+        premiumIds: new Set(['premium-model']),
+      },
+    } as ReturnType<typeof useModels>);
+    mockedUseModelStore.mockReturnValue({
+      selectedModelId: 'openai/gpt-4-turbo', // Non-existent model
+      selectedModelName: 'GPT-4 Turbo',
+      setSelectedModel: mockSetSelectedModel,
+    });
+    mockedGetAccessibleModelIds.mockReturnValue({
+      strongestId: 'basic-model',
+      valueId: 'basic-model',
+    });
+
+    renderHook(() => {
+      useModelValidation();
+    });
+
+    expect(mockSetSelectedModel).toHaveBeenCalledWith('basic-model', 'Basic Model');
+  });
+
+  it('resets model when selected model does not exist in available models (premium user)', () => {
+    // Paid user with positive balance, but selected model doesn't exist
+    mockedUseSession.mockReturnValue({
+      data: { user: { id: 'user-123' } },
+      isPending: false,
+    } as ReturnType<typeof useSession>);
+    mockedUseBalance.mockReturnValue({
+      data: { balance: '10.00', freeAllowanceCents: 0 },
+    } as ReturnType<typeof useBalance>);
+    mockedUseModels.mockReturnValue({
+      data: {
+        models: testModels,
+        premiumIds: new Set(['premium-model']),
+      },
+    } as ReturnType<typeof useModels>);
+    mockedUseModelStore.mockReturnValue({
+      selectedModelId: 'openai/gpt-4-turbo', // Non-existent model
+      selectedModelName: 'GPT-4 Turbo',
+      setSelectedModel: mockSetSelectedModel,
+    });
+    mockedGetAccessibleModelIds.mockReturnValue({
+      strongestId: 'premium-model',
+      valueId: 'basic-model',
+    });
+
+    renderHook(() => {
+      useModelValidation();
+    });
+
+    expect(mockSetSelectedModel).toHaveBeenCalledWith('premium-model', 'Premium Model');
+  });
+
   it('does not reset model while balance is loading for authenticated user', () => {
     // Authenticated user with balance still loading (undefined)
     // Session is loaded (user is authenticated), but balance still loading
