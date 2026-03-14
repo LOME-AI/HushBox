@@ -36,6 +36,7 @@
     "e2e:failed:debug": "./scripts/with-env sh -c 'playwright test --last-failed --reporter=json | tsx scripts/e2e-debug.ts'",
     "clean": "turbo clean && rm -rf node_modules",
     "prepare": "husky",
+    "docker:cleanup": "./scripts/with-env tsx scripts/docker-cleanup.ts",
     "db:up": "./scripts/with-env docker compose up -d --wait postgres neon-proxy redis serverless-redis-http",
     "db:down": "./scripts/with-env docker compose down",
     "db:reset": "./scripts/with-env tsx scripts/db-reset.ts",

@@ -1,12 +1,34 @@
 import * as React from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Loader2 } from 'lucide-react';
 import { Button, ModalOverlay } from '@hushbox/ui';
 import { useAppVersionStore } from '@/stores/app-version';
+import { isNative } from '@/capacitor/platform';
+import { checkForUpdate, applyUpdate } from '@/capacitor/live-update';
 
 export function UpgradeRequiredModal(): React.JSX.Element | null {
   const upgradeRequired = useAppVersionStore((s) => s.upgradeRequired);
+  const [isUpdating, setIsUpdating] = React.useState(false);
 
   if (!upgradeRequired) return null;
+
+  const handleRefresh = (): void => {
+    if (!isNative()) {
+      globalThis.location.reload();
+      return;
+    }
+
+    setIsUpdating(true);
+    void (async (): Promise<void> => {
+      try {
+        const result = await checkForUpdate();
+        if (result.updateAvailable && result.serverVersion) {
+          await applyUpdate(result.serverVersion);
+        }
+      } finally {
+        setIsUpdating(false);
+      }
+    })();
+  };
 
   return (
     <ModalOverlay
@@ -33,12 +55,18 @@ export function UpgradeRequiredModal(): React.JSX.Element | null {
         </p>
         <Button
           data-testid="upgrade-required-refresh"
-          onClick={() => {
-            globalThis.location.reload();
-          }}
+          onClick={handleRefresh}
+          disabled={isUpdating}
           className="w-full"
         >
-          Refresh
+          {isUpdating ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Updating...
+            </>
+          ) : (
+            'Refresh'
+          )}
         </Button>
       </div>
     </ModalOverlay>

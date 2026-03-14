@@ -4,3 +4,4 @@ export { CapacitorProvider } from './provider.js';
 export { useStatusBar } from './hooks/use-status-bar.js';
 export { useNetworkStatus } from './hooks/use-network-status.js';
 export { checkForUpdate, applyUpdate, getAppVersion, getServerVersion } from './live-update.js';
+export { useLiveUpdate } from './hooks/use-live-update.js';
