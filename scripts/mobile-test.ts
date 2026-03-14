@@ -430,8 +430,7 @@ export async function main(): Promise<void> {
   const { smoke } = parseArgs(process.argv.slice(2));
 
   await checkPrerequisites();
-  await installMaestro();
-  await installAndroidSdk();
+  await Promise.all([installMaestro(), installAndroidSdk()]);
 
   try {
     // Emulator boot, dev stack, and APK build are independent — run in parallel
