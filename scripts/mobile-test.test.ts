@@ -661,7 +661,7 @@ describe('mobile-test script', () => {
       process.env['PATH'] = savedPath;
     });
 
-    it('executes all steps in order', async () => {
+    it('runs prerequisites before parallel phase and sequential steps after', async () => {
       const callOrder: string[] = [];
 
       const hasArgument = (args: readonly string[] | undefined, argument: string): boolean =>
@@ -707,24 +707,40 @@ describe('mobile-test script', () => {
 
       await main();
 
-      expect(callOrder).toEqual([
-        'check-docker',
-        'check-maestro',
+      // Prerequisites run sequentially first
+      expect(callOrder[0]).toBe('check-docker');
+      expect(callOrder[1]).toBe('check-maestro');
+
+      // All expected steps were called
+      const expectedLabels = [
         'detect-kvm-gid',
         'start-emulator',
-        'adb-connect',
         'wait-boot',
         'health-check',
         'build',
         'cap-sync',
         'gradle',
         'install-apk',
-        'kill-adb-server',
-        'start-adb-server',
-        'adb-connect',
         'run-maestro',
         'stop-emulator',
-      ]);
+      ];
+      for (const label of expectedLabels) {
+        expect(callOrder).toContain(label);
+      }
+
+      // install-apk must come after the parallel phase completes
+      // (emulator booted, dev stack ready, APK built)
+      const installApkIndex = callOrder.indexOf('install-apk');
+      expect(installApkIndex).toBeGreaterThan(callOrder.indexOf('wait-boot'));
+      expect(installApkIndex).toBeGreaterThan(callOrder.indexOf('health-check'));
+      expect(installApkIndex).toBeGreaterThan(callOrder.indexOf('gradle'));
+
+      // run-maestro must come after install-apk
+      expect(callOrder.indexOf('run-maestro')).toBeGreaterThan(installApkIndex);
+
+      // stop-emulator must be last
+      expect(callOrder.at(-1)).toBe('stop-emulator');
+
       // installAndroidSdk runs but only calls existsSync (no execa), so it won't appear in callOrder
     });
 

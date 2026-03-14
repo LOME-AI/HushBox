@@ -434,9 +434,8 @@ export async function main(): Promise<void> {
   await installAndroidSdk();
 
   try {
-    await startEmulator();
-    await startDevStack();
-    await buildApk();
+    // Emulator boot, dev stack, and APK build are independent — run in parallel
+    await Promise.all([startEmulator(), startDevStack(), buildApk()]);
     await installApk();
     await configureAppLinks();
     await runMaestro(smoke);
