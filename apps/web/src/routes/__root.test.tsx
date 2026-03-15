@@ -45,6 +45,14 @@ vi.mock('@hushbox/shared', () => ({
   ROUTES: { CHAT: '/chat' },
 }));
 
+vi.mock('@/components/shared/settled-indicator', () => ({
+  SettledIndicator: () => <div data-testid="settled-indicator" />,
+}));
+
+vi.mock('@hushbox/ui', () => ({
+  Toaster: () => <div data-testid="toaster" />,
+}));
+
 describe('root route', () => {
   it('renders OfflineOverlay', async () => {
     const module_ = await import('./__root');

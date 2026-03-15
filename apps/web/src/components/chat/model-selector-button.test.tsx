@@ -20,13 +20,14 @@ vi.mock('@/hooks/models', () => ({
   }),
 }));
 
-// Mock Link component used by ModelSelectorModal
+// Mock Link and useNavigate used by ModelSelectorModal and SignupModal
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to, ...props }: { children: React.ReactNode; to: string }) => (
     <a href={to} {...props}>
       {children}
     </a>
   ),
+  useNavigate: () => vi.fn(),
 }));
 
 const mockModels: Model[] = [

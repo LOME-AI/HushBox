@@ -337,8 +337,7 @@ describe('useModelValidation', () => {
       },
     } as ReturnType<typeof useModels>);
     mockedUseModelStore.mockReturnValue({
-      selectedModelId: 'openai/gpt-4-turbo', // Non-existent model
-      selectedModelName: 'GPT-4 Turbo',
+      selectedModels: [{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }],
       setSelectedModel: mockSetSelectedModel,
     });
     mockedGetAccessibleModelIds.mockReturnValue({
@@ -369,8 +368,7 @@ describe('useModelValidation', () => {
       },
     } as ReturnType<typeof useModels>);
     mockedUseModelStore.mockReturnValue({
-      selectedModelId: 'openai/gpt-4-turbo', // Non-existent model
-      selectedModelName: 'GPT-4 Turbo',
+      selectedModels: [{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }],
       setSelectedModel: mockSetSelectedModel,
     });
     mockedGetAccessibleModelIds.mockReturnValue({

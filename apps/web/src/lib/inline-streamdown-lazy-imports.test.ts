@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { transformStreamdownSource } from './inline-streamdown-lazy-imports';
 
-// Real patterns extracted from streamdown@2.2.0 dist/chunk-LPQFK2AO.js
-const LAZY_CODE_BLOCK = `lazy(()=>import('./code-block-OCS4YCEC.js').then(e=>({default:e.CodeBlock})))`;
-const LAZY_MERMAID = `lazy(()=>import('./mermaid-NOHMQCX5.js').then(e=>({default:e.Mermaid})))`;
+// Real patterns extracted from streamdown@2.4.0 dist/chunk-FRKYWMV7.js
+const LAZY_CODE_BLOCK = `lazy(()=>import('./highlighted-body-TPN3WLV5.js').then(e=>({default:e.HighlightedCodeBlockBody})))`;
+const LAZY_MERMAID = `lazy(()=>import('./mermaid-O7DHMXV3.js').then(e=>({default:e.Mermaid})))`;
 
 describe('transformStreamdownSource', () => {
   it('returns null for code without lazy imports', () => {
@@ -14,18 +14,18 @@ describe('transformStreamdownSource', () => {
     expect(transformStreamdownSource(code)).toBeNull();
   });
 
-  it('returns null for code mentioning code-block but without lazy pattern', () => {
-    const code = '// This file handles code-block rendering';
+  it('returns null for code mentioning highlighted-body but without lazy pattern', () => {
+    const code = '// This file handles highlighted-body rendering';
     expect(transformStreamdownSource(code)).toBeNull();
   });
 
-  it('replaces code-block lazy import with static import', () => {
+  it('replaces highlighted-body lazy import with static import', () => {
     const code = `var mn=${LAZY_CODE_BLOCK};`;
     const result = transformStreamdownSource(code);
 
     expect(result).not.toBeNull();
     expect(result).toContain(
-      `import {CodeBlock as __SD_CodeBlock} from './code-block-OCS4YCEC.js';`
+      `import {HighlightedCodeBlockBody as __SD_CodeBlock} from './highlighted-body-TPN3WLV5.js';`
     );
     expect(result).toContain('var mn=__SD_CodeBlock;');
     expect(result).not.toContain('lazy(');
@@ -36,7 +36,7 @@ describe('transformStreamdownSource', () => {
     const result = transformStreamdownSource(code);
 
     expect(result).not.toBeNull();
-    expect(result).toContain(`import {Mermaid as __SD_Mermaid} from './mermaid-NOHMQCX5.js';`);
+    expect(result).toContain(`import {Mermaid as __SD_Mermaid} from './mermaid-O7DHMXV3.js';`);
     expect(result).toContain('var pn=__SD_Mermaid;');
     expect(result).not.toContain('lazy(');
   });
@@ -61,18 +61,18 @@ describe('transformStreamdownSource', () => {
   });
 
   it('handles different hash suffixes in filenames', () => {
-    const code = `var mn=lazy(()=>import('./code-block-ABCD1234.js').then(e=>({default:e.CodeBlock})));`;
+    const code = `var mn=lazy(()=>import('./highlighted-body-ABCD1234.js').then(e=>({default:e.HighlightedCodeBlockBody})));`;
     const result = transformStreamdownSource(code);
 
     expect(result).not.toBeNull();
     expect(result).toContain(
-      `import {CodeBlock as __SD_CodeBlock} from './code-block-ABCD1234.js';`
+      `import {HighlightedCodeBlockBody as __SD_CodeBlock} from './highlighted-body-ABCD1234.js';`
     );
     expect(result).toContain('var mn=__SD_CodeBlock;');
   });
 
   it('handles different variable names in .then callback', () => {
-    const code = `var mn=lazy(()=>import('./code-block-OCS4YCEC.js').then(t=>({default:t.CodeBlock})));`;
+    const code = `var mn=lazy(()=>import('./highlighted-body-OCS4YCEC.js').then(t=>({default:t.HighlightedCodeBlockBody})));`;
     const result = transformStreamdownSource(code);
 
     expect(result).not.toBeNull();
@@ -94,7 +94,7 @@ describe('transformStreamdownSource', () => {
     expect(result).not.toBeNull();
     expect(result).toContain('__SD_CodeBlock');
     expect(result).toContain('__SD_Mermaid');
-    expect(result).not.toMatch(/lazy\(\(\)=>import\('[^']*code-block/);
+    expect(result).not.toMatch(/lazy\(\(\)=>import\('[^']*highlighted-body/);
     expect(result).not.toMatch(/lazy\(\(\)=>import\('[^']*mermaid/);
   });
 });

@@ -33,13 +33,14 @@ vi.mock('@/hooks/use-header-layout', () => ({
   useHeaderLayout: () => 1,
 }));
 
-// Mock Link component used by EncryptionBadge
+// Mock Link and useNavigate used by EncryptionBadge and SignupModal
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to, ...props }: { children: React.ReactNode; to: string }) => (
     <a href={to} {...props}>
       {children}
     </a>
   ),
+  useNavigate: () => vi.fn(),
 }));
 
 const mockModels: Model[] = [

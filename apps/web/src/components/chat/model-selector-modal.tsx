@@ -612,13 +612,7 @@ export function ModelSelectorModal({
       setFocusedModelId(modelId);
       setLocalSelectedIds((previous) => updateSelectedIds(previous, modelId));
     },
-    [
-      canAccessPremium,
-      premiumIds,
-      onPremiumClick,
-      isAuthenticated,
-      localSelectedIds,
-    ]
+    [canAccessPremium, premiumIds, onPremiumClick, isAuthenticated, localSelectedIds]
   );
 
   const handleConfirmSelection = React.useCallback((): void => {
@@ -646,106 +640,106 @@ export function ModelSelectorModal({
 
   return (
     <>
-    <ModalOverlay
-      open={open}
-      onOpenChange={onOpenChange}
-      ariaLabel="Select model"
-      onOpenAutoFocus={handleOpenAutoFocus}
-    >
-      <div
-        className="bg-background flex h-[92dvh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg sm:h-[85dvh]"
-        data-testid="model-selector-modal"
+      <ModalOverlay
+        open={open}
+        onOpenChange={onOpenChange}
+        ariaLabel="Select model"
+        onOpenAutoFocus={handleOpenAutoFocus}
       >
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex-shrink-0 sm:hidden">
-            <SearchAndSortSection
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              sortField={sortField}
-              sortDirection={sortDirection}
-              onSortClick={handleSortClick}
-              webSearchFilter={webSearchFilter}
-              onToggleWebSearch={handleToggleWebSearch}
-            />
-          </div>
+        <div
+          className="bg-background flex h-[92dvh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg sm:h-[85dvh]"
+          data-testid="model-selector-modal"
+        >
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex-shrink-0 sm:hidden">
+              <SearchAndSortSection
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                sortField={sortField}
+                sortDirection={sortDirection}
+                onSortClick={handleSortClick}
+                webSearchFilter={webSearchFilter}
+                onToggleWebSearch={handleToggleWebSearch}
+              />
+            </div>
 
-          <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-            <div
-              data-testid="model-list-panel"
-              className="border-border-strong flex min-h-0 flex-[9] flex-col border-b sm:flex-1 sm:border-r sm:border-b-0"
-            >
-              <div className="hidden flex-shrink-0 sm:block">
-                <SearchAndSortSection
-                  searchQuery={searchQuery}
-                  onSearchChange={setSearchQuery}
-                  sortField={sortField}
-                  sortDirection={sortDirection}
-                  onSortClick={handleSortClick}
-                  webSearchFilter={webSearchFilter}
-                  onToggleWebSearch={handleToggleWebSearch}
-                />
+            <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+              <div
+                data-testid="model-list-panel"
+                className="border-border-strong flex min-h-0 flex-[9] flex-col border-b sm:flex-1 sm:border-r sm:border-b-0"
+              >
+                <div className="hidden flex-shrink-0 sm:block">
+                  <SearchAndSortSection
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSortClick={handleSortClick}
+                    webSearchFilter={webSearchFilter}
+                    onToggleWebSearch={handleToggleWebSearch}
+                  />
+                </div>
+
+                <ScrollArea data-testid="model-list-scroll" className="min-h-0 flex-1">
+                  <div className="p-2">
+                    {filteredModels.map((model) => {
+                      const isAtLimit = localSelectedIds.size >= MAX_SELECTED_MODELS;
+                      return (
+                        <ModelListItem
+                          key={model.id}
+                          model={model}
+                          isFocused={model.id === focusedModelId}
+                          isSelected={localSelectedIds.has(model.id)}
+                          isDisabled={isAtLimit && !localSelectedIds.has(model.id)}
+                          isPremium={isPremium(model.id)}
+                          canAccessPremium={canAccessPremium}
+                          isAuthenticated={isAuthenticated}
+                          pinnedLabel={getPinnedLabel(model.id)}
+                          onClick={() => {
+                            handleFocusModel(model.id);
+                          }}
+                          onDoubleClick={() => {
+                            handleToggleModel(model.id);
+                          }}
+                        />
+                      );
+                    })}
+                    {filteredModels.length === 0 && (
+                      <div className="text-muted-foreground p-4 text-center text-sm">
+                        No models found
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
               </div>
 
-              <ScrollArea data-testid="model-list-scroll" className="min-h-0 flex-1">
-                <div className="p-2">
-                  {filteredModels.map((model) => {
-                    const isAtLimit = localSelectedIds.size >= MAX_SELECTED_MODELS;
-                    return (
-                      <ModelListItem
-                        key={model.id}
-                        model={model}
-                        isFocused={model.id === focusedModelId}
-                        isSelected={localSelectedIds.has(model.id)}
-                        isDisabled={isAtLimit && !localSelectedIds.has(model.id)}
-                        isPremium={isPremium(model.id)}
-                        canAccessPremium={canAccessPremium}
-                        isAuthenticated={isAuthenticated}
-                        pinnedLabel={getPinnedLabel(model.id)}
-                        onClick={() => {
-                          handleFocusModel(model.id);
-                        }}
-                        onDoubleClick={() => {
-                          handleToggleModel(model.id);
-                        }}
-                      />
-                    );
-                  })}
-                  {filteredModels.length === 0 && (
-                    <div className="text-muted-foreground p-4 text-center text-sm">
-                      No models found
-                    </div>
-                  )}
+              {/* Right panel: Model details - takes 60% on mobile, constrained on desktop */}
+              <ScrollArea
+                data-testid="model-details-panel"
+                className="min-h-0 flex-[11] sm:max-w-sm sm:flex-1"
+              >
+                <div className="p-6">
+                  {focusedModel ? <ModelInfoPanel model={focusedModel} /> : null}
                 </div>
               </ScrollArea>
             </div>
-
-            {/* Right panel: Model details - takes 60% on mobile, constrained on desktop */}
-            <ScrollArea
-              data-testid="model-details-panel"
-              className="min-h-0 flex-[11] sm:max-w-sm sm:flex-1"
-            >
-              <div className="p-6">
-                {focusedModel ? <ModelInfoPanel model={focusedModel} /> : null}
-              </div>
-            </ScrollArea>
           </div>
-        </div>
 
-        <ModelSelectorFooter
-          selectedCount={localSelectedIds.size}
-          onClear={handleClearSelection}
-          onConfirm={handleConfirmSelection}
-          onClose={() => {
-            onOpenChange(false);
-          }}
-        />
-      </div>
-    </ModalOverlay>
-    <SignupModal
-      variant="multi-model"
-      open={showMultiModelSignup}
-      onOpenChange={setShowMultiModelSignup}
-    />
+          <ModelSelectorFooter
+            selectedCount={localSelectedIds.size}
+            onClear={handleClearSelection}
+            onConfirm={handleConfirmSelection}
+            onClose={() => {
+              onOpenChange(false);
+            }}
+          />
+        </div>
+      </ModalOverlay>
+      <SignupModal
+        variant="multi-model"
+        open={showMultiModelSignup}
+        onOpenChange={setShowMultiModelSignup}
+      />
     </>
   );
 }

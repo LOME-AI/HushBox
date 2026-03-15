@@ -1,7 +1,7 @@
 /**
  * Transforms Streamdown's lazy-loaded dynamic imports into static imports.
  *
- * Streamdown uses React.lazy(() => import('./code-block-X.js')) which creates
+ * Streamdown uses React.lazy(() => import('./highlighted-body-X.js')) which creates
  * separate chunks that can fail to load after deployment (old chunks removed
  * from CDN). This transform inlines them into the main bundle, eliminating
  * the failure mode entirely.
@@ -9,17 +9,18 @@
  * Returns the transformed source, or null if no transformation was needed.
  */
 export function transformStreamdownSource(code: string): string | null {
-  if (!code.includes('code-block-') && !code.includes('mermaid-')) return null;
+  if (!code.includes('highlighted-body-') && !code.includes('mermaid-')) return null;
 
   let result = code;
   let changed = false;
 
-  const codeBlockImportMatch = /import\('(\.\/code-block-[^']+)'\)/.exec(result);
+  const codeBlockImportMatch = /import\('(\.\/highlighted-body-[^']+)'\)/.exec(result);
   if (codeBlockImportMatch) {
     const importPath = codeBlockImportMatch[1] ?? '';
-    result = `import {CodeBlock as __SD_CodeBlock} from '${importPath}';\n` + result;
+    result =
+      `import {HighlightedCodeBlockBody as __SD_CodeBlock} from '${importPath}';\n` + result;
     result = result.replace(
-      /lazy\(\(\)=>import\('[^']*code-block-[^']*'\)\.then\(\w+=>\(\{default:\w+\.CodeBlock\}\)\)\)/,
+      /lazy\(\(\)=>import\('[^']*highlighted-body-[^']*'\)\.then\(\w+=>\(\{default:\w+\.HighlightedCodeBlockBody\}\)\)\)/,
       '__SD_CodeBlock'
     );
     changed = true;
