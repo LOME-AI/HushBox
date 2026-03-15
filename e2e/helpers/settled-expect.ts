@@ -33,54 +33,66 @@ async function checkSettled(page: Page): Promise<boolean> {
   }
 }
 
-async function raceWithSettled<T>(page: Page, assertion: Promise<T>, timeout: number): Promise<T> {
-  let cancelled = false;
+/** Check settled once and throw if the app has settled after the grace period. */
+async function checkAndThrowIfSettled(page: Page, signal: { cancelled: boolean }): Promise<void> {
+  const isSettled = await checkSettled(page);
+  if (signal.cancelled) return;
 
-  const watcher = (async (): Promise<never> => {
-    const start = Date.now();
+  if (isSettled) {
+    await sleep(GRACE_MS);
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (signal.cancelled) return;
 
-    while (!cancelled && Date.now() - start < timeout) {
-      await sleep(POLL_MS);
-      if (cancelled) break;
+    throw new Error(
+      'App settled (all queries/mutations/streams complete) but assertion not satisfied. ' +
+        'The expected condition will not be met. ' +
+        'Use expect.configure({ settledAware: false }) to opt out.'
+    );
+  }
+}
 
-      // Don't check settled until floor period has passed
-      if (Date.now() - start < FLOOR_MS) continue;
+/** Poll the settled indicator until it fires, then throw. */
+async function pollUntilSettled(
+  page: Page,
+  signal: { cancelled: boolean },
+  timeout: number
+): Promise<never> {
+  const start = Date.now();
 
-      const isSettled = await checkSettled(page);
-      if (cancelled) break;
+  while (!signal.cancelled && Date.now() - start < timeout) {
+    await sleep(POLL_MS);
+    // signal.cancelled is mutated asynchronously by Promise.race .finally()
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (signal.cancelled) break;
 
-      if (isSettled) {
-        await sleep(GRACE_MS);
-        if (cancelled) break;
-
-        throw new Error(
-          'App settled (all queries/mutations/streams complete) but assertion not satisfied. ' +
-            'The expected condition will not be met. ' +
-            'Use expect.configure({ settledAware: false }) to opt out.'
-        );
-      }
+    if (Date.now() - start >= FLOOR_MS) {
+      await checkAndThrowIfSettled(page, signal);
     }
+  }
 
-    // Never resolve — let the original assertion handle timeout
-    return new Promise<never>(() => {});
-  })();
+  // Never resolve — let the original assertion handle timeout
+  return new Promise<never>(Function.prototype as () => void);
+}
+
+async function raceWithSettled<T>(page: Page, assertion: Promise<T>, timeout: number): Promise<T> {
+  const signal = { cancelled: false };
 
   try {
     return await Promise.race([
       assertion.finally(() => {
-        cancelled = true;
+        signal.cancelled = true;
       }),
-      watcher,
+      pollUntilSettled(page, signal, timeout),
     ]);
   } finally {
-    cancelled = true;
+    signal.cancelled = true;
   }
 }
 
-function extractTimeout(args: unknown[]): number {
-  const lastArg = args.at(-1);
-  if (lastArg && typeof lastArg === 'object' && lastArg !== null && 'timeout' in lastArg) {
-    return ((lastArg as { timeout?: number }).timeout ?? DEFAULT_TIMEOUT);
+function extractTimeout(arguments_: unknown[]): number {
+  const last = arguments_.at(-1);
+  if (last && typeof last === 'object' && 'timeout' in last) {
+    return (last as { timeout?: number }).timeout ?? DEFAULT_TIMEOUT;
   }
   return DEFAULT_TIMEOUT;
 }
@@ -112,19 +124,22 @@ function getPageFromTarget(target: unknown): Page | null {
 
 function createSettledMatcherProxy<T extends object>(assertions: T, page: Page): T {
   const handler: ProxyHandler<T> = {
-    get(proxyTarget, prop, receiver) {
-      if (prop === 'not') {
-        const notAssertions = Reflect.get(proxyTarget, prop, receiver) as object;
+    // Proxy get handlers inherently return mixed types — the handler must return
+    // whatever the underlying target would return for a given property access.
+    // eslint-disable-next-line sonarjs/function-return-type
+    get(proxyTarget, property, receiver) {
+      if (property === 'not') {
+        const notAssertions = Reflect.get(proxyTarget, property, receiver) as object;
         return createSettledMatcherProxy(notAssertions, page);
       }
 
-      const value = Reflect.get(proxyTarget, prop, receiver);
+      const value = Reflect.get(proxyTarget, property, receiver);
       if (typeof value !== 'function') return value;
 
-      return (...args: unknown[]): unknown => {
-        const result = (value as (...a: unknown[]) => unknown).apply(proxyTarget, args);
+      return (...arguments_: unknown[]): unknown => {
+        const result = (value as (...a: unknown[]) => unknown).apply(proxyTarget, arguments_);
         if (result instanceof Promise) {
-          const timeout = extractTimeout(args);
+          const timeout = extractTimeout(arguments_);
           return raceWithSettled(page, result, timeout);
         }
         return result;
@@ -147,27 +162,30 @@ type SettledExpect = BaseExpect & {
   configure(options: SettledConfigureOptions): SettledExpect;
 };
 
-function wrapExpectCall(baseFn: (...args: unknown[]) => unknown, args: unknown[]): unknown {
-  const [actual] = args;
-  const result = baseFn(...args);
+function wrapExpectCall(
+  baseFunction: (...arguments_: unknown[]) => unknown,
+  arguments_: unknown[]
+): unknown {
+  const [actual] = arguments_;
+  const result = baseFunction(...arguments_);
   const page = getPageFromTarget(actual);
   if (page && result && typeof result === 'object') {
-    return createSettledMatcherProxy(result as object, page);
+    return createSettledMatcherProxy(result, page);
   }
   return result;
 }
 
 function createSettledExpect(base: BaseExpect): BaseExpect {
   const handler: ProxyHandler<BaseExpect> = {
-    apply(target, thisArg, args: unknown[]) {
+    apply(target, thisArgument, arguments_: unknown[]) {
       return wrapExpectCall(
-        (...a: unknown[]) => Reflect.apply(target, thisArg, a),
-        args
+        (...a: unknown[]) => Reflect.apply(target, thisArgument, a),
+        arguments_
       );
     },
 
-    get(target, prop, receiver) {
-      if (prop === 'configure') {
+    get(target, property, receiver) {
+      if (property === 'configure') {
         return (options: Record<string, unknown>): BaseExpect => {
           const { settledAware, ...playwrightOptions } = options;
           const configured = target.configure(
@@ -180,16 +198,18 @@ function createSettledExpect(base: BaseExpect): BaseExpect {
         };
       }
 
-      if (prop === 'soft') {
-        const softFn = Reflect.get(target, prop, receiver) as (...args: unknown[]) => unknown;
-        return (...args: unknown[]): unknown => wrapExpectCall(softFn, args);
+      if (property === 'soft') {
+        const softFunction = Reflect.get(target, property, receiver) as (
+          ...arguments_: unknown[]
+        ) => unknown;
+        return (...arguments_: unknown[]): unknown => wrapExpectCall(softFunction, arguments_);
       }
 
-      return Reflect.get(target, prop, receiver);
+      return Reflect.get(target, property, receiver) as unknown;
     },
   };
 
-  return new Proxy(base, handler) as BaseExpect;
+  return new Proxy(base, handler);
 }
 
 export const expect: SettledExpect = createSettledExpect(baseExpect) as SettledExpect;

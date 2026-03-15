@@ -526,7 +526,12 @@ export class ChatPage {
     const assistantMessages = this.messageList.locator('[data-role="assistant"]');
     await expect(assistantMessages).toHaveCount(count, { timeout });
     for (let index = 0; index < count; index++) {
-      await expect(assistantMessages.nth(index).getByText(/^Echo:/).first()).toBeVisible({
+      await expect(
+        assistantMessages
+          .nth(index)
+          .getByText(/^Echo:/)
+          .first()
+      ).toBeVisible({
         timeout,
       });
     }
