@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
+import { expect } from '../helpers/settled-expect.js';
 
 test.describe('Persona Login', () => {
   test.use({ storageState: { cookies: [], origins: [] } });

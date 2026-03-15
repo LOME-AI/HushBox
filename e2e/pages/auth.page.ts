@@ -1,4 +1,5 @@
-import { type Page, type Locator, expect } from '@playwright/test';
+import { type Page, type Locator } from '@playwright/test';
+import { expect } from '../helpers/settled-expect.js';
 
 /** Click a button if it's still actionable within the timeout; swallow timeout errors (e.g. OTP auto-submit). */
 async function clickIfActionable(button: Locator, timeout: number): Promise<void> {

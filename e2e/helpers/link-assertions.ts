@@ -1,4 +1,5 @@
-import { type Page, expect } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect } from './settled-expect.js';
 
 /** Wait for the shared conversation loading spinner to appear then disappear. */
 export async function expectSharedConversationLoaded(page: Page): Promise<void> {

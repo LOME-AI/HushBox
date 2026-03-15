@@ -1,5 +1,5 @@
-import { type Page, type Locator, expect } from '@playwright/test';
-import { waitForConditionOrSettle } from '../helpers/settled';
+import { type Page, type Locator } from '@playwright/test';
+import { expect } from '../helpers/settled-expect.js';
 import { requireEnv } from '../helpers/env.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
@@ -30,20 +30,12 @@ export class ChatPage {
   }
 
   async waitForAppStable(timeout = 15_000): Promise<void> {
-    const locator = this.page.locator('[data-app-stable="true"]');
-    await waitForConditionOrSettle(this.page, async () => locator.isVisible().catch(() => false), {
-      timeout,
-      errorMessage: 'App failed to stabilize (settled without data-app-stable="true")',
-    });
+    await expect(this.page.locator('[data-app-stable="true"]')).toBeVisible({ timeout });
   }
 
   /** Wait for the group chat WebSocket to be connected. Use before actions that send events via WebSocket. */
   async waitForWebSocketConnected(timeout = 15_000): Promise<void> {
-    const locator = this.page.locator('[data-ws-connected="true"]');
-    await waitForConditionOrSettle(this.page, async () => locator.isVisible().catch(() => false), {
-      timeout,
-      errorMessage: 'App settled without WebSocket connection',
-    });
+    await expect(this.page.locator('[data-ws-connected="true"]')).toBeVisible({ timeout });
   }
 
   /** Wait for a conversation page to load (message list visible). Use instead of waitForAppStable on conversation pages. */
@@ -75,11 +67,7 @@ export class ChatPage {
   }
 
   async waitForConversation(timeout = 10_000): Promise<string> {
-    const urlPattern = /\/chat\/[a-f0-9-]+(\?.*)?$/;
-    await waitForConditionOrSettle(this.page, () => urlPattern.test(this.page.url()), {
-      timeout,
-      errorMessage: 'App settled without navigating to conversation URL',
-    });
+    await expect(this.page).toHaveURL(/\/chat\/[a-f0-9-]+(\?.*)?$/, { timeout });
     const url = new URL(this.page.url());
     return url.pathname.split('/').pop() ?? '';
   }
@@ -107,10 +95,7 @@ export class ChatPage {
       ? assistantMessages.getByText(expectedContent, { exact: false }).first()
       : assistantMessages.getByText(/^Echo:/).first();
 
-    await waitForConditionOrSettle(this.page, async () => target.isVisible().catch(() => false), {
-      timeout,
-      errorMessage: 'App settled without AI response appearing',
-    });
+    await expect(target).toBeVisible({ timeout });
   }
 
   async expectAssistantMessageContains(text: string): Promise<void> {
@@ -124,11 +109,7 @@ export class ChatPage {
   /** Wait for the current stream to fully complete (cost visible = billing + persistence done). */
   async waitForStreamComplete(timeout = 15_000): Promise<void> {
     const costBadge = this.messageList.locator('[data-testid="message-cost"]').last();
-    await waitForConditionOrSettle(
-      this.page,
-      async () => costBadge.isVisible().catch(() => false),
-      { timeout, errorMessage: 'App settled without cost badge appearing' }
-    );
+    await expect(costBadge).toBeVisible({ timeout });
   }
 
   // --- Group chat locators ---
@@ -543,24 +524,12 @@ export class ChatPage {
    */
   async waitForMultiModelResponses(count: number, timeout = 15_000): Promise<void> {
     const assistantMessages = this.messageList.locator('[data-role="assistant"]');
-
-    await waitForConditionOrSettle(
-      this.page,
-      async () => {
-        const currentCount = await assistantMessages.count();
-        if (currentCount < count) return false;
-        for (let index = 0; index < count; index++) {
-          const hasEcho = await assistantMessages
-            .nth(index)
-            .getByText(/^Echo:/)
-            .isVisible()
-            .catch(() => false);
-          if (!hasEcho) return false;
-        }
-        return true;
-      },
-      { timeout, errorMessage: `App settled without all ${String(count)} model responses` }
-    );
+    await expect(assistantMessages).toHaveCount(count, { timeout });
+    for (let index = 0; index < count; index++) {
+      await expect(assistantMessages.nth(index).getByText(/^Echo:/).first()).toBeVisible({
+        timeout,
+      });
+    }
   }
 
   /** Get the message content text for an AI response identified by its nametag model name. */

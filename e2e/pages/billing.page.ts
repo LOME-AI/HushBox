@@ -1,4 +1,5 @@
-import { expect, type Locator, type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
+import { expect } from '../helpers/settled-expect.js';
 
 interface DiagnosticData {
   apiResponses: { url: string; status: number; body: string }[];
@@ -128,13 +129,18 @@ export class BillingPage {
 
   async expectPaymentSuccess(timeout = 15_000): Promise<void> {
     // Wait for "Payment Successful" text (CardTitle renders as div, not heading)
-    // Real Helcim + Hookdeck webhook flow needs longer than default 15s
-    await expect(this.paymentSuccessCard).toBeVisible({ timeout });
+    // Real Helcim + Hookdeck webhook flow needs longer than default 15s.
+    // Opt out of settled quick-fail: the app settles after the payment mutation
+    // completes, but the webhook may take 10-30s to arrive.
+    const rawExpect = expect.configure({ settledAware: false });
+    await rawExpect(this.paymentSuccessCard).toBeVisible({ timeout });
   }
 
   async expectPaymentError(): Promise<void> {
-    // Wait for "Payment Failed" text (CardTitle renders as div, not heading)
-    await expect(this.paymentErrorCard).toBeVisible({ timeout: 15_000 });
+    // Wait for "Payment Failed" text (CardTitle renders as div, not heading).
+    // Opt out: Helcim processing response may arrive after app settles.
+    const rawExpect = expect.configure({ settledAware: false });
+    await rawExpect(this.paymentErrorCard).toBeVisible({ timeout: 15_000 });
   }
 
   async closeSuccessAndReset(): Promise<void> {

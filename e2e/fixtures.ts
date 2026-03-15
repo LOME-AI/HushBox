@@ -1,11 +1,12 @@
 import {
   test as base,
-  expect,
+  expect as rawExpect,
   type Browser,
   type Page,
   type APIRequestContext,
   type TestInfo,
 } from '@playwright/test';
+import { expect } from './helpers/settled-expect.js';
 import { ChatPage } from './pages';
 import { requireEnv } from './helpers/env.js';
 
@@ -148,7 +149,7 @@ export const test = base.extend<CustomFixtures>({
       },
     });
 
-    expect(response.ok(), `group-chat creation failed: ${String(response.status())}`).toBe(true);
+    rawExpect(response.ok(), `group-chat creation failed: ${String(response.status())}`).toBe(true);
     const data = (await response.json()) as {
       conversationId: string;
       members: GroupConversation['members'];
@@ -232,4 +233,4 @@ export const test = base.extend<CustomFixtures>({
   },
 });
 
-export { expect } from '@playwright/test';
+export { expect } from './helpers/settled-expect.js';

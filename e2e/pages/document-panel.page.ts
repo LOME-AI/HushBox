@@ -1,6 +1,5 @@
-import { type Page, type Locator, expect } from '@playwright/test';
-import { waitForConditionOrSettle } from '../helpers/settled';
-
+import { type Page, type Locator } from '@playwright/test';
+import { expect } from '../helpers/settled-expect.js';
 import type { ChatPage } from './chat.page.js';
 
 export class DocumentPanelPage {
@@ -113,11 +112,7 @@ export class DocumentPanelPage {
   }
 
   async waitForCardAppear(timeout = 15_000): Promise<void> {
-    const card = this.documentCards().first();
-    await waitForConditionOrSettle(this.page, async () => card.isVisible().catch(() => false), {
-      timeout,
-      errorMessage: 'App settled without document card appearing',
-    });
+    await expect(this.documentCards().first()).toBeVisible({ timeout });
   }
 
   async waitForPanelOpen(timeout = 5000): Promise<void> {

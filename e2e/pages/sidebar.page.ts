@@ -1,4 +1,5 @@
-import { type Page, type Locator, expect } from '@playwright/test';
+import { type Page, type Locator } from '@playwright/test';
+import { expect } from '../helpers/settled-expect.js';
 import { isMobileWidth } from '@hushbox/shared';
 
 export class SidebarPage {

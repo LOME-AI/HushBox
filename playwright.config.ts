@@ -11,7 +11,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: isCI,
   retries: isCI ? 2 : 1,
-  workers: isCI ? 3 : 4,
+  workers: isCI ? 3 : 3,
   timeout: 45_000,
   expect: {
     timeout: 10_000,
@@ -27,7 +27,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `lsof -ti:${previewPort} | xargs -r kill 2>/dev/null || true; pnpm --filter @hushbox/web build --mode development && pnpm --filter @hushbox/web preview --port ${previewPort}`,
+      command: `lsof -ti:${previewPort} | xargs -r kill -9 2>/dev/null || true; pnpm --filter @hushbox/web build --mode development && pnpm --filter @hushbox/web preview --port ${previewPort}`,
       url: previewUrl,
       reuseExistingServer: false,
       timeout: 120_000,
@@ -35,7 +35,7 @@ export default defineConfig({
       stdout: 'pipe',
     },
     {
-      command: `lsof -ti:${apiPort} | xargs -r kill 2>/dev/null || true; pnpm --filter @hushbox/api dev`,
+      command: `lsof -ti:${apiPort} | xargs -r kill -9 2>/dev/null || true; pnpm --filter @hushbox/api dev --log-level error`,
       url: `${apiUrl}/api/health`,
       reuseExistingServer: false,
       timeout: 120_000,
