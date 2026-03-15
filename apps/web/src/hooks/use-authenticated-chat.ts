@@ -259,8 +259,8 @@ function attachCostsToMessages(
   for (const mr of models) {
     const code = mr.errorCode;
     if (code) {
-      setter((prev) =>
-        prev.map((m) =>
+      setter((previous) =>
+        previous.map((m) =>
           m.id === mr.assistantMessageId ? { ...m, errorCode: code, content: '' } : m
         )
       );
@@ -464,19 +464,16 @@ export function useAuthenticatedChat({
     }
   }, []);
 
-  const handleStreamModelError = React.useCallback(
-    (data: { modelId: string; code?: string }) => {
-      const msgId = modelMessageMapRef.current.get(data.modelId);
-      if (msgId) {
-        setLocalMessages((previous) =>
-          previous.map((m) =>
-            m.id === msgId ? { ...m, errorCode: data.code ?? 'STREAM_ERROR', content: '' } : m
-          )
-        );
-      }
-    },
-    []
-  );
+  const handleStreamModelError = React.useCallback((data: { modelId: string; code?: string }) => {
+    const msgId = modelMessageMapRef.current.get(data.modelId);
+    if (msgId) {
+      setLocalMessages((previous) =>
+        previous.map((m) =>
+          m.id === msgId ? { ...m, errorCode: data.code ?? 'STREAM_ERROR', content: '' } : m
+        )
+      );
+    }
+  }, []);
 
   const optimisticModelMapRef = React.useRef(new Map<string, string>());
 

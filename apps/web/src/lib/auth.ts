@@ -62,7 +62,6 @@ async function handleErrorResponse(response: Response): Promise<{ success: false
   return { success: false, error: parseErrorMessage(body) };
 }
 
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------

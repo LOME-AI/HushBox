@@ -41,9 +41,7 @@ const csrfHandler: MiddlewareHandler<CsrfEnv> = async (c, next) => {
     return next();
   }
 
-  const allowedUrls = [c.env.FRONTEND_URL, c.env.FRONTEND_PREVIEW_URL].filter(
-    (url): url is string => Boolean(url),
-  );
+  const allowedUrls = [c.env.FRONTEND_URL, c.env.FRONTEND_PREVIEW_URL].filter(Boolean);
   if (allowedUrls.length === 0) {
     return c.json(createErrorResponse(ERROR_CODE_CSRF_REJECTED), 403);
   }
