@@ -126,6 +126,9 @@ export default defineConfig(({ mode }) => {
         '@': resolve(__dirname, './src'),
       },
     },
+    preview: {
+      strictPort: true,
+    },
     server: {
       port: Number(process.env['HB_VITE_PORT']!),
       proxy: {

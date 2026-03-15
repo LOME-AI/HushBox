@@ -71,7 +71,7 @@ describe('index barrel exports', () => {
     expect(typeof module_.createOpaqueServerFromEnv).toBe('function');
     expect(typeof module_.deriveServerCredentials).toBe('function');
     expect(typeof module_.createFakeRegistrationRecord).toBe('function');
-    expect(typeof module_.getServerIdentifier).toBe('function');
+    expect(typeof module_.OPAQUE_SERVER_IDENTIFIER).toBe('string');
     expect(module_.OpaqueServerConfig).toBeDefined();
     expect(module_.OpaqueRegistrationRecord).toBeDefined();
     expect(module_.OpaqueServerRegistrationRequest).toBeDefined();

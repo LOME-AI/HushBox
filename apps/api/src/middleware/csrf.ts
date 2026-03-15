@@ -5,6 +5,7 @@ import { createErrorResponse } from '../lib/error-response.js';
 interface CsrfEnv {
   Bindings: {
     FRONTEND_URL?: string;
+    FRONTEND_PREVIEW_URL?: string;
   };
 }
 
@@ -40,16 +41,18 @@ const csrfHandler: MiddlewareHandler<CsrfEnv> = async (c, next) => {
     return next();
   }
 
-  const frontendUrl = c.env.FRONTEND_URL;
-  if (!frontendUrl) {
+  const allowedUrls = [c.env.FRONTEND_URL, c.env.FRONTEND_PREVIEW_URL].filter(
+    (url): url is string => Boolean(url),
+  );
+  if (allowedUrls.length === 0) {
     return c.json(createErrorResponse(ERROR_CODE_CSRF_REJECTED), 403);
   }
 
   try {
     const parsedOrigin = new URL(origin).origin;
-    const parsedFrontend = new URL(frontendUrl).origin;
+    const allowed = allowedUrls.some((url) => new URL(url).origin === parsedOrigin);
 
-    if (parsedOrigin !== parsedFrontend) {
+    if (!allowed) {
       return c.json(createErrorResponse(ERROR_CODE_CSRF_REJECTED), 403);
     }
   } catch {

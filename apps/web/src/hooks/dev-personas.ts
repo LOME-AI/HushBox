@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import type { DevPersonasResponse } from '@hushbox/shared';
 import { client, fetchJson } from '../lib/api-client.js';
+import { env } from '../lib/env.js';
 
 export type PersonaType = 'dev' | 'test';
 
@@ -16,7 +17,7 @@ export function useDevPersonas(
     queryKey: devPersonaKeys.list(type),
     queryFn: (): Promise<DevPersonasResponse> =>
       fetchJson<DevPersonasResponse>(client.api.dev.personas.$get({ query: { type } })),
-    enabled: import.meta.env.DEV,
+    enabled: env.isDev,
     retry: 3,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
   });

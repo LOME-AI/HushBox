@@ -237,9 +237,11 @@ describe('createApp', () => {
   describe('CORS', () => {
     it('includes CORS headers for allowed origin', async () => {
       const app = createApp();
-      const res = await app.request('/api/health', {
-        headers: { Origin: 'http://localhost:5173' },
-      });
+      const res = await app.request(
+        '/api/health',
+        { headers: { Origin: 'http://localhost:5173' } },
+        { FRONTEND_URL: 'http://localhost:5173' }
+      );
 
       expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
     });

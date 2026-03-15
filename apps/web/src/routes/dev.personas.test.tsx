@@ -45,6 +45,10 @@ vi.mock('@hushbox/ui', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
 }));
 
+vi.mock('@/lib/env', () => ({
+  env: { isDev: true },
+}));
+
 interface MockDevPersonasReturn {
   data: { personas: DevPersona[] } | undefined;
   isLoading: boolean;

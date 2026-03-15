@@ -4,6 +4,7 @@ import { createFileRoute, useNavigate, redirect, useSearch } from '@tanstack/rea
 import { DEV_PASSWORD, displayUsername, ROUTES } from '@hushbox/shared';
 import type { DevPersona } from '@hushbox/shared';
 import { signIn, signOutAndClearCache } from '@/lib/auth';
+import { env } from '@/lib/env';
 import { toast } from '@hushbox/ui';
 import { useDevPersonas, type PersonaType } from '@/hooks/dev-personas';
 
@@ -20,7 +21,7 @@ export const Route = createFileRoute('/dev/personas')({
     type: typeof search['type'] === 'string' ? search['type'] : undefined,
   }),
   beforeLoad: () => {
-    if (!import.meta.env.DEV) {
+    if (!env.isDev) {
       // eslint-disable-next-line @typescript-eslint/only-throw-error
       throw redirect({ to: ROUTES.LOGIN });
     }

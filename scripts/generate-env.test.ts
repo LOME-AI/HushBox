@@ -298,6 +298,7 @@ local_protocol = "http"
 
       const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
       expect(content).toContain('HB_VITE_PORT="5173"');
+      expect(content).toContain('HB_PREVIEW_PORT="4173"');
       expect(content).toContain('HB_API_PORT="8787"');
       expect(content).toContain('HB_POSTGRES_PORT="5432"');
       expect(content).toContain('HB_NEON_PORT="4444"');
@@ -752,6 +753,7 @@ local_protocol = "http"
       const content = readFileSync(path.join(TEST_DIR_WT, '.env.scripts'), 'utf8');
       expect(content).toContain('COMPOSE_PROJECT_NAME="hushbox"');
       expect(content).toContain('HB_VITE_PORT="5173"');
+      expect(content).toContain('HB_PREVIEW_PORT="4173"');
       expect(content).toContain('HB_API_PORT="8787"');
       expect(content).toContain('HB_POSTGRES_PORT="5432"');
       expect(content).toContain('HB_NEON_PORT="4444"');
@@ -891,7 +893,7 @@ describe('build-env variants', () => {
       expect(content).not.toContain('secrets.VITE_APP_VERSION');
     });
 
-    it('includes VITE_OPAQUE_SERVER_ID from envConfig production value', () => {
+    it('does not include VITE_OPAQUE_SERVER_ID (removed, hard-coded in crypto)', () => {
       createWorkflow(
         'build-android-apk.yml',
         `name: APK
@@ -903,24 +905,7 @@ describe('build-env variants', () => {
       updateWorkflows(TEST_DIR_VARIANTS);
 
       const content = readWorkflow('build-android-apk.yml');
-      expect(content).toContain('VITE_OPAQUE_SERVER_ID: hushbox.ai');
-    });
-  });
-
-  describe('build-env-mobile-test', () => {
-    it('overrides VITE_OPAQUE_SERVER_ID for dev API', () => {
-      createWorkflow(
-        'ci.yml',
-        `name: CI
-        # BEGIN GENERATED: build-env-mobile-test
-        old content
-        # END GENERATED: build-env-mobile-test`
-      );
-
-      updateWorkflows(TEST_DIR_VARIANTS);
-
-      const content = readWorkflow('ci.yml');
-      expect(content).toContain('VITE_OPAQUE_SERVER_ID: localhost:5173');
+      expect(content).not.toContain('VITE_OPAQUE_SERVER_ID');
     });
   });
 

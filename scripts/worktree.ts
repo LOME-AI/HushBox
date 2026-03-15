@@ -3,6 +3,7 @@ import path from 'node:path';
 
 export const BASE_PORTS = {
   vite: 5173,
+  preview: 4173,
   api: 8787,
   postgres: 5432,
   neon: 4444,

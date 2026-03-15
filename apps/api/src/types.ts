@@ -34,6 +34,7 @@ export interface Bindings {
   FCM_PROJECT_ID?: string;
   FCM_SERVICE_ACCOUNT_JSON?: string;
   FRONTEND_URL?: string;
+  FRONTEND_PREVIEW_URL?: string;
   UPSTASH_REDIS_REST_URL?: string;
   UPSTASH_REDIS_REST_TOKEN?: string;
   OPAQUE_MASTER_SECRET?: string;

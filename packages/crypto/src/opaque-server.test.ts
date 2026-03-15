@@ -4,7 +4,7 @@ import {
   OpaqueServerConfig,
   deriveServerCredentials,
   createOpaqueServer,
-  getServerIdentifier,
+  OPAQUE_SERVER_IDENTIFIER,
   createFakeRegistrationRecord,
   createOpaqueServerFromEnv,
   OpaqueRegistrationRecord,
@@ -68,25 +68,24 @@ describe('opaque-server', () => {
 
   describe('createOpaqueServer', () => {
     it('creates an OPAQUE server instance', async () => {
-      const server = await createOpaqueServer(testMasterSecret, 'localhost:5173');
+      const server = await createOpaqueServer(testMasterSecret, OPAQUE_SERVER_IDENTIFIER);
 
       expect(server).toBeDefined();
       expect(server.config).toBe(OpaqueServerConfig);
     });
 
     it('creates servers with consistent configuration for same inputs', async () => {
-      const server1 = await createOpaqueServer(testMasterSecret, 'localhost:5173');
-      const server2 = await createOpaqueServer(testMasterSecret, 'localhost:5173');
+      const server1 = await createOpaqueServer(testMasterSecret, OPAQUE_SERVER_IDENTIFIER);
+      const server2 = await createOpaqueServer(testMasterSecret, OPAQUE_SERVER_IDENTIFIER);
 
       expect(server1.config).toBe(server2.config);
     });
   });
 
   describe('createOpaqueServerFromEnv', () => {
-    it('creates an OPAQUE server from string master secret and frontend URL', async () => {
+    it('creates an OPAQUE server from string master secret', async () => {
       const server = await createOpaqueServerFromEnv(
-        'test-master-secret-at-least-32-bytes-long-for-security',
-        'http://localhost:5173'
+        'test-master-secret-at-least-32-bytes-long-for-security'
       );
 
       expect(server).toBeDefined();
@@ -96,7 +95,7 @@ describe('opaque-server', () => {
 
   describe('createFakeRegistrationRecord', () => {
     it('returns a registration record and fake salt', async () => {
-      const result = await createFakeRegistrationRecord(testMasterSecret, 'localhost:5173');
+      const result = await createFakeRegistrationRecord(testMasterSecret);
 
       expect(result).toHaveProperty('registrationRecord');
       expect(result).toHaveProperty('fakeSalt');
@@ -106,8 +105,8 @@ describe('opaque-server', () => {
     });
 
     it('produces deterministic output for same inputs', async () => {
-      const result1 = await createFakeRegistrationRecord(testMasterSecret, 'localhost:5173');
-      const result2 = await createFakeRegistrationRecord(testMasterSecret, 'localhost:5173');
+      const result1 = await createFakeRegistrationRecord(testMasterSecret);
+      const result2 = await createFakeRegistrationRecord(testMasterSecret);
 
       expect(result1.registrationRecord.serialize()).toEqual(
         result2.registrationRecord.serialize()
@@ -120,8 +119,8 @@ describe('opaque-server', () => {
         'different-master-secret-also-at-least-32-bytes'
       );
 
-      const result1 = await createFakeRegistrationRecord(testMasterSecret, 'localhost:5173');
-      const result2 = await createFakeRegistrationRecord(otherSecret, 'localhost:5173');
+      const result1 = await createFakeRegistrationRecord(testMasterSecret);
+      const result2 = await createFakeRegistrationRecord(otherSecret);
 
       expect(result1.registrationRecord.serialize()).not.toEqual(
         result2.registrationRecord.serialize()
@@ -129,11 +128,8 @@ describe('opaque-server', () => {
     });
 
     it('can be used in authInit (produces valid KE2)', async () => {
-      const { registrationRecord } = await createFakeRegistrationRecord(
-        testMasterSecret,
-        'localhost:5173'
-      );
-      const server = await createOpaqueServer(testMasterSecret, 'localhost:5173');
+      const { registrationRecord } = await createFakeRegistrationRecord(testMasterSecret);
+      const server = await createOpaqueServer(testMasterSecret, OPAQUE_SERVER_IDENTIFIER);
 
       const client = createOpaqueClient();
       const { ke1: ke1Serialized } = await startLogin(client, 'some-password');
@@ -147,37 +143,17 @@ describe('opaque-server', () => {
     });
 
     it('caches the result after first call', async () => {
-      const result1 = await createFakeRegistrationRecord(testMasterSecret, 'localhost:5173');
-      const result2 = await createFakeRegistrationRecord(testMasterSecret, 'localhost:5173');
+      const result1 = await createFakeRegistrationRecord(testMasterSecret);
+      const result2 = await createFakeRegistrationRecord(testMasterSecret);
 
       expect(result1.registrationRecord).toBe(result2.registrationRecord);
       expect(result1.fakeSalt).toBe(result2.fakeSalt);
     });
   });
 
-  describe('getServerIdentifier', () => {
-    it('extracts hostname from production URL', () => {
-      const identifier = getServerIdentifier('https://hushbox.ai');
-
-      expect(identifier).toBe('hushbox.ai');
-    });
-
-    it('extracts hostname with port from local URL', () => {
-      const identifier = getServerIdentifier('http://localhost:5173');
-
-      expect(identifier).toBe('localhost:5173');
-    });
-
-    it('extracts hostname from URL with path', () => {
-      const identifier = getServerIdentifier('https://hushbox.ai/some/path');
-
-      expect(identifier).toBe('hushbox.ai');
-    });
-
-    it('includes subdomain in identifier', () => {
-      const identifier = getServerIdentifier('https://app.hushbox.ai');
-
-      expect(identifier).toBe('app.hushbox.ai');
+  describe('OPAQUE_SERVER_IDENTIFIER', () => {
+    it('exports a fixed server identifier string', () => {
+      expect(OPAQUE_SERVER_IDENTIFIER).toBe('opaque-server-v1');
     });
   });
 

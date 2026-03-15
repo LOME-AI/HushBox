@@ -3,8 +3,8 @@ import { Hono } from 'hono';
 import { cors } from './cors.js';
 
 describe('cors middleware', () => {
-  describe('without FRONTEND_URL (development)', () => {
-    it('allows requests from localhost:5173', async () => {
+  describe('without FRONTEND_URL', () => {
+    it('rejects all non-Capacitor origins when no URLs configured', async () => {
       const app = new Hono();
       app.use('*', cors());
       app.get('/test', (c) => c.json({ ok: true }));
@@ -14,25 +14,7 @@ describe('cors middleware', () => {
       });
 
       expect(res.status).toBe(200);
-      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
-      expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
-    });
-
-    it('handles preflight OPTIONS requests', async () => {
-      const app = new Hono();
-      app.use('*', cors());
-      app.get('/test', (c) => c.json({ ok: true }));
-
-      const res = await app.request('/test', {
-        method: 'OPTIONS',
-        headers: {
-          Origin: 'http://localhost:5173',
-          'Access-Control-Request-Method': 'POST',
-        },
-      });
-
-      expect(res.status).toBe(204);
-      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
     });
 
     it('rejects requests from disallowed origins', async () => {
@@ -46,6 +28,45 @@ describe('cors middleware', () => {
 
       expect(res.status).toBe(200);
       expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    });
+  });
+
+  describe('with FRONTEND_URL (development)', () => {
+    it('allows requests from FRONTEND_URL', async () => {
+      const app = new Hono<{ Bindings: { FRONTEND_URL: string } }>();
+      app.use('*', cors());
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request(
+        '/test',
+        { headers: { Origin: 'http://localhost:5173' } },
+        { FRONTEND_URL: 'http://localhost:5173' }
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
+      expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    });
+
+    it('handles preflight OPTIONS requests', async () => {
+      const app = new Hono<{ Bindings: { FRONTEND_URL: string } }>();
+      app.use('*', cors());
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request(
+        '/test',
+        {
+          method: 'OPTIONS',
+          headers: {
+            Origin: 'http://localhost:5173',
+            'Access-Control-Request-Method': 'POST',
+          },
+        },
+        { FRONTEND_URL: 'http://localhost:5173' }
+      );
+
+      expect(res.status).toBe(204);
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
     });
   });
 
@@ -68,7 +89,7 @@ describe('cors middleware', () => {
       expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
     });
 
-    it('still allows localhost when FRONTEND_URL is set', async () => {
+    it('rejects localhost when only production FRONTEND_URL is set', async () => {
       const app = new Hono<{ Bindings: { FRONTEND_URL: string } }>();
       app.use('*', cors());
       app.get('/test', (c) => c.json({ ok: true }));
@@ -82,7 +103,7 @@ describe('cors middleware', () => {
       );
 
       expect(res.status).toBe(200);
-      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
     });
 
     it('handles preflight OPTIONS for production origin', async () => {
@@ -121,6 +142,24 @@ describe('cors middleware', () => {
 
       expect(res.status).toBe(200);
       expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    });
+  });
+
+  describe('with FRONTEND_PREVIEW_URL', () => {
+    it('allows requests from preview origin', async () => {
+      const app = new Hono<{ Bindings: { FRONTEND_URL: string; FRONTEND_PREVIEW_URL: string } }>();
+      app.use('*', cors());
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request(
+        '/test',
+        { headers: { Origin: 'http://localhost:4173' } },
+        { FRONTEND_URL: 'http://localhost:5173', FRONTEND_PREVIEW_URL: 'http://localhost:4173' }
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:4173');
+      expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
     });
   });
 

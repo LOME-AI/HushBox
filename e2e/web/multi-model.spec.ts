@@ -276,28 +276,13 @@ test.describe('Multi-Model Chat', () => {
       await chatPage.goto();
       await chatPage.waitForAppStable();
 
-      // Step 1: Select 2 models and capture their IDs
-      await chatPage.selectModels(2);
+      // Step 1: Select first + LAST non-premium models (isolates fail target from other tests)
+      const { successModelId, failModelId } = await chatPage.selectModelsWithFailTarget();
       await chatPage.expectComparisonBarVisible();
 
-      const bar = authenticatedPage.getByTestId('selected-models-bar');
-      const pills = bar.locator('[data-testid^="model-pill-"]');
-      const pillCount = await pills.count();
-      expect(pillCount).toBe(2);
-
-      // Extract model IDs from pill testids (model-pill-{modelId})
-      const firstModelId = (await pills.nth(0).getAttribute('data-testid'))!.replace(
-        'model-pill-',
-        ''
-      );
-      const secondModelId = (await pills.nth(1).getAttribute('data-testid'))!.replace(
-        'model-pill-',
-        ''
-      );
-
-      // Step 2: Configure second model to fail
+      // Step 2: Configure the last model to fail
       await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
-        data: { modelId: secondModelId },
+        data: { modelId: failModelId },
       });
 
       try {
@@ -335,10 +320,10 @@ test.describe('Multi-Model Chat', () => {
         // Only the successful model should have a persisted message
         const successfulAiMessages = aiMessages.filter((m) => m.cost !== null && m.cost !== '0');
         expect(successfulAiMessages.length).toBe(1);
-        expect(successfulAiMessages[0]!.modelName).toBe(firstModelId);
+        expect(successfulAiMessages[0]!.modelName).toBe(successModelId);
 
         // No persisted message for the failed model
-        const failedModelMessages = aiMessages.filter((m) => m.modelName === secondModelId);
+        const failedModelMessages = aiMessages.filter((m) => m.modelName === failModelId);
         expect(failedModelMessages.length).toBe(0);
 
         // Step 7: Verify chat still usable

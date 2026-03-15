@@ -51,12 +51,10 @@ export async function createOpaqueServer(
 }
 
 /**
- * Extracts the server identifier (hostname) from a URL.
+ * Fixed OPAQUE server identifier. URL-independent so domain changes never break auth.
+ * Both client and server must use this same value.
  */
-export function getServerIdentifier(frontendUrl: string): string {
-  const url = new URL(frontendUrl);
-  return url.host;
-}
+export const OPAQUE_SERVER_IDENTIFIER = 'opaque-server-v1';
 
 interface FakeRegistration {
   registrationRecord: RegistrationRecord;
@@ -68,15 +66,11 @@ let cachedFakeKey: string | null = null;
 
 /**
  * Creates an OPAQUE server instance from environment configuration.
- * Convenience wrapper that handles encoding and identifier extraction.
+ * Convenience wrapper that handles encoding.
  */
-export async function createOpaqueServerFromEnv(
-  masterSecret: string,
-  frontendUrl: string
-): Promise<OpaqueServer> {
+export async function createOpaqueServerFromEnv(masterSecret: string): Promise<OpaqueServer> {
   const masterSecretBytes = textEncoder.encode(masterSecret);
-  const serverIdentifier = getServerIdentifier(frontendUrl);
-  return createOpaqueServer(masterSecretBytes, serverIdentifier);
+  return createOpaqueServer(masterSecretBytes, OPAQUE_SERVER_IDENTIFIER);
 }
 
 /**
@@ -86,11 +80,10 @@ export async function createOpaqueServerFromEnv(
  * NOTE: Module-level mutable cache (server-only state).
  */
 export async function createFakeRegistrationRecord(
-  masterSecret: Uint8Array,
-  serverIdentifier: string
+  masterSecret: Uint8Array
 ): Promise<FakeRegistration> {
   const cacheKey = bytesToHex(
-    sha256Hash(new Uint8Array([...masterSecret, ...textEncoder.encode(serverIdentifier)]))
+    sha256Hash(new Uint8Array([...masterSecret, ...textEncoder.encode(OPAQUE_SERVER_IDENTIFIER)]))
   );
   if (cachedFakeRegistration && cachedFakeKey === cacheKey) {
     return cachedFakeRegistration;
@@ -107,7 +100,7 @@ export async function createFakeRegistrationRecord(
   );
 
   const client = new OpaqueClient(OpaqueServerConfig);
-  const server = await createOpaqueServer(masterSecret, serverIdentifier);
+  const server = await createOpaqueServer(masterSecret, OPAQUE_SERVER_IDENTIFIER);
 
   const regInit = await client.registerInit(String.fromCodePoint(...fakePassword));
   if (regInit instanceof Error) throw regInit;
@@ -115,7 +108,7 @@ export async function createFakeRegistrationRecord(
   const regResponse = await server.registerInit(regInit, 'fake-credential-id');
   if (regResponse instanceof Error) throw regResponse;
 
-  const regFinish = await client.registerFinish(regResponse, serverIdentifier);
+  const regFinish = await client.registerFinish(regResponse, OPAQUE_SERVER_IDENTIFIER);
   if (regFinish instanceof Error) throw regFinish;
 
   cachedFakeRegistration = {

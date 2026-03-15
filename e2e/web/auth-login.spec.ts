@@ -39,7 +39,18 @@ test.describe('Login & Session', () => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
       await loginPage.login('test-charlie@test.hushbox.ai', DEV_PASSWORD);
-      await loginPage.expectError(/verified|verify/i);
+
+      // App redirects to check-your-email view instead of inline alert
+      await expect(unauthenticatedPage.getByTestId('check-your-email')).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(unauthenticatedPage.getByText('test-charlie@test.hushbox.ai')).toBeVisible();
+
+      // Verify resend works from this page
+      await unauthenticatedPage.getByTestId('resend-button').click();
+      await expect(unauthenticatedPage.getByTestId('resend-feedback')).toBeVisible({
+        timeout: 10_000,
+      });
     });
   });
 

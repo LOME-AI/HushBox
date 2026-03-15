@@ -349,7 +349,7 @@ describe('ChatLayout', () => {
   it('shows decrypting indicator when isDecrypting and no messages', () => {
     render(<ChatLayout {...defaultProps} messages={[]} isDecrypting={true} />);
 
-    expect(screen.getByTestId('decrypting-indicator')).toBeInTheDocument();
+    expect(screen.getByTestId('shared-conversation-loading')).toBeInTheDocument();
     expect(screen.getByText('Decrypting your conversation...')).toBeInTheDocument();
     // Header and input should still be visible
     expect(screen.getByTestId('chat-header')).toBeInTheDocument();
@@ -363,7 +363,7 @@ describe('ChatLayout', () => {
 
     render(<ChatLayout {...defaultProps} messages={messages} isDecrypting={true} />);
 
-    expect(screen.queryByTestId('decrypting-indicator')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('shared-conversation-loading')).not.toBeInTheDocument();
     expect(screen.getByTestId('message-list')).toBeInTheDocument();
   });
 

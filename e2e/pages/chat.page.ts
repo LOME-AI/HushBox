@@ -400,7 +400,13 @@ export class ChatPage {
   /** Click the confirm button in the model selector modal footer. */
   async confirmModelSelection(): Promise<void> {
     const modal = this.page.getByTestId('model-selector-modal');
-    await modal.getByRole('button', { name: /Select\b/ }).click();
+    const selectButton = modal.getByRole('button', { name: /Select\b/ });
+    const isSelectVisible = await selectButton.isVisible().catch(() => false);
+    if (isSelectVisible) {
+      await selectButton.click();
+    } else {
+      await modal.getByRole('button', { name: 'Close' }).click();
+    }
     await expect(modal).not.toBeVisible({ timeout: 5000 });
   }
 
@@ -438,6 +444,46 @@ export class ChatPage {
     }
 
     await this.confirmModelSelection();
+  }
+
+  /**
+   * Select 2 models for partial failure testing:
+   * - First non-premium model (will succeed)
+   * - LAST non-premium model (will be configured to fail)
+   * Returns { successModelId, failModelId }.
+   * The fail model is never picked by selectModels(N) since that picks from the front.
+   */
+  async selectModelsWithFailTarget(): Promise<{ successModelId: string; failModelId: string }> {
+    await this.openModelSelector();
+    const modal = this.page.getByTestId('model-selector-modal');
+    const nonPremiumItems = modal.locator(
+      '[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))'
+    );
+
+    const clearButton = modal.getByTestId('clear-selection-button');
+    if (await clearButton.isVisible()) {
+      await clearButton.click();
+      await this.page.waitForTimeout(100);
+    }
+
+    const available = await nonPremiumItems.count();
+
+    // Select first model (success target)
+    const firstItem = nonPremiumItems.nth(0);
+    await firstItem.getByTestId('model-checkbox').click();
+    await this.page.waitForTimeout(100);
+    const firstTestId = await firstItem.getAttribute('data-testid');
+    const successModelId = (firstTestId ?? '').replace('model-item-', '');
+
+    // Select LAST model (fail target) — never picked by selectModels(N)
+    const lastItem = nonPremiumItems.nth(available - 1);
+    await lastItem.getByTestId('model-checkbox').click();
+    await this.page.waitForTimeout(100);
+    const lastTestId = await lastItem.getAttribute('data-testid');
+    const failModelId = (lastTestId ?? '').replace('model-item-', '');
+
+    await this.confirmModelSelection();
+    return { successModelId, failModelId };
   }
 
   /** Count selected (checked) models in the open modal. */

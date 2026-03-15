@@ -77,6 +77,7 @@ vi.mock('./link-guest-auth.js', () => ({
 }));
 
 vi.mock('@hushbox/crypto', () => ({
+  OPAQUE_SERVER_IDENTIFIER: 'opaque-server-v1',
   createOpaqueClient: vi.fn(() => ({ client: 'mock' })),
   startLogin: vi.fn(() => Promise.resolve({ ke1: [1, 2, 3] })),
   finishLogin: vi.fn(() =>

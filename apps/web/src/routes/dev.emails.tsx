@@ -2,6 +2,7 @@ import * as React from 'react';
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ROUTES } from '@hushbox/shared';
+import { env } from '@/lib/env';
 import { client, fetchJson } from '@/lib/api-client';
 
 interface EmailTemplate {
@@ -16,7 +17,7 @@ interface EmailsResponse {
 
 export const Route = createFileRoute('/dev/emails')({
   beforeLoad: () => {
-    if (!import.meta.env.DEV) {
+    if (!env.isDev) {
       // eslint-disable-next-line @typescript-eslint/only-throw-error
       throw redirect({ to: ROUTES.LOGIN });
     }
@@ -28,7 +29,7 @@ export function EmailsPage(): React.JSX.Element {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dev-emails'],
     queryFn: (): Promise<EmailsResponse> => fetchJson<EmailsResponse>(client.api.dev.emails.$get()),
-    enabled: import.meta.env.DEV,
+    enabled: env.isDev,
     retry: false,
   });
 

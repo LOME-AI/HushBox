@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
+import { Lock } from 'lucide-react';
 import { deriveKeysFromLinkSecret } from '@hushbox/crypto';
 import { fromBase64, toBase64 } from '@hushbox/shared';
 import { AppShell } from '../components/shared/app-shell.js';
@@ -45,7 +46,21 @@ export function SharedConversationPage(): React.JSX.Element {
     );
   }
 
-  if (!linkReady) return <></>;
+  if (!linkReady) {
+    return (
+      <AppShell>
+        <div
+          className="flex h-full items-center justify-center"
+          data-testid="shared-conversation-loading"
+        >
+          <div className="flex flex-col items-center gap-3">
+            <Lock className="text-muted-foreground h-8 w-8" />
+            <span className="text-muted-foreground text-sm">Decrypting your conversation...</span>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>

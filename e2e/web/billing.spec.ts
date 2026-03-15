@@ -327,7 +327,7 @@ test.describe('Billing & Payments', () => {
       });
 
       await test.step('balance updated after payment', async () => {
-        await unauthenticatedPage.goto('/billing-portal');
+        await unauthenticatedPage.goto(`/billing-portal?token=${billingToken}`);
         await billingPage.waitForWebhookConfirmation(initialBalance, 5, 30_000);
 
         const newBalance = await billingPage.getBalance();

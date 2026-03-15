@@ -61,6 +61,13 @@ export const envConfig = {
     [Mode.Production]: 'https://hushbox.ai',
   },
 
+  FRONTEND_PREVIEW_URL: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'http://localhost:4173',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.Development),
+  },
+
   CI: {
     to: [Destination.Backend],
     [Mode.CiVitest]: 'true',
@@ -178,12 +185,6 @@ export const envConfig = {
     [Mode.Production]: secret('VITE_HELCIM_JS_TOKEN_PRODUCTION'),
   },
 
-  VITE_OPAQUE_SERVER_ID: {
-    to: [Destination.Frontend],
-    [Mode.Production]: 'hushbox.ai',
-    // Dev/CI: not set — getOpaqueServerIdentifier() falls back to location.host which is correct on web.
-    // Mobile builds override via BUILD_VARIANTS or mobile-test.ts.
-  },
 
   VITE_PLATFORM: {
     to: [Destination.Frontend],
@@ -229,6 +230,7 @@ export const backendEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']),
   API_URL: z.string().url(),
   FRONTEND_URL: z.string().url(),
+  FRONTEND_PREVIEW_URL: z.string().url().optional(),
   DATABASE_URL: z.string().min(1),
   APP_VERSION: z.string().min(1),
   RESEND_API_KEY: z.string().optional(),
@@ -249,7 +251,6 @@ export type BackendEnv = z.infer<typeof backendEnvSchema>;
 
 export const frontendEnvSchema = z.object({
   VITE_API_URL: z.string().url(),
-  VITE_OPAQUE_SERVER_ID: z.string().optional(),
   VITE_PLATFORM: z.enum(VALID_PLATFORMS).default('web'),
   VITE_APP_VERSION: z.string().min(1).default('dev-local'),
   VITE_HELCIM_JS_TOKEN: z.string().optional(),

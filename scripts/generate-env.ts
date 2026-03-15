@@ -40,7 +40,6 @@ const BUILD_VARIANTS: Record<string, Record<string, string>> = {
     VITE_API_URL: 'http://10.0.2.2:8787',
     VITE_PLATFORM: 'android-direct',
     VITE_APP_VERSION: 'ci-mobile-test',
-    VITE_OPAQUE_SERVER_ID: 'localhost:5173', // Matches dev API's FRONTEND_URL
   },
 };
 
@@ -98,6 +97,7 @@ function generatePortLines(
   }
   lines.push(
     `HB_VITE_PORT=${escapeEnvValue(String(ports.vite))}`,
+    `HB_PREVIEW_PORT=${escapeEnvValue(String(ports.preview))}`,
     `HB_API_PORT=${escapeEnvValue(String(ports.api))}`,
     `HB_POSTGRES_PORT=${escapeEnvValue(String(ports.postgres))}`,
     `HB_NEON_PORT=${escapeEnvValue(String(ports.neon))}`,

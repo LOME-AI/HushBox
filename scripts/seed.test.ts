@@ -50,7 +50,7 @@ vi.mock('@hushbox/crypto', () => ({
       registerInit: vi.fn(() => Promise.resolve({ serialize: () => [10, 11, 12] })),
     })
   ),
-  getServerIdentifier: vi.fn(() => 'localhost:5173'),
+  OPAQUE_SERVER_IDENTIFIER: 'opaque-server-v1',
   deriveTotpEncryptionKey: vi.fn(() => mockCryptoBytes(32)),
   encryptTotpSecret: vi.fn(() => mockCryptoBytes(48)),
 }));

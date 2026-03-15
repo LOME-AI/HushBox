@@ -49,7 +49,6 @@ import {
   OpaqueExpectedAuthResult as ExpectedAuthResult,
   createOpaqueServerFromEnv,
   createFakeRegistrationRecord,
-  getServerIdentifier,
   OpaqueServerConfig,
 } from '@hushbox/crypto';
 import { createErrorResponse } from '../lib/error-response.js';
@@ -400,7 +399,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
 
     // Create OPAQUE server and process registration request
     // Always process request to prevent user enumeration
-    const opaqueServer = await createOpaqueServerFromEnv(masterSecret, frontendUrl);
+    const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
 
     const request = RegistrationRequest.deserialize(OpaqueServerConfig, registrationRequest);
     const credentialIdentifier = userId;
@@ -570,7 +569,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     const lookupCondition = resolveIdentifierCondition(identifier);
 
     // Look up user first so we can rate-limit by userId when found
-    const opaqueServer = await createOpaqueServerFromEnv(masterSecret, frontendUrl);
+    const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
     const existingUsers = await db.select().from(users).where(lookupCondition);
     const user = existingUsers[0];
 
@@ -620,8 +619,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     } else {
       // Use fake record to prevent user enumeration
       const masterSecretBytes = textEncoder.encode(masterSecret);
-      const serverIdentifier = getServerIdentifier(frontendUrl);
-      const fake = await createFakeRegistrationRecord(masterSecretBytes, serverIdentifier);
+      const fake = await createFakeRegistrationRecord(masterSecretBytes);
       registrationRecord = fake.registrationRecord;
       userId = null;
       credentialIdentifier = identifier.toLowerCase();
@@ -662,7 +660,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     const redis = c.get('redis');
     const authEnv = getAuthEnvWithSession(c.env);
     if (!authEnv) return c.json(createErrorResponse(ERROR_CODE_SERVER_MISCONFIGURED), 500);
-    const { masterSecret, frontendUrl, sessionSecret } = authEnv;
+    const { masterSecret, sessionSecret } = authEnv;
 
     // Check for pending login
     const pendingData = await redisGet(redis, 'opaquePendingLogin', identifier);
@@ -673,7 +671,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     const pending = pendingData;
 
     // Create OPAQUE server and verify KE3
-    const opaqueServer = await createOpaqueServerFromEnv(masterSecret, frontendUrl);
+    const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
 
     const ke3Message = KE3.deserialize(OpaqueServerConfig, ke3);
     const expected = ExpectedAuthResult.deserialize(OpaqueServerConfig, pending.expectedSerialized);
@@ -1140,7 +1138,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     }
 
     // Create OPAQUE server and process login init
-    const opaqueServer = await createOpaqueServerFromEnv(masterSecret, frontendUrl);
+    const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
 
     const registrationRecord = RegistrationRecord.deserialize(OpaqueServerConfig, [
       ...user.opaqueRegistration,
@@ -1217,7 +1215,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       }
 
       // Verify password with OPAQUE
-      const opaqueServer = await createOpaqueServerFromEnv(masterSecret, frontendUrl);
+      const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
 
       const ke3Message = KE3.deserialize(OpaqueServerConfig, ke3);
       const expected = ExpectedAuthResult.deserialize(
@@ -1424,7 +1422,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     }
 
     // Create OPAQUE server
-    const opaqueServer = await createOpaqueServerFromEnv(masterSecret, frontendUrl);
+    const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
 
     // 1. Process OPAQUE login init (verify old password)
     const registrationRecord = RegistrationRecord.deserialize(OpaqueServerConfig, [
@@ -1502,7 +1500,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       const pending = pendingData;
 
       // Verify old password with OPAQUE
-      const opaqueServer = await createOpaqueServerFromEnv(masterSecret, frontendUrl);
+      const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
 
       const ke3Message = KE3.deserialize(OpaqueServerConfig, ke3);
       const expected = ExpectedAuthResult.deserialize(
@@ -1583,7 +1581,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     const lookupCondition = resolveIdentifierCondition(identifier);
     const [existingUser] = await db.select({ id: users.id }).from(users).where(lookupCondition);
 
-    const opaqueServer = await createOpaqueServerFromEnv(masterSecret, frontendUrl);
+    const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
 
     const request = RegistrationRequest.deserialize(OpaqueServerConfig, newRegistrationRequest);
     const credentialIdentifier = existingUser?.id ?? crypto.randomUUID();

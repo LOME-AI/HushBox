@@ -1,10 +1,14 @@
 import { type Page, expect } from '@playwright/test';
 
-/** Wait for the shared conversation loading spinner to disappear. */
+/** Wait for the shared conversation loading spinner to appear then disappear. */
 export async function expectSharedConversationLoaded(page: Page): Promise<void> {
-  await expect(page.getByTestId('shared-conversation-loading')).not.toBeVisible({
-    timeout: 15_000,
-  });
+  const loading = page.getByTestId('shared-conversation-loading');
+  // Loading may have already completed — swallow the timeout
+  await loading
+    .waitFor({ state: 'visible', timeout: 10_000 })
+    .catch(Function.prototype as () => void);
+  // Then wait for it to disappear (decryption complete)
+  await expect(loading).not.toBeVisible({ timeout: 15_000 });
 }
 
 /** Assert no decryption failure text is visible on the page. */

@@ -257,7 +257,14 @@ function attachCostsToMessages(
   setter: React.Dispatch<React.SetStateAction<Message[]>>
 ): void {
   for (const mr of models) {
-    if (mr.cost && mr.cost !== '0') {
+    const code = mr.errorCode;
+    if (code) {
+      setter((prev) =>
+        prev.map((m) =>
+          m.id === mr.assistantMessageId ? { ...m, errorCode: code, content: '' } : m
+        )
+      );
+    } else if (mr.cost && mr.cost !== '0') {
       attachCostToMessage(setter, mr.assistantMessageId, mr.cost);
     }
   }
@@ -376,6 +383,7 @@ export function useAuthenticatedChat({
     addOptimisticMessage,
     removeOptimisticMessage,
     updateOptimisticMessageContent,
+    setOptimisticMessageError,
     resetOptimisticMessages,
   } = useOptimisticMessages();
 
@@ -456,6 +464,20 @@ export function useAuthenticatedChat({
     }
   }, []);
 
+  const handleStreamModelError = React.useCallback(
+    (data: { modelId: string; code?: string }) => {
+      const msgId = modelMessageMapRef.current.get(data.modelId);
+      if (msgId) {
+        setLocalMessages((previous) =>
+          previous.map((m) =>
+            m.id === msgId ? { ...m, errorCode: data.code ?? 'STREAM_ERROR', content: '' } : m
+          )
+        );
+      }
+    },
+    []
+  );
+
   const optimisticModelMapRef = React.useRef(new Map<string, string>());
 
   const createOptimisticStreamCallbacks = React.useCallback(
@@ -478,8 +500,14 @@ export function useAuthenticatedChat({
           updateOptimisticMessageContent(msgId, token);
         }
       },
+      onModelError: (data: { modelId: string; code?: string }) => {
+        const msgId = optimisticModelMapRef.current.get(data.modelId);
+        if (msgId) {
+          setOptimisticMessageError(msgId, data.code ?? 'STREAM_ERROR');
+        }
+      },
     }),
-    [state, addOptimisticMessage, updateOptimisticMessageContent]
+    [state, addOptimisticMessage, updateOptimisticMessageContent, setOptimisticMessageError]
   );
 
   interface ExecuteStreamParams {
@@ -605,7 +633,11 @@ export function useAuthenticatedChat({
             webSearchEnabled,
             ...(customInstructions != null && { customInstructions }),
           },
-          { onStart: handleStreamStart, onToken: handleStreamToken }
+          {
+            onStart: handleStreamStart,
+            onToken: handleStreamToken,
+            onModelError: handleStreamModelError,
+          }
         );
 
         attachCostsToMessages(streamResult.models, setLocalMessages);
@@ -638,6 +670,7 @@ export function useAuthenticatedChat({
     clearPendingMessage,
     handleStreamStart,
     handleStreamToken,
+    handleStreamModelError,
     selectedModels,
     webSearchEnabled,
     customInstructions,
@@ -715,7 +748,10 @@ export function useAuthenticatedChat({
           });
           removeOptimisticMessage(optimisticUserMessage.id);
           for (const mr of modelResults) {
-            removeOptimisticMessage(mr.assistantMessageId);
+            // Keep optimistic messages with errorCode — they have no DB row to replace them
+            if (!mr.errorCode) {
+              removeOptimisticMessage(mr.assistantMessageId);
+            }
           }
         } catch (error: unknown) {
           if (error instanceof BillingMismatchError) {

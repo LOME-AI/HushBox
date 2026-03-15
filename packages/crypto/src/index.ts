@@ -77,7 +77,7 @@ export {
   createOpaqueServer,
   createOpaqueServerFromEnv,
   createFakeRegistrationRecord,
-  getServerIdentifier,
+  OPAQUE_SERVER_IDENTIFIER,
   OpaqueRegistrationRecord,
   OpaqueServerRegistrationRequest,
   OpaqueKE1,

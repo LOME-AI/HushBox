@@ -1,10 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const isCI = !!process.env['CI'];
-const vitePort = process.env['HB_VITE_PORT']!;
+const previewPort = process.env['HB_PREVIEW_PORT']!;
 const apiPort = process.env['HB_API_PORT']!;
-const viteUrl = `http://localhost:${vitePort}`;
-const viteHealthUrl = `${viteUrl}/@vite/client`;
+const previewUrl = `http://localhost:${previewPort}`;
 const apiUrl = `http://localhost:${apiPort}`;
 
 export default defineConfig({
@@ -12,30 +11,30 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: isCI,
   retries: isCI ? 2 : 1,
-  workers: isCI ? 2 : 4,
+  workers: isCI ? 3 : 4,
   timeout: 45_000,
   expect: {
     timeout: 10_000,
   },
   reporter: isCI
-    ? [['github'], ['html', { open: 'never' }]]
-    : [['html', { open: 'on-failure' }], ['./scripts/e2e-reporter.ts']],
+    ? [['list'], ['github'], ['html', { open: 'never' }]]
+    : [['list'], ['html', { open: 'on-failure' }], ['./scripts/e2e-reporter.ts']],
   use: {
-    baseURL: viteUrl,
+    baseURL: previewUrl,
     trace: 'retain-on-failure',
     screenshot: isCI ? 'only-on-failure' : 'on',
     video: 'retain-on-failure',
   },
   webServer: [
     {
-      command: 'pnpm --filter @hushbox/web dev',
-      url: viteHealthUrl,
-      reuseExistingServer: !process.env['CI'],
+      command: `lsof -ti:${previewPort} | xargs -r kill 2>/dev/null || true; pnpm --filter @hushbox/web build --mode development && pnpm --filter @hushbox/web preview --port ${previewPort}`,
+      url: previewUrl,
+      reuseExistingServer: false,
     },
     {
       command: 'pnpm --filter @hushbox/api dev',
       url: `${apiUrl}/api/health`,
-      reuseExistingServer: !process.env['CI'],
+      reuseExistingServer: !isCI,
     },
   ],
   projects: [

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { createFileRoute, redirect, useParams } from '@tanstack/react-router';
 import { ROUTES } from '@hushbox/shared';
+import { env } from '@/lib/env';
 import {
   AppIcon,
   IconBackground,
@@ -20,7 +21,7 @@ const ASSET_MAP: Record<string, React.ComponentType> = {
 
 export const Route = createFileRoute('/dev/render-asset/$name')({
   beforeLoad: () => {
-    if (!import.meta.env.DEV) {
+    if (!env.isDev) {
       // eslint-disable-next-line @typescript-eslint/only-throw-error
       throw redirect({ to: ROUTES.LOGIN });
     }

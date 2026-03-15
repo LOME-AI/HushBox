@@ -6,6 +6,7 @@ interface UseOptimisticMessagesResult {
   readonly addOptimisticMessage: (message: Message) => void;
   readonly removeOptimisticMessage: (messageId: string) => void;
   readonly updateOptimisticMessageContent: (messageId: string, token: string) => void;
+  readonly setOptimisticMessageError: (messageId: string, errorCode: string) => void;
   readonly resetOptimisticMessages: () => void;
 }
 
@@ -29,6 +30,15 @@ export function useOptimisticMessages(): UseOptimisticMessagesResult {
     []
   );
 
+  const setOptimisticMessageError = React.useCallback(
+    (messageId: string, errorCode: string): void => {
+      setOptimisticMessages((previous) =>
+        previous.map((m) => (m.id === messageId ? { ...m, errorCode, content: '' } : m))
+      );
+    },
+    []
+  );
+
   const resetOptimisticMessages = React.useCallback((): void => {
     setOptimisticMessages([]);
   }, []);
@@ -38,6 +48,7 @@ export function useOptimisticMessages(): UseOptimisticMessagesResult {
     addOptimisticMessage,
     removeOptimisticMessage,
     updateOptimisticMessageContent,
+    setOptimisticMessageError,
     resetOptimisticMessages,
   };
 }

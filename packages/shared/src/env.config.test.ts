@@ -209,25 +209,6 @@ describe('envConfig', () => {
     });
   });
 
-  describe('VITE_OPAQUE_SERVER_ID', () => {
-    it('goes to Frontend only', () => {
-      expect(envConfig.VITE_OPAQUE_SERVER_ID.to).toEqual([Destination.Frontend]);
-    });
-
-    it('is not set in development (web uses location.host)', () => {
-      expect(resolveRaw(envConfig.VITE_OPAQUE_SERVER_ID, Mode.Development)).toBeUndefined();
-    });
-
-    it('is not set in CI (web uses location.host)', () => {
-      expect(resolveRaw(envConfig.VITE_OPAQUE_SERVER_ID, Mode.CiVitest)).toBeUndefined();
-      expect(resolveRaw(envConfig.VITE_OPAQUE_SERVER_ID, Mode.CiE2E)).toBeUndefined();
-    });
-
-    it('has production value matching FRONTEND_URL host', () => {
-      expect(resolveRaw(envConfig.VITE_OPAQUE_SERVER_ID, Mode.Production)).toBe('hushbox.ai');
-    });
-  });
-
   describe('VITE_CI', () => {
     it('goes to Frontend only', () => {
       expect(envConfig.VITE_CI.to).toEqual([Destination.Frontend]);
@@ -395,26 +376,6 @@ describe('frontendEnvSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.VITE_HELCIM_JS_TOKEN).toBe('some-token');
-    }
-  });
-
-  it('allows VITE_OPAQUE_SERVER_ID to be optional', () => {
-    const result = frontendEnvSchema.safeParse({
-      VITE_API_URL: 'http://localhost:8787',
-    });
-
-    expect(result.success).toBe(true);
-  });
-
-  it('accepts VITE_OPAQUE_SERVER_ID when provided', () => {
-    const result = frontendEnvSchema.safeParse({
-      VITE_API_URL: 'http://localhost:8787',
-      VITE_OPAQUE_SERVER_ID: 'hushbox.ai',
-    });
-
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.VITE_OPAQUE_SERVER_ID).toBe('hushbox.ai');
     }
   });
 });

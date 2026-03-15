@@ -511,7 +511,7 @@ function ChatMainContent({
         />
       )}
       {showDecrypting && (
-        <div className="flex flex-1 items-center justify-center" data-testid="decrypting-indicator">
+        <div className="flex flex-1 items-center justify-center" data-testid="shared-conversation-loading">
           <div className="flex flex-col items-center gap-3">
             <Lock className="text-muted-foreground h-8 w-8" />
             <span className="text-muted-foreground text-sm">Decrypting your conversation...</span>

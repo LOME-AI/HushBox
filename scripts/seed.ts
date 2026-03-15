@@ -48,7 +48,7 @@ import {
   OpaqueClientConfig,
   OpaqueRegistrationRequest,
   createOpaqueServer,
-  getServerIdentifier,
+  OPAQUE_SERVER_IDENTIFIER,
   deriveTotpEncryptionKey,
   encryptTotpSecret,
 } from '@hushbox/crypto';
@@ -65,13 +65,10 @@ async function createOpaqueUserCrypto(
   const masterSecret =
     process.env['OPAQUE_MASTER_SECRET'] ??
     (resolveRaw(envConfig.OPAQUE_MASTER_SECRET, Mode.Development) as string);
-  const frontendUrl =
-    process.env['FRONTEND_URL'] ?? (resolveRaw(envConfig.FRONTEND_URL, Mode.Development) as string);
 
   // 1. OPAQUE registration (client <-> server protocol)
   const masterSecretBytes = new TextEncoder().encode(masterSecret);
-  const serverIdentifier = getServerIdentifier(frontendUrl);
-  const opaqueServer = await createOpaqueServer(masterSecretBytes, serverIdentifier);
+  const opaqueServer = await createOpaqueServer(masterSecretBytes, OPAQUE_SERVER_IDENTIFIER);
 
   const client = createOpaqueClient();
   const { serialized } = await startRegistration(client, password);
@@ -83,7 +80,7 @@ async function createOpaqueUserCrypto(
   const { record, exportKey } = await finishRegistration(
     client,
     serverResult.serialize(),
-    serverIdentifier
+    OPAQUE_SERVER_IDENTIFIER
   );
   const opaqueRegistration = new Uint8Array(record);
 

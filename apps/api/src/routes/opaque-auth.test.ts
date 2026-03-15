@@ -6,6 +6,7 @@ import {
   finishRegistration,
   startLogin,
   finishLogin,
+  OPAQUE_SERVER_IDENTIFIER,
 } from '@hushbox/crypto';
 import { createEnvUtilities } from '@hushbox/shared';
 import { opaqueAuthRoute } from './opaque-auth.js';
@@ -672,7 +673,6 @@ describe('OPAQUE auth routes', () => {
     it('returns 401 EMAIL_NOT_VERIFIED when email is not verified', async () => {
       const email = 'unverified@example.com';
       const password = 'secure-password-123';
-      const serverIdentifier = 'localhost:5173';
 
       // === Step 1: Register user (full OPAQUE flow) ===
       const regClient = createOpaqueClient();
@@ -693,7 +693,7 @@ describe('OPAQUE auth routes', () => {
       const { record } = await finishRegistration(
         regClient,
         registrationResponse,
-        serverIdentifier
+        OPAQUE_SERVER_IDENTIFIER
       );
 
       const finishRes = await app.request('/api/auth/register/finish', {
@@ -744,7 +744,7 @@ describe('OPAQUE auth routes', () => {
       const loginInitBody = await jsonBody<LoginInitResponse>(loginInitRes);
 
       // === Step 3: Login finish - should be rejected ===
-      const { ke3 } = await finishLogin(loginClient, loginInitBody.ke2, serverIdentifier);
+      const { ke3 } = await finishLogin(loginClient, loginInitBody.ke2, OPAQUE_SERVER_IDENTIFIER);
 
       const loginFinishRes = await app.request('/api/auth/login/finish', {
         method: 'POST',
@@ -761,7 +761,6 @@ describe('OPAQUE auth routes', () => {
       const email = 'userbyname@example.com';
       const username = 'loginbyname';
       const password = 'secure-password-456';
-      const serverIdentifier = 'localhost:5173';
 
       // === Step 1: Register user ===
       const regClient = createOpaqueClient();
@@ -782,7 +781,7 @@ describe('OPAQUE auth routes', () => {
       const { record } = await finishRegistration(
         regClient,
         registrationResponse,
-        serverIdentifier
+        OPAQUE_SERVER_IDENTIFIER
       );
 
       const finishRes = await app.request('/api/auth/register/finish', {
@@ -831,7 +830,7 @@ describe('OPAQUE auth routes', () => {
       const loginInitBody = await jsonBody<LoginInitResponse>(loginInitRes);
 
       // === Step 3: Login finish - should succeed ===
-      const { ke3 } = await finishLogin(loginClient, loginInitBody.ke2, serverIdentifier);
+      const { ke3 } = await finishLogin(loginClient, loginInitBody.ke2, OPAQUE_SERVER_IDENTIFIER);
 
       const loginFinishRes = await app.request('/api/auth/login/finish', {
         method: 'POST',
@@ -848,7 +847,6 @@ describe('OPAQUE auth routes', () => {
     it('skips email verification for no-email users', async () => {
       const email = 'noemail-reg@example.com';
       const password = 'secure-password-789';
-      const serverIdentifier = 'localhost:5173';
 
       // === Step 1: Register (using email for now, but simulate no-email at login) ===
       const regClient = createOpaqueClient();
@@ -869,7 +867,7 @@ describe('OPAQUE auth routes', () => {
       const { record } = await finishRegistration(
         regClient,
         registrationResponse,
-        serverIdentifier
+        OPAQUE_SERVER_IDENTIFIER
       );
 
       const finishRes = await app.request('/api/auth/register/finish', {
@@ -919,7 +917,7 @@ describe('OPAQUE auth routes', () => {
       const loginInitBody = await jsonBody<LoginInitResponse>(loginInitRes);
 
       // === Step 3: Login finish - should succeed despite emailVerified: false ===
-      const { ke3 } = await finishLogin(loginClient, loginInitBody.ke2, serverIdentifier);
+      const { ke3 } = await finishLogin(loginClient, loginInitBody.ke2, OPAQUE_SERVER_IDENTIFIER);
 
       const loginFinishRes = await app.request('/api/auth/login/finish', {
         method: 'POST',

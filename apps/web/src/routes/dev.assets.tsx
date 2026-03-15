@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { ROUTES } from '@hushbox/shared';
+import { env } from '@/lib/env';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@hushbox/ui';
 
 interface AssetDefinition {
@@ -54,7 +55,7 @@ interface PreviewImage {
 
 export const Route = createFileRoute('/dev/assets')({
   beforeLoad: () => {
-    if (!import.meta.env.DEV) {
+    if (!env.isDev) {
       // eslint-disable-next-line @typescript-eslint/only-throw-error
       throw redirect({ to: ROUTES.LOGIN });
     }

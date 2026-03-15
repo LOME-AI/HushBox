@@ -380,4 +380,28 @@ describe('csrfProtection middleware', () => {
       expect(res.status).toBe(403);
     });
   });
+
+  describe('preview origin', () => {
+    it('allows POST from FRONTEND_PREVIEW_URL', async () => {
+      const app = new Hono<{
+        Bindings: { FRONTEND_URL: string; FRONTEND_PREVIEW_URL: string };
+      }>();
+      app.use('*', async (c, next) => {
+        c.env = {
+          FRONTEND_URL: 'http://localhost:5173',
+          FRONTEND_PREVIEW_URL: 'http://localhost:4173',
+        };
+        await next();
+      });
+      app.use('*', csrfProtection());
+      app.post('/test', (c) => c.json({ success: true }));
+
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: { Origin: 'http://localhost:4173' },
+      });
+
+      expect(res.status).toBe(200);
+    });
+  });
 });
