@@ -17,8 +17,7 @@ export function transformStreamdownSource(code: string): string | null {
   const codeBlockImportMatch = /import\('(\.\/highlighted-body-[^']+)'\)/.exec(result);
   if (codeBlockImportMatch) {
     const importPath = codeBlockImportMatch[1] ?? '';
-    result =
-      `import {HighlightedCodeBlockBody as __SD_CodeBlock} from '${importPath}';\n` + result;
+    result = `import {HighlightedCodeBlockBody as __SD_CodeBlock} from '${importPath}';\n` + result;
     result = result.replace(
       /lazy\(\(\)=>import\('[^']*highlighted-body-[^']*'\)\.then\(\w+=>\(\{default:\w+\.HighlightedCodeBlockBody\}\)\)\)/,
       '__SD_CodeBlock'
