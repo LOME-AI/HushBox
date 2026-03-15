@@ -4,7 +4,7 @@ import { createInviteLink, createWriteLinkWithBudget } from '../helpers/invite-l
 import {
   expectSharedConversationLoaded,
   expectNoDecryptionErrors,
-  expectNoSendInput,
+  expectSendInputDisabled,
   sendMessageAsGuest,
 } from '../helpers/link-assertions.js';
 
@@ -29,7 +29,10 @@ test.describe('Auth User Using Link', () => {
     let writeUrl: string;
 
     await test.step('create read+history link', async () => {
-      const result = await createInviteLink(authenticatedPage, sidebar, { withHistory: true });
+      const result = await createInviteLink(authenticatedPage, sidebar, {
+        withHistory: true,
+        extractLinkId: false,
+      });
       readUrl = result.url;
     });
 
@@ -45,20 +48,18 @@ test.describe('Auth User Using Link', () => {
       await expect(testBobPage.getByText('Hi from Bob').first()).toBeVisible();
 
       await expectNoDecryptionErrors(testBobPage);
-      await expectNoSendInput(testBobPage, 'Ask me anything...');
+      await expectSendInputDisabled(testBobPage);
     });
 
     await test.step('create write+history link and setup budgets', async () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      const result = await createWriteLinkWithBudget(
-        authenticatedPage,
-        sidebar,
+      const result = await createWriteLinkWithBudget(authenticatedPage, sidebar, {
         helper,
-        groupConversation.id,
-        { withHistory: true }
-      );
+        conversationId: groupConversation.id,
+        withHistory: true,
+      });
       writeUrl = result.url;
     });
 
@@ -75,7 +76,7 @@ test.describe('Auth User Using Link', () => {
       await expectNoDecryptionErrors(testBobPage);
 
       // Can send a message
-      await sendMessageAsGuest(testBobPage, `Bob via link ${String(Date.now())}`);
+      await sendMessageAsGuest(testBobPage, `Bob via link ${String(Date.now())}`, /message/i);
     });
   });
 
@@ -97,7 +98,7 @@ test.describe('Auth User Using Link', () => {
     let writeUrl: string;
 
     await test.step('create read+no-history link', async () => {
-      const result = await createInviteLink(authenticatedPage, sidebar);
+      const result = await createInviteLink(authenticatedPage, sidebar, { extractLinkId: false });
       readUrl = result.url;
     });
 
@@ -121,19 +122,17 @@ test.describe('Auth User Using Link', () => {
       });
 
       await expectNoDecryptionErrors(testBobPage);
-      await expectNoSendInput(testBobPage, 'Ask me anything...');
+      await expectSendInputDisabled(testBobPage);
     });
 
     await test.step('create write+no-history link and setup budgets', async () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      const result = await createWriteLinkWithBudget(
-        authenticatedPage,
-        sidebar,
+      const result = await createWriteLinkWithBudget(authenticatedPage, sidebar, {
         helper,
-        groupConversation.id
-      );
+        conversationId: groupConversation.id,
+      });
       writeUrl = result.url;
     });
 
@@ -159,7 +158,11 @@ test.describe('Auth User Using Link', () => {
       await expectNoDecryptionErrors(testBobPage);
 
       // Can send a message
-      await sendMessageAsGuest(testBobPage, `Bob no-history write ${String(Date.now())}`);
+      await sendMessageAsGuest(
+        testBobPage,
+        `Bob no-history write ${String(Date.now())}`,
+        /message/i
+      );
     });
   });
 });

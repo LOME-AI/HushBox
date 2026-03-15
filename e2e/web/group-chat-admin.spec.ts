@@ -33,7 +33,7 @@ test.describe('Group Chat Admin', () => {
       await expect(aliceLabels.getByText(bobMember!.username)).toBeVisible();
 
       // AI message has no sender label
-      const aiMessage = aliceChatPage.messageList.locator('[data-role="assistant"]');
+      const aiMessage = aliceChatPage.messageList.locator('[data-role="assistant"]').first();
       await expect(aiMessage).toBeVisible();
       const aiLabels = aiMessage.locator('[data-testid="sender-label"]');
       await expect(aiLabels).toHaveCount(0);
@@ -41,9 +41,11 @@ test.describe('Group Chat Admin', () => {
 
     await test.step('consecutive messages are grouped', async () => {
       const aliceChatPage = new ChatPage(authenticatedPage);
-      const firstGroup = aliceChatPage.getMessageGroups().first();
-      await expect(firstGroup.getByText('Hello from Alice')).toBeVisible();
-      await expect(firstGroup.getByText('Second from Alice')).toBeVisible();
+      // Messages #4 and #5 ("Alice replies" + "Summarize this") are consecutive
+      // from Alice and should be grouped into a single message-item
+      const aliceGroup = aliceChatPage.getMessageGroups().filter({ hasText: 'Alice replies' });
+      await expect(aliceGroup.getByText('Alice replies')).toBeVisible();
+      await expect(aliceGroup.getByText('Summarize this')).toBeVisible();
     });
 
     await test.step('Bob sees inverted sender labels', async () => {
@@ -169,6 +171,24 @@ test.describe('Group Chat Admin', () => {
       await sidebar.clearSearch();
       await expect(sidebar.findMemberByUsername(aliceMember.username)).toBeVisible();
       await expect(sidebar.findMemberByUsername(bobMember.username)).toBeVisible();
+    });
+
+    await test.step('search with no results shows empty state', async () => {
+      await sidebar.searchMembers('zzz-nonexistent-user-xyz');
+      await expect(sidebar.findMemberByUsername(aliceMember.username)).not.toBeVisible();
+      await expect(sidebar.findMemberByUsername(bobMember.username)).not.toBeVisible();
+
+      await sidebar.clearSearch();
+      await expect(sidebar.findMemberByUsername(aliceMember.username)).toBeVisible();
+      await expect(sidebar.findMemberByUsername(bobMember.username)).toBeVisible();
+    });
+
+    await test.step('partial username match works', async () => {
+      await sidebar.searchMembers('bob');
+      await expect(sidebar.findMemberByUsername(bobMember.username)).toBeVisible();
+      await expect(sidebar.findMemberByUsername(aliceMember.username)).not.toBeVisible();
+
+      await sidebar.clearSearch();
     });
 
     await test.step('admin action buttons are visible', async () => {

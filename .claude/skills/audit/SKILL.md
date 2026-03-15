@@ -174,3 +174,4 @@ Present findings in this exact format:
 - **Fix plan is ordered** — Critical fixes first, then Important, with concrete file paths
 - **Pre-existing failures** — if lint/typecheck/test failures existed before this work, note them separately so the user knows what's new vs pre-existing
 - **No false positives** — only flag real issues. If something looks intentional and correct, don't flag it just to be thorough
+- **Never use** `git stash`, `git checkout --`, `git checkout .`, `git restore`, `git reset --hard`, or `git clean` — these commands are forbidden

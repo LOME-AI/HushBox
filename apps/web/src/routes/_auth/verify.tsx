@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useEffect, useState } from 'react';
-import { createFileRoute, useSearch, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, useSearch, useNavigate, Link } from '@tanstack/react-router';
 import { toast } from '@hushbox/ui';
 import { authClient } from '@/lib/auth';
 import { ROUTES } from '@hushbox/shared';
@@ -62,9 +62,15 @@ export function VerifyPage(): React.JSX.Element {
     return (
       <div className="text-center">
         <h1 className="text-foreground mb-2 text-3xl font-bold">Verification failed</h1>
-        <p className="text-muted">
-          {errorMessage || 'The verification link may have expired. Please request a new one.'}
+        <p className="text-muted-foreground mb-4">
+          {errorMessage || 'This verification link has expired.'}
         </p>
+        <p className="text-muted-foreground mb-6 text-sm">
+          Log in to receive a new verification email.
+        </p>
+        <Link to={ROUTES.LOGIN} className="text-primary font-medium hover:underline">
+          Back to login
+        </Link>
       </div>
     );
   }

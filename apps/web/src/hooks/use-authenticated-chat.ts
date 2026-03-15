@@ -298,6 +298,14 @@ function checkDecryptionPending(
   return !isCreateMode && apiMessageCount > 0 && decryptedCount === 0;
 }
 
+function computeInputDisabled(
+  isCreateMode: boolean,
+  realConversationId: string | null,
+  callerPrivilege: MemberPrivilege | undefined
+): boolean {
+  return (isCreateMode && !realConversationId) || callerPrivilege === 'read';
+}
+
 function handleRegenerationError(
   error: unknown,
   failedContent: string,
@@ -953,7 +961,8 @@ export function useAuthenticatedChat({
     () => computeDisplayTitle(localTitle, conversation, realConversationId),
     [conversation, realConversationId, localTitle, epochCacheVersion]
   );
-  const inputDisabled = isCreateMode && !realConversationId;
+  const callerPrivilege = conversation?.callerPrivilege as MemberPrivilege | undefined;
+  const inputDisabled = computeInputDisabled(isCreateMode, realConversationId, callerPrivilege);
 
   const errorMessageId: string | undefined = chatError?.id;
 
@@ -972,7 +981,7 @@ export function useAuthenticatedChat({
     errorMessageId,
     realConversationId,
     callerId,
-    callerPrivilege: conversation?.callerPrivilege as MemberPrivilege | undefined,
+    callerPrivilege,
   };
 }
 

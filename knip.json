@@ -5,7 +5,6 @@
       "project": ["src/**/*.ts"]
     },
     "apps/web": {
-      "entry": ["src/main.tsx"],
       "project": ["src/**/*.{ts,tsx}"],
       "ignoreDependencies": ["@capacitor/ios"]
     },
@@ -20,7 +19,7 @@
     },
     "packages/config": {
       "project": ["**/*.{js,ts}"],
-      "ignore": ["tailwind/**", "import-meta-env.d.ts"]
+      "ignore": ["import-meta-env.d.ts"]
     },
     "scripts": {
       "entry": ["*.ts", "!*.test.ts"],
@@ -37,11 +36,10 @@
     "apps/marketing": {
       "entry": ["src/pages/**/*.astro"],
       "project": ["src/**/*.{astro,ts,tsx}"],
-      "ignore": ["src/styles/**"],
       "ignoreDependencies": ["zod"]
     }
   },
   "ignoreDependencies": ["eslint-formatter-summary", "tailwindcss", "tw-animate-css", "vite"],
-  "ignoreBinaries": ["maestro", "adb", "cap", "db:up", "db:migrate", "db:seed"],
+  "ignoreBinaries": ["maestro", "adb", "cap"],
   "ignoreExportsUsedInFile": true
 }

@@ -1,5 +1,8 @@
 import { test, expect } from '../fixtures.js';
 import { BillingPage } from '../pages';
+import { requireEnv } from '../helpers/env.js';
+
+const apiUrl = requireEnv('VITE_API_URL');
 
 // Branch on CI env var (always set by GitHub Actions), not on credentials
 const isCI = Boolean(process.env['CI']);
@@ -153,6 +156,17 @@ test.describe('Billing & Payments', () => {
 
       const newBalance = await billingPage.getBalance();
       expect(newBalance).toBe(initialBalance + 5);
+
+      await test.step('transaction history shows the payment', async () => {
+        const txList = billingSuccessPage.getByTestId('transaction-list-container');
+        await expect(txList).toBeVisible();
+
+        const txRows = txList.getByTestId('transaction-row');
+        await expect(txRows.first()).toBeVisible();
+
+        const firstRow = txRows.first();
+        await expect(firstRow).toContainText('$5');
+      });
     });
 
     test('handles declined card', async ({ authenticatedPage }, testInfo) => {
@@ -246,6 +260,84 @@ test.describe('Billing & Payments', () => {
       // Balance updated = webhook was received AND signature was valid
       const newBalance = await billingPage.getBalance();
       expect(newBalance).toBeGreaterThan(initialBalance);
+    });
+  });
+
+  test.describe('Token-Login Billing Portal', () => {
+    test.skip(
+      () => !!process.env['SKIP_WEBHOOK_TESTS'],
+      'Webhook tests only run on chromium runner'
+    );
+
+    test.setTimeout(60_000);
+
+    test('unauthenticated user completes payment via billing token', async ({
+      authenticatedRequest,
+      unauthenticatedPage,
+    }) => {
+      let billingToken = '';
+
+      await test.step('generate billing login token', async () => {
+        const response = await authenticatedRequest.post(`${apiUrl}/api/billing/login-link`);
+        expect(response.ok()).toBe(true);
+        const { token } = (await response.json()) as { token: string };
+        expect(token).toBeTruthy();
+        billingToken = token;
+      });
+
+      await test.step('open billing portal with token', async () => {
+        await unauthenticatedPage.goto(`/billing-portal?token=${billingToken}`);
+
+        await expect(unauthenticatedPage.getByTestId('billing-portal')).toBeVisible({
+          timeout: 15_000,
+        });
+      });
+
+      await test.step('billing page renders without app shell', async () => {
+        await expect(unauthenticatedPage.getByTestId('balance-display')).toBeVisible({
+          timeout: 10_000,
+        });
+        await expect(
+          unauthenticatedPage.getByRole('button', { name: 'Add Credits' })
+        ).toBeVisible();
+
+        // No sidebar or app navigation
+        await expect(unauthenticatedPage.getByTestId('sidebar-trigger')).not.toBeVisible();
+      });
+
+      const billingPage = new BillingPage(unauthenticatedPage);
+      billingPage.enableDiagnostics();
+      const initialBalance = await billingPage.waitForBalanceLoaded();
+
+      await test.step('complete payment flow', async () => {
+        await billingPage.openPaymentModal();
+        await billingPage.enterAmount('5');
+
+        await billingPage.fillCardDetails({
+          cardNumber: '4124939999999990',
+          expiry: '01/28',
+          cvv: '100',
+          cardHolderName: 'Token User',
+          billingAddress: '123 Test Street',
+          zip: '12345',
+        });
+
+        await billingPage.submitPayment();
+        await billingPage.expectPaymentSuccess(45_000);
+      });
+
+      await test.step('balance updated after payment', async () => {
+        await unauthenticatedPage.goto('/billing-portal');
+        await billingPage.waitForWebhookConfirmation(initialBalance, 5, 30_000);
+
+        const newBalance = await billingPage.getBalance();
+        expect(newBalance).toBe(initialBalance + 5);
+      });
+
+      await test.step('billing-only session cannot access chat', async () => {
+        await unauthenticatedPage.goto('/chat');
+        await expect(unauthenticatedPage).toHaveURL(/\/login/, { timeout: 15_000 });
+      });
     });
   });
 });

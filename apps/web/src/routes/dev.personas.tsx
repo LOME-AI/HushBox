@@ -7,6 +7,10 @@ import { signIn, signOutAndClearCache } from '@/lib/auth';
 import { toast } from '@hushbox/ui';
 import { useDevPersonas, type PersonaType } from '@/hooks/dev-personas';
 
+function getApiUrl(): string {
+  return import.meta.env['VITE_API_URL'] as string;
+}
+
 export interface PersonasSearch {
   type: string | undefined;
 }
@@ -64,6 +68,43 @@ export function PersonasPage(): React.JSX.Element {
     } catch (error) {
       console.error('Persona login failed:', error);
       toast.error('Failed to switch persona. Please try again.');
+    } finally {
+      setLoadingPersonaId(null);
+    }
+  }
+
+  async function handleBillingPortal(e: React.MouseEvent, persona: DevPersona): Promise<void> {
+    e.stopPropagation();
+    setLoadingPersonaId(persona.id);
+
+    try {
+      await signOutAndClearCache();
+
+      const loginResponse = await signIn.email({
+        identifier: persona.email,
+        password: DEV_PASSWORD,
+        keepSignedIn: true,
+      });
+
+      if (loginResponse.error) {
+        toast.error(loginResponse.error.message);
+        return;
+      }
+
+      const tokenResponse = await fetch(`${getApiUrl()}/api/billing/login-link`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      if (!tokenResponse.ok) {
+        toast.error('Failed to generate billing token');
+        return;
+      }
+
+      const { token } = (await tokenResponse.json()) as { token: string };
+      void navigate({ to: '/billing-portal', search: { token } });
+    } catch {
+      toast.error('Failed to open billing portal');
     } finally {
       setLoadingPersonaId(null);
     }
@@ -151,6 +192,21 @@ export function PersonasPage(): React.JSX.Element {
                 Unverified
               </span>
             )}
+
+            <span
+              role="button"
+              tabIndex={0}
+              className="text-primary mt-2 cursor-pointer text-xs hover:underline"
+              onClick={(e) => void handleBillingPortal(e, persona)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.stopPropagation();
+                  void handleBillingPortal(e as unknown as React.MouseEvent, persona);
+                }
+              }}
+            >
+              Billing Portal
+            </span>
 
             {loadingPersonaId === persona.id && (
               <span className="text-muted-foreground mt-2 text-sm">Signing in...</span>

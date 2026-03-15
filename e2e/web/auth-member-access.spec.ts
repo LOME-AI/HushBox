@@ -84,8 +84,20 @@ test.describe('Auth Member Access', () => {
       await expect(sidebar.memberRow(daveMemberId)).not.toBeVisible();
     });
 
+    await test.step('Dave loses access to conversation', async () => {
+      const daveChatPage = new ChatPage(testDavePage);
+      await daveChatPage.gotoConversation(groupConversation.id);
+
+      // Dave should be redirected away or see an error
+      await expect(testDavePage).not.toHaveURL(new RegExp(groupConversation.id), {
+        timeout: 10_000,
+      });
+    });
+
     await test.step('add Dave as read+no-history member', async () => {
       const sidebar = new MemberSidebarPage(authenticatedPage);
+      await sidebar.openViaFacepile();
+      await sidebar.waitForLoaded();
 
       await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
 

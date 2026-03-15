@@ -140,6 +140,18 @@ describe('chat-messages', () => {
 
       expect(message1.id).not.toBe(message2.id);
     });
+
+    it('includes modelName when provided', () => {
+      const message = createTrialMessage('assistant', '', 'msg-id', 'openrouter/auto');
+
+      expect(message.modelName).toBe('openrouter/auto');
+    });
+
+    it('omits modelName when not provided', () => {
+      const message = createTrialMessage('assistant', '', 'msg-id');
+
+      expect(message.modelName).toBeUndefined();
+    });
   });
 
   describe('ChatErrorDisplay', () => {

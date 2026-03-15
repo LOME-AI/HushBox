@@ -297,15 +297,15 @@ test.describe('Fork History Preservation', () => {
       const msg1 = `History test 1 ${String(Date.now())}`;
       await chatPage.sendNewChatMessage(msg1);
       await chatPage.waitForConversation();
-      await chatPage.waitForAIResponse();
+      await chatPage.waitForAIResponse(msg1);
 
       const msg2 = `History test 2 ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(msg2);
-      await chatPage.waitForAIResponse();
+      await chatPage.waitForAIResponse(msg2);
 
       const msg3 = `History test 3 ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(msg3);
-      await chatPage.waitForAIResponse();
+      await chatPage.waitForAIResponse(msg3);
     });
 
     const totalMessages = await chatPage.getMessageCount();
@@ -358,15 +358,19 @@ test.describe('Fork History Preservation', () => {
     const totalMessages = await chatPage.getMessageCount();
     expect(totalMessages).toBe(3); // 1 user + 2 AI
 
+    // Capture the first AI message's model nametag before forking
+    const firstAiNametag = await chatPage.getMessage(1).getByTestId('model-nametag').textContent();
+
     await test.step('fork from first AI message', async () => {
       await chatPage.clickFork(1);
       await chatPage.expectForkTabCount(2);
       await chatPage.expectActiveForkTab('Fork 1');
     });
 
-    await test.step('Fork 1 preserves all messages including sibling AI', async () => {
+    await test.step('Fork 1 has the forked AI message only', async () => {
       const forkCount = await chatPage.getMessageCount();
-      expect(forkCount).toBe(3);
+      expect(forkCount).toBe(2); // 1 user + 1 AI (the one forked from)
+      await chatPage.expectModelNametag(1, firstAiNametag!);
     });
 
     await test.step('Main still has all 3 messages', async () => {

@@ -10,6 +10,7 @@ import { AuthButton } from '@/components/auth/AuthButton';
 import { PasswordField, ConfirmPasswordField } from '@/components/auth/password-field';
 import { AuthFeatureList } from '@/components/auth/auth-feature-list';
 import { AuthShakeError } from '@/components/auth/auth-shake-error';
+import { CheckYourEmail } from '@/components/auth/check-your-email';
 import { ExternalPageLink } from '@/components/shared/external-page-link';
 import {
   validateUsername,
@@ -76,14 +77,7 @@ export function SignupPage(): React.JSX.Element {
   }
 
   if (isSuccess) {
-    return (
-      <div className="text-center">
-        <h1 className="text-foreground mb-2 text-3xl font-bold">Check your email</h1>
-        <p className="text-muted-foreground">
-          We&apos;ve sent a verification link to {email}. Click the link to verify your account.
-        </p>
-      </div>
-    );
+    return <CheckYourEmail email={email} />;
   }
 
   return (

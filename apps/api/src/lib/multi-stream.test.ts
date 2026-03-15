@@ -177,6 +177,7 @@ describe('collectMultiModelStreams', () => {
     expect(errorEvents[0]!.args[0]).toEqual({
       modelId: 'openai/gpt-4o',
       message: 'Timeout',
+      code: 'STREAM_ERROR',
     });
   });
 

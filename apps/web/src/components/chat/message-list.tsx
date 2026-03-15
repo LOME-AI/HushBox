@@ -183,7 +183,9 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
             const isStreamingGroup = group.messages.some(
               (m) => streamingMessageIds?.has(m.id) ?? false
             );
-            const isErrorGroup = group.messages.some((m) => m.id === errorMessageId);
+            const isErrorGroup = group.messages.some(
+              (m) => m.id === errorMessageId || m.errorCode !== undefined
+            );
             return renderMessageItem(firstMessage, isStreamingGroup, isErrorGroup, group);
           }}
           components={components}
@@ -206,7 +208,7 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
         atBottomThreshold={50}
         itemContent={(_index, message) => {
           const isStreamingMsg = streamingMessageIds?.has(message.id) ?? false;
-          const isErrorMsg = message.id === errorMessageId;
+          const isErrorMsg = message.id === errorMessageId || message.errorCode !== undefined;
           return renderMessageItem(message, isStreamingMsg, isErrorMsg);
         }}
         components={components}

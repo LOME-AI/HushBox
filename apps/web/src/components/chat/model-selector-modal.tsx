@@ -457,7 +457,6 @@ function buildSelectedEntries(
 function updateSelectedIds(previous: Set<string>, modelId: string): Set<string> {
   const next = new Set(previous);
   if (next.has(modelId)) {
-    if (next.size <= 1) return previous;
     next.delete(modelId);
   } else {
     if (next.size >= MAX_SELECTED_MODELS) return previous;
@@ -470,12 +469,14 @@ interface ModelSelectorFooterProps {
   selectedCount: number;
   onClear: () => void;
   onConfirm: () => void;
+  onClose: () => void;
 }
 
 function ModelSelectorFooter({
   selectedCount,
   onClear,
   onConfirm,
+  onClose,
 }: Readonly<ModelSelectorFooterProps>): React.JSX.Element {
   return (
     <div className="border-t p-4">
@@ -488,8 +489,13 @@ function ModelSelectorFooter({
           },
         })}
         primary={{
-          label: selectedCount > 1 ? `Select ${String(selectedCount)} Models` : 'Select Model',
-          onClick: onConfirm,
+          label:
+            selectedCount > 1
+              ? `Select ${String(selectedCount)} Models`
+              : selectedCount === 1
+                ? 'Select Model'
+                : 'Close',
+          onClick: selectedCount === 0 ? onClose : onConfirm,
         }}
       />
     </div>
@@ -725,6 +731,7 @@ export function ModelSelectorModal({
           selectedCount={localSelectedIds.size}
           onClear={handleClearSelection}
           onConfirm={handleConfirmSelection}
+          onClose={() => onOpenChange(false)}
         />
       </div>
     </ModalOverlay>

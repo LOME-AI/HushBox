@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@hushbox/ui';
-import { shortenModelName } from '@hushbox/shared';
+import { shortenModelName, friendlyErrorMessage } from '@hushbox/shared';
 import { getModelColor } from '@/lib/model-color';
 import { useModels } from '@/hooks/models';
 import { Check, Copy, GitBranch, Pencil, RefreshCw, Share2 } from 'lucide-react';
@@ -385,6 +385,13 @@ function AIMessageContent({
   modelName: string | undefined;
   isError: boolean | undefined;
 }>): React.JSX.Element {
+  if (primaryMessage.errorCode) {
+    return (
+      <p className="text-destructive text-sm" data-testid="model-error-message">
+        {friendlyErrorMessage(primaryMessage.errorCode)}
+      </p>
+    );
+  }
   if (isStreaming && primaryMessage.content === '') {
     return <ThinkingIndicator modelName={primaryMessage.modelName ?? modelName ?? ''} />;
   }

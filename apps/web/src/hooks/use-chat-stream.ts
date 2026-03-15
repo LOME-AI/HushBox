@@ -63,6 +63,7 @@ export interface ModelResult {
   modelId: string;
   assistantMessageId: string;
   cost: string;
+  errorCode?: string;
 }
 
 interface StreamResult {
@@ -257,6 +258,7 @@ interface StreamState {
   doneData: DoneEventData | null;
   startData: StartEventData | null;
   modelResults: Map<string, { cost: string }>;
+  modelErrors: Map<string, string>;
 }
 
 type SSEParser = ReturnType<typeof createSSEParser>;
@@ -284,11 +286,15 @@ async function consumeSSEStream(
       }
     }
 
-    const models: ModelResult[] = (state.startData?.models ?? []).map((m) => ({
-      modelId: m.modelId,
-      assistantMessageId: m.assistantMessageId,
-      cost: state.modelResults.get(m.modelId)?.cost ?? '0',
-    }));
+    const models: ModelResult[] = (state.startData?.models ?? []).map((m) => {
+      const errorCode = state.modelErrors.get(m.modelId);
+      return {
+        modelId: m.modelId,
+        assistantMessageId: m.assistantMessageId,
+        cost: state.modelResults.get(m.modelId)?.cost ?? '0',
+        ...(errorCode && { errorCode }),
+      };
+    });
 
     return {
       userMessageId: parser.getUserMessageId(),
@@ -324,6 +330,7 @@ async function executeStream(
     doneData: null,
     startData: null,
     modelResults: new Map(),
+    modelErrors: new Map(),
   };
 
   const parser = createSSEParser({
@@ -339,6 +346,7 @@ async function executeStream(
       options?.onModelDone?.(data);
     },
     onModelError: (data) => {
+      streamState.modelErrors.set(data.modelId, data.code ?? 'STREAM_ERROR');
       options?.onModelError?.(data);
     },
     onError: (errorData) => {

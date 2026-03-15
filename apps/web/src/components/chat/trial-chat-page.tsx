@@ -107,11 +107,16 @@ export function TrialChatPage(): React.JSX.Element {
           { messages: apiMessages, model: primaryModelId },
           {
             onStart: ({ models }) => {
-              const assistantMessageId = models[0]?.assistantMessageId;
-              if (!assistantMessageId) return;
-              const assistantMessage = createTrialMessage('assistant', '', assistantMessageId);
+              const firstModel = models[0];
+              if (!firstModel?.assistantMessageId) return;
+              const assistantMessage = createTrialMessage(
+                'assistant',
+                '',
+                firstModel.assistantMessageId,
+                firstModel.modelId
+              );
               addTrialMessage(assistantMessage);
-              state.startStreaming([assistantMessageId]);
+              state.startStreaming([firstModel.assistantMessageId]);
             },
             onToken: (token) => {
               const ids = state.streamingMessageIdsRef.current;

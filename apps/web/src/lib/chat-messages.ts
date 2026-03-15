@@ -38,7 +38,8 @@ export function createAssistantMessage(
 export function createTrialMessage(
   role: 'user' | 'assistant',
   content: string,
-  id?: string
+  id?: string,
+  modelName?: string
 ): TrialMessage {
   return {
     id: id ?? crypto.randomUUID(),
@@ -46,6 +47,7 @@ export function createTrialMessage(
     role,
     content,
     createdAt: new Date().toISOString(),
+    ...(modelName !== undefined && { modelName }),
   };
 }
 

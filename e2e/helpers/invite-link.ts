@@ -14,6 +14,33 @@ export interface CreateInviteLinkOptions {
   withHistory?: boolean;
   /** How to close the modal after generating: 'escape' or 'overlay-close' (default: 'overlay-close') */
   closeMethod?: 'escape' | 'overlay-close';
+  /** Whether to extract linkId from the sidebar after creation (default: true). Set false for read links that don't need budget setup. */
+  extractLinkId?: boolean;
+}
+
+export interface WriteLinkWithBudgetOptions {
+  helper: BudgetHelper;
+  conversationId: string;
+  withHistory?: boolean;
+  closeMethod?: 'escape' | 'overlay-close';
+  convBudget?: number;
+  memberBudget?: number;
+}
+
+async function closeModal(page: Page, method: 'escape' | 'overlay-close'): Promise<void> {
+  if (method === 'escape') {
+    await page.keyboard.press('Escape');
+  } else {
+    await page.locator('[data-slot="modal-overlay-close"]').click();
+  }
+}
+
+async function extractLinkIdFromSidebar(sidebar: MemberSidebarPage): Promise<string> {
+  const linkRow = sidebar.content.locator('[data-testid^="link-item-"]').first();
+  await expect(linkRow).toBeVisible({ timeout: 10_000 });
+  const testId = await linkRow.getAttribute('data-testid');
+  if (!testId) throw new Error('Expected link row to have data-testid attribute');
+  return testId.replace('link-item-', '');
 }
 
 /**
@@ -25,7 +52,12 @@ export async function createInviteLink(
   sidebar: MemberSidebarPage,
   options: CreateInviteLinkOptions = {}
 ): Promise<InviteLinkResult> {
-  const { privilege = 'read', withHistory = false, closeMethod = 'overlay-close' } = options;
+  const {
+    privilege = 'read',
+    withHistory = false,
+    closeMethod = 'overlay-close',
+    extractLinkId = true,
+  } = options;
 
   await sidebar.clickInviteLink();
   const modal = page.getByTestId('invite-link-modal');
@@ -49,19 +81,13 @@ export async function createInviteLink(
   await expect(urlEl).toBeVisible();
   const url = (await urlEl.textContent()) ?? '';
 
-  if (closeMethod === 'escape') {
-    await page.keyboard.press('Escape');
-  } else {
-    await page.locator('[data-slot="modal-overlay-close"]').click();
+  await closeModal(page, closeMethod);
+
+  if (!extractLinkId) {
+    return { url, linkId: '' };
   }
 
-  // Capture linkId from sidebar
-  const linkRow = sidebar.content.locator('[data-testid^="link-item-"]').first();
-  await expect(linkRow).toBeVisible({ timeout: 10_000 });
-  const testId = await linkRow.getAttribute('data-testid');
-  if (!testId) throw new Error('Expected link row to have data-testid attribute');
-  const linkId = testId.replace('link-item-', '');
-
+  const linkId = await extractLinkIdFromSidebar(sidebar);
   return { url, linkId };
 }
 
@@ -72,16 +98,16 @@ export async function createInviteLink(
 export async function createWriteLinkWithBudget(
   page: Page,
   sidebar: MemberSidebarPage,
-  helper: BudgetHelper,
-  conversationId: string,
-  options: {
-    withHistory?: boolean;
-    closeMethod?: 'escape' | 'overlay-close';
-    convBudget?: number;
-    memberBudget?: number;
-  } = {}
+  options: WriteLinkWithBudgetOptions
 ): Promise<InviteLinkResult> {
-  const { withHistory = false, closeMethod = 'overlay-close', convBudget = 1000, memberBudget = 500 } = options;
+  const {
+    helper,
+    conversationId,
+    withHistory = false,
+    closeMethod = 'overlay-close',
+    convBudget = 1000,
+    memberBudget = 500,
+  } = options;
 
   const result = await createInviteLink(page, sidebar, {
     privilege: 'write',

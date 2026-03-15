@@ -39,6 +39,7 @@ async function collectSingleModel(
     await writer.writeModelError({
       modelId: entry.modelId,
       message: error.message,
+      code: 'STREAM_ERROR',
     });
   }
 

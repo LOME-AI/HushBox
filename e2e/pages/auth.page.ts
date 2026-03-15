@@ -109,12 +109,14 @@ export class SettingsPage {
   readonly changePasswordButton: Locator;
   readonly twoFactorButton: Locator;
   readonly recoveryPhraseButton: Locator;
+  readonly customInstructionsButton: Locator;
 
   constructor(page: Page) {
     this.page = page;
     this.changePasswordButton = page.getByRole('button', { name: 'Change Password' });
     this.twoFactorButton = page.getByRole('button', { name: 'Two-Factor Authentication' });
     this.recoveryPhraseButton = page.getByRole('button', { name: 'Recovery Phrase' });
+    this.customInstructionsButton = page.getByRole('button', { name: 'Custom Instructions' });
   }
 
   async goto(): Promise<void> {
@@ -133,6 +135,10 @@ export class SettingsPage {
     await this.recoveryPhraseButton.click();
   }
 
+  async openCustomInstructions(): Promise<void> {
+    await this.customInstructionsButton.click();
+  }
+
   async expectTwoFactorBadge(label: string): Promise<void> {
     const badge = this.twoFactorButton.locator('span', { hasText: label });
     await expect(badge).toBeVisible();
@@ -140,6 +146,11 @@ export class SettingsPage {
 
   async expectRecoveryPhraseBadge(label: string): Promise<void> {
     const badge = this.recoveryPhraseButton.locator('span', { hasText: label });
+    await expect(badge).toBeVisible();
+  }
+
+  async expectCustomInstructionsBadge(label: string): Promise<void> {
+    const badge = this.customInstructionsButton.locator('span', { hasText: label });
     await expect(badge).toBeVisible();
   }
 }

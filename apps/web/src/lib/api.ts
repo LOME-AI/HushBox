@@ -35,6 +35,7 @@ export interface Message {
   senderId?: string;
   modelName?: string | null;
   parentMessageId?: string | null;
+  errorCode?: string;
 }
 
 export {

@@ -10,6 +10,7 @@ import { PasswordField, ConfirmPasswordField } from '@/components/auth/password-
 import { TwoFactorInput } from '@/components/auth/TwoFactorInput';
 import { AuthFeatureList } from '@/components/auth/auth-feature-list';
 import { AuthShakeError } from '@/components/auth/auth-shake-error';
+import { CheckYourEmail } from '@/components/auth/check-your-email';
 import {
   validateIdentifier,
   validatePassword,
@@ -22,7 +23,12 @@ export const Route = createFileRoute('/_auth/login')({
   component: LoginPage,
 });
 
-type Mode = 'login' | 'recovery-phrase' | 'recovery-new-password' | 'recovery-success';
+type Mode =
+  | 'login'
+  | 'recovery-phrase'
+  | 'recovery-new-password'
+  | 'recovery-success'
+  | 'email-not-verified';
 
 interface IdentifierFieldProps {
   identifier: string;
@@ -319,6 +325,7 @@ export function LoginPage(): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorKey, setErrorKey] = useState(0);
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
   const [show2FA, setShow2FA] = useState(false);
   const verifyTOTPRef = useRef<
     ((code: string) => Promise<{ success: boolean; error?: string }>) | null
@@ -370,6 +377,11 @@ export function LoginPage(): React.JSX.Element {
     try {
       const response = await signIn.email({ identifier, password, keepSignedIn });
       if (response.error) {
+        if (response.error.code === 'EMAIL_NOT_VERIFIED') {
+          setUnverifiedEmail(identifier);
+          setMode('email-not-verified');
+          return;
+        }
         setError(response.error.message);
         setErrorKey((k) => k + 1);
         return;
@@ -429,6 +441,10 @@ export function LoginPage(): React.JSX.Element {
         }}
       />
     );
+  }
+
+  if (mode === 'email-not-verified') {
+    return <CheckYourEmail email={unverifiedEmail} autoResend />;
   }
 
   return (

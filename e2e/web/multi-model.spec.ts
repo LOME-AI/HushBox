@@ -1,5 +1,8 @@
 import { test, expect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
+import { requireEnv } from '../helpers/env.js';
+
+const apiUrl = requireEnv('VITE_API_URL');
 
 test.describe('Multi-Model Chat', () => {
   test.describe('Model Selection', () => {
@@ -268,8 +271,84 @@ test.describe('Multi-Model Chat', () => {
   });
 
   test.describe('Partial Failure', () => {
-    test('handles partial model failure gracefully', ({ authenticatedPage: _page }) => {
-      test.skip(true, 'Requires dev endpoint to simulate model failure');
+    test('handles partial model failure gracefully', async ({ authenticatedPage }) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+
+      // Step 1: Select 2 models and capture their IDs
+      await chatPage.selectModels(2);
+      await chatPage.expectComparisonBarVisible();
+
+      const bar = authenticatedPage.getByTestId('selected-models-bar');
+      const pills = bar.locator('[data-testid^="model-pill-"]');
+      const pillCount = await pills.count();
+      expect(pillCount).toBe(2);
+
+      // Extract model IDs from pill testids (model-pill-{modelId})
+      const firstModelId = (await pills.nth(0).getAttribute('data-testid'))!.replace(
+        'model-pill-',
+        ''
+      );
+      const secondModelId = (await pills.nth(1).getAttribute('data-testid'))!.replace(
+        'model-pill-',
+        ''
+      );
+
+      // Step 2: Configure second model to fail
+      await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
+        data: { modelId: secondModelId },
+      });
+
+      try {
+        // Step 3: Send message
+        await chatPage.sendNewChatMessage(`Partial failure test ${String(Date.now())}`);
+        await chatPage.waitForConversation();
+
+        // Step 4: Wait for stream to complete and verify successful model
+        await chatPage.waitForStreamComplete();
+
+        const successResponse = authenticatedPage
+          .locator('[data-role="assistant"]')
+          .filter({ hasText: 'Echo:' });
+        await expect(successResponse.first()).toBeVisible({ timeout: 15_000 });
+
+        // Step 5: Verify failed model shows error message
+        const errorMessage = authenticatedPage.getByTestId('model-error-message');
+        await expect(errorMessage).toBeVisible({ timeout: 10_000 });
+        await expect(errorMessage).toContainText(/something went wrong/i);
+
+        // Step 6: Verify billing via API — only successful model persisted
+        const conversationUrl = authenticatedPage.url();
+        const conversationId = conversationUrl.split('/chat/')[1]?.split('?')[0];
+        expect(conversationId).toBeTruthy();
+
+        const apiResponse = await authenticatedPage.request.get(
+          `${apiUrl}/api/conversations/${conversationId!}`
+        );
+        expect(apiResponse.ok()).toBe(true);
+        const { messages } = (await apiResponse.json()) as {
+          messages: { senderType: string; modelName: string | null; cost: string | null }[];
+        };
+
+        const aiMessages = messages.filter((m) => m.senderType === 'ai');
+        // Only the successful model should have a persisted message
+        const successfulAiMessages = aiMessages.filter((m) => m.cost !== null && m.cost !== '0');
+        expect(successfulAiMessages.length).toBe(1);
+        expect(successfulAiMessages[0]!.modelName).toBe(firstModelId);
+
+        // No persisted message for the failed model
+        const failedModelMessages = aiMessages.filter((m) => m.modelName === secondModelId);
+        expect(failedModelMessages.length).toBe(0);
+
+        // Step 7: Verify chat still usable
+        await expect(chatPage.messageInput).toBeVisible();
+      } finally {
+        // Cleanup: clear failing models
+        await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
+          data: { modelId: null },
+        });
+      }
     });
   });
 });

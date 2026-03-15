@@ -61,6 +61,19 @@ function prepareMockResponse(
   return { response };
 }
 
+// ---------------------------------------------------------------------------
+// Dev-only: per-model failure simulation
+// ---------------------------------------------------------------------------
+const failingModels = new Set<string>();
+
+export function addFailingModel(id: string): void {
+  failingModels.add(id);
+}
+
+export function clearFailingModels(): void {
+  failingModels.clear();
+}
+
 export function createMockOpenRouterClient(): MockOpenRouterClient {
   const history: ChatCompletionRequest[] = [];
   // Track generation data for billing lookups (generationId → data)
@@ -105,6 +118,10 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
     async *chatCompletionStreamWithMetadata(
       request: ChatCompletionRequest
     ): AsyncIterable<StreamToken> {
+      if (failingModels.has(request.model)) {
+        throw new Error(`Model ${request.model} is unavailable`);
+      }
+
       const { response } = prepareMockResponse(request, history);
       const generationId = `mock-gen-${String(Date.now())}`;
 

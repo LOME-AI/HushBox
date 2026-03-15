@@ -19,7 +19,11 @@ test.describe('Solo Regeneration', () => {
       await chatPage.hoverMessage(0);
       await expect(chatPage.getRetryButton(0)).toBeVisible();
       await expect(chatPage.getEditButton(0)).toBeVisible();
-      await expect(chatPage.getForkButton(0)).toBeVisible();
+    });
+
+    await test.step('hover AI message and verify fork button', async () => {
+      await chatPage.hoverMessage(1);
+      await expect(chatPage.getForkButton(1)).toBeVisible();
     });
 
     await test.step('click retry and wait for new response', async () => {
@@ -213,6 +217,7 @@ test.describe('Group Chat Regeneration', () => {
     });
 
     await test.step('verify earlier seeded messages are untouched', async () => {
+      await chatPage.scrollToTop();
       await chatPage.expectMessageVisible('Hello from Alice');
       await chatPage.expectMessageVisible('Hi from Bob');
     });
@@ -226,16 +231,18 @@ test.describe('Group Chat Regeneration', () => {
     await chatPage.gotoConversation(groupConversation.id);
     await chatPage.waitForConversationLoaded();
 
-    await test.step('hover Alice first message — no retry/edit, fork visible', async () => {
+    await test.step('hover Alice first message — no retry/edit (blocked by guard)', async () => {
       // First message is Alice's "Hello from Alice" — Bob replied after
       await chatPage.hoverMessage(0);
 
       // Retry and Edit should NOT be visible (blocked by guard)
       await expect(chatPage.getRetryButton(0)).not.toBeVisible();
       await expect(chatPage.getEditButton(0)).not.toBeVisible();
+    });
 
-      // Fork should still be visible (not blocked by guard)
-      await expect(chatPage.getForkButton(0)).toBeVisible();
+    await test.step('hover first AI message — fork visible', async () => {
+      await chatPage.hoverMessage(1);
+      await expect(chatPage.getForkButton(1)).toBeVisible();
     });
   });
 

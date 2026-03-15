@@ -1681,4 +1681,108 @@ describe('ModelSelectorModal', () => {
       expect(screen.queryByTestId('expensive-model-warning')).not.toBeInTheDocument();
     });
   });
+
+  describe('deselecting last model', () => {
+    it('allows deselecting the last model via checkbox toggle', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const gptItem = screen.getByTestId('model-item-openai/gpt-4-turbo');
+      const checkbox = gptItem.querySelector('[data-testid="model-checkbox"]');
+      expect(checkbox).not.toBeNull();
+      await user.click(checkbox!);
+
+      expect(gptItem).toHaveAttribute('data-selected', 'false');
+    });
+
+    it('shows Close as primary button text when no models are selected', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      // Deselect the only model
+      const gptItem = screen.getByTestId('model-item-openai/gpt-4-turbo');
+      const checkbox = gptItem.querySelector('[data-testid="model-checkbox"]');
+      await user.click(checkbox!);
+
+      // "Select Model" button should be gone, replaced by "Close"
+      expect(screen.queryByRole('button', { name: 'Select Model' })).not.toBeInTheDocument();
+      // Find all buttons with text "Close" — there's the modal X close (sr-only) and the footer one
+      const closeButtons = screen.getAllByRole('button', { name: /^Close$/i });
+      // At least one should be visible (the footer one)
+      const visibleClose = closeButtons.find(
+        (button) => !button.querySelector('.sr-only') && button.textContent === 'Close'
+      );
+      expect(visibleClose).toBeDefined();
+    });
+
+    it('Close primary button closes modal without calling onSelect', async () => {
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      const onOpenChange = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={onOpenChange}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={onSelect}
+        />
+      );
+
+      // Deselect the only model via Clear Selected
+      await user.click(screen.getByTestId('clear-selection-button'));
+
+      // Find the footer Close button (not the X button which has sr-only child)
+      const closeButtons = screen.getAllByRole('button', { name: /^Close$/i });
+      const footerClose = closeButtons.find(
+        (button) => !button.querySelector('.sr-only') && button.textContent === 'Close'
+      );
+      expect(footerClose).toBeDefined();
+      await user.click(footerClose!);
+
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  describe('multi-model gating', () => {
+    it('calls onMultiModelClick for unauthenticated user selecting second non-premium model', async () => {
+      const user = userEvent.setup();
+      const onMultiModelClick = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+          isAuthenticated={false}
+          onMultiModelClick={onMultiModelClick}
+        />
+      );
+
+      // Click checkbox on a different model
+      const claudeItem = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
+      const checkbox = claudeItem.querySelector('[data-testid="model-checkbox"]');
+      await user.click(checkbox!);
+
+      expect(onMultiModelClick).toHaveBeenCalledOnce();
+    });
+  });
 });

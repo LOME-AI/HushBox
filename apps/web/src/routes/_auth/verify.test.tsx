@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { authClient } from '@/lib/auth';
@@ -11,6 +12,18 @@ vi.mock('@tanstack/react-router', () => ({
   createFileRoute: vi.fn(() => vi.fn()),
   useSearch: vi.fn(() => ({ token: 'test-token' })),
   useNavigate: vi.fn(() => mockNavigate),
+  Link: ({ children, ...props }: { children: React.ReactNode; to: string; className?: string }) => (
+    <a href={props.to} className={props.className}>
+      {children}
+    </a>
+  ),
+}));
+
+// Mock shared routes
+vi.mock('@hushbox/shared', () => ({
+  ROUTES: {
+    LOGIN: '/login',
+  },
 }));
 
 // Mock auth client
@@ -69,11 +82,14 @@ describe('VerifyPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /verification failed/i })).toBeInTheDocument();
     });
+    expect(screen.getByText('Invalid or expired token')).toBeInTheDocument();
+    expect(screen.getByText(/log in to receive a new verification email/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /back to login/i })).toBeInTheDocument();
   });
 
   it('shows default error message when no specific message', async () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({
-      error: { message: 'Verification failed' },
+      error: { message: '' },
     });
     const { VerifyPage } = await import('./verify');
 
@@ -82,6 +98,9 @@ describe('VerifyPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /verification failed/i })).toBeInTheDocument();
     });
+    expect(screen.getByText('This verification link has expired.')).toBeInTheDocument();
+    expect(screen.getByText(/log in to receive a new verification email/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /back to login/i })).toHaveAttribute('href', '/login');
   });
 
   it('shows error state on network failure', async () => {
@@ -93,6 +112,9 @@ describe('VerifyPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /verification failed/i })).toBeInTheDocument();
     });
+    expect(screen.getByText('Verification failed. Please try again.')).toBeInTheDocument();
+    expect(screen.getByText(/log in to receive a new verification email/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /back to login/i })).toBeInTheDocument();
   });
 });
 

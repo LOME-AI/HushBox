@@ -54,6 +54,7 @@ export interface ModelDoneData {
 export interface ModelErrorData {
   modelId: string;
   message: string;
+  code?: string;
 }
 
 export interface StartModelEntry {

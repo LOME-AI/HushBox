@@ -2,8 +2,9 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
+import { getIronSession } from 'iron-session';
 import { users } from '@hushbox/db';
-import { ERROR_CODE_NOT_FOUND } from '@hushbox/shared';
+import { ERROR_CODE_NOT_FOUND, ERROR_CODE_SERVER_MISCONFIGURED } from '@hushbox/shared';
 import {
   listDevPersonas,
   cleanupTestData,
@@ -12,6 +13,7 @@ import {
   createDevGroupChat,
   setWalletBalance,
 } from '../services/dev/index.js';
+import { addFailingModel, clearFailingModels } from '../services/openrouter/mock.js';
 import {
   verificationEmail,
   passwordChangedEmail,
@@ -22,6 +24,7 @@ import {
 } from '../services/email/templates/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { setVersionOverride } from '../lib/version-override.js';
+import { getSessionOptions, type SessionData } from '../lib/session.js';
 import type { AppEnv } from '../types.js';
 
 const EMAIL_TEMPLATES = [
@@ -174,4 +177,29 @@ export const devRoute = new Hono<AppEnv>()
     const { version } = c.req.valid('json');
     setVersionOverride(version);
     return c.json({ success: true, version }, 200);
+  })
+  .post('/expire-session', async (c) => {
+    const sessionSecret = c.env.IRON_SESSION_SECRET;
+    if (!sessionSecret) {
+      return c.json(createErrorResponse(ERROR_CODE_SERVER_MISCONFIGURED), 500);
+    }
+
+    const { isProduction } = c.get('envUtils');
+    const session = await getIronSession<SessionData>(
+      c.req.raw,
+      c.res,
+      getSessionOptions(sessionSecret, isProduction)
+    );
+    session.destroy();
+
+    return c.json({ success: true });
+  })
+  .post('/fail-model', zValidator('json', z.object({ modelId: z.string().nullable() })), (c) => {
+    const { modelId } = c.req.valid('json');
+    if (modelId) {
+      addFailingModel(modelId);
+    } else {
+      clearFailingModels();
+    }
+    return c.json({ success: true });
   });

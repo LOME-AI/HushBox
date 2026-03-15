@@ -24,13 +24,12 @@ test.describe('Link Guest Chat', () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      const result = await createWriteLinkWithBudget(
-        authenticatedPage,
-        sidebar,
+      const result = await createWriteLinkWithBudget(authenticatedPage, sidebar, {
         helper,
-        groupConversation.id,
-        { withHistory: true, closeMethod: 'escape' }
-      );
+        conversationId: groupConversation.id,
+        withHistory: true,
+        closeMethod: 'escape',
+      });
       inviteUrl = result.url;
       expect(inviteUrl).toContain('/share/c/');
       expect(inviteUrl).toContain('#');

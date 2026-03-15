@@ -53,7 +53,12 @@ for (const persona of standardPersonas) {
     await page.locator(`[data-testid="persona-card-${persona.name}"]`).click();
     await page.waitForURL('/chat', { timeout: 30_000 });
 
-    await verifyAndPersistSession(context, page, persona.name, path.join(authDir, `${persona.name}.json`));
+    await verifyAndPersistSession(
+      context,
+      page,
+      persona.name,
+      path.join(authDir, `${persona.name}.json`)
+    );
   });
 }
 
@@ -84,6 +89,11 @@ for (const persona of twoFactorPersonas) {
 
     await page.waitForURL('/chat', { timeout: 30_000 });
 
-    await verifyAndPersistSession(context, page, persona.name, path.join(authDir, `${persona.name}.json`));
+    await verifyAndPersistSession(
+      context,
+      page,
+      persona.name,
+      path.join(authDir, `${persona.name}.json`)
+    );
   });
 }

@@ -12,13 +12,14 @@ export async function expectNoDecryptionErrors(page: Page): Promise<void> {
   await expect(page.getByText('[decryption failed')).not.toBeVisible();
 }
 
-/** Assert the send/message input is not visible (read-only privilege). */
-export async function expectNoSendInput(
+/** Assert the send/message input is visible but disabled (read-only privilege). */
+export async function expectSendInputDisabled(
   page: Page,
   inputName: string | RegExp = /message/i
 ): Promise<void> {
   const sendInput = page.getByRole('textbox', { name: inputName });
-  await expect(sendInput).not.toBeVisible();
+  await expect(sendInput).toBeVisible();
+  await expect(sendInput).toBeDisabled();
 }
 
 /** Assert the read-only notice is visible and trial notice is not. */

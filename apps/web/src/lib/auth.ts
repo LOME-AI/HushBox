@@ -34,17 +34,25 @@ import {
   type MeResponse,
 } from './auth-client.js';
 import { getLinkGuestAuth } from './link-guest-auth.js';
+import { useModelStore } from '@/stores/model';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Extract error code from API response body and return user-facing message. */
-export function parseErrorMessage(body: unknown): string {
+/** Extract raw error code from API response body. */
+function extractErrorCode(body: unknown): string | undefined {
   if (body && typeof body === 'object' && 'code' in body) {
     const code = (body as { code: unknown }).code;
-    if (typeof code === 'string') return friendlyErrorMessage(code);
+    if (typeof code === 'string') return code;
   }
+  return undefined;
+}
+
+/** Extract error code from API response body and return user-facing message. */
+export function parseErrorMessage(body: unknown): string {
+  const code = extractErrorCode(body);
+  if (code) return friendlyErrorMessage(code);
   return friendlyErrorMessage('INTERNAL');
 }
 
@@ -96,7 +104,7 @@ interface AuthState {
 }
 
 interface SignInEmailResult {
-  error?: { message: string };
+  error?: { message: string; code?: string };
   requires2FA?: boolean;
   verifyTOTP?: (code: string) => Promise<{ success: boolean; error?: string }>;
 }
@@ -206,6 +214,49 @@ async function finalizeLoginWithKey(
   }
 }
 
+function createTOTPVerifier(
+  exportKey: Uint8Array,
+  keepSignedIn: boolean
+): (code: string) => Promise<{ success: boolean; error?: string }> {
+  return async (code: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/auth/login/2fa/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const body: unknown = await response.json();
+        return { success: false, error: parseErrorMessage(body) };
+      }
+
+      const verifyResponse = (await response.json()) as {
+        success: true;
+        userId: string;
+        passwordWrappedPrivateKey: string;
+      };
+
+      await finalizeLoginWithKey(
+        exportKey,
+        fromBase64(verifyResponse.passwordWrappedPrivateKey),
+        verifyResponse.userId,
+        keepSignedIn
+      );
+
+      return { success: true };
+    } catch {
+      return { success: false, error: friendlyErrorMessage('2FA_VERIFICATION_FAILED') };
+    }
+  };
+}
+
+function buildLoginError(body: unknown): { error: { message: string; code?: string } } {
+  const code = extractErrorCode(body);
+  return { error: { message: parseErrorMessage(body), ...(code && { code }) } };
+}
+
 async function signInEmail(options: {
   identifier: string;
   password: string;
@@ -228,8 +279,7 @@ async function signInEmail(options: {
     });
 
     if (!initResponse.ok) {
-      const body: unknown = await initResponse.json();
-      return { error: { message: parseErrorMessage(body) } };
+      return buildLoginError(await initResponse.json());
     }
 
     const { ke2 } = (await initResponse.json()) as {
@@ -249,8 +299,7 @@ async function signInEmail(options: {
     });
 
     if (!finishResponse.ok) {
-      const body: unknown = await finishResponse.json();
-      return { error: { message: parseErrorMessage(body) } };
+      return buildLoginError(await finishResponse.json());
     }
 
     const finishData = (await finishResponse.json()) as {
@@ -262,41 +311,9 @@ async function signInEmail(options: {
     };
 
     if (finishData.requires2FA) {
-      // 2FA path: return callback that captures exportKey in closure
       return {
         requires2FA: true,
-        verifyTOTP: async (code: string): Promise<{ success: boolean; error?: string }> => {
-          try {
-            const response = await fetch(`${getApiUrl()}/api/auth/login/2fa/verify`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ code }),
-              credentials: 'include',
-            });
-
-            if (!response.ok) {
-              const body: unknown = await response.json();
-              return { success: false, error: parseErrorMessage(body) };
-            }
-
-            const verifyResponse = (await response.json()) as {
-              success: true;
-              userId: string;
-              passwordWrappedPrivateKey: string;
-            };
-
-            await finalizeLoginWithKey(
-              exportKey,
-              fromBase64(verifyResponse.passwordWrappedPrivateKey),
-              verifyResponse.userId,
-              keepSignedIn
-            );
-
-            return { success: true };
-          } catch {
-            return { success: false, error: friendlyErrorMessage('2FA_VERIFICATION_FAILED') };
-          }
-        },
+        verifyTOTP: createTOTPVerifier(exportKey, keepSignedIn),
       };
     }
 
@@ -689,6 +706,7 @@ export async function signOutAndClearCache(): Promise<void> {
   clearStoredAuth();
   clearEpochKeyCache(); // zeros and clears all cached epoch keys
   useAuthStore.getState().clear(); // zeros privateKey, clears state
+  useModelStore.getState().clearSelection(); // reset to single primary model
   queryClient.clear();
   initPromise = null;
 }
@@ -705,6 +723,48 @@ export const authClient = {
       return { data: { user } };
     }
     return { data: null };
+  },
+
+  tokenLogin: async (options: { token: string }): Promise<{ error?: { message: string } }> => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/auth/token-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: options.token }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const body: unknown = await response.json();
+        return { error: { message: parseErrorMessage(body) } };
+      }
+
+      return {};
+    } catch {
+      return { error: { message: friendlyErrorMessage('INTERNAL') } };
+    }
+  },
+
+  resendVerification: async (options: {
+    email: string;
+  }): Promise<{ error?: { message: string } }> => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: options.email }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const body: unknown = await response.json();
+        return { error: { message: parseErrorMessage(body) } };
+      }
+
+      return {};
+    } catch {
+      return { error: { message: friendlyErrorMessage('INTERNAL') } };
+    }
   },
 
   verifyEmail: async (options: { query: { token: string } }): Promise<VerifyEmailResult> => {

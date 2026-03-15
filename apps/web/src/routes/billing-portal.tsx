@@ -1,0 +1,77 @@
+import * as React from 'react';
+import { useState, useEffect } from 'react';
+import { Link, createFileRoute } from '@tanstack/react-router';
+import { Logo } from '@hushbox/ui';
+import { ROUTES } from '@hushbox/shared';
+import { authClient } from '@/lib/auth';
+import { BillingContent } from '@/components/billing/billing-content';
+import { ThemeToggle } from '@/components/shared/theme-toggle';
+
+export interface BillingPortalSearch {
+  token: string | undefined;
+}
+
+export const Route = createFileRoute('/billing-portal')({
+  validateSearch: (search: Record<string, unknown>): BillingPortalSearch => ({
+    token: typeof search['token'] === 'string' ? search['token'] : undefined,
+  }),
+  component: BillingPortalPage,
+});
+
+function BillingPortalPage(): React.JSX.Element {
+  const { token } = Route.useSearch();
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    if (!token) {
+      globalThis.location.href = '/login';
+      return;
+    }
+
+    const validToken = token;
+    async function exchangeToken(): Promise<void> {
+      const result = await authClient.tokenLogin({ token: validToken });
+      if (result.error) {
+        setState('error');
+        setErrorMessage(result.error.message);
+      } else {
+        setState('ready');
+      }
+    }
+
+    void exchangeToken();
+  }, [token]);
+
+  if (state === 'loading') {
+    return (
+      <div className="flex h-dvh items-center justify-center">
+        <div className="border-primary h-8 w-8 animate-spin rounded-full border-4 border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (state === 'error') {
+    return (
+      <div className="flex h-dvh items-center justify-center">
+        <div className="text-center" data-testid="billing-portal-error">
+          <h1 className="text-foreground mb-2 text-2xl font-bold">Link expired</h1>
+          <p className="text-muted-foreground mb-4">{errorMessage}</p>
+          <p className="text-muted-foreground text-sm">Return to the app to generate a new link.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-dvh flex-col" data-testid="billing-portal">
+      <header className="flex items-center justify-between border-b px-4 py-3">
+        <Link to={ROUTES.CHAT} aria-label="HushBox - Go to chat">
+          <Logo />
+        </Link>
+        <ThemeToggle />
+      </header>
+      <BillingContent />
+    </div>
+  );
+}

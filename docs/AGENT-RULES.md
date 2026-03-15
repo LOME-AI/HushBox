@@ -242,6 +242,23 @@ Never fix bugs without a test.
 
 ---
 
+## Forbidden Git Operations
+
+**Never use these commands. No exceptions.**
+
+| Command | Why |
+|---------|-----|
+| `git stash` (all subcommands) | Hides changes instead of committing. Stashed work gets lost. |
+| `git checkout -- <file>` | Permanently discards uncommitted file changes. |
+| `git checkout .` | Permanently discards all uncommitted changes. |
+| `git restore <file>` | Permanently discards uncommitted file changes. |
+| `git reset --hard` | Destroys all uncommitted changes and resets history. |
+| `git clean -f` | Permanently deletes untracked files. |
+
+If you need to undo changes, commit first, then use `git revert`. If you believe one of these commands is necessary, ask the human for approval.
+
+---
+
 ## Task Execution
 
 ### Adding a Feature

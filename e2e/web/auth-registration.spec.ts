@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures.js';
-import { SignupPage } from '../pages';
+import { LoginPage, SignupPage } from '../pages';
 import {
   signUpViaUI,
   verifyEmailViaAPI,
@@ -63,6 +63,79 @@ test.describe('Registration & Verification', () => {
       await signupPage.submit();
 
       await expect(unauthenticatedPage.getByText(/do not match/i)).toBeVisible();
+    });
+  });
+
+  test.describe('Email verification resend', () => {
+    test('resend from signup success page', async ({ unauthenticatedPage, request }) => {
+      test.setTimeout(120_000);
+      const email = uniqueEmail('e2e-resend');
+      const username = `resend${String(Date.now()).slice(-6)}`;
+      const password = 'TestPassword123!';
+
+      await test.step('sign up shows check-your-email with resend button', async () => {
+        await signUpViaUI(unauthenticatedPage, { username, email, password });
+        await expect(unauthenticatedPage.getByTestId('check-your-email')).toBeVisible();
+        await expect(unauthenticatedPage.getByText(email)).toBeVisible();
+      });
+
+      await test.step('click resend shows success feedback and cooldown', async () => {
+        const resendButton = unauthenticatedPage.getByTestId('resend-button');
+        await expect(resendButton).toBeEnabled();
+        await resendButton.click();
+
+        const feedback = unauthenticatedPage.getByTestId('resend-feedback');
+        await expect(feedback).toBeVisible();
+        await expect(feedback).toContainText('Verification email sent.');
+
+        await expect(resendButton).toBeDisabled();
+        await expect(resendButton).toContainText(/\d+s/);
+      });
+
+      await test.step('verify with latest token and login', async () => {
+        await verifyEmailViaAPI(request, unauthenticatedPage, email);
+        await loginViaUI(unauthenticatedPage, { email, password });
+        await expect(unauthenticatedPage).toHaveURL('/chat', { timeout: 30_000 });
+      });
+    });
+
+    test('login unverified redirects to check-email with auto-resend', async ({
+      unauthenticatedPage,
+      request,
+    }) => {
+      test.setTimeout(120_000);
+      const email = uniqueEmail('e2e-unverified');
+      const username = `unver${String(Date.now()).slice(-6)}`;
+      const password = 'TestPassword123!';
+
+      await test.step('sign up but do not verify', async () => {
+        await signUpViaUI(unauthenticatedPage, { username, email, password });
+        await expect(unauthenticatedPage.getByTestId('check-your-email')).toBeVisible();
+      });
+
+      await test.step('login with unverified email shows check-your-email with auto-resend', async () => {
+        const loginPage = new LoginPage(unauthenticatedPage);
+        await loginPage.goto();
+        await loginPage.login(email, password);
+
+        await expect(unauthenticatedPage.getByTestId('check-your-email')).toBeVisible({
+          timeout: 15_000,
+        });
+        await expect(unauthenticatedPage.getByText(email)).toBeVisible();
+
+        const feedback = unauthenticatedPage.getByTestId('resend-feedback');
+        await expect(feedback).toBeVisible({ timeout: 10_000 });
+        await expect(feedback).toContainText('Verification email sent.');
+
+        const resendButton = unauthenticatedPage.getByTestId('resend-button');
+        await expect(resendButton).toBeDisabled();
+      });
+
+      await test.step('verify with latest token and login', async () => {
+        await verifyEmailViaAPI(request, unauthenticatedPage, email);
+        await loginViaUI(unauthenticatedPage, { email, password });
+        await expect(unauthenticatedPage).toHaveURL('/chat', { timeout: 30_000 });
+      });
     });
   });
 });

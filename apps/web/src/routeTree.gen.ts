@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as BillingPortalRouteImport } from './routes/billing-portal'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
@@ -28,6 +29,11 @@ import { Route as DevRenderAssetNameRouteImport } from './routes/dev.render-asse
 import { Route as AppChatTrialRouteImport } from './routes/_app/chat.trial'
 import { Route as AppChatIdRouteImport } from './routes/_app/chat.$id'
 
+const BillingPortalRoute = BillingPortalRouteImport.update({
+  id: '/billing-portal',
+  path: '/billing-portal',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRoute = AuthRouteImport.update({
   id: '/_auth',
   getParentRoute: () => rootRouteImport,
@@ -119,6 +125,7 @@ const AppChatIdRoute = AppChatIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/billing-portal': typeof BillingPortalRoute
   '/billing': typeof AppBillingRoute
   '/projects': typeof AppProjectsRoute
   '/settings': typeof AppSettingsRoute
@@ -137,6 +144,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/billing-portal': typeof BillingPortalRoute
   '/billing': typeof AppBillingRoute
   '/projects': typeof AppProjectsRoute
   '/settings': typeof AppSettingsRoute
@@ -158,6 +166,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
+  '/billing-portal': typeof BillingPortalRoute
   '/_app/billing': typeof AppBillingRoute
   '/_app/projects': typeof AppProjectsRoute
   '/_app/settings': typeof AppSettingsRoute
@@ -178,6 +187,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/billing-portal'
     | '/billing'
     | '/projects'
     | '/settings'
@@ -196,6 +206,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/billing-portal'
     | '/billing'
     | '/projects'
     | '/settings'
@@ -216,6 +227,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_app'
     | '/_auth'
+    | '/billing-portal'
     | '/_app/billing'
     | '/_app/projects'
     | '/_app/settings'
@@ -237,6 +249,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
+  BillingPortalRoute: typeof BillingPortalRoute
   DevAssetsRoute: typeof DevAssetsRoute
   DevEmailsRoute: typeof DevEmailsRoute
   DevPersonasRoute: typeof DevPersonasRoute
@@ -247,6 +260,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/billing-portal': {
+      id: '/billing-portal'
+      path: '/billing-portal'
+      fullPath: '/billing-portal'
+      preLoaderRoute: typeof BillingPortalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_auth': {
       id: '/_auth'
       path: ''
@@ -414,6 +434,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
+  BillingPortalRoute: BillingPortalRoute,
   DevAssetsRoute: DevAssetsRoute,
   DevEmailsRoute: DevEmailsRoute,
   DevPersonasRoute: DevPersonasRoute,

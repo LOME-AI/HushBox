@@ -101,13 +101,3 @@ export function SignupModal({
     </ModalOverlay>
   );
 }
-
-/**
- * @deprecated Use `<SignupModal variant="multi-model" />` instead.
- * Re-export for backwards compatibility during migration.
- */
-export function MultiModelSignupModal(
-  props: Readonly<Omit<SignupModalProps, 'variant' | 'modelName'>>
-): React.JSX.Element | null {
-  return <SignupModal {...props} variant="multi-model" />;
-}

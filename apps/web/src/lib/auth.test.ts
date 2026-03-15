@@ -532,7 +532,7 @@ describe('auth', () => {
 
       const result = await signIn.email(loginParams);
 
-      expect(result.error).toEqual({ message: 'Invalid credentials.' });
+      expect(result.error).toEqual({ message: 'Invalid credentials.', code: 'AUTH_FAILED' });
     });
 
     it('should return error when login finish fails', async () => {
@@ -557,7 +557,10 @@ describe('auth', () => {
 
       const result = await signIn.email(loginParams);
 
-      expect(result.error).toEqual({ message: 'Your login session expired. Please try again.' });
+      expect(result.error).toEqual({
+        message: 'Your login session expired. Please try again.',
+        code: 'NO_PENDING_LOGIN',
+      });
     });
 
     it('should handle 2FA requirement and return verifyTOTP callback', async () => {
@@ -1507,6 +1510,27 @@ describe('auth', () => {
       vi.mocked(fetch).mockRejectedValue(new Error('Network error'));
 
       await expect(signOutAndClearCache()).rejects.toThrow('Network error');
+    });
+
+    it('should reset model selection to single model', async () => {
+      const { useModelStore } = await import('@/stores/model');
+
+      // Set up multiple selected models
+      useModelStore.setState({
+        selectedModels: [
+          { id: 'model-a', name: 'Model A' },
+          { id: 'model-b', name: 'Model B' },
+          { id: 'model-c', name: 'Model C' },
+        ],
+      });
+
+      vi.mocked(fetch).mockResolvedValue({ ok: true } as Response);
+
+      await signOutAndClearCache();
+
+      const { selectedModels } = useModelStore.getState();
+      expect(selectedModels).toHaveLength(1);
+      expect(selectedModels[0]?.id).toBe('model-a');
     });
   });
 

@@ -4,7 +4,7 @@ import { setupGroupConversationWithSidebar } from '../helpers/group-test-setup.j
 import { createInviteLink, createWriteLinkWithBudget } from '../helpers/invite-link.js';
 import {
   expectSharedConversationLoaded,
-  expectNoSendInput,
+  expectSendInputDisabled,
   expectReadOnlyNotice,
   expectDelegatedBudgetNotice,
 } from '../helpers/link-assertions.js';
@@ -31,7 +31,10 @@ test.describe('Link Guest Access', () => {
     let writeUrl: string;
 
     await test.step('create read+history link and verify guest access', async () => {
-      const result = await createInviteLink(authenticatedPage, sidebar, { withHistory: true });
+      const result = await createInviteLink(authenticatedPage, sidebar, {
+        withHistory: true,
+        extractLinkId: false,
+      });
       readUrl = result.url;
       expect(readUrl).toContain('/share/c/');
     });
@@ -47,18 +50,16 @@ test.describe('Link Guest Access', () => {
       });
       await expect(unauthenticatedPage.getByText('Hi from Bob').first()).toBeVisible();
 
-      await expectNoSendInput(unauthenticatedPage);
+      await expectSendInputDisabled(unauthenticatedPage);
       await expectReadOnlyNotice(unauthenticatedPage);
     });
 
     await test.step('create write+history link and setup budgets', async () => {
-      const result = await createWriteLinkWithBudget(
-        authenticatedPage,
-        sidebar,
+      const result = await createWriteLinkWithBudget(authenticatedPage, sidebar, {
         helper,
-        groupConversation.id,
-        { withHistory: true }
-      );
+        conversationId: groupConversation.id,
+        withHistory: true,
+      });
       writeUrl = result.url;
     });
 
@@ -120,7 +121,7 @@ test.describe('Link Guest Access', () => {
     let writeUrl: string;
 
     await test.step('create read+no-history link (triggers epoch rotation)', async () => {
-      const result = await createInviteLink(authenticatedPage, sidebar);
+      const result = await createInviteLink(authenticatedPage, sidebar, { extractLinkId: false });
       readUrl = result.url;
     });
 
@@ -145,7 +146,7 @@ test.describe('Link Guest Access', () => {
         timeout: 10_000,
       });
 
-      await expectNoSendInput(unauthenticatedPage);
+      await expectSendInputDisabled(unauthenticatedPage);
       await expectReadOnlyNotice(unauthenticatedPage);
     });
 
@@ -153,12 +154,10 @@ test.describe('Link Guest Access', () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      const result = await createWriteLinkWithBudget(
-        authenticatedPage,
-        sidebar,
+      const result = await createWriteLinkWithBudget(authenticatedPage, sidebar, {
         helper,
-        groupConversation.id
-      );
+        conversationId: groupConversation.id,
+      });
       writeUrl = result.url;
     });
 
@@ -223,7 +222,10 @@ test.describe('Link Guest Access', () => {
     let readUrl: string;
 
     await test.step('create read+history link', async () => {
-      const result = await createInviteLink(authenticatedPage, sidebar, { withHistory: true });
+      const result = await createInviteLink(authenticatedPage, sidebar, {
+        withHistory: true,
+        extractLinkId: false,
+      });
       readUrl = result.url;
     });
 

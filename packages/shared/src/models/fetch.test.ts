@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fetchModels, fetchZdrModelIds } from './fetch.js';
+import { fetchModels, fetchZdrModelIds, clearModelCache } from './fetch.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
 afterEach(() => {
+  clearModelCache();
   vi.restoreAllMocks();
 });
 

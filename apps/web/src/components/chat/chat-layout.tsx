@@ -783,9 +783,10 @@ export function ChatLayout({
   const tierInfo = useTierInfo();
   const tierInfoOrUndefined = tierInfo ?? undefined;
   const handlePremiumClick = usePremiumModelClick(models, isAuthenticated);
+  const { setMultiModelModalOpen } = useUIModalsStore();
   const handleMultiModelClick = React.useCallback((): void => {
-    useUIModalsStore.getState().setMultiModelModalOpen(true);
-  }, []);
+    setMultiModelModalOpen(true);
+  }, [setMultiModelModalOpen]);
 
   const internalPromptInputRef = React.useRef<PromptInputRef>(null);
   const virtuosoRef = React.useRef<VirtuosoHandle>(null);

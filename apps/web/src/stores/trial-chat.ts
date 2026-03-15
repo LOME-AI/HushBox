@@ -6,6 +6,7 @@ export interface TrialMessage {
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
+  modelName?: string;
 }
 
 interface TrialChatState {
