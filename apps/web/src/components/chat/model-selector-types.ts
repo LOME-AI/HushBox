@@ -8,6 +8,4 @@ export interface ModelSelectorGatingProps {
   isAuthenticated?: boolean | undefined;
   /** Called when user clicks a premium model they cannot access */
   onPremiumClick?: ((modelId: string) => void) | undefined;
-  /** Called when an unauthenticated user tries to select a second model */
-  onMultiModelClick?: (() => void) | undefined;
 }

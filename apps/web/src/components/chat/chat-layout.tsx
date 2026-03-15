@@ -631,8 +631,6 @@ interface LayoutModals {
   inviteLinkModalOpen: boolean;
   shareMessageModalOpen: boolean;
   shareMessageId: string | null;
-  multiModelModalOpen: boolean;
-  setMultiModelModalOpen: (open: boolean) => void;
   toggleMemberSidebar: () => void;
   mobileMemberSidebarOpen: boolean;
   setMobileMemberSidebarOpen: (open: boolean) => void;
@@ -653,8 +651,6 @@ function useLayoutModals(): LayoutModals {
 interface ChatLayoutModalsProps {
   readonly signupModalOpen: boolean;
   readonly setSignupModalOpen: (open: boolean) => void;
-  readonly multiModelModalOpen: boolean;
-  readonly setMultiModelModalOpen: (open: boolean) => void;
   readonly paymentModalOpen: boolean;
   readonly setPaymentModalOpen: (open: boolean) => void;
   readonly premiumModelName: string | undefined;
@@ -675,8 +671,6 @@ interface ChatLayoutModalsProps {
 function ChatLayoutModals({
   signupModalOpen,
   setSignupModalOpen,
-  multiModelModalOpen,
-  setMultiModelModalOpen,
   paymentModalOpen,
   setPaymentModalOpen,
   premiumModelName,
@@ -701,11 +695,6 @@ function ChatLayoutModals({
         open={signupModalOpen}
         onOpenChange={setSignupModalOpen}
         modelName={premiumModelName}
-      />
-      <SignupModal
-        variant="multi-model"
-        open={multiModelModalOpen}
-        onOpenChange={setMultiModelModalOpen}
       />
       <PaymentModal
         open={paymentModalOpen}
@@ -783,10 +772,6 @@ export function ChatLayout({
   const tierInfo = useTierInfo();
   const tierInfoOrUndefined = tierInfo ?? undefined;
   const handlePremiumClick = usePremiumModelClick(models, isAuthenticated);
-  const { setMultiModelModalOpen } = useUIModalsStore();
-  const handleMultiModelClick = React.useCallback((): void => {
-    setMultiModelModalOpen(true);
-  }, [setMultiModelModalOpen]);
 
   const internalPromptInputRef = React.useRef<PromptInputRef>(null);
   const virtuosoRef = React.useRef<VirtuosoHandle>(null);
@@ -869,7 +854,6 @@ export function ChatLayout({
           canAccessPremium={canAccessPremium}
           isAuthenticated={isAuthenticated}
           onPremiumClick={handlePremiumClick}
-          onMultiModelClick={handleMultiModelClick}
           {...buildChatHeaderGroupProps(groupChat, handleFacepileClick)}
         />
       </div>
@@ -946,8 +930,6 @@ export function ChatLayout({
       <ChatLayoutModals
         signupModalOpen={modals.signupModalOpen}
         setSignupModalOpen={modals.setSignupModalOpen}
-        multiModelModalOpen={modals.multiModelModalOpen}
-        setMultiModelModalOpen={modals.setMultiModelModalOpen}
         paymentModalOpen={modals.paymentModalOpen}
         setPaymentModalOpen={modals.setPaymentModalOpen}
         premiumModelName={modals.premiumModelName}

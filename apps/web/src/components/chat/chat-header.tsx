@@ -30,7 +30,6 @@ export function ChatHeader({
   canAccessPremium,
   isAuthenticated,
   onPremiumClick,
-  onMultiModelClick,
   members,
   onlineMemberIds,
   onFacepileClick,
@@ -52,7 +51,6 @@ export function ChatHeader({
           canAccessPremium={canAccessPremium}
           isAuthenticated={isAuthenticated}
           onPremiumClick={onPremiumClick}
-          onMultiModelClick={onMultiModelClick}
         />
       }
       right={

@@ -268,6 +268,7 @@ export function TrialChatPage(): React.JSX.Element {
       role: 'assistant',
       content: chatError.content,
       createdAt: new Date().toISOString(),
+      modelName: primaryModelId,
     });
   }
 

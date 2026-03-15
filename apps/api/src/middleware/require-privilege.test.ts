@@ -858,7 +858,7 @@ describe('requirePrivilege middleware', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json<{ conversationOwnerId: string | null }>();
-      expect(body.conversationOwnerId).toBeNull();
+      expect(body.conversationOwnerId).toBeUndefined();
     });
 
     it('sets conversationOwnerId when user-not-member link guest fallback succeeds with includeOwnerId', async () => {

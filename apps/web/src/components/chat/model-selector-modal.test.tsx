@@ -24,7 +24,7 @@ vi.mock('@/lib/api-client', () => ({
   fetchJson: vi.fn(),
 }));
 
-// Mock Link component
+// Mock Link component and useNavigate
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,
@@ -41,6 +41,7 @@ vi.mock('@tanstack/react-router', () => ({
       {children}
     </a>
   ),
+  useNavigate: () => vi.fn(),
 }));
 
 function first<T>(array: T[]): T {
@@ -1762,9 +1763,8 @@ describe('ModelSelectorModal', () => {
   });
 
   describe('multi-model gating', () => {
-    it('calls onMultiModelClick for unauthenticated user selecting second non-premium model', async () => {
+    it('shows signup modal for unauthenticated user selecting second non-premium model', async () => {
       const user = userEvent.setup();
-      const onMultiModelClick = vi.fn();
       render(
         <ModelSelectorModal
           open={true}
@@ -1773,7 +1773,6 @@ describe('ModelSelectorModal', () => {
           selectedIds={new Set(['openai/gpt-4-turbo'])}
           onSelect={vi.fn()}
           isAuthenticated={false}
-          onMultiModelClick={onMultiModelClick}
         />
       );
 
@@ -1782,7 +1781,7 @@ describe('ModelSelectorModal', () => {
       const checkbox = claudeItem.querySelector('[data-testid="model-checkbox"]');
       await user.click(checkbox!);
 
-      expect(onMultiModelClick).toHaveBeenCalledOnce();
+      expect(screen.getByTestId('multi-model-signup-modal')).toBeInTheDocument();
     });
   });
 });

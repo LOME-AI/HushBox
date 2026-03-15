@@ -16,6 +16,7 @@ import { getAccessibleModelIds } from '../../hooks/models';
 import { useIsMobile } from '../../hooks/use-is-mobile';
 
 import { ModelInfoPanel } from './model-info-panel';
+import { SignupModal } from '../auth/signup-modal';
 
 type SortField = 'price' | 'context' | null;
 type SortDirection = 'asc' | 'desc';
@@ -472,6 +473,10 @@ interface ModelSelectorFooterProps {
   onClose: () => void;
 }
 
+function selectedModelLabel(count: number): string {
+  return count === 1 ? 'Select Model' : 'Close';
+}
+
 function ModelSelectorFooter({
   selectedCount,
   onClear,
@@ -492,9 +497,7 @@ function ModelSelectorFooter({
           label:
             selectedCount > 1
               ? `Select ${String(selectedCount)} Models`
-              : selectedCount === 1
-                ? 'Select Model'
-                : 'Close',
+              : selectedModelLabel(selectedCount),
           onClick: selectedCount === 0 ? onClose : onConfirm,
         }}
       />
@@ -523,7 +526,6 @@ export function ModelSelectorModal({
   canAccessPremium = true,
   isAuthenticated = true,
   onPremiumClick,
-  onMultiModelClick,
 }: Readonly<ModelSelectorModalProps>): React.JSX.Element {
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -534,10 +536,12 @@ export function ModelSelectorModal({
   const [sortDirection, setSortDirection] = React.useState<SortDirection>('asc');
   const [webSearchFilter, setWebSearchFilter] = React.useState(false);
   const [localSelectedIds, setLocalSelectedIds] = React.useState<Set<string>>(new Set(selectedIds));
+  const [showMultiModelSignup, setShowMultiModelSignup] = React.useState(false);
 
   // Reset state when modal opens
   React.useEffect(() => {
     if (open) {
+      setShowMultiModelSignup(false);
       setLocalSelectedIds(new Set(selectedIds));
       setFocusedModelId(selectedIds.values().next().value ?? models[0]?.id ?? '');
       setSearchQuery('');
@@ -601,7 +605,7 @@ export function ModelSelectorModal({
 
       // Block multi-model selection for unauthenticated users
       if (!isAuthenticated && !localSelectedIds.has(modelId) && localSelectedIds.size > 0) {
-        onMultiModelClick?.();
+        setShowMultiModelSignup(true);
         return;
       }
 
@@ -614,7 +618,6 @@ export function ModelSelectorModal({
       onPremiumClick,
       isAuthenticated,
       localSelectedIds,
-      onMultiModelClick,
     ]
   );
 
@@ -642,6 +645,7 @@ export function ModelSelectorModal({
   );
 
   return (
+    <>
     <ModalOverlay
       open={open}
       onOpenChange={onOpenChange}
@@ -731,9 +735,17 @@ export function ModelSelectorModal({
           selectedCount={localSelectedIds.size}
           onClear={handleClearSelection}
           onConfirm={handleConfirmSelection}
-          onClose={() => onOpenChange(false)}
+          onClose={() => {
+            onOpenChange(false);
+          }}
         />
       </div>
     </ModalOverlay>
+    <SignupModal
+      variant="multi-model"
+      open={showMultiModelSignup}
+      onOpenChange={setShowMultiModelSignup}
+    />
+    </>
   );
 }

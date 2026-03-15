@@ -38,7 +38,6 @@ export function ModelSelectorButton({
   canAccessPremium = true,
   isAuthenticated = true,
   onPremiumClick,
-  onMultiModelClick,
 }: Readonly<ModelSelectorButtonProps>): React.JSX.Element {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -81,7 +80,6 @@ export function ModelSelectorButton({
         canAccessPremium={canAccessPremium}
         isAuthenticated={isAuthenticated}
         onPremiumClick={onPremiumClick}
-        onMultiModelClick={onMultiModelClick}
       />
     </>
   );

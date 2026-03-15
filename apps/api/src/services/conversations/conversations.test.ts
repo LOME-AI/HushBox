@@ -105,11 +105,13 @@ describe('conversations service', () => {
     conversationId: string,
     sequenceNumber: number,
     senderType: 'user' | 'ai' = 'user',
-    epochNumber = 1
+    epochNumber = 1,
+    userId?: string
   ): Promise<{ id: string }> {
     const msgData = messageFactory.build({
       conversationId,
       senderType,
+      senderId: senderType === 'ai' ? null : (userId ?? null),
       sequenceNumber,
       epochNumber,
       ...(senderType === 'ai' ? { modelName: 'test-model' } : {}),
@@ -361,11 +363,11 @@ describe('conversations service', () => {
       const alice = await createTestUser();
       const { conversationId } = await createTestConversationWithEpoch(alice.id, toBytes('Group'));
 
-      await createTestMessage(conversationId, 1, 'user', 1);
+      await createTestMessage(conversationId, 1, 'user', 1, alice.id);
       await createTestMessage(conversationId, 2, 'ai', 1);
-      await createTestMessage(conversationId, 3, 'user', 2);
+      await createTestMessage(conversationId, 3, 'user', 2, alice.id);
       await createTestMessage(conversationId, 4, 'ai', 3);
-      await createTestMessage(conversationId, 5, 'user', 3);
+      await createTestMessage(conversationId, 5, 'user', 3, alice.id);
 
       const result = await getConversationForMember(db, conversationId, 3);
 
@@ -386,9 +388,9 @@ describe('conversations service', () => {
       const user = await createTestUser();
       const { conversationId } = await createTestConversationWithEpoch(user.id);
 
-      await createTestMessage(conversationId, 1, 'user', 1);
+      await createTestMessage(conversationId, 1, 'user', 1, user.id);
       await createTestMessage(conversationId, 2, 'ai', 2);
-      await createTestMessage(conversationId, 3, 'user', 3);
+      await createTestMessage(conversationId, 3, 'user', 3, user.id);
 
       const result = await getConversationForMember(db, conversationId, 1);
 
@@ -484,11 +486,11 @@ describe('conversations service', () => {
         acceptedAt: new Date(),
       });
 
-      await createTestMessage(conversationId, 1, 'user', 1);
+      await createTestMessage(conversationId, 1, 'user', 1, alice.id);
       await createTestMessage(conversationId, 2, 'ai', 1);
-      await createTestMessage(conversationId, 3, 'user', 2);
+      await createTestMessage(conversationId, 3, 'user', 2, alice.id);
       await createTestMessage(conversationId, 4, 'ai', 3);
-      await createTestMessage(conversationId, 5, 'user', 3);
+      await createTestMessage(conversationId, 5, 'user', 3, alice.id);
 
       // Should only see messages from epoch >= 3
       const result = await getConversationForMember(db, conversationId, 3, charlie.id);
@@ -502,7 +504,7 @@ describe('conversations service', () => {
     it('returns conversation with messages for owner with userId', async () => {
       const user = await createTestUser();
       const { conversationId } = await createTestConversationWithEpoch(user.id, toBytes('My Conv'));
-      await createTestMessage(conversationId, 1, 'user');
+      await createTestMessage(conversationId, 1, 'user', 1, user.id);
       await createTestMessage(conversationId, 2, 'ai');
 
       const result = await getConversationForMember(db, conversationId, 1, user.id);
@@ -771,7 +773,7 @@ describe('conversations service', () => {
       expect(firstResult?.isNew).toBe(true);
 
       // Add messages directly to DB
-      await createTestMessage(conversationId, 1, 'user');
+      await createTestMessage(conversationId, 1, 'user', 1, user.id);
       await createTestMessage(conversationId, 2, 'ai');
 
       // Second call should return all messages
@@ -985,7 +987,7 @@ describe('conversations service', () => {
       });
 
       // Add a message
-      await createTestMessage(conversationId, 1);
+      await createTestMessage(conversationId, 1, 'user', 1, user.id);
 
       // Delete the conversation
       await deleteConversation(db, conversationId, user.id);

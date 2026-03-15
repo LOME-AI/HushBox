@@ -69,8 +69,8 @@ export function SignupModal({
   const config = VARIANT_CONFIG[variant];
 
   const handleSignUp = (): void => {
-    void navigate({ to: ROUTES.SIGNUP });
     onOpenChange(false);
+    void navigate({ to: ROUTES.SIGNUP });
   };
 
   const handleMaybeLater = (): void => {
