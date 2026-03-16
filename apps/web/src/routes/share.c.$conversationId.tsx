@@ -18,6 +18,7 @@ export function SharedConversationPage(): React.JSX.Element {
   const derivedKeys = React.useMemo(() => {
     try {
       const secret = fromBase64(globalThis.location.hash.slice(1));
+      if (secret.length !== 32) return null;
       return deriveKeysFromLinkSecret(secret);
     } catch {
       return null;

@@ -13,6 +13,7 @@ import {
   buildRerunCommand,
   generateMarkdownReport,
   writeReport,
+  enforceRetentionLimit,
   type DebugReport,
   type FlattenedTestResult,
   type PlaywrightReport,
@@ -70,7 +71,7 @@ describe('e2e-debug', () => {
     });
 
     it('handles file paths with slashes and dots', () => {
-      expect(slugify('e2e/web/chat.spec.ts')).toBe('e2e-web-chat-spec-ts');
+      expect(slugify('e2e/chat/chat.spec.ts')).toBe('e2e-chat-chat-spec-ts');
     });
   });
 
@@ -99,20 +100,20 @@ describe('e2e-debug', () => {
   describe('screenshotFileName', () => {
     it('generates deterministic filename from file, project, and title', () => {
       const result = screenshotFileName({
-        file: 'e2e/web/chat.spec.ts',
+        file: 'e2e/chat/chat.spec.ts',
         project: 'chromium',
         title: 'displays UI',
       });
-      expect(result).toBe('e2e-web-chat-spec-ts--chromium--displays-ui.png');
+      expect(result).toBe('e2e-chat-chat-spec-ts--chromium--displays-ui.png');
     });
 
     it('handles special characters in title', () => {
       const result = screenshotFileName({
-        file: 'e2e/web/billing.spec.ts',
+        file: 'e2e/billing/billing.spec.ts',
         project: 'webkit',
         title: 'handles $0.00 edge case',
       });
-      expect(result).toBe('e2e-web-billing-spec-ts--webkit--handles-0-00-edge-case.png');
+      expect(result).toBe('e2e-billing-billing-spec-ts--webkit--handles-0-00-edge-case.png');
     });
   });
 
@@ -120,20 +121,20 @@ describe('e2e-debug', () => {
     it('generates rerun command with file, grep, and project', () => {
       const result = buildRerunCommand({
         title: 'displays UI',
-        file: 'e2e/web/chat.spec.ts',
+        file: 'e2e/chat/chat.spec.ts',
         project: 'chromium',
       });
-      expect(result).toBe('pnpm e2e -- e2e/web/chat.spec.ts -g "displays UI" --project=chromium');
+      expect(result).toBe('pnpm e2e -- e2e/chat/chat.spec.ts -g "displays UI" --project=chromium');
     });
 
     it('escapes double quotes in title', () => {
       const result = buildRerunCommand({
         title: 'handles "edge" case',
-        file: 'e2e/web/chat.spec.ts',
+        file: 'e2e/chat/chat.spec.ts',
         project: 'webkit',
       });
       expect(result).toBe(
-        String.raw`pnpm e2e -- e2e/web/chat.spec.ts -g "handles \"edge\" case" --project=webkit`
+        String.raw`pnpm e2e -- e2e/chat/chat.spec.ts -g "handles \"edge\" case" --project=webkit`
       );
     });
   });
@@ -577,9 +578,9 @@ describe('e2e-debug', () => {
       const report: DebugReport = {
         summary: { total: 3, passed: 3, flaky: 0, failed: 0, duration: 5000 },
         passed: [
-          { title: 'test one', file: 'e2e/web/chat.spec.ts', project: 'chromium' },
-          { title: 'test two', file: 'e2e/web/chat.spec.ts', project: 'firefox' },
-          { title: 'test three', file: 'e2e/web/billing.spec.ts', project: 'chromium' },
+          { title: 'test one', file: 'e2e/chat/chat.spec.ts', project: 'chromium' },
+          { title: 'test two', file: 'e2e/chat/chat.spec.ts', project: 'firefox' },
+          { title: 'test three', file: 'e2e/billing/billing.spec.ts', project: 'chromium' },
         ],
         flaky: [],
         failed: [],
@@ -597,12 +598,12 @@ describe('e2e-debug', () => {
     it('shows FAILED result with failed test details', () => {
       const report: DebugReport = {
         summary: { total: 2, passed: 1, flaky: 0, failed: 1, duration: 10_000 },
-        passed: [{ title: 'test one', file: 'e2e/web/chat.spec.ts', project: 'chromium' }],
+        passed: [{ title: 'test one', file: 'e2e/chat/chat.spec.ts', project: 'chromium' }],
         flaky: [],
         failed: [
           {
             title: 'broken test',
-            file: 'e2e/web/billing.spec.ts',
+            file: 'e2e/billing/billing.spec.ts',
             project: 'webkit',
             error: 'Timeout waiting for selector',
             artifacts: {
@@ -618,10 +619,12 @@ describe('e2e-debug', () => {
 
       expect(md).toContain('**Result:** FAILED');
       expect(md).toContain('## Failed Tests');
-      expect(md).toContain('### `e2e/web/billing.spec.ts`');
+      expect(md).toContain('### `e2e/billing/billing.spec.ts`');
       expect(md).toContain('#### broken test [webkit]');
       expect(md).toContain('Timeout waiting for selector');
-      expect(md).toContain('pnpm e2e -- e2e/web/billing.spec.ts -g "broken test" --project=webkit');
+      expect(md).toContain(
+        'pnpm e2e -- e2e/billing/billing.spec.ts -g "broken test" --project=webkit'
+      );
     });
 
     it('groups failed tests by file', () => {
@@ -632,21 +635,21 @@ describe('e2e-debug', () => {
         failed: [
           {
             title: 'test A',
-            file: 'e2e/web/chat.spec.ts',
+            file: 'e2e/chat/chat.spec.ts',
             project: 'chromium',
             error: 'error A',
             artifacts: { trace: undefined, screenshot: undefined, video: undefined },
           },
           {
             title: 'test B',
-            file: 'e2e/web/chat.spec.ts',
+            file: 'e2e/chat/chat.spec.ts',
             project: 'firefox',
             error: 'error B',
             artifacts: { trace: undefined, screenshot: undefined, video: undefined },
           },
           {
             title: 'test C',
-            file: 'e2e/web/billing.spec.ts',
+            file: 'e2e/billing/billing.spec.ts',
             project: 'chromium',
             error: 'error C',
             artifacts: { trace: undefined, screenshot: undefined, video: undefined },
@@ -657,19 +660,19 @@ describe('e2e-debug', () => {
       const md = generateMarkdownReport(report);
 
       // chat.spec.ts should appear once as a heading, with both tests under it
-      const chatHeadingCount = (md.match(/### `e2e\/web\/chat\.spec\.ts`/g) ?? []).length;
+      const chatHeadingCount = (md.match(/### `e2e\/chat\/chat\.spec\.ts`/g) ?? []).length;
       expect(chatHeadingCount).toBe(1);
       expect(md).toContain('#### test A [chromium]');
       expect(md).toContain('#### test B [firefox]');
-      expect(md).toContain('### `e2e/web/billing.spec.ts`');
+      expect(md).toContain('### `e2e/billing/billing.spec.ts`');
     });
 
     it('renders flaky tests as a table', () => {
       const report: DebugReport = {
         summary: { total: 2, passed: 1, flaky: 1, failed: 0, duration: 5000 },
-        passed: [{ title: 'stable', file: 'e2e/web/chat.spec.ts', project: 'chromium' }],
+        passed: [{ title: 'stable', file: 'e2e/chat/chat.spec.ts', project: 'chromium' }],
         flaky: [
-          { title: 'flaky test', file: 'e2e/web/chat.spec.ts', project: 'firefox', attempts: 3 },
+          { title: 'flaky test', file: 'e2e/chat/chat.spec.ts', project: 'firefox', attempts: 3 },
         ],
         failed: [],
       };
@@ -790,33 +793,44 @@ describe('e2e-debug', () => {
   describe('writeReport', () => {
     let temporaryDir: string;
 
+    const simpleReport: DebugReport = {
+      summary: { total: 1, passed: 1, flaky: 0, failed: 0, duration: 1000 },
+      passed: [{ title: 'test', file: 'e2e/test.spec.ts', project: 'chromium' }],
+      flaky: [],
+      failed: [],
+    };
+
     afterEach(() => {
       if (temporaryDir && existsSync(temporaryDir)) {
         rmSync(temporaryDir, { recursive: true, force: true });
       }
     });
 
-    it('creates report directory and writes REPORT.md', () => {
+    it('creates timestamped subdirectory with REPORT.md', () => {
       temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
-      const reportDir = path.join(temporaryDir, 'report');
+      const baseDir = path.join(temporaryDir, 'report');
 
-      const report: DebugReport = {
-        summary: { total: 1, passed: 1, flaky: 0, failed: 0, duration: 1000 },
-        passed: [{ title: 'test', file: 'e2e/test.spec.ts', project: 'chromium' }],
-        flaky: [],
-        failed: [],
-      };
+      const resultDir = writeReport(simpleReport, baseDir);
 
-      writeReport(report, reportDir);
-
-      expect(existsSync(path.join(reportDir, 'REPORT.md'))).toBe(true);
-      const content = readFileSync(path.join(reportDir, 'REPORT.md'), 'utf8');
+      expect(existsSync(path.join(resultDir, 'REPORT.md'))).toBe(true);
+      const content = readFileSync(path.join(resultDir, 'REPORT.md'), 'utf8');
       expect(content).toContain('# E2E Test Report');
+    });
+
+    it('returns path inside baseDir with ISO-like timestamp', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const baseDir = path.join(temporaryDir, 'report');
+
+      const resultDir = writeReport(simpleReport, baseDir);
+
+      expect(resultDir.startsWith(baseDir)).toBe(true);
+      const dirName = path.basename(resultDir);
+      expect(dirName).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/);
     });
 
     it('copies screenshot files when present', () => {
       temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
-      const reportDir = path.join(temporaryDir, 'report');
+      const baseDir = path.join(temporaryDir, 'report');
       const sourceScreenshot = path.join(temporaryDir, 'source-screenshot.png');
       writeFileSync(sourceScreenshot, 'fake-png-data');
 
@@ -835,36 +849,30 @@ describe('e2e-debug', () => {
         ],
       };
 
-      writeReport(report, reportDir);
+      const resultDir = writeReport(report, baseDir);
 
-      const screenshotsDir = path.join(reportDir, 'screenshots');
+      const screenshotsDir = path.join(resultDir, 'screenshots');
       expect(existsSync(screenshotsDir)).toBe(true);
       const expectedFile = path.join(screenshotsDir, 'e2e-test-spec-ts--chromium--broken-test.png');
       expect(existsSync(expectedFile)).toBe(true);
     });
 
-    it('wipes existing report directory on re-run', () => {
+    it('preserves previous reports', () => {
       temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
-      const reportDir = path.join(temporaryDir, 'report');
-      mkdirSync(reportDir, { recursive: true });
-      writeFileSync(path.join(reportDir, 'old-file.txt'), 'stale data');
+      const baseDir = path.join(temporaryDir, 'report');
 
-      const report: DebugReport = {
-        summary: { total: 1, passed: 1, flaky: 0, failed: 0, duration: 1000 },
-        passed: [{ title: 'test', file: 'e2e/test.spec.ts', project: 'chromium' }],
-        flaky: [],
-        failed: [],
-      };
+      const oldDir = path.join(baseDir, '2020-01-01T00-00-00');
+      mkdirSync(oldDir, { recursive: true });
+      writeFileSync(path.join(oldDir, 'REPORT.md'), 'old report');
 
-      writeReport(report, reportDir);
+      writeReport(simpleReport, baseDir);
 
-      expect(existsSync(path.join(reportDir, 'old-file.txt'))).toBe(false);
-      expect(existsSync(path.join(reportDir, 'REPORT.md'))).toBe(true);
+      expect(existsSync(path.join(oldDir, 'REPORT.md'))).toBe(true);
     });
 
     it('handles missing screenshot source gracefully', () => {
       temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
-      const reportDir = path.join(temporaryDir, 'report');
+      const baseDir = path.join(temporaryDir, 'report');
 
       const report: DebugReport = {
         summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
@@ -885,10 +893,61 @@ describe('e2e-debug', () => {
         ],
       };
 
+      const resultDir = writeReport(report, baseDir);
+
+      expect(existsSync(path.join(resultDir, 'REPORT.md'))).toBe(true);
+    });
+  });
+
+  describe('enforceRetentionLimit', () => {
+    let temporaryDir: string;
+
+    afterEach(() => {
+      if (temporaryDir && existsSync(temporaryDir)) {
+        rmSync(temporaryDir, { recursive: true, force: true });
+      }
+    });
+
+    it('deletes oldest directories when over limit', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-retention-'));
+      for (const name of ['2020-01-01T00-00-00', '2020-01-02T00-00-00', '2020-01-03T00-00-00']) {
+        mkdirSync(path.join(temporaryDir, name));
+      }
+
+      enforceRetentionLimit(temporaryDir, 2);
+
+      expect(existsSync(path.join(temporaryDir, '2020-01-01T00-00-00'))).toBe(false);
+      expect(existsSync(path.join(temporaryDir, '2020-01-02T00-00-00'))).toBe(true);
+      expect(existsSync(path.join(temporaryDir, '2020-01-03T00-00-00'))).toBe(true);
+    });
+
+    it('keeps all directories when at or under limit', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-retention-'));
+      for (const name of ['2020-01-01T00-00-00', '2020-01-02T00-00-00']) {
+        mkdirSync(path.join(temporaryDir, name));
+      }
+
+      enforceRetentionLimit(temporaryDir, 2);
+
+      expect(existsSync(path.join(temporaryDir, '2020-01-01T00-00-00'))).toBe(true);
+      expect(existsSync(path.join(temporaryDir, '2020-01-02T00-00-00'))).toBe(true);
+    });
+
+    it('ignores files, only counts directories', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-retention-'));
+      writeFileSync(path.join(temporaryDir, 'stray-file.txt'), 'data');
+      mkdirSync(path.join(temporaryDir, '2020-01-01T00-00-00'));
+
+      enforceRetentionLimit(temporaryDir, 1);
+
+      expect(existsSync(path.join(temporaryDir, '2020-01-01T00-00-00'))).toBe(true);
+      expect(existsSync(path.join(temporaryDir, 'stray-file.txt'))).toBe(true);
+    });
+
+    it('handles nonexistent base directory gracefully', () => {
       expect(() => {
-        writeReport(report, reportDir);
+        enforceRetentionLimit('/nonexistent/path', 10);
       }).not.toThrow();
-      expect(existsSync(path.join(reportDir, 'REPORT.md'))).toBe(true);
     });
   });
 });

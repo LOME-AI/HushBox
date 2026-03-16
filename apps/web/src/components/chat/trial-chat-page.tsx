@@ -10,6 +10,7 @@ import { useTrialChatStore } from '@/stores/trial-chat';
 import { useModelStore, getPrimaryModel } from '@/stores/model';
 import { useChatErrorStore, createChatError } from '@/stores/chat-error';
 import { useChatEditStore } from '@/stores/chat-edit';
+import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useSession } from '@/lib/auth';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import type { Message } from '@/lib/api';
@@ -129,8 +130,10 @@ export function TrialChatPage(): React.JSX.Element {
         );
 
         state.stopStreaming();
+        useStreamingActivityStore.getState().endStream();
       } catch (error) {
         state.stopStreaming();
+        useStreamingActivityStore.getState().endStream();
         handleStreamError(error);
       }
     },

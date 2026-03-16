@@ -79,7 +79,7 @@ describe('SharedConversationPage', () => {
       value: { hash: '#bGluay1zZWNyZXQtYjY0' },
       writable: true,
     });
-    mockFromBase64.mockImplementation((b64: string) => new TextEncoder().encode(b64));
+    mockFromBase64.mockImplementation(() => new Uint8Array(32));
     mockToBase64.mockImplementation(() => 'base64-public-key');
     mockDeriveKeysFromLinkSecret.mockReturnValue({
       publicKey: FAKE_PUBLIC_KEY,

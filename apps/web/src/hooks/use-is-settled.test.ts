@@ -7,10 +7,16 @@ vi.mock('@/stores/streaming-activity', () => ({
   useStreamingActivityStore: vi.fn(),
 }));
 
+vi.mock('@/lib/auth', () => ({
+  useAuthStore: vi.fn(),
+}));
+
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
+import { useAuthStore } from '@/lib/auth';
 import { useIsSettled } from './use-is-settled.js';
 
 const mockedUseStreamingActivityStore = vi.mocked(useStreamingActivityStore);
+const mockedUseAuthStore = vi.mocked(useAuthStore);
 
 function createWrapper(): React.FC<{ children: React.ReactNode }> {
   const queryClient = new QueryClient({
@@ -26,6 +32,7 @@ describe('useIsSettled', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockedUseStreamingActivityStore.mockReturnValue(0);
+    mockedUseAuthStore.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -47,6 +54,18 @@ describe('useIsSettled', () => {
     });
 
     expect(result.current).toBe(true);
+  });
+
+  it('returns false when auth is loading', () => {
+    mockedUseAuthStore.mockReturnValue(true);
+
+    const { result } = renderHook(() => useIsSettled(), { wrapper: createWrapper() });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(result.current).toBe(false);
   });
 
   it('returns false when streams are active', () => {
@@ -83,6 +102,28 @@ describe('useIsSettled', () => {
     expect(result.current).toBe(true);
   });
 
+  it('transitions from false to true when auth finishes loading', () => {
+    mockedUseAuthStore.mockReturnValue(true);
+
+    const { result, rerender } = renderHook(() => useIsSettled(), {
+      wrapper: createWrapper(),
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(result.current).toBe(false);
+
+    mockedUseAuthStore.mockReturnValue(false);
+    rerender();
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(result.current).toBe(true);
+  });
+
   it('resets to false when activity starts during debounce', () => {
     const { result, rerender } = renderHook(() => useIsSettled(), {
       wrapper: createWrapper(),
@@ -101,6 +142,19 @@ describe('useIsSettled', () => {
     // Complete original debounce window
     act(() => {
       vi.advanceTimersByTime(200);
+    });
+
+    expect(result.current).toBe(false);
+  });
+
+  it('returns false when both auth loading and streams active', () => {
+    mockedUseAuthStore.mockReturnValue(true);
+    mockedUseStreamingActivityStore.mockReturnValue(1);
+
+    const { result } = renderHook(() => useIsSettled(), { wrapper: createWrapper() });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
     });
 
     expect(result.current).toBe(false);

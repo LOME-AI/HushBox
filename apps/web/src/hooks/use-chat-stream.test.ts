@@ -1249,12 +1249,7 @@ describe('useChatStream', () => {
   });
 
   describe('streaming activity store integration', () => {
-    it('increments and decrements global stream counter during streaming', async () => {
-      const stateLog: number[] = [];
-      const unsubscribe = useStreamingActivityStore.subscribe((state) => {
-        stateLog.push(state.activeStreams);
-      });
-
+    it('increments global stream counter on start (caller responsible for endStream)', async () => {
       const sseEvents = [
         'event: start',
         'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
@@ -1280,12 +1275,15 @@ describe('useChatStream', () => {
         });
       });
 
-      unsubscribe();
-      expect(stateLog).toEqual([1, 0]);
+      // Stream started but endStream not called — caller owns the lifecycle
+      expect(useStreamingActivityStore.getState().activeStreams).toBe(1);
+
+      // Caller calls endStream after post-stream work
+      useStreamingActivityStore.getState().endStream();
       expect(useStreamingActivityStore.getState().activeStreams).toBe(0);
     });
 
-    it('decrements global stream counter even on stream error', async () => {
+    it('keeps stream counter incremented even on stream error (caller must endStream)', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 500,
@@ -1309,15 +1307,14 @@ describe('useChatStream', () => {
       }
 
       expect(result.current.isStreaming).toBe(false);
+      // Counter still 1 — caller calls endStream in their error handler
+      expect(useStreamingActivityStore.getState().activeStreams).toBe(1);
+
+      useStreamingActivityStore.getState().endStream();
       expect(useStreamingActivityStore.getState().activeStreams).toBe(0);
     });
 
-    it('increments and decrements global stream counter during regeneration', async () => {
-      const stateLog: number[] = [];
-      const unsubscribe = useStreamingActivityStore.subscribe((state) => {
-        stateLog.push(state.activeStreams);
-      });
-
+    it('increments global stream counter during regeneration (caller responsible for endStream)', async () => {
       const sseEvents = [
         'event: start',
         'data: {"userMessageId":"user-123","models":[{"modelId":"gpt-4","assistantMessageId":"msg-123"}]}',
@@ -1345,8 +1342,9 @@ describe('useChatStream', () => {
         });
       });
 
-      unsubscribe();
-      expect(stateLog).toEqual([1, 0]);
+      expect(useStreamingActivityStore.getState().activeStreams).toBe(1);
+
+      useStreamingActivityStore.getState().endStream();
       expect(useStreamingActivityStore.getState().activeStreams).toBe(0);
     });
   });

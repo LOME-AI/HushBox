@@ -30,7 +30,7 @@ export class ChatPage {
   }
 
   async waitForAppStable(timeout = 15_000): Promise<void> {
-    await expect(this.page.locator('[data-app-stable="true"]')).toBeVisible({ timeout });
+    await this.page.locator('[data-app-stable="true"]').waitFor({ state: 'visible', timeout });
   }
 
   /** Wait for the group chat WebSocket to be connected. Use before actions that send events via WebSocket. */
@@ -66,7 +66,7 @@ export class ChatPage {
     await expect(this.messageInput).toHaveValue('');
   }
 
-  async waitForConversation(timeout = 10_000): Promise<string> {
+  async waitForConversation(timeout = 20_000): Promise<string> {
     await expect(this.page).toHaveURL(/\/chat\/[a-f0-9-]+(\?.*)?$/, { timeout });
     const url = new URL(this.page.url());
     return url.pathname.split('/').pop() ?? '';

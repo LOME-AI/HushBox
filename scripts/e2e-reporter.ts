@@ -82,13 +82,14 @@ export default class E2EReportWriter implements Reporter {
     const debugReport = generateDebugReport(report);
     const reportDir = path.join(process.cwd(), 'e2e', 'report');
 
-    writeReport(debugReport, reportDir);
+    const timestampedDir = writeReport(debugReport, reportDir);
+    const relativePath = path.relative(process.cwd(), timestampedDir);
 
     const { summary } = debugReport;
     console.log(
-      `\nE2E report: e2e/report/REPORT.md (${String(summary.failed)} failed, ${String(summary.flaky)} flaky, ${String(summary.passed)} passed)`
+      `\nE2E report: ${relativePath}/REPORT.md (${String(summary.failed)} failed, ${String(summary.flaky)} flaky, ${String(summary.passed)} passed)`
     );
-    console.log('View screenshots: e2e/report/screenshots/\n');
+    console.log(`View screenshots: ${relativePath}/screenshots/\n`);
   }
 
   printsToStdio(): boolean {

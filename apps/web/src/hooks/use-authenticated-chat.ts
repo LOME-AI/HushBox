@@ -59,6 +59,7 @@ import {
 import type { Message } from '@/lib/api';
 import type { MessageResponse } from '@hushbox/shared';
 import { useAuthStore } from '@/lib/auth';
+import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useDecryptedMessages } from '@/hooks/use-decrypted-messages';
 import { useForks } from '@/hooks/forks';
 import { useForkMessages } from '@/hooks/use-fork-messages';
@@ -539,6 +540,7 @@ export function useAuthenticatedChat({
       const invalidationKey = forkId ? chatKeys.conversation(convId) : chatKeys.messages(convId);
       await queryClient.invalidateQueries({ queryKey: invalidationKey });
       void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+      useStreamingActivityStore.getState().endStream();
 
       return { models };
     },
@@ -644,9 +646,11 @@ export function useAuthenticatedChat({
         void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
 
         state.stopStreaming();
+        useStreamingActivityStore.getState().endStream();
       } catch (streamError: unknown) {
         console.error('Stream failed:', streamError);
         state.stopStreaming();
+        useStreamingActivityStore.getState().endStream();
         useChatErrorStore.getState().setError(
           createChatError({
             content: friendlyErrorMessage(ERROR_CODE_CHAT_STREAM_FAILED),
@@ -758,6 +762,7 @@ export function useAuthenticatedChat({
 
           removeOptimisticMessage(optimisticUserMessage.id);
           state.stopStreaming();
+          useStreamingActivityStore.getState().endStream();
         }
       })();
     },
@@ -896,6 +901,7 @@ export function useAuthenticatedChat({
             queryKey: chatKeys.messages(realConversationId),
           });
           void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+          useStreamingActivityStore.getState().endStream();
         } catch (error: unknown) {
           state.stopStreaming();
           removeOptimisticMessage(assistantMsgId);
@@ -908,6 +914,7 @@ export function useAuthenticatedChat({
           await queryClient.invalidateQueries({
             queryKey: chatKeys.messages(realConversationId),
           });
+          useStreamingActivityStore.getState().endStream();
         }
       })();
     },

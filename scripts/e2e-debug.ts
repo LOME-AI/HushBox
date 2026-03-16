@@ -6,7 +6,7 @@
  * Used by e2e-reporter.ts (custom Playwright reporter).
  */
 
-import { mkdirSync, rmSync, copyFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, rmSync, copyFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 export interface PlaywrightError {
@@ -390,8 +390,26 @@ export function generateMarkdownReport(report: DebugReport): string {
   return lines.join('\n');
 }
 
-export function writeReport(report: DebugReport, reportDir: string): void {
-  rmSync(reportDir, { recursive: true, force: true });
+const MAX_REPORTS = 10;
+
+export function enforceRetentionLimit(baseDir: string, maxReports: number): void {
+  if (!existsSync(baseDir)) return;
+
+  const entries = readdirSync(baseDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .toSorted((a, b) => a.localeCompare(b));
+
+  const toDelete = entries.slice(0, Math.max(0, entries.length - maxReports));
+  for (const name of toDelete) {
+    rmSync(path.join(baseDir, name), { recursive: true, force: true });
+  }
+}
+
+export function writeReport(report: DebugReport, baseDir: string): string {
+  const timestamp = new Date().toISOString().replaceAll(':', '-').slice(0, 19);
+  const reportDir = path.join(baseDir, timestamp);
+
   mkdirSync(path.join(reportDir, 'screenshots'), { recursive: true });
 
   for (const test of report.failed) {
@@ -403,4 +421,8 @@ export function writeReport(report: DebugReport, reportDir: string): void {
 
   const markdown = generateMarkdownReport(report);
   writeFileSync(path.join(reportDir, 'REPORT.md'), markdown, 'utf8');
+
+  enforceRetentionLimit(baseDir, MAX_REPORTS);
+
+  return reportDir;
 }

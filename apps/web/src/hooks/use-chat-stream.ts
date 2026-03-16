@@ -376,7 +376,11 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
         return await executeStream(config, mode, options);
       } finally {
         setIsStreaming(false);
-        useStreamingActivityStore.getState().endStream();
+        // Note: endStream() is NOT called here. The caller is responsible for
+        // calling useStreamingActivityStore.getState().endStream() after all
+        // post-stream work (query invalidations, state updates) completes.
+        // This prevents a "baton drop" where settled=true fires between the
+        // stream ending and the post-stream work starting.
       }
     },
     [mode]
@@ -391,7 +395,6 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
         return await executeStream(config, 'authenticated', options);
       } finally {
         setIsStreaming(false);
-        useStreamingActivityStore.getState().endStream();
       }
     },
     []

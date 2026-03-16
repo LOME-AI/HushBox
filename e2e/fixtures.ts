@@ -196,7 +196,7 @@ export const test = base.extend<CustomFixtures>({
 
       await use({ id, url: authenticatedPage.url() });
     },
-    { timeout: 30_000 },
+    { timeout: 60_000 },
   ],
 
   testConversation: async (

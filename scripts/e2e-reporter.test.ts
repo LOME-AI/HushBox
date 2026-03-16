@@ -50,7 +50,7 @@ function createStubTest(
   const outcomeVal = overrides.outcome ?? 'expected';
   return {
     title: overrides.title ?? 'test title',
-    location: { file: overrides.file ?? '/abs/e2e/web/chat.spec.ts', line: 1, column: 1 },
+    location: { file: overrides.file ?? '/abs/e2e/chat/chat.spec.ts', line: 1, column: 1 },
     results: overrides.results ?? [createStubResult()],
     outcome: () => outcomeVal,
   };
@@ -80,7 +80,7 @@ describe('e2e-reporter', () => {
     it('maps a root suite with one passing test', () => {
       const test = createStubTest({
         title: 'displays chat',
-        file: `${process.cwd()}/e2e/web/chat.spec.ts`,
+        file: `${process.cwd()}/e2e/chat/chat.spec.ts`,
       });
       const fileSuite = createStubSuite({
         title: 'chat.spec.ts',
@@ -111,7 +111,7 @@ describe('e2e-reporter', () => {
       const fileSuiteResult = result.suites[0]!.suites![0]!;
       expect(fileSuiteResult.specs).toHaveLength(1);
       expect(fileSuiteResult.specs![0]!.title).toBe('displays chat');
-      expect(fileSuiteResult.specs![0]!.file).toBe('e2e/web/chat.spec.ts');
+      expect(fileSuiteResult.specs![0]!.file).toBe('e2e/chat/chat.spec.ts');
       expect(fileSuiteResult.specs![0]!.tests![0]!.projectName).toBe('chromium');
       expect(fileSuiteResult.specs![0]!.tests![0]!.results[0]!.status).toBe('passed');
     });
@@ -119,7 +119,7 @@ describe('e2e-reporter', () => {
     it('maps failed test with attachments', () => {
       const test = createStubTest({
         title: 'broken test',
-        file: `${process.cwd()}/e2e/web/billing.spec.ts`,
+        file: `${process.cwd()}/e2e/billing/billing.spec.ts`,
         results: [
           createStubResult({
             status: 'failed',
@@ -171,7 +171,7 @@ describe('e2e-reporter', () => {
 
     it('makes file paths relative to cwd', () => {
       const test = createStubTest({
-        file: `${process.cwd()}/e2e/web/chat.spec.ts`,
+        file: `${process.cwd()}/e2e/chat/chat.spec.ts`,
       });
       const fileSuite = createStubSuite({
         type: 'file',
@@ -195,13 +195,13 @@ describe('e2e-reporter', () => {
       );
 
       // Navigate: projectSuite → fileSuite → specs
-      expect(result.suites[0]!.suites![0]!.specs![0]!.file).toBe('e2e/web/chat.spec.ts');
+      expect(result.suites[0]!.suites![0]!.specs![0]!.file).toBe('e2e/chat/chat.spec.ts');
     });
 
     it('handles nested describe suites', () => {
       const test = createStubTest({
         title: 'nested test',
-        file: `${process.cwd()}/e2e/web/chat.spec.ts`,
+        file: `${process.cwd()}/e2e/chat/chat.spec.ts`,
       });
       const describeSuite = createStubSuite({
         title: 'describe block',
@@ -239,7 +239,7 @@ describe('e2e-reporter', () => {
     it('maps test outcome to PlaywrightTest status', () => {
       const test = createStubTest({
         title: 'flaky test',
-        file: `${process.cwd()}/e2e/web/chat.spec.ts`,
+        file: `${process.cwd()}/e2e/chat/chat.spec.ts`,
         results: [createStubResult({ status: 'passed', retry: 1 })],
         outcome: 'flaky',
       });
