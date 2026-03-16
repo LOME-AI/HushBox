@@ -11,8 +11,7 @@ export function useIsSettled(): boolean {
   const activeStreams = useStreamingActivityStore((s) => s.activeStreams);
   const isAuthLoading = useAuthStore((s) => s.isLoading);
 
-  const isIdle =
-    isFetching === 0 && isMutating === 0 && activeStreams === 0 && !isAuthLoading;
+  const isIdle = isFetching === 0 && isMutating === 0 && activeStreams === 0 && !isAuthLoading;
 
   const [settled, setSettled] = useState(false);
 

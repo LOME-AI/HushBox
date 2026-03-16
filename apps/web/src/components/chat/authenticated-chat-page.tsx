@@ -241,7 +241,6 @@ export function AuthenticatedChatPage({
   const { activeForkId, setActiveFork } = useForkStore();
 
   useInitialFork(initialForkId);
-  useForkUrlSync(activeForkId);
 
   const chat = useAuthenticatedChat({ routeConversationId, activeForkId, privateKeyOverride });
   const conversationId = resolveConversationId(routeConversationId, chat.realConversationId);
@@ -255,6 +254,21 @@ export function AuthenticatedChatPage({
   const forksQueryId = conversationId ?? '';
   const { data: forks } = useForks(forksQueryId);
   const forksList = React.useMemo(() => forks ?? [], [forks]);
+
+  // When forks exist but activeForkId is null (no ?fork= param or Main was never
+  // explicitly selected), auto-set to the Main fork (earliest createdAt).
+  // This eliminates the null=Main special case — Main is a regular fork.
+  React.useEffect(() => {
+    if (activeForkId !== null || forksList.length === 0) return;
+    const mainFork = forksList.toSorted(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    )[0];
+    if (mainFork) {
+      setActiveFork(mainFork.id);
+    }
+  }, [activeForkId, forksList, setActiveFork]);
+
+  useForkUrlSync(activeForkId);
 
   const fm = useForkManagement(conversationId, forksList, activeForkId, setActiveFork);
 

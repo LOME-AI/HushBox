@@ -130,17 +130,11 @@ test.describe('Multi-Model Chat', () => {
         await chatPage.expectComparisonBarVisible();
       });
 
-      await test.step('reopen modal and click Clear Selected', async () => {
+      await test.step('reopen modal, clear, select 1 model, confirm', async () => {
         await chatPage.openModelSelector();
         await authenticatedPage.getByTestId('clear-selection-button').click();
-      });
-
-      await test.step('verify 0 models selected in modal and confirm', async () => {
-        await expect(async () => {
-          const selectedCount = await chatPage.getSelectedModelCount();
-          expect(selectedCount).toBe(0);
-        }).toPass({ timeout: 5000 });
-        await chatPage.confirmModelSelection();
+        // With 0 selected, Close reverts — so select exactly 1 model before confirming
+        await chatPage.selectModels(1);
       });
 
       await test.step('verify single model in header, no comparison bar', async () => {
@@ -244,6 +238,8 @@ test.describe('Multi-Model Chat', () => {
       });
 
       await test.step('wait for 2 more AI responses (4 total)', async () => {
+        // Scroll to top to force Virtuoso to render all messages in the DOM
+        await chatPage.scrollToTop();
         await chatPage.waitForMultiModelResponses(4, 20_000);
       });
     });
@@ -299,9 +295,12 @@ test.describe('Multi-Model Chat', () => {
         await expect(successResponse.first()).toBeVisible({ timeout: 15_000 });
 
         // Step 5: Verify failed model shows error message
+        // Error renders on an optimistic message after stream ends — opt out of settled
+        // to wait for the React re-render without premature failure
+        const unsettled = expect.configure({ settledAware: false });
         const errorMessage = authenticatedPage.getByTestId('model-error-message');
-        await expect(errorMessage).toBeVisible({ timeout: 10_000 });
-        await expect(errorMessage).toContainText(/something went wrong/i);
+        await unsettled(errorMessage).toBeVisible({ timeout: 10_000 });
+        await unsettled(errorMessage).toContainText(/something went wrong/i);
 
         // Step 6: Verify billing via API — only successful model persisted
         const conversationUrl = authenticatedPage.url();

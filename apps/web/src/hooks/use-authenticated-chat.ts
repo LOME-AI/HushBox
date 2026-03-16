@@ -215,9 +215,10 @@ interface MergeMessagesInput {
   decryptedApiMessages: Message[];
   optimisticMessages: Message[];
   chatError: ChatError | null;
+  primaryModelId: string;
 }
 
-function mergeMessages(input: MergeMessagesInput): Message[] {
+export function mergeMessages(input: MergeMessagesInput): Message[] {
   let messages: Message[];
   if (input.isCreateMode || !input.realConversationId) {
     messages = input.localMessages;
@@ -238,6 +239,7 @@ function mergeMessages(input: MergeMessagesInput): Message[] {
         role: 'assistant',
         content: input.chatError.content,
         createdAt: new Date().toISOString(),
+        modelName: input.primaryModelId,
       },
     ];
   }
@@ -641,6 +643,21 @@ export function useAuthenticatedChat({
 
         attachCostsToMessages(streamResult.models, setLocalMessages);
 
+        // Preserve errored model messages as optimistic so they survive the
+        // localMessages → API messages mode transition after navigation.
+        // Failed models have no DB row, so they'd disappear without this.
+        for (const mr of streamResult.models) {
+          if (mr.errorCode) {
+            const errorMsg = createAssistantMessage(
+              realId,
+              mr.assistantMessageId,
+              mr.modelId,
+              userMsgId
+            );
+            addOptimisticMessage({ ...errorMsg, errorCode: mr.errorCode, content: '' });
+          }
+        }
+
         queryClient.setQueryData(chatKeys.conversation(realId), conversation);
         await queryClient.invalidateQueries({ queryKey: chatKeys.messages(realId) });
         void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
@@ -935,6 +952,8 @@ export function useAuthenticatedChat({
     ]
   );
 
+  const primaryModelId = getPrimaryModel(selectedModels).id;
+
   const allMessages = React.useMemo(
     () =>
       mergeMessages({
@@ -944,6 +963,7 @@ export function useAuthenticatedChat({
         decryptedApiMessages: forkFilteredDecrypted,
         optimisticMessages,
         chatError,
+        primaryModelId,
       }),
     [
       isCreateMode,
@@ -952,6 +972,7 @@ export function useAuthenticatedChat({
       forkFilteredDecrypted,
       optimisticMessages,
       chatError,
+      primaryModelId,
     ]
   );
 

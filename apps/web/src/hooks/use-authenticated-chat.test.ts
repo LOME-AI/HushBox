@@ -36,12 +36,14 @@ vi.mock('@/lib/epoch-key-cache', () => ({}));
 vi.mock('@/lib/chat-messages', () => ({}));
 vi.mock('@/lib/multi-model-stream', () => ({}));
 vi.mock('@/lib/chat-regeneration', () => ({}));
+vi.mock('@/stores/streaming-activity', () => ({}));
 vi.mock('@hushbox/crypto', () => ({}));
 
 import {
   shouldRedirect,
   computeRenderState,
   pruneMessagesAfterTarget,
+  mergeMessages,
   DECRYPTING_TITLE,
 } from './use-authenticated-chat';
 
@@ -218,5 +220,36 @@ describe('computeRenderState', () => {
       isDecryptionPending: true,
     });
     expect(result).toEqual({ type: 'ready' });
+  });
+});
+
+describe('mergeMessages', () => {
+  it('sets modelName on error message from primaryModelId', () => {
+    const result = mergeMessages({
+      isCreateMode: true,
+      realConversationId: null,
+      localMessages: [makeMessage('u1')],
+      decryptedApiMessages: [],
+      optimisticMessages: [],
+      chatError: { id: 'err-1', content: 'Something went wrong' },
+      primaryModelId: 'openrouter/auto',
+    });
+    const errorMsg = result.find((m) => m.id === 'err-1');
+    expect(errorMsg).toBeDefined();
+    expect(errorMsg?.modelName).toBe('openrouter/auto');
+  });
+
+  it('does not add error message when chatError is null', () => {
+    const result = mergeMessages({
+      isCreateMode: true,
+      realConversationId: null,
+      localMessages: [makeMessage('u1')],
+      decryptedApiMessages: [],
+      optimisticMessages: [],
+      chatError: null,
+      primaryModelId: 'openrouter/auto',
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe('u1');
   });
 });
