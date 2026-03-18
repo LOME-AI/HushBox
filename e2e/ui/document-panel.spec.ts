@@ -76,11 +76,13 @@ test.describe('Document Panel', () => {
     });
 
     await test.step('copy button shows feedback', async () => {
+      // Copy feedback is a UI timer transition, not an async query — opt out of settled
+      const unsettled = expect.configure({ settledAware: false });
       await documentPanel.copyButton().click();
-      await expect(documentPanel.copiedButton()).toBeVisible();
+      await unsettled(documentPanel.copiedButton()).toBeVisible();
 
       // Wait for feedback to revert (2000ms timer + buffer)
-      await expect(documentPanel.copyButton()).toBeVisible({ timeout: 3000 });
+      await unsettled(documentPanel.copyButton()).toBeVisible({ timeout: 3000 });
     });
 
     await test.step('download button triggers file download', async () => {

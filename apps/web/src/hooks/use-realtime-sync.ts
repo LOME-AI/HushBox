@@ -23,12 +23,12 @@ export function useRealtimeSync(
         if (currentUserId != null && event.senderId === currentUserId) return;
         if (event.content !== undefined) return;
         void queryClient.invalidateQueries({
-          queryKey: chatKeys.messages(conversationId),
+          queryKey: chatKeys.conversation(conversationId),
         });
       }),
       ws.on('message:complete', () => {
         void queryClient.invalidateQueries({
-          queryKey: chatKeys.messages(conversationId),
+          queryKey: chatKeys.conversation(conversationId),
         });
         void queryClient.invalidateQueries({
           queryKey: budgetKeys.conversation(conversationId),
@@ -72,7 +72,7 @@ export function useRealtimeSync(
           queryKey: ['keys', conversationId],
         });
         void queryClient.invalidateQueries({
-          queryKey: chatKeys.messages(conversationId),
+          queryKey: chatKeys.conversation(conversationId),
         });
       }),
     ];

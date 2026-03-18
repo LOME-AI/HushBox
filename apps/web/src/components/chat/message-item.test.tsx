@@ -39,6 +39,18 @@ const mockModelsData = {
         description: 'GPT model',
         supportedParameters: [],
       },
+      {
+        id: 'openrouter/auto',
+        name: 'Smart Model',
+        provider: 'OpenRouter',
+        contextLength: 200_000,
+        pricePerInputToken: 0.000_003,
+        pricePerOutputToken: 0.000_015,
+        capabilities: [],
+        description: 'Auto-router model',
+        supportedParameters: [],
+        isAutoRouter: true,
+      },
     ],
     premiumIds: new Set<string>(),
   },
@@ -436,6 +448,35 @@ describe('MessageItem', () => {
         />
       );
       expect(screen.getByText('GPT-4 Turbo is thinking')).toBeInTheDocument();
+    });
+
+    it('resolves auto model ID to display name in thinking indicator', () => {
+      const autoMessage = {
+        ...emptyAssistantMessage,
+        id: 'auto-thinking',
+        modelName: 'openrouter/auto',
+      };
+      render(
+        <MessageItem
+          message={autoMessage}
+          isStreaming
+          modelName="openrouter/auto"
+          allowedActions={NO_ACTIONS}
+        />
+      );
+      expect(screen.getByText('Smart Model is thinking')).toBeInTheDocument();
+    });
+
+    it('resolves auto model ID from modelName prop in thinking indicator', () => {
+      render(
+        <MessageItem
+          message={emptyAssistantMessage}
+          isStreaming
+          modelName="openrouter/auto"
+          allowedActions={NO_ACTIONS}
+        />
+      );
+      expect(screen.getByText('Smart Model is thinking')).toBeInTheDocument();
     });
 
     it('shows MarkdownRenderer when streaming with content', () => {

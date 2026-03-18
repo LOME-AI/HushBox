@@ -132,6 +132,7 @@ const ERROR_MESSAGES = {
   FORK_NOT_FOUND: 'Fork not found.',
   FORK_NAME_TAKEN: 'A fork with this name already exists.',
   FORK_LIMIT_REACHED: 'Maximum number of forks reached for this conversation.',
+  FORK_ID_REQUIRED: 'Something went wrong. Please refresh the page and try again.',
   TARGET_MESSAGE_NOT_FOUND: 'Target message not found.',
   CANNOT_REGENERATE_WHILE_STREAMING: 'Please wait for the current response to finish.',
 

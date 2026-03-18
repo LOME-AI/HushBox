@@ -30,9 +30,16 @@ export const chatKeys = {
   all: ['chat'] as const,
   conversations: () => [...chatKeys.all, 'conversations'] as const,
   conversation: (id: string) => [...chatKeys.conversations(), id] as const,
-  messages: (conversationId: string) =>
-    [...chatKeys.conversation(conversationId), 'messages'] as const,
 };
+
+/** Shared queryFn for GET /conversations/:id. All conversation hooks share this. */
+function conversationQueryFn(id: string): () => Promise<ConversationResponse> {
+  return async (): Promise<ConversationResponse> => {
+    return fetchJson<ConversationResponse>(
+      client.api.conversations[':conversationId'].$get({ param: { conversationId: id } })
+    );
+  };
+}
 
 export function useConversations(): ReturnType<typeof useQuery<ConversationListItem[], Error>> {
   const user = useAuthStore((s) => s.user);
@@ -115,34 +122,26 @@ export type ConversationWithCaller = Conversation & {
 
 export function useConversation(
   id: string
-): ReturnType<typeof useQuery<ConversationWithCaller, Error>> {
+): ReturnType<typeof useQuery<ConversationResponse, Error, ConversationWithCaller>> {
   return useQuery({
     queryKey: chatKeys.conversation(id),
-    queryFn: async (): Promise<ConversationWithCaller> => {
-      const response = await fetchJson<
-        ConversationResponse & { callerId: string; privilege: string }
-      >(client.api.conversations[':conversationId'].$get({ param: { conversationId: id } }));
-      return {
-        ...response.conversation,
-        callerId: response.callerId,
-        callerPrivilege: response.privilege,
-      };
-    },
+    queryFn: conversationQueryFn(id),
+    select: (data): ConversationWithCaller => ({
+      ...data.conversation,
+      callerId: data.callerId,
+      callerPrivilege: data.privilege,
+    }),
     enabled: !!id,
   });
 }
 
 export function useMessages(
   conversationId: string
-): ReturnType<typeof useQuery<MessageResponse[], Error>> {
+): ReturnType<typeof useQuery<ConversationResponse, Error, MessageResponse[]>> {
   return useQuery({
-    queryKey: chatKeys.messages(conversationId),
-    queryFn: async (): Promise<MessageResponse[]> => {
-      const response = await fetchJson<ConversationResponse>(
-        client.api.conversations[':conversationId'].$get({ param: { conversationId } })
-      );
-      return response.messages;
-    },
+    queryKey: chatKeys.conversation(conversationId),
+    queryFn: conversationQueryFn(conversationId),
+    select: (data): MessageResponse[] => data.messages,
     enabled: !!conversationId,
   });
 }

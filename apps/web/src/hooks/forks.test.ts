@@ -160,7 +160,7 @@ describe('useRenameFork', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    const forksCacheKey = ['chat', 'conversations', 'conv-1', 'forks'];
+    const conversationCacheKey = ['chat', 'conversations', 'conv-1'];
     const initialForks = [
       {
         id: 'fork-main',
@@ -184,7 +184,15 @@ describe('useRenameFork', () => {
         createdAt: '2026-03-03',
       },
     ];
-    queryClient.setQueryData(forksCacheKey, initialForks);
+    queryClient.setQueryData(conversationCacheKey, {
+      conversation: {},
+      messages: [],
+      forks: initialForks,
+      accepted: true,
+      invitedByUsername: null,
+      callerId: 'user-1',
+      privilege: 'owner',
+    });
 
     mockFetchJson.mockResolvedValueOnce({ renamed: true });
 
@@ -203,12 +211,14 @@ describe('useRenameFork', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    const cached = queryClient.getQueryData<{ id: string; name: string }[]>(forksCacheKey)!;
-    expect(cached).toHaveLength(3);
-    expect(cached[0]!.id).toBe('fork-main');
-    expect(cached[1]!.id).toBe('fork-1');
-    expect(cached[1]!.name).toBe('Renamed Fork');
-    expect(cached[2]!.id).toBe('fork-2');
+    const cached = queryClient.getQueryData<{ forks: { id: string; name: string }[] }>(
+      conversationCacheKey
+    )!;
+    expect(cached.forks).toHaveLength(3);
+    expect(cached.forks[0]!.id).toBe('fork-main');
+    expect(cached.forks[1]!.id).toBe('fork-1');
+    expect(cached.forks[1]!.name).toBe('Renamed Fork');
+    expect(cached.forks[2]!.id).toBe('fork-2');
   });
 });
 

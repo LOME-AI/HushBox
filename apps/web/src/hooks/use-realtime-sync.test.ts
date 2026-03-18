@@ -166,7 +166,7 @@ describe('useRealtimeSync', () => {
 
     expect(mockInvalidateQueries).toHaveBeenCalledTimes(1);
     expect(mockInvalidateQueries).toHaveBeenCalledWith({
-      queryKey: chatKeys.messages(CONV_ID),
+      queryKey: chatKeys.conversation(CONV_ID),
     });
   });
 
@@ -231,7 +231,7 @@ describe('useRealtimeSync', () => {
 
     expect(mockInvalidateQueries).toHaveBeenCalledTimes(3);
     expect(mockInvalidateQueries).toHaveBeenCalledWith({
-      queryKey: chatKeys.messages(CONV_ID),
+      queryKey: chatKeys.conversation(CONV_ID),
     });
     expect(mockInvalidateQueries).toHaveBeenCalledWith({
       queryKey: budgetKeys.conversation(CONV_ID),
@@ -380,7 +380,7 @@ describe('useRealtimeSync', () => {
       queryKey: ['keys', CONV_ID],
     });
     expect(mockInvalidateQueries).toHaveBeenCalledWith({
-      queryKey: chatKeys.messages(CONV_ID),
+      queryKey: chatKeys.conversation(CONV_ID),
     });
   });
 

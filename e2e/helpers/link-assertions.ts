@@ -4,12 +4,11 @@ import { expect } from './settled-expect.js';
 /** Wait for the shared conversation loading spinner to appear then disappear. */
 export async function expectSharedConversationLoaded(page: Page): Promise<void> {
   const loading = page.getByTestId('shared-conversation-loading');
-  // Loading may have already completed — swallow the timeout
+  const unsettled = expect.configure({ settledAware: false });
   await loading
     .waitFor({ state: 'visible', timeout: 10_000 })
     .catch(Function.prototype as () => void);
-  // Then wait for it to disappear (decryption complete)
-  await expect(loading).not.toBeVisible({ timeout: 15_000 });
+  await unsettled(loading).not.toBeVisible({ timeout: 15_000 });
 }
 
 /** Assert no decryption failure text is visible on the page. */
@@ -35,8 +34,11 @@ export async function expectReadOnlyNotice(page: Page): Promise<void> {
 
 /** Assert the delegated budget notice is visible and trial notice is not. */
 export async function expectDelegatedBudgetNotice(page: Page): Promise<void> {
-  await expect(page.getByTestId('budget-message-delegated_budget_notice')).toBeVisible();
-  await expect(page.getByTestId('budget-message-trial_notice')).not.toBeVisible();
+  // Budget notice depends on billing query that loads independently from messages.
+  // Opt out of settled to avoid premature failure when messages settle first.
+  const unsettled = expect.configure({ settledAware: false });
+  await unsettled(page.getByTestId('budget-message-delegated_budget_notice')).toBeVisible();
+  await unsettled(page.getByTestId('budget-message-trial_notice')).not.toBeVisible();
 }
 
 /** Fill message input, click send, and wait for message to appear. */

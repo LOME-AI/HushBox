@@ -102,16 +102,6 @@ describe('chatKeys', () => {
     });
   });
 
-  describe('messages', () => {
-    it('returns messages key with conversation id', () => {
-      expect(chatKeys.messages('conv-123')).toEqual([
-        'chat',
-        'conversations',
-        'conv-123',
-        'messages',
-      ]);
-    });
-  });
 });
 
 describe('useConversations', () => {

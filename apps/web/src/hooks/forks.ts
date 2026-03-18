@@ -7,17 +7,22 @@ export const forkKeys = {
   forConversation: (conversationId: string) => ['forks', conversationId] as const,
 };
 
+/** Shared queryFn — same as useConversation/useMessages. TanStack Query deduplicates. */
+function conversationQueryFn(id: string): () => Promise<ConversationResponse> {
+  return async (): Promise<ConversationResponse> => {
+    return fetchJson<ConversationResponse>(
+      client.api.conversations[':conversationId'].$get({ param: { conversationId: id } })
+    );
+  };
+}
+
 export function useForks(
   conversationId: string
-): ReturnType<typeof useQuery<ForkResponse[], Error>> {
+): ReturnType<typeof useQuery<ConversationResponse, Error, ForkResponse[]>> {
   return useQuery({
-    queryKey: [...chatKeys.conversation(conversationId), 'forks'] as const,
-    queryFn: async (): Promise<ForkResponse[]> => {
-      const response = await fetchJson<ConversationResponse>(
-        client.api.conversations[':conversationId'].$get({ param: { conversationId } })
-      );
-      return response.forks;
-    },
+    queryKey: chatKeys.conversation(conversationId),
+    queryFn: conversationQueryFn(conversationId),
+    select: (data): ForkResponse[] => data.forks,
     enabled: !!conversationId,
   });
 }
@@ -76,9 +81,6 @@ export function useDeleteFork(): ReturnType<typeof useMutation<unknown, Error, D
       void queryClient.invalidateQueries({
         queryKey: chatKeys.conversation(variables.conversationId),
       });
-      void queryClient.invalidateQueries({
-        queryKey: chatKeys.messages(variables.conversationId),
-      });
     },
   });
 }
@@ -108,9 +110,17 @@ export function useRenameFork(): ReturnType<
       );
     },
     onSuccess: (_data, variables) => {
-      queryClient.setQueryData<ForkResponse[]>(
-        [...chatKeys.conversation(variables.conversationId), 'forks'],
-        (old) => old?.map((f) => (f.id === variables.forkId ? { ...f, name: variables.name } : f))
+      queryClient.setQueryData<ConversationResponse>(
+        chatKeys.conversation(variables.conversationId),
+        (old) =>
+          old
+            ? {
+                ...old,
+                forks: old.forks.map((f) =>
+                  f.id === variables.forkId ? { ...f, name: variables.name } : f
+                ),
+              }
+            : old
       );
     },
   });

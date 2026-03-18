@@ -385,6 +385,8 @@ function AIMessageContent({
   modelName: string | undefined;
   isError: boolean | undefined;
 }>): React.JSX.Element {
+  const { data: modelsData } = useModels();
+
   if (primaryMessage.errorCode) {
     return (
       <p className="text-destructive text-sm" data-testid="model-error-message">
@@ -393,7 +395,9 @@ function AIMessageContent({
     );
   }
   if (isStreaming && primaryMessage.content === '') {
-    return <ThinkingIndicator modelName={primaryMessage.modelName ?? modelName ?? ''} />;
+    const rawModelName = primaryMessage.modelName ?? modelName ?? '';
+    const resolved = modelsData?.models.find((m) => m.id === rawModelName);
+    return <ThinkingIndicator modelName={resolved?.name ?? rawModelName} />;
   }
   return (
     <MarkdownRenderer

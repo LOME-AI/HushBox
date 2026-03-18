@@ -57,7 +57,6 @@ import {
   type MemberPrivilege,
 } from '@hushbox/shared';
 import type { Message } from '@/lib/api';
-import type { MessageResponse } from '@hushbox/shared';
 import { useAuthStore } from '@/lib/auth';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useDecryptedMessages } from '@/hooks/use-decrypted-messages';
@@ -416,6 +415,7 @@ export function useAuthenticatedChat({
     privateKeyOverride
   );
   const { data: forks } = useForks(queryId);
+
   const forkFilteredDecrypted = useForkMessages(
     decryptedApiMessages,
     forks ?? [],
@@ -536,11 +536,7 @@ export function useAuthenticatedChat({
         callbacks
       );
       state.stopStreaming();
-      // When sending in a fork, invalidate the broader conversation key so the forks query
-      // (which includes tipMessageId) is also refetched. Otherwise the stale tip causes
-      // the new messages to be filtered out by fork filtering.
-      const invalidationKey = forkId ? chatKeys.conversation(convId) : chatKeys.messages(convId);
-      await queryClient.invalidateQueries({ queryKey: invalidationKey });
+      await queryClient.invalidateQueries({ queryKey: chatKeys.conversation(convId) });
       void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
       useStreamingActivityStore.getState().endStream();
 
@@ -590,7 +586,9 @@ export function useAuthenticatedChat({
         const realId = response.conversation.id;
 
         if (!response.isNew) {
-          queryClient.setQueryData(chatKeys.conversation(realId), response.conversation);
+          // Idempotent: conversation existed — full response available, seed cache
+          const { isNew: _, ...fullData } = response;
+          queryClient.setQueryData(chatKeys.conversation(realId), fullData);
           clearPendingMessage();
           setRealConversationId(realId);
           navigateIfActive(activeRef, navigate, ROUTES.CHAT_ID, { id: realId });
@@ -619,7 +617,7 @@ export function useAuthenticatedChat({
     const executeStreamAndFinalize = async (
       realId: string,
       message: string,
-      conversation: { id: string },
+      conversationObj: import('@/lib/api').Conversation,
       fundingSource: FundingSource
     ): Promise<void> => {
       const userMsgId = crypto.randomUUID();
@@ -658,8 +656,17 @@ export function useAuthenticatedChat({
           }
         }
 
-        queryClient.setQueryData(chatKeys.conversation(realId), conversation);
-        await queryClient.invalidateQueries({ queryKey: chatKeys.messages(realId) });
+        // Seed cache with full response shape so useConversation sees data immediately
+        queryClient.setQueryData(chatKeys.conversation(realId), {
+          conversation: conversationObj,
+          messages: [],
+          forks: [],
+          accepted: true,
+          invitedByUsername: null,
+          callerId: callerId ?? '',
+          privilege: 'owner',
+        });
+        await queryClient.invalidateQueries({ queryKey: chatKeys.conversation(realId) });
         void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
 
         state.stopStreaming();
@@ -822,7 +829,7 @@ export function useAuthenticatedChat({
           })
         );
         removeOptimisticMessage(optimisticUserMessage.id);
-        await queryClient.invalidateQueries({ queryKey: chatKeys.messages(convId) });
+        await queryClient.invalidateQueries({ queryKey: chatKeys.conversation(convId) });
       } catch (error: unknown) {
         console.error('User-only message failed:', error);
         removeOptimisticMessage(optimisticUserMessage.id);
@@ -868,10 +875,12 @@ export function useAuthenticatedChat({
         const targetIndex = allMsgs.findIndex((m) => m.id === targetMessageId);
         if (targetIndex !== -1) {
           const idsToRemove = new Set(allMsgs.slice(targetIndex + 1).map((m) => m.id));
-          queryClient.setQueryData(
-            chatKeys.messages(realConversationId),
-            (old: MessageResponse[] | undefined) =>
-              old ? old.filter((m) => !idsToRemove.has(m.id)) : old
+          queryClient.setQueryData<import('@/lib/api').ConversationResponse>(
+            chatKeys.conversation(realConversationId),
+            (old) =>
+              old
+                ? { ...old, messages: old.messages.filter((m) => !idsToRemove.has(m.id)) }
+                : old
           );
         }
       }
@@ -915,7 +924,7 @@ export function useAuthenticatedChat({
           attachCostsToMessages(streamResult.models, setLocalMessages);
 
           await queryClient.invalidateQueries({
-            queryKey: chatKeys.messages(realConversationId),
+            queryKey: chatKeys.conversation(realConversationId),
           });
           void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
           useStreamingActivityStore.getState().endStream();
@@ -929,7 +938,7 @@ export function useAuthenticatedChat({
           handleRegenerationError(error, userContent, promptInputRef);
 
           await queryClient.invalidateQueries({
-            queryKey: chatKeys.messages(realConversationId),
+            queryKey: chatKeys.conversation(realConversationId),
           });
           useStreamingActivityStore.getState().endStream();
         }

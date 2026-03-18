@@ -255,16 +255,16 @@ export function AuthenticatedChatPage({
   const { data: forks } = useForks(forksQueryId);
   const forksList = React.useMemo(() => forks ?? [], [forks]);
 
-  // When forks exist but activeForkId is null (no ?fork= param or Main was never
-  // explicitly selected), auto-set to the Main fork (earliest createdAt).
-  // This eliminates the null=Main special case — Main is a regular fork.
+  // When forks exist but activeForkId is null, auto-set to the Main fork
+  // (earliest createdAt). The store is the single source of truth — once set,
+  // all downstream hooks use activeForkId directly.
   React.useEffect(() => {
     if (activeForkId !== null || forksList.length === 0) return;
-    const mainFork = forksList.toSorted(
+    const sorted = forksList.toSorted(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    )[0];
-    if (mainFork) {
-      setActiveFork(mainFork.id);
+    );
+    if (sorted[0]) {
+      setActiveFork(sorted[0].id);
     }
   }, [activeForkId, forksList, setActiveFork]);
 

@@ -52,11 +52,12 @@ test.describe('Link Guest Chat', () => {
       const guestInput = unauthenticatedPage.getByRole('textbox', { name: /message/i });
       await expect(guestInput).toBeVisible({ timeout: 5000 });
 
+      // Wait for send button to be enabled (active streams from fixture must complete first)
+      const sendButton = unauthenticatedPage.getByTestId('send-button');
+      await expect(sendButton).toBeEnabled({ timeout: 15_000 });
+
       const guestMessage = `Guest says hello ${String(Date.now())}`;
       await guestInput.fill(guestMessage);
-
-      const sendButton = unauthenticatedPage.getByTestId('send-button');
-      await expect(sendButton).toBeEnabled({ timeout: 5000 });
       await sendButton.click();
 
       // Guest's message should appear

@@ -1,6 +1,11 @@
 import { test, expect } from '../fixtures.js';
 import { LoginPage } from '../pages';
-import { logoutViaUI, clearAuthRateLimits } from '../helpers/auth.js';
+import {
+  logoutViaUI,
+  clearAuthRateLimits,
+  verifyEmailViaAPI,
+  loginViaUI,
+} from '../helpers/auth.js';
 import { DEV_PASSWORD } from '../../packages/shared/src/constants.js';
 
 test.describe('Login & Session', () => {
@@ -35,21 +40,29 @@ test.describe('Login & Session', () => {
       await loginPage.expectError(/invalid|incorrect|failed/i);
     });
 
-    test('unverified email shows error', async ({ unauthenticatedPage }) => {
+    test('unverified email redirects to check-email, verifying enables login', async ({
+      unauthenticatedPage,
+      request,
+    }) => {
+      const email = 'test-charlie@test.hushbox.ai';
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
-      await loginPage.login('test-charlie@test.hushbox.ai', DEV_PASSWORD);
+      await loginPage.login(email, DEV_PASSWORD);
 
-      // App redirects to check-your-email view instead of inline alert
-      await expect(unauthenticatedPage.getByTestId('check-your-email')).toBeVisible({
-        timeout: 10_000,
+      await test.step('login redirects to check-your-email page', async () => {
+        await expect(unauthenticatedPage.getByTestId('check-your-email')).toBeVisible({
+          timeout: 10_000,
+        });
+        await expect(unauthenticatedPage.getByText(email)).toBeVisible();
       });
-      await expect(unauthenticatedPage.getByText('test-charlie@test.hushbox.ai')).toBeVisible();
 
-      // Verify resend works from this page
-      await unauthenticatedPage.getByTestId('resend-button').click();
-      await expect(unauthenticatedPage.getByTestId('resend-feedback')).toBeVisible({
-        timeout: 10_000,
+      await test.step('verify email via dev endpoint', async () => {
+        await verifyEmailViaAPI(request, unauthenticatedPage, email);
+      });
+
+      await test.step('login succeeds after verification', async () => {
+        await loginViaUI(unauthenticatedPage, { email, password: DEV_PASSWORD });
+        await expect(unauthenticatedPage).toHaveURL('/chat');
       });
     });
   });

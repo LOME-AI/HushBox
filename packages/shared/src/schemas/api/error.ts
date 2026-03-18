@@ -281,6 +281,9 @@ export const ERROR_CODE_FORK_NAME_TAKEN = 'FORK_NAME_TAKEN';
 /** Maximum number of forks per conversation reached */
 export const ERROR_CODE_FORK_LIMIT_REACHED = 'FORK_LIMIT_REACHED';
 
+/** Fork ID required when conversation has forks */
+export const ERROR_CODE_FORK_ID_REQUIRED = 'FORK_ID_REQUIRED';
+
 /** Target message not found for regeneration */
 export const ERROR_CODE_TARGET_MESSAGE_NOT_FOUND = 'TARGET_MESSAGE_NOT_FOUND';
 

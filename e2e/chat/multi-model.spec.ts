@@ -133,8 +133,14 @@ test.describe('Multi-Model Chat', () => {
       await test.step('reopen modal, clear, select 1 model, confirm', async () => {
         await chatPage.openModelSelector();
         await authenticatedPage.getByTestId('clear-selection-button').click();
-        // With 0 selected, Close reverts — so select exactly 1 model before confirming
-        await chatPage.selectModels(1);
+        await authenticatedPage.waitForTimeout(100);
+        // With 0 selected, Close reverts — select 1 model in the already-open modal
+        const modal = authenticatedPage.getByTestId('model-selector-modal');
+        const firstNonPremium = modal.locator(
+          '[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))'
+        );
+        await firstNonPremium.first().getByTestId('model-checkbox').click();
+        await chatPage.confirmModelSelection();
       });
 
       await test.step('verify single model in header, no comparison bar', async () => {
@@ -238,7 +244,8 @@ test.describe('Multi-Model Chat', () => {
       });
 
       await test.step('wait for 2 more AI responses (4 total)', async () => {
-        // Scroll to top to force Virtuoso to render all messages in the DOM
+        // Wait for streaming to complete, then scroll to force Virtuoso to render all
+        await chatPage.waitForStreamComplete(20_000);
         await chatPage.scrollToTop();
         await chatPage.waitForMultiModelResponses(4, 20_000);
       });

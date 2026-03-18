@@ -4,6 +4,7 @@ import { streamSSE } from 'hono/streaming';
 import { eq } from 'drizzle-orm';
 import { conversationForks } from '@hushbox/db';
 import { resolveParentMessageId } from '../services/chat/message-helpers.js';
+import { conversationHasForks } from '../services/forks/forks.js';
 import {
   streamChatRequestSchema,
   userOnlyMessageSchema,
@@ -11,6 +12,7 @@ import {
   ERROR_CODE_LAST_MESSAGE_NOT_USER,
   ERROR_CODE_REGENERATION_BLOCKED_BY_OTHER_USER,
   ERROR_CODE_FORK_NOT_FOUND,
+  ERROR_CODE_FORK_ID_REQUIRED,
   ERROR_CODE_CONTEXT_LENGTH_EXCEEDED,
   ERROR_CODE_STREAM_ERROR,
   estimateTokenCount,
@@ -75,6 +77,17 @@ function resolveReleaseReservation(
     return (): Promise<void> => releaseBudget(redis, user.id, worstCaseCents);
   }
   return noOpRelease;
+}
+
+/** Returns an error response if forks exist but forkId is missing, or null if OK. */
+async function requireForkIdIfForked(
+  db: AppEnv['Variables']['db'],
+  conversationId: string,
+  forkId: string | undefined
+): Promise<{ code: string } | null> {
+  if (forkId !== undefined) return null;
+  const hasForks = await conversationHasForks(db, conversationId);
+  return hasForks ? { code: ERROR_CODE_FORK_ID_REQUIRED } : null;
 }
 
 type SSEEventWriter = ReturnType<typeof createSSEEventWriter>;
@@ -554,6 +567,7 @@ export const chatRoute = new Hono<AppEnv>()
     '/:conversationId/stream',
     zValidator('json', streamChatRequestSchema),
     requirePrivilege('write', { allowLinkGuest: true, includeOwnerId: true }),
+    // eslint-disable-next-line complexity -- guard adds 1 branch to an already-dense handler
     async (c) => {
       const { conversationId } = c.req.param();
       const callerId = c.get('callerId');
@@ -615,6 +629,9 @@ export const chatRoute = new Hono<AppEnv>()
         user,
         worstCaseCents
       );
+
+      const forkGuard = await requireForkIdIfForked(db, conversationId, forkId);
+      if (forkGuard) return c.json(createErrorResponse(forkGuard.code), 400);
 
       // Resolve parentMessageId: fork tip when in a fork, latest message otherwise
       const parentMessageId = await resolveParentMessageId(db, conversationId, forkId);
@@ -729,6 +746,9 @@ export const chatRoute = new Hono<AppEnv>()
       const db = c.get('db');
       const openrouter = c.get('openrouter');
       const redis = c.get('redis');
+
+      const forkGuard = await requireForkIdIfForked(db, conversationId, forkId);
+      if (forkGuard) return c.json(createErrorResponse(forkGuard.code), 400);
 
       const validation = await validateRegenerationRequest(c, {
         db,

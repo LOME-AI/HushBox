@@ -388,6 +388,16 @@ export async function deleteFork(
  * Unique constraint on (conversation_id, name) catches duplicates.
  * Renaming to the same name is a no-op (UPDATE sets same value).
  */
+/** Returns true if the conversation has any fork records. */
+export async function conversationHasForks(db: Database, conversationId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: conversationForks.id })
+    .from(conversationForks)
+    .where(eq(conversationForks.conversationId, conversationId))
+    .limit(1);
+  return row !== undefined;
+}
+
 export async function renameFork(db: Database, params: RenameForkParams): Promise<void> {
   const { forkId, conversationId, name } = params;
 
