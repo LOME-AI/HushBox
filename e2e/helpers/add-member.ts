@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { expect } from './settled-expect.js';
+import { expect, unsettledExpect } from './settled-expect.js';
 import type { MemberSidebarPage } from '../pages/member-sidebar.page.js';
 
 /**
@@ -21,7 +21,7 @@ export async function searchAndSelectMember(
   await searchInput.fill(username);
 
   const result = page.getByTestId(/^add-member-result-/);
-  await expect(result.first()).toBeVisible({ timeout: 5000 });
+  await unsettledExpect(result.first()).toBeVisible({ timeout: 10_000 });
   await result.first().click();
 
   await expect(page.getByTestId('add-member-selected')).toBeVisible();

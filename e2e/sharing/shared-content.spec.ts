@@ -7,7 +7,7 @@ test.describe('Shared Content', () => {
     authenticatedPage,
     unauthenticatedPage,
     groupConversation,
-    browser,
+    createPage,
   }) => {
     // Setup: navigate Alice to group conversation and open member sidebar
     const chatPage = new ChatPage(authenticatedPage);
@@ -63,17 +63,12 @@ test.describe('Shared Content', () => {
 
     await test.step('revoked link shows error', async () => {
       // Fresh context to avoid TanStack Query cache from step 2
-      const freshContext = await browser.newContext({
-        storageState: { cookies: [], origins: [] },
-      });
-      const freshPage = await freshContext.newPage();
+      const freshPage = await createPage();
       await freshPage.goto(inviteUrl);
 
       await expect(freshPage.getByTestId('shared-conversation-error')).toBeVisible({
         timeout: 15_000,
       });
-
-      await freshContext.close();
     });
   });
 

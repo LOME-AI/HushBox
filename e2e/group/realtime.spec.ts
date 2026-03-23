@@ -1,9 +1,5 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages';
-
-// WebSocket events arrive after the receiving page has settled — opt out of
-// settled quick-fail for cross-page assertions where Bob waits for Alice's events.
-const wsExpect = expect.configure({ settledAware: false });
 
 test.describe('Real-time WebSocket events', () => {
   test('user-only message appears for other member in real time', async ({
@@ -35,7 +31,7 @@ test.describe('Real-time WebSocket events', () => {
     await aliceChatPage.expectMessageVisible(testMessage);
 
     // Bob sees Alice's message appear WITHOUT refresh (via WebSocket)
-    await wsExpect(bobChatPage.messageList.getByText(testMessage).first()).toBeVisible({
+    await unsettledExpect(bobChatPage.messageList.getByText(testMessage).first()).toBeVisible({
       timeout: 15_000,
     });
   });
@@ -56,18 +52,23 @@ test.describe('Real-time WebSocket events', () => {
     await aliceChatPage.waitForConversationLoaded();
     await bobChatPage.waitForConversationLoaded();
 
+    await aliceChatPage.waitForWebSocketConnected();
+    await bobChatPage.waitForWebSocketConnected();
+
     // Alice sends a message with AI on (default)
     const timestamp = String(Date.now());
     const testMessage = `AI test ${timestamp}`;
     await aliceChatPage.sendFollowUpMessage(testMessage);
 
     // Bob sees Alice's user message appear (via message:new with content — phantom)
-    await wsExpect(bobChatPage.messageList.getByText(testMessage).first()).toBeVisible({
+    await unsettledExpect(bobChatPage.messageList.getByText(testMessage).first()).toBeVisible({
       timeout: 15_000,
     });
 
     // Bob sees an assistant message element appear (via message:stream — phantom AI)
-    await wsExpect(bobChatPage.messageList.locator('[data-role="assistant"]').last()).toBeVisible({
+    await unsettledExpect(
+      bobChatPage.messageList.locator('[data-role="assistant"]').last()
+    ).toBeVisible({
       timeout: 15_000,
     });
 
@@ -75,7 +76,7 @@ test.describe('Real-time WebSocket events', () => {
     await aliceChatPage.waitForAIResponse(testMessage);
 
     // Bob sees complete AI "Echo:" response (phantoms replaced by real messages via message:complete)
-    await wsExpect(bobChatPage.messageList.getByText('Echo:').last()).toBeVisible({
+    await unsettledExpect(bobChatPage.messageList.getByText('Echo:').last()).toBeVisible({
       timeout: 15_000,
     });
   });
@@ -103,7 +104,7 @@ test.describe('Real-time WebSocket events', () => {
     await aliceChatPage.messageInput.fill('typing test');
 
     // Bob sees typing indicator appear
-    await wsExpect(bobChatPage.getTypingIndicator()).toBeVisible({ timeout: 10_000 });
+    await unsettledExpect(bobChatPage.getTypingIndicator()).toBeVisible({ timeout: 10_000 });
 
     // Alice toggles AI off and submits (faster, no streaming)
     const aiToggle = aliceChatPage.getAiToggleButton();
@@ -111,6 +112,6 @@ test.describe('Real-time WebSocket events', () => {
     await aliceChatPage.messageInput.press('Enter');
 
     // Bob's typing indicator disappears
-    await wsExpect(bobChatPage.getTypingIndicator()).not.toBeVisible({ timeout: 10_000 });
+    await unsettledExpect(bobChatPage.getTypingIndicator()).not.toBeVisible({ timeout: 10_000 });
   });
 });

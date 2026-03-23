@@ -14,6 +14,7 @@ import {
   usageRecords,
   ledgerEntries,
   llmCompletions,
+  conversationForks,
   type Database,
 } from '@hushbox/db';
 import {
@@ -468,13 +469,14 @@ describe('saveChatTurn', () => {
     createdUserIds.push(setup.user.id);
 
     // First turn: sequences 1, 2
+    const turn1AiId = crypto.randomUUID();
     const result1 = await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
       senderId: setup.user.id,
       userMessageId: crypto.randomUUID(),
       userContent: 'First user message',
-      assistantMessageId: crypto.randomUUID(),
+      assistantMessageId: turn1AiId,
       assistantContent: 'First AI response',
       model: 'openai/gpt-4o-mini',
       totalCost: 0.001,
@@ -499,7 +501,7 @@ describe('saveChatTurn', () => {
       totalCost: 0.002,
       inputTokens: 60,
       outputTokens: 40,
-      parentMessageId: null,
+      parentMessageId: turn1AiId,
     });
 
     expect(result2.userSequence).toBe(3);
@@ -991,13 +993,14 @@ describe('saveChatTurn', () => {
       const setup = await createGroupTestSetup(db);
       createdUserIds.push(setup.user.id, setup.memberUser.id);
 
+      const turn1AiId = crypto.randomUUID();
       await saveChatTurn(db, {
         conversationId: setup.conversation.id,
         userId: setup.user.id,
         senderId: setup.user.id,
         userMessageId: crypto.randomUUID(),
         userContent: 'First',
-        assistantMessageId: crypto.randomUUID(),
+        assistantMessageId: turn1AiId,
         assistantContent: 'Response 1',
         model: 'openai/gpt-4o-mini',
         totalCost: 0.03,
@@ -1020,7 +1023,7 @@ describe('saveChatTurn', () => {
         inputTokens: 80,
         outputTokens: 40,
         groupBillingContext: { memberId: setup.member.id },
-        parentMessageId: null,
+        parentMessageId: turn1AiId,
       });
 
       const [spending] = await db
@@ -1294,6 +1297,136 @@ describe('saveChatTurn', () => {
       expect(result.epochNumber).toBe(1);
     });
   });
+
+  describe('saveChatTurn with forkId', () => {
+    it('updates fork tipMessageId to assistant message', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const forkId = crypto.randomUUID();
+      await db.insert(conversationForks).values({
+        id: forkId,
+        conversationId: setup.conversation.id,
+        name: 'Fork 1',
+        tipMessageId: null,
+      });
+
+      const userMessageId = crypto.randomUUID();
+      const assistantMessageId = crypto.randomUUID();
+
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        userMessageId,
+        userContent: 'Message on fork',
+        assistantMessageId,
+        assistantContent: 'AI response on fork',
+        model: 'openai/gpt-4o-mini',
+        totalCost: 0.001,
+        inputTokens: 50,
+        outputTokens: 30,
+        parentMessageId: null,
+        forkId,
+      });
+
+      const [fork] = await db
+        .select()
+        .from(conversationForks)
+        .where(eq(conversationForks.id, forkId));
+      expect(fork!.tipMessageId).toBe(assistantMessageId);
+    });
+
+    it('multi-model sets fork tip to last assistant message', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const forkId = crypto.randomUUID();
+      await db.insert(conversationForks).values({
+        id: forkId,
+        conversationId: setup.conversation.id,
+        name: 'Fork 1',
+        tipMessageId: null,
+      });
+
+      const userMessageId = crypto.randomUUID();
+      const assistantId1 = crypto.randomUUID();
+      const assistantId2 = crypto.randomUUID();
+
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        userMessageId,
+        userContent: 'Multi-model on fork',
+        assistantMessages: [
+          {
+            id: assistantId1,
+            content: 'GPT response',
+            model: 'openai/gpt-4o',
+            cost: 0.002,
+            inputTokens: 100,
+            outputTokens: 80,
+          },
+          {
+            id: assistantId2,
+            content: 'Claude response',
+            model: 'anthropic/claude-3.5-sonnet',
+            cost: 0.003,
+            inputTokens: 100,
+            outputTokens: 120,
+          },
+        ],
+        parentMessageId: null,
+        forkId,
+      });
+
+      const [fork] = await db
+        .select()
+        .from(conversationForks)
+        .where(eq(conversationForks.id, forkId));
+      // Tip must be the LAST assistant, not the first
+      expect(fork!.tipMessageId).toBe(assistantId2);
+    });
+
+    it('does not update fork tip when forkId is omitted', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const forkId = crypto.randomUUID();
+      await db.insert(conversationForks).values({
+        id: forkId,
+        conversationId: setup.conversation.id,
+        name: 'Main',
+        tipMessageId: null,
+      });
+
+      const userMessageId = crypto.randomUUID();
+      const assistantMessageId = crypto.randomUUID();
+
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        userMessageId,
+        userContent: 'Message without forkId',
+        assistantMessageId,
+        assistantContent: 'AI response',
+        model: 'openai/gpt-4o-mini',
+        totalCost: 0.001,
+        inputTokens: 50,
+        outputTokens: 30,
+        parentMessageId: null,
+        // forkId intentionally omitted
+      });
+
+      const [fork] = await db
+        .select()
+        .from(conversationForks)
+        .where(eq(conversationForks.id, forkId));
+      expect(fork!.tipMessageId).toBeNull();
+    });
+  });
 });
 
 describe('saveUserOnlyMessage', () => {
@@ -1348,11 +1481,12 @@ describe('saveUserOnlyMessage', () => {
     const setup = await createTestSetup(db);
     createdUserIds.push(setup.user.id);
 
+    const msg1Id = crypto.randomUUID();
     const result1 = await saveUserOnlyMessage(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
       senderId: setup.user.id,
-      messageId: crypto.randomUUID(),
+      messageId: msg1Id,
       content: 'First user-only message',
       parentMessageId: null,
     });
@@ -1365,7 +1499,7 @@ describe('saveUserOnlyMessage', () => {
       senderId: setup.user.id,
       messageId: crypto.randomUUID(),
       content: 'Second user-only message',
-      parentMessageId: null,
+      parentMessageId: msg1Id,
     });
 
     expect(result2.sequenceNumber).toBe(2);
@@ -1433,30 +1567,32 @@ describe('saveUserOnlyMessage', () => {
     createdUserIds.push(setup.user.id);
 
     // User-only message gets sequence 1
+    const msg1Id = crypto.randomUUID();
     const result1 = await saveUserOnlyMessage(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
       senderId: setup.user.id,
-      messageId: crypto.randomUUID(),
+      messageId: msg1Id,
       content: 'User-only first',
       parentMessageId: null,
     });
     expect(result1.sequenceNumber).toBe(1);
 
     // Chat turn gets sequences 2, 3
+    const turn2AiId = crypto.randomUUID();
     const result2 = await saveChatTurn(db, {
       conversationId: setup.conversation.id,
       userId: setup.user.id,
       senderId: setup.user.id,
       userMessageId: crypto.randomUUID(),
       userContent: 'User message with AI',
-      assistantMessageId: crypto.randomUUID(),
+      assistantMessageId: turn2AiId,
       assistantContent: 'AI response',
       model: 'openai/gpt-4o-mini',
       totalCost: 0.001,
       inputTokens: 50,
       outputTokens: 30,
-      parentMessageId: null,
+      parentMessageId: msg1Id,
     });
     expect(result2.userSequence).toBe(2);
     expect(result2.aiSequence).toBe(3);
@@ -1468,7 +1604,7 @@ describe('saveUserOnlyMessage', () => {
       senderId: setup.user.id,
       messageId: crypto.randomUUID(),
       content: 'User-only after AI',
-      parentMessageId: null,
+      parentMessageId: turn2AiId,
     });
     expect(result3.sequenceNumber).toBe(4);
   });

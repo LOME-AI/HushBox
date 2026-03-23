@@ -208,16 +208,16 @@ VITE_E2E=true
       });
     });
 
-    it('returns correct expectations for ciE2E mode', () => {
-      const expected = getExpectedEnvUtilities('ciE2E');
+    it('returns correct expectations for e2e mode', () => {
+      const expected = getExpectedEnvUtilities('e2e');
 
       expect(expected).toEqual({
         isDev: true,
-        isLocalDev: false,
+        isLocalDev: true,
         isProduction: false,
-        isCI: true,
+        isCI: false,
         isE2E: true,
-        requiresRealServices: true,
+        requiresRealServices: false,
       });
     });
 
@@ -269,20 +269,20 @@ DATABASE_URL=postgres://localhost
       expect(result.actual.isLocalDev).toBe(false);
     });
 
-    it('returns success when env matches expectations for ciE2E', async () => {
+    it('returns success when env matches expectations for e2e', async () => {
       const content = `NODE_ENV=development
-CI=true
 E2E=true
 DATABASE_URL=postgres://localhost
 `;
       await writeFile(path.join(TEST_DIR, '.dev.vars'), content);
 
-      const result = await verifyBackendEnv('ciE2E', {
+      const result = await verifyBackendEnv('e2e', {
         devVarsPath: path.join(TEST_DIR, '.dev.vars'),
         wranglerTomlPath: path.join(TEST_DIR, 'wrangler.toml'),
       });
 
       expect(result.success).toBe(true);
+      expect(result.actual.isCI).toBe(false);
       expect(result.actual.isE2E).toBe(true);
     });
 
@@ -352,29 +352,27 @@ VITE_CI=true
       expect(result.actual.isCI).toBe(true);
     });
 
-    it('returns success when env matches expectations for ciE2E', async () => {
+    it('returns success when env matches expectations for e2e', async () => {
       const content = `VITE_API_URL=http://localhost:8787
-VITE_CI=true
 VITE_E2E=true
 `;
       await writeFile(path.join(TEST_DIR, '.env.development'), content);
 
-      const result = await verifyFrontendEnv('ciE2E', {
+      const result = await verifyFrontendEnv('e2e', {
         envDevelopmentPath: path.join(TEST_DIR, '.env.development'),
       });
 
       expect(result.success).toBe(true);
-      expect(result.actual.isCI).toBe(true);
+      expect(result.actual.isCI).toBe(false);
       expect(result.actual.isE2E).toBe(true);
     });
 
-    it('returns failure when VITE_E2E is missing for ciE2E mode', async () => {
+    it('returns failure when VITE_E2E is missing for e2e mode', async () => {
       const content = `VITE_API_URL=http://localhost:8787
-VITE_CI=true
 `;
       await writeFile(path.join(TEST_DIR, '.env.development'), content);
 
-      const result = await verifyFrontendEnv('ciE2E', {
+      const result = await verifyFrontendEnv('e2e', {
         envDevelopmentPath: path.join(TEST_DIR, '.env.development'),
       });
 
@@ -464,10 +462,10 @@ VITE_CI=true
       expect(result).toEqual({ mode: 'ciVitest' });
     });
 
-    it('returns mode for ciE2E', () => {
-      const result = parseCliArgs(['--mode=ciE2E']);
+    it('returns mode for e2e', () => {
+      const result = parseCliArgs(['--mode=e2e']);
 
-      expect(result).toEqual({ mode: 'ciE2E' });
+      expect(result).toEqual({ mode: 'e2e' });
     });
 
     it('returns mode for production', () => {
@@ -480,7 +478,7 @@ VITE_CI=true
       const result = parseCliArgs([]);
 
       expect(result).toEqual({
-        error: 'Usage: pnpm verify:env --mode=<development|ciVitest|ciE2E|production>',
+        error: 'Usage: pnpm verify:env --mode=<development|ciVitest|e2e|ciE2E|production>',
       });
     });
 
@@ -488,7 +486,7 @@ VITE_CI=true
       const result = parseCliArgs(['--mode=invalid']);
 
       expect(result).toEqual({
-        error: 'Invalid mode: invalid. Valid modes: development, ciVitest, ciE2E, production',
+        error: 'Invalid mode: invalid. Valid modes: development, ciVitest, e2e, ciE2E, production',
       });
     });
 

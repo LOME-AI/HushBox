@@ -149,7 +149,7 @@ describe('POST /auth/token-login', () => {
     expect(setCookie).toContain('hushbox_session');
   });
 
-  it('deletes token from Redis after redemption (one-time use)', async () => {
+  it('does not delete token after redemption (idempotent via TTL)', async () => {
     const redis = createMapRedis();
     redis.store.set('billing:login-token:a0000000-0000-4000-8000-000000000003', {
       userId: 'user-1',
@@ -162,9 +162,7 @@ describe('POST /auth/token-login', () => {
       body: JSON.stringify({ token: 'a0000000-0000-4000-8000-000000000003' }),
     });
 
-    expect(redis.del).toHaveBeenCalledWith(
-      'billing:login-token:a0000000-0000-4000-8000-000000000003'
-    );
+    expect(redis.del).not.toHaveBeenCalled();
   });
 
   it('tracks session in Redis via sessionActive key', async () => {
@@ -207,7 +205,7 @@ describe('POST /auth/token-login', () => {
     expect(data.code).toBe('LOGIN_TOKEN_INVALID');
   });
 
-  it('cannot reuse a token after it has been redeemed', async () => {
+  it('allows reuse within TTL window (idempotent design)', async () => {
     const redis = createMapRedis();
     redis.store.set('billing:login-token:a0000000-0000-4000-8000-000000000006', {
       userId: 'user-1',
@@ -222,14 +220,40 @@ describe('POST /auth/token-login', () => {
     });
     expect(res1.status).toBe(200);
 
-    // Second use — token already deleted
+    // Second use — still succeeds (token not deleted, expires via TTL)
     const res2 = await app.request('/auth/token-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'a0000000-0000-4000-8000-000000000006' }),
     });
-    expect(res2.status).toBe(401);
-    const data = await jsonBody<{ code: string }>(res2);
-    expect(data.code).toBe('LOGIN_TOKEN_INVALID');
+    expect(res2.status).toBe(200);
+  });
+
+  it('retries produce the same sessionActive key (no orphaned sessions)', async () => {
+    const redis = createMapRedis();
+    redis.store.set('billing:login-token:a0000000-0000-4000-8000-000000000007', {
+      userId: 'user-1',
+    });
+    const { app } = createTestApp({ redis });
+
+    await app.request('/auth/token-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'a0000000-0000-4000-8000-000000000007' }),
+    });
+
+    await app.request('/auth/token-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'a0000000-0000-4000-8000-000000000007' }),
+    });
+
+    // Both calls should write the exact same sessionActive key
+    const sessionActiveCalls = redis.set.mock.calls.filter(
+      (call: unknown[]) =>
+        typeof call[0] === 'string' && call[0].startsWith('sessions:user:active:user-1:')
+    );
+    expect(sessionActiveCalls).toHaveLength(2);
+    expect(sessionActiveCalls[0]![0]).toBe(sessionActiveCalls[1]![0]);
   });
 });

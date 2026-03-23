@@ -7,8 +7,8 @@
  * immediately instead of waiting for the full timeout.
  *
  * Opt out for assertions that wait for external events (webhooks, WebSocket):
- *   const raw = expect.configure({ settledAware: false });
- *   await raw(locator).toBeVisible({ timeout: 30_000 });
+ *   import { unsettledExpect } from './settled-expect.js';
+ *   await unsettledExpect(locator).toBeVisible({ timeout: 30_000 });
  */
 
 import { expect as baseExpect, type Page } from '@playwright/test';
@@ -46,7 +46,7 @@ async function checkAndThrowIfSettled(page: Page, signal: { cancelled: boolean }
     throw new Error(
       'App settled (all queries/mutations/streams complete) but assertion not satisfied. ' +
         'The expected condition will not be met. ' +
-        'Use expect.configure({ settledAware: false }) to opt out.'
+        'Use unsettledExpect to opt out.'
     );
   }
 }
@@ -213,5 +213,6 @@ function createSettledExpect(base: BaseExpect): BaseExpect {
 }
 
 export const expect: SettledExpect = createSettledExpect(baseExpect) as SettledExpect;
+export const unsettledExpect = expect.configure({ settledAware: false });
 export { createSettledExpect };
 export type { SettledExpect, SettledConfigureOptions };

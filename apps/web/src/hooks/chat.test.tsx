@@ -101,7 +101,6 @@ describe('chatKeys', () => {
       expect(chatKeys.conversation('conv-123')).toEqual(['chat', 'conversations', 'conv-123']);
     });
   });
-
 });
 
 describe('useConversations', () => {

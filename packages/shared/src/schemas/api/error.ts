@@ -287,6 +287,9 @@ export const ERROR_CODE_FORK_ID_REQUIRED = 'FORK_ID_REQUIRED';
 /** Target message not found for regeneration */
 export const ERROR_CODE_TARGET_MESSAGE_NOT_FOUND = 'TARGET_MESSAGE_NOT_FOUND';
 
+/** Parent message ID is invalid — null on non-first message or references nonexistent message */
+export const ERROR_CODE_INVALID_PARENT_MESSAGE = 'INVALID_PARENT_MESSAGE';
+
 /** Cannot regenerate while a message is currently streaming */
 export const ERROR_CODE_CANNOT_REGENERATE_WHILE_STREAMING = 'CANNOT_REGENERATE_WHILE_STREAMING';
 

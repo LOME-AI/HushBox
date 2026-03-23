@@ -134,6 +134,7 @@ const ERROR_MESSAGES = {
   FORK_LIMIT_REACHED: 'Maximum number of forks reached for this conversation.',
   FORK_ID_REQUIRED: 'Something went wrong. Please refresh the page and try again.',
   TARGET_MESSAGE_NOT_FOUND: 'Target message not found.',
+  INVALID_PARENT_MESSAGE: 'Something went wrong saving your message. Please try again.',
   CANNOT_REGENERATE_WHILE_STREAMING: 'Please wait for the current response to finish.',
 
   // Mobile codes

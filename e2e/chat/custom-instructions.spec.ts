@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { SettingsPage } from '../pages';
 import { navigateToSettings } from '../helpers/auth.js';
 
@@ -7,6 +7,7 @@ test.describe('Custom Instructions', () => {
     authenticatedPage,
   }) => {
     await test.step('settings page renders correctly', async () => {
+      await authenticatedPage.goto('/chat');
       await navigateToSettings(authenticatedPage);
       const settingsPage = new SettingsPage(authenticatedPage);
 
@@ -37,10 +38,10 @@ test.describe('Custom Instructions', () => {
       const textarea = modal.locator('textarea');
 
       await textarea.fill('Always respond in bullet points. Never use emojis.');
-      await expect(modal.getByText(/49 \/ 5,000/)).toBeVisible();
+      await expect(modal.getByText(/50 \/ 5,000/)).toBeVisible();
 
       await modal.getByRole('button', { name: 'Save' }).click();
-      await expect(modal).not.toBeVisible();
+      await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
 
       const settingsPage = new SettingsPage(authenticatedPage);
       await settingsPage.expectCustomInstructionsBadge('Active');
@@ -65,7 +66,7 @@ test.describe('Custom Instructions', () => {
       await expect(modal.getByText(/0 \/ 5,000/)).toBeVisible();
 
       await modal.getByRole('button', { name: 'Save' }).click();
-      await expect(modal).not.toBeVisible();
+      await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
 
       const settingsPage = new SettingsPage(authenticatedPage);
       await settingsPage.expectCustomInstructionsBadge('Not set');

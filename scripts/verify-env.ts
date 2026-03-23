@@ -8,13 +8,14 @@
  * Usage:
  *   pnpm verify:env --mode=development
  *   pnpm verify:env --mode=ciVitest
+ *   pnpm verify:env --mode=e2e
  *   pnpm verify:env --mode=ciE2E
  *   pnpm verify:env --mode=production
  */
 import { readFile } from 'node:fs/promises';
 import { createEnvUtilities, type EnvContext, type EnvUtilities } from '@hushbox/shared';
 
-export type Mode = 'development' | 'ciVitest' | 'ciE2E' | 'production';
+export type Mode = 'development' | 'ciVitest' | 'e2e' | 'ciE2E' | 'production';
 
 interface FrontendEnvVariables {
   VITE_CI?: string | undefined;
@@ -150,6 +151,14 @@ export function getExpectedEnvUtilities(mode: Mode): EnvUtilities {
       isCI: true,
       isE2E: false,
       requiresRealServices: true,
+    },
+    e2e: {
+      isDev: true,
+      isLocalDev: true,
+      isProduction: false,
+      isCI: false,
+      isE2E: true,
+      requiresRealServices: false,
     },
     ciE2E: {
       isDev: true,
@@ -294,11 +303,11 @@ export function parseCliArgs(args: string[]): { mode: Mode } | { error: string }
   const modeArgument = args.find((argument) => argument.startsWith('--mode='));
 
   if (!modeArgument) {
-    return { error: 'Usage: pnpm verify:env --mode=<development|ciVitest|ciE2E|production>' };
+    return { error: 'Usage: pnpm verify:env --mode=<development|ciVitest|e2e|ciE2E|production>' };
   }
 
   const mode = modeArgument.replace('--mode=', '');
-  const validModes: Mode[] = ['development', 'ciVitest', 'ciE2E', 'production'];
+  const validModes: Mode[] = ['development', 'ciVitest', 'e2e', 'ciE2E', 'production'];
 
   if (!validModes.includes(mode as Mode)) {
     return { error: `Invalid mode: ${mode}. Valid modes: ${validModes.join(', ')}` };

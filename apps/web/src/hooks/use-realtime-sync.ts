@@ -21,7 +21,6 @@ export function useRealtimeSync(
     const unsubscribes = [
       ws.on('message:new', (event) => {
         if (currentUserId != null && event.senderId === currentUserId) return;
-        if (event.content !== undefined) return;
         void queryClient.invalidateQueries({
           queryKey: chatKeys.conversation(conversationId),
         });

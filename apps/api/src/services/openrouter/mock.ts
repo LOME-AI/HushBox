@@ -136,7 +136,7 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
       });
 
       // Simulate model thinking latency before first token
-      await delay(1000);
+      await delay(100);
 
       let isFirst = true;
       for (const char of response) {

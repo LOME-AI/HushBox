@@ -5,8 +5,10 @@ const previewPort = process.env['HB_PREVIEW_PORT']!;
 const apiPort = process.env['HB_API_PORT']!;
 const previewUrl = `http://localhost:${previewPort}`;
 const apiUrl = `http://localhost:${apiPort}`;
+const dbReset = isCI ? '' : 'pnpm db:reset && ';
 
 export default defineConfig({
+  globalTeardown: './e2e/global-teardown.ts',
   testDir: './e2e',
   fullyParallel: true,
   forbidOnly: isCI,
@@ -27,7 +29,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `lsof -ti:${previewPort} | xargs -r kill -9 2>/dev/null || true; pnpm --filter @hushbox/web build --mode development && pnpm --filter @hushbox/web preview --port ${previewPort}`,
+      command: `lsof -ti:${previewPort} | xargs -r kill -9 2>/dev/null || true; pnpm generate:env --mode=e2e && ${dbReset}pnpm --filter @hushbox/web build --mode development && pnpm --filter @hushbox/web preview --port ${previewPort}`,
       url: previewUrl,
       reuseExistingServer: false,
       timeout: 120_000,

@@ -21,16 +21,18 @@ export const billingKeys = {
 
 /**
  * Hook to fetch user's current balance.
- * Skips the API call for trial (unauthenticated) users.
+ * Skips the API call for trial (unauthenticated) users unless `enabled` is explicitly set.
  */
-export function useBalance(): ReturnType<typeof useQuery<GetBalanceResponse, Error>> {
+export function useBalance(options?: {
+  enabled?: boolean;
+}): ReturnType<typeof useQuery<GetBalanceResponse, Error>> {
   const { data: session } = useSession();
   const isAuthenticated = Boolean(session?.user);
 
   return useQuery({
     queryKey: billingKeys.balance(),
     queryFn: () => fetchJson<GetBalanceResponse>(client.api.billing.balance.$get()),
-    enabled: isAuthenticated,
+    enabled: options?.enabled ?? isAuthenticated,
   });
 }
 

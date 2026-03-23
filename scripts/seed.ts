@@ -101,7 +101,7 @@ export const DEV_PERSONAS = [
     displayName: 'Sarah Chen',
     emailVerified: true,
     hasSampleData: true,
-    balance: '100.00000000',
+    balance: '10000.00000000',
   },
   {
     name: 'bob',
@@ -365,13 +365,15 @@ function generateUserEntities(userIndex: number): UserEntities {
     allEpochMembers.push(epochMember);
     allConversationMembers.push(conversationMember);
 
+    let previousMsgId: string | null = null;
     for (let msgIndex = 0; msgIndex < SEED_CONFIG.MESSAGES_PER_CONVERSATION; msgIndex++) {
       const senderType = msgIndex % 2 === 0 ? 'user' : 'ai';
+      const msgId = seedUUID(
+        `seed-msg-${String(userIndex + 1)}-${String(convIndex + 1)}-${String(msgIndex + 1)}`
+      );
       allMessages.push(
         messageFactory.build({
-          id: seedUUID(
-            `seed-msg-${String(userIndex + 1)}-${String(convIndex + 1)}-${String(msgIndex + 1)}`
-          ),
+          id: msgId,
           conversationId: convId,
           encryptedBlob: encryptMessageForStorage(
             epochPublicKey,
@@ -381,8 +383,10 @@ function generateUserEntities(userIndex: number): UserEntities {
           senderId: senderType === 'user' ? userId : null,
           epochNumber: 1,
           sequenceNumber: msgIndex + 1,
+          parentMessageId: previousMsgId,
         })
       );
+      previousMsgId = msgId;
     }
   }
 
@@ -494,20 +498,26 @@ interface ConversationMessageContext {
 
 function createSearchConversationMessages(ctx: ConversationMessageContext): MessageWithId[] {
   const messages: MessageWithId[] = [];
+  let previousMsgId: string | null = null;
   for (const [msgIndex, msg] of SEARCH_MESSAGES.entries()) {
     const msgTime = new Date(ctx.now.getTime() + ctx.convIndex * 10_000 + msgIndex * 1000);
+    const msgId = seedUUID(
+      `${ctx.personaName}-msg-${String(ctx.convIndex + 1)}-${String(msgIndex + 1)}`
+    );
     messages.push(
       messageFactory.build({
-        id: seedUUID(`${ctx.personaName}-msg-${String(ctx.convIndex + 1)}-${String(msgIndex + 1)}`),
+        id: msgId,
         conversationId: ctx.convId,
         encryptedBlob: encryptMessageForStorage(ctx.epochPublicKey, msg.text),
         senderType: msg.role,
         senderId: msg.role === 'user' ? ctx.userId : null,
         epochNumber: 1,
         sequenceNumber: msgIndex + 1,
+        parentMessageId: previousMsgId,
         createdAt: msgTime,
       })
     );
+    previousMsgId = msgId;
   }
   return messages;
 }
@@ -515,12 +525,16 @@ function createSearchConversationMessages(ctx: ConversationMessageContext): Mess
 function createGenericConversationMessages(ctx: ConversationMessageContext): MessageWithId[] {
   const messages: MessageWithId[] = [];
   const messageCount = 3 + (ctx.convIndex % 3);
+  let previousMsgId: string | null = null;
   for (let msgIndex = 0; msgIndex < messageCount; msgIndex++) {
     const senderType = msgIndex % 2 === 0 ? 'user' : 'ai';
     const msgTime = new Date(ctx.now.getTime() + ctx.convIndex * 10_000 + msgIndex * 1000);
+    const msgId = seedUUID(
+      `${ctx.personaName}-msg-${String(ctx.convIndex + 1)}-${String(msgIndex + 1)}`
+    );
     messages.push(
       messageFactory.build({
-        id: seedUUID(`${ctx.personaName}-msg-${String(ctx.convIndex + 1)}-${String(msgIndex + 1)}`),
+        id: msgId,
         conversationId: ctx.convId,
         encryptedBlob: encryptMessageForStorage(
           ctx.epochPublicKey,
@@ -530,9 +544,11 @@ function createGenericConversationMessages(ctx: ConversationMessageContext): Mes
         senderId: senderType === 'user' ? ctx.userId : null,
         epochNumber: 1,
         sequenceNumber: msgIndex + 1,
+        parentMessageId: previousMsgId,
         createdAt: msgTime,
       })
     );
+    previousMsgId = msgId;
   }
   return messages;
 }
@@ -694,12 +710,14 @@ function createCharlieConversation(
   });
   const charlieMessages: MessageWithId[] = [];
 
+  let charliePreviousMsgId: string | null = null;
   for (let index = 0; index < 4; index++) {
     const senderType = index % 2 === 0 ? 'user' : 'ai';
     const msgTime = new Date(now.getTime() + index * 1000);
+    const msgId = seedUUID(`charlie-msg-1-${String(index + 1)}`);
     charlieMessages.push(
       messageFactory.build({
-        id: seedUUID(`charlie-msg-1-${String(index + 1)}`),
+        id: msgId,
         conversationId: convId,
         encryptedBlob: encryptMessageForStorage(
           epochPublicKey,
@@ -709,9 +727,11 @@ function createCharlieConversation(
         senderId: senderType === 'user' ? userId : null,
         epochNumber: 1,
         sequenceNumber: index + 1,
+        parentMessageId: charliePreviousMsgId,
         createdAt: msgTime,
       })
     );
+    charliePreviousMsgId = msgId;
   }
 
   return { conversation, messages: charlieMessages, epoch, epochMember, conversationMember };
@@ -843,16 +863,18 @@ export function createScreenshotConversations(
     allEpochMembers.push(epochMember);
     allConversationMembers.push(conversationMember);
 
+    const userMsgId = seedUUID(`screenshot-msg-${solo.name}-1`);
     const userMsgTime = new Date(params.now.getTime() + allMessages.length * 1000);
     allMessages.push(
       messageFactory.build({
-        id: seedUUID(`screenshot-msg-${solo.name}-1`),
+        id: userMsgId,
         conversationId: convId,
         encryptedBlob: encryptMessageForStorage(epochPublicKey, solo.userMessage),
         senderType: 'user',
         senderId: params.aliceUserId,
         epochNumber: 1,
         sequenceNumber: 1,
+        parentMessageId: null,
         createdAt: userMsgTime,
       })
     );
@@ -867,6 +889,7 @@ export function createScreenshotConversations(
         senderId: null,
         epochNumber: 1,
         sequenceNumber: 2,
+        parentMessageId: userMsgId,
         createdAt: aiMsgTime,
       })
     );
@@ -951,21 +974,25 @@ export function createScreenshotConversations(
     },
   ];
 
+  let groupPreviousMsgId: string | null = null;
   for (const [index, groupMessage] of groupMessages.entries()) {
     const msg = groupMessage;
     const msgTime = new Date(params.now.getTime() + (allMessages.length + index) * 1000);
+    const groupMsgId = seedUUID(`screenshot-msg-group-chat-${String(index + 1)}`);
     allMessages.push(
       messageFactory.build({
-        id: seedUUID(`screenshot-msg-group-chat-${String(index + 1)}`),
+        id: groupMsgId,
         conversationId: groupConvId,
         encryptedBlob: encryptMessageForStorage(groupEpochResult.epochPublicKey, msg.content),
         senderType: msg.senderType,
         senderId: msg.senderId,
         epochNumber: 1,
         sequenceNumber: index + 1,
+        parentMessageId: groupPreviousMsgId,
         createdAt: msgTime,
       })
     );
+    groupPreviousMsgId = groupMsgId;
   }
 
   return {
@@ -1156,11 +1183,13 @@ function createTestSampleData(
     testConversationMembers.push(conversationMember);
 
     const messageCount = 3 + (index % 3);
+    let testPreviousMsgId: string | null = null;
     for (let msgIndex = 0; msgIndex < messageCount; msgIndex++) {
       const senderType = msgIndex % 2 === 0 ? 'user' : 'ai';
+      const msgId = seedUUID(`${personaName}-msg-${String(index + 1)}-${String(msgIndex + 1)}`);
       testMessages.push(
         messageFactory.build({
-          id: seedUUID(`${personaName}-msg-${String(index + 1)}-${String(msgIndex + 1)}`),
+          id: msgId,
           conversationId: convId,
           encryptedBlob: encryptMessageForStorage(
             epochPublicKey,
@@ -1170,8 +1199,10 @@ function createTestSampleData(
           senderId: senderType === 'user' ? userId : null,
           epochNumber: 1,
           sequenceNumber: msgIndex + 1,
+          parentMessageId: testPreviousMsgId,
         })
       );
+      testPreviousMsgId = msgId;
     }
   }
 
@@ -1238,7 +1269,7 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
     const { user, publicKey } = await createTestPersonaUser(persona, now);
     testUsers.push(user);
 
-    const balance = persona.hasSampleData ? '100.00000000' : '0.00000000';
+    const balance = persona.hasSampleData ? '10000.00000000' : '0.00000000';
     const walletData = createPersonaWallets(persona.name, user.id, balance);
     testWallets.push(...walletData.wallets);
     testLedgerEntries.push(...walletData.ledgerEntries);

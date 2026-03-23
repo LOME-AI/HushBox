@@ -6,7 +6,14 @@
  * the existing generateDebugReport() → writeReport() pipeline.
  */
 
-import type { Reporter, FullResult, Suite, TestCase, TestResult } from '@playwright/test/reporter';
+import type {
+  Reporter,
+  FullResult,
+  Suite,
+  TestCase,
+  TestResult,
+  TestStep,
+} from '@playwright/test/reporter';
 import path from 'node:path';
 import {
   generateDebugReport,
@@ -14,23 +21,37 @@ import {
   type PlaywrightReport,
   type PlaywrightSuite,
   type PlaywrightSpec,
+  type PlaywrightStep,
   type PlaywrightTest,
   type PlaywrightTestResult,
 } from './e2e-debug.js';
+
+function mapStep(step: TestStep): PlaywrightStep {
+  return {
+    title: step.title,
+    duration: step.duration,
+    category: step.category,
+    steps: step.steps.map((s) => mapStep(s)),
+    ...(step.error?.message !== undefined && { error: step.error.message }),
+  };
+}
 
 function mapTestResult(result: TestResult): PlaywrightTestResult {
   return {
     status: result.status,
     retry: result.retry,
     duration: result.duration,
+    startTime: result.startTime.toISOString(),
     errors: result.errors.map((e) => ({
       ...(e.message !== undefined && { message: e.message }),
       ...(e.stack !== undefined && { stack: e.stack }),
     })),
-    steps: result.steps.map((s) => ({ title: s.title, duration: s.duration })),
+    steps: result.steps.map((s) => mapStep(s)),
     attachments: result.attachments.map((a) => ({
       name: a.name,
+      contentType: a.contentType,
       ...(a.path !== undefined && { path: a.path }),
+      ...(a.body !== undefined && { body: a.body.toString('utf8') }),
     })),
   };
 }
@@ -45,6 +66,7 @@ function mapTestCase(test: TestCase, projectName: string): PlaywrightSpec {
   return {
     title: test.title,
     file: relativeFile,
+    line: test.location.line,
     tests: [mappedTest],
   };
 }
@@ -87,9 +109,13 @@ export default class E2EReportWriter implements Reporter {
 
     const { summary } = debugReport;
     console.log(
-      `\nE2E report: ${relativePath}/REPORT.md (${String(summary.failed)} failed, ${String(summary.flaky)} flaky, ${String(summary.passed)} passed)`
+      `\nE2E report (source of truth for debugging): ${relativePath}/REPORT.md (${String(summary.failed)} failed, ${String(summary.flaky)} flaky, ${String(summary.passed)} passed)`
     );
-    console.log(`View screenshots: ${relativePath}/screenshots/\n`);
+    console.log(`  Structured data: ${relativePath}/report.json`);
+    if (summary.failed > 0) {
+      console.log(`  Failed test details: ${relativePath}/failed/`);
+    }
+    console.log();
   }
 
   printsToStdio(): boolean {

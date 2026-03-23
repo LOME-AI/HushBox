@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
 
 test.describe('Fork and Regeneration Interaction', () => {
@@ -38,13 +38,14 @@ test.describe('Fork and Regeneration Interaction', () => {
       // Main has 4 messages: [user, AI, followup-user, followup-AI]
       // Retry the followup user message (index 2)
       await chatPage.clickRetry(2);
-      await chatPage.waitForAIResponse();
+      await chatPage.waitForStreamComplete();
     });
 
     await test.step('switch to Fork 1 — verify unchanged', async () => {
       await chatPage.clickForkTab('Fork 1');
-      const currentFork1Count = await chatPage.getMessageCount();
-      expect(currentFork1Count).toBe(fork1Count);
+      await unsettledExpect
+        .poll(() => chatPage.getMessageCount(), { timeout: 5000 })
+        .toBe(fork1Count);
     });
   });
 
@@ -85,8 +86,9 @@ test.describe('Fork and Regeneration Interaction', () => {
       await chatPage.clickForkTab('Main');
       await chatPage.clickRetry(0);
       await chatPage.waitForAIResponse();
-      // Main should now have 2 messages: original user + new AI
-      expect(await chatPage.getMessageCount()).toBe(2);
+      // After retry + refetch, Main's fork chain should have only 2 messages.
+      // Use poll — the fork filter updates asynchronously after query refetch.
+      await unsettledExpect.poll(() => chatPage.getMessageCount(), { timeout: 10_000 }).toBe(2);
     });
 
     await test.step('Fork 1 still intact with its messages', async () => {

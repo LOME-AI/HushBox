@@ -1,5 +1,5 @@
 import { type Page, type Locator } from '@playwright/test';
-import { expect } from '../helpers/settled-expect.js';
+import { expect, unsettledExpect } from '../helpers/settled-expect.js';
 import { requireEnv } from '../helpers/env.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
@@ -95,7 +95,7 @@ export class ChatPage {
       ? assistantMessages.getByText(expectedContent, { exact: false }).first()
       : assistantMessages.getByText(/^Echo:/).first();
 
-    await expect(target).toBeVisible({ timeout });
+    await unsettledExpect(target).toBeVisible({ timeout });
   }
 
   async expectAssistantMessageContains(text: string): Promise<void> {
@@ -109,7 +109,7 @@ export class ChatPage {
   /** Wait for the current stream to fully complete (cost visible = billing + persistence done). */
   async waitForStreamComplete(timeout = 15_000): Promise<void> {
     const costBadge = this.messageList.locator('[data-testid="message-cost"]').last();
-    await expect(costBadge).toBeVisible({ timeout });
+    await unsettledExpect(costBadge).toBeVisible({ timeout });
   }
 
   // --- Group chat locators ---
@@ -322,8 +322,8 @@ export class ChatPage {
     const tabWrapper = this.getForkTabList().locator(`[data-testid^="fork-tab-"]`, {
       has: this.page.getByRole('tab', { name: tabName }),
     });
-    await tabWrapper.getByRole('button', { name: 'menu' }).click();
-    await this.page.getByText(action, { exact: true }).click();
+    await tabWrapper.getByRole('button', { name: 'More options' }).click();
+    await this.page.getByRole('menuitem', { name: action }).click();
   }
 
   // --- Edit mode ---

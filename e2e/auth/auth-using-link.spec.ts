@@ -59,6 +59,7 @@ test.describe('Auth User Using Link', () => {
         helper,
         conversationId: groupConversation.id,
         withHistory: true,
+        displayName: 'Write Link History',
       });
       writeUrl = result.url;
     });
@@ -132,6 +133,7 @@ test.describe('Auth User Using Link', () => {
       const result = await createWriteLinkWithBudget(authenticatedPage, sidebar, {
         helper,
         conversationId: groupConversation.id,
+        displayName: 'Write Link No History',
       });
       writeUrl = result.url;
     });

@@ -8,7 +8,7 @@ export const forkKeys = {
 };
 
 /** Shared queryFn — same as useConversation/useMessages. TanStack Query deduplicates. */
-function conversationQueryFn(id: string): () => Promise<ConversationResponse> {
+function conversationQueryFunction(id: string): () => Promise<ConversationResponse> {
   return async (): Promise<ConversationResponse> => {
     return fetchJson<ConversationResponse>(
       client.api.conversations[':conversationId'].$get({ param: { conversationId: id } })
@@ -21,7 +21,7 @@ export function useForks(
 ): ReturnType<typeof useQuery<ConversationResponse, Error, ForkResponse[]>> {
   return useQuery({
     queryKey: chatKeys.conversation(conversationId),
-    queryFn: conversationQueryFn(conversationId),
+    queryFn: conversationQueryFunction(conversationId),
     select: (data): ForkResponse[] => data.forks,
     enabled: !!conversationId,
   });
@@ -78,6 +78,10 @@ export function useDeleteFork(): ReturnType<typeof useMutation<unknown, Error, D
       );
     },
     onSuccess: (_data, variables) => {
+      queryClient.setQueryData<ConversationResponse>(
+        chatKeys.conversation(variables.conversationId),
+        (old) => (old ? { ...old, forks: old.forks.filter((f) => f.id !== variables.forkId) } : old)
+      );
       void queryClient.invalidateQueries({
         queryKey: chatKeys.conversation(variables.conversationId),
       });

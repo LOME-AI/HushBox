@@ -399,15 +399,73 @@ export async function resolveAndReserveBilling(
   const historyCharacters = messagesForInference.reduce((sum, m) => sum + m.content.length, 0);
   const promptCharacterCount = systemPromptForBudget.length + historyCharacters;
 
-  // 3. Auto-router: build allowed models and override pricing with worst-case
-  //    Only applies when exactly 1 model is selected and it's the auto-router
-  const actualTier = billingResult.input.tier;
+  // 3. Compute estimated minimum cost via CostManifest (single source of truth)
+  const minCostManifest = buildCostManifest({
+    tier: billingResult.input.tier,
+    promptCharacterCount,
+    models: allPricing.map((p) => ({
+      modelInputPricePerToken: p.inputPricePerToken,
+      modelOutputPricePerToken: p.outputPricePerToken,
+    })),
+    webSearchCost: webSearchCostDollars,
+  });
+  const estimatedMinimumCostCents =
+    calculateBudgetFromManifest(minCostManifest, 0).estimatedMinimumCost * 100;
+
+  billingResult.input.estimatedMinimumCostCents = estimatedMinimumCostCents;
+  const billingDecision = resolveBilling(billingResult.input);
+
+  // 4. Handle denial — return 402 before checking mismatch
+  if (billingDecision.fundingSource === 'denied') {
+    return {
+      success: false,
+      response: handleBillingDenial(c, billingDecision.reason, billingResult.input),
+    };
+  }
+
+  // 5. Handle mismatch — 409 when client and server disagree on funding source
+  if (clientFundingSource !== billingDecision.fundingSource) {
+    return {
+      success: false,
+      response: c.json(
+        createErrorResponse(ERROR_CODE_BILLING_MISMATCH, {
+          serverFundingSource: billingDecision.fundingSource,
+        }),
+        409
+      ),
+    };
+  }
+
+  // 6. Resolve effective payer — determines balance, tier, and free allowance
+  //    for all downstream steps (auto-router filtering, budget, reservation).
+  //    For group billing, constrain by group budget limits so the worst-case
+  //    reservation doesn't exceed conversation/member budgets.
+  const isGroupBilling =
+    billingDecision.fundingSource === 'owner_balance' && billingResult.input.group !== undefined;
+  const group = billingResult.input.group;
+  const payerTier = isGroupBilling && group ? group.ownerTier : billingResult.input.tier;
+  const rawPayerBalanceCents =
+    isGroupBilling && group ? group.ownerBalanceCents : billingResult.input.balanceCents;
+  const payerBalanceCents =
+    isGroupBilling && billingResult.groupBudgetContext
+      ? Math.min(
+          rawPayerBalanceCents,
+          Number.parseFloat(billingResult.groupBudgetContext.conversationBudget) * 100 -
+            Number.parseFloat(billingResult.groupBudgetContext.conversationSpent) * 100,
+          Number.parseFloat(billingResult.groupBudgetContext.memberBudget) * 100 -
+            Number.parseFloat(billingResult.groupBudgetContext.memberSpent) * 100
+        )
+      : rawPayerBalanceCents;
+  const payerFreeAllowanceCents = isGroupBilling ? 0 : billingResult.input.freeAllowanceCents;
+
+  // 7. Auto-router: build allowed models and override pricing with worst-case.
+  //    Runs after payer resolution so affordability uses the actual payer's balance.
   let autoRouterAllowedModels: string[] | undefined;
   if (models.length === 1 && models[0] === AUTO_ROUTER_MODEL_ID) {
     const zdrModelIds = await fetchZdrModelIds();
     const { models: poolModels, premiumIds } = processModels(openrouterModels, zdrModelIds);
     const premiumSet = new Set(premiumIds);
-    const canAccessPremium = actualTier === 'paid';
+    const canAccessPremium = payerTier === 'paid';
 
     const allowed: { id: string; inputPrice: number; outputPrice: number }[] = [];
 
@@ -420,9 +478,9 @@ export async function resolveAndReserveBilling(
       const mOutputPrice = applyFees(pm.pricePerOutputToken);
 
       const affordResult = canAffordModel({
-        tier: actualTier,
-        balanceCents: billingResult.input.balanceCents,
-        freeAllowanceCents: billingResult.input.freeAllowanceCents,
+        tier: payerTier,
+        balanceCents: payerBalanceCents,
+        freeAllowanceCents: payerFreeAllowanceCents,
         promptCharacterCount,
         modelInputPricePerToken: mInputPrice,
         modelOutputPricePerToken: mOutputPrice,
@@ -439,7 +497,7 @@ export async function resolveAndReserveBilling(
         success: false,
         response: c.json(
           createErrorResponse(ERROR_CODE_INSUFFICIENT_BALANCE, {
-            currentBalance: (billingResult.input.balanceCents / 100).toFixed(2),
+            currentBalance: (payerBalanceCents / 100).toFixed(2),
           }),
           402
         ),
@@ -457,52 +515,7 @@ export async function resolveAndReserveBilling(
     autoRouterAllowedModels = allowed.map((m) => m.id);
   }
 
-  // 4. Compute estimated minimum cost via CostManifest (single source of truth)
-  const minCostManifest = buildCostManifest({
-    tier: actualTier,
-    promptCharacterCount,
-    models: allPricing.map((p) => ({
-      modelInputPricePerToken: p.inputPricePerToken,
-      modelOutputPricePerToken: p.outputPricePerToken,
-    })),
-    webSearchCost: webSearchCostDollars,
-  });
-  const estimatedMinimumCostCents =
-    calculateBudgetFromManifest(minCostManifest, 0).estimatedMinimumCost * 100;
-
-  billingResult.input.estimatedMinimumCostCents = estimatedMinimumCostCents;
-  const billingDecision = resolveBilling(billingResult.input);
-
-  // 5. Handle denial — return 402 before checking mismatch
-  if (billingDecision.fundingSource === 'denied') {
-    return {
-      success: false,
-      response: handleBillingDenial(c, billingDecision.reason, billingResult.input),
-    };
-  }
-
-  // 6. Handle mismatch — 409 when client and server disagree on funding source
-  if (clientFundingSource !== billingDecision.fundingSource) {
-    return {
-      success: false,
-      response: c.json(
-        createErrorResponse(ERROR_CODE_BILLING_MISMATCH, {
-          serverFundingSource: billingDecision.fundingSource,
-        }),
-        409
-      ),
-    };
-  }
-
-  // 7. Compute budget for maxOutputTokens based on payer
-  const isGroupBilling =
-    billingDecision.fundingSource === 'owner_balance' && billingResult.input.group !== undefined;
-  const group = billingResult.input.group;
-  const payerTier = isGroupBilling && group ? group.ownerTier : billingResult.input.tier;
-  const payerBalanceCents =
-    isGroupBilling && group ? group.ownerBalanceCents : billingResult.input.balanceCents;
-  const payerFreeAllowanceCents = isGroupBilling ? 0 : billingResult.input.freeAllowanceCents;
-
+  // 8. Compute budget for maxOutputTokens based on payer
   const budgetResult = calculateBudget({
     tier: payerTier,
     balanceCents: payerBalanceCents,
@@ -758,9 +771,9 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
   const openRouterMessages = buildOpenRouterMessages(systemPrompt, messagesForInference);
   const lastInferenceMessage = messagesForInference.at(-1);
 
-  // Early broadcast: notify other group members of user's message (fire-and-forget)
+  // Early broadcast: notify other group members of user's message
   const lastContent = lastInferenceMessage?.content ?? '';
-  void broadcastToRoom(
+  const userBroadcastPromise = broadcastToRoom(
     c.env,
     conversationId,
     createEvent('message:new', {
@@ -771,6 +784,14 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
       content: lastContent,
     })
   );
+
+  // Keep worker alive until broadcast completes (same pattern as message:complete)
+  try {
+    // eslint-disable-next-line promise/prefer-await-to-then -- waitUntil requires a non-awaited promise; catch prevents unhandled rejection
+    c.executionCtx.waitUntil(userBroadcastPromise.catch(() => null));
+  } catch {
+    // executionCtx unavailable outside Cloudflare Workers runtime
+  }
 
   // Build one stream entry per model, wrapping each with broadcast for group chat
   const streamEntries: ModelStreamEntry[] = models.map((modelId) => {

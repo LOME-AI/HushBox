@@ -28,7 +28,7 @@ describe('env-types', () => {
     it('has four modes', () => {
       expect(Mode.Development).toBe('development');
       expect(Mode.CiVitest).toBe('ciVitest');
-      expect(Mode.CiE2E).toBe('ciE2E');
+      expect(Mode.E2E).toBe('e2e');
       expect(Mode.Production).toBe('production');
     });
   });
@@ -41,7 +41,7 @@ describe('env-types', () => {
 
     it('works with all modes', () => {
       expect(ref(Mode.CiVitest)).toEqual({ _type: 'ref', env: Mode.CiVitest });
-      expect(ref(Mode.CiE2E)).toEqual({ _type: 'ref', env: Mode.CiE2E });
+      expect(ref(Mode.E2E)).toEqual({ _type: 'ref', env: Mode.E2E });
       expect(ref(Mode.Production)).toEqual({ _type: 'ref', env: Mode.Production });
     });
   });
@@ -196,9 +196,9 @@ describe('env-types', () => {
         to: [Destination.Backend],
         [Mode.Development]: 'dev-value',
         [Mode.CiVitest]: ref(Mode.Development),
-        [Mode.CiE2E]: ref(Mode.CiVitest),
+        [Mode.E2E]: ref(Mode.CiVitest),
       };
-      expect(resolveRaw(config, Mode.CiE2E)).toBe('dev-value');
+      expect(resolveRaw(config, Mode.E2E)).toBe('dev-value');
     });
 
     it('returns secret object when resolved', () => {

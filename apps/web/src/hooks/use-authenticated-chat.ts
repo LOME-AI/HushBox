@@ -587,7 +587,8 @@ export function useAuthenticatedChat({
 
         if (!response.isNew) {
           // Idempotent: conversation existed — full response available, seed cache
-          const { isNew: _, ...fullData } = response;
+          // eslint-disable-next-line sonarjs/no-unused-vars -- rest-spread requires naming the omitted key
+          const { isNew: _isNew, ...fullData } = response;
           queryClient.setQueryData(chatKeys.conversation(realId), fullData);
           clearPendingMessage();
           setRealConversationId(realId);
@@ -609,7 +610,8 @@ export function useAuthenticatedChat({
           response.conversation,
           pendingFundingSource ?? 'personal_balance'
         );
-      } catch {
+      } catch (error: unknown) {
+        console.error('createConversationAndStream failed:', error);
         navigateIfActive(activeRef, navigate, ROUTES.CHAT);
       }
     };
@@ -617,7 +619,7 @@ export function useAuthenticatedChat({
     const executeStreamAndFinalize = async (
       realId: string,
       message: string,
-      conversationObj: import('@/lib/api').Conversation,
+      conversationObject: import('@/lib/api').Conversation,
       fundingSource: FundingSource
     ): Promise<void> => {
       const userMsgId = crypto.randomUUID();
@@ -658,7 +660,7 @@ export function useAuthenticatedChat({
 
         // Seed cache with full response shape so useConversation sees data immediately
         queryClient.setQueryData(chatKeys.conversation(realId), {
-          conversation: conversationObj,
+          conversation: conversationObject,
           messages: [],
           forks: [],
           accepted: true,
@@ -878,9 +880,7 @@ export function useAuthenticatedChat({
           queryClient.setQueryData<import('@/lib/api').ConversationResponse>(
             chatKeys.conversation(realConversationId),
             (old) =>
-              old
-                ? { ...old, messages: old.messages.filter((m) => !idsToRemove.has(m.id)) }
-                : old
+              old ? { ...old, messages: old.messages.filter((m) => !idsToRemove.has(m.id)) } : old
           );
         }
       }

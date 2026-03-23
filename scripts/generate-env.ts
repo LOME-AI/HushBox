@@ -121,7 +121,8 @@ function generatePortLines(
  * Modes:
  * - development (default): Generate files with development values
  * - ciVitest: Generate files for CI unit tests
- * - ciE2E: Include CI secrets from process.env for E2E tests
+ * - e2e: Local E2E tests (no secrets, adds VITE_E2E=true)
+ * - ciE2E: CI E2E tests (inherits e2e + Helcim secrets from process.env)
  * - production: Ensure wrangler.toml has production values
  *
  * In development mode, worktree detection applies port offsets so
@@ -129,7 +130,8 @@ function generatePortLines(
  */
 export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Development): void {
   const missing: string[] = [];
-  const worktree = (mode as Mode) === Mode.Development ? getWorktreeConfig(rootDir) : null;
+  const needsWorktree = (mode as Mode) === Mode.Development || (mode as Mode) === Mode.E2E;
+  const worktree = needsWorktree ? getWorktreeConfig(rootDir) : null;
 
   const getSecret = (name: string): string => {
     const val = process.env[name];

@@ -29,6 +29,7 @@ test.describe('Link Guest Chat', () => {
         conversationId: groupConversation.id,
         withHistory: true,
         closeMethod: 'escape',
+        displayName: 'Chat Guest',
       });
       inviteUrl = result.url;
       expect(inviteUrl).toContain('/share/c/');
@@ -52,12 +53,13 @@ test.describe('Link Guest Chat', () => {
       const guestInput = unauthenticatedPage.getByRole('textbox', { name: /message/i });
       await expect(guestInput).toBeVisible({ timeout: 5000 });
 
-      // Wait for send button to be enabled (active streams from fixture must complete first)
-      const sendButton = unauthenticatedPage.getByTestId('send-button');
-      await expect(sendButton).toBeEnabled({ timeout: 15_000 });
-
+      // Fill message first — send button requires text content to become enabled
       const guestMessage = `Guest says hello ${String(Date.now())}`;
       await guestInput.fill(guestMessage);
+
+      // Now wait for send button to be enabled (text filled + no active streams)
+      const sendButton = unauthenticatedPage.getByTestId('send-button');
+      await expect(sendButton).toBeEnabled({ timeout: 15_000 });
       await sendButton.click();
 
       // Guest's message should appear

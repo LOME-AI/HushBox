@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
 import { requireEnv } from '../helpers/env.js';
 
@@ -244,10 +244,83 @@ test.describe('Multi-Model Chat', () => {
       });
 
       await test.step('wait for 2 more AI responses (4 total)', async () => {
-        // Wait for streaming to complete, then scroll to force Virtuoso to render all
+        // Wait for streaming to complete — cost badge signals billing + persistence done
         await chatPage.waitForStreamComplete(20_000);
-        await chatPage.scrollToTop();
-        await chatPage.waitForMultiModelResponses(4, 20_000);
+        // Verify follow-up generated 2 AI responses (visible at the bottom of the list)
+        // Use unsettledExpect — the settled indicator may fire before Virtuoso renders
+        const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
+        await unsettledExpect(assistantMessages).toHaveCount(4, { timeout: 20_000 });
+      });
+    });
+  });
+
+  test.describe('Multi-Model on Fork', () => {
+    test('multi-model responses persist on fork after streaming completes', async ({
+      authenticatedPage,
+    }) => {
+      test.slow();
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+
+      await test.step('send single-model message and create fork', async () => {
+        const setupMsg = `Fork setup ${String(Date.now())}`;
+        await chatPage.sendNewChatMessage(setupMsg);
+        await chatPage.waitForConversation();
+        await chatPage.waitForAIResponse(setupMsg);
+
+        // Fork from the AI response → Fork 1 active
+        await chatPage.clickFork(1);
+        await chatPage.expectForkTabCount(2);
+        await chatPage.expectActiveForkTab('Fork 1');
+      });
+
+      await test.step('select 2 models and send message on fork', async () => {
+        await chatPage.selectModels(2);
+        await chatPage.expectComparisonBarVisible();
+
+        const forkMsg = `Multi-model on fork ${String(Date.now())}`;
+        await chatPage.sendFollowUpMessage(forkMsg);
+        await chatPage.expectMessageVisible(forkMsg);
+      });
+
+      await test.step('verify both AI responses visible after stream completes', async () => {
+        // Wait for ALL 3 cost badges (1 setup + 2 multi-model).
+        // Cost badges appear after: done SSE → saveChatTurn committed → invalidateQueries refetched.
+        // This guarantees persistence before reload. Using waitForStreamComplete alone is
+        // insufficient here — it finds the setup AI's pre-existing cost badge immediately.
+        const costBadges = chatPage.messageList.locator('[data-testid="message-cost"]');
+        await unsettledExpect(costBadges).toHaveCount(3, { timeout: 20_000 });
+
+        const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
+        await unsettledExpect(assistantMessages).toHaveCount(3, { timeout: 15_000 });
+      });
+
+      await test.step('verify distinct model nametags on multi-model responses', async () => {
+        const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
+        const count = await assistantMessages.count();
+        // Last 2 should have different model nametags
+        const nametag1 = await assistantMessages
+          .nth(count - 2)
+          .getByTestId('model-nametag')
+          .textContent();
+        const nametag2 = await assistantMessages
+          .nth(count - 1)
+          .getByTestId('model-nametag')
+          .textContent();
+        expect(nametag1).not.toBe(nametag2);
+      });
+
+      await test.step('page reload preserves all responses on fork', async () => {
+        await authenticatedPage.reload();
+        await chatPage.waitForConversationLoaded();
+
+        // Fork 1 should still be active
+        await chatPage.expectActiveForkTab('Fork 1');
+
+        // All 3 assistant messages should still be visible
+        const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
+        await unsettledExpect(assistantMessages).toHaveCount(3, { timeout: 15_000 });
       });
     });
   });
@@ -304,10 +377,9 @@ test.describe('Multi-Model Chat', () => {
         // Step 5: Verify failed model shows error message
         // Error renders on an optimistic message after stream ends — opt out of settled
         // to wait for the React re-render without premature failure
-        const unsettled = expect.configure({ settledAware: false });
         const errorMessage = authenticatedPage.getByTestId('model-error-message');
-        await unsettled(errorMessage).toBeVisible({ timeout: 10_000 });
-        await unsettled(errorMessage).toContainText(/something went wrong/i);
+        await unsettledExpect(errorMessage).toBeVisible({ timeout: 10_000 });
+        await unsettledExpect(errorMessage).toContainText(/something went wrong/i);
 
         // Step 6: Verify billing via API — only successful model persisted
         const conversationUrl = authenticatedPage.url();

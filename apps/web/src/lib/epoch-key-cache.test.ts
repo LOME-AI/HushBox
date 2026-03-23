@@ -164,15 +164,18 @@ describe('epoch-key-cache', () => {
       expect(result).toBe(5);
     });
 
-    it('triggers subscriber notifications', () => {
+    it('triggers subscriber notifications', async () => {
       const listener = vi.fn();
       subscribe(listener);
       const versionBefore = getSnapshot();
 
       setCurrentEpoch('conv-1', 3);
 
-      expect(listener).toHaveBeenCalledOnce();
+      // Version increments synchronously
       expect(getSnapshot()).toBe(versionBefore + 1);
+      // Listener notification is deferred via queueMicrotask
+      await Promise.resolve();
+      expect(listener).toHaveBeenCalledOnce();
     });
 
     it('does not notify when value unchanged', () => {
@@ -182,6 +185,26 @@ describe('epoch-key-cache', () => {
       const versionBefore = getSnapshot();
 
       setCurrentEpoch('conv-1', 5);
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(getSnapshot()).toBe(versionBefore);
+    });
+
+    it('ignores lower epoch number (prevents downgrade)', () => {
+      setCurrentEpoch('conv-1', 5);
+
+      setCurrentEpoch('conv-1', 3);
+
+      expect(getCurrentEpoch('conv-1')).toBe(5);
+    });
+
+    it('does not notify when epoch would be downgraded', () => {
+      setCurrentEpoch('conv-1', 5);
+      const listener = vi.fn();
+      subscribe(listener);
+      const versionBefore = getSnapshot();
+
+      setCurrentEpoch('conv-1', 3);
 
       expect(listener).not.toHaveBeenCalled();
       expect(getSnapshot()).toBe(versionBefore);
@@ -306,6 +329,20 @@ describe('epoch-key-cache', () => {
 
       expect(getEpochKey('conv-1', 3)).toEqual(new Uint8Array([99]));
       expect(getEpochKey('conv-1', 2)).toEqual(new Uint8Array([88]));
+    });
+
+    it('does not downgrade current epoch from stale key chain', () => {
+      setCurrentEpoch('conv-1', 5);
+
+      const staleKeyChain = {
+        wraps: [{ epochNumber: 3, wrap: 'AAAA', confirmationHash: 'BBBB', visibleFromEpoch: 1 }],
+        chainLinks: [],
+        currentEpoch: 3,
+      };
+
+      processKeyChain('conv-1', staleKeyChain, new Uint8Array([1]));
+
+      expect(getCurrentEpoch('conv-1')).toBe(5);
     });
   });
 

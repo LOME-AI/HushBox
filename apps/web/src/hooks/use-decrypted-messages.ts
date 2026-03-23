@@ -67,7 +67,9 @@ export function useDecryptedMessages(
       return [];
     }
 
-    // Populate epoch key cache from key chain
+    // Populate epoch key cache from key chain.
+    // Safe to call in useMemo because epoch-key-cache defers listener
+    // notifications via queueMicrotask — no "setState during render" errors.
     processKeyChain(conversationId, keyChain, effectivePrivateKey);
 
     return messages.map((msg): Message => {

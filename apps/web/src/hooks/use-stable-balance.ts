@@ -5,13 +5,13 @@ import { useStability } from '@/providers/stability-provider';
  * Enhanced balance hook with stability tracking.
  * Returns isStable: true for trial users, or when balance loads for auth users.
  */
-export function useStableBalance(): ReturnType<typeof useBalance> & {
+export function useStableBalance(options?: { enabled?: boolean }): ReturnType<typeof useBalance> & {
   /** True when balance has stabilized (loaded or trial) */
   isStable: boolean;
   /** Safe display value that won't flash during loading */
   displayBalance: string;
 } {
-  const query = useBalance();
+  const query = useBalance(options);
   const { isBalanceStable } = useStability();
 
   return {

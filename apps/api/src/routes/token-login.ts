@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { users } from '@hushbox/db';
 import { ERROR_CODE_LOGIN_TOKEN_INVALID } from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
-import { redisGet, redisDel, redisSet } from '../lib/redis-registry.js';
+import { redisGet, redisSet } from '../lib/redis-registry.js';
 import { getSessionOptions, type SessionData } from '../lib/session.js';
 import type { AppEnv } from '../types.js';
 
@@ -24,8 +24,9 @@ export const tokenLoginRoute = new Hono<AppEnv>().post(
       return c.json(createErrorResponse(ERROR_CODE_LOGIN_TOKEN_INVALID), 401);
     }
 
-    // Delete immediately — one-time use
-    await redisDel(redis, 'billingLoginToken', token);
+    // Token expires via TTL (60s) — no immediate delete.
+    // This makes the endpoint idempotent: retries from StrictMode double-fire,
+    // page reloads, or network retries all succeed within the TTL window.
 
     // 2. Look up user in DB
     const [user] = await db
@@ -53,7 +54,16 @@ export const tokenLoginRoute = new Hono<AppEnv>().post(
       getSessionOptions(sessionSecret, isProduction)
     );
 
-    session.sessionId = crypto.randomUUID();
+    // Derive deterministic session ID from token so retries within the TTL
+    // window produce the same session (no orphaned sessionActive entries).
+    const hashBuffer = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(token)
+    );
+    const h = [...new Uint8Array(hashBuffer.slice(0, 16))]
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    session.sessionId = `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
     session.userId = user.id;
     session.email = user.email;
     session.username = user.username;

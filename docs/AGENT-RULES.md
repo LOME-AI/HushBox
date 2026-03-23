@@ -32,6 +32,12 @@ Don't perpetuate problems. If you encounter bad patterns, poor design, wrong log
 
 ---
 
+## E2E Test Debugging
+
+When E2E tests fail, **`e2e/report/` is the single source of truth** for debugging. Use `/debug-e2e` to investigate.
+
+---
+
 ## Test-Driven Development
 
 **Mandatory. No exceptions.**

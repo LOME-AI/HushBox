@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { LoginPage, SettingsPage, ChangePasswordModal } from '../pages';
 import {
   signUpAndVerify,
@@ -53,7 +53,7 @@ test.describe('Password Change', () => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
       await loginPage.loginAndWaitForChat(email, newPassword);
-      await expect(unauthenticatedPage).toHaveURL('/chat');
+      await unsettledExpect(unauthenticatedPage).toHaveURL('/chat', { timeout: 30_000 });
     });
   });
 });

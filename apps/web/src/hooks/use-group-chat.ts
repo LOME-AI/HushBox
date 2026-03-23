@@ -88,7 +88,8 @@ export function useGroupChat(
   return React.useMemo((): GroupChatProps | undefined => {
     if (!conversationId || !members || !callerId) return undefined;
 
-    const currentMember = members.find((m) => m.userId === callerId);
+    // Link guests pass callerId as member.id, not userId
+    const currentMember = members.find((m) => m.userId === callerId || m.id === callerId);
     if (!currentMember) return undefined;
 
     const epochNumber = getCurrentEpoch(conversationId);

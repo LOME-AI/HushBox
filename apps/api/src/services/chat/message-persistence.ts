@@ -5,6 +5,7 @@ import {
   insertEncryptedMessage,
   chargeAndTrackUsage,
   updateForkTip,
+  validateParentMessageId,
 } from './message-helpers.js';
 
 export interface SaveUserOnlyMessageParams {
@@ -34,6 +35,8 @@ export async function saveUserOnlyMessage(
   const { conversationId, senderId, messageId, content, parentMessageId, forkId } = params;
 
   return db.transaction(async (tx) => {
+    await validateParentMessageId(tx as unknown as Database, conversationId, parentMessageId);
+
     const { sequences, currentEpoch } = await assignSequenceNumbers(
       tx as unknown as Database,
       conversationId,
@@ -178,6 +181,8 @@ export async function saveChatTurn(
   }
 
   return db.transaction(async (tx) => {
+    await validateParentMessageId(tx as unknown as Database, conversationId, parentMessageId);
+
     const { sequences, currentEpoch } = await assignSequenceNumbers(
       tx as unknown as Database,
       conversationId,

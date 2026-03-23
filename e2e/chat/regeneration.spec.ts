@@ -311,6 +311,7 @@ test.describe('Group Chat Regeneration', () => {
 
     await test.step('wait for new AI response', async () => {
       await chatPage.waitForAIResponse();
+      await chatPage.waitForStreamComplete();
     });
   });
 });

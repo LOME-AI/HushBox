@@ -71,7 +71,7 @@ function BillingPortalPage(): React.JSX.Element {
         </Link>
         <ThemeToggle />
       </header>
-      <BillingContent />
+      <BillingContent billingOnly />
     </div>
   );
 }

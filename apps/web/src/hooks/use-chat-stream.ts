@@ -29,6 +29,7 @@ interface AuthenticatedStreamRequest {
   fundingSource: string;
   webSearchEnabled?: boolean;
   customInstructions?: string;
+  forkId?: string;
 }
 
 interface TrialStreamMessage {

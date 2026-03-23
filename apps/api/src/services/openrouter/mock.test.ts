@@ -254,12 +254,12 @@ describe('createMockOpenRouterClient', () => {
         return result;
       });
 
-      // Advance past per-token delay but NOT past initial thinking delay
-      await vi.advanceTimersByTimeAsync(500);
+      // Advance past per-token delay but NOT past initial thinking delay (100ms)
+      await vi.advanceTimersByTimeAsync(50);
       expect(resolved).toBe(false);
 
-      // Advance past the 1-second thinking delay
-      await vi.advanceTimersByTimeAsync(600);
+      // Advance past the 100ms thinking delay
+      await vi.advanceTimersByTimeAsync(60);
       expect(resolved).toBe(true);
 
       const first = await firstTokenPromise;

@@ -46,6 +46,20 @@ vi.mock('../components/chat/authenticated-chat-page.js', () => ({
   },
 }));
 
+const mockInvalidateQueries = vi.fn().mockResolvedValue(null);
+const stableQueryClient = { invalidateQueries: mockInvalidateQueries };
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => stableQueryClient,
+}));
+
+vi.mock('../hooks/chat.js', () => ({
+  chatKeys: {
+    all: ['chat'] as const,
+    conversations: () => ['chat', 'conversations'] as const,
+    conversation: (id: string) => ['chat', 'conversations', id] as const,
+  },
+}));
+
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => {
     const routeObject = {
@@ -145,6 +159,14 @@ describe('SharedConversationPage', () => {
       'data-has-private-key',
       'true'
     );
+  });
+
+  it('invalidates stale conversation query cache on mount', () => {
+    render(<SharedConversationPage />);
+
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['chat', 'conversations', 'conv-shared'],
+    });
   });
 
   it('renders error state when key derivation fails', () => {

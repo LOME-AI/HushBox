@@ -39,11 +39,140 @@ function getTransactionDisplay(tx: BalanceTransactionResponse): string {
   return SIMPLE_TRANSACTION_LABELS[tx.type] ?? tx.type;
 }
 
-export function BillingContent(): React.JSX.Element {
+function TransactionContent({
+  isLoading,
+  deposits,
+  page,
+}: {
+  readonly isLoading: boolean;
+  readonly deposits: readonly BalanceTransactionResponse[];
+  readonly page: number;
+}): React.JSX.Element {
+  if (isLoading) {
+    return (
+      <div className="flex h-full flex-col">
+        {Array.from({ length: TRANSACTIONS_PER_PAGE }).map((_, index) => (
+          <div
+            key={index}
+            data-testid="transaction-skeleton-row"
+            className="flex h-16 items-center justify-between"
+          >
+            <div className="space-y-2">
+              <div
+                data-testid="skeleton-block"
+                className="bg-muted h-5 w-40 animate-pulse rounded"
+              />
+              <div
+                data-testid="skeleton-block"
+                className="bg-muted h-4 w-32 animate-pulse rounded"
+              />
+            </div>
+            <div className="space-y-2 text-right">
+              <div
+                data-testid="skeleton-block"
+                className="bg-muted ml-auto h-5 w-16 animate-pulse rounded"
+              />
+              <div
+                data-testid="skeleton-block"
+                className="bg-muted ml-auto h-4 w-28 animate-pulse rounded"
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (deposits.length === 0 && page === 0) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-muted-foreground">No purchases yet</p>
+      </div>
+    );
+  }
+  return (
+    <div className="flex h-full flex-col">
+      {deposits.map((tx) => (
+        <div
+          key={tx.id}
+          data-testid="transaction-row"
+          className="flex h-16 items-center justify-between border-b last:border-0"
+        >
+          <div>
+            <p className="font-medium">{getTransactionDisplay(tx)}</p>
+            <p className="text-muted-foreground text-sm">
+              {new Date(tx.createdAt).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="font-medium text-green-600">
+              +${Number.parseFloat(tx.amount).toFixed(2)}
+            </p>
+            <p className="text-muted-foreground text-sm">
+              Balance: {formatBalance(tx.balanceAfter)}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BalanceCard({
+  displayBalance,
+  isStable,
+  paymentDisabled,
+  onAddCredits,
+}: {
+  readonly displayBalance: string;
+  readonly isStable: boolean;
+  readonly paymentDisabled: boolean;
+  readonly onAddCredits: () => void;
+}): React.JSX.Element {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-[#ec4755]">Current Balance</CardTitle>
+        <CardDescription>Your available credits for AI model usage</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between">
+          <div>
+            {isStable ? (
+              <p data-testid="balance-display" className="text-4xl font-bold">
+                {formatBalance(displayBalance)}
+              </p>
+            ) : (
+              <div className="bg-muted h-10 w-48 animate-pulse rounded" />
+            )}
+          </div>
+          {paymentDisabled ? (
+            <ManageOnlineButton />
+          ) : (
+            <Button onClick={onAddCredits} size="lg">
+              Add Credits
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function BillingContent({ billingOnly }: { billingOnly?: boolean } = {}): React.JSX.Element {
   const paymentDisabled = isPaymentDisabled();
   const [showPaymentModal, setShowPaymentModal] = React.useState(false);
   const [page, setPage] = React.useState(0);
-  const { displayBalance, isStable: isBalanceStable, refetch: refetchBalance } = useStableBalance();
+  const {
+    displayBalance,
+    isStable: isBalanceStable,
+    refetch: refetchBalance,
+  } = useStableBalance(billingOnly ? { enabled: true } : undefined);
   const { data: transactionsData, isLoading: transactionsLoading } = useTransactions({
     limit: TRANSACTIONS_PER_PAGE,
     offset: page * TRANSACTIONS_PER_PAGE,
@@ -58,116 +187,17 @@ export function BillingContent(): React.JSX.Element {
   const hasNextPage = Boolean(transactionsData?.nextCursor);
   const hasPreviousPage = page > 0;
 
-  function renderTransactionContent(): React.JSX.Element {
-    if (transactionsLoading) {
-      return (
-        <div className="flex h-full flex-col">
-          {Array.from({ length: TRANSACTIONS_PER_PAGE }).map((_, index) => (
-            <div
-              key={index}
-              data-testid="transaction-skeleton-row"
-              className="flex h-16 items-center justify-between"
-            >
-              <div className="space-y-2">
-                <div
-                  data-testid="skeleton-block"
-                  className="bg-muted h-5 w-40 animate-pulse rounded"
-                />
-                <div
-                  data-testid="skeleton-block"
-                  className="bg-muted h-4 w-32 animate-pulse rounded"
-                />
-              </div>
-              <div className="space-y-2 text-right">
-                <div
-                  data-testid="skeleton-block"
-                  className="bg-muted ml-auto h-5 w-16 animate-pulse rounded"
-                />
-                <div
-                  data-testid="skeleton-block"
-                  className="bg-muted ml-auto h-4 w-28 animate-pulse rounded"
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      );
-    }
-    if (deposits.length === 0 && page === 0) {
-      return (
-        <div className="flex h-full items-center justify-center">
-          <p className="text-muted-foreground">No purchases yet</p>
-        </div>
-      );
-    }
-    return (
-      <div className="flex h-full flex-col">
-        {deposits.map((tx) => (
-          <div
-            key={tx.id}
-            data-testid="transaction-row"
-            className="flex h-16 items-center justify-between border-b last:border-0"
-          >
-            <div>
-              <p className="font-medium">{getTransactionDisplay(tx)}</p>
-              <p className="text-muted-foreground text-sm">
-                {new Date(tx.createdAt).toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="font-medium text-green-600">
-                +${Number.parseFloat(tx.amount).toFixed(2)}
-              </p>
-              <p className="text-muted-foreground text-sm">
-                Balance: {formatBalance(tx.balanceAfter)}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
   return (
     <>
       <div className="container mx-auto max-w-4xl flex-1 space-y-6 overflow-y-auto p-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-[#ec4755]">Current Balance</CardTitle>
-            <CardDescription>Your available credits for AI model usage</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <div>
-                {isBalanceStable ? (
-                  <p data-testid="balance-display" className="text-4xl font-bold">
-                    {formatBalance(displayBalance)}
-                  </p>
-                ) : (
-                  <div className="bg-muted h-10 w-48 animate-pulse rounded" />
-                )}
-              </div>
-              {paymentDisabled ? (
-                <ManageOnlineButton />
-              ) : (
-                <Button
-                  onClick={() => {
-                    setShowPaymentModal(true);
-                  }}
-                  size="lg"
-                >
-                  Add Credits
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        <BalanceCard
+          displayBalance={displayBalance}
+          isStable={isBalanceStable}
+          paymentDisabled={paymentDisabled}
+          onAddCredits={() => {
+            setShowPaymentModal(true);
+          }}
+        />
 
         <Card>
           <CardHeader>
@@ -176,7 +206,7 @@ export function BillingContent(): React.JSX.Element {
           </CardHeader>
           <CardContent>
             <div data-testid="transaction-list-container" className="h-[320px]">
-              {renderTransactionContent()}
+              <TransactionContent isLoading={transactionsLoading} deposits={deposits} page={page} />
             </div>
             {(deposits.length > 0 || page > 0) && (
               <div className="mt-4 flex items-center justify-between">

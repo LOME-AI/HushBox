@@ -10,7 +10,7 @@ export * from './env-types.js';
  *
  * Each var has:
  * - `to`: Default destinations for this var
- * - Per-mode values: `Mode.Development`, `Mode.CiVitest`, `Mode.CiE2E`, `Mode.Production`
+ * - Per-mode values: `Mode.Development`, `Mode.CiVitest`, `Mode.E2E`, `Mode.CiE2E`, `Mode.Production`
  *
  * Value types:
  * - `'literal'`                    - Use this exact string
@@ -32,7 +32,8 @@ export const envConfig = {
       to: [Destination.Backend, Destination.Scripts],
     },
     [Mode.CiVitest]: ref(Mode.Development), // Backend only (uses default `to`)
-    [Mode.CiE2E]: ref(Mode.Development), // Backend only (uses default `to`)
+    [Mode.E2E]: ref(Mode.Development), // Backend only (uses default `to`)
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: secret('DATABASE_URL'), // Backend only (uses default `to`)
   },
 
@@ -41,7 +42,8 @@ export const envConfig = {
     to: [Destination.Backend],
     [Mode.Development]: 'development',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: 'production',
   },
 
@@ -49,7 +51,8 @@ export const envConfig = {
     to: [Destination.Backend],
     [Mode.Development]: 'http://localhost:8787',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: 'https://api.hushbox.ai',
   },
 
@@ -57,7 +60,8 @@ export const envConfig = {
     to: [Destination.Backend],
     [Mode.Development]: 'http://localhost:5173',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: 'https://hushbox.ai',
   },
 
@@ -65,18 +69,21 @@ export const envConfig = {
     to: [Destination.Backend],
     [Mode.Development]: 'http://localhost:4173',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
   },
 
   CI: {
     to: [Destination.Backend],
     [Mode.CiVitest]: 'true',
-    [Mode.CiE2E]: ref(Mode.CiVitest),
+    [Mode.CiE2E]: 'true',
+    // NOT in E2E — local e2e is not CI
   },
 
   E2E: {
     to: [Destination.Backend],
-    [Mode.CiE2E]: 'true',
+    [Mode.E2E]: 'true',
+    [Mode.CiE2E]: ref(Mode.E2E),
   },
 
   // Redis (Upstash in prod, SRH locally)
@@ -84,7 +91,8 @@ export const envConfig = {
     to: [Destination.Backend],
     [Mode.Development]: 'http://localhost:8079',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: secret('UPSTASH_REDIS_REST_URL'),
   },
 
@@ -92,7 +100,8 @@ export const envConfig = {
     to: [Destination.Backend],
     [Mode.Development]: 'local_dev_token',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: secret('UPSTASH_REDIS_REST_TOKEN'),
   },
 
@@ -101,7 +110,8 @@ export const envConfig = {
     to: [Destination.Backend],
     [Mode.Development]: 'dev-opaque-master-secret-32-bytes-minimum',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: secret('OPAQUE_MASTER_SECRET'),
   },
 
@@ -110,7 +120,8 @@ export const envConfig = {
     to: [Destination.Backend],
     [Mode.Development]: 'dev-iron-session-secret-32-bytes-min',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: secret('IRON_SESSION_SECRET'),
   },
 
@@ -118,7 +129,8 @@ export const envConfig = {
     to: [Destination.Backend],
     [Mode.Development]: 'dev-local',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: secret('APP_VERSION'),
   },
 
@@ -145,7 +157,8 @@ export const envConfig = {
     [Mode.Development]:
       'ewogICJwcm9qZWN0X2luZm8iOiB7CiAgICAicHJvamVjdF9udW1iZXIiOiAiMTAwNjQwMjYyNjAzOSIsCiAgICAicHJvamVjdF9pZCI6ICJodXNoYm94LWxvY2FsZGV2IiwKICAgICJzdG9yYWdlX2J1Y2tldCI6ICJodXNoYm94LWxvY2FsZGV2LmZpcmViYXNlc3RvcmFnZS5hcHAiCiAgfSwKICAiY2xpZW50IjogWwogICAgewogICAgICAiY2xpZW50X2luZm8iOiB7CiAgICAgICAgIm1vYmlsZXNka19hcHBfaWQiOiAiMToxMDA2NDAyNjI2MDM5OmFuZHJvaWQ6MjQ1MTRiMmRlMDEyY2MxNWEwY2VmMiIsCiAgICAgICAgImFuZHJvaWRfY2xpZW50X2luZm8iOiB7CiAgICAgICAgICAicGFja2FnZV9uYW1lIjogImFpLmh1c2hib3guYXBwIgogICAgICAgIH0KICAgICAgfSwKICAgICAgIm9hdXRoX2NsaWVudCI6IFtdLAogICAgICAiYXBpX2tleSI6IFsKICAgICAgICB7CiAgICAgICAgICAiY3VycmVudF9rZXkiOiAiQUl6YVN5QzlobVR2Rm95V05GZ0VYdDV3dW51TTlaSkRvSFdsYkVrIgogICAgICAgIH0KICAgICAgXSwKICAgICAgInNlcnZpY2VzIjogewogICAgICAgICJhcHBpbnZpdGVfc2VydmljZSI6IHsKICAgICAgICAgICJvdGhlcl9wbGF0Zm9ybV9vYXV0aF9jbGllbnQiOiBbXQogICAgICAgIH0KICAgICAgfQogICAgfQogIF0sCiAgImNvbmZpZ3VyYXRpb25fdmVyc2lvbiI6ICIxIgp9',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: secret('GOOGLE_SERVICES_JSON_BASE64'),
   },
 
@@ -153,19 +166,20 @@ export const envConfig = {
     to: [Destination.Backend],
     [Mode.CiVitest]: secret('OPENROUTER_API_KEY_RESTRICTED'),
     [Mode.Production]: secret('OPENROUTER_API_KEY_PRODUCTION'),
-    // NOT in ciE2E - E2E tests don't need OpenRouter
+    // NOT in e2e - E2E tests don't need OpenRouter
   },
 
   HELCIM_API_TOKEN: {
     to: [Destination.Backend],
     [Mode.CiE2E]: secret('HELCIM_API_TOKEN_SANDBOX'),
     [Mode.Production]: secret('HELCIM_API_TOKEN_PRODUCTION'),
-    // NOT in ciVitest - unit tests don't need Helcim
+    // NOT in ciVitest or e2e - only CI e2e and production need real Helcim
   },
 
   HELCIM_WEBHOOK_VERIFIER: {
     to: [Destination.Backend],
     [Mode.Development]: 'bW9jay13ZWJob29rLXZlcmlmaWVyLXNlY3JldC0zMmI=', // Mock verifier for local webhook testing
+    [Mode.E2E]: ref(Mode.Development),
     [Mode.CiE2E]: secret('HELCIM_WEBHOOK_VERIFIER_SANDBOX'),
     [Mode.Production]: secret('HELCIM_WEBHOOK_VERIFIER_PRODUCTION'),
   },
@@ -175,7 +189,8 @@ export const envConfig = {
     to: [Destination.Frontend],
     [Mode.Development]: 'http://localhost:8787',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: 'https://api.hushbox.ai',
   },
 
@@ -183,6 +198,7 @@ export const envConfig = {
     to: [Destination.Frontend],
     [Mode.CiE2E]: secret('VITE_HELCIM_JS_TOKEN_SANDBOX'),
     [Mode.Production]: secret('VITE_HELCIM_JS_TOKEN_PRODUCTION'),
+    // NOT in e2e - only CI e2e and production need real Helcim
   },
 
 
@@ -190,7 +206,8 @@ export const envConfig = {
     to: [Destination.Frontend],
     [Mode.Development]: 'web',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: 'web', // Mobile builds override via CI env
   },
 
@@ -198,19 +215,22 @@ export const envConfig = {
     to: [Destination.Frontend],
     [Mode.Development]: 'dev-local',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
     [Mode.Production]: 'set-by-ci', // All BUILD_VARIANTS override this; literal documents intent
   },
 
   VITE_CI: {
     to: [Destination.Frontend],
     [Mode.CiVitest]: 'true',
-    [Mode.CiE2E]: ref(Mode.CiVitest),
+    [Mode.CiE2E]: 'true',
+    // NOT in E2E — local e2e is not CI
   },
 
   VITE_E2E: {
     to: [Destination.Frontend],
-    [Mode.CiE2E]: 'true',
+    [Mode.E2E]: 'true',
+    [Mode.CiE2E]: ref(Mode.E2E),
   },
 
   // Scripts only
@@ -218,7 +238,8 @@ export const envConfig = {
     to: [Destination.Scripts],
     [Mode.Development]: 'postgresql://postgres:postgres@localhost:5432/hushbox',
     [Mode.CiVitest]: ref(Mode.Development),
-    [Mode.CiE2E]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
   },
 } as const satisfies Record<string, VariableConfig>;
 

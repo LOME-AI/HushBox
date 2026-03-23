@@ -13,6 +13,7 @@ import type { MemberPrivilege } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { resolveLinkGuest } from './resolve-link-guest.js';
+import { LINK_PUBLIC_KEY_HEADER } from './constants.js';
 
 interface PrivilegeOptions {
   /** When true, allows link guests (via x-link-public-key header) when no session user is present. */
@@ -149,15 +150,7 @@ export function requirePrivilege(
     const user = c.get('user');
 
     if (!user) {
-      const fallback = await tryLinkGuestFallback({
-        c,
-        minLevel,
-        includeOwnerId,
-        allowLinkGuest,
-        next,
-      });
-      if (fallback !== null) return fallback;
-      return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
+      return handleUnauthenticated(c, { minLevel, includeOwnerId, allowLinkGuest, next });
     }
 
     const db = c.get('db');
@@ -166,33 +159,95 @@ export function requirePrivilege(
       return c.json(createErrorResponse(ERROR_CODE_VALIDATION), 400);
     }
 
-    const member = await lookupMember(db, conversationId, user.id);
-
-    if (!member) {
-      const fallback = await tryLinkGuestFallback({
-        c,
-        minLevel,
-        includeOwnerId,
-        allowLinkGuest,
-        next,
-      });
-      if (fallback !== null) return fallback;
-      return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
+    // Link guest and membership are separate systems. When a link public key
+    // header is present, always resolve as link guest — never fall through
+    // to user membership lookup.
+    const hasLinkKey = Boolean(
+      c.req.header(LINK_PUBLIC_KEY_HEADER) ?? c.req.query('linkPublicKey')
+    );
+    if (hasLinkKey && allowLinkGuest) {
+      return handleLinkGuestOnly(c, { minLevel, includeOwnerId, allowLinkGuest, next });
     }
 
-    if (getPrivilegeLevel(member.privilege) < getPrivilegeLevel(minLevel)) {
-      return c.json(createErrorResponse(ERROR_CODE_PRIVILEGE_INSUFFICIENT), 403);
-    }
-
-    c.set('callerId', user.id);
-    c.set('member', {
-      id: member.id,
-      privilege: member.privilege,
-      visibleFromEpoch: member.visibleFromEpoch,
+    return handleAuthenticatedUser(c, {
+      db,
+      conversationId,
+      user,
+      minLevel,
+      includeOwnerId,
+      allowLinkGuest,
+      next,
     });
-
-    return finalizeMemberContext({ c, db, conversationId, includeOwnerId, next });
   };
+}
+
+/** Handles the case where no session user exists. */
+async function handleUnauthenticated(
+  c: Context<AppEnv>,
+  options: Omit<LinkGuestFallbackOptions, 'c'>
+): Promise<Response | undefined> {
+  const fallback = await tryLinkGuestFallback({ c, ...options });
+  if (fallback !== null) return fallback;
+  return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
+}
+
+/** Handles the link-key-first path (link key present, allowLinkGuest true). */
+async function handleLinkGuestOnly(
+  c: Context<AppEnv>,
+  options: Omit<LinkGuestFallbackOptions, 'c'>
+): Promise<Response | undefined> {
+  const fallback = await tryLinkGuestFallback({ c, ...options });
+  if (fallback !== null) return fallback;
+  return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
+}
+
+interface AuthenticatedUserOptions {
+  db: Database;
+  conversationId: string;
+  user: { id: string };
+  minLevel: MemberPrivilege;
+  includeOwnerId: boolean;
+  allowLinkGuest: boolean;
+  next: Next;
+}
+
+/** Handles the authenticated-user membership path. */
+async function handleAuthenticatedUser(
+  c: Context<AppEnv>,
+  options: AuthenticatedUserOptions
+): Promise<Response | undefined> {
+  const member = await lookupMember(options.db, options.conversationId, options.user.id);
+
+  if (!member) {
+    const fallback = await tryLinkGuestFallback({
+      c,
+      minLevel: options.minLevel,
+      includeOwnerId: options.includeOwnerId,
+      allowLinkGuest: options.allowLinkGuest,
+      next: options.next,
+    });
+    if (fallback !== null) return fallback;
+    return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
+  }
+
+  if (getPrivilegeLevel(member.privilege) < getPrivilegeLevel(options.minLevel)) {
+    return c.json(createErrorResponse(ERROR_CODE_PRIVILEGE_INSUFFICIENT), 403);
+  }
+
+  c.set('callerId', options.user.id);
+  c.set('member', {
+    id: member.id,
+    privilege: member.privilege,
+    visibleFromEpoch: member.visibleFromEpoch,
+  });
+
+  return finalizeMemberContext({
+    c,
+    db: options.db,
+    conversationId: options.conversationId,
+    includeOwnerId: options.includeOwnerId,
+    next: options.next,
+  });
 }
 
 interface FinalizeMemberContextOptions {

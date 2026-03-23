@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@10.26.0",
   "scripts": {
-    "dev": "./scripts/with-env tsx scripts/dev.ts",
+    "dev": "pnpm generate:env && ./scripts/with-env tsx scripts/dev.ts",
     "dev:clean": "./scripts/with-env sh -c 'lsof -t -i:${HB_VITE_PORT} -i:${HB_API_PORT} | xargs -r kill -9 || true'",
     "dev:restart": "pnpm dev:clean && pnpm dev",
     "build": "turbo build",
@@ -26,7 +26,7 @@
     "test:watch": "./scripts/with-env vitest",
     "test:watch:ui": "./scripts/with-env vitest --ui",
     "test:coverage": "./scripts/with-env turbo test:coverage",
-    "preview": "./scripts/with-env sh -c 'pnpm --filter @hushbox/web build --mode development && pnpm --filter @hushbox/api dev & pnpm --filter @hushbox/web preview --port ${HB_PREVIEW_PORT} --open'",
+    "preview": "pnpm generate:env && ./scripts/with-env sh -c 'pnpm --filter @hushbox/web build --mode development && pnpm --filter @hushbox/api dev & pnpm --filter @hushbox/web preview --port ${HB_PREVIEW_PORT} --open'",
     "open:preview": "./scripts/with-env sh -c 'xdg-open http://localhost:${HB_PREVIEW_PORT} 2>/dev/null || open http://localhost:${HB_PREVIEW_PORT}'",
     "e2e:kill-servers": "./scripts/with-env sh -c 'lsof -t -i:${HB_PREVIEW_PORT} -i:${HB_API_PORT} | xargs -r kill -9 2>/dev/null || true'",
     "e2e": "pnpm e2e:kill-servers && ./scripts/with-env playwright test",

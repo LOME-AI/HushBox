@@ -26,7 +26,9 @@ export class MemberSidebarPage {
   // --- Navigation ---
 
   async openViaFacepile(): Promise<void> {
-    await this.facepile.click();
+    const isExpanded = await this.searchInput.isVisible().catch(() => false);
+    if (!isExpanded) await this.facepile.click();
+    await this.waitForLoaded();
   }
 
   async waitForLoaded(timeout = 10_000): Promise<void> {
@@ -178,5 +180,19 @@ export class MemberSidebarPage {
     const testId = await this.findMemberByUsername(username).getAttribute('data-testid');
     if (!testId) throw new Error(`Member row for "${username}" not found`);
     return testId.replace('member-item-', '');
+  }
+
+  /**
+   * Find a link row by its visible display name and return the link ID.
+   * Waits for the link to appear in the sidebar (handles re-render delays).
+   */
+  async getLinkIdByDisplayName(displayName: string): Promise<string> {
+    const linkRow = this.content
+      .locator('[data-testid^="link-item-"]')
+      .filter({ hasText: displayName });
+    await expect(linkRow).toBeVisible({ timeout: 10_000 });
+    const testId = await linkRow.getAttribute('data-testid');
+    if (!testId) throw new Error(`Link row for "${displayName}" has no data-testid`);
+    return testId.replace('link-item-', '');
   }
 }

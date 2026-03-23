@@ -1,6 +1,6 @@
 import { isMobileWidth } from '@hushbox/shared';
 
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage, DocumentPanelPage } from '../pages/index.js';
 
 /** 15-line Python function — exactly meets MIN_LINES_FOR_DOCUMENT threshold */
@@ -77,12 +77,11 @@ test.describe('Document Panel', () => {
 
     await test.step('copy button shows feedback', async () => {
       // Copy feedback is a UI timer transition, not an async query — opt out of settled
-      const unsettled = expect.configure({ settledAware: false });
       await documentPanel.copyButton().click();
-      await unsettled(documentPanel.copiedButton()).toBeVisible();
+      await unsettledExpect(documentPanel.copiedButton()).toBeVisible();
 
       // Wait for feedback to revert (2000ms timer + buffer)
-      await unsettled(documentPanel.copyButton()).toBeVisible({ timeout: 3000 });
+      await unsettledExpect(documentPanel.copyButton()).toBeVisible({ timeout: 3000 });
     });
 
     await test.step('download button triggers file download', async () => {

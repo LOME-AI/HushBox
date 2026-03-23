@@ -2,13 +2,22 @@ import { describe, it, expect } from 'vitest';
 import { buildPlaywrightReport } from './e2e-reporter.js';
 
 // Minimal stubs matching Playwright's Reporter API shapes
+interface StubStep {
+  title: string;
+  duration: number;
+  category?: string;
+  steps: StubStep[];
+  error?: { message?: string };
+}
+
 interface StubTestResult {
   status: 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted';
   retry: number;
   duration: number;
+  startTime: Date;
   errors: { message?: string; stack?: string }[];
-  steps: { title: string; duration: number }[];
-  attachments: { name: string; path?: string; contentType: string }[];
+  steps: StubStep[];
+  attachments: { name: string; path?: string; body?: Buffer; contentType: string }[];
 }
 
 interface StubTestCase {
@@ -32,6 +41,7 @@ function createStubResult(overrides: Partial<StubTestResult> = {}): StubTestResu
     status: 'passed',
     retry: 0,
     duration: 1000,
+    startTime: new Date('2026-01-01T00:00:00Z'),
     errors: [],
     steps: [],
     attachments: [],
@@ -266,6 +276,162 @@ describe('e2e-reporter', () => {
 
       // Navigate: projectSuite → fileSuite → specs
       expect(result.suites[0]!.suites![0]!.specs![0]!.tests![0]!.status).toBe('flaky');
+    });
+
+    it('includes test location line number', () => {
+      const test = createStubTest({
+        file: `${process.cwd()}/e2e/chat/chat.spec.ts`,
+      });
+      // Override line to a specific value
+      test.location.line = 42;
+      const fileSuite = createStubSuite({
+        type: 'file',
+        tests: [test],
+        projectName: 'chromium',
+      });
+      const projectSuite = createStubSuite({
+        type: 'project',
+        suites: [fileSuite],
+        projectName: 'chromium',
+      });
+      const rootSuite = createStubSuite({
+        title: '',
+        type: 'root',
+        suites: [projectSuite],
+      });
+
+      const result = buildPlaywrightReport(
+        rootSuite as unknown as Parameters<typeof buildPlaywrightReport>[0],
+        { status: 'passed', startTime: new Date(), duration: 1000 }
+      );
+
+      expect(result.suites[0]!.suites![0]!.specs![0]!.line).toBe(42);
+    });
+
+    it('maps steps recursively with category and error', () => {
+      const test = createStubTest({
+        file: `${process.cwd()}/e2e/chat/chat.spec.ts`,
+        results: [
+          createStubResult({
+            steps: [
+              {
+                title: 'Send message',
+                duration: 500,
+                category: 'test.step',
+                steps: [{ title: 'page.fill', duration: 100, category: 'pw:api', steps: [] }],
+              },
+              {
+                title: 'expect(locator).toBeVisible',
+                duration: 10_000,
+                category: 'expect',
+                steps: [],
+                error: { message: 'Timeout' },
+              },
+            ],
+          }),
+        ],
+      });
+      const fileSuite = createStubSuite({
+        type: 'file',
+        tests: [test],
+        projectName: 'chromium',
+      });
+      const projectSuite = createStubSuite({
+        type: 'project',
+        suites: [fileSuite],
+        projectName: 'chromium',
+      });
+      const rootSuite = createStubSuite({
+        title: '',
+        type: 'root',
+        suites: [projectSuite],
+      });
+
+      const result = buildPlaywrightReport(
+        rootSuite as unknown as Parameters<typeof buildPlaywrightReport>[0],
+        { status: 'failed', startTime: new Date(), duration: 10_000 }
+      );
+
+      const steps = result.suites[0]!.suites![0]!.specs![0]!.tests![0]!.results[0]!.steps!;
+      expect(steps).toHaveLength(2);
+      expect(steps[0]!.category).toBe('test.step');
+      expect(steps[0]!.steps).toHaveLength(1);
+      expect(steps[0]!.steps![0]!.title).toBe('page.fill');
+      expect(steps[1]!.error).toBe('Timeout');
+    });
+
+    it('maps body attachments to string', () => {
+      const test = createStubTest({
+        file: `${process.cwd()}/e2e/chat/chat.spec.ts`,
+        results: [
+          createStubResult({
+            attachments: [
+              {
+                name: 'console-errors',
+                body: Buffer.from('TypeError: x is not a function'),
+                contentType: 'text/plain',
+              },
+            ],
+          }),
+        ],
+      });
+      const fileSuite = createStubSuite({
+        type: 'file',
+        tests: [test],
+        projectName: 'chromium',
+      });
+      const projectSuite = createStubSuite({
+        type: 'project',
+        suites: [fileSuite],
+        projectName: 'chromium',
+      });
+      const rootSuite = createStubSuite({
+        title: '',
+        type: 'root',
+        suites: [projectSuite],
+      });
+
+      const result = buildPlaywrightReport(
+        rootSuite as unknown as Parameters<typeof buildPlaywrightReport>[0],
+        { status: 'passed', startTime: new Date(), duration: 1000 }
+      );
+
+      const attachments =
+        result.suites[0]!.suites![0]!.specs![0]!.tests![0]!.results[0]!.attachments!;
+      expect(attachments[0]!.body).toBe('TypeError: x is not a function');
+      expect(attachments[0]!.contentType).toBe('text/plain');
+    });
+
+    it('includes startTime on test results', () => {
+      const startTime = new Date('2026-03-21T12:00:00Z');
+      const test = createStubTest({
+        file: `${process.cwd()}/e2e/chat/chat.spec.ts`,
+        results: [createStubResult({ startTime })],
+      });
+      const fileSuite = createStubSuite({
+        type: 'file',
+        tests: [test],
+        projectName: 'chromium',
+      });
+      const projectSuite = createStubSuite({
+        type: 'project',
+        suites: [fileSuite],
+        projectName: 'chromium',
+      });
+      const rootSuite = createStubSuite({
+        title: '',
+        type: 'root',
+        suites: [projectSuite],
+      });
+
+      const result = buildPlaywrightReport(
+        rootSuite as unknown as Parameters<typeof buildPlaywrightReport>[0],
+        { status: 'passed', startTime: new Date(), duration: 1000 }
+      );
+
+      expect(result.suites[0]!.suites![0]!.specs![0]!.tests![0]!.results[0]!.startTime).toBe(
+        '2026-03-21T12:00:00.000Z'
+      );
     });
   });
 });

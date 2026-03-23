@@ -521,7 +521,7 @@ describe('requirePrivilege middleware', () => {
       expect(res.status).toBe(401);
     });
 
-    it('falls back to link guest when user is authenticated but not a member and allowLinkGuest is true', async () => {
+    it('resolves as link guest when link key is present and allowLinkGuest is true', async () => {
       const linkMemberRow = { id: TEST_MEMBER_ID, privilege: 'write', visibleFromEpoch: 2 };
 
       /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
@@ -534,14 +534,10 @@ describe('requirePrivilege middleware', () => {
                 then: (resolve: (v: unknown[]) => unknown) => {
                   queryCount++;
                   if (queryCount === 1) {
-                    // First query: conversationMembers for user — not found
-                    return Promise.resolve(resolve([]));
-                  }
-                  if (queryCount === 2) {
-                    // Second query: sharedLinks (findActiveSharedLink)
+                    // First query: sharedLinks (findActiveSharedLink)
                     return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
                   }
-                  // Third query: conversationMembers by linkId
+                  // Second query: conversationMembers by linkId
                   return Promise.resolve(resolve([linkMemberRow]));
                 },
               }),
@@ -635,7 +631,7 @@ describe('requirePrivilege middleware', () => {
       expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
-    it('returns 403 when link guest fallback resolves but privilege insufficient', async () => {
+    it('returns 403 when link guest resolves but privilege insufficient', async () => {
       const linkMemberRow = { id: TEST_MEMBER_ID, privilege: 'read', visibleFromEpoch: 1 };
 
       /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
@@ -648,14 +644,10 @@ describe('requirePrivilege middleware', () => {
                 then: (resolve: (v: unknown[]) => unknown) => {
                   queryCount++;
                   if (queryCount === 1) {
-                    // First query: conversationMembers for user — not found
-                    return Promise.resolve(resolve([]));
-                  }
-                  if (queryCount === 2) {
-                    // Second query: sharedLinks
+                    // First query: sharedLinks (findActiveSharedLink)
                     return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
                   }
-                  // Third query: conversationMembers by linkId
+                  // Second query: conversationMembers by linkId
                   return Promise.resolve(resolve([linkMemberRow]));
                 },
               }),
@@ -689,8 +681,32 @@ describe('requirePrivilege middleware', () => {
       expect(body.code).toBe('PRIVILEGE_INSUFFICIENT');
     });
 
-    it('prefers session user over link guest when both are present', async () => {
-      const userMemberRow = { id: 'user-member-id', privilege: 'admin', visibleFromEpoch: 1 };
+    it('prioritizes link guest over session user when link key is present', async () => {
+      const linkMemberRow = { id: TEST_MEMBER_ID, privilege: 'write', visibleFromEpoch: 2 };
+
+      /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
+      let queryCount = 0;
+      const mockDb = {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              limit: () => ({
+                then: (resolve: (v: unknown[]) => unknown) => {
+                  queryCount++;
+                  if (queryCount === 1) {
+                    // First query: sharedLinks (findActiveSharedLink)
+                    return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
+                  }
+                  // Second query: conversationMembers by linkId
+                  return Promise.resolve(resolve([linkMemberRow]));
+                },
+              }),
+            }),
+          }),
+        }),
+      };
+      /* eslint-enable unicorn/no-thenable */
+
       const app = new Hono<AppEnv>();
 
       app.use('*', async (c, next) => {
@@ -698,14 +714,14 @@ describe('requirePrivilege middleware', () => {
         c.set('session', createMockSession());
         c.set('sessionData', createMockSession());
         c.set('linkGuest', null);
-        c.set('db', createMockDb(userMemberRow) as AppEnv['Variables']['db']);
+        c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
         await next();
       });
 
       app.get('/:conversationId/test', requirePrivilege('read', { allowLinkGuest: true }), (c) => {
         const member = c.get('member');
         const linkGuest = c.get('linkGuest');
-        return c.json({ member, linkGuest }, 200);
+        return c.json({ member, linkGuest: linkGuest ? { linkId: linkGuest.linkId } : null }, 200);
       });
 
       const res = await app.request(`/${TEST_CONVERSATION_ID}/test`, {
@@ -715,11 +731,11 @@ describe('requirePrivilege middleware', () => {
       expect(res.status).toBe(200);
       const body = await res.json<{
         member: { id: string; privilege: string };
-        linkGuest: unknown;
+        linkGuest: { linkId: string } | null;
       }>();
-      // Session user path should be used, not link guest
-      expect(body.member.id).toBe('user-member-id');
-      expect(body.linkGuest).toBeNull();
+      // Link guest path should be used when link key is present
+      expect(body.member.id).toBe(TEST_MEMBER_ID);
+      expect(body.linkGuest).toEqual({ linkId: TEST_LINK_ID });
     });
   });
 
@@ -861,7 +877,7 @@ describe('requirePrivilege middleware', () => {
       expect(body.conversationOwnerId).toBeUndefined();
     });
 
-    it('sets conversationOwnerId when user-not-member link guest fallback succeeds with includeOwnerId', async () => {
+    it('sets conversationOwnerId when link key present and link guest resolves with includeOwnerId', async () => {
       const linkMemberRow = { id: TEST_MEMBER_ID, privilege: 'write', visibleFromEpoch: 2 };
 
       /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
@@ -874,18 +890,14 @@ describe('requirePrivilege middleware', () => {
                 then: (resolve: (v: unknown[]) => unknown) => {
                   queryCount++;
                   if (queryCount === 1) {
-                    // First query: conversationMembers for user — not found
-                    return Promise.resolve(resolve([]));
-                  }
-                  if (queryCount === 2) {
-                    // Second query: sharedLinks (findActiveSharedLink)
+                    // First query: sharedLinks (findActiveSharedLink)
                     return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
                   }
-                  if (queryCount === 3) {
-                    // Third query: conversationMembers by linkId
+                  if (queryCount === 2) {
+                    // Second query: conversationMembers by linkId
                     return Promise.resolve(resolve([linkMemberRow]));
                   }
-                  // Fourth query: conversations (for ownerId)
+                  // Third query: conversations (for ownerId)
                   return Promise.resolve(resolve([{ userId: TEST_OWNER_USER_ID }]));
                 },
               }),

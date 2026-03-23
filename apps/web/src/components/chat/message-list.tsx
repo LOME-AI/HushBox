@@ -11,6 +11,7 @@ import {
   type MessageContext,
 } from '@/lib/message-actions';
 import type { MemberPrivilege } from '@hushbox/shared';
+import { env } from '@/lib/env';
 
 interface MemberInfo {
   id: string;
@@ -177,6 +178,10 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
           data={groups}
           followOutput={followOutput}
           atBottomThreshold={50}
+          {...(env.isE2E && {
+            initialItemCount: groups.length,
+            increaseViewportBy: { top: 999_999, bottom: 999_999 },
+          })}
           itemContent={(_index, group) => {
             const firstMessage = group.messages[0];
             if (!firstMessage) return null;
@@ -206,6 +211,10 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
         data={messages}
         followOutput={followOutput}
         atBottomThreshold={50}
+        {...(env.isE2E && {
+          initialItemCount: messages.length,
+          increaseViewportBy: { top: 999_999, bottom: 999_999 },
+        })}
         itemContent={(_index, message) => {
           const isStreamingMsg = streamingMessageIds?.has(message.id) ?? false;
           const isErrorMsg = message.id === errorMessageId || message.errorCode !== undefined;

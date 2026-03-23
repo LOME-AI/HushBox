@@ -20,6 +20,29 @@ const cache = new Map<string, Uint8Array>();
 const currentEpochMap = new Map<string, number>();
 const listeners = new Set<() => void>();
 let version = 0;
+let notificationPending = false;
+
+/**
+ * Defer listener notifications to the next microtask.
+ *
+ * processKeyChain() is called inside React useMemo (during render) so that
+ * decrypted keys are available in the same render pass. Synchronous listener
+ * calls would trigger useSyncExternalStore subscribers (other components) to
+ * re-render mid-render, causing React's "Cannot update a component while
+ * rendering a different component" error.
+ *
+ * queueMicrotask runs after the current synchronous call stack but before
+ * the browser paints, so dependent components re-render in the same frame
+ * with no visual flash.
+ */
+function scheduleNotification(): void {
+  if (notificationPending) return;
+  notificationPending = true;
+  queueMicrotask(() => {
+    notificationPending = false;
+    for (const listener of listeners) listener();
+  });
+}
 
 function buildKey(conversationId: string, epochNumber: number): string {
   return `${conversationId}:${String(epochNumber)}`;
@@ -33,7 +56,7 @@ export function setEpochKey(conversationId: string, epochNumber: number, key: Ui
   if (cache.has(buildKey(conversationId, epochNumber))) return;
   cache.set(buildKey(conversationId, epochNumber), key);
   version++;
-  for (const listener of listeners) listener();
+  scheduleNotification();
 }
 
 export function getCurrentEpoch(conversationId: string): number | undefined {
@@ -41,10 +64,11 @@ export function getCurrentEpoch(conversationId: string): number | undefined {
 }
 
 export function setCurrentEpoch(conversationId: string, epochNumber: number): void {
-  if (currentEpochMap.get(conversationId) === epochNumber) return;
+  const current = currentEpochMap.get(conversationId);
+  if (current !== undefined && current >= epochNumber) return;
   currentEpochMap.set(conversationId, epochNumber);
   version++;
-  for (const listener of listeners) listener();
+  scheduleNotification();
 }
 
 export function clearEpochKeyCache(): void {
@@ -54,7 +78,7 @@ export function clearEpochKeyCache(): void {
   cache.clear();
   currentEpochMap.clear();
   version++;
-  for (const listener of listeners) listener();
+  scheduleNotification();
 }
 
 export function getCacheSize(): number {

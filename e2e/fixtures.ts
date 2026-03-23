@@ -1,7 +1,9 @@
+import { existsSync } from 'node:fs';
 import {
   test as base,
   expect as rawExpect,
   type Browser,
+  type BrowserContext,
   type Page,
   type APIRequestContext,
   type TestInfo,
@@ -34,25 +36,52 @@ function attachConsoleErrors(page: Page): { errors: string[]; cleanup: () => voi
 type StorageState = string | { cookies: []; origins: [] };
 
 function createPageFixture(
-  storageState: StorageState
+  storageState: StorageState,
+  label: string
 ): (
   deps: { browser: Browser },
   use: (page: Page) => Promise<void>,
   testInfo: TestInfo
 ) => Promise<void> {
   return async ({ browser }, use, testInfo) => {
-    const context = await browser.newContext({ storageState });
+    const harPath = testInfo.outputPath(`${label}.har`);
+    const context = await browser.newContext({
+      storageState,
+      recordHar: {
+        path: harPath,
+        mode: 'minimal',
+        urlFilter: /\/api\//,
+      },
+    });
     const page = await context.newPage();
     const { errors, cleanup } = attachConsoleErrors(page);
     await use(page);
-    if (testInfo.status !== testInfo.expectedStatus && errors.length > 0) {
-      await testInfo.attach('console-errors', {
+
+    const failed = testInfo.status !== testInfo.expectedStatus;
+
+    if (failed && errors.length > 0) {
+      await testInfo.attach(`console-errors-${label}`, {
         body: errors.join('\n'),
         contentType: 'text/plain',
       });
     }
+
+    if (failed) {
+      const snapshot = await page.locator(':root').ariaSnapshot();
+      if (snapshot) {
+        await testInfo.attach(`page-snapshot-${label}`, {
+          body: snapshot,
+          contentType: 'text/yaml',
+        });
+      }
+    }
+
     cleanup();
     await context.close();
+
+    if (failed && existsSync(harPath)) {
+      await testInfo.attach(`har-${label}`, { path: harPath, contentType: 'application/json' });
+    }
   };
 }
 
@@ -74,6 +103,10 @@ interface MultiModelConversation {
 interface CustomFixtures {
   authenticatedPage: Page;
   unauthenticatedPage: Page;
+  /** Factory for creating fresh, fully-instrumented browser contexts on demand.
+   *  Each page gets HAR recording, console error capture, and page snapshot on failure.
+   *  Defaults to empty storage state (unauthenticated). Pass a storage state path for auth. */
+  createPage: (storageState?: StorageState) => Promise<Page>;
   testConversation: TestConversation;
   multiModelConversation: MultiModelConversation;
   authenticatedRequest: APIRequestContext;
@@ -92,11 +125,87 @@ interface CustomFixtures {
   testBobRequest: APIRequestContext;
 }
 
+async function teardownPage(
+  entry: {
+    page: Page;
+    context: BrowserContext;
+    label: string;
+    errors: string[];
+    cleanup: () => void;
+    harPath: string;
+  },
+  failed: boolean,
+  testInfo: TestInfo
+): Promise<void> {
+  if (failed && entry.errors.length > 0) {
+    await testInfo.attach(`console-errors-${entry.label}`, {
+      body: entry.errors.join('\n'),
+      contentType: 'text/plain',
+    });
+  }
+  if (failed) {
+    const snapshot = await entry.page
+      .locator(':root')
+      .ariaSnapshot()
+      .catch(() => null);
+    if (snapshot) {
+      await testInfo.attach(`page-snapshot-${entry.label}`, {
+        body: snapshot,
+        contentType: 'text/yaml',
+      });
+    }
+  }
+  entry.cleanup();
+  await entry.context.close();
+  if (failed && existsSync(entry.harPath)) {
+    await testInfo.attach(`har-${entry.label}`, {
+      path: entry.harPath,
+      contentType: 'application/json',
+    });
+  }
+}
+
 export const test = base.extend<CustomFixtures>({
-  authenticatedPage: createPageFixture('e2e/.auth/test-alice.json'),
+  authenticatedPage: createPageFixture('e2e/.auth/test-alice.json', 'authenticatedPage'),
 
   // Explicitly clear storage state to override project-level default auth
-  unauthenticatedPage: createPageFixture({ cookies: [], origins: [] }),
+  unauthenticatedPage: createPageFixture({ cookies: [], origins: [] }, 'unauthenticatedPage'),
+
+  // Factory for creating fresh, instrumented pages on demand.
+  // Each page gets the same HAR/console-error/snapshot capture as named fixtures.
+  createPage: async ({ browser }, use, testInfo) => {
+    const pages: {
+      page: Page;
+      context: BrowserContext;
+      label: string;
+      errors: string[];
+      cleanup: () => void;
+      harPath: string;
+    }[] = [];
+    let counter = 0;
+
+    const DEFAULT_STORAGE_STATE: StorageState = { cookies: [], origins: [] };
+    const factory = async (storageState: StorageState = DEFAULT_STORAGE_STATE): Promise<Page> => {
+      counter++;
+      const label = `unauthenticatedPage-${String(counter)}`;
+      const harPath = testInfo.outputPath(`${label}.har`);
+      const context = await browser.newContext({
+        storageState,
+        recordHar: { path: harPath, mode: 'minimal', urlFilter: /\/api\// },
+      });
+      const page = await context.newPage();
+      const { errors, cleanup } = attachConsoleErrors(page);
+      pages.push({ page, context, label, errors, cleanup, harPath });
+      return page;
+    };
+
+    await use(factory);
+
+    const failed = testInfo.status !== testInfo.expectedStatus;
+    for (const entry of pages) {
+      await teardownPage(entry, failed, testInfo);
+    }
+  },
 
   authenticatedRequest: async ({ playwright }, use) => {
     const context = await playwright.request.newContext({
@@ -108,14 +217,29 @@ export const test = base.extend<CustomFixtures>({
   },
 
   // 2FA test user (has TOTP enabled)
-  test2FAPage: createPageFixture('e2e/.auth/test-2fa.json'),
+  test2FAPage: createPageFixture('e2e/.auth/test-2fa.json', 'test2FAPage'),
 
   // Dedicated billing test users (isolated balance state between tests)
-  billingSuccessPage: createPageFixture('e2e/.auth/test-billing-success.json'),
-  billingSuccessPage2: createPageFixture('e2e/.auth/test-billing-success-2.json'),
-  billingFailurePage: createPageFixture('e2e/.auth/test-billing-failure.json'),
-  billingValidationPage: createPageFixture('e2e/.auth/test-billing-validation.json'),
-  billingDevModePage: createPageFixture('e2e/.auth/test-billing-devmode.json'),
+  billingSuccessPage: createPageFixture(
+    'e2e/.auth/test-billing-success.json',
+    'billingSuccessPage'
+  ),
+  billingSuccessPage2: createPageFixture(
+    'e2e/.auth/test-billing-success-2.json',
+    'billingSuccessPage2'
+  ),
+  billingFailurePage: createPageFixture(
+    'e2e/.auth/test-billing-failure.json',
+    'billingFailurePage'
+  ),
+  billingValidationPage: createPageFixture(
+    'e2e/.auth/test-billing-validation.json',
+    'billingValidationPage'
+  ),
+  billingDevModePage: createPageFixture(
+    'e2e/.auth/test-billing-devmode.json',
+    'billingDevModePage'
+  ),
 
   // Group chat: creates conversation with seeded messages via dev endpoint
   groupConversation: async (
@@ -160,10 +284,10 @@ export const test = base.extend<CustomFixtures>({
   },
 
   // Second browser context logged in as test-bob
-  testBobPage: createPageFixture('e2e/.auth/test-bob.json'),
+  testBobPage: createPageFixture('e2e/.auth/test-bob.json', 'testBobPage'),
 
   // Browser context logged in as test-dave (verified, no group membership by default)
-  testDavePage: createPageFixture('e2e/.auth/test-dave.json'),
+  testDavePage: createPageFixture('e2e/.auth/test-dave.json', 'testDavePage'),
 
   // API request context for test-bob (used for owner-privilege budget operations)
   testBobRequest: async ({ playwright }, use) => {
@@ -233,4 +357,4 @@ export const test = base.extend<CustomFixtures>({
   },
 });
 
-export { expect } from './helpers/settled-expect.js';
+export { expect, unsettledExpect } from './helpers/settled-expect.js';

@@ -17,7 +17,7 @@ test.describe('Link Guest Access', () => {
     unauthenticatedPage,
     authenticatedRequest,
     groupConversation,
-    browser,
+    createPage,
   }) => {
     test.slow();
 
@@ -59,16 +59,14 @@ test.describe('Link Guest Access', () => {
         helper,
         conversationId: groupConversation.id,
         withHistory: true,
+        displayName: 'Write Guest',
       });
       writeUrl = result.url;
     });
 
     await test.step('write guest sees history and can send', async () => {
       // Use fresh context to avoid cache from read guest
-      const freshContext = await browser.newContext({
-        storageState: { cookies: [], origins: [] },
-      });
-      const freshPage = await freshContext.newPage();
+      const freshPage = await createPage();
       await freshPage.goto(writeUrl);
 
       await expectSharedConversationLoaded(freshPage);
@@ -97,8 +95,6 @@ test.describe('Link Guest Access', () => {
       await expect(
         freshPage.getByRole('log', { name: 'Chat messages' }).getByText('Echo:').first()
       ).toBeVisible({ timeout: 15_000 });
-
-      await freshContext.close();
     });
   });
 
@@ -107,7 +103,7 @@ test.describe('Link Guest Access', () => {
     unauthenticatedPage,
     authenticatedRequest,
     groupConversation,
-    browser,
+    createPage,
   }) => {
     test.slow();
 
@@ -152,11 +148,11 @@ test.describe('Link Guest Access', () => {
 
     await test.step('create write+no-history link and setup budgets', async () => {
       await sidebar.openViaFacepile();
-      await sidebar.waitForLoaded();
 
       const result = await createWriteLinkWithBudget(authenticatedPage, sidebar, {
         helper,
         conversationId: groupConversation.id,
+        displayName: 'Write Guest',
       });
       writeUrl = result.url;
     });
@@ -168,10 +164,7 @@ test.describe('Link Guest Access', () => {
     });
 
     await test.step('write guest sees only new messages and can send', async () => {
-      const freshContext = await browser.newContext({
-        storageState: { cookies: [], origins: [] },
-      });
-      const freshPage = await freshContext.newPage();
+      const freshPage = await createPage();
       await freshPage.goto(writeUrl);
 
       await expectSharedConversationLoaded(freshPage);
@@ -198,8 +191,6 @@ test.describe('Link Guest Access', () => {
       await sendButton.click();
 
       await expect(freshPage.getByText(guestMessage).first()).toBeVisible({ timeout: 10_000 });
-
-      await freshContext.close();
     });
   });
 

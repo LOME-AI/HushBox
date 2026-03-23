@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures.js';
+import { unsettledExpect } from '../helpers/settled-expect.js';
 import { BillingPage } from '../pages';
 import { requireEnv } from '../helpers/env.js';
 
@@ -288,13 +289,14 @@ test.describe('Billing & Payments', () => {
       await test.step('open billing portal with token', async () => {
         await unauthenticatedPage.goto(`/billing-portal?token=${billingToken}`);
 
-        await expect(unauthenticatedPage.getByTestId('billing-portal')).toBeVisible({
+        // Token exchange + /api/auth/me hydration are async — opt out of settled
+        await unsettledExpect(unauthenticatedPage.getByTestId('billing-portal')).toBeVisible({
           timeout: 15_000,
         });
       });
 
       await test.step('billing page renders without app shell', async () => {
-        await expect(unauthenticatedPage.getByTestId('balance-display')).toBeVisible({
+        await unsettledExpect(unauthenticatedPage.getByTestId('balance-display')).toBeVisible({
           timeout: 10_000,
         });
         await expect(
@@ -341,7 +343,9 @@ test.describe('Billing & Payments', () => {
 
       await test.step('billing-only session cannot access chat', async () => {
         await unauthenticatedPage.goto('/chat');
-        await expect(unauthenticatedPage).toHaveURL(/\/login/, { timeout: 15_000 });
+        await expect(unauthenticatedPage.getByText('Free preview')).toBeVisible({
+          timeout: 15_000,
+        });
       });
     });
   });

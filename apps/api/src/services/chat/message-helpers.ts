@@ -1,8 +1,65 @@
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { messages, conversations, epochs, conversationForks, type Database } from '@hushbox/db';
 import { encryptMessageForStorage } from '@hushbox/crypto';
+import { ERROR_CODE_INVALID_PARENT_MESSAGE } from '@hushbox/shared';
 import { chargeForUsage } from '../billing/transaction-writer.js';
 import { updateGroupSpending } from '../billing/budgets.js';
+
+// ============================================================================
+// Parent Message Validation
+// ============================================================================
+
+export class InvalidParentMessageError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string
+  ) {
+    super(message);
+    this.name = 'InvalidParentMessageError';
+  }
+}
+
+/**
+ * Validates that parentMessageId is correct before persisting a message.
+ *
+ * - null parentMessageId: only valid for the first message in a conversation
+ * - non-null parentMessageId: must reference an existing message in the same conversation
+ *
+ * Runs inside a transaction to guarantee atomicity.
+ */
+export async function validateParentMessageId(
+  tx: Database,
+  conversationId: string,
+  parentMessageId: string | null
+): Promise<void> {
+  if (parentMessageId === null) {
+    const [existing] = await tx
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .limit(1);
+
+    if (existing) {
+      throw new InvalidParentMessageError(
+        ERROR_CODE_INVALID_PARENT_MESSAGE,
+        'parentMessageId is null but conversation already has messages'
+      );
+    }
+    return;
+  }
+
+  const [parent] = await tx
+    .select({ id: messages.id })
+    .from(messages)
+    .where(and(eq(messages.id, parentMessageId), eq(messages.conversationId, conversationId)));
+
+  if (!parent) {
+    throw new InvalidParentMessageError(
+      ERROR_CODE_INVALID_PARENT_MESSAGE,
+      `parentMessageId "${parentMessageId}" not found in conversation "${conversationId}"`
+    );
+  }
+}
 
 // ============================================================================
 // Sequence Number Assignment

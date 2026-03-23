@@ -110,6 +110,7 @@ export default defineConfig(({ mode }) => {
       marketingRedirectPlugin(),
     ],
     build: {
+      minify: mode !== 'development',
       rollupOptions: {
         output: {
           manualChunks(id): string | undefined {

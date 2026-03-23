@@ -170,7 +170,7 @@ describe('useRealtimeSync', () => {
     });
   });
 
-  it('message:new from other user with content is skipped', () => {
+  it('message:new from other user with content invalidates messages', () => {
     const mockWs = createMockWs();
 
     renderHook(() => {
@@ -187,7 +187,10 @@ describe('useRealtimeSync', () => {
       content: 'encrypted-blob',
     });
 
-    expect(mockInvalidateQueries).not.toHaveBeenCalled();
+    expect(mockInvalidateQueries).toHaveBeenCalledTimes(1);
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: chatKeys.conversation(CONV_ID),
+    });
   });
 
   it('message:new from self is skipped', () => {

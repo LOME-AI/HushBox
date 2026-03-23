@@ -9,6 +9,7 @@ export enum Destination {
 export enum Mode {
   Development = 'development',
   CiVitest = 'ciVitest',
+  E2E = 'e2e',
   CiE2E = 'ciE2E',
   Production = 'production',
 }
@@ -39,6 +40,7 @@ export interface VariableConfig {
   readonly to: Destination[]; // default destinations
   readonly [Mode.Development]?: ModeValue;
   readonly [Mode.CiVitest]?: ModeValue;
+  readonly [Mode.E2E]?: ModeValue;
   readonly [Mode.CiE2E]?: ModeValue;
   readonly [Mode.Production]?: ModeValue;
 }

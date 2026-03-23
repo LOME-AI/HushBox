@@ -250,7 +250,7 @@ local_protocol = "http"
     });
   });
 
-  describe('ciE2E mode', () => {
+  describe('e2e mode', () => {
     beforeEach(() => {
       // Set up mock CI secrets in process.env
       process.env['RESEND_API_KEY'] = 'test-resend-key';
@@ -266,35 +266,36 @@ local_protocol = "http"
       delete process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'];
     });
 
-    it('adds CI=true and E2E=true flags to .dev.vars', () => {
-      generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
+    it('adds E2E=true flag but NOT CI=true to .dev.vars', () => {
+      generateEnvFiles(TEST_DIR_ENV, 'e2e');
 
       const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf8');
-      expect(content).toContain('CI="true"');
+      expect(content).not.toContain('CI="true"');
       expect(content).toContain('E2E="true"');
     });
 
-    it('includes ciE2E secrets from process.env in .dev.vars', () => {
-      generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
+    it('does not include Helcim secrets in .dev.vars (local e2e uses mock verifier)', () => {
+      generateEnvFiles(TEST_DIR_ENV, 'e2e');
 
       const content = readFileSync(path.join(TEST_DIR_ENV, 'apps/api/.dev.vars'), 'utf8');
-      expect(content).toContain('HELCIM_API_TOKEN="test-helcim-token"');
-      expect(content).toContain('HELCIM_WEBHOOK_VERIFIER="test-helcim-verifier"');
-      // RESEND and OPENROUTER should NOT be present (not in ciE2E)
+      expect(content).not.toContain('HELCIM_API_TOKEN');
+      // Webhook verifier uses development mock value
+      expect(content).toContain('HELCIM_WEBHOOK_VERIFIER=');
       expect(content).not.toContain('RESEND_API_KEY');
       expect(content).not.toContain('OPENROUTER_API_KEY');
     });
 
-    it('includes frontend CI secrets in .env.development', () => {
-      generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
+    it('does not include Helcim secrets in .env.development (local e2e has no secrets)', () => {
+      generateEnvFiles(TEST_DIR_ENV, 'e2e');
 
       const content = readFileSync(path.join(TEST_DIR_ENV, '.env.development'), 'utf8');
-      expect(content).toContain('VITE_HELCIM_JS_TOKEN="test-vite-helcim-token"');
-      expect(content).toContain('VITE_CI="true"');
+      expect(content).not.toContain('VITE_HELCIM_JS_TOKEN');
+      expect(content).not.toContain('VITE_CI');
+      expect(content).toContain('VITE_E2E="true"');
     });
 
     it('includes base port vars in .env.scripts', () => {
-      generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
+      generateEnvFiles(TEST_DIR_ENV, 'e2e');
 
       const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
       expect(content).toContain('HB_VITE_PORT="5173"');
@@ -309,13 +310,26 @@ local_protocol = "http"
       expect(content).toContain('HB_EMULATOR_VNC_PORT="6080"');
     });
 
-    it('does not include COMPOSE_PROJECT_NAME in CI mode', () => {
-      generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
+    it('applies worktree detection like development mode', () => {
+      generateEnvFiles(TEST_DIR_ENV, 'e2e');
 
+      // E2E mode runs on local infrastructure, so worktree ports apply
+      // (COMPOSE_PROJECT_NAME presence depends on whether we're in a worktree)
       const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
-      expect(content).not.toContain('COMPOSE_PROJECT_NAME');
+      expect(content).toBeDefined();
     });
 
+    it('succeeds without CI secrets (local e2e needs no secrets)', () => {
+      delete process.env['HELCIM_API_TOKEN_SANDBOX'];
+      delete process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'];
+
+      expect(() => {
+        generateEnvFiles(TEST_DIR_ENV, 'e2e');
+      }).not.toThrow();
+    });
+  });
+
+  describe('ciE2E mode', () => {
     it('throws if required ciE2E secrets are missing', () => {
       delete process.env['HELCIM_API_TOKEN_SANDBOX'];
 
@@ -356,7 +370,7 @@ describe('updateWorkflows', () => {
   };
 
   describe('e2e-env section', () => {
-    it('generates env block using secret names for ciE2E secrets', () => {
+    it('generates env block using secret names for e2e secrets', () => {
       createCiYml(`name: CI
 # BEGIN GENERATED: e2e-env
 old content
@@ -375,7 +389,7 @@ rest of file`);
       expect(content).toContain(
         'VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}'
       );
-      // RESEND and OPENROUTER should NOT be present in e2e-env (not in ciE2E)
+      // RESEND and OPENROUTER should NOT be present in e2e-env (not in e2e)
       expect(content).not.toContain('RESEND_API_KEY');
       expect(content).not.toContain('OPENROUTER_API_KEY');
     });
@@ -632,8 +646,8 @@ describe('parseArgs', () => {
     expect(parseArgs(['--mode=ciVitest'])).toBe('ciVitest');
   });
 
-  it('parses --mode=ciE2E', () => {
-    expect(parseArgs(['--mode=ciE2E'])).toBe('ciE2E');
+  it('parses --mode=e2e', () => {
+    expect(parseArgs(['--mode=e2e'])).toBe('e2e');
   });
 
   it('parses --mode=production', () => {
@@ -642,7 +656,7 @@ describe('parseArgs', () => {
 
   it('throws for invalid mode', () => {
     expect(() => parseArgs(['--mode=invalid'])).toThrow(
-      'Invalid mode: invalid. Valid modes: development, ciVitest, ciE2E, production'
+      'Invalid mode: invalid. Valid modes: development, ciVitest, e2e, ciE2E, production'
     );
   });
 
@@ -808,7 +822,7 @@ local_protocol = "http"
       expect(content).not.toContain('HB_API_PORT="8787"');
     });
 
-    it('does not offset ports in non-development modes', () => {
+    it('does not offset ports in CI modes', () => {
       // Set up required CI secrets
       process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test';
       process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test';

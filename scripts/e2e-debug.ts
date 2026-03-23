@@ -2,11 +2,19 @@
  * E2E Debug Report Generator
  *
  * Pure functions for categorizing Playwright test results and generating
- * AI-agent-friendly Markdown reports with consolidated screenshots.
+ * AI-agent-friendly reports with per-test artifact directories.
  * Used by e2e-reporter.ts (custom Playwright reporter).
  */
 
-import { mkdirSync, rmSync, copyFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import {
+  mkdirSync,
+  rmSync,
+  copyFileSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  readdirSync,
+} from 'node:fs';
 import path from 'node:path';
 
 export interface PlaywrightError {
@@ -17,11 +25,16 @@ export interface PlaywrightError {
 export interface PlaywrightStep {
   title: string;
   duration: number;
+  category?: string;
+  steps?: PlaywrightStep[];
+  error?: string;
 }
 
 export interface PlaywrightAttachment {
   name: string;
   path?: string;
+  body?: string;
+  contentType?: string;
 }
 
 // Result of a single test run attempt (retry)
@@ -29,6 +42,7 @@ export interface PlaywrightTestResult {
   status: 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted';
   retry: number;
   duration: number;
+  startTime?: string;
   errors?: PlaywrightError[];
   steps?: PlaywrightStep[];
   attachments?: PlaywrightAttachment[];
@@ -45,6 +59,7 @@ export interface PlaywrightTest {
 export interface PlaywrightSpec {
   title: string;
   file: string;
+  line?: number | undefined;
   tests?: PlaywrightTest[];
 }
 
@@ -52,6 +67,7 @@ export interface PlaywrightSpec {
 export interface FlattenedTestResult {
   title: string;
   file: string;
+  line?: number | undefined;
   projectName: string;
   status: 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted';
   retry: number;
@@ -80,6 +96,7 @@ export interface PassedTest {
   title: string;
   file: string;
   project: string;
+  duration: number;
 }
 
 export interface FlakyTest {
@@ -87,19 +104,28 @@ export interface FlakyTest {
   file: string;
   project: string;
   attempts: number;
+  failureError?: string;
+  failureArtifacts?: FailedTestArtifacts;
+  steps?: PlaywrightStep[];
 }
 
 export interface FailedTestArtifacts {
   trace: string | undefined;
   screenshot: string | undefined;
   video: string | undefined;
+  consoleErrors: string | undefined;
+  pageSnapshot: string | undefined;
+  harFiles: string[];
 }
 
 export interface FailedTest {
   title: string;
   file: string;
+  line?: number | undefined;
   project: string;
   error: string;
+  duration: number;
+  steps: PlaywrightStep[];
   artifacts: FailedTestArtifacts;
 }
 
@@ -124,6 +150,40 @@ export interface DebugReport {
   failed: FailedTest[];
 }
 
+export interface JsonTestEntry {
+  title: string;
+  file: string;
+  line?: number | undefined;
+  project: string;
+  duration: number;
+  error: string;
+  rerunCommand: string;
+  steps: PlaywrightStep[];
+  artifacts: {
+    screenshot: string | undefined;
+    trace: string | undefined;
+    video: string | undefined;
+    consoleErrors: string | undefined;
+    pageSnapshot: string | undefined;
+    harFiles: string[];
+  };
+}
+
+export interface JsonPassedEntry {
+  title: string;
+  file: string;
+  project: string;
+  duration: number;
+}
+
+export interface JsonReport {
+  timestamp: string;
+  summary: DebugReportSummary;
+  failed: JsonTestEntry[];
+  flaky: JsonTestEntry[];
+  passed: JsonPassedEntry[];
+}
+
 // eslint-disable-next-line no-control-regex, sonarjs/no-control-regex
 const ANSI_REGEX = /[\u001B\u009B][[()#;?]*(?:\d{1,4}(?:;\d{0,4})*)?[\dA-ORZcf-nqry=><]/g;
 
@@ -143,18 +203,18 @@ export function buildRerunCommand(test: { title: string; file: string; project: 
   return `pnpm e2e -- ${test.file} -g "${escapedTitle}" --project=${test.project}`;
 }
 
-export function screenshotFileName(test: { file: string; project: string; title: string }): string {
-  return `${slugify(test.file)}--${slugify(test.project)}--${slugify(test.title)}.png`;
-}
-
 export function formatDuration(ms: number): string {
+  if (ms > 0 && ms < 1000) return `${String(ms)}ms`;
+
   const totalSeconds = Math.floor(ms / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
+  const tenths = Math.floor((ms % 1000) / 100);
 
   if (hours > 0) return `${String(hours)}h ${String(minutes)}m ${String(seconds)}s`;
   if (minutes > 0) return `${String(minutes)}m ${String(seconds)}s`;
+  if (tenths > 0) return `${String(seconds)}.${String(tenths)}s`;
   return `${String(seconds)}s`;
 }
 
@@ -183,6 +243,7 @@ export function categorizeTests(tests: FlattenedTestResult[]): CategorizedTests 
           title: test.title,
           file: test.file,
           project: test.projectName,
+          duration: test.duration,
         });
       }
     } else {
@@ -194,8 +255,11 @@ export function categorizeTests(tests: FlattenedTestResult[]): CategorizedTests 
       result.failed.push({
         title: test.title,
         file: test.file,
+        line: test.line,
         project: test.projectName,
         error: errors.join('\n'),
+        duration: test.duration,
+        steps: test.steps ?? [],
         artifacts,
       });
     }
@@ -205,13 +269,42 @@ export function categorizeTests(tests: FlattenedTestResult[]): CategorizedTests 
 }
 
 export function extractArtifactPaths(test: FlattenedTestResult): FailedTestArtifacts {
-  const findAttachment = (name: string): string | undefined =>
-    (test.attachments ?? []).find((a) => a.name === name)?.path;
+  const attachments = test.attachments ?? [];
+  const findPath = (name: string): string | undefined =>
+    attachments.find((a) => a.name === name)?.path;
+
+  function collectLabeledBodies(prefix: string): string | undefined {
+    const matches = attachments.filter((a) => a.name.startsWith(`${prefix}-`) && a.body);
+    if (matches.length === 0) return undefined;
+    if (matches.length === 1) {
+      const match = matches[0];
+      if (!match) return undefined;
+      return match.body;
+    }
+    return matches
+      .map((a) => {
+        const label = a.name.slice(prefix.length + 1);
+        return `--- ${label} ---\n${a.body ?? ''}`;
+      })
+      .join('\n\n');
+  }
+
+  function collectLabeledPaths(prefix: string): string[] {
+    return attachments
+      .filter(
+        (a): a is typeof a & { path: string } =>
+          a.name.startsWith(`${prefix}-`) && a.path !== undefined
+      )
+      .map((a) => a.path);
+  }
 
   return {
-    trace: findAttachment('trace'),
-    screenshot: findAttachment('screenshot'),
-    video: findAttachment('video'),
+    trace: findPath('trace'),
+    screenshot: findPath('screenshot'),
+    video: findPath('video'),
+    consoleErrors: collectLabeledBodies('console-errors'),
+    pageSnapshot: collectLabeledBodies('page-snapshot'),
+    harFiles: collectLabeledPaths('har'),
   };
 }
 
@@ -223,6 +316,7 @@ function createFlattenedResult(
   return {
     title: spec.title,
     file: spec.file,
+    line: spec.line,
     projectName: test.projectName,
     status: result.status,
     retry: result.retry,
@@ -274,6 +368,28 @@ export function generateDebugReport(report: PlaywrightReport): DebugReport {
   };
 }
 
+const MAX_STEP_DEPTH = 2;
+
+export function renderSteps(steps: PlaywrightStep[], depth = 0): string {
+  if (depth >= MAX_STEP_DEPTH) return '';
+
+  const indent = '  '.repeat(depth);
+  const lines: string[] = [];
+
+  for (const step of steps) {
+    const durationString = formatDuration(step.duration);
+    const failMarker = step.error ? ' **FAILED**' : '';
+    lines.push(`${indent}- ${step.title} (${durationString})${failMarker}`);
+
+    if (step.steps && step.steps.length > 0) {
+      const nested = renderSteps(step.steps, depth + 1);
+      if (nested) lines.push(nested);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 const MAX_ERROR_LENGTH = 2000;
 
 function renderHeader(summary: DebugReportSummary): string[] {
@@ -296,22 +412,41 @@ function truncateError(rawError: string): string {
 }
 
 function renderSingleFailedTest(test: FailedTest): string[] {
+  const slug = slugify(`${test.file}--${test.project}--${test.title}`);
+  const location = test.line ? `${test.file}:${String(test.line)}` : test.file;
+
   const lines: string[] = [
     '',
     `#### ${test.title} [${test.project}]`,
     '',
+    `**File:** \`${location}\``,
+    `**Duration:** ${formatDuration(test.duration)}`,
     `**Re-run:** \`${buildRerunCommand(test)}\``,
     '',
     '**Error:**',
     '```',
     truncateError(test.error),
     '```',
-    '',
   ];
 
+  if (test.steps.length > 0) {
+    lines.push('', '**Steps:**', renderSteps(test.steps));
+  }
+
+  if (test.artifacts.consoleErrors) {
+    lines.push('', `**Console Errors:** See \`failed/${slug}/console-errors.txt\``);
+  }
+
+  if (test.artifacts.pageSnapshot) {
+    lines.push(`**Page Snapshot:** See \`failed/${slug}/page-snapshot.txt\``);
+  }
+
+  if (test.artifacts.trace) {
+    lines.push(`**Trace:** \`npx playwright show-trace ${test.artifacts.trace}\``);
+  }
+
   if (test.artifacts.screenshot) {
-    const fname = screenshotFileName(test);
-    lines.push(`**Screenshot:** \`e2e/report/screenshots/${fname}\``);
+    lines.push(`**Screenshot:** \`failed/${slug}/screenshot.png\``);
   } else {
     lines.push('**Screenshot:** none');
   }
@@ -386,8 +521,101 @@ export function generateMarkdownReport(report: DebugReport): string {
     ...renderFlakyTests(report.flaky),
     ...renderPassedTests(report.passed),
     '',
+    '---',
+    '',
+    '*This report is the single source of truth for E2E debugging. See `report.json` for structured data and `failed/` for per-test artifacts.*',
+    '',
   ];
   return lines.join('\n');
+}
+
+export function generateJsonReport(report: DebugReport): JsonReport {
+  return {
+    timestamp: new Date().toISOString(),
+    summary: report.summary,
+    failed: report.failed.map((test) => ({
+      title: test.title,
+      file: test.file,
+      line: test.line,
+      project: test.project,
+      duration: test.duration,
+      error: stripAnsi(test.error),
+      rerunCommand: buildRerunCommand(test),
+      steps: test.steps,
+      artifacts: {
+        screenshot: test.artifacts.screenshot,
+        trace: test.artifacts.trace,
+        video: test.artifacts.video,
+        consoleErrors: test.artifacts.consoleErrors,
+        pageSnapshot: test.artifacts.pageSnapshot,
+        harFiles: test.artifacts.harFiles,
+      },
+    })),
+    flaky: report.flaky.map((test) => ({
+      title: test.title,
+      file: test.file,
+      project: test.project,
+      duration: 0,
+      error: test.failureError ?? '',
+      rerunCommand: buildRerunCommand(test),
+      steps: test.steps ?? [],
+      artifacts: {
+        screenshot: test.failureArtifacts?.screenshot,
+        trace: test.failureArtifacts?.trace,
+        video: test.failureArtifacts?.video,
+        consoleErrors: test.failureArtifacts?.consoleErrors,
+        pageSnapshot: test.failureArtifacts?.pageSnapshot,
+        harFiles: test.failureArtifacts?.harFiles ?? [],
+      },
+    })),
+    passed: report.passed.map((test) => ({
+      title: test.title,
+      file: test.file,
+      project: test.project,
+      duration: test.duration,
+    })),
+  };
+}
+
+export function mergeHarFiles(harPaths: string[], outputPath: string): void {
+  const allEntries: unknown[] = [];
+  for (const harPath of harPaths) {
+    if (!existsSync(harPath)) continue;
+    const raw = readFileSync(harPath, 'utf8');
+    const har = JSON.parse(raw) as { log: { entries: unknown[] } };
+    allEntries.push(...har.log.entries);
+  }
+  if (allEntries.length === 0) return;
+  const merged = {
+    log: {
+      version: '1.2',
+      entries: allEntries,
+    },
+  };
+  writeFileSync(outputPath, JSON.stringify(merged, null, 2), 'utf8');
+}
+
+export function writePerTestArtifacts(test: FailedTest, testDir: string): void {
+  mkdirSync(testDir, { recursive: true });
+
+  writeFileSync(path.join(testDir, 'error.txt'), stripAnsi(test.error), 'utf8');
+  writeFileSync(path.join(testDir, 'steps.json'), JSON.stringify(test.steps, null, 2), 'utf8');
+
+  if (test.artifacts.consoleErrors) {
+    writeFileSync(path.join(testDir, 'console-errors.txt'), test.artifacts.consoleErrors, 'utf8');
+  }
+
+  if (test.artifacts.pageSnapshot) {
+    writeFileSync(path.join(testDir, 'page-snapshot.txt'), test.artifacts.pageSnapshot, 'utf8');
+  }
+
+  if (test.artifacts.screenshot && existsSync(test.artifacts.screenshot)) {
+    copyFileSync(test.artifacts.screenshot, path.join(testDir, 'screenshot.png'));
+  }
+
+  if (test.artifacts.harFiles.length > 0) {
+    mergeHarFiles(test.artifacts.harFiles, path.join(testDir, 'network.har'));
+  }
 }
 
 const MAX_REPORTS = 10;
@@ -409,18 +637,34 @@ export function enforceRetentionLimit(baseDir: string, maxReports: number): void
 export function writeReport(report: DebugReport, baseDir: string): string {
   const timestamp = new Date().toISOString().replaceAll(':', '-').slice(0, 19);
   const reportDir = path.join(baseDir, timestamp);
-
-  mkdirSync(path.join(reportDir, 'screenshots'), { recursive: true });
+  mkdirSync(reportDir, { recursive: true });
 
   for (const test of report.failed) {
-    if (test.artifacts.screenshot && existsSync(test.artifacts.screenshot)) {
-      const destination = path.join(reportDir, 'screenshots', screenshotFileName(test));
-      copyFileSync(test.artifacts.screenshot, destination);
+    const slug = slugify(`${test.file}--${test.project}--${test.title}`);
+    writePerTestArtifacts(test, path.join(reportDir, 'failed', slug));
+  }
+
+  for (const test of report.flaky) {
+    if (test.failureArtifacts) {
+      const slug = slugify(`${test.file}--${test.project}--${test.title}`);
+      const flakyAsFailedTest: FailedTest = {
+        title: test.title,
+        file: test.file,
+        project: test.project,
+        error: test.failureError ?? '',
+        duration: 0,
+        steps: test.steps ?? [],
+        artifacts: test.failureArtifacts,
+      };
+      writePerTestArtifacts(flakyAsFailedTest, path.join(reportDir, 'flaky', slug));
     }
   }
 
   const markdown = generateMarkdownReport(report);
   writeFileSync(path.join(reportDir, 'REPORT.md'), markdown, 'utf8');
+
+  const jsonReport = generateJsonReport(report);
+  writeFileSync(path.join(reportDir, 'report.json'), JSON.stringify(jsonReport, null, 2), 'utf8');
 
   enforceRetentionLimit(baseDir, MAX_REPORTS);
 

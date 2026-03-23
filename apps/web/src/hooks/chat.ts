@@ -33,7 +33,7 @@ export const chatKeys = {
 };
 
 /** Shared queryFn for GET /conversations/:id. All conversation hooks share this. */
-function conversationQueryFn(id: string): () => Promise<ConversationResponse> {
+function conversationQueryFunction(id: string): () => Promise<ConversationResponse> {
   return async (): Promise<ConversationResponse> => {
     return fetchJson<ConversationResponse>(
       client.api.conversations[':conversationId'].$get({ param: { conversationId: id } })
@@ -87,7 +87,9 @@ export function useDecryptedConversations(): {
     })),
   });
 
-  // Process fetched key chains into epoch key cache
+  // Process fetched key chains into epoch key cache.
+  // Safe to call in useMemo because epoch-key-cache defers listener
+  // notifications via queueMicrotask — no "setState during render" errors.
   useMemo(() => {
     if (!accountPrivateKey) return;
     for (const [index, result] of keyChainResults.entries()) {
@@ -96,7 +98,7 @@ export function useDecryptedConversations(): {
         processKeyChain(conv.id, result.data, accountPrivateKey);
       }
     }
-  }, [keyChainResults, accountPrivateKey]);
+  }, [keyChainResults, conversationsNeedingKeys, accountPrivateKey]);
 
   // Decrypt titles using cached epoch keys
   const decryptedData = useMemo(() => {
@@ -125,7 +127,7 @@ export function useConversation(
 ): ReturnType<typeof useQuery<ConversationResponse, Error, ConversationWithCaller>> {
   return useQuery({
     queryKey: chatKeys.conversation(id),
-    queryFn: conversationQueryFn(id),
+    queryFn: conversationQueryFunction(id),
     select: (data): ConversationWithCaller => ({
       ...data.conversation,
       callerId: data.callerId,
@@ -140,7 +142,7 @@ export function useMessages(
 ): ReturnType<typeof useQuery<ConversationResponse, Error, MessageResponse[]>> {
   return useQuery({
     queryKey: chatKeys.conversation(conversationId),
-    queryFn: conversationQueryFn(conversationId),
+    queryFn: conversationQueryFunction(conversationId),
     select: (data): MessageResponse[] => data.messages,
     enabled: !!conversationId,
   });

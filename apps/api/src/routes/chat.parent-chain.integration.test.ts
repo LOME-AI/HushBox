@@ -14,7 +14,10 @@ import {
 } from '@hushbox/db';
 import { userFactory, walletFactory } from '@hushbox/db/factories';
 import { saveChatTurn, saveUserOnlyMessage } from '../services/chat/message-persistence.js';
-import { resolveParentMessageId } from '../services/chat/message-helpers.js';
+import {
+  resolveParentMessageId,
+  InvalidParentMessageError,
+} from '../services/chat/message-helpers.js';
 import { createFork } from '../services/forks/forks.js';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
@@ -424,11 +427,11 @@ describe('parent chain integration', () => {
     });
   });
 
-  describe('BUG PROOF: passing null parentMessageId breaks chain', () => {
-    it('saveChatTurn with null parentMessageId leaves user messages unlinked', async () => {
+  describe('validation: passing null parentMessageId after first message throws', () => {
+    it('saveChatTurn with null parentMessageId throws InvalidParentMessageError', async () => {
       const convId = await createTestConversation();
 
-      // Demonstrate what happens when caller passes null instead of resolving
+      // First turn with null parentMessageId is valid (no messages exist yet)
       const turn1User = crypto.randomUUID();
       const turn1Ai = crypto.randomUUID();
       await saveChatTurn(db, {
@@ -446,32 +449,25 @@ describe('parent chain integration', () => {
         parentMessageId: null,
       });
 
+      // Second turn with null parentMessageId is now caught by validation
       const turn2User = crypto.randomUUID();
       const turn2Ai = crypto.randomUUID();
-      await saveChatTurn(db, {
-        conversationId: convId,
-        userId,
-        senderId: userId,
-        userMessageId: turn2User,
-        userContent: 'Turn 2',
-        assistantMessageId: turn2Ai,
-        assistantContent: 'Response 2',
-        model: 'test-model',
-        totalCost: 0.001,
-        inputTokens: 10,
-        outputTokens: 20,
-        parentMessageId: null, // null instead of resolving — breaks chain
-      });
-
-      const msgs = await fetchMessages(convId);
-
-      // Second user message has no parent because null was passed
-      const secondUser = msgs.find((m) => m.id === turn2User);
-      expect(secondUser?.parentMessageId).toBeNull();
-
-      // Walking from last message only reaches 2 messages (not all 4)
-      const chain = walkChainFromTip(turn2Ai, msgs);
-      expect(chain).toHaveLength(2); // only turn2User + turn2Ai
+      await expect(
+        saveChatTurn(db, {
+          conversationId: convId,
+          userId,
+          senderId: userId,
+          userMessageId: turn2User,
+          userContent: 'Turn 2',
+          assistantMessageId: turn2Ai,
+          assistantContent: 'Response 2',
+          model: 'test-model',
+          totalCost: 0.001,
+          inputTokens: 10,
+          outputTokens: 20,
+          parentMessageId: null,
+        })
+      ).rejects.toThrow(InvalidParentMessageError);
     });
   });
 

@@ -1602,7 +1602,7 @@ describe('AuthenticatedChatPage', () => {
 
       await waitFor(() => {
         expect(mockInvalidateQueries).toHaveBeenCalledWith({
-          queryKey: ['messages', 'conv-456'],
+          queryKey: ['conversation', 'conv-456'],
         });
       });
     });

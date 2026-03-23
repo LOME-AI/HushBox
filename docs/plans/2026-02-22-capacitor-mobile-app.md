@@ -629,7 +629,7 @@ APP_VERSION: {
   to: [Destination.Backend],
   [Mode.Development]: 'dev-local',
   [Mode.CiVitest]: 'test',
-  [Mode.CiE2E]: 'test',
+  [Mode.E2E]: 'test',
   [Mode.Production]: 'SET_BY_CI',
 },
 VITE_APP_VERSION: {

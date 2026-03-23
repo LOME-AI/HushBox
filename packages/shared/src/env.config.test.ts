@@ -19,9 +19,9 @@ describe('envConfig', () => {
       ]);
     });
 
-    it('has ciVitest/ciE2E value going to Backend only (via ref)', () => {
+    it('has ciVitest/e2e value going to Backend only (via ref)', () => {
       expect(getDestinations(envConfig.DATABASE_URL, Mode.CiVitest)).toEqual([Destination.Backend]);
-      expect(getDestinations(envConfig.DATABASE_URL, Mode.CiE2E)).toEqual([Destination.Backend]);
+      expect(getDestinations(envConfig.DATABASE_URL, Mode.E2E)).toEqual([Destination.Backend]);
     });
 
     it('has production secret going to Backend only', () => {
@@ -48,7 +48,7 @@ describe('envConfig', () => {
 
     it('refs development for CI environments', () => {
       expect(resolveRaw(envConfig.NODE_ENV, Mode.CiVitest)).toBe('development');
-      expect(resolveRaw(envConfig.NODE_ENV, Mode.CiE2E)).toBe('development');
+      expect(resolveRaw(envConfig.NODE_ENV, Mode.E2E)).toBe('development');
     });
   });
 
@@ -82,6 +82,7 @@ describe('envConfig', () => {
     it('is only set in CI environments', () => {
       expect(resolveRaw(envConfig.CI, Mode.Development)).toBeUndefined();
       expect(resolveRaw(envConfig.CI, Mode.CiVitest)).toBe('true');
+      expect(resolveRaw(envConfig.CI, Mode.E2E)).toBeUndefined();
       expect(resolveRaw(envConfig.CI, Mode.CiE2E)).toBe('true');
       expect(resolveRaw(envConfig.CI, Mode.Production)).toBeUndefined();
     });
@@ -92,10 +93,10 @@ describe('envConfig', () => {
       expect(envConfig.E2E.to).toEqual([Destination.Backend]);
     });
 
-    it('is only set in ciE2E environment', () => {
+    it('is only set in e2e environment', () => {
       expect(resolveRaw(envConfig.E2E, Mode.Development)).toBeUndefined();
       expect(resolveRaw(envConfig.E2E, Mode.CiVitest)).toBeUndefined();
-      expect(resolveRaw(envConfig.E2E, Mode.CiE2E)).toBe('true');
+      expect(resolveRaw(envConfig.E2E, Mode.E2E)).toBe('true');
       expect(resolveRaw(envConfig.E2E, Mode.Production)).toBeUndefined();
     });
   });
@@ -108,7 +109,7 @@ describe('envConfig', () => {
     it('is only set in production (not in dev or CI)', () => {
       expect(resolveRaw(envConfig.RESEND_API_KEY, Mode.Development)).toBeUndefined();
       expect(resolveRaw(envConfig.RESEND_API_KEY, Mode.CiVitest)).toBeUndefined();
-      expect(resolveRaw(envConfig.RESEND_API_KEY, Mode.CiE2E)).toBeUndefined();
+      expect(resolveRaw(envConfig.RESEND_API_KEY, Mode.E2E)).toBeUndefined();
       const production = resolveRaw(envConfig.RESEND_API_KEY, Mode.Production);
       expect(isSecret(production)).toBe(true);
     });
@@ -119,10 +120,10 @@ describe('envConfig', () => {
       expect(envConfig.OPENROUTER_API_KEY.to).toEqual([Destination.Backend]);
     });
 
-    it('is only in ciVitest and production (NOT ciE2E)', () => {
+    it('is only in ciVitest and production (NOT e2e)', () => {
       expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.Development)).toBeUndefined();
       expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.CiVitest)).toBeDefined();
-      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.CiE2E)).toBeUndefined();
+      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.E2E)).toBeUndefined();
       expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.Production)).toBeDefined();
     });
   });
@@ -132,9 +133,10 @@ describe('envConfig', () => {
       expect(envConfig.HELCIM_API_TOKEN.to).toEqual([Destination.Backend]);
     });
 
-    it('is only in ciE2E and production (NOT ciVitest)', () => {
+    it('is only in ciE2E and production (NOT development, ciVitest, or e2e)', () => {
       expect(resolveRaw(envConfig.HELCIM_API_TOKEN, Mode.Development)).toBeUndefined();
       expect(resolveRaw(envConfig.HELCIM_API_TOKEN, Mode.CiVitest)).toBeUndefined();
+      expect(resolveRaw(envConfig.HELCIM_API_TOKEN, Mode.E2E)).toBeUndefined();
       expect(resolveRaw(envConfig.HELCIM_API_TOKEN, Mode.CiE2E)).toBeDefined();
       expect(resolveRaw(envConfig.HELCIM_API_TOKEN, Mode.Production)).toBeDefined();
     });
@@ -158,6 +160,12 @@ describe('envConfig', () => {
       expect(dev).toBeDefined();
       expect(typeof dev).toBe('string');
       expect(isSecret(dev)).toBe(false);
+    });
+
+    it('e2e uses development mock value', () => {
+      const e2e = resolveRaw(envConfig.HELCIM_WEBHOOK_VERIFIER, Mode.E2E);
+      const dev = resolveRaw(envConfig.HELCIM_WEBHOOK_VERIFIER, Mode.Development);
+      expect(e2e).toBe(dev);
     });
 
     it('uses different secrets for ciE2E and production', () => {
@@ -185,9 +193,10 @@ describe('envConfig', () => {
       expect(envConfig.VITE_HELCIM_JS_TOKEN.to).toEqual([Destination.Frontend]);
     });
 
-    it('is only in ciE2E and production', () => {
+    it('is only in ciE2E and production (NOT development, ciVitest, or e2e)', () => {
       expect(resolveRaw(envConfig.VITE_HELCIM_JS_TOKEN, Mode.Development)).toBeUndefined();
       expect(resolveRaw(envConfig.VITE_HELCIM_JS_TOKEN, Mode.CiVitest)).toBeUndefined();
+      expect(resolveRaw(envConfig.VITE_HELCIM_JS_TOKEN, Mode.E2E)).toBeUndefined();
       expect(resolveRaw(envConfig.VITE_HELCIM_JS_TOKEN, Mode.CiE2E)).toBeDefined();
       expect(resolveRaw(envConfig.VITE_HELCIM_JS_TOKEN, Mode.Production)).toBeDefined();
     });
@@ -217,6 +226,7 @@ describe('envConfig', () => {
     it('is only set in CI environments', () => {
       expect(resolveRaw(envConfig.VITE_CI, Mode.Development)).toBeUndefined();
       expect(resolveRaw(envConfig.VITE_CI, Mode.CiVitest)).toBe('true');
+      expect(resolveRaw(envConfig.VITE_CI, Mode.E2E)).toBeUndefined();
       expect(resolveRaw(envConfig.VITE_CI, Mode.CiE2E)).toBe('true');
       expect(resolveRaw(envConfig.VITE_CI, Mode.Production)).toBeUndefined();
     });
@@ -235,7 +245,7 @@ describe('envConfig', () => {
 
     it('is available in CI environments via ref', () => {
       expect(resolveRaw(envConfig.MIGRATION_DATABASE_URL, Mode.CiVitest)).toBeDefined();
-      expect(resolveRaw(envConfig.MIGRATION_DATABASE_URL, Mode.CiE2E)).toBeDefined();
+      expect(resolveRaw(envConfig.MIGRATION_DATABASE_URL, Mode.E2E)).toBeDefined();
     });
 
     it('is not set in production (scripts not deployed)', () => {

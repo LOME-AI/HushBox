@@ -89,10 +89,12 @@ function useForkUrlSync(activeForkId: string | null): void {
 
 function useInitialFork(initialForkId: string | undefined): void {
   const initializedRef = React.useRef(false);
-  if (!initializedRef.current && initialForkId) {
-    initializedRef.current = true;
-    useForkStore.getState().setActiveFork(initialForkId);
-  }
+  React.useEffect(() => {
+    if (!initializedRef.current && initialForkId) {
+      initializedRef.current = true;
+      useForkStore.getState().setActiveFork(initialForkId);
+    }
+  }, [initialForkId]);
 }
 
 interface ForkItem {
@@ -166,8 +168,9 @@ function useForkManagement(
       {
         onSuccess: () => {
           if (activeForkId === forkId) {
-            const firstRemaining = forksList.find((f) => f.id !== forkId);
-            setActiveFork(firstRemaining ? firstRemaining.id : null);
+            // Set to null — the auto-select effect will pick the correct fork
+            // from the updated forksList after the query refetch.
+            setActiveFork(null);
           }
         },
       }
@@ -259,7 +262,7 @@ export function AuthenticatedChatPage({
   // (earliest createdAt). The store is the single source of truth — once set,
   // all downstream hooks use activeForkId directly.
   React.useEffect(() => {
-    if (activeForkId !== null || forksList.length === 0) return;
+    if (activeForkId !== null || forksList.length < 2) return;
     const sorted = forksList.toSorted(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
