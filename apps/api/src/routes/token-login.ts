@@ -56,10 +56,7 @@ export const tokenLoginRoute = new Hono<AppEnv>().post(
 
     // Derive deterministic session ID from token so retries within the TTL
     // window produce the same session (no orphaned sessionActive entries).
-    const hashBuffer = await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(token)
-    );
+    const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
     const h = [...new Uint8Array(hashBuffer.slice(0, 16))]
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
