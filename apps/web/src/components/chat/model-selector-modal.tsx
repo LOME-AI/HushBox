@@ -236,6 +236,7 @@ interface ModelListItemProps {
   isPremium: boolean;
   canAccessPremium: boolean;
   isAuthenticated: boolean;
+  isLinkGuest: boolean;
   pinnedLabel?: string | undefined;
   onClick: () => void;
   onDoubleClick: () => void;
@@ -249,11 +250,12 @@ function ModelListItem({
   isPremium,
   canAccessPremium,
   isAuthenticated,
+  isLinkGuest,
   pinnedLabel,
   onClick,
   onDoubleClick,
 }: Readonly<ModelListItemProps>): React.JSX.Element {
-  const showOverlay = isPremium && !canAccessPremium;
+  const showOverlay = isPremium && !canAccessPremium && !isLinkGuest;
 
   return (
     <div
@@ -525,6 +527,7 @@ export function ModelSelectorModal({
   premiumIds,
   canAccessPremium = true,
   isAuthenticated = true,
+  isLinkGuest,
   onPremiumClick,
 }: Readonly<ModelSelectorModalProps>): React.JSX.Element {
   const isMobile = useIsMobile();
@@ -694,6 +697,7 @@ export function ModelSelectorModal({
                           isPremium={isPremium(model.id)}
                           canAccessPremium={canAccessPremium}
                           isAuthenticated={isAuthenticated}
+                          isLinkGuest={isLinkGuest ?? false}
                           pinnedLabel={getPinnedLabel(model.id)}
                           onClick={() => {
                             handleFocusModel(model.id);

@@ -6,14 +6,21 @@ vi.mock('./billing', () => ({
   useBalance: vi.fn(),
 }));
 
+vi.mock('@/lib/link-guest-auth', () => ({
+  getLinkGuestAuth: vi.fn(),
+}));
+
 import { useBalance } from './billing';
+import { getLinkGuestAuth } from '@/lib/link-guest-auth';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type { GetBalanceResponse } from '@hushbox/shared';
 
 const mockUseBalance = vi.mocked(useBalance);
+const mockGetLinkGuestAuth = vi.mocked(getLinkGuestAuth);
 
 describe('useUserTierInfo', () => {
   beforeEach(() => {
+    mockGetLinkGuestAuth.mockReturnValue(null);
     mockUseBalance.mockReturnValue({
       data: { balance: '10.00000000', freeAllowanceCents: 500 },
       isPending: false,
@@ -62,6 +69,16 @@ describe('useUserTierInfo', () => {
     const { result } = renderHook(() => useUserTierInfo(true));
 
     expect(result.current.tier).toBe('trial');
+  });
+
+  it('returns guest tier when link guest auth is set', () => {
+    mockGetLinkGuestAuth.mockReturnValue('some-public-key');
+
+    const { result } = renderHook(() => useUserTierInfo(false));
+
+    expect(result.current.tier).toBe('guest');
+    expect(result.current.balanceCents).toBe(0);
+    expect(result.current.freeAllowanceCents).toBe(0);
   });
 
   it('memoizes result when inputs are stable', () => {

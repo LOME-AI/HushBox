@@ -65,7 +65,7 @@ const fundingSourceSchema = z.enum([
   'owner_balance',
   'personal_balance',
   'free_allowance',
-  'guest_fixed',
+  'trial_fixed',
 ]);
 
 export const streamChatRequestSchema = z.object({

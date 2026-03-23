@@ -34,6 +34,9 @@ interface MockChatLayoutProps {
   inputDisabled: boolean;
   isProcessing: boolean;
   historyCharacters: number;
+  isAuthenticated: boolean;
+  isLinkGuest?: boolean;
+  callerPrivilege?: string;
   title?: string;
   isDecrypting?: boolean;
   conversationId?: string;
@@ -71,6 +74,9 @@ vi.mock('@/components/chat/chat-layout', () => ({
       data-decrypting={props.isDecrypting ? 'true' : undefined}
       data-conversation-id={resolveConversationId(props.conversationId, props.groupChat)}
       {...resolveStreamingAttribute(props.streamingMessageIds)}
+      data-is-authenticated={boolAttribute(props.isAuthenticated)}
+      data-is-link-guest={boolAttribute(props.isLinkGuest)}
+      data-caller-privilege={props.callerPrivilege ?? 'none'}
       data-has-on-regenerate={boolAttribute(props.onRegenerate)}
       data-has-on-edit={boolAttribute(props.onEdit)}
       data-has-on-fork={boolAttribute(props.onFork)}
@@ -1711,6 +1717,57 @@ describe('AuthenticatedChatPage', () => {
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
       expect(screen.getByTestId('chat-layout')).toHaveAttribute('data-has-on-fork', 'true');
+    });
+  });
+
+  describe('link guest mode (privateKeyOverride)', () => {
+    it('passes isAuthenticated=false and isLinkGuest=true when privateKeyOverride is set', () => {
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Shared' },
+        messagesData: [
+          { id: 'm1', conversationId: 'conv-456', role: 'user', content: 'Hi', createdAt: '' },
+        ],
+      });
+
+      render(
+        <AuthenticatedChatPage
+          routeConversationId="conv-456"
+          privateKeyOverride={new Uint8Array(32)}
+        />
+      );
+
+      const layout = screen.getByTestId('chat-layout');
+      expect(layout).toHaveAttribute('data-is-authenticated', 'false');
+      expect(layout).toHaveAttribute('data-is-link-guest', 'true');
+    });
+
+    it('defaults callerPrivilege to read during loading when link guest', () => {
+      setupMocks({ isConversationLoading: true });
+
+      render(
+        <AuthenticatedChatPage
+          routeConversationId="conv-456"
+          privateKeyOverride={new Uint8Array(32)}
+        />
+      );
+
+      const layout = screen.getByTestId('chat-layout');
+      expect(layout).toHaveAttribute('data-caller-privilege', 'read');
+    });
+
+    it('passes isAuthenticated=true when not a link guest', () => {
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Normal' },
+        messagesData: [
+          { id: 'm1', conversationId: 'conv-456', role: 'user', content: 'Hi', createdAt: '' },
+        ],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      const layout = screen.getByTestId('chat-layout');
+      expect(layout).toHaveAttribute('data-is-authenticated', 'true');
+      expect(layout).toHaveAttribute('data-is-link-guest', 'false');
     });
   });
 });

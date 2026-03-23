@@ -506,9 +506,13 @@ function MemberSidebarBody({
                   isAdmin={isAdmin}
                   onRemoveMember={handleRequestRemove}
                   onChangePrivilege={onChangePrivilege}
-                  onLeaveClick={() => {
-                    setLeaveModalOpen(true);
-                  }}
+                  onLeaveClick={
+                    onLeaveClick === undefined
+                      ? undefined
+                      : () => {
+                          setLeaveModalOpen(true);
+                        }
+                  }
                 />
               ))}
               {linkGroup?.map((link) => (
@@ -516,6 +520,7 @@ function MemberSidebarBody({
                   key={link.id}
                   link={link}
                   index={links.indexOf(link)}
+                  isCurrentLink={link.id === currentUserId}
                   isAdmin={isAdmin}
                   onChangeLinkPrivilege={onChangeLinkPrivilege}
                   onSaveLinkName={onSaveLinkName}
@@ -572,7 +577,8 @@ interface BudgetData {
   totalSpent: string;
   memberBudgets: {
     memberId: string;
-    userId: string;
+    userId: string | null;
+    linkId: string | null;
     /** '0.00' when no member_budgets row exists. */
     budget: string;
     spent: string;
@@ -580,12 +586,16 @@ interface BudgetData {
   ownerBalanceDollars: number;
 }
 
-function computeBudgetSublabel(
+/** @internal Exported for testing. */
+export function computeBudgetSublabel(
   data: BudgetData,
   currentUserId: string,
   currentUserPrivilege: string
 ): string {
-  const memberBudget = data.memberBudgets.find((mb) => mb.userId === currentUserId);
+  const memberBudget = data.memberBudgets.find(
+    (mb) =>
+      mb.userId === currentUserId || mb.linkId === currentUserId || mb.memberId === currentUserId
+  );
   const spentDollars = Number.parseFloat(memberBudget?.spent ?? '0');
 
   const budgetDollars =
@@ -667,7 +677,7 @@ function MemberRow({
   onChangePrivilege,
   onLeaveClick,
 }: Readonly<MemberRowProps>): React.JSX.Element {
-  const showActions = isCurrentUser || (isAdmin && !isCurrentUser);
+  const showActions = (isCurrentUser && onLeaveClick !== undefined) || (isAdmin && !isCurrentUser);
 
   return (
     <div
@@ -755,6 +765,7 @@ interface LinkRowProps {
     createdAt: string;
   };
   index: number;
+  isCurrentLink: boolean;
   isAdmin: boolean;
   onChangeLinkPrivilege?: ((linkId: string, newPrivilege: string) => void) | undefined;
   onSaveLinkName?: ((linkId: string, newName: string) => void) | undefined;
@@ -764,6 +775,7 @@ interface LinkRowProps {
 function LinkRow({
   link,
   index,
+  isCurrentLink,
   isAdmin,
   onChangeLinkPrivilege,
   onSaveLinkName,
@@ -819,7 +831,14 @@ function LinkRow({
             onBlur={handleSave}
           />
         ) : (
-          <span className="text-sm">{displayName}</span>
+          <span className="text-sm">
+            {displayName}
+            {isCurrentLink && (
+              <span data-testid="link-you-badge" className="text-muted-foreground ml-1">
+                (you)
+              </span>
+            )}
+          </span>
         )}
       </div>
       {isAdmin && !isEditing && (

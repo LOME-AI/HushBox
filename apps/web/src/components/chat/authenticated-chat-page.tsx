@@ -10,7 +10,7 @@ import { useChatEditStore } from '@/stores/chat-edit';
 import { RenameConversationDialog } from '@/components/sidebar/rename-conversation-dialog';
 import { DeleteConversationDialog } from '@/components/sidebar/delete-conversation-dialog';
 import { ROUTES } from '@hushbox/shared';
-import type { FundingSource } from '@hushbox/shared';
+import type { FundingSource, MemberPrivilege } from '@hushbox/shared';
 import { resolveRegenerateTarget } from '@/lib/chat-regeneration';
 import type { Message } from '@/lib/api';
 
@@ -176,7 +176,7 @@ function useForkManagement(
       }
     );
     setDeletingFork(null);
-  }, [deletingFork, conversationId, deleteFork, activeForkId, forksList, setActiveFork]);
+  }, [deletingFork, conversationId, deleteFork, activeForkId, setActiveFork]);
 
   const handleForkFromMessage = React.useCallback(
     (messageId: string): void => {
@@ -232,6 +232,15 @@ function ForkDialogs({ fm }: Readonly<{ fm: ForkManagement }>): React.JSX.Elemen
       />
     </>
   );
+}
+
+/** Default callerPrivilege to 'read' during loading for link guests to prevent notification flash. */
+function resolveGuestPrivilege(
+  isLinkGuest: boolean,
+  callerPrivilege: MemberPrivilege | undefined
+): MemberPrivilege | undefined {
+  if (!isLinkGuest) return callerPrivilege;
+  return callerPrivilege ?? 'read';
 }
 
 export function AuthenticatedChatPage({
@@ -358,12 +367,12 @@ export function AuthenticatedChatPage({
         inputDisabled={true}
         isProcessing={false}
         historyCharacters={0}
-        isAuthenticated={true}
+        isAuthenticated={!isLinkGuest}
         isLinkGuest={isLinkGuest}
         isDecrypting={true}
         conversationId={conversationId ?? undefined}
         groupChat={groupChat}
-        callerPrivilege={chat.callerPrivilege}
+        callerPrivilege={resolveGuestPrivilege(isLinkGuest, chat.callerPrivilege)}
       />
     );
   }
@@ -381,7 +390,7 @@ export function AuthenticatedChatPage({
         inputDisabled={chat.inputDisabled}
         isProcessing={chat.isStreaming}
         historyCharacters={chat.historyCharacters}
-        isAuthenticated={true}
+        isAuthenticated={!isLinkGuest}
         isLinkGuest={isLinkGuest}
         promptInputRef={chat.promptInputRef}
         errorMessageId={chat.errorMessageId}

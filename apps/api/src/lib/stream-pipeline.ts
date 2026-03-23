@@ -155,7 +155,8 @@ function handleBillingDenial(
         402
       );
     }
-    case 'guest_limit_exceeded': {
+    case 'trial_limit_exceeded':
+    case 'guest_budget_exhausted': {
       return c.json(createErrorResponse(ERROR_CODE_INSUFFICIENT_BALANCE), 402);
     }
   }

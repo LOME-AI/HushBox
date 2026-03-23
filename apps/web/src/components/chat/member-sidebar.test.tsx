@@ -250,6 +250,14 @@ describe('MemberSidebar', () => {
       expect(aliceItem).toHaveTextContent('(you)');
     });
 
+    it('shows (you) badge for current link guest', () => {
+      render(<MemberSidebar {...defaultProps} currentUserId="link1" />);
+
+      expect(screen.getByTestId('link-you-badge')).toBeInTheDocument();
+      const linkItem = screen.getByTestId('link-item-link1');
+      expect(linkItem).toHaveTextContent('(you)');
+    });
+
     it('shows online indicator for online members', () => {
       render(<MemberSidebar {...defaultProps} />);
 
@@ -284,6 +292,20 @@ describe('MemberSidebar', () => {
       expect(screen.queryByTestId('member-actions-m1')).not.toBeInTheDocument();
       expect(screen.queryByTestId('member-actions-m2')).not.toBeInTheDocument();
       expect(screen.queryByTestId('member-actions-m4')).not.toBeInTheDocument();
+    });
+
+    it('hides three-dots for current user when onLeaveClick is undefined', () => {
+      render(
+        <MemberSidebar
+          {...defaultProps}
+          currentUserId="u3"
+          currentUserPrivilege="write"
+          onLeaveClick={undefined}
+        />
+      );
+
+      // Current user should NOT have actions (no leave available, not admin)
+      expect(screen.queryByTestId('member-actions-m3')).not.toBeInTheDocument();
     });
 
     it('shows Leave in current user dropdown', async () => {
@@ -854,6 +876,93 @@ describe('MemberSidebar', () => {
       // Member: spent = $15.00
       // budget = effectiveBudgetCents(convRemaining=7000, memberRemaining=3500, ownerRemaining=20000) / 100 = $35.00
       expect(screen.getByText('$15.00 spent / $35.00 budget')).toBeInTheDocument();
+    });
+
+    it('matches budget by linkId for link guests whose currentUserId is a linkId', () => {
+      mockUseConversationBudgets.mockReturnValue({
+        data: {
+          conversationBudget: '100.00',
+          totalSpent: '20.00',
+          memberBudgets: [
+            {
+              memberId: 'guest-member-id',
+              userId: null,
+              budget: '40.00',
+              spent: '5.00',
+              privilege: 'write',
+              linkId: 'link-abc',
+            },
+          ],
+          ownerBalanceDollars: 200,
+        },
+      });
+
+      // Link guest's currentUserId is the linkId
+      render(
+        <MemberSidebar {...defaultProps} currentUserId="link-abc" currentUserPrivilege="write" />
+      );
+
+      // Guest: spent = $5.00
+      // budget = effectiveBudgetCents(convRemaining=8000, memberRemaining=3500, ownerRemaining=20000) / 100 = $35.00
+      expect(screen.getByText('$5.00 spent / $35.00 budget')).toBeInTheDocument();
+    });
+
+    it('shows $0.00 budget for link guest with zero member budget', () => {
+      mockUseConversationBudgets.mockReturnValue({
+        data: {
+          conversationBudget: '100.00',
+          totalSpent: '10.00',
+          memberBudgets: [
+            {
+              memberId: 'guest-member-id',
+              userId: null,
+              budget: '0.00',
+              spent: '0',
+              privilege: 'write',
+              linkId: 'link-abc',
+            },
+          ],
+          ownerBalanceDollars: 200,
+        },
+      });
+
+      render(
+        <MemberSidebar {...defaultProps} currentUserId="link-abc" currentUserPrivilege="write" />
+      );
+
+      // memberRemaining = 0 → effectiveBudgetCents = 0 → $0.00 budget
+      expect(screen.getByText('$0.00 spent / $0.00 budget')).toBeInTheDocument();
+    });
+
+    it('shows $0.00 for link guest with no matching budget row', () => {
+      mockUseConversationBudgets.mockReturnValue({
+        data: {
+          conversationBudget: '100.00',
+          totalSpent: '10.00',
+          memberBudgets: [
+            {
+              memberId: 'other-member',
+              userId: 'other-user',
+              budget: '50.00',
+              spent: '10.00',
+              privilege: 'write',
+              linkId: null,
+            },
+          ],
+          ownerBalanceDollars: 200,
+        },
+      });
+
+      render(
+        <MemberSidebar
+          {...defaultProps}
+          currentUserId="link-no-match"
+          currentUserPrivilege="write"
+        />
+      );
+
+      // No matching row → memberRemainingCents = 0 → $0.00 budget
+      expect(screen.getByText('$0.00 spent / $0.00 budget')).toBeInTheDocument();
     });
 
     it('shows owner warning in leave confirmation modal from dropdown', async () => {

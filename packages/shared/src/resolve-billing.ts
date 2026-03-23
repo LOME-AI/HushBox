@@ -42,13 +42,14 @@ const FREE_TIER_FLOAT_TOLERANCE_CENTS = 1e-6;
 // Types
 // ============================================================================
 
-export type FundingSource = 'owner_balance' | 'personal_balance' | 'free_allowance' | 'guest_fixed';
+export type FundingSource = 'owner_balance' | 'personal_balance' | 'free_allowance' | 'trial_fixed';
 
 export type DenialReason =
   | 'premium_requires_balance'
   | 'insufficient_balance'
   | 'insufficient_free_allowance'
-  | 'guest_limit_exceeded';
+  | 'trial_limit_exceeded'
+  | 'guest_budget_exhausted';
 
 export type ResolveBillingResult =
   | { fundingSource: FundingSource }
@@ -102,8 +103,9 @@ function resolveGroupBilling(
  * 3. Premium gating: canUseModel() → denied: premium_requires_balance
  * 4. Paid tier with sufficient balance → personal_balance
  * 5. Free tier with allowance → free_allowance
- * 6. Trial/guest within fixed cost → guest_fixed
- * 7. Otherwise → denied with tier-specific reason
+ * 6. Trial within fixed cost → trial_fixed
+ * 7. Guest without group budget → denied: guest_budget_exhausted
+ * 8. Otherwise → denied with tier-specific reason
  */
 export function resolveBilling(input: ResolveBillingInput): ResolveBillingResult {
   const {
@@ -147,9 +149,15 @@ export function resolveBilling(input: ResolveBillingInput): ResolveBillingResult
     return { fundingSource: 'denied', reason: 'insufficient_free_allowance' };
   }
 
-  // 5. Trial/guest within fixed cost cap
-  if (estimatedMinimumCostCents <= MAX_TRIAL_MESSAGE_COST_CENTS) {
-    return { fundingSource: 'guest_fixed' };
+  // 5. Guest users: must use delegated budget (handled in step 1).
+  // If we reach here, no group budget is available — block sending.
+  if (tier === 'guest') {
+    return { fundingSource: 'denied', reason: 'guest_budget_exhausted' };
   }
-  return { fundingSource: 'denied', reason: 'guest_limit_exceeded' };
+
+  // 6. Trial users: allow cheap messages via trial_fixed
+  if (estimatedMinimumCostCents <= MAX_TRIAL_MESSAGE_COST_CENTS) {
+    return { fundingSource: 'trial_fixed' };
+  }
+  return { fundingSource: 'denied', reason: 'trial_limit_exceeded' };
 }

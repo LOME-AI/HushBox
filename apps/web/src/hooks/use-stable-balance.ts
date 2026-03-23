@@ -16,7 +16,7 @@ export function useStableBalance(options?: { enabled?: boolean }): ReturnType<ty
 
   return {
     ...query,
-    isStable: isBalanceStable,
+    isStable: options?.enabled ? Boolean(query.data) : isBalanceStable,
     displayBalance: query.data?.balance ?? '0',
   };
 }

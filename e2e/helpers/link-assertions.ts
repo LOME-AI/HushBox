@@ -25,13 +25,14 @@ export async function expectSendInputDisabled(
   await expect(sendInput).toBeDisabled();
 }
 
-/** Assert the read-only notice is visible and trial notice is not. */
+/** Assert the read-only notice is visible and no trial/guest errors are shown. */
 export async function expectReadOnlyNotice(page: Page): Promise<void> {
   await expect(page.getByTestId('budget-message-read_only_notice')).toBeVisible();
   await expect(page.getByTestId('budget-message-trial_notice')).not.toBeVisible();
+  await expect(page.getByTestId('budget-message-guest_budget_exhausted')).not.toBeVisible();
 }
 
-/** Assert the delegated budget notice is visible and trial notice is not. */
+/** Assert the delegated budget notice is visible and no trial/guest errors are shown. */
 export async function expectDelegatedBudgetNotice(page: Page): Promise<void> {
   // Budget notice depends on billing query that loads independently from messages.
   // Opt out of settled to avoid premature failure when messages settle first.
@@ -39,6 +40,9 @@ export async function expectDelegatedBudgetNotice(page: Page): Promise<void> {
     timeout: 15_000,
   });
   await unsettledExpect(page.getByTestId('budget-message-trial_notice')).not.toBeVisible();
+  await unsettledExpect(
+    page.getByTestId('budget-message-guest_budget_exhausted')
+  ).not.toBeVisible();
 }
 
 /** Fill message input, click send, and wait for message to appear. */

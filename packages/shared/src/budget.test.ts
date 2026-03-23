@@ -742,13 +742,36 @@ describe('generateNotifications', () => {
       );
     });
 
-    it('returns error for guest_limit_exceeded', () => {
+    it('returns error for guest_budget_exhausted', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          billingResult: { fundingSource: 'denied', reason: 'guest_budget_exhausted' },
         })
       );
-      const error = result.find((e) => e.id === 'guest_limit_exceeded');
+      const error = result.find((e) => e.id === 'guest_budget_exhausted');
+      expect(error).toBeDefined();
+      expect(error?.type).toBe('error');
+      expect(error?.message).toBe('No budget allocated. Contact the conversation owner.');
+    });
+
+    it('suppresses delegated_budget_exhausted when guest_budget_exhausted', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'guest_budget_exhausted' },
+          hasDelegatedBudget: true,
+        })
+      );
+      expect(result.some((e) => e.id === 'guest_budget_exhausted')).toBe(true);
+      expect(result.some((e) => e.id === 'delegated_budget_exhausted')).toBe(false);
+    });
+
+    it('returns error for trial_limit_exceeded', () => {
+      const result = generateNotifications(
+        notifInput({
+          billingResult: { fundingSource: 'denied', reason: 'trial_limit_exceeded' },
+        })
+      );
+      const error = result.find((e) => e.id === 'trial_limit_exceeded');
       expect(error).toBeDefined();
       expect(error?.type).toBe('error');
       expect(error?.message).toBe('This message exceeds the usage limit.');
@@ -768,10 +791,10 @@ describe('generateNotifications', () => {
       expect(notice?.message).toBe('Using free allowance. Top up for longer conversations.');
     });
 
-    it('shows trial notice for guest_fixed funding', () => {
+    it('shows trial notice for trial_fixed funding', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'guest_fixed' },
+          billingResult: { fundingSource: 'trial_fixed' },
         })
       );
       const notice = result.find((e) => e.id === 'trial_notice');
@@ -997,7 +1020,7 @@ describe('generateNotifications — comprehensive state audit', () => {
   describe('A. Trial user — solo', () => {
     it('T1: basic, normal capacity, within cap → [trial_notice]', () => {
       const result = generateNotifications(
-        notifInput({ billingResult: { fundingSource: 'guest_fixed' }, capacityPercent: CAP_NORMAL })
+        notifInput({ billingResult: { fundingSource: 'trial_fixed' }, capacityPercent: CAP_NORMAL })
       );
       expect(ids(result)).toEqual(['trial_notice']);
     });
@@ -1005,7 +1028,7 @@ describe('generateNotifications — comprehensive state audit', () => {
     it('T2: basic, warning capacity, within cap → [capacity_warning, trial_notice]', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'guest_fixed' },
+          billingResult: { fundingSource: 'trial_fixed' },
           capacityPercent: CAP_WARNING,
         })
       );
@@ -1015,41 +1038,41 @@ describe('generateNotifications — comprehensive state audit', () => {
     it('T3: basic, exceeded capacity, within cap → [capacity_exceeded, trial_notice]', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'guest_fixed' },
+          billingResult: { fundingSource: 'trial_fixed' },
           capacityPercent: CAP_EXCEEDED,
         })
       );
       expect(ids(result)).toEqual(['capacity_exceeded', 'trial_notice']);
     });
 
-    it('T4: basic, normal capacity, over cap → [guest_limit_exceeded]', () => {
+    it('T4: basic, normal capacity, over cap → [trial_limit_exceeded]', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          billingResult: { fundingSource: 'denied', reason: 'trial_limit_exceeded' },
           capacityPercent: CAP_NORMAL,
         })
       );
-      expect(ids(result)).toEqual(['guest_limit_exceeded']);
+      expect(ids(result)).toEqual(['trial_limit_exceeded']);
     });
 
-    it('T5: basic, warning capacity, over cap → [guest_limit_exceeded]', () => {
+    it('T5: basic, warning capacity, over cap → [trial_limit_exceeded]', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          billingResult: { fundingSource: 'denied', reason: 'trial_limit_exceeded' },
           capacityPercent: CAP_WARNING,
         })
       );
-      expect(ids(result)).toEqual(['guest_limit_exceeded']);
+      expect(ids(result)).toEqual(['trial_limit_exceeded']);
     });
 
-    it('T6: basic, exceeded capacity, over cap → [capacity_exceeded, guest_limit_exceeded]', () => {
+    it('T6: basic, exceeded capacity, over cap → [capacity_exceeded, trial_limit_exceeded]', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          billingResult: { fundingSource: 'denied', reason: 'trial_limit_exceeded' },
           capacityPercent: CAP_EXCEEDED,
         })
       );
-      expect(ids(result)).toEqual(['capacity_exceeded', 'guest_limit_exceeded']);
+      expect(ids(result)).toEqual(['capacity_exceeded', 'trial_limit_exceeded']);
     });
 
     it('T7: premium, normal capacity → [premium_requires_balance]', () => {
@@ -1534,7 +1557,7 @@ describe('generateNotifications — comprehensive state audit', () => {
     it('GMG1: basic, normal, within cap → [trial_notice, delegated_budget_exhausted]', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'guest_fixed' },
+          billingResult: { fundingSource: 'trial_fixed' },
           capacityPercent: CAP_NORMAL,
           hasDelegatedBudget: true,
         })
@@ -1545,7 +1568,7 @@ describe('generateNotifications — comprehensive state audit', () => {
     it('GMG2: basic, warning, within cap → [capacity_warning, trial_notice, delegated_budget_exhausted]', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'guest_fixed' },
+          billingResult: { fundingSource: 'trial_fixed' },
           capacityPercent: CAP_WARNING,
           hasDelegatedBudget: true,
         })
@@ -1560,7 +1583,7 @@ describe('generateNotifications — comprehensive state audit', () => {
     it('GMG3: basic, exceeded, within cap → [capacity_exceeded, trial_notice, delegated_budget_exhausted]', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'guest_fixed' },
+          billingResult: { fundingSource: 'trial_fixed' },
           capacityPercent: CAP_EXCEEDED,
           hasDelegatedBudget: true,
         })
@@ -1572,39 +1595,39 @@ describe('generateNotifications — comprehensive state audit', () => {
       ]);
     });
 
-    it('GMG4: basic, normal, over cap → [guest_limit_exceeded, delegated_budget_exhausted]', () => {
+    it('GMG4: basic, normal, over cap → [trial_limit_exceeded, delegated_budget_exhausted]', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          billingResult: { fundingSource: 'denied', reason: 'trial_limit_exceeded' },
           capacityPercent: CAP_NORMAL,
           hasDelegatedBudget: true,
         })
       );
-      expect(ids(result)).toEqual(['guest_limit_exceeded', 'delegated_budget_exhausted']);
+      expect(ids(result)).toEqual(['trial_limit_exceeded', 'delegated_budget_exhausted']);
     });
 
-    it('GMG5: basic, warning, over cap → [guest_limit_exceeded, delegated_budget_exhausted]', () => {
+    it('GMG5: basic, warning, over cap → [trial_limit_exceeded, delegated_budget_exhausted]', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          billingResult: { fundingSource: 'denied', reason: 'trial_limit_exceeded' },
           capacityPercent: CAP_WARNING,
           hasDelegatedBudget: true,
         })
       );
-      expect(ids(result)).toEqual(['guest_limit_exceeded', 'delegated_budget_exhausted']);
+      expect(ids(result)).toEqual(['trial_limit_exceeded', 'delegated_budget_exhausted']);
     });
 
-    it('GMG6: basic, exceeded, over cap → [capacity_exceeded, guest_limit_exceeded, delegated_budget_exhausted]', () => {
+    it('GMG6: basic, exceeded, over cap → [capacity_exceeded, trial_limit_exceeded, delegated_budget_exhausted]', () => {
       const result = generateNotifications(
         notifInput({
-          billingResult: { fundingSource: 'denied', reason: 'guest_limit_exceeded' },
+          billingResult: { fundingSource: 'denied', reason: 'trial_limit_exceeded' },
           capacityPercent: CAP_EXCEEDED,
           hasDelegatedBudget: true,
         })
       );
       expect(ids(result)).toEqual([
         'capacity_exceeded',
-        'guest_limit_exceeded',
+        'trial_limit_exceeded',
         'delegated_budget_exhausted',
       ]);
     });

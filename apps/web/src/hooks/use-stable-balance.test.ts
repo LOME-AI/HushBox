@@ -64,6 +64,56 @@ describe('useStableBalance', () => {
     });
   });
 
+  describe('isStable with explicit enabled (billing portal)', () => {
+    it('is false when enabled is true but data has not loaded yet', () => {
+      mockedUseBalance.mockReturnValue({
+        data: undefined,
+        isPending: true,
+      } as unknown as ReturnType<typeof useBalance>);
+      mockedUseStability.mockReturnValue({
+        isAuthStable: true,
+        isBalanceStable: true,
+        isAppStable: true,
+      });
+
+      const { result } = renderHook(() => useStableBalance({ enabled: true }));
+
+      expect(result.current.isStable).toBe(false);
+    });
+
+    it('is true when enabled is true and data has loaded', () => {
+      mockedUseBalance.mockReturnValue({
+        data: { balance: '10000.0000' },
+        isPending: false,
+      } as unknown as ReturnType<typeof useBalance>);
+      mockedUseStability.mockReturnValue({
+        isAuthStable: true,
+        isBalanceStable: true,
+        isAppStable: true,
+      });
+
+      const { result } = renderHook(() => useStableBalance({ enabled: true }));
+
+      expect(result.current.isStable).toBe(true);
+    });
+
+    it('delegates to stability provider when enabled is not set', () => {
+      mockedUseBalance.mockReturnValue({
+        data: undefined,
+        isPending: true,
+      } as unknown as ReturnType<typeof useBalance>);
+      mockedUseStability.mockReturnValue({
+        isAuthStable: true,
+        isBalanceStable: true,
+        isAppStable: true,
+      });
+
+      const { result } = renderHook(() => useStableBalance());
+
+      expect(result.current.isStable).toBe(true);
+    });
+  });
+
   describe('displayBalance', () => {
     it('returns balance from data when available', () => {
       mockedUseBalance.mockReturnValue({

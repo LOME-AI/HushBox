@@ -25,7 +25,7 @@ export const linksRoute = new Hono<AppEnv>()
   .get(
     '/:conversationId',
     zValidator('param', z.object({ conversationId: z.string() })),
-    requirePrivilege('read'),
+    requirePrivilege('read', { allowLinkGuest: true }),
     async (c) => {
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');

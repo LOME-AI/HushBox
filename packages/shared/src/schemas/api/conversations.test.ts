@@ -415,7 +415,7 @@ describe('streamChatRequestSchema', () => {
       messagesForInference: [{ role: 'user' as const, content: 'Hello' }],
     };
 
-    for (const source of ['owner_balance', 'personal_balance', 'free_allowance', 'guest_fixed']) {
+    for (const source of ['owner_balance', 'personal_balance', 'free_allowance', 'trial_fixed']) {
       const result = streamChatRequestSchema.parse({ ...base, fundingSource: source });
       expect(result.fundingSource).toBe(source);
     }

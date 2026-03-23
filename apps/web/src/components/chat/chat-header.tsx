@@ -29,6 +29,7 @@ export function ChatHeader({
   premiumIds,
   canAccessPremium,
   isAuthenticated,
+  isLinkGuest,
   onPremiumClick,
   members,
   onlineMemberIds,
@@ -50,6 +51,7 @@ export function ChatHeader({
           premiumIds={premiumIds}
           canAccessPremium={canAccessPremium}
           isAuthenticated={isAuthenticated}
+          isLinkGuest={isLinkGuest}
           onPremiumClick={onPremiumClick}
         />
       }

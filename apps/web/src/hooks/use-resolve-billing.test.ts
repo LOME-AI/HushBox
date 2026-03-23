@@ -55,7 +55,7 @@ describe('useResolveBilling', () => {
     expect(result.current.fundingSource).toBe('free_allowance');
   });
 
-  it('returns guest_fixed for unauthenticated user within cost cap', () => {
+  it('returns trial_fixed for unauthenticated user within cost cap', () => {
     const { result } = renderHook(() =>
       useResolveBilling({
         ...defaultInput,
@@ -64,7 +64,7 @@ describe('useResolveBilling', () => {
       })
     );
 
-    expect(result.current.fundingSource).toBe('guest_fixed');
+    expect(result.current.fundingSource).toBe('trial_fixed');
   });
 
   it('returns denied with premium_requires_balance for free user with premium model', () => {

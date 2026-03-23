@@ -11,15 +11,22 @@ vi.mock('./billing.js', () => ({
   useBalance: vi.fn(),
 }));
 
+vi.mock('@/lib/link-guest-auth', () => ({
+  getLinkGuestAuth: vi.fn(),
+}));
+
 import { useSession } from '@/lib/auth';
 import { useBalance } from './billing.js';
+import { getLinkGuestAuth } from '@/lib/link-guest-auth';
 
 const mockedUseSession = vi.mocked(useSession);
 const mockedUseBalance = vi.mocked(useBalance);
+const mockedGetLinkGuestAuth = vi.mocked(getLinkGuestAuth);
 
 describe('useTierInfo', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedGetLinkGuestAuth.mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -81,6 +88,17 @@ describe('useTierInfo', () => {
     expect(result.current!.canAccessPremium).toBe(true);
     expect(result.current!.balanceCents).toBe(1050);
     expect(result.current!.freeAllowanceCents).toBe(0);
+  });
+
+  it('returns guest tier when link guest auth is set and not authenticated', () => {
+    mockedGetLinkGuestAuth.mockReturnValue('some-public-key');
+    mockedUseSession.mockReturnValue({ data: null } as unknown as ReturnType<typeof useSession>);
+    mockedUseBalance.mockReturnValue({ data: null } as unknown as ReturnType<typeof useBalance>);
+
+    const { result } = renderHook(() => useTierInfo());
+
+    expect(result.current!.tier).toBe('guest');
+    expect(result.current!.canAccessPremium).toBe(false);
   });
 
   it('returns canAccessPremium: true only for paid tier', () => {

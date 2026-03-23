@@ -188,7 +188,7 @@ export function InviteLinkModal({
                 id="invite-name-input"
                 data-testid="invite-link-name-input"
                 type="text"
-                placeholder="The guest can change this later"
+                placeholder="This can be changed later"
                 value={guestName}
                 onChange={(e) => {
                   setGuestName(e.target.value);

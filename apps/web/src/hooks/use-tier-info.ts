@@ -2,6 +2,7 @@ import * as React from 'react';
 import { getUserTier, type UserTierInfo } from '@hushbox/shared';
 import { useSession } from '@/lib/auth';
 import { useBalance } from './billing.js';
+import { getLinkGuestAuth } from '@/lib/link-guest-auth.js';
 
 /**
  * Hook to get user tier info including canAccessPremium.
@@ -25,7 +26,7 @@ export function useTierInfo(): UserTierInfo | null {
 
     // Not authenticated — we know the answer
     if (!isAuthenticated) {
-      return getUserTier(null);
+      return getUserTier(null, { isLinkGuest: getLinkGuestAuth() != null });
     }
 
     // Authenticated but balance not loaded — don't guess

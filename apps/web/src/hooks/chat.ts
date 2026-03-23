@@ -1,7 +1,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { decryptMessage } from '@hushbox/crypto';
-import { fromBase64 } from '@hushbox/shared';
+import { fromBase64, type MemberPrivilege } from '@hushbox/shared';
 import { useAuthStore } from '../lib/auth';
 import { client, fetchJson } from '../lib/api-client';
 import {
@@ -119,7 +119,7 @@ export function useDecryptedConversations(): {
 
 export type ConversationWithCaller = Conversation & {
   callerId: string;
-  callerPrivilege: string;
+  callerPrivilege: MemberPrivilege;
 };
 
 export function useConversation(

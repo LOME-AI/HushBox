@@ -49,6 +49,11 @@ test.describe('Link Guest Chat', () => {
       });
     });
 
+    await test.step('guest does not see "Top up to unlock" on premium models', async () => {
+      await expect(unauthenticatedPage.getByText('Top up')).not.toBeVisible();
+      await expect(unauthenticatedPage.getByText('to unlock')).not.toBeVisible();
+    });
+
     await test.step('guest sends message and receives AI response', async () => {
       const guestInput = unauthenticatedPage.getByRole('textbox', { name: /message/i });
       await expect(guestInput).toBeVisible({ timeout: 5000 });

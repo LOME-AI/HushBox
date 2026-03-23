@@ -856,6 +856,7 @@ export function ChatLayout({
           premiumIds={premiumIds}
           canAccessPremium={canAccessPremium}
           isAuthenticated={isAuthenticated}
+          isLinkGuest={isLinkGuest ?? false}
           onPremiumClick={handlePremiumClick}
           {...buildChatHeaderGroupProps(groupChat, handleFacepileClick)}
         />
@@ -894,6 +895,7 @@ export function ChatLayout({
             key={conversationId}
             conversationId={conversationId}
             {...buildMemberSidebarProps(groupChat)}
+            {...(isLinkGuest && { onLeaveClick: undefined })}
             onBudgetSettingsClick={openBudgetSettingsModal}
             onAddMember={openAddMemberModal}
             onInviteLink={openInviteLinkModal}

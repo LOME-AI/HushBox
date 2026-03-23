@@ -22,7 +22,8 @@ const DENIAL_NOTIFICATION_IDS = new Set([
   'premium_requires_balance',
   'insufficient_balance',
   'insufficient_free_allowance',
-  'guest_limit_exceeded',
+  'trial_limit_exceeded',
+  'guest_budget_exhausted',
 ]);
 
 function isDenialNotification(id: string): boolean {
@@ -172,7 +173,7 @@ describe('resolveBilling ↔ generateNotifications consistency', () => {
   });
 
   describe('personal: guest tier', () => {
-    it('guest + cheap message → approved, no denial notifications', () => {
+    it('guest without group budget → denied, has denial notification', () => {
       assertConsistency({
         tier: 'guest',
         balanceCents: 0,
@@ -182,14 +183,54 @@ describe('resolveBilling ↔ generateNotifications consistency', () => {
       });
     });
 
-    it('guest + expensive message → denied, has denial notification', () => {
+    it('guest + group budget → approved via owner, no denial notifications', () => {
       assertConsistency({
         tier: 'guest',
         balanceCents: 0,
         freeAllowanceCents: 0,
         isPremiumModel: false,
-        estimatedMinimumCostCents: 10,
+        estimatedMinimumCostCents: 1,
+        group: { effectiveCents: 500, ownerTier: 'paid', ownerBalanceCents: 5000 },
       });
+    });
+
+    it('guest + group budget exhausted → denied, has denial notification', () => {
+      assertConsistency({
+        tier: 'guest',
+        balanceCents: 0,
+        freeAllowanceCents: 0,
+        isPremiumModel: false,
+        estimatedMinimumCostCents: 1,
+        group: { effectiveCents: 0, ownerTier: 'paid', ownerBalanceCents: 5000 },
+      });
+    });
+
+    it('guest + delegated budget active + owner pays → approved, no denial notifications', () => {
+      assertConsistency(
+        {
+          tier: 'guest',
+          balanceCents: 0,
+          freeAllowanceCents: 0,
+          isPremiumModel: false,
+          estimatedMinimumCostCents: 1,
+          group: { effectiveCents: 500, ownerTier: 'paid', ownerBalanceCents: 5000 },
+        },
+        { hasDelegatedBudget: true }
+      );
+    });
+
+    it('guest + delegated budget exhausted → denied, no stale delegated_budget_exhausted', () => {
+      assertConsistency(
+        {
+          tier: 'guest',
+          balanceCents: 0,
+          freeAllowanceCents: 0,
+          isPremiumModel: false,
+          estimatedMinimumCostCents: 1,
+          group: { effectiveCents: 0, ownerTier: 'paid', ownerBalanceCents: 5000 },
+        },
+        { hasDelegatedBudget: true }
+      );
     });
   });
 

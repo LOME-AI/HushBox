@@ -93,7 +93,7 @@ describe('resolveBilling', () => {
       expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'free_allowance' });
     });
 
-    it('returns guest_fixed for trial user within fixed cost cap', () => {
+    it('returns trial_fixed for trial user within fixed cost cap', () => {
       const result = resolveBilling(
         personalInput({
           tier: 'trial',
@@ -104,10 +104,10 @@ describe('resolveBilling', () => {
         })
       );
 
-      expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'guest_fixed' });
+      expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'trial_fixed' });
     });
 
-    it('returns guest_fixed for guest user within fixed cost cap', () => {
+    it('denies guest user without group budget even within fixed cost cap', () => {
       const result = resolveBilling(
         personalInput({
           tier: 'guest',
@@ -118,7 +118,23 @@ describe('resolveBilling', () => {
         })
       );
 
-      expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'guest_fixed' });
+      expect(result).toEqual<ResolveBillingResult>({
+        fundingSource: 'denied',
+        reason: 'guest_budget_exhausted',
+      });
+    });
+
+    it('approves guest user with group budget via owner_balance', () => {
+      const result = resolveBilling({
+        tier: 'guest',
+        balanceCents: 0,
+        freeAllowanceCents: 0,
+        isPremiumModel: false,
+        estimatedMinimumCostCents: 1,
+        group: { effectiveCents: 500, ownerTier: 'paid', ownerBalanceCents: 5000 },
+      });
+
+      expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'owner_balance' });
     });
   });
 
@@ -240,11 +256,11 @@ describe('resolveBilling', () => {
 
       expect(result).toEqual<ResolveBillingResult>({
         fundingSource: 'denied',
-        reason: 'guest_limit_exceeded',
+        reason: 'trial_limit_exceeded',
       });
     });
 
-    it('denies guest user exceeding fixed cost cap', () => {
+    it('denies guest user without group budget regardless of cost', () => {
       const result = resolveBilling(
         personalInput({
           tier: 'guest',
@@ -257,7 +273,7 @@ describe('resolveBilling', () => {
 
       expect(result).toEqual<ResolveBillingResult>({
         fundingSource: 'denied',
-        reason: 'guest_limit_exceeded',
+        reason: 'guest_budget_exhausted',
       });
     });
   });
@@ -450,7 +466,7 @@ describe('resolveBilling', () => {
         })
       );
 
-      expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'guest_fixed' });
+      expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'trial_fixed' });
     });
 
     it('paid tier at exact boundary: balance + cushion equals cost', () => {
@@ -526,7 +542,7 @@ describe('resolveBilling', () => {
         })
       );
 
-      expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'guest_fixed' });
+      expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'trial_fixed' });
     });
 
     it('group with negative effectiveCents falls through to personal', () => {

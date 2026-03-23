@@ -78,6 +78,9 @@ test.describe('Link Guest Access', () => {
 
       await expectDelegatedBudgetNotice(freshPage);
 
+      // Sidebar budget should not show $0.00 for a guest with budget
+      await expect(freshPage.getByText('/ $0.00 budget')).not.toBeVisible();
+
       // Can send a message
       const guestInput = freshPage.getByRole('textbox', { name: /message/i });
       await expect(guestInput).toBeVisible({ timeout: 5000 });
@@ -226,6 +229,48 @@ test.describe('Link Guest Access', () => {
 
       await expectSharedConversationLoaded(unauthenticatedPage);
       await expectReadOnlyNotice(unauthenticatedPage);
+    });
+  });
+
+  test('link guest does not see leave button in member sidebar', async ({
+    authenticatedPage,
+    unauthenticatedPage,
+    authenticatedRequest,
+    groupConversation,
+  }) => {
+    test.slow();
+
+    const { sidebar } = await setupGroupConversationWithSidebar(
+      authenticatedPage,
+      authenticatedRequest,
+      groupConversation.id
+    );
+
+    let readUrl: string;
+
+    await test.step('create read+history link', async () => {
+      const result = await createInviteLink(authenticatedPage, sidebar, {
+        withHistory: true,
+        extractLinkId: false,
+      });
+      readUrl = result.url;
+    });
+
+    await test.step('guest opens sidebar and sees no leave action', async () => {
+      await unauthenticatedPage.goto(readUrl);
+      await expectSharedConversationLoaded(unauthenticatedPage);
+
+      const guestSidebar = new MemberSidebarPage(unauthenticatedPage);
+      await guestSidebar.openViaFacepile();
+      await guestSidebar.waitForLoaded();
+
+      // Guest should see their own member row with (you) badge
+      const youBadge = unauthenticatedPage.getByTestId('member-you-badge');
+      await expect(youBadge).toBeVisible({ timeout: 5000 });
+
+      // Guest should NOT have the three-dots actions button on their row
+      const memberLeaveAction = unauthenticatedPage.getByTestId('member-leave-action');
+      await expect(memberLeaveAction).not.toBeVisible();
     });
   });
 });

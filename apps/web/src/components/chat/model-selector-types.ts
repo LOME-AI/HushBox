@@ -6,6 +6,8 @@ export interface ModelSelectorGatingProps {
   canAccessPremium?: boolean | undefined;
   /** Whether the user is authenticated (defaults to true) */
   isAuthenticated?: boolean | undefined;
+  /** Whether the user is a link guest (suppresses premium overlay) */
+  isLinkGuest?: boolean | undefined;
   /** Called when user clicks a premium model they cannot access */
   onPremiumClick?: ((modelId: string) => void) | undefined;
 }

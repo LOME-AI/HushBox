@@ -697,6 +697,64 @@ describe('useGroupChat', () => {
     expect(result.current!.ws).toBe(mockWs);
   });
 
+  it('excludes link guest members from returned members array', () => {
+    vi.mocked(useConversationMembers).mockReturnValue({
+      data: {
+        members: [
+          { id: 'm1', userId: 'u1', username: 'alice', privilege: 'owner' },
+          { id: 'm2', userId: 'u2', username: 'bob', privilege: 'write' },
+          { id: 'm3', userId: 'l1', linkId: 'l1', username: 'Guest 1', privilege: 'read' },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    } as ReturnType<typeof useConversationMembers>);
+
+    const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
+
+    expect(result.current!.members).toEqual([
+      { id: 'm1', userId: 'u1', username: 'alice', privilege: 'owner' },
+      { id: 'm2', userId: 'u2', username: 'bob', privilege: 'write' },
+    ]);
+  });
+
+  it('link guest can authenticate as currentMember via callerId matching member id', () => {
+    vi.mocked(useConversationMembers).mockReturnValue({
+      data: {
+        members: [
+          { id: 'm1', userId: 'u1', username: 'alice', privilege: 'owner' },
+          { id: 'm3', userId: 'l1', linkId: 'l1', username: 'Guest 1', privilege: 'read' },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    } as ReturnType<typeof useConversationMembers>);
+    vi.mocked(useConversationLinks).mockReturnValue({
+      data: {
+        links: [
+          {
+            id: 'l1',
+            displayName: 'Guest 1',
+            privilege: 'read',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    } as ReturnType<typeof useConversationLinks>);
+
+    const { result } = renderHook(() => useGroupChat('conv-1', 'l1'));
+
+    expect(result.current).toBeDefined();
+    expect(result.current!.currentUserId).toBe('l1');
+    expect(result.current!.currentUserPrivilege).toBe('read');
+    // Link guest should not appear in the display members — shown as LinkRow instead
+    expect(result.current!.members).toEqual([
+      { id: 'm1', userId: 'u1', username: 'alice', privilege: 'owner' },
+    ]);
+  });
+
   it('re-computes epoch key when cache version changes', () => {
     // Initial render with cache version 0 — epoch key is fill(7)
     vi.mocked(getSnapshot).mockReturnValue(0);

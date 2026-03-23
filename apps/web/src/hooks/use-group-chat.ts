@@ -41,9 +41,9 @@ export function useGroupChat(
 
   const membersQuery = useConversationMembers(conversationId);
   const linksQuery = useConversationLinks(conversationId);
-  const members = (membersQuery.data as { members: GroupChatProps['members'] } | undefined)
-    ?.members;
-  const isGroup = (members?.length ?? 0) > 1;
+  type RawMember = GroupChatProps['members'][number] & { linkId?: string | null };
+  const allMembers = (membersQuery.data as { members: RawMember[] } | undefined)?.members;
+  const isGroup = (allMembers?.length ?? 0) > 1;
   const ws = useConversationWebSocket(isGroup ? conversationId : null);
   const presenceMap = usePresence(ws);
   useRealtimeSync(ws, conversationId, callerId ?? null);
@@ -86,10 +86,10 @@ export function useGroupChat(
   adminNameRef.current = adminLinkName.mutateAsync;
 
   return React.useMemo((): GroupChatProps | undefined => {
-    if (!conversationId || !members || !callerId) return undefined;
+    if (!conversationId || !allMembers || !callerId) return undefined;
 
     // Link guests pass callerId as member.id, not userId
-    const currentMember = members.find((m) => m.userId === callerId || m.id === callerId);
+    const currentMember = allMembers.find((m) => m.userId === callerId || m.id === callerId);
     if (!currentMember) return undefined;
 
     const epochNumber = getCurrentEpoch(conversationId);
@@ -102,9 +102,12 @@ export function useGroupChat(
       onlineMemberIds.add(key);
     }
 
+    // Filter out link guest members — they are displayed via the links array instead
+    const displayMembers = allMembers.filter((m) => !m.linkId);
+
     return {
       conversationId,
-      members: members.map((m) => ({
+      members: displayMembers.map((m) => ({
         id: m.id,
         userId: m.userId,
         username: m.username,
@@ -125,7 +128,7 @@ export function useGroupChat(
       remoteStreamingMessages,
       ws: ws ?? undefined,
       onRemoveMember: (memberId: string): void => {
-        const removedUserId = members.find((m) => m.id === memberId)?.userId;
+        const removedUserId = allMembers.find((m) => m.id === memberId)?.userId;
         const filter = (keys: MemberKeyResponse[]): RotationMember[] => {
           const result: RotationMember[] = [];
           for (const k of keys) {
@@ -260,7 +263,7 @@ export function useGroupChat(
     };
   }, [
     conversationId,
-    members,
+    allMembers,
     links,
     callerId,
     presenceMap,

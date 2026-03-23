@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { getUserTier, type UserBalanceState, type UserTierInfo } from '@hushbox/shared';
 import { useBalance } from './billing.js';
+import { getLinkGuestAuth } from '@/lib/link-guest-auth.js';
 
 /**
  * Hook that derives the user's balance state and tier info from balance data.
@@ -24,5 +25,10 @@ export function useUserTierInfo(isAuthenticated: boolean): UserTierInfo {
     };
   }, [isAuthenticated, balanceData]);
 
-  return React.useMemo(() => getUserTier(balanceState), [balanceState]);
+  const isLinkGuest = getLinkGuestAuth() != null;
+
+  return React.useMemo(
+    () => getUserTier(balanceState, { isLinkGuest }),
+    [balanceState, isLinkGuest]
+  );
 }

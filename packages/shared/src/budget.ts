@@ -238,8 +238,8 @@ const DENIAL_NOTIFICATIONS: Record<DenialReason, BudgetError> = {
       { text: ' or try a shorter conversation.' },
     ],
   },
-  guest_limit_exceeded: {
-    id: 'guest_limit_exceeded',
+  trial_limit_exceeded: {
+    id: 'trial_limit_exceeded',
     type: 'error',
     message: 'This message exceeds the usage limit.',
     segments: [
@@ -247,6 +247,12 @@ const DENIAL_NOTIFICATIONS: Record<DenialReason, BudgetError> = {
       { text: 'Sign up', link: '/signup' },
       { text: ' for more capacity.' },
     ],
+  },
+  guest_budget_exhausted: {
+    id: 'guest_budget_exhausted',
+    type: 'error',
+    message: 'No budget allocated. Contact the conversation owner.',
+    segments: [{ text: 'No budget allocated. Contact the conversation owner.' }],
   },
 };
 
@@ -261,7 +267,7 @@ const FUNDING_SOURCE_NOTICES: Partial<Record<FundingSource, BudgetError>> = {
       { text: ' for longer conversations.' },
     ],
   },
-  guest_fixed: {
+  trial_fixed: {
     id: 'trial_notice',
     type: 'info',
     message: 'Free preview. Sign up for full access.',
@@ -383,7 +389,19 @@ export function generateNotifications(input: NotificationInput): BudgetError[] {
   }
 
   // 3. Info notices (always, even with blocking errors)
-  pushInfoNotifications(notifications, billingResult.fundingSource, isDenied, hasDelegatedBudget);
+  // Suppress "Your personal balance will be used" when guest has no budget —
+  // the guest_budget_exhausted denial error already covers it.
+  const effectiveHasDelegatedBudget =
+    hasDelegatedBudget &&
+    !(
+      billingResult.fundingSource === 'denied' && billingResult.reason === 'guest_budget_exhausted'
+    );
+  pushInfoNotifications(
+    notifications,
+    billingResult.fundingSource,
+    isDenied,
+    effectiveHasDelegatedBudget
+  );
 
   return notifications;
 }

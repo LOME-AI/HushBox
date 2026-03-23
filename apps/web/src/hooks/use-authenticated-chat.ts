@@ -1031,7 +1031,7 @@ export function useAuthenticatedChat({
     () => computeDisplayTitle(localTitle, conversation, realConversationId),
     [conversation, realConversationId, localTitle, epochCacheVersion]
   );
-  const callerPrivilege = conversation?.callerPrivilege as MemberPrivilege | undefined;
+  const callerPrivilege = conversation?.callerPrivilege;
   const inputDisabled = computeInputDisabled(isCreateMode, realConversationId, callerPrivilege);
 
   const errorMessageId: string | undefined = chatError?.id;

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { StreamChatRotation } from '@hushbox/shared';
 import { client, fetchJson } from '../lib/api-client.js';
 import { useAuthStore } from '../lib/auth.js';
+import { getLinkGuestAuth } from '../lib/link-guest-auth.js';
 import { budgetKeys } from './use-conversation-budgets.js';
 
 function invalidateLinkAndBudget(
@@ -33,7 +34,7 @@ export function useConversationLinks(conversationId: string | null): ReturnType<
           param: { conversationId: conversationId ?? '' },
         })
       ),
-    enabled: !!user && !!conversationId,
+    enabled: (!!user || !!getLinkGuestAuth()) && !!conversationId,
   });
 }
 

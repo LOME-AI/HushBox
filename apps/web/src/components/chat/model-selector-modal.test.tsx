@@ -853,6 +853,25 @@ describe('ModelSelectorModal', () => {
       expect(gpt4Item.querySelector('[data-testid="premium-overlay"]')).not.toBeInTheDocument();
     });
 
+    it('does not show overlay for link guests on premium models', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-3.5-turbo'])}
+          onSelect={vi.fn()}
+          premiumIds={new Set(['openai/gpt-4-turbo'])}
+          canAccessPremium={false}
+          isAuthenticated={false}
+          isLinkGuest={true}
+        />
+      );
+
+      const gpt4Item = screen.getByTestId('model-item-openai/gpt-4-turbo');
+      expect(gpt4Item.querySelector('[data-testid="premium-overlay"]')).not.toBeInTheDocument();
+    });
+
     it('calls onSelect for premium model when canAccessPremium is true', async () => {
       const user = userEvent.setup();
       const onSelect = vi.fn();
