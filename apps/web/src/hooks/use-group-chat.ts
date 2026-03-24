@@ -31,6 +31,34 @@ import { executeWithRotation } from '../lib/rotation.js';
 import type { MemberKeyResponse, RotationMember } from '../lib/rotation.js';
 import type { GroupChatProps } from '../components/chat/chat-layout.js';
 
+type RawMember = GroupChatProps['members'][number] & { linkId?: string | null };
+
+interface MemoPrerequisites {
+  callerId: string;
+  currentMember: RawMember;
+  epochNumber: number;
+  epochKey: Uint8Array;
+}
+
+/** Validates all prerequisites needed by the useMemo callback. */
+function resolveMemoPrerequisites(
+  conversationId: string | null,
+  allMembers: RawMember[] | undefined,
+  callerId: string | undefined
+): MemoPrerequisites | undefined {
+  if (!conversationId || !allMembers || !callerId) return undefined;
+
+  const currentMember = allMembers.find((m) => m.userId === callerId || m.id === callerId);
+  if (!currentMember) return undefined;
+
+  const epochNumber = getCurrentEpoch(conversationId);
+  if (epochNumber === undefined) return undefined;
+  const epochKey = getEpochKey(conversationId, epochNumber);
+  if (!epochKey) return undefined;
+
+  return { callerId, currentMember, epochNumber, epochKey };
+}
+
 export function useGroupChat(
   conversationId: string | null,
   callerId: string | undefined,
@@ -41,7 +69,6 @@ export function useGroupChat(
 
   const membersQuery = useConversationMembers(conversationId);
   const linksQuery = useConversationLinks(conversationId);
-  type RawMember = GroupChatProps['members'][number] & { linkId?: string | null };
   const allMembers = (membersQuery.data as { members: RawMember[] } | undefined)?.members;
   const isGroup = (allMembers?.length ?? 0) > 1;
   const ws = useConversationWebSocket(isGroup ? conversationId : null);
@@ -86,16 +113,9 @@ export function useGroupChat(
   adminNameRef.current = adminLinkName.mutateAsync;
 
   return React.useMemo((): GroupChatProps | undefined => {
-    if (!conversationId || !allMembers || !callerId) return undefined;
-
-    // Link guests pass callerId as member.id, not userId
-    const currentMember = allMembers.find((m) => m.userId === callerId || m.id === callerId);
-    if (!currentMember) return undefined;
-
-    const epochNumber = getCurrentEpoch(conversationId);
-    if (epochNumber === undefined) return undefined;
-    const epochKey = getEpochKey(conversationId, epochNumber);
-    if (!epochKey) return undefined;
+    const prereqs = resolveMemoPrerequisites(conversationId, allMembers, callerId);
+    if (!prereqs) return undefined;
+    const { callerId: resolvedCallerId, currentMember, epochNumber, epochKey } = prereqs;
 
     const onlineMemberIds = new Set<string>();
     for (const key of presenceMap.keys()) {
@@ -120,7 +140,7 @@ export function useGroupChat(
         createdAt: l.createdAt,
       })),
       onlineMemberIds,
-      currentUserId: callerId,
+      currentUserId: resolvedCallerId,
       currentUserLinkId: currentMember.linkId ?? null,
       currentUserPrivilege: currentMember.privilege as MemberPrivilege,
       currentEpochPrivateKey: epochKey,
@@ -199,7 +219,8 @@ export function useGroupChat(
           const filter = (keys: MemberKeyResponse[]): RotationMember[] => {
             const result: RotationMember[] = [];
             for (const k of keys) {
-              if (k.userId !== callerId) result.push({ publicKey: fromBase64(k.publicKey) });
+              if (k.userId !== resolvedCallerId)
+                result.push({ publicKey: fromBase64(k.publicKey) });
             }
             return result;
           };

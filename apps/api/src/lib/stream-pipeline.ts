@@ -54,6 +54,7 @@ import {
   type GroupBudgetReservation,
 } from './speculative-balance.js';
 import type { Context } from 'hono';
+import { safeExecutionCtx } from './safe-execution-ctx.js';
 
 // ============================================================================
 // Types
@@ -101,17 +102,6 @@ export const BATCH_INTERVAL_MS = 100;
 // ============================================================================
 // Utility Functions
 // ============================================================================
-
-/** Safely access `c.executionCtx` — returns `undefined` outside Cloudflare Workers runtime. */
-function safeExecutionCtx(
-  c: Context<AppEnv>
-): { waitUntil(p: Promise<unknown>): void } | undefined {
-  try {
-    return c.executionCtx;
-  } catch {
-    return undefined;
-  }
-}
 
 export function lookupModelPricing(
   models: Awaited<ReturnType<typeof fetchModels>>,

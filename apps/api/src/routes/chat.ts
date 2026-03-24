@@ -55,20 +55,10 @@ import {
 import type { BroadcastContext, StreamResult } from '../lib/stream-pipeline.js';
 import { getPushClient, sendPushForNewMessage } from '../services/push/index.js';
 import { fireAndForget } from '../lib/fire-and-forget.js';
+import { safeExecutionCtx } from '../lib/safe-execution-ctx.js';
 
 // Re-export for existing test imports
 export { computeWorstCaseCents } from '../lib/stream-pipeline.js';
-
-/** Safely access `c.executionCtx` — returns `undefined` outside Workers runtime. */
-function safeExecutionCtx(
-  c: Context<AppEnv>
-): { waitUntil(p: Promise<unknown>): void } | undefined {
-  try {
-    return c.executionCtx;
-  } catch {
-    return undefined;
-  }
-}
 
 const noOpRelease = (): Promise<void> => Promise.resolve();
 
