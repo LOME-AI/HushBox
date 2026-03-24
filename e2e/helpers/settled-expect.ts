@@ -14,7 +14,7 @@
 import { expect as baseExpect, type Page } from '@playwright/test';
 
 const FLOOR_MS = 500;
-const GRACE_MS = 1_000;
+const GRACE_MS = 1000;
 const POLL_MS = 200;
 const DEFAULT_TIMEOUT = 10_000;
 
