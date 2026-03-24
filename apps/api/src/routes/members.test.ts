@@ -3,10 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ── submitRotation mock (vi.hoisted ensures availability before vi.mock factory) ──
 const mockSubmitRotation = vi.hoisted(() => vi.fn());
 
-// ── broadcastToRoom mock ──
-const mockBroadcastToRoom = vi.hoisted(() => vi.fn().mockResolvedValue({ sent: 0 }));
+// ── broadcastFireAndForget mock ──
+const mockBroadcastFireAndForget = vi.hoisted(() => vi.fn());
 vi.mock('../lib/broadcast.js', () => ({
-  broadcastToRoom: (...args: unknown[]) => mockBroadcastToRoom(...args),
+  broadcastFireAndForget: (...args: unknown[]) => mockBroadcastFireAndForget(...args),
 }));
 
 vi.mock('../services/keys/keys.js', async (importOriginal) => {
@@ -1281,7 +1281,7 @@ describe('members route', () => {
 
     it('broadcasts rotation:complete when adding without history', async () => {
       mockSubmitRotation.mockResolvedValue({ newEpochNumber: 2, newEpochId: 'epoch-new-001' });
-      mockBroadcastToRoom.mockClear();
+      mockBroadcastFireAndForget.mockClear();
 
       const { app } = createAddTestApp({
         dbConfig: {
@@ -1308,7 +1308,7 @@ describe('members route', () => {
       });
 
       expect(res.status).toBe(201);
-      expect(mockBroadcastToRoom).toHaveBeenCalledWith(
+      expect(mockBroadcastFireAndForget).toHaveBeenCalledWith(
         expect.anything(),
         TEST_CONVERSATION_ID,
         expect.objectContaining({
@@ -1320,7 +1320,7 @@ describe('members route', () => {
     });
 
     it('does not broadcast rotation:complete when adding with full history', async () => {
-      mockBroadcastToRoom.mockClear();
+      mockBroadcastFireAndForget.mockClear();
 
       const { app } = createAddTestApp({
         dbConfig: {
@@ -1343,8 +1343,8 @@ describe('members route', () => {
 
       expect(res.status).toBe(201);
 
-      // broadcastToRoom is called for member:added but NOT for rotation:complete
-      const rotationCalls = mockBroadcastToRoom.mock.calls.filter(
+      // broadcastFireAndForget is called for member:added but NOT for rotation:complete
+      const rotationCalls = mockBroadcastFireAndForget.mock.calls.filter(
         (call: unknown[]) =>
           call[2] &&
           typeof call[2] === 'object' &&
@@ -1655,7 +1655,7 @@ describe('members route', () => {
     });
 
     it('broadcasts rotation:complete event after successful remove', async () => {
-      mockBroadcastToRoom.mockClear();
+      mockBroadcastFireAndForget.mockClear();
 
       const app = createRemoveTestApp({
         dbConfig: {
@@ -1676,7 +1676,7 @@ describe('members route', () => {
       });
 
       expect(res.status).toBe(200);
-      expect(mockBroadcastToRoom).toHaveBeenCalledWith(
+      expect(mockBroadcastFireAndForget).toHaveBeenCalledWith(
         expect.anything(),
         TEST_CONVERSATION_ID,
         expect.objectContaining({
@@ -2030,7 +2030,7 @@ describe('members route', () => {
     });
 
     it('broadcasts rotation:complete when non-owner leaves with rotation', async () => {
-      mockBroadcastToRoom.mockClear();
+      mockBroadcastFireAndForget.mockClear();
 
       const app = createLeaveTestApp({
         dbConfig: {
@@ -2045,7 +2045,7 @@ describe('members route', () => {
       });
 
       expect(res.status).toBe(200);
-      expect(mockBroadcastToRoom).toHaveBeenCalledWith(
+      expect(mockBroadcastFireAndForget).toHaveBeenCalledWith(
         expect.anything(),
         TEST_CONVERSATION_ID,
         expect.objectContaining({
@@ -2057,7 +2057,7 @@ describe('members route', () => {
     });
 
     it('does not broadcast rotation:complete when owner leaves', async () => {
-      mockBroadcastToRoom.mockClear();
+      mockBroadcastFireAndForget.mockClear();
 
       const app = createLeaveTestApp({
         dbConfig: {
@@ -2073,7 +2073,7 @@ describe('members route', () => {
 
       expect(res.status).toBe(200);
 
-      const rotationCalls = mockBroadcastToRoom.mock.calls.filter(
+      const rotationCalls = mockBroadcastFireAndForget.mock.calls.filter(
         (call: unknown[]) =>
           call[2] &&
           typeof call[2] === 'object' &&

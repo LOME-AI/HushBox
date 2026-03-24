@@ -161,12 +161,10 @@ describe('SharedConversationPage', () => {
     );
   });
 
-  it('invalidates stale conversation query cache on mount', () => {
+  it('invalidates all query cache on mount', () => {
     render(<SharedConversationPage />);
 
-    expect(mockInvalidateQueries).toHaveBeenCalledWith({
-      queryKey: ['chat', 'conversations', 'conv-shared'],
-    });
+    expect(mockInvalidateQueries).toHaveBeenCalledWith();
   });
 
   it('renders error state when key derivation fails', () => {

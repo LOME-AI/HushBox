@@ -251,7 +251,7 @@ describe('MemberSidebar', () => {
     });
 
     it('shows (you) badge for current link guest', () => {
-      render(<MemberSidebar {...defaultProps} currentUserId="link1" />);
+      render(<MemberSidebar {...defaultProps} currentUserLinkId="link1" />);
 
       expect(screen.getByTestId('link-you-badge')).toBeInTheDocument();
       const linkItem = screen.getByTestId('link-item-link1');

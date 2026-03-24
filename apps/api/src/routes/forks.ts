@@ -11,7 +11,7 @@ import type { AppEnv } from '../types.js';
 import { requirePrivilege } from '../middleware/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { createFork, deleteFork, renameFork, ForkError } from '../services/forks/forks.js';
-import { broadcastToRoom } from '../lib/broadcast.js';
+import { broadcastFireAndForget } from '../lib/broadcast.js';
 import { createEvent } from '@hushbox/realtime/events';
 
 function mapForkError(error: ForkError): { status: 409 | 400; code: string } {
@@ -60,7 +60,7 @@ export const forksRoute = new Hono<AppEnv>()
         if (result.isNew) {
           const newFork = forks.find((f) => f.id === id);
           if (newFork) {
-            void broadcastToRoom(
+            broadcastFireAndForget(
               c.env,
               conversationId,
               createEvent('fork:created', {
@@ -96,7 +96,7 @@ export const forksRoute = new Hono<AppEnv>()
       try {
         await renameFork(db, { forkId, conversationId, name });
 
-        void broadcastToRoom(
+        broadcastFireAndForget(
           c.env,
           conversationId,
           createEvent('fork:renamed', { forkId, conversationId, name })
@@ -122,7 +122,7 @@ export const forksRoute = new Hono<AppEnv>()
 
       const result = await deleteFork(db, { conversationId, forkId });
 
-      void broadcastToRoom(
+      broadcastFireAndForget(
         c.env,
         conversationId,
         createEvent('fork:deleted', { forkId, conversationId })

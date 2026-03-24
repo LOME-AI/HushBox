@@ -38,7 +38,7 @@ import {
 import { createErrorResponse } from '../lib/error-response.js';
 import { createSSEEventWriter } from '../lib/stream-handler.js';
 import { requirePrivilege } from '../middleware/index.js';
-import { broadcastToRoom } from '../lib/broadcast.js';
+import { broadcastFireAndForget } from '../lib/broadcast.js';
 import { createEvent } from '@hushbox/realtime/events';
 import {
   releaseBudget,
@@ -58,6 +58,17 @@ import { fireAndForget } from '../lib/fire-and-forget.js';
 
 // Re-export for existing test imports
 export { computeWorstCaseCents } from '../lib/stream-pipeline.js';
+
+/** Safely access `c.executionCtx` — returns `undefined` outside Workers runtime. */
+function safeExecutionCtx(
+  c: Context<AppEnv>
+): { waitUntil(p: Promise<unknown>): void } | undefined {
+  try {
+    return c.executionCtx;
+  } catch {
+    return undefined;
+  }
+}
 
 const noOpRelease = (): Promise<void> => Promise.resolve();
 
@@ -99,7 +110,7 @@ interface BroadcastAndWriteCompletionParams {
 async function broadcastAndWriteCompletion(
   params: BroadcastAndWriteCompletionParams
 ): Promise<void> {
-  void broadcastToRoom(
+  broadcastFireAndForget(
     params.env,
     params.conversationId,
     createEvent('message:complete', {
@@ -123,7 +134,7 @@ async function broadcastAndWriteCompletion(
 
 /** Sends a buffered broadcast token to the room. */
 function flushBroadcastBuffer(broadcast: BroadcastContext, tokenBuffer: string): void {
-  void broadcastToRoom(
+  broadcastFireAndForget(
     broadcast.env,
     broadcast.conversationId,
     createEvent('message:stream', {
@@ -662,7 +673,7 @@ export const chatRoute = new Hono<AppEnv>()
       });
 
       // Broadcast to group chat members
-      const broadcastPromise = broadcastToRoom(
+      broadcastFireAndForget(
         c.env,
         conversationId,
         createEvent('message:new', {
@@ -670,15 +681,9 @@ export const chatRoute = new Hono<AppEnv>()
           conversationId,
           senderType: 'user',
           senderId: user.id,
-        })
+        }),
+        safeExecutionCtx(c)
       );
-
-      try {
-        // eslint-disable-next-line promise/prefer-await-to-then -- waitUntil requires a non-awaited promise; catch prevents unhandled rejection
-        c.executionCtx.waitUntil(broadcastPromise.catch(() => null));
-      } catch {
-        // executionCtx unavailable outside Workers runtime
-      }
 
       // Fire-and-forget push notifications to other conversation members
       fireAndForget(
@@ -690,7 +695,8 @@ export const chatRoute = new Hono<AppEnv>()
           title: 'New Message',
           body: 'You have a new message',
         }),
-        'send push notifications for user message'
+        'send push notifications for user message',
+        safeExecutionCtx(c)
       );
 
       return c.json({
@@ -838,7 +844,8 @@ export const chatRoute = new Hono<AppEnv>()
               title: 'New Message',
               body: 'You have a new message',
             }),
-            'send push notifications for AI response'
+            'send push notifications for AI response',
+            safeExecutionCtx(c)
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error';

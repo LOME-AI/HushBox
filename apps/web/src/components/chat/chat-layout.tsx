@@ -50,6 +50,7 @@ export interface GroupChatProps {
   }[];
   readonly onlineMemberIds: Set<string>;
   readonly currentUserId: string;
+  readonly currentUserLinkId: string | null;
   readonly currentUserPrivilege: MemberPrivilege;
   readonly currentEpochPrivateKey: Uint8Array;
   readonly currentEpochNumber: number;
@@ -206,6 +207,7 @@ function buildMemberSidebarProps(
     links: groupChat.links,
     onlineMemberIds: groupChat.onlineMemberIds,
     currentUserId: groupChat.currentUserId,
+    currentUserLinkId: groupChat.currentUserLinkId ?? null,
     currentUserPrivilege: groupChat.currentUserPrivilege,
     ...(groupChat.onRemoveMember !== undefined && {
       onRemoveMember: groupChat.onRemoveMember,

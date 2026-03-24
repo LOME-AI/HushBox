@@ -7,7 +7,6 @@ import { fromBase64, toBase64 } from '@hushbox/shared';
 import { AppShell } from '../components/shared/app-shell.js';
 import { AuthenticatedChatPage } from '../components/chat/authenticated-chat-page.js';
 import { setLinkGuestAuth, clearLinkGuestAuth } from '../lib/link-guest-auth.js';
-import { chatKeys } from '../hooks/chat.js';
 
 export const Route = createFileRoute('/share/c/$conversationId')({
   component: SharedConversationPage,
@@ -51,10 +50,10 @@ function SharedConversationPageInner(): React.JSX.Element {
   React.useLayoutEffect(() => {
     if (!derivedKeys) return;
     setLinkGuestAuth(toBase64(derivedKeys.publicKey));
-    // Invalidate stale conversation cache — a previous link for the same
-    // conversation may have cached a different privilege (e.g. read vs write).
-    // The query key doesn't include linkPublicKey, so we must refetch here.
-    void queryClient.invalidateQueries({ queryKey: chatKeys.conversation(conversationId) });
+    // Invalidate ALL cached queries — entering link guest mode changes the
+    // auth context entirely (session cookies → link key header with credentials: 'omit').
+    // All previously cached responses (members, budgets, session, etc.) are stale.
+    void queryClient.invalidateQueries();
     setLinkReady(true);
     return (): void => {
       clearLinkGuestAuth();

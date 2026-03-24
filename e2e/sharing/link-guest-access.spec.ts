@@ -264,8 +264,8 @@ test.describe('Link Guest Access', () => {
       await guestSidebar.openViaFacepile();
       await guestSidebar.waitForLoaded();
 
-      // Guest should see their own member row with (you) badge
-      const youBadge = unauthenticatedPage.getByTestId('member-you-badge');
+      // Guest should see their own link entry with (you) badge
+      const youBadge = unauthenticatedPage.getByTestId('link-you-badge');
       await expect(youBadge).toBeVisible({ timeout: 5000 });
 
       // Guest should NOT have the three-dots actions button on their row

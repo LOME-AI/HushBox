@@ -121,6 +121,7 @@ export function useGroupChat(
       })),
       onlineMemberIds,
       currentUserId: callerId,
+      currentUserLinkId: currentMember.linkId ?? null,
       currentUserPrivilege: currentMember.privilege as MemberPrivilege,
       currentEpochPrivateKey: epochKey,
       currentEpochNumber: epochNumber,

@@ -9,8 +9,7 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
 });
 
 vi.mock('./broadcast.js', () => ({
-  // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
-  broadcastToRoom: vi.fn().mockResolvedValue(undefined),
+  broadcastFireAndForget: vi.fn(),
 }));
 
 vi.mock('@hushbox/realtime/events', () => ({
@@ -18,7 +17,7 @@ vi.mock('@hushbox/realtime/events', () => ({
 }));
 
 import { getModelPricing } from '@hushbox/shared';
-import { broadcastToRoom } from './broadcast.js';
+import { broadcastFireAndForget } from './broadcast.js';
 import { createEvent } from '@hushbox/realtime/events';
 import type { ModelInfo } from '../services/openrouter/types.js';
 import type { ChatMessage } from '../services/openrouter/types.js';
@@ -499,7 +498,7 @@ describe('handleBillingResult', () => {
 
 describe('withBroadcast', () => {
   beforeEach(() => {
-    vi.mocked(broadcastToRoom).mockClear();
+    vi.mocked(broadcastFireAndForget).mockClear();
     vi.mocked(createEvent).mockClear();
   });
 
@@ -545,8 +544,8 @@ describe('withBroadcast', () => {
 
     await collectAll(wrapped);
 
-    // The flush happens on done — broadcastToRoom should have been called at least once
-    expect(broadcastToRoom).toHaveBeenCalled();
+    // The flush happens on done — broadcastFireAndForget should have been called at least once
+    expect(broadcastFireAndForget).toHaveBeenCalled();
     // Last call should include the token content
     const lastCallEvent = vi.mocked(createEvent).mock.calls.at(-1);
     expect(lastCallEvent).toBeDefined();
@@ -592,9 +591,9 @@ describe('withBroadcast', () => {
     const items = await collectAll(wrapped);
 
     expect(items).toEqual([]);
-    // No tokens to broadcast — should not call broadcastToRoom for streaming
+    // No tokens to broadcast — should not call broadcastFireAndForget for streaming
     // (the done handler only broadcasts if tokenBuffer is non-empty)
-    expect(broadcastToRoom).not.toHaveBeenCalled();
+    expect(broadcastFireAndForget).not.toHaveBeenCalled();
   });
 });
 
@@ -604,7 +603,7 @@ describe('withBroadcast', () => {
 
 describe('broadcastAndFinish', () => {
   beforeEach(() => {
-    vi.mocked(broadcastToRoom).mockClear();
+    vi.mocked(broadcastFireAndForget).mockClear();
     vi.mocked(createEvent).mockClear();
   });
 
@@ -644,7 +643,7 @@ describe('broadcastAndFinish', () => {
       epochNumber: 3,
       modelName: 'openai/gpt-4o',
     });
-    expect(broadcastToRoom).toHaveBeenCalledOnce();
+    expect(broadcastFireAndForget).toHaveBeenCalledOnce();
 
     expect(writeDone).toHaveBeenCalledWith({
       userMessageId: 'user-1',

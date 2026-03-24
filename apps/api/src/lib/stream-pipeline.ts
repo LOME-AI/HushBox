@@ -44,7 +44,7 @@ import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createErrorResponse } from './error-response.js';
 import { createSSEEventWriter } from './stream-handler.js';
 import { collectMultiModelStreams, type ModelStreamEntry } from './multi-stream.js';
-import { broadcastToRoom } from './broadcast.js';
+import { broadcastFireAndForget } from './broadcast.js';
 import { createEvent } from '@hushbox/realtime/events';
 import {
   reserveBudget,
@@ -101,6 +101,17 @@ export const BATCH_INTERVAL_MS = 100;
 // ============================================================================
 // Utility Functions
 // ============================================================================
+
+/** Safely access `c.executionCtx` — returns `undefined` outside Cloudflare Workers runtime. */
+function safeExecutionCtx(
+  c: Context<AppEnv>
+): { waitUntil(p: Promise<unknown>): void } | undefined {
+  try {
+    return c.executionCtx;
+  } catch {
+    return undefined;
+  }
+}
 
 export function lookupModelPricing(
   models: Awaited<ReturnType<typeof fetchModels>>,
@@ -221,7 +232,7 @@ export function withBroadcast(
 
       function flushTokenBuffer(): void {
         if (tokenBuffer) {
-          void broadcastToRoom(
+          broadcastFireAndForget(
             broadcast.env,
             broadcast.conversationId,
             createEvent('message:stream', {
@@ -311,7 +322,7 @@ export async function broadcastAndFinish(options: BroadcastAndFinishOptions): Pr
   const { c, conversationId, userMessageId, assistantMessageId, billingResult, writer, modelName } =
     options;
 
-  const broadcastPromise = broadcastToRoom(
+  broadcastFireAndForget(
     c.env,
     conversationId,
     createEvent('message:complete', {
@@ -320,16 +331,9 @@ export async function broadcastAndFinish(options: BroadcastAndFinishOptions): Pr
       sequenceNumber: billingResult.aiSequence,
       epochNumber: billingResult.epochNumber,
       ...(modelName !== undefined && { modelName }),
-    })
+    }),
+    safeExecutionCtx(c)
   );
-
-  // Best-effort: don't fail the SSE response if broadcast fails
-  try {
-    // eslint-disable-next-line promise/prefer-await-to-then -- waitUntil requires a non-awaited promise; catch prevents unhandled rejection
-    c.executionCtx.waitUntil(broadcastPromise.catch(() => null));
-  } catch {
-    // executionCtx unavailable outside Workers runtime
-  }
 
   await writer.writeDone({
     userMessageId,
@@ -774,7 +778,7 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
 
   // Early broadcast: notify other group members of user's message
   const lastContent = lastInferenceMessage?.content ?? '';
-  const userBroadcastPromise = broadcastToRoom(
+  broadcastFireAndForget(
     c.env,
     conversationId,
     createEvent('message:new', {
@@ -783,16 +787,9 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
       senderType: 'user',
       senderId,
       content: lastContent,
-    })
+    }),
+    safeExecutionCtx(c)
   );
-
-  // Keep worker alive until broadcast completes (same pattern as message:complete)
-  try {
-    // eslint-disable-next-line promise/prefer-await-to-then -- waitUntil requires a non-awaited promise; catch prevents unhandled rejection
-    c.executionCtx.waitUntil(userBroadcastPromise.catch(() => null));
-  } catch {
-    // executionCtx unavailable outside Cloudflare Workers runtime
-  }
 
   // Build one stream entry per model, wrapping each with broadcast for group chat
   const streamEntries: ModelStreamEntry[] = models.map((modelId) => {
@@ -889,7 +886,7 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
         // Broadcast completion for additional models
         for (const [modelId] of successfulModels) {
           if (modelId === primaryModel) continue;
-          void broadcastToRoom(
+          broadcastFireAndForget(
             c.env,
             conversationId,
             createEvent('message:complete', {

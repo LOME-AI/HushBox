@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createEvent, type RealtimeEvent } from '@hushbox/realtime/events';
-import { broadcastToRoom } from './broadcast.js';
+import { broadcastToRoom, broadcastFireAndForget } from './broadcast.js';
 import type { Bindings } from '../types.js';
 
 function createMockEvent(): RealtimeEvent {
@@ -106,5 +106,81 @@ describe('broadcastToRoom', () => {
     const event = createMockEvent();
 
     await expect(broadcastToRoom(env, 'conv-456', event)).rejects.toThrow('DO unavailable');
+  });
+});
+
+describe('broadcastFireAndForget', () => {
+  it('does not throw when broadcast succeeds', () => {
+    const { namespace } = createMockDONamespace(2);
+    const env = { CONVERSATION_ROOM: namespace } as unknown as Bindings;
+    const event = createMockEvent();
+
+    expect(() => {
+      broadcastFireAndForget(env, 'conv-456', event);
+    }).not.toThrow();
+  });
+
+  it('does not log when broadcast succeeds', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { namespace } = createMockDONamespace(2);
+    const env = { CONVERSATION_ROOM: namespace } as unknown as Bindings;
+    const event = createMockEvent();
+
+    broadcastFireAndForget(env, 'conv-456', event);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('logs error when broadcast fails', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const stub: MockStub = {
+      fetch: vi.fn().mockRejectedValue(new Error('DO unavailable')),
+    };
+    const namespace: MockNamespace = {
+      idFromName: vi.fn().mockReturnValue({ toString: () => 'id' }),
+      get: vi.fn().mockReturnValue(stub),
+    };
+    const env = { CONVERSATION_ROOM: namespace } as unknown as Bindings;
+    const event = createMockEvent();
+
+    broadcastFireAndForget(env, 'conv-456', event);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith(
+      '[fire-and-forget] broadcast message:new to conv-456:',
+      expect.any(Error)
+    );
+    spy.mockRestore();
+  });
+
+  it('calls waitUntil when executionCtx provided', () => {
+    const waitUntil = vi.fn();
+    const { namespace } = createMockDONamespace(1);
+    const env = { CONVERSATION_ROOM: namespace } as unknown as Bindings;
+    const event = createMockEvent();
+
+    broadcastFireAndForget(env, 'conv-456', event, { waitUntil });
+
+    expect(waitUntil).toHaveBeenCalledOnce();
+  });
+
+  it('no-ops when env has no CONVERSATION_ROOM', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const env = {} as Bindings;
+    const event = createMockEvent();
+
+    expect(() => {
+      broadcastFireAndForget(env, 'conv-456', event);
+    }).not.toThrow();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

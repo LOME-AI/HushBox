@@ -33,33 +33,12 @@ import {
   fromBase64,
 } from '@hushbox/shared';
 import { createEvent } from '@hushbox/realtime/events';
-import type { RealtimeEvent, RealtimeEventType } from '@hushbox/realtime/events';
-import type { AppEnv, Bindings } from '../types.js';
+import type { AppEnv } from '../types.js';
 import { requirePrivilege } from '../middleware/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { findActiveMember } from '../lib/db-helpers.js';
 import { submitRotation, toRotationParams, handleRotationError } from '../services/keys/keys.js';
-import { broadcastToRoom } from '../lib/broadcast.js';
-import { fireAndForget } from '../lib/fire-and-forget.js';
-
-interface BroadcastEventOptions<T extends RealtimeEventType> {
-  env: Bindings | undefined;
-  conversationId: string;
-  type: T;
-  data: Omit<Extract<RealtimeEvent, { type: T }>, 'type' | 'timestamp'>;
-  errorContext: string;
-}
-
-/**
- * Fire-and-forget broadcast of a realtime event to a conversation room.
- * Captures the repeated `fireAndForget(broadcastToRoom(env, id, createEvent(...)))` pattern.
- */
-function broadcastEvent<T extends RealtimeEventType>(options: BroadcastEventOptions<T>): void {
-  fireAndForget(
-    broadcastToRoom(options.env, options.conversationId, createEvent(options.type, options.data)),
-    options.errorContext
-  );
-}
+import { broadcastFireAndForget } from '../lib/broadcast.js';
 
 export const membersRoute = new Hono<AppEnv>()
   .get(
@@ -246,31 +225,27 @@ export const membersRoute = new Hono<AppEnv>()
         }
 
         // 5. Broadcast member:added event (fire-and-forget)
-        broadcastEvent({
-          env: c.env,
+        broadcastFireAndForget(
+          c.env,
           conversationId,
-          type: 'member:added',
-          data: {
+          createEvent('member:added', {
             conversationId,
             memberId: newMember.id,
             userId: targetUserId,
             privilege,
-          },
-          errorContext: 'broadcast member:added event',
-        });
+          })
+        );
 
         // 6. Broadcast rotation:complete if epoch rotated (no rotation for full history)
         if (!giveFullHistory && rotation) {
-          broadcastEvent({
-            env: c.env,
+          broadcastFireAndForget(
+            c.env,
             conversationId,
-            type: 'rotation:complete',
-            data: {
+            createEvent('rotation:complete', {
               conversationId,
               newEpochNumber: rotation.expectedEpoch + 1,
-            },
-            errorContext: 'broadcast rotation:complete after add-member rotation',
-          });
+            })
+          );
         }
 
         return c.json(
@@ -350,29 +325,25 @@ export const membersRoute = new Hono<AppEnv>()
       }
 
       // 6. Broadcast member:removed event (fire-and-forget)
-      broadcastEvent({
-        env: c.env,
+      broadcastFireAndForget(
+        c.env,
         conversationId,
-        type: 'member:removed',
-        data: {
+        createEvent('member:removed', {
           conversationId,
           memberId,
           ...(targetMember.userId != null && { userId: targetMember.userId }),
-        },
-        errorContext: 'broadcast member:removed event',
-      });
+        })
+      );
 
       // 7. Broadcast rotation:complete (fire-and-forget)
-      broadcastEvent({
-        env: c.env,
+      broadcastFireAndForget(
+        c.env,
         conversationId,
-        type: 'rotation:complete',
-        data: {
+        createEvent('rotation:complete', {
           conversationId,
           newEpochNumber: rotation.expectedEpoch + 1,
-        },
-        errorContext: 'broadcast rotation:complete after member removal',
-      });
+        })
+      );
 
       return c.json({ removed: true }, 200);
     }
@@ -420,17 +391,15 @@ export const membersRoute = new Hono<AppEnv>()
         .where(eq(conversationMembers.id, memberId));
 
       // 5. Broadcast privilege change (fire-and-forget)
-      broadcastEvent({
-        env: c.env,
+      broadcastFireAndForget(
+        c.env,
         conversationId,
-        type: 'member:privilege-changed',
-        data: {
+        createEvent('member:privilege-changed', {
           conversationId,
           memberId,
           privilege: newPrivilege,
-        },
-        errorContext: 'broadcast member:privilege-changed event',
-      });
+        })
+      );
 
       return c.json(
         {
@@ -489,29 +458,25 @@ export const membersRoute = new Hono<AppEnv>()
       }
 
       // Broadcast member:removed event (fire-and-forget)
-      broadcastEvent({
-        env: c.env,
+      broadcastFireAndForget(
+        c.env,
         conversationId,
-        type: 'member:removed',
-        data: {
+        createEvent('member:removed', {
           conversationId,
           memberId: requesterMember.id,
           userId: user.id,
-        },
-        errorContext: 'broadcast member:removed event after leave',
-      });
+        })
+      );
 
       // Broadcast rotation:complete (fire-and-forget)
-      broadcastEvent({
-        env: c.env,
+      broadcastFireAndForget(
+        c.env,
         conversationId,
-        type: 'rotation:complete',
-        data: {
+        createEvent('rotation:complete', {
           conversationId,
           newEpochNumber: rotation.expectedEpoch + 1,
-        },
-        errorContext: 'broadcast rotation:complete after leave',
-      });
+        })
+      );
 
       return c.json({ left: true }, 200);
     }

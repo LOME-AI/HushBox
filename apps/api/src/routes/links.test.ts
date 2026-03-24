@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockSubmitRotation = vi.hoisted(() => vi.fn());
 
-// ── broadcastToRoom mock ──
-const mockBroadcastToRoom = vi.hoisted(() => vi.fn().mockResolvedValue({ sent: 0 }));
+// ── broadcastFireAndForget mock ──
+const mockBroadcastFireAndForget = vi.hoisted(() => vi.fn());
 vi.mock('../lib/broadcast.js', () => ({
-  broadcastToRoom: (...args: unknown[]) => mockBroadcastToRoom(...args),
+  broadcastFireAndForget: (...args: unknown[]) => mockBroadcastFireAndForget(...args),
 }));
 
 vi.mock('../services/keys/keys.js', async (importOriginal) => {
@@ -732,7 +732,7 @@ describe('links route', () => {
     });
 
     it('broadcasts rotation:complete when creating no-history link with rotation', async () => {
-      mockBroadcastToRoom.mockClear();
+      mockBroadcastFireAndForget.mockClear();
 
       const app = createCreateTestApp({
         dbConfig: {
@@ -755,7 +755,7 @@ describe('links route', () => {
       });
 
       expect(res.status).toBe(201);
-      expect(mockBroadcastToRoom).toHaveBeenCalledWith(
+      expect(mockBroadcastFireAndForget).toHaveBeenCalledWith(
         expect.anything(),
         TEST_CONVERSATION_ID,
         expect.objectContaining({
@@ -921,7 +921,7 @@ describe('links route', () => {
     });
 
     it('broadcasts rotation:complete when revoking with rotation', async () => {
-      mockBroadcastToRoom.mockClear();
+      mockBroadcastFireAndForget.mockClear();
 
       const app = createRevokeTestApp({
         dbConfig: {
@@ -937,7 +937,7 @@ describe('links route', () => {
       });
 
       expect(res.status).toBe(200);
-      expect(mockBroadcastToRoom).toHaveBeenCalledWith(
+      expect(mockBroadcastFireAndForget).toHaveBeenCalledWith(
         expect.anything(),
         TEST_CONVERSATION_ID,
         expect.objectContaining({

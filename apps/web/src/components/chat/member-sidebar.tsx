@@ -60,6 +60,7 @@ interface MemberSidebarProps {
     | undefined;
   onlineMemberIds?: Set<string> | undefined;
   currentUserId?: string | undefined;
+  currentUserLinkId?: string | null | undefined;
   currentUserPrivilege?: string | undefined;
   conversationId?: string | undefined;
   onRemoveMember?: ((memberId: string) => void) | undefined;
@@ -185,6 +186,7 @@ function buildMemberSidebarBodyProps(input: Readonly<BuildBodyPropsInput>): Memb
     links: input.props.links ?? [],
     onlineMemberIds: input.props.onlineMemberIds ?? new Set(),
     currentUserId: input.currentUserId,
+    currentUserLinkId: input.props.currentUserLinkId ?? null,
     currentUserPrivilege: input.currentUserPrivilege,
     conversationId: input.conversationId,
     collapsed: input.collapsed,
@@ -348,6 +350,7 @@ interface MemberSidebarBodyProps {
   }[];
   onlineMemberIds: Set<string>;
   currentUserId: string;
+  currentUserLinkId: string | null;
   currentUserPrivilege: string;
   conversationId: string;
   collapsed: boolean;
@@ -367,6 +370,7 @@ function MemberSidebarBody({
   links,
   onlineMemberIds,
   currentUserId,
+  currentUserLinkId,
   currentUserPrivilege,
   onRemoveMember,
   onChangePrivilege,
@@ -520,7 +524,7 @@ function MemberSidebarBody({
                   key={link.id}
                   link={link}
                   index={links.indexOf(link)}
-                  isCurrentLink={link.id === currentUserId}
+                  isCurrentLink={currentUserLinkId !== null && link.id === currentUserLinkId}
                   isAdmin={isAdmin}
                   onChangeLinkPrivilege={onChangeLinkPrivilege}
                   onSaveLinkName={onSaveLinkName}

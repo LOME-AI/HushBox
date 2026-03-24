@@ -17,8 +17,7 @@ import { toRotationParams, handleRotationError } from '../services/keys/keys.js'
 import type { AppEnv } from '../types.js';
 import { requirePrivilege, requireLinkGuest } from '../middleware/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
-import { broadcastToRoom } from '../lib/broadcast.js';
-import { fireAndForget } from '../lib/fire-and-forget.js';
+import { broadcastFireAndForget } from '../lib/broadcast.js';
 import { listLinks, createLink, revokeLink, changeLinkPrivilege } from '../services/links/index.js';
 
 export const linksRoute = new Hono<AppEnv>()
@@ -120,16 +119,13 @@ export const linksRoute = new Hono<AppEnv>()
 
         // Broadcast rotation:complete if epoch rotated
         if (body.rotation) {
-          fireAndForget(
-            broadcastToRoom(
-              c.env,
+          broadcastFireAndForget(
+            c.env,
+            conversationId,
+            createEvent('rotation:complete', {
               conversationId,
-              createEvent('rotation:complete', {
-                conversationId,
-                newEpochNumber: body.rotation.expectedEpoch + 1,
-              })
-            ),
-            'broadcast rotation:complete after link creation'
+              newEpochNumber: body.rotation.expectedEpoch + 1,
+            })
           );
         }
 
@@ -166,30 +162,24 @@ export const linksRoute = new Hono<AppEnv>()
 
         // Fire-and-forget broadcast
         if (result.memberId) {
-          fireAndForget(
-            broadcastToRoom(
-              c.env,
+          broadcastFireAndForget(
+            c.env,
+            conversationId,
+            createEvent('member:removed', {
               conversationId,
-              createEvent('member:removed', {
-                conversationId,
-                memberId: result.memberId,
-              })
-            ),
-            'broadcast member:removed event after link revocation'
+              memberId: result.memberId,
+            })
           );
         }
 
         // Broadcast rotation:complete (fire-and-forget)
-        fireAndForget(
-          broadcastToRoom(
-            c.env,
+        broadcastFireAndForget(
+          c.env,
+          conversationId,
+          createEvent('rotation:complete', {
             conversationId,
-            createEvent('rotation:complete', {
-              conversationId,
-              newEpochNumber: rotation.expectedEpoch + 1,
-            })
-          ),
-          'broadcast rotation:complete after link revocation'
+            newEpochNumber: rotation.expectedEpoch + 1,
+          })
         );
 
         return c.json({ revoked: true }, 200);
@@ -215,17 +205,14 @@ export const linksRoute = new Hono<AppEnv>()
       }
 
       if (result.memberId) {
-        fireAndForget(
-          broadcastToRoom(
-            c.env,
+        broadcastFireAndForget(
+          c.env,
+          conversationId,
+          createEvent('member:privilege-changed', {
             conversationId,
-            createEvent('member:privilege-changed', {
-              conversationId,
-              memberId: result.memberId,
-              privilege,
-            })
-          ),
-          'broadcast member:privilege-changed event for link'
+            memberId: result.memberId,
+            privilege,
+          })
         );
       }
 

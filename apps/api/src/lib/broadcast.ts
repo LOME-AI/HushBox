@@ -1,5 +1,6 @@
 import type { RealtimeEvent } from '@hushbox/realtime/events';
 import type { Bindings } from '../types.js';
+import { fireAndForget } from './fire-and-forget.js';
 
 /**
  * Send a realtime event to all WebSocket connections in a conversation room.
@@ -28,4 +29,24 @@ export async function broadcastToRoom(
   );
   const result: { sent: number } = await response.json();
   return result;
+}
+
+/**
+ * Fire-and-forget broadcast of a realtime event to a conversation room.
+ * Logs errors with event type and conversationId context.
+ *
+ * When `executionCtx` is provided, keeps the Cloudflare Worker isolate alive
+ * until the broadcast completes (via `waitUntil`).
+ */
+export function broadcastFireAndForget(
+  env: Bindings | undefined,
+  conversationId: string,
+  event: RealtimeEvent,
+  executionCtx?: { waitUntil(p: Promise<unknown>): void }
+): void {
+  fireAndForget(
+    broadcastToRoom(env, conversationId, event),
+    `broadcast ${event.type} to ${conversationId}`,
+    executionCtx
+  );
 }
