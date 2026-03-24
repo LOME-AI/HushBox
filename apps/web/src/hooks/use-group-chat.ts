@@ -34,7 +34,9 @@ import type { GroupChatProps } from '../components/chat/chat-layout.js';
 type RawMember = GroupChatProps['members'][number] & { linkId?: string | null };
 
 interface MemoPrerequisites {
+  conversationId: string;
   callerId: string;
+  allMembers: RawMember[];
   currentMember: RawMember;
   epochNumber: number;
   epochKey: Uint8Array;
@@ -56,7 +58,7 @@ function resolveMemoPrerequisites(
   const epochKey = getEpochKey(conversationId, epochNumber);
   if (!epochKey) return undefined;
 
-  return { callerId, currentMember, epochNumber, epochKey };
+  return { conversationId, callerId, allMembers, currentMember, epochNumber, epochKey };
 }
 
 export function useGroupChat(
@@ -115,7 +117,14 @@ export function useGroupChat(
   return React.useMemo((): GroupChatProps | undefined => {
     const prereqs = resolveMemoPrerequisites(conversationId, allMembers, callerId);
     if (!prereqs) return undefined;
-    const { callerId: resolvedCallerId, currentMember, epochNumber, epochKey } = prereqs;
+    const {
+      conversationId: resolvedConversationId,
+      callerId: resolvedCallerId,
+      allMembers: resolvedMembers,
+      currentMember,
+      epochNumber,
+      epochKey,
+    } = prereqs;
 
     const onlineMemberIds = new Set<string>();
     for (const key of presenceMap.keys()) {
@@ -123,10 +132,10 @@ export function useGroupChat(
     }
 
     // Filter out link guest members — they are displayed via the links array instead
-    const displayMembers = allMembers.filter((m) => !m.linkId);
+    const displayMembers = resolvedMembers.filter((m) => !m.linkId);
 
     return {
-      conversationId,
+      conversationId: resolvedConversationId,
       members: displayMembers.map((m) => ({
         id: m.id,
         userId: m.userId,
@@ -149,7 +158,7 @@ export function useGroupChat(
       remoteStreamingMessages,
       ws: ws ?? undefined,
       onRemoveMember: (memberId: string): void => {
-        const removedUserId = allMembers.find((m) => m.id === memberId)?.userId;
+        const removedUserId = resolvedMembers.find((m) => m.id === memberId)?.userId;
         const filter = (keys: MemberKeyResponse[]): RotationMember[] => {
           const result: RotationMember[] = [];
           for (const k of keys) {
@@ -163,17 +172,18 @@ export function useGroupChat(
           return result;
         };
         void executeWithRotation({
-          conversationId,
+          conversationId: resolvedConversationId,
           currentEpochPrivateKey: epochKey,
           currentEpochNumber: epochNumber,
           plaintextTitle: plaintextTitle ?? '',
           filterMembers: filter,
-          execute: (rotation) => removeMemberRef.current({ conversationId, memberId, rotation }),
+          execute: (rotation) =>
+            removeMemberRef.current({ conversationId: resolvedConversationId, memberId, rotation }),
         });
       },
       onChangePrivilege: (memberId: string, newPrivilege: string): void => {
         void changePrivilegeRef.current({
-          conversationId,
+          conversationId: resolvedConversationId,
           memberId,
           privilege: newPrivilege,
         });
@@ -187,24 +197,25 @@ export function useGroupChat(
           return result;
         };
         void executeWithRotation({
-          conversationId,
+          conversationId: resolvedConversationId,
           currentEpochPrivateKey: epochKey,
           currentEpochNumber: epochNumber,
           plaintextTitle: plaintextTitle ?? '',
           filterMembers: filter,
-          execute: (rotation) => revokeLinkRef.current({ conversationId, linkId, rotation }),
+          execute: (rotation) =>
+            revokeLinkRef.current({ conversationId: resolvedConversationId, linkId, rotation }),
         });
       },
       onSaveLinkName: (linkId: string, newName: string): void => {
         void adminNameRef.current({
-          conversationId,
+          conversationId: resolvedConversationId,
           linkId,
           displayName: newName,
         });
       },
       onChangeLinkPrivilege: (linkId: string, newPrivilege: string): void => {
         void changeLinkPrivilegeRef.current({
-          conversationId,
+          conversationId: resolvedConversationId,
           linkId,
           privilege: newPrivilege as 'read' | 'write',
         });
@@ -212,7 +223,7 @@ export function useGroupChat(
       onLeave: (): void => {
         if (isOwner(currentMember.privilege)) {
           void (async (): Promise<void> => {
-            await leaveRef.current({ conversationId });
+            await leaveRef.current({ conversationId: resolvedConversationId });
             void navigate({ to: '/chat' });
           })();
         } else {
@@ -225,10 +236,10 @@ export function useGroupChat(
             return result;
           };
           const execute = (rotation: StreamChatRotation): Promise<unknown> =>
-            leaveRef.current({ conversationId, rotation });
+            leaveRef.current({ conversationId: resolvedConversationId, rotation });
           void (async (): Promise<void> => {
             await executeWithRotation({
-              conversationId,
+              conversationId: resolvedConversationId,
               currentEpochPrivateKey: epochKey,
               currentEpochNumber: epochNumber,
               plaintextTitle: plaintextTitle ?? '',
@@ -249,7 +260,7 @@ export function useGroupChat(
         if (params.giveFullHistory) {
           const wrap = wrapEpochKeyForNewMember(epochKey, fromBase64(params.publicKey));
           void addMemberRef.current({
-            conversationId,
+            conversationId: resolvedConversationId,
             userId: params.userId,
             wrap: toBase64(wrap),
             privilege: params.privilege,
@@ -266,14 +277,14 @@ export function useGroupChat(
             return result;
           };
           void executeWithRotation({
-            conversationId,
+            conversationId: resolvedConversationId,
             currentEpochPrivateKey: epochKey,
             currentEpochNumber: epochNumber,
             plaintextTitle: plaintextTitle ?? '',
             filterMembers: filter,
             execute: (rotation) =>
               addMemberRef.current({
-                conversationId,
+                conversationId: resolvedConversationId,
                 userId: params.userId,
                 privilege: params.privilege,
                 giveFullHistory: false,
