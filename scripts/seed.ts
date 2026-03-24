@@ -187,6 +187,13 @@ export const TEST_PERSONAS = [
     totpSecret: null as string | null,
   },
   {
+    name: 'test-billing-token',
+    displayName: 'Test Bill Token',
+    emailVerified: true,
+    hasSampleData: false,
+    totpSecret: null as string | null,
+  },
+  {
     name: 'test-2fa',
     displayName: 'Test 2FA User',
     emailVerified: true,

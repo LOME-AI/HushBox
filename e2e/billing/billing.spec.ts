@@ -273,13 +273,13 @@ test.describe('Billing & Payments', () => {
     test.setTimeout(60_000);
 
     test('unauthenticated user completes payment via billing token', async ({
-      authenticatedRequest,
+      billingTokenRequest,
       unauthenticatedPage,
     }) => {
       let billingToken = '';
 
       await test.step('generate billing login token', async () => {
-        const response = await authenticatedRequest.post(`${apiUrl}/api/billing/login-link`);
+        const response = await billingTokenRequest.post(`${apiUrl}/api/billing/login-link`);
         expect(response.ok()).toBe(true);
         const { token } = (await response.json()) as { token: string };
         expect(token).toBeTruthy();
@@ -330,7 +330,7 @@ test.describe('Billing & Payments', () => {
 
       await test.step('balance updated after payment', async () => {
         // Token was consumed on first use — generate a fresh one
-        const freshResponse = await authenticatedRequest.post(`${apiUrl}/api/billing/login-link`);
+        const freshResponse = await billingTokenRequest.post(`${apiUrl}/api/billing/login-link`);
         expect(freshResponse.ok()).toBe(true);
         const { token: freshToken } = (await freshResponse.json()) as { token: string };
 

@@ -118,6 +118,7 @@ interface CustomFixtures {
   billingFailurePage: Page;
   billingValidationPage: Page;
   billingDevModePage: Page;
+  billingTokenRequest: APIRequestContext;
   // Group chat fixtures
   groupConversation: GroupConversation;
   testBobPage: Page;
@@ -240,6 +241,16 @@ export const test = base.extend<CustomFixtures>({
     'e2e/.auth/test-billing-devmode.json',
     'billingDevModePage'
   ),
+
+  // Billing token test user (isolated balance for token-login billing portal tests)
+  billingTokenRequest: async ({ playwright }, use) => {
+    const context = await playwright.request.newContext({
+      baseURL: apiUrl,
+      storageState: 'e2e/.auth/test-billing-token.json',
+    });
+    await use(context);
+    await context.dispose();
+  },
 
   // Group chat: creates conversation with seeded messages via dev endpoint
   groupConversation: async (
