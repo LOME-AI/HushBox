@@ -657,9 +657,9 @@ describe('seed script', () => {
   });
 
   describe('generateTestPersonaData', () => {
-    it('generates all ten test personas', async () => {
+    it('generates all eleven test personas', async () => {
       const data = await generateTestPersonaData();
-      expect(data.users).toHaveLength(10);
+      expect(data.users).toHaveLength(11);
     });
 
     it('includes test-alice, test-bob, and test-charlie users with test domain', async () => {
@@ -760,8 +760,8 @@ describe('seed script', () => {
 
     it('each test persona has 2 wallets (purchased + free_tier)', async () => {
       const data = await generateTestPersonaData();
-      // 10 personas * 2 wallets each = 20
-      expect(data.wallets).toHaveLength(20);
+      // 11 personas * 2 wallets each = 22
+      expect(data.wallets).toHaveLength(22);
     });
 
     it('test-alice conversations have epochs and members', async () => {
