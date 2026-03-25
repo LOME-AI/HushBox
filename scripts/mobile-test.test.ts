@@ -19,6 +19,7 @@ import { execa } from 'execa';
 import { existsSync, writeFileSync } from 'node:fs';
 import {
   parseArgs,
+  parseFailedFlowNames,
   checkPrerequisites,
   installMaestro,
   installAndroidSdk,
@@ -43,7 +44,7 @@ function mockSubprocess(value: unknown = {}): never {
 describe('mobile-test script', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockExeca.mockResolvedValue({} as never);
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: '' } as never);
     mockExistsSync.mockReturnValue(true);
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
@@ -63,6 +64,33 @@ describe('mobile-test script', () => {
 
     it('ignores other flags', () => {
       expect(parseArgs(['--other', '--smoke', '--flag'])).toEqual({ smoke: true });
+    });
+  });
+
+  describe('parseFailedFlowNames', () => {
+    it('extracts failed flow names from maestro output', () => {
+      const output = [
+        '[Passed] App launches without crashing (10s)',
+        '[Failed] Keyboard appears and input remains visible (33s) (Assertion is false: "Sign up" is visible)',
+        '[Passed] Push notification permission dialog appears (7s)',
+      ].join('\n');
+
+      expect(parseFailedFlowNames(output)).toEqual(['Keyboard appears and input remains visible']);
+    });
+
+    it('returns empty array when no failures', () => {
+      const output = '[Passed] App launches without crashing (10s)\n[Passed] Another flow (5s)';
+      expect(parseFailedFlowNames(output)).toEqual([]);
+    });
+
+    it('extracts multiple failed flow names', () => {
+      const output = [
+        '[Failed] Flow A (10s) (some reason)',
+        '[Passed] Flow B (5s)',
+        '[Failed] Flow C (20s) (another reason)',
+      ].join('\n');
+
+      expect(parseFailedFlowNames(output)).toEqual(['Flow A', 'Flow C']);
     });
   });
 
@@ -582,6 +610,10 @@ describe('mobile-test script', () => {
     it('runs all flows with --device flag when smoke is false', async () => {
       process.env['HB_EMULATOR_ADB_PORT'] = '5555';
       process.env['HB_API_PORT'] = '8787';
+      mockExeca.mockImplementation(((cmd: string) => {
+        if (cmd === 'maestro') return mockSubprocess({ exitCode: 0, stdout: '' });
+        return mockSubprocess();
+      }) as never);
 
       await runMaestro(false);
 
@@ -596,7 +628,7 @@ describe('mobile-test script', () => {
           '--flatten-debug-output',
           'mobile-tests/flows/',
         ],
-        { stdio: 'inherit' }
+        { stdout: ['pipe', 'inherit'], stderr: 'inherit', reject: false }
       );
 
       delete process.env['HB_EMULATOR_ADB_PORT'];
@@ -606,6 +638,10 @@ describe('mobile-test script', () => {
     it('runs only smoke flows when smoke is true', async () => {
       process.env['HB_EMULATOR_ADB_PORT'] = '5555';
       process.env['HB_API_PORT'] = '8787';
+      mockExeca.mockImplementation(((cmd: string) => {
+        if (cmd === 'maestro') return mockSubprocess({ exitCode: 0, stdout: '' });
+        return mockSubprocess();
+      }) as never);
 
       await runMaestro(true);
 
@@ -622,7 +658,7 @@ describe('mobile-test script', () => {
           'mobile-tests/flows/02-splash-screen.yaml',
           'mobile-tests/flows/03-webview-renders.yaml',
         ],
-        { stdio: 'inherit' }
+        { stdout: ['pipe', 'inherit'], stderr: 'inherit', reject: false }
       );
 
       delete process.env['HB_EMULATOR_ADB_PORT'];
@@ -691,7 +727,7 @@ describe('mobile-test script', () => {
         { cmd: 'adb', argument: 'install', label: 'install-apk' },
         { cmd: 'adb', argument: 'kill-server', label: 'kill-adb-server' },
         { cmd: 'adb', argument: 'start-server', label: 'start-adb-server' },
-        { cmd: 'maestro', argument: 'test', label: 'run-maestro' },
+        { cmd: 'maestro', argument: 'test', label: 'run-maestro', result: { exitCode: 0, stdout: '' } },
         { cmd: 'docker', argument: 'down', label: 'stop-emulator' },
       ];
 

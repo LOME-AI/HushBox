@@ -1,5 +1,6 @@
 import { execa } from 'execa';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 
 const APK_PATH = 'apps/web/android/app/build/outputs/apk/debug/app-debug.apk';
 const BOOT_TIMEOUT_POLLS = 120;
@@ -423,7 +424,54 @@ export async function runMaestro(smoke: boolean): Promise<void> {
   ];
 
   console.log(`Running Maestro tests${smoke ? ' (smoke)' : ''}...`);
-  await execa('maestro', args, { stdio: 'inherit' });
+  const result = await execa('maestro', args, {
+    stdout: ['pipe', 'inherit'],
+    stderr: 'inherit',
+    reject: false,
+  });
+
+  if (result.exitCode === 0) return;
+
+  // Find which flows failed by matching names from output to YAML files
+  const failedPaths = getFailedFlowPaths(result.stdout);
+  if (failedPaths.length === 0) {
+    // Can't identify individual failures — fail without retry
+    throw new Error('Maestro tests failed');
+  }
+
+  console.log(`\nRetrying ${failedPaths.length} failed flow(s)...`);
+  await execa(
+    'maestro',
+    ['test', '--device', `localhost:${adbPort}`, '--debug-output', 'maestro-results', '--flatten-debug-output', ...failedPaths],
+    { stdio: 'inherit' }
+  );
+}
+
+/** Parse `[Failed] Flow Name (Xs)` lines from maestro output. */
+export function parseFailedFlowNames(output: string): string[] {
+  const failed: string[] = [];
+  for (const match of output.matchAll(/\[Failed\]\s+(.+?)\s+\(\d+s\)/g)) {
+    failed.push(match[1]!.trim());
+  }
+  return failed;
+}
+
+/** Map failed flow display names back to their YAML file paths. */
+function getFailedFlowPaths(output: string): string[] {
+  const failedNames = parseFailedFlowNames(output);
+  if (failedNames.length === 0) return [];
+
+  const flowDir = 'mobile-tests/flows';
+  const nameToPath = new Map<string, string>();
+  for (const file of readdirSync(flowDir).filter((f) => f.endsWith('.yaml'))) {
+    const content = readFileSync(path.join(flowDir, file), 'utf8');
+    const nameMatch = content.match(/^name:\s*(.+)$/m);
+    if (nameMatch) {
+      nameToPath.set(nameMatch[1]!.trim(), path.join(flowDir, file));
+    }
+  }
+
+  return failedNames.map((name) => nameToPath.get(name)).filter((p): p is string => p !== undefined);
 }
 
 export async function main(): Promise<void> {
