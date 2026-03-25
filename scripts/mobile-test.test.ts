@@ -707,7 +707,7 @@ describe('mobile-test script', () => {
         cmd: string;
         argument?: string;
         label: string;
-        result?: { stdout: string };
+        result?: { stdout: string; exitCode?: number };
       }[] = [
         { cmd: 'stat', label: 'detect-kvm-gid', result: { stdout: '993' } },
         { cmd: 'docker', argument: 'info', label: 'check-docker' },
@@ -727,7 +727,12 @@ describe('mobile-test script', () => {
         { cmd: 'adb', argument: 'install', label: 'install-apk' },
         { cmd: 'adb', argument: 'kill-server', label: 'kill-adb-server' },
         { cmd: 'adb', argument: 'start-server', label: 'start-adb-server' },
-        { cmd: 'maestro', argument: 'test', label: 'run-maestro', result: { exitCode: 0, stdout: '' } },
+        {
+          cmd: 'maestro',
+          argument: 'test',
+          label: 'run-maestro',
+          result: { exitCode: 0, stdout: '' },
+        },
         { cmd: 'docker', argument: 'down', label: 'stop-emulator' },
       ];
 

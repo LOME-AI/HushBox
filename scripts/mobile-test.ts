@@ -439,10 +439,18 @@ export async function runMaestro(smoke: boolean): Promise<void> {
     throw new Error('Maestro tests failed');
   }
 
-  console.log(`\nRetrying ${failedPaths.length} failed flow(s)...`);
+  console.log(`\nRetrying ${String(failedPaths.length)} failed flow(s)...`);
   await execa(
     'maestro',
-    ['test', '--device', `localhost:${adbPort}`, '--debug-output', 'maestro-results', '--flatten-debug-output', ...failedPaths],
+    [
+      'test',
+      '--device',
+      `localhost:${adbPort}`,
+      '--debug-output',
+      'maestro-results',
+      '--flatten-debug-output',
+      ...failedPaths,
+    ],
     { stdio: 'inherit' }
   );
 }
@@ -450,8 +458,11 @@ export async function runMaestro(smoke: boolean): Promise<void> {
 /** Parse `[Failed] Flow Name (Xs)` lines from maestro output. */
 export function parseFailedFlowNames(output: string): string[] {
   const failed: string[] = [];
-  for (const match of output.matchAll(/\[Failed\]\s+(.+?)\s+\(\d+s\)/g)) {
-    failed.push(match[1]!.trim());
+  const regex = /\[Failed\]\s+(.+?)\s+\(\d+s\)/g;
+  let match = regex.exec(output);
+  while (match !== null) {
+    if (match[1] !== undefined) failed.push(match[1].trim());
+    match = regex.exec(output);
   }
   return failed;
 }
@@ -465,13 +476,15 @@ function getFailedFlowPaths(output: string): string[] {
   const nameToPath = new Map<string, string>();
   for (const file of readdirSync(flowDir).filter((f) => f.endsWith('.yaml'))) {
     const content = readFileSync(path.join(flowDir, file), 'utf8');
-    const nameMatch = content.match(/^name:\s*(.+)$/m);
-    if (nameMatch) {
-      nameToPath.set(nameMatch[1]!.trim(), path.join(flowDir, file));
+    const nameMatch = /^name:\s*(.+)$/m.exec(content);
+    if (nameMatch?.[1]) {
+      nameToPath.set(nameMatch[1].trim(), path.join(flowDir, file));
     }
   }
 
-  return failedNames.map((name) => nameToPath.get(name)).filter((p): p is string => p !== undefined);
+  return failedNames
+    .map((name) => nameToPath.get(name))
+    .filter((p): p is string => p !== undefined);
 }
 
 export async function main(): Promise<void> {
