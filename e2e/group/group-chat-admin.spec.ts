@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { searchAndSelectMember } from '../helpers/add-member.js';
 
@@ -230,7 +230,7 @@ test.describe('Group Chat Admin', () => {
       await authenticatedPage.getByTestId('add-member-submit-button').click();
 
       // Modal closes
-      await expect(authenticatedPage.getByTestId('add-member-modal')).not.toBeVisible();
+      await unsettledExpect(authenticatedPage.getByTestId('add-member-modal')).not.toBeVisible();
     });
 
     await test.step('sidebar updates with new member', async () => {
@@ -297,7 +297,7 @@ test.describe('Group Chat Admin', () => {
       await expect(modal).toBeVisible();
 
       await authenticatedPage.getByTestId('remove-member-cancel').click();
-      await expect(modal).not.toBeVisible();
+      await unsettledExpect(modal).not.toBeVisible();
 
       // Bob still in sidebar
       await expect(sidebar.memberRow(bobMemberId)).toBeVisible();

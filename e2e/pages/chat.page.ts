@@ -149,10 +149,8 @@ export class ChatPage {
   }
 
   async scrollUp(pixels: number): Promise<void> {
-    await this.viewport.evaluate((el, px) => {
-      el.scrollTop = Math.max(0, el.scrollTop - px);
-      el.dispatchEvent(new Event('scroll', { bubbles: true }));
-    }, pixels);
+    await this.viewport.hover();
+    await this.page.mouse.wheel(0, -pixels);
   }
 
   async isInputFocused(): Promise<boolean> {
@@ -388,7 +386,7 @@ export class ChatPage {
     } else {
       await modal.getByRole('button', { name: 'Close' }).click();
     }
-    await expect(modal).not.toBeVisible({ timeout: 5000 });
+    await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
   }
 
   /**
