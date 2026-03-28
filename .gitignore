@@ -80,3 +80,10 @@ apps/web/resources/generated/
 
 # TanStack Router
 .tanstack/
+
+# Gas Town (added by gt)
+.runtime/
+.claude/
+.logs/
+__pycache__/
+state.json
