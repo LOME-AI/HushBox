@@ -73,10 +73,16 @@ describe('SidebarContent', () => {
   const mockConversations = [
     {
       id: 'conv-1',
+      userId: 'user-1',
       title: 'Test Conversation',
       currentEpoch: 1,
+      titleEpochNumber: 1,
+      nextSequence: 0,
+      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      privilege: 'owner',
+      privilege: 'owner' as const,
+      accepted: true,
+      invitedByUsername: null,
       muted: false,
     },
   ];
@@ -147,22 +153,30 @@ describe('SidebarContent', () => {
     const acceptedConvs = [
       {
         id: 'conv-1',
+        userId: 'user-1',
         title: 'Design Chat',
         currentEpoch: 1,
+        titleEpochNumber: 1,
+        nextSequence: 0,
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         accepted: true,
         invitedByUsername: null,
-        privilege: 'owner',
+        privilege: 'owner' as const,
         muted: false,
       },
       {
         id: 'conv-2',
+        userId: 'user-1',
         title: 'Weekend Plans',
         currentEpoch: 1,
+        titleEpochNumber: 1,
+        nextSequence: 0,
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         accepted: true,
         invitedByUsername: null,
-        privilege: 'write',
+        privilege: 'write' as const,
         muted: false,
       },
     ];
@@ -170,12 +184,16 @@ describe('SidebarContent', () => {
     const unacceptedConvs = [
       {
         id: 'conv-3',
+        userId: 'user-2',
         title: 'Team Standup',
         currentEpoch: 1,
+        titleEpochNumber: 1,
+        nextSequence: 0,
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         accepted: false,
         invitedByUsername: 'sarah',
-        privilege: 'write',
+        privilege: 'write' as const,
         muted: false,
       },
     ];

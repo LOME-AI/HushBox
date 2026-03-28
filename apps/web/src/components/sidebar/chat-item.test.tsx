@@ -85,10 +85,16 @@ vi.mock('@/hooks/use-conversation-members', () => ({
 describe('ChatItem', () => {
   const mockConversation = {
     id: 'conv-123',
+    userId: 'user-1',
     title: 'Test Conversation',
     currentEpoch: 2,
+    titleEpochNumber: 1,
+    nextSequence: 5,
+    createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    privilege: 'owner',
+    privilege: 'owner' as const,
+    accepted: true,
+    invitedByUsername: null,
     muted: false,
   };
 
@@ -290,7 +296,7 @@ describe('ChatItem', () => {
   describe('non-owner actions', () => {
     const nonOwnerConversation = {
       ...mockConversation,
-      privilege: 'write',
+      privilege: 'write' as const,
     };
 
     it('shows Leave instead of Rename and Delete for non-owner', async () => {
@@ -306,7 +312,7 @@ describe('ChatItem', () => {
 
     it('shows Leave for read privilege', async () => {
       const user = userEvent.setup();
-      render(<ChatItem conversation={{ ...mockConversation, privilege: 'read' }} />);
+      render(<ChatItem conversation={{ ...mockConversation, privilege: 'read' as const }} />);
 
       await user.click(screen.getByTestId('chat-item-more-button'));
 
@@ -316,7 +322,7 @@ describe('ChatItem', () => {
 
     it('shows Leave for admin privilege', async () => {
       const user = userEvent.setup();
-      render(<ChatItem conversation={{ ...mockConversation, privilege: 'admin' }} />);
+      render(<ChatItem conversation={{ ...mockConversation, privilege: 'admin' as const }} />);
 
       await user.click(screen.getByTestId('chat-item-more-button'));
 
@@ -433,7 +439,7 @@ describe('ChatItem', () => {
 
     it('shows Mute option for non-owner members', async () => {
       const user = userEvent.setup();
-      render(<ChatItem conversation={{ ...mockConversation, privilege: 'write' }} />);
+      render(<ChatItem conversation={{ ...mockConversation, privilege: 'write' as const }} />);
 
       await user.click(screen.getByTestId('chat-item-more-button'));
 
