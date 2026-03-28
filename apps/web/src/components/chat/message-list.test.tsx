@@ -32,12 +32,9 @@ vi.mock('react-virtuoso', () => ({
     props: Record<string, unknown>,
     ref: React.Ref<VirtuosoHandle>
   ) {
-    capturedVirtuosoProps = props;
+    Object.assign(capturedVirtuosoProps, props);
     const data = props['data'] as unknown[];
-    const itemContent = props['itemContent'] as (
-      index: number,
-      item: unknown
-    ) => React.ReactNode;
+    const itemContent = props['itemContent'] as (index: number, item: unknown) => React.ReactNode;
     const components = props['components'] as { Footer?: () => React.ReactNode } | undefined;
     React.useImperativeHandle(ref, () => ({
       scrollToIndex: vi.fn(),
