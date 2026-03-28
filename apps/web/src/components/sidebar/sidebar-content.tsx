@@ -152,8 +152,8 @@ export function SidebarContent({
   const [activeTab, setActiveTab] = React.useState<SidebarTab>('chats');
 
   // Split conversations by acceptance status
-  const accepted = conversations.filter((c) => c.accepted !== false);
-  const unaccepted = conversations.filter((c) => c.accepted === false);
+  const accepted = conversations.filter((c) => c.accepted);
+  const unaccepted = conversations.filter((c) => !c.accepted);
 
   // Auto-switch to chats when last invite is handled
   const previousUnacceptedCount = React.useRef(unaccepted.length);
