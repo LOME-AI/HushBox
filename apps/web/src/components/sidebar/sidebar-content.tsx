@@ -7,28 +7,18 @@ import { NewChatButton } from './new-chat-button';
 import { ChatList } from './chat-list';
 import { ProjectsLink } from './projects-link';
 import { InboxContent } from './inbox-content';
+import type { ConversationListItem } from '@/lib/api';
 
 type SidebarTab = 'chats' | 'inbox';
 
-interface Conversation {
-  id: string;
-  title: string;
-  currentEpoch: number;
-  updatedAt: string;
-  privilege: string;
-  accepted?: boolean;
-  invitedByUsername?: string | null;
-  muted: boolean;
-}
-
 interface FilteredConversations {
-  filteredAccepted: Conversation[];
-  filteredUnaccepted: Conversation[];
+  filteredAccepted: ConversationListItem[];
+  filteredUnaccepted: ConversationListItem[];
 }
 
 function filterConversationsBySearch(
-  accepted: Conversation[],
-  unaccepted: Conversation[],
+  accepted: ConversationListItem[],
+  unaccepted: ConversationListItem[],
   searchQuery: string
 ): FilteredConversations {
   if (!searchQuery) return { filteredAccepted: accepted, filteredUnaccepted: unaccepted };
@@ -48,8 +38,8 @@ interface SidebarPanelsProps {
   activeTab: SidebarTab;
   unacceptedCount: number;
   sidebarOpen: boolean;
-  filteredAccepted: Conversation[];
-  filteredUnaccepted: Conversation[];
+  filteredAccepted: ConversationListItem[];
+  filteredUnaccepted: ConversationListItem[];
   activeConversationId?: string | undefined;
   isAuthenticated: boolean;
 }
@@ -94,7 +84,7 @@ function SidebarPanels({
 }
 
 interface SidebarContentProps {
-  conversations: Conversation[];
+  conversations: ConversationListItem[];
   activeConversationId?: string;
   /** Whether the user is authenticated */
   isAuthenticated?: boolean;

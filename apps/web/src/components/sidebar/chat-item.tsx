@@ -12,18 +12,10 @@ import { getEpochKey } from '@/lib/epoch-key-cache';
 import { LeaveConfirmationModal } from '@/components/chat/leave-confirmation-modal';
 import { DeleteConversationDialog } from './delete-conversation-dialog';
 import { RenameConversationDialog } from './rename-conversation-dialog';
-
-interface Conversation {
-  id: string;
-  title: string;
-  currentEpoch: number;
-  updatedAt: string;
-  privilege: string;
-  muted: boolean;
-}
+import type { ConversationListItem } from '@/lib/api';
 
 interface ChatItemProps {
-  conversation: Conversation;
+  conversation: ConversationListItem;
   isActive?: boolean;
 }
 

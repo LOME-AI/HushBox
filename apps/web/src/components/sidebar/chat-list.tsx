@@ -3,18 +3,10 @@ import { Link } from '@tanstack/react-router';
 import { useUIStore } from '@/stores/ui';
 import { ChatItem } from './chat-item';
 import { ROUTES } from '@hushbox/shared';
-
-interface Conversation {
-  id: string;
-  title: string;
-  currentEpoch: number;
-  updatedAt: string;
-  privilege: string;
-  muted: boolean;
-}
+import type { ConversationListItem } from '@/lib/api';
 
 export interface ChatListProps {
-  conversations: Conversation[];
+  conversations: ConversationListItem[];
   activeId?: string | undefined;
   /** Whether the user is authenticated */
   isAuthenticated?: boolean | undefined;
