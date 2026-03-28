@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useMemo } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { MessageItem } from './message-item';
 import type { Message } from '@/lib/api';
@@ -48,6 +48,10 @@ interface MessageListProps {
   callerPrivilege?: MemberPrivilege | undefined;
 }
 
+export interface MessageListHandle extends VirtuosoHandle {
+  resetScrollBreakaway: () => void;
+}
+
 const FOOTER_HEIGHT = '10dvh';
 
 const Footer = (): React.JSX.Element => (
@@ -64,7 +68,7 @@ const Header = (): React.JSX.Element => <div className="h-4" aria-hidden="true" 
 
 const components = { Header, Footer, Scroller };
 
-export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function MessageList(
+export const MessageList = forwardRef<MessageListHandle, MessageListProps>(function MessageList(
   {
     messages,
     streamingMessageIds,
@@ -84,8 +88,23 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
   },
   ref
 ) {
-  const followOutput = useCallback((isAtBottom: boolean): boolean | 'smooth' => {
-    return isAtBottom ? 'smooth' : false;
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const userScrolledAwayRef = useRef(false);
+
+  useImperativeHandle(ref, () => ({
+    ...(virtuosoRef.current as VirtuosoHandle),
+    resetScrollBreakaway: (): void => {
+      userScrolledAwayRef.current = false;
+    },
+  }));
+
+  const handleAtBottomStateChange = useCallback((atBottom: boolean): void => {
+    userScrolledAwayRef.current = !atBottom;
+  }, []);
+
+  const followOutput = useCallback((isAtBottom: boolean): boolean => {
+    if (userScrolledAwayRef.current) return false;
+    return isAtBottom;
   }, []);
 
   const chatContext = useMemo(
@@ -174,9 +193,10 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
         className="h-full min-h-0 flex-1"
       >
         <Virtuoso
-          ref={ref}
+          ref={virtuosoRef}
           data={groups}
           followOutput={followOutput}
+          atBottomStateChange={handleAtBottomStateChange}
           atBottomThreshold={50}
           {...(env.isE2E && {
             initialItemCount: groups.length,
@@ -207,9 +227,10 @@ export const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(function
       className="h-full min-h-0 flex-1"
     >
       <Virtuoso
-        ref={ref}
+        ref={virtuosoRef}
         data={messages}
         followOutput={followOutput}
+        atBottomStateChange={handleAtBottomStateChange}
         atBottomThreshold={50}
         {...(env.isE2E && {
           initialItemCount: messages.length,

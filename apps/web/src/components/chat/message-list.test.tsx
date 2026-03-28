@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import * as React from 'react';
 import type { VirtuosoHandle } from 'react-virtuoso';
-import { MessageList } from './message-list';
+import { MessageList, type MessageListHandle } from './message-list';
 import type { Message } from '@/lib/api';
 
 // Mock mermaid to avoid actual rendering
@@ -23,20 +23,22 @@ vi.mock('@/hooks/models', () => ({
   }),
 }));
 
+// Capture Virtuoso props for scroll behavior testing
+let capturedVirtuosoProps: Record<string, unknown> = {};
+
 // Mock Virtuoso to render items directly (virtualization doesn't work in jsdom)
 vi.mock('react-virtuoso', () => ({
   Virtuoso: React.forwardRef(function MockVirtuoso(
-    {
-      data,
-      itemContent,
-      components,
-    }: {
-      data: unknown[];
-      itemContent: (index: number, item: unknown) => React.ReactNode;
-      components?: { Footer?: () => React.ReactNode };
-    },
+    props: Record<string, unknown>,
     ref: React.Ref<VirtuosoHandle>
   ) {
+    capturedVirtuosoProps = props;
+    const data = props['data'] as unknown[];
+    const itemContent = props['itemContent'] as (
+      index: number,
+      item: unknown
+    ) => React.ReactNode;
+    const components = props['components'] as { Footer?: () => React.ReactNode } | undefined;
     React.useImperativeHandle(ref, () => ({
       scrollToIndex: vi.fn(),
       scrollTo: vi.fn(),
@@ -135,11 +137,11 @@ describe('MessageList', () => {
   });
 
   describe('forwardRef', () => {
-    it('exposes VirtuosoHandle via ref', () => {
-      const ref = React.createRef<VirtuosoHandle>();
+    it('exposes MessageListHandle via ref', () => {
+      const ref = React.createRef<MessageListHandle>();
       render(<MessageList ref={ref} messages={messages} />);
 
-      // Virtuoso provides methods like scrollToIndex
+      // MessageListHandle extends VirtuosoHandle with additional methods
       expect(ref.current).toBeDefined();
     });
   });
@@ -393,6 +395,96 @@ describe('MessageList', () => {
       // Both alice messages should be visible
       expect(screen.getByText('Hello from Alice')).toBeInTheDocument();
       expect(screen.getByText('Second from Alice')).toBeInTheDocument();
+    });
+  });
+
+  describe('scroll breakaway behavior', () => {
+    beforeEach(() => {
+      capturedVirtuosoProps = {};
+    });
+
+    it('passes atBottomStateChange callback to Virtuoso', () => {
+      render(<MessageList messages={messages} />);
+      expect(capturedVirtuosoProps['atBottomStateChange']).toBeDefined();
+      expect(typeof capturedVirtuosoProps['atBottomStateChange']).toBe('function');
+    });
+
+    it('followOutput returns true when user is at bottom', () => {
+      render(<MessageList messages={messages} />);
+      const followOutput = capturedVirtuosoProps['followOutput'] as (
+        isAtBottom: boolean
+      ) => boolean;
+      expect(followOutput(true)).toBe(true);
+    });
+
+    it('followOutput returns false when user is not at bottom', () => {
+      render(<MessageList messages={messages} />);
+      const followOutput = capturedVirtuosoProps['followOutput'] as (
+        isAtBottom: boolean
+      ) => boolean;
+      expect(followOutput(false)).toBe(false);
+    });
+
+    it('followOutput returns false after user scrolls away even when isAtBottom is true', () => {
+      render(<MessageList messages={messages} />);
+      const followOutput = capturedVirtuosoProps['followOutput'] as (
+        isAtBottom: boolean
+      ) => boolean;
+      const atBottomStateChange = capturedVirtuosoProps['atBottomStateChange'] as (
+        atBottom: boolean
+      ) => void;
+
+      // User scrolls away
+      atBottomStateChange(false);
+
+      // Even if Virtuoso reports isAtBottom=true (e.g. smooth scroll animation),
+      // followOutput should respect the breakaway state
+      expect(followOutput(true)).toBe(false);
+    });
+
+    it('followOutput re-engages after user scrolls back to bottom', () => {
+      render(<MessageList messages={messages} />);
+      const followOutput = capturedVirtuosoProps['followOutput'] as (
+        isAtBottom: boolean
+      ) => boolean;
+      const atBottomStateChange = capturedVirtuosoProps['atBottomStateChange'] as (
+        atBottom: boolean
+      ) => void;
+
+      // User scrolls away
+      atBottomStateChange(false);
+      expect(followOutput(true)).toBe(false);
+
+      // User scrolls back to bottom
+      atBottomStateChange(true);
+      expect(followOutput(true)).toBe(true);
+    });
+
+    it('exposes resetScrollBreakaway via ref', () => {
+      const ref = React.createRef<MessageListHandle>();
+      render(<MessageList ref={ref} messages={messages} />);
+
+      expect(ref.current).toBeDefined();
+      expect(typeof ref.current?.resetScrollBreakaway).toBe('function');
+    });
+
+    it('resetScrollBreakaway re-enables auto-scroll after breakaway', () => {
+      const ref = React.createRef<MessageListHandle>();
+      render(<MessageList ref={ref} messages={messages} />);
+      const followOutput = capturedVirtuosoProps['followOutput'] as (
+        isAtBottom: boolean
+      ) => boolean;
+      const atBottomStateChange = capturedVirtuosoProps['atBottomStateChange'] as (
+        atBottom: boolean
+      ) => void;
+
+      // User scrolls away
+      atBottomStateChange(false);
+      expect(followOutput(true)).toBe(false);
+
+      // Parent resets breakaway (e.g. user sent a message)
+      ref.current?.resetScrollBreakaway();
+      expect(followOutput(true)).toBe(true);
     });
   });
 });

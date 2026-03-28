@@ -1,10 +1,9 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { VirtuosoHandle } from 'react-virtuoso';
 import { ChatHeader } from '@/components/chat/chat-header';
 import { ComparisonBar } from '@/components/chat/comparison-bar';
 import { ForkTabs } from '@/components/chat/fork-tabs';
-import { MessageList } from '@/components/chat/message-list';
+import { MessageList, type MessageListHandle } from '@/components/chat/message-list';
 import { PromptInput } from '@/components/chat/prompt-input';
 import type { PromptInputRef } from '@/components/chat/prompt-input';
 import { DocumentPanel } from '@/components/document-panel/document-panel';
@@ -252,7 +251,7 @@ function useInputFocusManagement(
 function useStreamScrollEffect(
   streamingMessageIds: Set<string>,
   messagesLength: number,
-  virtuosoRef: React.RefObject<VirtuosoHandle | null>
+  virtuosoRef: React.RefObject<MessageListHandle | null>
 ): void {
   const previousWasStreamingRef = React.useRef(false);
 
@@ -469,7 +468,7 @@ interface ChatMainContentProps {
   readonly onFork: ((messageId: string) => void) | undefined;
   readonly isDecrypting: boolean | undefined;
   readonly groupChat: GroupChatProps | undefined;
-  readonly virtuosoRef: React.RefObject<VirtuosoHandle | null>;
+  readonly virtuosoRef: React.RefObject<MessageListHandle | null>;
   readonly isAuthenticated: boolean;
   readonly isLinkGuest: boolean;
   readonly callerPrivilege: MemberPrivilege | undefined;
@@ -597,11 +596,12 @@ function useInputHeightObserver(
 
 function useSubmitUserOnly(
   onSubmitUserOnly: (() => void) | undefined,
-  virtuosoRef: React.RefObject<VirtuosoHandle | null>
+  virtuosoRef: React.RefObject<MessageListHandle | null>
 ): () => void {
   return React.useCallback((): void => {
     if (onSubmitUserOnly) {
       onSubmitUserOnly();
+      virtuosoRef.current?.resetScrollBreakaway();
       requestAnimationFrame(() => {
         virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
       });
@@ -779,7 +779,7 @@ export function ChatLayout({
   const handlePremiumClick = usePremiumModelClick(models, isAuthenticated);
 
   const internalPromptInputRef = React.useRef<PromptInputRef>(null);
-  const virtuosoRef = React.useRef<VirtuosoHandle>(null);
+  const virtuosoRef = React.useRef<MessageListHandle>(null);
   const inputContainerRef = React.useRef<HTMLDivElement>(null);
   const inputHeight = useInputHeightObserver(isMobile, inputContainerRef);
   const promptInputRef = externalPromptInputRef ?? internalPromptInputRef;
@@ -807,6 +807,7 @@ export function ChatLayout({
   const handleSubmit = React.useCallback(
     (fundingSource: FundingSource): void => {
       onSubmit(fundingSource);
+      virtuosoRef.current?.resetScrollBreakaway();
       requestAnimationFrame(() => {
         virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
       });

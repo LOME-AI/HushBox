@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures.js';
+import { unsettledExpect } from '../helpers/settled-expect.js';
 import { ChatPage } from '../pages/index.js';
 
 test.describe('Solo Regeneration', () => {
@@ -305,7 +306,7 @@ test.describe('Group Chat Regeneration', () => {
       await lastAi.hover();
 
       const regenButton = lastAi.getByRole('button', { name: 'Regenerate' });
-      await expect(regenButton).toBeVisible();
+      await unsettledExpect(regenButton).toBeVisible();
       await regenButton.click();
     });
 

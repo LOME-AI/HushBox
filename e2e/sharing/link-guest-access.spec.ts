@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures.js';
+import { unsettledExpect } from '../helpers/settled-expect.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { setupGroupConversationWithSidebar } from '../helpers/group-test-setup.js';
 import { createInviteLink, createWriteLinkWithBudget } from '../helpers/invite-link.js';
@@ -140,8 +141,10 @@ test.describe('Link Guest Access', () => {
         unauthenticatedPage.getByText('Hello from Alice', { exact: true })
       ).not.toBeVisible();
 
-      // Should see post-rotation message
-      await expect(unauthenticatedPage.getByText('Post-rotation message').first()).toBeVisible({
+      // Should see post-rotation message (decryption may lag behind fetch settlement)
+      await unsettledExpect(
+        unauthenticatedPage.getByText('Post-rotation message').first()
+      ).toBeVisible({
         timeout: 10_000,
       });
 

@@ -69,7 +69,7 @@ test.describe('Auth Member Access', () => {
       const modal = authenticatedPage.getByTestId('remove-member-modal');
       await expect(modal).toBeVisible();
       await authenticatedPage.getByTestId('remove-member-confirm').click();
-      await expect(modal).not.toBeVisible();
+      await unsettledExpect(modal).not.toBeVisible();
 
       await expect(sidebar.memberRow(daveMemberId)).not.toBeVisible();
     });
@@ -123,8 +123,8 @@ test.describe('Auth Member Access', () => {
       // Should NOT see pre-rotation messages
       await expect(testDavePage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
-      // Should see post-rotation message
-      await expect(testDavePage.getByText('Post-rotation for Dave').first()).toBeVisible({
+      // Should see post-rotation message (decryption may lag behind fetch settlement)
+      await unsettledExpect(testDavePage.getByText('Post-rotation for Dave').first()).toBeVisible({
         timeout: 10_000,
       });
 
@@ -155,8 +155,8 @@ test.describe('Auth Member Access', () => {
       // Still should NOT see pre-rotation messages (privilege change doesn't grant history)
       await expect(testDavePage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
-      // Should still see post-rotation message
-      await expect(testDavePage.getByText('Post-rotation for Dave').first()).toBeVisible({
+      // Should still see post-rotation message (decryption may lag behind fetch settlement)
+      await unsettledExpect(testDavePage.getByText('Post-rotation for Dave').first()).toBeVisible({
         timeout: 10_000,
       });
     });

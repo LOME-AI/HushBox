@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures.js';
+import { unsettledExpect } from '../helpers/settled-expect.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { BudgetHelper } from '../helpers/budget.js';
 import { createWriteLinkWithBudget } from '../helpers/invite-link.js';
@@ -43,8 +44,8 @@ test.describe('Link Guest Chat', () => {
 
       await expectSharedConversationLoaded(unauthenticatedPage);
 
-      // Existing messages from group fixture should be visible
-      await expect(unauthenticatedPage.getByText('Hello from Alice').first()).toBeVisible({
+      // Existing messages from group fixture should be visible (decryption may lag behind fetch settlement)
+      await unsettledExpect(unauthenticatedPage.getByText('Hello from Alice').first()).toBeVisible({
         timeout: 10_000,
       });
     });
