@@ -91,12 +91,18 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const userScrolledAwayRef = useRef(false);
 
-  useImperativeHandle(ref, () => ({
-    ...virtuosoRef.current!,
-    resetScrollBreakaway: (): void => {
-      userScrolledAwayRef.current = false;
-    },
-  }));
+  useImperativeHandle(ref, () => {
+    const virtuoso = virtuosoRef.current;
+    if (!virtuoso) {
+      return { resetScrollBreakaway: (): void => undefined } as MessageListHandle;
+    }
+    return {
+      ...virtuoso,
+      resetScrollBreakaway: (): void => {
+        userScrolledAwayRef.current = false;
+      },
+    };
+  });
 
   const handleAtBottomStateChange = useCallback((atBottom: boolean): void => {
     userScrolledAwayRef.current = !atBottom;
