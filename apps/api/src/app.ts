@@ -37,6 +37,7 @@ import {
   deviceTokensRoute,
   tokenLoginRoute,
   updatesRoute,
+  usageRoute,
 } from './routes/index.js';
 import type { AppEnv } from './types.js';
 
@@ -143,6 +144,12 @@ export function createApp() {
   base.use('/api/device-tokens/*', ironSessionMiddleware());
   base.use('/api/device-tokens/*', sessionMiddleware());
 
+  base.use('/api/usage/*', csrfProtection());
+  base.use('/api/usage/*', dbMiddleware());
+  base.use('/api/usage/*', redisMiddleware());
+  base.use('/api/usage/*', ironSessionMiddleware());
+  base.use('/api/usage/*', sessionMiddleware());
+
   base.use('/api/dev/*', csrfProtection());
   base.use('/api/dev/*', devOnly());
   base.use('/api/dev/*', dbMiddleware());
@@ -170,6 +177,7 @@ export function createApp() {
     .route('/api/device-tokens', deviceTokensRoute)
     .route('/api/auth/token-login', tokenLoginRoute)
     .route('/api/updates', updatesRoute)
+    .route('/api/usage', usageRoute)
     .route('/api/dev', devRoute);
 
   return app;

@@ -57,6 +57,7 @@ describe('ROUTES constants', () => {
         "SHARE_MESSAGE": "/share/m/$shareId",
         "SIGNUP": "/signup",
         "TERMS": "/terms",
+        "USAGE": "/usage",
         "VERIFY": "/verify",
       }
     `);

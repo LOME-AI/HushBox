@@ -13,6 +13,7 @@ export const ROUTES = {
   CHAT_TRIAL: '/chat/trial',
   PROJECTS: '/projects',
   BILLING: '/billing',
+  USAGE: '/usage',
   SETTINGS: '/settings',
 
   // Auth routes

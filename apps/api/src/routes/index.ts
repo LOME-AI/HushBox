@@ -18,3 +18,4 @@ export { forksRoute } from './forks.js';
 export { deviceTokensRoute } from './device-tokens.js';
 export { tokenLoginRoute } from './token-login.js';
 export { updatesRoute } from './updates.js';
+export { usageRoute } from './usage.js';

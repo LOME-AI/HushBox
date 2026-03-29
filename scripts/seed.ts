@@ -15,6 +15,9 @@ import {
   epochs,
   epochMembers,
   conversationMembers,
+  usageRecords,
+  llmCompletions,
+  conversationSpending,
 } from '@hushbox/db';
 import {
   userFactory,
@@ -27,6 +30,8 @@ import {
   epochFactory,
   epochMemberFactory,
   conversationMemberFactory,
+  usageRecordFactory,
+  llmCompletionFactory,
 } from '@hushbox/db/factories';
 import {
   DEV_EMAIL_DOMAIN,
@@ -242,6 +247,9 @@ type LedgerEntry = typeof ledgerEntries.$inferInsert;
 type Epoch = typeof epochs.$inferInsert;
 type EpochMember = typeof epochMembers.$inferInsert;
 type ConversationMember = typeof conversationMembers.$inferInsert;
+type UsageRecord = typeof usageRecords.$inferInsert;
+type LlmCompletion = typeof llmCompletions.$inferInsert;
+type ConversationSpendingRow = typeof conversationSpending.$inferInsert;
 
 type UserWithId = User & { id: string };
 type ConversationWithId = Conversation & { id: string };
@@ -253,6 +261,9 @@ type LedgerEntryWithId = LedgerEntry & { id: string };
 type EpochWithId = Epoch & { id: string };
 type EpochMemberWithId = EpochMember & { id: string };
 type ConversationMemberWithId = ConversationMember & { id: string };
+type UsageRecordWithId = UsageRecord & { id: string };
+type LlmCompletionWithId = LlmCompletion & { id: string };
+type ConversationSpendingWithId = ConversationSpendingRow & { id: string };
 
 interface SeedData {
   users: UserWithId[];
@@ -275,6 +286,9 @@ interface PersonaData {
   epochs: EpochWithId[];
   epochMembers: EpochMemberWithId[];
   conversationMembers: ConversationMemberWithId[];
+  usageRecords: UsageRecordWithId[];
+  llmCompletions: LlmCompletionWithId[];
+  conversationSpending: ConversationSpendingWithId[];
 }
 
 interface UserEntities {
@@ -643,6 +657,171 @@ function createPersonaSampleData(
     epochs: sampleEpochs,
     epochMembers: sampleEpochMembers,
     conversationMembers: sampleConversationMembers,
+  };
+}
+
+const USAGE_MODELS = [
+  {
+    model: 'anthropic/claude-opus-4.6',
+    provider: 'anthropic',
+    weight: 40,
+    costPer1kInput: 0.015,
+    costPer1kOutput: 0.075,
+  },
+  {
+    model: 'openai/gpt-4o',
+    provider: 'openai',
+    weight: 25,
+    costPer1kInput: 0.0025,
+    costPer1kOutput: 0.01,
+  },
+  {
+    model: 'google/gemini-2.5-pro',
+    provider: 'google',
+    weight: 15,
+    costPer1kInput: 0.001_25,
+    costPer1kOutput: 0.01,
+  },
+  {
+    model: 'deepseek/deepseek-r1',
+    provider: 'deepseek',
+    weight: 10,
+    costPer1kInput: 0.000_55,
+    costPer1kOutput: 0.002_19,
+  },
+  {
+    model: 'anthropic/claude-sonnet-4.5',
+    provider: 'anthropic',
+    weight: 10,
+    costPer1kInput: 0.003,
+    costPer1kOutput: 0.015,
+  },
+];
+
+/**
+ * Deterministic pseudo-random model picker that ensures overlapping usage.
+ * Uses a simple hash to spread models across days so multiple models
+ * appear on the same day, creating realistic overlapping chart areas.
+ */
+function pickModel(index: number, daysAgo: number): (typeof USAGE_MODELS)[number] {
+  // Mix index and day so the same day gets different models across records
+  const hash = ((index * 2_654_435_761) ^ (daysAgo * 40_503)) >>> 0;
+  const picked = USAGE_MODELS[hash % USAGE_MODELS.length];
+  if (!picked) throw new Error('USAGE_MODELS is empty');
+  return picked;
+}
+
+interface UsageDataContext {
+  personaName: string;
+  userId: string;
+  conversationIds: string[];
+  walletId: string;
+  now: Date;
+}
+
+function createPersonaUsageData(context: UsageDataContext): {
+  usageRecords: UsageRecordWithId[];
+  llmCompletions: LlmCompletionWithId[];
+  conversationSpending: ConversationSpendingWithId[];
+  ledgerEntries: LedgerEntryWithId[];
+} {
+  const { personaName, userId, conversationIds, walletId, now } = context;
+  const records: UsageRecordWithId[] = [];
+  const completions: LlmCompletionWithId[] = [];
+  const entries: LedgerEntryWithId[] = [];
+  const convSpendingMap = new Map<string, number>();
+
+  // Start balance high (from payments), decrease with usage
+  let runningBalance = 10_000;
+  const recordCount = 200;
+
+  for (let index = 0; index < recordCount; index++) {
+    const usageId = seedUUID(`${personaName}-usage-${String(index)}`);
+    const completionId = seedUUID(`${personaName}-completion-${String(index)}`);
+    const ledgerEntryId = seedUUID(`${personaName}-usage-le-${String(index)}`);
+
+    // Spread across 90 days, more recent = slightly more active
+    const daysAgo = Math.floor(90 - (index / recordCount) * 90);
+    const hoursOffset = (index * 7) % 24; // Vary time of day
+    const usageDate = new Date(now);
+    usageDate.setDate(usageDate.getDate() - daysAgo);
+    usageDate.setHours(hoursOffset, (index * 13) % 60, 0, 0);
+
+    const modelInfo = pickModel(index, daysAgo);
+    const convId = conversationIds[index % conversationIds.length];
+    if (!convId) throw new Error('conversationIds is empty');
+
+    // Realistic token counts
+    const inputTokens = 200 + ((index * 137) % 8000);
+    const outputTokens = 100 + ((index * 89) % 4000);
+    const cachedTokens = index % 4 === 0 ? 50 + ((index * 43) % 1500) : 0;
+
+    // Cost based on actual model pricing
+    const cost =
+      (inputTokens / 1000) * modelInfo.costPer1kInput +
+      (outputTokens / 1000) * modelInfo.costPer1kOutput;
+    const costString = cost.toFixed(8);
+
+    records.push(
+      usageRecordFactory.build({
+        id: usageId,
+        userId,
+        type: 'llm_completion',
+        status: 'completed',
+        cost: costString,
+        sourceType: 'conversation',
+        sourceId: convId,
+        createdAt: usageDate,
+        completedAt: usageDate,
+      })
+    );
+
+    completions.push(
+      llmCompletionFactory.build({
+        id: completionId,
+        usageRecordId: usageId,
+        model: modelInfo.model,
+        provider: modelInfo.provider,
+        inputTokens,
+        outputTokens,
+        cachedTokens,
+      })
+    );
+
+    // Accumulate per-conversation spending
+    convSpendingMap.set(convId, (convSpendingMap.get(convId) ?? 0) + cost);
+
+    // Usage charge ledger entry
+    runningBalance -= cost;
+    entries.push(
+      ledgerEntryFactory.build({
+        id: ledgerEntryId,
+        walletId,
+        amount: `-${costString}`,
+        balanceAfter: runningBalance.toFixed(8),
+        entryType: 'usage_charge',
+        usageRecordId: usageId,
+        createdAt: usageDate,
+      })
+    );
+  }
+
+  // Build conversation spending rows
+  const spending: ConversationSpendingWithId[] = [];
+  for (const [convId, totalSpent] of convSpendingMap) {
+    spending.push({
+      id: seedUUID(`${personaName}-convspend-${convId}`),
+      conversationId: convId,
+      totalSpent: totalSpent.toFixed(8),
+      updatedAt: now,
+    });
+  }
+
+  return {
+    usageRecords: records,
+    llmCompletions: completions,
+    conversationSpending: spending,
+    ledgerEntries: entries,
   };
 }
 
@@ -1026,6 +1205,9 @@ export async function generatePersonaData(): Promise<PersonaData> {
   const personaEpochs: EpochWithId[] = [];
   const personaEpochMembers: EpochMemberWithId[] = [];
   const personaConversationMembers: ConversationMemberWithId[] = [];
+  const personaUsageRecords: UsageRecordWithId[] = [];
+  const personaLlmCompletions: LlmCompletionWithId[] = [];
+  const personaConvSpending: ConversationSpendingWithId[] = [];
 
   const now = new Date();
   const publicKeys = new Map<string, Uint8Array>();
@@ -1055,6 +1237,20 @@ export async function generatePersonaData(): Promise<PersonaData> {
       const paymentData = createPersonaPayments(persona.name, user.id, purchasedWalletId, now);
       personaPayments.push(...paymentData.payments);
       personaLedgerEntries.push(...paymentData.ledgerEntries);
+
+      // Usage analytics data (usage_records + llm_completions + conversation_spending)
+      const conversationIds = sampleData.conversations.map((c) => c.id);
+      const usageData = createPersonaUsageData({
+        personaName: persona.name,
+        userId: user.id,
+        conversationIds,
+        walletId: purchasedWalletId,
+        now,
+      });
+      personaUsageRecords.push(...usageData.usageRecords);
+      personaLlmCompletions.push(...usageData.llmCompletions);
+      personaConvSpending.push(...usageData.conversationSpending);
+      personaLedgerEntries.push(...usageData.ledgerEntries);
     }
 
     if (persona.name === 'charlie') {
@@ -1100,6 +1296,9 @@ export async function generatePersonaData(): Promise<PersonaData> {
     epochs: personaEpochs,
     epochMembers: personaEpochMembers,
     conversationMembers: personaConversationMembers,
+    usageRecords: personaUsageRecords,
+    llmCompletions: personaLlmCompletions,
+    conversationSpending: personaConvSpending,
   };
 }
 
@@ -1276,6 +1475,9 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
   const testEpochs: EpochWithId[] = [];
   const testEpochMembers: EpochMemberWithId[] = [];
   const testConversationMembers: ConversationMemberWithId[] = [];
+  const testUsageRecords: UsageRecordWithId[] = [];
+  const testLlmCompletions: LlmCompletionWithId[] = [];
+  const testConvSpending: ConversationSpendingWithId[] = [];
 
   const now = new Date();
 
@@ -1301,6 +1503,20 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
       const paymentData = createTestPaymentData(persona.name, user.id, purchasedWalletId, now);
       testPayments.push(paymentData.payment);
       testLedgerEntries.push(paymentData.ledgerEntry);
+
+      // Usage analytics data
+      const conversationIds = sampleData.conversations.map((c) => c.id);
+      const usageData = createPersonaUsageData({
+        personaName: persona.name,
+        userId: user.id,
+        conversationIds,
+        walletId: purchasedWalletId,
+        now,
+      });
+      testUsageRecords.push(...usageData.usageRecords);
+      testLlmCompletions.push(...usageData.llmCompletions);
+      testConvSpending.push(...usageData.conversationSpending);
+      testLedgerEntries.push(...usageData.ledgerEntries);
     }
   }
 
@@ -1315,6 +1531,9 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
     epochs: testEpochs,
     epochMembers: testEpochMembers,
     conversationMembers: testConversationMembers,
+    usageRecords: testUsageRecords,
+    llmCompletions: testLlmCompletions,
+    conversationSpending: testConvSpending,
   };
 }
 
@@ -1329,7 +1548,10 @@ type Table =
   | typeof ledgerEntries
   | typeof epochs
   | typeof epochMembers
-  | typeof conversationMembers;
+  | typeof conversationMembers
+  | typeof usageRecords
+  | typeof llmCompletions
+  | typeof conversationSpending;
 
 export async function upsertEntity(
   db: DbClient,
@@ -1408,6 +1630,9 @@ export async function seed(): Promise<void> {
   console.log(`  Messages: ${String(personaData.messages.length)}`);
   console.log(`  Payments: ${String(personaData.payments.length)}`);
   console.log(`  Ledger Entries: ${String(personaData.ledgerEntries.length)}`);
+  console.log(`  Usage Records: ${String(personaData.usageRecords.length)}`);
+  console.log(`  LLM Completions: ${String(personaData.llmCompletions.length)}`);
+  console.log(`  Conversation Spending: ${String(personaData.conversationSpending.length)}`);
   console.log('');
   console.log('Test Personas:');
   console.log(`  Users: ${String(testPersonaData.users.length)}`);
@@ -1420,6 +1645,9 @@ export async function seed(): Promise<void> {
   console.log(`  Messages: ${String(testPersonaData.messages.length)}`);
   console.log(`  Payments: ${String(testPersonaData.payments.length)}`);
   console.log(`  Ledger Entries: ${String(testPersonaData.ledgerEntries.length)}`);
+  console.log(`  Usage Records: ${String(testPersonaData.usageRecords.length)}`);
+  console.log(`  LLM Completions: ${String(testPersonaData.llmCompletions.length)}`);
+  console.log(`  Conversation Spending: ${String(testPersonaData.conversationSpending.length)}`);
   console.log('');
   console.log('Random Seed Data:');
   console.log(`  Users: ${String(data.users.length)}`);
@@ -1494,14 +1722,35 @@ export async function seed(): Promise<void> {
   ]);
   logUpsertResult('Messages', messageResult);
 
-  // 9. Payments (depends on users)
+  // 9. UsageRecords (depends on users)
+  const usageRecordResult = await upsertEntities(db, usageRecords, [
+    ...personaData.usageRecords,
+    ...testPersonaData.usageRecords,
+  ]);
+  logUpsertResult('Usage Records', usageRecordResult);
+
+  // 10. LLM Completions (depends on usage records)
+  const llmCompletionResult = await upsertEntities(db, llmCompletions, [
+    ...personaData.llmCompletions,
+    ...testPersonaData.llmCompletions,
+  ]);
+  logUpsertResult('LLM Completions', llmCompletionResult);
+
+  // 11. Conversation Spending (depends on conversations)
+  const convSpendingResult = await upsertEntities(db, conversationSpending, [
+    ...personaData.conversationSpending,
+    ...testPersonaData.conversationSpending,
+  ]);
+  logUpsertResult('Conversation Spending', convSpendingResult);
+
+  // 12. Payments (depends on users)
   const paymentResult = await upsertEntities(db, payments, [
     ...personaData.payments,
     ...testPersonaData.payments,
   ]);
   logUpsertResult('Payments', paymentResult);
 
-  // 10. LedgerEntries (depends on wallets + payments)
+  // 13. LedgerEntries (depends on wallets + payments + usage records)
   const ledgerEntryResult = await upsertEntities(db, ledgerEntries, [
     ...personaData.ledgerEntries,
     ...testPersonaData.ledgerEntries,

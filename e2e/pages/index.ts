@@ -17,3 +17,4 @@ export { ChatPage } from './chat.page.js';
 export { SidebarPage } from './sidebar.page.js';
 export { MemberSidebarPage } from './member-sidebar.page.js';
 export { DocumentPanelPage } from './document-panel.page.js';
+export { UsagePage } from './usage.page.js';

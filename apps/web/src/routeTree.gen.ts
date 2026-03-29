@@ -19,6 +19,7 @@ import { Route as DevAssetsRouteImport } from './routes/dev.assets'
 import { Route as AuthVerifyRouteImport } from './routes/_auth/verify'
 import { Route as AuthSignupRouteImport } from './routes/_auth/signup'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
+import { Route as AppUsageRouteImport } from './routes/_app/usage'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppProjectsRouteImport } from './routes/_app/projects'
 import { Route as AppBillingRouteImport } from './routes/_app/billing'
@@ -77,6 +78,11 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
   path: '/login',
   getParentRoute: () => AuthRoute,
 } as any)
+const AppUsageRoute = AppUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -129,6 +135,7 @@ export interface FileRoutesByFullPath {
   '/billing': typeof AppBillingRoute
   '/projects': typeof AppProjectsRoute
   '/settings': typeof AppSettingsRoute
+  '/usage': typeof AppUsageRoute
   '/login': typeof AuthLoginRoute
   '/signup': typeof AuthSignupRoute
   '/verify': typeof AuthVerifyRoute
@@ -148,6 +155,7 @@ export interface FileRoutesByTo {
   '/billing': typeof AppBillingRoute
   '/projects': typeof AppProjectsRoute
   '/settings': typeof AppSettingsRoute
+  '/usage': typeof AppUsageRoute
   '/login': typeof AuthLoginRoute
   '/signup': typeof AuthSignupRoute
   '/verify': typeof AuthVerifyRoute
@@ -170,6 +178,7 @@ export interface FileRoutesById {
   '/_app/billing': typeof AppBillingRoute
   '/_app/projects': typeof AppProjectsRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/_app/usage': typeof AppUsageRoute
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/signup': typeof AuthSignupRoute
   '/_auth/verify': typeof AuthVerifyRoute
@@ -191,6 +200,7 @@ export interface FileRouteTypes {
     | '/billing'
     | '/projects'
     | '/settings'
+    | '/usage'
     | '/login'
     | '/signup'
     | '/verify'
@@ -210,6 +220,7 @@ export interface FileRouteTypes {
     | '/billing'
     | '/projects'
     | '/settings'
+    | '/usage'
     | '/login'
     | '/signup'
     | '/verify'
@@ -231,6 +242,7 @@ export interface FileRouteTypes {
     | '/_app/billing'
     | '/_app/projects'
     | '/_app/settings'
+    | '/_app/usage'
     | '/_auth/login'
     | '/_auth/signup'
     | '/_auth/verify'
@@ -330,6 +342,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof AuthRoute
     }
+    '/_app/usage': {
+      id: '/_app/usage'
+      path: '/usage'
+      fullPath: '/usage'
+      preLoaderRoute: typeof AppUsageRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
@@ -400,6 +419,7 @@ interface AppRouteChildren {
   AppBillingRoute: typeof AppBillingRoute
   AppProjectsRoute: typeof AppProjectsRoute
   AppSettingsRoute: typeof AppSettingsRoute
+  AppUsageRoute: typeof AppUsageRoute
   AppChatIdRoute: typeof AppChatIdRoute
   AppChatTrialRoute: typeof AppChatTrialRoute
   AppChatIndexRoute: typeof AppChatIndexRoute
@@ -409,6 +429,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppBillingRoute: AppBillingRoute,
   AppProjectsRoute: AppProjectsRoute,
   AppSettingsRoute: AppSettingsRoute,
+  AppUsageRoute: AppUsageRoute,
   AppChatIdRoute: AppChatIdRoute,
   AppChatTrialRoute: AppChatTrialRoute,
   AppChatIndexRoute: AppChatIndexRoute,
