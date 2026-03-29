@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, gte, isNull, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, gte, lt, or, isNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   conversations,
@@ -76,11 +76,50 @@ function rowToConversation(row: ConversationRow): Conversation {
  * Includes both owned conversations and conversations the user was added to as a member.
  * Returns membership acceptance state and inviter username for each conversation.
  */
+const DEFAULT_PAGE_LIMIT = 50;
+const MAX_PAGE_LIMIT = 100;
+
+export interface PaginatedConversations {
+  rows: ConversationListRow[];
+  nextCursor: string | null;
+}
+
 export async function listConversations(
   db: Database,
-  userId: string
-): Promise<ConversationListRow[]> {
+  userId: string,
+  options?: { limit?: number; cursor?: string }
+): Promise<PaginatedConversations> {
   const inviter = alias(users, 'inviter');
+  const limit = Math.min(options?.limit ?? DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
+
+  const conditions = [eq(conversationMembers.userId, userId), isNull(conversationMembers.leftAt)];
+
+  if (options?.cursor) {
+    try {
+      const parsed: unknown = JSON.parse(Buffer.from(options.cursor, 'base64').toString());
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        typeof (parsed as Record<string, unknown>)['updatedAt'] !== 'string' ||
+        typeof (parsed as Record<string, unknown>)['id'] !== 'string'
+      ) {
+        return { rows: [], nextCursor: null };
+      }
+      const { updatedAt, id } = parsed as { updatedAt: string; id: string };
+      const cursorDate = new Date(updatedAt);
+      if (Number.isNaN(cursorDate.getTime())) {
+        return { rows: [], nextCursor: null };
+      }
+      // (updatedAt, id) < (cursorDate, cursorId) for DESC ordering
+      const cursorCondition = or(
+        lt(conversations.updatedAt, cursorDate),
+        and(eq(conversations.updatedAt, cursorDate), lt(conversations.id, id))
+      );
+      if (cursorCondition) conditions.push(cursorCondition);
+    } catch {
+      return { rows: [], nextCursor: null };
+    }
+  }
 
   const rows = await db
     .select({
@@ -102,27 +141,43 @@ export async function listConversations(
     .from(conversationMembers)
     .innerJoin(conversations, eq(conversationMembers.conversationId, conversations.id))
     .leftJoin(inviter, eq(conversationMembers.invitedByUserId, inviter.id))
-    .where(and(eq(conversationMembers.userId, userId), isNull(conversationMembers.leftAt)))
-    .orderBy(desc(conversations.updatedAt));
+    .where(and(...conditions))
+    .orderBy(desc(conversations.updatedAt), desc(conversations.id))
+    .limit(limit + 1);
 
-  return rows.map((row) => ({
-    conversation: {
-      id: row.id,
-      userId: row.userId,
-      title: row.title,
-      projectId: row.projectId,
-      titleEpochNumber: row.titleEpochNumber,
-      currentEpoch: row.currentEpoch,
-      nextSequence: row.nextSequence,
-      conversationBudget: row.conversationBudget,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    },
-    acceptedAt: row.acceptedAt,
-    invitedByUsername: row.invitedByUsername,
-    privilege: row.privilege,
-    muted: row.muted,
-  }));
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+
+  let nextCursor: string | null = null;
+  if (hasMore) {
+    const lastRow = pageRows.at(-1);
+    if (!lastRow) throw new Error('invariant: hasMore but pageRows is empty');
+    nextCursor = Buffer.from(
+      JSON.stringify({ updatedAt: lastRow.updatedAt.toISOString(), id: lastRow.id })
+    ).toString('base64');
+  }
+
+  return {
+    rows: pageRows.map((row) => ({
+      conversation: {
+        id: row.id,
+        userId: row.userId,
+        title: row.title,
+        projectId: row.projectId,
+        titleEpochNumber: row.titleEpochNumber,
+        currentEpoch: row.currentEpoch,
+        nextSequence: row.nextSequence,
+        conversationBudget: row.conversationBudget,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      },
+      acceptedAt: row.acceptedAt,
+      invitedByUsername: row.invitedByUsername,
+      privilege: row.privilege,
+      muted: row.muted,
+    })),
+    nextCursor,
+  };
 }
 
 /**

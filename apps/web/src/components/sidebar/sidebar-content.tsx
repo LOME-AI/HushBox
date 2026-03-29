@@ -52,6 +52,9 @@ interface SidebarPanelsProps {
   filteredUnaccepted: Conversation[];
   activeConversationId?: string | undefined;
   isAuthenticated: boolean;
+  onLoadMore?: (() => void) | undefined;
+  hasMore?: boolean | undefined;
+  isLoadingMore?: boolean | undefined;
 }
 
 function SidebarPanels({
@@ -62,6 +65,9 @@ function SidebarPanels({
   filteredUnaccepted,
   activeConversationId,
   isAuthenticated,
+  onLoadMore,
+  hasMore,
+  isLoadingMore,
 }: Readonly<SidebarPanelsProps>): React.JSX.Element {
   return (
     <div className="scrollbar-hide min-h-0 flex-1 overflow-hidden">
@@ -81,6 +87,9 @@ function SidebarPanels({
             conversations={filteredAccepted}
             activeId={activeConversationId}
             isAuthenticated={isAuthenticated}
+            onLoadMore={onLoadMore}
+            hasMore={hasMore}
+            isLoadingMore={isLoadingMore}
           />
         </div>
         {unacceptedCount > 0 && (
@@ -98,6 +107,9 @@ interface SidebarContentProps {
   activeConversationId?: string;
   /** Whether the user is authenticated */
   isAuthenticated?: boolean;
+  onLoadMore?: (() => void) | undefined;
+  hasMore?: boolean | undefined;
+  isLoadingMore?: boolean | undefined;
 }
 
 interface SidebarTabHeaderProps {
@@ -156,6 +168,9 @@ export function SidebarContent({
   conversations,
   activeConversationId,
   isAuthenticated = true,
+  onLoadMore,
+  hasMore,
+  isLoadingMore,
 }: Readonly<SidebarContentProps>): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -219,6 +234,9 @@ export function SidebarContent({
         filteredUnaccepted={filteredUnaccepted}
         activeConversationId={activeConversationId}
         isAuthenticated={isAuthenticated}
+        onLoadMore={onLoadMore}
+        hasMore={hasMore}
+        isLoadingMore={isLoadingMore}
       />
 
       {FEATURE_FLAGS.PROJECTS_ENABLED && (

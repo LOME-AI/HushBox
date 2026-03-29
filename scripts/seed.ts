@@ -102,6 +102,7 @@ export const DEV_PERSONAS = [
     emailVerified: true,
     hasSampleData: true,
     balance: '10000.00000000',
+    conversationCount: 150,
   },
   {
     name: 'bob',
@@ -109,6 +110,7 @@ export const DEV_PERSONAS = [
     emailVerified: true,
     hasSampleData: false,
     balance: '0.20000000',
+    conversationCount: 3,
   },
   {
     name: 'charlie',
@@ -116,6 +118,7 @@ export const DEV_PERSONAS = [
     emailVerified: true,
     hasSampleData: false,
     balance: '0.00000000',
+    conversationCount: 3,
   },
 ] as const;
 
@@ -564,7 +567,8 @@ function createPersonaSampleData(
   personaName: string,
   userId: string,
   userPublicKey: Uint8Array,
-  now: Date
+  now: Date,
+  conversationCount: number = 3
 ): {
   projects: ProjectWithId[];
   conversations: ConversationWithId[];
@@ -594,7 +598,7 @@ function createPersonaSampleData(
     );
   }
 
-  for (let convIndex = 0; convIndex < 3; convIndex++) {
+  for (let convIndex = 0; convIndex < conversationCount; convIndex++) {
     const convId = seedUUID(`${personaName}-conv-${String(convIndex + 1)}`);
     const { epoch, epochMember, conversationMember, epochPublicKey } = createConversationEpochData(
       convId,
@@ -1036,7 +1040,13 @@ export async function generatePersonaData(): Promise<PersonaData> {
     personaLedgerEntries.push(...walletData.ledgerEntries);
 
     if (persona.hasSampleData) {
-      const sampleData = createPersonaSampleData(persona.name, user.id, publicKey, now);
+      const sampleData = createPersonaSampleData(
+        persona.name,
+        user.id,
+        publicKey,
+        now,
+        persona.conversationCount
+      );
       personaProjects.push(...sampleData.projects);
       personaConversations.push(...sampleData.conversations);
       personaMessages.push(...sampleData.messages);

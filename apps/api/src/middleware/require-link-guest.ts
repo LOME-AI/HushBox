@@ -22,11 +22,20 @@ async function linkGuestHandler(c: Context<AppEnv>, next: Next): Promise<Respons
   }
 
   c.set('linkGuest', { linkId: resolved.linkId, publicKey: resolved.publicKey });
-  c.set('member', {
-    id: resolved.member.id,
-    privilege: resolved.member.privilege,
-    visibleFromEpoch: resolved.member.visibleFromEpoch,
-  });
+  const conversationId = c.req.param('conversationId')!;
+  c.set(
+    'members',
+    new Map([
+      [
+        conversationId,
+        {
+          id: resolved.member.id,
+          privilege: resolved.member.privilege,
+          visibleFromEpoch: resolved.member.visibleFromEpoch,
+        },
+      ],
+    ])
+  );
 
   // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-condition -- Hono's next() returns void | Response; we must propagate the response
   return (await next()) ?? undefined;
@@ -38,7 +47,7 @@ async function linkGuestHandler(c: Context<AppEnv>, next: Next): Promise<Respons
  * Reads `x-link-public-key` header and `conversationId` route param.
  * Resolves the shared link and associated member.
  *
- * On success, sets `c.set('linkGuest', ...)` and `c.set('member', ...)`.
+ * On success, sets `c.set('linkGuest', ...)` and `c.set('members', Map)`.
  * Returns 401 if no header, 404 if link or member not found.
  */
 export function requireLinkGuest(): MiddlewareHandler<AppEnv> {

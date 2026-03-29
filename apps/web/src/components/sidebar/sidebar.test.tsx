@@ -30,6 +30,19 @@ import { useDecryptedConversations } from '@/hooks/chat';
 
 const mockUseDecryptedConversations = vi.mocked(useDecryptedConversations);
 
+function mockConversationsHook(
+  overrides?: Partial<ReturnType<typeof useDecryptedConversations>>
+): void {
+  mockUseDecryptedConversations.mockReturnValue({
+    data: [],
+    isLoading: false,
+    fetchNextPage: vi.fn(),
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    ...overrides,
+  });
+}
+
 // Mock member hooks used by ChatItem
 vi.mock('@/hooks/use-conversation-members', () => ({
   useLeaveConversation: () => ({
@@ -126,10 +139,24 @@ function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
   return Wrapper;
 }
 
+const testConv = {
+  id: 'conv-1',
+  userId: 'user-1',
+  title: 'Test Chat',
+  currentEpoch: 1,
+  titleEpochNumber: 1,
+  nextSequence: 1,
+  createdAt: '2024-01-01',
+  updatedAt: '2024-01-01',
+  accepted: true,
+  invitedByUsername: null,
+  privilege: 'owner' as const,
+  muted: false,
+};
+
 describe('Sidebar', () => {
   beforeEach(() => {
     useUIStore.setState({ sidebarOpen: true });
-    // Default mock: authenticated user
     mockUseSession.mockReturnValue({
       data: {
         user: {
@@ -144,26 +171,7 @@ describe('Sidebar', () => {
       },
       isPending: false,
     });
-    // Default mock: return conversations
-    mockUseDecryptedConversations.mockReturnValue({
-      data: [
-        {
-          id: 'conv-1',
-          userId: 'user-1',
-          title: 'Test Chat',
-          currentEpoch: 1,
-          titleEpochNumber: 1,
-          nextSequence: 1,
-          createdAt: '2024-01-01',
-          updatedAt: '2024-01-01',
-          accepted: true,
-          invitedByUsername: null,
-          privilege: 'owner',
-          muted: false,
-        },
-      ],
-      isLoading: false,
-    });
+    mockConversationsHook({ data: [testConv] });
   });
 
   describe('desktop view', () => {
@@ -256,10 +264,7 @@ describe('Sidebar', () => {
     });
 
     it('shows decrypting state with lock icon when fetching', () => {
-      mockUseDecryptedConversations.mockReturnValue({
-        data: undefined,
-        isLoading: true,
-      });
+      mockConversationsHook({ data: undefined, isLoading: true });
 
       render(<Sidebar />, { wrapper: createWrapper() });
       expect(screen.getByTestId('decrypting-indicator')).toBeInTheDocument();
@@ -269,10 +274,7 @@ describe('Sidebar', () => {
 
     it('shows only lock icon without text when collapsed and loading', () => {
       useUIStore.setState({ sidebarOpen: false });
-      mockUseDecryptedConversations.mockReturnValue({
-        data: undefined,
-        isLoading: true,
-      });
+      mockConversationsHook({ data: undefined, isLoading: true });
 
       render(<Sidebar />, { wrapper: createWrapper() });
       expect(screen.getByTestId('decrypting-lock-icon')).toBeInTheDocument();
@@ -280,48 +282,25 @@ describe('Sidebar', () => {
     });
 
     it('shows empty state when no conversations', () => {
-      mockUseDecryptedConversations.mockReturnValue({
-        data: [],
-        isLoading: false,
-      });
+      mockConversationsHook();
 
       render(<Sidebar />, { wrapper: createWrapper() });
       expect(screen.getByText('No conversations yet')).toBeInTheDocument();
     });
 
     it('displays conversations from hook', () => {
-      mockUseDecryptedConversations.mockReturnValue({
+      mockConversationsHook({
         data: [
+          { ...testConv, title: 'First Chat' },
           {
-            id: 'conv-1',
-            userId: 'user-1',
-            title: 'First Chat',
-            currentEpoch: 1,
-            titleEpochNumber: 1,
-            nextSequence: 1,
-            createdAt: '2024-01-01',
-            updatedAt: '2024-01-01',
-            accepted: true,
-            invitedByUsername: null,
-            privilege: 'owner',
-            muted: false,
-          },
-          {
+            ...testConv,
             id: 'conv-2',
-            userId: 'user-1',
             title: 'Second Chat',
-            currentEpoch: 1,
-            titleEpochNumber: 1,
-            nextSequence: 1,
+            privilege: 'write',
             createdAt: '2024-01-02',
             updatedAt: '2024-01-02',
-            accepted: true,
-            invitedByUsername: null,
-            privilege: 'write',
-            muted: false,
           },
         ],
-        isLoading: false,
       });
 
       render(<Sidebar />, { wrapper: createWrapper() });
@@ -336,25 +315,7 @@ describe('Sidebar', () => {
         data: null,
         isPending: false,
       });
-      mockUseDecryptedConversations.mockReturnValue({
-        data: [
-          {
-            id: 'conv-1',
-            userId: 'user-1',
-            title: 'Stale Chat',
-            currentEpoch: 1,
-            titleEpochNumber: 1,
-            nextSequence: 1,
-            createdAt: '2024-01-01',
-            updatedAt: '2024-01-01',
-            accepted: true,
-            invitedByUsername: null,
-            privilege: 'owner',
-            muted: false,
-          },
-        ],
-        isLoading: false,
-      });
+      mockConversationsHook({ data: [{ ...testConv, title: 'Stale Chat' }] });
 
       render(<Sidebar />, { wrapper: createWrapper() });
       expect(screen.queryByText('Stale Chat')).not.toBeInTheDocument();
@@ -365,10 +326,7 @@ describe('Sidebar', () => {
         data: null,
         isPending: false,
       });
-      mockUseDecryptedConversations.mockReturnValue({
-        data: undefined,
-        isLoading: true,
-      });
+      mockConversationsHook({ data: undefined, isLoading: true });
 
       render(<Sidebar />, { wrapper: createWrapper() });
       expect(screen.queryByText('Decrypting...')).not.toBeInTheDocument();
@@ -380,10 +338,7 @@ describe('Sidebar', () => {
         data: null,
         isPending: false,
       });
-      mockUseDecryptedConversations.mockReturnValue({
-        data: [],
-        isLoading: false,
-      });
+      mockConversationsHook();
 
       render(<Sidebar />, { wrapper: createWrapper() });
       expect(screen.getByRole('button', { name: /new chat/i })).toBeInTheDocument();
@@ -394,10 +349,7 @@ describe('Sidebar', () => {
         data: null,
         isPending: false,
       });
-      mockUseDecryptedConversations.mockReturnValue({
-        data: [],
-        isLoading: false,
-      });
+      mockConversationsHook();
 
       render(<Sidebar />, { wrapper: createWrapper() });
       expect(screen.getByText('Sign up')).toBeInTheDocument();
@@ -433,10 +385,7 @@ describe('Sidebar', () => {
         data: null,
         isPending: false,
       });
-      mockUseDecryptedConversations.mockReturnValue({
-        data: undefined,
-        isLoading: false,
-      });
+      mockConversationsHook({ data: undefined });
 
       function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
         return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;

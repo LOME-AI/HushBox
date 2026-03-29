@@ -1,5 +1,5 @@
 import type { Context, MiddlewareHandler, Next } from 'hono';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { conversationMembers, conversations } from '@hushbox/db';
 import type { Database } from '@hushbox/db';
 import {
@@ -16,10 +16,12 @@ import { resolveLinkGuest } from './resolve-link-guest.js';
 import { LINK_PUBLIC_KEY_HEADER } from './constants.js';
 
 interface PrivilegeOptions {
-  /** When true, allows link guests (via x-link-public-key header) when no session user is present. */
+  /** When true, allows link guests (via x-link-public-key header) when no session user is present. Only valid for single-conversation requests. */
   allowLinkGuest?: boolean;
-  /** When true, queries conversation owner and sets `c.set('conversationOwnerId', ownerId)`. */
+  /** When true, queries conversation owner and sets `c.set('conversationOwnerId', ownerId)`. Only valid for single-conversation requests. */
   includeOwnerId?: boolean;
+  /** Extracts conversation IDs from the request. Defaults to reading `:conversationId` route param. */
+  resolve?: (c: Context<AppEnv>) => string[];
 }
 
 /** Looks up the conversation owner userId. Returns null if conversation not found. */
@@ -53,15 +55,57 @@ async function setConversationOwner(
 }
 
 /**
+ * Batch membership lookup. Returns a map of conversationId → member row
+ * for all conversations where the user is an active member.
+ */
+async function lookupMembers(
+  db: Database,
+  conversationIds: string[],
+  userId: string
+): Promise<Map<string, { id: string; privilege: string; visibleFromEpoch: number }>> {
+  const rows = await db
+    .select({
+      conversationId: conversationMembers.conversationId,
+      id: conversationMembers.id,
+      privilege: conversationMembers.privilege,
+      visibleFromEpoch: conversationMembers.visibleFromEpoch,
+    })
+    .from(conversationMembers)
+    .where(
+      and(
+        inArray(conversationMembers.conversationId, conversationIds),
+        eq(conversationMembers.userId, userId),
+        isNull(conversationMembers.leftAt)
+      )
+    );
+
+  const map = new Map<string, { id: string; privilege: string; visibleFromEpoch: number }>();
+  for (const row of rows) {
+    map.set(row.conversationId, {
+      id: row.id,
+      privilege: row.privilege,
+      visibleFromEpoch: row.visibleFromEpoch,
+    });
+  }
+  return map;
+}
+
+/**
  * Attempts to resolve a link guest and set context variables.
  * Returns a Response (error or next()) on success/failure, or null if resolution fails entirely.
  */
+interface ResolveLinkGuestOptions {
+  c: Context<AppEnv>;
+  conversationId: string;
+  minLevel: MemberPrivilege;
+  includeOwnerId: boolean;
+  next: Next;
+}
+
 async function tryResolveLinkGuest(
-  c: Context<AppEnv>,
-  minLevel: MemberPrivilege,
-  includeOwnerId: boolean,
-  next: Next
+  options: ResolveLinkGuestOptions
 ): Promise<Response | null | undefined> {
+  const { c, conversationId, minLevel, includeOwnerId, next } = options;
   const resolved = await resolveLinkGuest(c);
   if (!resolved) {
     return null;
@@ -71,17 +115,9 @@ async function tryResolveLinkGuest(
   }
   c.set('linkGuest', { linkId: resolved.linkId, publicKey: resolved.publicKey });
   c.set('callerId', resolved.member.id);
-  c.set('member', {
-    id: resolved.member.id,
-    privilege: resolved.member.privilege,
-    visibleFromEpoch: resolved.member.visibleFromEpoch,
-  });
+  c.set('members', new Map([[conversationId, resolved.member]]));
 
   if (includeOwnerId) {
-    const conversationId = c.req.param('conversationId');
-    if (!conversationId) {
-      return c.json(createErrorResponse(ERROR_CODE_VALIDATION), 400);
-    }
     const errorResponse = await setConversationOwner(c, c.get('db'), conversationId);
     if (errorResponse) return errorResponse;
   }
@@ -90,32 +126,9 @@ async function tryResolveLinkGuest(
   return (await next()) ?? undefined;
 }
 
-/** Looks up the active membership row for a user in a conversation. */
-async function lookupMember(
-  db: Database,
-  conversationId: string,
-  userId: string
-): Promise<{ id: string; privilege: string; visibleFromEpoch: number } | undefined> {
-  const rows = await db
-    .select({
-      id: conversationMembers.id,
-      privilege: conversationMembers.privilege,
-      visibleFromEpoch: conversationMembers.visibleFromEpoch,
-    })
-    .from(conversationMembers)
-    .where(
-      and(
-        eq(conversationMembers.conversationId, conversationId),
-        eq(conversationMembers.userId, userId),
-        isNull(conversationMembers.leftAt)
-      )
-    )
-    .limit(1);
-  return rows[0];
-}
-
 interface LinkGuestFallbackOptions {
   c: Context<AppEnv>;
+  conversationId: string;
   minLevel: MemberPrivilege;
   includeOwnerId: boolean;
   allowLinkGuest: boolean;
@@ -127,51 +140,82 @@ async function tryLinkGuestFallback(
   options: LinkGuestFallbackOptions
 ): Promise<Response | null | undefined> {
   if (!options.allowLinkGuest) return null;
-  return tryResolveLinkGuest(options.c, options.minLevel, options.includeOwnerId, options.next);
+  return tryResolveLinkGuest({
+    c: options.c,
+    conversationId: options.conversationId,
+    minLevel: options.minLevel,
+    includeOwnerId: options.includeOwnerId,
+    next: options.next,
+  });
+}
+
+function defaultResolve(c: Context<AppEnv>): string[] {
+  const conversationId = c.req.param('conversationId');
+  return conversationId ? [conversationId] : [];
 }
 
 /**
- * Middleware that verifies the authenticated user is a member of the conversation
- * (identified by `conversationId` route param) and holds at least `minLevel` privilege.
+ * Middleware that verifies the authenticated user is a member of the conversation(s)
+ * and holds at least `minLevel` privilege in each.
  *
- * When `allowLinkGuest` is true, falls back to resolving a link guest via the
- * `x-link-public-key` header — both when no session user exists AND when the session
- * user is not a member of the conversation. Sets `c.set('linkGuest', ...)` on success.
+ * Conversation IDs are obtained via the `resolve` option (defaults to reading
+ * `:conversationId` route param). The middleware always works with an array of IDs.
  *
- * On success, sets `c.set('member', { id, privilege, visibleFromEpoch })` for downstream handlers.
+ * When `allowLinkGuest` is true and a single conversation ID is resolved, falls back
+ * to resolving a link guest via the `x-link-public-key` header.
+ *
+ * On success, sets `c.set('members', Map<conversationId, Member>)` for downstream handlers.
  */
 export function requirePrivilege(
   minLevel: MemberPrivilege,
   options?: PrivilegeOptions
 ): MiddlewareHandler<AppEnv> {
-  const { allowLinkGuest = false, includeOwnerId = false } = options ?? {};
+  const {
+    allowLinkGuest = false,
+    includeOwnerId = false,
+    resolve = defaultResolve,
+  } = options ?? {};
 
   return async (c, next) => {
     const user = c.get('user');
+    const conversationIds = resolve(c);
 
-    if (!user) {
-      return handleUnauthenticated(c, { minLevel, includeOwnerId, allowLinkGuest, next });
-    }
-
-    const db = c.get('db');
-    const conversationId = c.req.param('conversationId');
-    if (!conversationId) {
+    if (conversationIds.length === 0) {
       return c.json(createErrorResponse(ERROR_CODE_VALIDATION), 400);
     }
 
-    // Link guest and membership are separate systems. When a link public key
-    // header is present, always resolve as link guest — never fall through
-    // to user membership lookup.
-    const hasLinkKey = Boolean(
-      c.req.header(LINK_PUBLIC_KEY_HEADER) ?? c.req.query('linkPublicKey')
-    );
-    if (hasLinkKey && allowLinkGuest) {
-      return handleLinkGuestOnly(c, { minLevel, includeOwnerId, allowLinkGuest, next });
+    if (!user) {
+      return handleUnauthenticated(c, conversationIds, {
+        minLevel,
+        includeOwnerId,
+        allowLinkGuest,
+        next,
+      });
+    }
+
+    const db = c.get('db');
+
+    // Link guest takes priority when link key is present (single-conversation only)
+    if (conversationIds.length === 1 && allowLinkGuest) {
+      const hasLinkKey = Boolean(
+        c.req.header(LINK_PUBLIC_KEY_HEADER) ?? c.req.query('linkPublicKey')
+      );
+      if (hasLinkKey) {
+        const [singleId] = conversationIds;
+        if (singleId) {
+          return handleLinkGuestOnly(c, singleId, {
+            minLevel,
+            includeOwnerId,
+            allowLinkGuest,
+            next,
+          });
+        }
+      }
     }
 
     return handleAuthenticatedUser(c, {
       db,
-      conversationId,
+      conversationIds,
       user,
       minLevel,
       includeOwnerId,
@@ -184,26 +228,49 @@ export function requirePrivilege(
 /** Handles the case where no session user exists. */
 async function handleUnauthenticated(
   c: Context<AppEnv>,
-  options: Omit<LinkGuestFallbackOptions, 'c'>
+  conversationIds: string[],
+  options: {
+    minLevel: MemberPrivilege;
+    includeOwnerId: boolean;
+    allowLinkGuest: boolean;
+    next: Next;
+  }
 ): Promise<Response | undefined> {
-  const fallback = await tryLinkGuestFallback({ c, ...options });
-  if (fallback !== null) return fallback;
+  const [singleId] = conversationIds;
+  if (singleId && conversationIds.length === 1 && options.allowLinkGuest) {
+    const fallback = await tryLinkGuestFallback({
+      c,
+      conversationId: singleId,
+      ...options,
+    });
+    if (fallback !== null) return fallback;
+  }
   return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
 }
 
-/** Handles the link-key-first path (link key present, allowLinkGuest true). */
+/** Handles the link-key-first path (link key present, allowLinkGuest true, single conversation). */
 async function handleLinkGuestOnly(
   c: Context<AppEnv>,
-  options: Omit<LinkGuestFallbackOptions, 'c'>
+  conversationId: string,
+  options: {
+    minLevel: MemberPrivilege;
+    includeOwnerId: boolean;
+    allowLinkGuest: boolean;
+    next: Next;
+  }
 ): Promise<Response | undefined> {
-  const fallback = await tryLinkGuestFallback({ c, ...options });
+  const fallback = await tryLinkGuestFallback({
+    c,
+    conversationId,
+    ...options,
+  });
   if (fallback !== null) return fallback;
   return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
 }
 
 interface AuthenticatedUserOptions {
   db: Database;
-  conversationId: string;
+  conversationIds: string[];
   user: { id: string };
   minLevel: MemberPrivilege;
   includeOwnerId: boolean;
@@ -216,35 +283,40 @@ async function handleAuthenticatedUser(
   c: Context<AppEnv>,
   options: AuthenticatedUserOptions
 ): Promise<Response | undefined> {
-  const member = await lookupMember(options.db, options.conversationId, options.user.id);
+  const members = await lookupMembers(options.db, options.conversationIds, options.user.id);
 
-  if (!member) {
-    const fallback = await tryLinkGuestFallback({
-      c,
-      minLevel: options.minLevel,
-      includeOwnerId: options.includeOwnerId,
-      allowLinkGuest: options.allowLinkGuest,
-      next: options.next,
-    });
-    if (fallback !== null) return fallback;
+  // All-or-nothing: if any requested conversation is missing, deny the request
+  if (members.size !== options.conversationIds.length) {
+    // For single-conversation requests, try link guest fallback before denying
+    const [singleId] = options.conversationIds;
+    if (singleId && options.conversationIds.length === 1 && options.allowLinkGuest) {
+      const fallback = await tryLinkGuestFallback({
+        c,
+        conversationId: singleId,
+        minLevel: options.minLevel,
+        includeOwnerId: options.includeOwnerId,
+        allowLinkGuest: options.allowLinkGuest,
+        next: options.next,
+      });
+      if (fallback !== null) return fallback;
+    }
     return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
   }
 
-  if (getPrivilegeLevel(member.privilege) < getPrivilegeLevel(options.minLevel)) {
-    return c.json(createErrorResponse(ERROR_CODE_PRIVILEGE_INSUFFICIENT), 403);
+  // Check privilege level for all members
+  for (const member of members.values()) {
+    if (getPrivilegeLevel(member.privilege) < getPrivilegeLevel(options.minLevel)) {
+      return c.json(createErrorResponse(ERROR_CODE_PRIVILEGE_INSUFFICIENT), 403);
+    }
   }
 
   c.set('callerId', options.user.id);
-  c.set('member', {
-    id: member.id,
-    privilege: member.privilege,
-    visibleFromEpoch: member.visibleFromEpoch,
-  });
+  c.set('members', members);
 
   return finalizeMemberContext({
     c,
     db: options.db,
-    conversationId: options.conversationId,
+    conversationIds: options.conversationIds,
     includeOwnerId: options.includeOwnerId,
     next: options.next,
   });
@@ -253,17 +325,18 @@ async function handleAuthenticatedUser(
 interface FinalizeMemberContextOptions {
   c: Context<AppEnv>;
   db: Database;
-  conversationId: string;
+  conversationIds: string[];
   includeOwnerId: boolean;
   next: Next;
 }
 
-/** Sets conversation owner if needed, then calls next(). */
+/** Sets conversation owner if needed (single-conversation only), then calls next(). */
 async function finalizeMemberContext(
   options: FinalizeMemberContextOptions
 ): Promise<Response | undefined> {
-  if (options.includeOwnerId) {
-    const errorResponse = await setConversationOwner(options.c, options.db, options.conversationId);
+  const [singleConvId] = options.conversationIds;
+  if (options.includeOwnerId && singleConvId && options.conversationIds.length === 1) {
+    const errorResponse = await setConversationOwner(options.c, options.db, singleConvId);
     if (errorResponse) return errorResponse;
   }
   // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-condition -- Hono's next() returns void | Response; we must propagate the response

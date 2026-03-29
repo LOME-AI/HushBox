@@ -345,6 +345,7 @@ function createMockDb(options: {
                 {
                   id: 'member-owner',
                   userId: conversations[0]!.userId,
+                  conversationId: conversations[0]!.id,
                   privilege: 'owner',
                   visibleFromEpoch: 1,
                 },

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
+import { Loader2 } from 'lucide-react';
 import { useUIStore } from '@/stores/ui';
 import { ChatItem } from './chat-item';
 import { ROUTES } from '@hushbox/shared';
@@ -18,14 +19,39 @@ export interface ChatListProps {
   activeId?: string | undefined;
   /** Whether the user is authenticated */
   isAuthenticated?: boolean | undefined;
+  onLoadMore?: (() => void) | undefined;
+  hasMore?: boolean | undefined;
+  isLoadingMore?: boolean | undefined;
 }
 
 export function ChatList({
   conversations,
   activeId,
   isAuthenticated = true,
+  onLoadMore,
+  hasMore,
+  isLoadingMore,
 }: Readonly<ChatListProps>): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
+  const sentinelRef = React.useRef<HTMLLIElement>(null);
+
+  React.useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || !hasMore || !onLoadMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !isLoadingMore) {
+          onLoadMore();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+    observer.observe(sentinel);
+    return () => {
+      observer.disconnect();
+    };
+  }, [hasMore, onLoadMore, isLoadingMore]);
 
   if (conversations.length === 0) {
     if (!isAuthenticated) {
@@ -58,6 +84,11 @@ export function ChatList({
           <ChatItem conversation={conversation} isActive={conversation.id === activeId} />
         </li>
       ))}
+      {hasMore && (
+        <li ref={sentinelRef} className="flex justify-center py-2" aria-hidden="true">
+          {isLoadingMore && <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />}
+        </li>
+      )}
     </ul>
   );
 }

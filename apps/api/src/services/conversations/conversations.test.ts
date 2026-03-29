@@ -136,17 +136,17 @@ describe('conversations service', () => {
       await createTestConversationWithEpoch(user.id, toBytes('Conv 1'));
       await createTestConversationWithEpoch(user.id, toBytes('Conv 2'));
 
-      const result = await listConversations(db, user.id);
+      const { rows } = await listConversations(db, user.id);
 
-      expect(result).toHaveLength(2);
+      expect(rows).toHaveLength(2);
     });
 
     it('returns empty array when user has no conversations', async () => {
       const user = await createTestUser();
 
-      const result = await listConversations(db, user.id);
+      const { rows } = await listConversations(db, user.id);
 
-      expect(result).toEqual([]);
+      expect(rows).toEqual([]);
     });
 
     it('does not return conversations from other users', async () => {
@@ -155,10 +155,10 @@ describe('conversations service', () => {
       await createTestConversationWithEpoch(user1.id, toBytes('User 1 Conv'));
       await createTestConversationWithEpoch(user2.id, toBytes('User 2 Conv'));
 
-      const result = await listConversations(db, user1.id);
+      const { rows } = await listConversations(db, user1.id);
 
-      expect(result).toHaveLength(1);
-      expect(result[0]?.conversation.title).toEqual(toBytes('User 1 Conv'));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.conversation.title).toEqual(toBytes('User 1 Conv'));
     });
 
     it('returns conversations where user is a member (not owner)', async () => {
@@ -177,10 +177,10 @@ describe('conversations service', () => {
         visibleFromEpoch: 1,
       });
 
-      const result = await listConversations(db, charlie.id);
+      const { rows } = await listConversations(db, charlie.id);
 
-      expect(result).toHaveLength(1);
-      expect(result[0]?.conversation.title).toEqual(toBytes('Alice Conv'));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.conversation.title).toEqual(toBytes('Alice Conv'));
     });
 
     it('does not return conversations where user has left', async () => {
@@ -200,9 +200,9 @@ describe('conversations service', () => {
         leftAt: new Date(),
       });
 
-      const result = await listConversations(db, charlie.id);
+      const { rows } = await listConversations(db, charlie.id);
 
-      expect(result).toHaveLength(0);
+      expect(rows).toHaveLength(0);
     });
 
     it('returns both owned and shared conversations', async () => {
@@ -222,10 +222,10 @@ describe('conversations service', () => {
         visibleFromEpoch: 1,
       });
 
-      const result = await listConversations(db, alice.id);
+      const { rows } = await listConversations(db, alice.id);
 
-      expect(result).toHaveLength(2);
-      const titles = result.map((r) => new TextDecoder().decode(r.conversation.title));
+      expect(rows).toHaveLength(2);
+      const titles = rows.map((r) => new TextDecoder().decode(r.conversation.title));
       expect(titles).toContain('Alice Owned');
       expect(titles).toContain('Bob Owned');
     });
@@ -247,21 +247,21 @@ describe('conversations service', () => {
         .set({ updatedAt: new Date() })
         .where(inArray(conversations.id, [conv1Id]));
 
-      const result = await listConversations(db, user.id);
+      const { rows } = await listConversations(db, user.id);
 
-      expect(result[0]?.conversation.id).toBe(conv1Id);
-      expect(result[1]?.conversation.id).toBe(conv2Id);
+      expect(rows[0]?.conversation.id).toBe(conv1Id);
+      expect(rows[1]?.conversation.id).toBe(conv2Id);
     });
 
     it('returns acceptedAt as non-null for auto-accepted owner members', async () => {
       const user = await createTestUser();
       await createTestConversationWithEpoch(user.id, toBytes('My Conv'));
 
-      const result = await listConversations(db, user.id);
+      const { rows } = await listConversations(db, user.id);
 
-      expect(result).toHaveLength(1);
-      expect(result[0]?.acceptedAt).toBeInstanceOf(Date);
-      expect(result[0]?.invitedByUsername).toBeNull();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.acceptedAt).toBeInstanceOf(Date);
+      expect(rows[0]?.invitedByUsername).toBeNull();
     });
 
     it('returns acceptedAt as null for unaccepted members', async () => {
@@ -282,11 +282,11 @@ describe('conversations service', () => {
         invitedByUserId: alice.id,
       });
 
-      const result = await listConversations(db, bob.id);
+      const { rows } = await listConversations(db, bob.id);
 
-      expect(result).toHaveLength(1);
-      expect(result[0]?.acceptedAt).toBeNull();
-      expect(result[0]?.invitedByUsername).toBe(alice.username);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.acceptedAt).toBeNull();
+      expect(rows[0]?.invitedByUsername).toBe(alice.username);
     });
 
     it('returns invitedByUsername as null when inviter user is deleted', async () => {
@@ -326,20 +326,20 @@ describe('conversations service', () => {
       // Remove from cleanup list since already deleted
       createdUserIds.splice(createdUserIds.indexOf(alice.id), 1);
 
-      const result = await listConversations(db, bob.id);
+      const { rows } = await listConversations(db, bob.id);
 
-      expect(result).toHaveLength(1);
-      expect(result[0]?.invitedByUsername).toBeNull();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.invitedByUsername).toBeNull();
     });
 
     it('returns muted as false by default', async () => {
       const user = await createTestUser();
       await createTestConversationWithEpoch(user.id, toBytes('My Conv'));
 
-      const result = await listConversations(db, user.id);
+      const { rows } = await listConversations(db, user.id);
 
-      expect(result).toHaveLength(1);
-      expect(result[0]?.muted).toBe(false);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.muted).toBe(false);
     });
 
     it('returns muted as true when member has muted the conversation', async () => {
@@ -360,10 +360,97 @@ describe('conversations service', () => {
           )
         );
 
+      const { rows } = await listConversations(db, user.id);
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.muted).toBe(true);
+    });
+  });
+
+  describe('listConversations pagination', () => {
+    it('returns first page with nextCursor when more results exist', async () => {
+      const user = await createTestUser();
+      // Create 3 conversations with distinct updatedAt
+      for (let index = 0; index < 3; index++) {
+        const { conversationId } = await createTestConversationWithEpoch(
+          user.id,
+          toBytes(`Conv ${String(index)}`)
+        );
+        await db
+          .update(conversations)
+          .set({ updatedAt: new Date(Date.now() + index * 1000) })
+          .where(eq(conversations.id, conversationId));
+      }
+
+      const result = await listConversations(db, user.id, { limit: 2 });
+
+      expect(result.rows).toHaveLength(2);
+      expect(result.nextCursor).not.toBeNull();
+    });
+
+    it('returns nextCursor as null on last page', async () => {
+      const user = await createTestUser();
+      await createTestConversationWithEpoch(user.id, toBytes('Only Conv'));
+
+      const result = await listConversations(db, user.id, { limit: 10 });
+
+      expect(result.rows).toHaveLength(1);
+      expect(result.nextCursor).toBeNull();
+    });
+
+    it('cursor correctly paginates without duplicates or gaps', async () => {
+      const user = await createTestUser();
+      for (let index = 0; index < 5; index++) {
+        const { conversationId } = await createTestConversationWithEpoch(
+          user.id,
+          toBytes(`Conv ${String(index)}`)
+        );
+        await db
+          .update(conversations)
+          .set({ updatedAt: new Date(Date.now() + index * 1000) })
+          .where(eq(conversations.id, conversationId));
+      }
+
+      // Page 1: get first 2
+      const page1 = await listConversations(db, user.id, { limit: 2 });
+      expect(page1.rows).toHaveLength(2);
+      expect(page1.nextCursor).not.toBeNull();
+
+      // Page 2: get next 2
+      const page2 = await listConversations(db, user.id, {
+        limit: 2,
+        cursor: page1.nextCursor!,
+      });
+      expect(page2.rows).toHaveLength(2);
+      expect(page2.nextCursor).not.toBeNull();
+
+      // Page 3: get last 1
+      const page3 = await listConversations(db, user.id, {
+        limit: 2,
+        cursor: page2.nextCursor!,
+      });
+      expect(page3.rows).toHaveLength(1);
+      expect(page3.nextCursor).toBeNull();
+
+      // All 5 conversations should be present across all pages, no duplicates
+      const allIds = [
+        ...page1.rows.map((r) => r.conversation.id),
+        ...page2.rows.map((r) => r.conversation.id),
+        ...page3.rows.map((r) => r.conversation.id),
+      ];
+      expect(new Set(allIds).size).toBe(5);
+    });
+
+    it('defaults to all results when no options provided', async () => {
+      const user = await createTestUser();
+      for (let index = 0; index < 3; index++) {
+        await createTestConversationWithEpoch(user.id, toBytes(`Conv ${String(index)}`));
+      }
+
       const result = await listConversations(db, user.id);
 
-      expect(result).toHaveLength(1);
-      expect(result[0]?.muted).toBe(true);
+      expect(result.rows).toHaveLength(3);
+      expect(result.nextCursor).toBeNull();
     });
   });
 

@@ -114,6 +114,7 @@ function createListLinksMockDb(config: ListMockDbConfig): unknown {
     config.requesterMember
       ? [
           {
+            conversationId: TEST_CONVERSATION_ID,
             id: config.requesterMember.id,
             privilege: config.requesterMember.privilege,
             visibleFromEpoch: 1,
@@ -177,6 +178,7 @@ function createCreateLinkMockDb(config: CreateMockDbConfig): unknown {
     config.requesterMember
       ? [
           {
+            conversationId: TEST_CONVERSATION_ID,
             id: config.requesterMember.id,
             privilege: config.requesterMember.privilege,
             visibleFromEpoch: 1,
@@ -294,6 +296,7 @@ function createRevokeLinkMockDb(config: RevokeMockDbConfig): unknown {
     config.requesterMember
       ? [
           {
+            conversationId: TEST_CONVERSATION_ID,
             id: config.requesterMember.id,
             privilege: config.requesterMember.privilege,
             visibleFromEpoch: 1,
@@ -981,6 +984,7 @@ describe('links route', () => {
         config.requesterMember
           ? [
               {
+                conversationId: TEST_CONVERSATION_ID,
                 id: config.requesterMember.id,
                 privilege: config.requesterMember.privilege,
                 visibleFromEpoch: 1,
@@ -1145,6 +1149,7 @@ describe('links route', () => {
         config.requesterMember
           ? [
               {
+                conversationId: TEST_CONVERSATION_ID,
                 id: config.requesterMember.id,
                 privilege: config.requesterMember.privilege,
                 visibleFromEpoch: 1,

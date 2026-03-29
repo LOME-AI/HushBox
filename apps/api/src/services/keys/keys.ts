@@ -1,4 +1,4 @@
-import { eq, and, isNull, isNotNull, asc } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, asc, inArray } from 'drizzle-orm';
 import {
   conversations,
   epochs,
@@ -73,12 +73,6 @@ export async function getKeyChain(
     return null;
   }
 
-  // Determine the member's visibility boundary from their wraps
-  const visibleFromEpoch = Math.min(...wrapsRows.map((w) => w.visibleFromEpoch));
-
-  // Filter wraps to only include epochs >= the member's visibleFromEpoch
-  const filteredWraps = wrapsRows.filter((w) => w.epochNumber >= visibleFromEpoch);
-
   // Query chain links: epochs with non-null chainLink for this conversation
   const chainLinksRows = await db
     .select({
@@ -90,24 +84,108 @@ export async function getKeyChain(
     .where(and(eq(epochs.conversationId, conversationId), isNotNull(epochs.chainLink)))
     .orderBy(asc(epochs.epochNumber));
 
-  // Filter chain links to only include epochs >= the member's visibleFromEpoch
-  const filteredChainLinks = chainLinksRows.filter((cl) => cl.epochNumber > visibleFromEpoch);
-
   // Query currentEpoch from the conversation row
   const [conversation] = await db
     .select({ currentEpoch: conversations.currentEpoch })
     .from(conversations)
     .where(eq(conversations.id, conversationId));
 
-  if (!conversation) {
-    return null;
+  return assembleKeyChain(wrapsRows, chainLinksRows, conversation?.currentEpoch);
+}
+
+function groupBy<T>(items: T[], keyFunction: (item: T) => string): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const key = keyFunction(item);
+    const list = map.get(key) ?? [];
+    list.push(item);
+    map.set(key, list);
   }
+  return map;
+}
+
+function assembleKeyChain(
+  wraps: KeyChainWrap[],
+  chainLinks: { epochNumber: number; chainLink: Uint8Array | null; confirmationHash: Uint8Array }[],
+  currentEpoch: number | undefined
+): KeyChainResult | null {
+  if (wraps.length === 0 || currentEpoch === undefined) return null;
+
+  const visibleFromEpoch = Math.min(...wraps.map((w) => w.visibleFromEpoch));
+  const filteredWraps = wraps.filter((w) => w.epochNumber >= visibleFromEpoch);
+  const filteredChainLinks = chainLinks.filter((cl) => cl.epochNumber > visibleFromEpoch);
 
   return {
     wraps: filteredWraps,
     chainLinks: filteredChainLinks as KeyChainLink[],
-    currentEpoch: conversation.currentEpoch,
+    currentEpoch,
   };
+}
+
+/**
+ * Batch version of getKeyChain: fetches key chains for multiple conversations
+ * in 3 DB queries total (not N×3). Returns a Map keyed by conversationId.
+ * Conversations where the user has no wraps are omitted from the result.
+ */
+export async function getKeyChainBatch(
+  db: Database,
+  conversationIds: string[],
+  userPublicKey: Uint8Array
+): Promise<Map<string, KeyChainResult>> {
+  if (conversationIds.length === 0) return new Map();
+
+  // Query 1: All wraps for the user across all requested conversations
+  const allWraps = await db
+    .select({
+      conversationId: epochs.conversationId,
+      epochNumber: epochs.epochNumber,
+      wrap: epochMembers.wrap,
+      confirmationHash: epochs.confirmationHash,
+      visibleFromEpoch: epochMembers.visibleFromEpoch,
+    })
+    .from(epochMembers)
+    .innerJoin(epochs, eq(epochMembers.epochId, epochs.id))
+    .where(
+      and(
+        inArray(epochs.conversationId, conversationIds),
+        eq(epochMembers.memberPublicKey, userPublicKey)
+      )
+    )
+    .orderBy(asc(epochs.conversationId), asc(epochs.epochNumber));
+
+  // Query 2: All chain links across all requested conversations
+  const allChainLinks = await db
+    .select({
+      conversationId: epochs.conversationId,
+      epochNumber: epochs.epochNumber,
+      chainLink: epochs.chainLink,
+      confirmationHash: epochs.confirmationHash,
+    })
+    .from(epochs)
+    .where(and(inArray(epochs.conversationId, conversationIds), isNotNull(epochs.chainLink)))
+    .orderBy(asc(epochs.conversationId), asc(epochs.epochNumber));
+
+  // Query 3: Current epoch for all requested conversations
+  const allConversations = await db
+    .select({ id: conversations.id, currentEpoch: conversations.currentEpoch })
+    .from(conversations)
+    .where(inArray(conversations.id, conversationIds));
+
+  const currentEpochMap = new Map(allConversations.map((c) => [c.id, c.currentEpoch]));
+
+  const wrapsByConv = groupBy(allWraps, (w) => w.conversationId);
+  const chainLinksByConv = groupBy(allChainLinks, (cl) => cl.conversationId);
+
+  const results = new Map<string, KeyChainResult>();
+  for (const convId of conversationIds) {
+    const result = assembleKeyChain(
+      wrapsByConv.get(convId) ?? [],
+      chainLinksByConv.get(convId) ?? [],
+      currentEpochMap.get(convId)
+    );
+    if (result) results.set(convId, result);
+  }
+  return results;
 }
 
 /**

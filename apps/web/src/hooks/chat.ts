@@ -1,5 +1,5 @@
-import { useMemo, useSyncExternalStore } from 'react';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { decryptMessage } from '@hushbox/crypto';
 import { fromBase64, type MemberPrivilege } from '@hushbox/shared';
 import { useAuthStore } from '../lib/auth';
@@ -41,17 +41,43 @@ function conversationQueryFunction(id: string): () => Promise<ConversationRespon
   };
 }
 
-export function useConversations(): ReturnType<typeof useQuery<ConversationListItem[], Error>> {
+export function useConversations(): {
+  data: ConversationListItem[] | undefined;
+  isLoading: boolean;
+  fetchNextPage: () => void;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+} {
   const user = useAuthStore((s) => s.user);
 
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: chatKeys.conversations(),
-    queryFn: async (): Promise<ConversationListItem[]> => {
-      const response = await fetchJson<ConversationsResponse>(client.api.conversations.$get());
-      return response.conversations;
+    queryFn: async ({ pageParam }): Promise<ConversationsResponse> => {
+      const queryParams: Record<string, string> = {};
+      if (pageParam) queryParams['cursor'] = pageParam;
+      return fetchJson<ConversationsResponse>(
+        client.api.conversations.$get({ query: queryParams })
+      );
     },
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    initialPageParam: undefined as string | undefined,
     enabled: !!user,
   });
+
+  const flatData = useMemo(
+    () => query.data?.pages.flatMap((page) => page.conversations),
+    [query.data]
+  );
+
+  return {
+    data: flatData,
+    isLoading: query.isLoading,
+    fetchNextPage: () => {
+      void query.fetchNextPage();
+    },
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+  };
 }
 
 /**
@@ -62,8 +88,11 @@ export function useConversations(): ReturnType<typeof useQuery<ConversationListI
 export function useDecryptedConversations(): {
   data: ConversationListItem[] | undefined;
   isLoading: boolean;
+  fetchNextPage: () => void;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
 } {
-  const { data, isLoading } = useConversations();
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useConversations();
   const accountPrivateKey = useAuthStore((s) => s.privateKey);
   const cacheVersion = useSyncExternalStore(epochCacheSubscribe, epochCacheSnapshot);
 
@@ -73,32 +102,32 @@ export function useDecryptedConversations(): {
     return data.filter((conv) => !getEpochKey(conv.id, conv.titleEpochNumber));
   }, [data, cacheVersion]);
 
-  // Eagerly fetch key chains for all conversations missing epoch keys
-  const keyChainResults = useQueries({
-    queries: conversationsNeedingKeys.map((conv) => ({
-      queryKey: ['keys', conv.id] as const,
-      queryFn: async (): Promise<KeyChainResponse> => {
-        return fetchJson<KeyChainResponse>(
-          client.api.keys[':conversationId'].$get({ param: { conversationId: conv.id } })
-        );
-      },
-      staleTime: 1000 * 60 * 60,
-      enabled: !!accountPrivateKey,
-    })),
+  // Stable key for the batch query — only changes when the set of needed IDs changes
+  const batchIds = useMemo(
+    () => conversationsNeedingKeys.map((c) => c.id).toSorted((a, b) => a.localeCompare(b)),
+    [conversationsNeedingKeys]
+  );
+
+  // Fetch key chains for all conversations needing keys in a single batch request
+  const batchResult = useQuery({
+    queryKey: ['keys', 'batch', batchIds] as const,
+    queryFn: async (): Promise<Record<string, KeyChainResponse>> => {
+      const response = await fetchJson<{ keys: Record<string, KeyChainResponse> }>(
+        client.api.keys.batch.$post({ json: { conversationIds: batchIds } })
+      );
+      return response.keys;
+    },
+    staleTime: 1000 * 60 * 60,
+    enabled: batchIds.length > 0 && !!accountPrivateKey,
   });
 
-  // Process fetched key chains into epoch key cache.
-  // Safe to call in useMemo because epoch-key-cache defers listener
-  // notifications via queueMicrotask — no "setState during render" errors.
-  useMemo(() => {
-    if (!accountPrivateKey) return;
-    for (const [index, result] of keyChainResults.entries()) {
-      const conv = conversationsNeedingKeys[index];
-      if (result.data && conv) {
-        processKeyChain(conv.id, result.data, accountPrivateKey);
-      }
+  // Process fetched key chains into epoch key cache
+  useEffect(() => {
+    if (!accountPrivateKey || !batchResult.data) return;
+    for (const [convId, keyChain] of Object.entries(batchResult.data)) {
+      processKeyChain(convId, keyChain, accountPrivateKey);
     }
-  }, [keyChainResults, conversationsNeedingKeys, accountPrivateKey]);
+  }, [batchResult.data, accountPrivateKey]);
 
   // Decrypt titles using cached epoch keys
   const decryptedData = useMemo(() => {
@@ -114,7 +143,7 @@ export function useDecryptedConversations(): {
     });
   }, [data, cacheVersion]);
 
-  return { data: decryptedData, isLoading };
+  return { data: decryptedData, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage };
 }
 
 export type ConversationWithCaller = Conversation & {

@@ -35,7 +35,13 @@ function SidebarLoadingIndicator({
 export function Sidebar(): React.JSX.Element {
   const isMobile = useIsMobile();
   const { sidebarOpen, toggleSidebar, mobileSidebarOpen, setMobileSidebarOpen } = useUIStore();
-  const { data: conversations, isLoading } = useDecryptedConversations();
+  const {
+    data: conversations,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useDecryptedConversations();
   const { data: session, isPending: isSessionPending } = useSession();
   const isAuthenticated = !isSessionPending && Boolean(session?.user);
   const collapsed = !isMobile && !sidebarOpen;
@@ -76,6 +82,9 @@ export function Sidebar(): React.JSX.Element {
       <SidebarContent
         conversations={isAuthenticated ? (conversations ?? []) : []}
         isAuthenticated={isAuthenticated}
+        onLoadMore={fetchNextPage}
+        hasMore={hasNextPage}
+        isLoadingMore={isFetchingNextPage}
       />
     );
   }

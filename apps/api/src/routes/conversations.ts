@@ -86,27 +86,43 @@ async function fetchForks(db: Database, conversationId: string): Promise<Convers
 }
 
 export const conversationsRoute = new Hono<AppEnv>()
-  .get('/', requireAuth(), async (c) => {
-    const user = c.get('user');
-    if (!user) throw new Error('User required after requireAuth');
-    const db = c.get('db');
+  .get(
+    '/',
+    zValidator(
+      'query',
+      z.object({
+        cursor: z.string().optional(),
+        limit: z.coerce.number().int().min(1).max(100).optional(),
+      })
+    ),
+    requireAuth(),
+    async (c) => {
+      const user = c.get('user');
+      if (!user) throw new Error('User required after requireAuth');
+      const db = c.get('db');
+      const query = c.req.valid('query');
 
-    const userConversations = await listConversations(db, user.id);
-    return c.json(
-      {
-        conversations: userConversations.map(
-          ({ conversation, acceptedAt, invitedByUsername, privilege, muted }) => ({
-            ...serializeConversation(conversation),
-            accepted: acceptedAt !== null,
-            invitedByUsername,
-            privilege,
-            muted,
-          })
-        ),
-      },
-      200
-    );
-  })
+      const { rows: userConversations, nextCursor } = await listConversations(db, user.id, {
+        ...(query.cursor !== undefined && { cursor: query.cursor }),
+        ...(query.limit !== undefined && { limit: query.limit }),
+      });
+      return c.json(
+        {
+          conversations: userConversations.map(
+            ({ conversation, acceptedAt, invitedByUsername, privilege, muted }) => ({
+              ...serializeConversation(conversation),
+              accepted: acceptedAt !== null,
+              invitedByUsername,
+              privilege,
+              muted,
+            })
+          ),
+          nextCursor,
+        },
+        200
+      );
+    }
+  )
   .get(
     '/:conversationId',
     zValidator('param', z.object({ conversationId: z.string() })),
@@ -115,7 +131,8 @@ export const conversationsRoute = new Hono<AppEnv>()
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const user = c.get('user');
-      const member = c.get('member');
+      const member = c.get('members').get(conversationId);
+      if (!member) throw new Error('Member required after requirePrivilege');
       const callerId = c.get('callerId');
 
       const result = await getConversationForMember(

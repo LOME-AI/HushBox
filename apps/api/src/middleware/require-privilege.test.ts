@@ -39,20 +39,21 @@ function createMockUser(): AppEnv['Variables']['user'] {
   };
 }
 
+type MemberRow = { conversationId: string; id: string; privilege: string; visibleFromEpoch: number };
+
+/**
+ * Creates a mock DB that returns the given member rows from the batch lookupMembers query.
+ * The mock matches the Drizzle query builder chain pattern used by the middleware.
+ */
 /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
-function createMockDb(
-  memberRow: { id: string; privilege: string; visibleFromEpoch: number } | null
-): unknown {
+function createMockDb(memberRows: MemberRow[]): unknown {
   return {
     select: () => ({
       from: () => ({
         where: () => ({
-          limit: () => ({
-            then: (resolve: (v: unknown[]) => unknown) => {
-              const result = memberRow ? [memberRow] : [];
-              return Promise.resolve(resolve(result));
-            },
-          }),
+          then: (resolve: (v: unknown[]) => unknown) => {
+            return Promise.resolve(resolve(memberRows));
+          },
         }),
       }),
     }),
@@ -62,25 +63,38 @@ function createMockDb(
 
 interface TestAppOptions {
   user?: AppEnv['Variables']['user'] | null;
-  memberRow?: { id: string; privilege: string; visibleFromEpoch: number } | null;
+  memberRows?: MemberRow[];
   minLevel: MemberPrivilege;
 }
 
+function memberRow(
+  overrides?: Partial<MemberRow>
+): MemberRow {
+  return {
+    conversationId: TEST_CONVERSATION_ID,
+    id: TEST_MEMBER_ID,
+    privilege: 'owner',
+    visibleFromEpoch: 1,
+    ...overrides,
+  };
+}
+
 function createTestApp(options: TestAppOptions): Hono<AppEnv> {
-  const { user = createMockUser(), memberRow = null, minLevel } = options;
+  const { user = createMockUser(), memberRows = [], minLevel } = options;
   const app = new Hono<AppEnv>();
 
   app.use('*', async (c, next) => {
     c.set('user', user);
     c.set('session', user ? createMockSession() : null);
     c.set('sessionData', user ? createMockSession() : null);
-    c.set('db', createMockDb(memberRow) as AppEnv['Variables']['db']);
+    c.set('db', createMockDb(memberRows) as AppEnv['Variables']['db']);
     await next();
   });
 
   app.get('/:conversationId/test', requirePrivilege(minLevel), (c) => {
-    const member = c.get('member');
+    const members = c.get('members');
     const callerId = c.get('callerId');
+    const member = members.get(TEST_CONVERSATION_ID);
     return c.json({ member, callerId }, 200);
   });
 
@@ -90,7 +104,7 @@ function createTestApp(options: TestAppOptions): Hono<AppEnv> {
 describe('requirePrivilege middleware', () => {
   describe('membership check', () => {
     it('returns 404 when user is not a member of the conversation', async () => {
-      const app = createTestApp({ memberRow: null, minLevel: 'read' });
+      const app = createTestApp({ memberRows: [], minLevel: 'read' });
 
       const res = await app.request(`/${TEST_CONVERSATION_ID}/test`);
 
@@ -103,7 +117,7 @@ describe('requirePrivilege middleware', () => {
   describe('privilege checks', () => {
     it('returns 403 when member has insufficient privilege (read trying admin-level)', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'read', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'read' })],
         minLevel: 'admin',
       });
 
@@ -116,7 +130,7 @@ describe('requirePrivilege middleware', () => {
 
     it('returns 403 when member has insufficient privilege (write trying admin-level)', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'write', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'write' })],
         minLevel: 'admin',
       });
 
@@ -128,10 +142,10 @@ describe('requirePrivilege middleware', () => {
     });
   });
 
-  describe('sets member and callerId on context when privilege is sufficient', () => {
-    it('sets member with correct fields when privilege check passes', async () => {
-      const memberRow = { id: TEST_MEMBER_ID, privilege: 'admin', visibleFromEpoch: 3 };
-      const app = createTestApp({ memberRow, minLevel: 'read' });
+  describe('sets members and callerId on context when privilege is sufficient', () => {
+    it('sets members map with correct fields when privilege check passes', async () => {
+      const row = memberRow({ privilege: 'admin', visibleFromEpoch: 3 });
+      const app = createTestApp({ memberRows: [row], minLevel: 'read' });
 
       const res = await app.request(`/${TEST_CONVERSATION_ID}/test`);
 
@@ -147,8 +161,7 @@ describe('requirePrivilege middleware', () => {
     });
 
     it('sets callerId to user.id for authenticated users', async () => {
-      const memberRow = { id: TEST_MEMBER_ID, privilege: 'admin', visibleFromEpoch: 1 };
-      const app = createTestApp({ memberRow, minLevel: 'read' });
+      const app = createTestApp({ memberRows: [memberRow()], minLevel: 'read' });
 
       const res = await app.request(`/${TEST_CONVERSATION_ID}/test`);
 
@@ -161,7 +174,7 @@ describe('requirePrivilege middleware', () => {
   describe('requirePrivilege("read") level', () => {
     it('allows read privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'read', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'read' })],
         minLevel: 'read',
       });
 
@@ -172,7 +185,7 @@ describe('requirePrivilege middleware', () => {
 
     it('allows write privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'write', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'write' })],
         minLevel: 'read',
       });
 
@@ -183,7 +196,7 @@ describe('requirePrivilege middleware', () => {
 
     it('allows admin privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'admin', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'admin' })],
         minLevel: 'read',
       });
 
@@ -194,7 +207,7 @@ describe('requirePrivilege middleware', () => {
 
     it('allows owner privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'owner', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'owner' })],
         minLevel: 'read',
       });
 
@@ -207,7 +220,7 @@ describe('requirePrivilege middleware', () => {
   describe('requirePrivilege("write") level', () => {
     it('rejects read privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'read', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'read' })],
         minLevel: 'write',
       });
 
@@ -218,7 +231,7 @@ describe('requirePrivilege middleware', () => {
 
     it('allows write privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'write', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'write' })],
         minLevel: 'write',
       });
 
@@ -229,7 +242,7 @@ describe('requirePrivilege middleware', () => {
 
     it('allows admin privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'admin', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'admin' })],
         minLevel: 'write',
       });
 
@@ -240,7 +253,7 @@ describe('requirePrivilege middleware', () => {
 
     it('allows owner privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'owner', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'owner' })],
         minLevel: 'write',
       });
 
@@ -253,7 +266,7 @@ describe('requirePrivilege middleware', () => {
   describe('requirePrivilege("admin") level', () => {
     it('rejects read privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'read', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'read' })],
         minLevel: 'admin',
       });
 
@@ -264,7 +277,7 @@ describe('requirePrivilege middleware', () => {
 
     it('rejects write privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'write', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'write' })],
         minLevel: 'admin',
       });
 
@@ -275,7 +288,7 @@ describe('requirePrivilege middleware', () => {
 
     it('allows admin privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'admin', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'admin' })],
         minLevel: 'admin',
       });
 
@@ -286,7 +299,7 @@ describe('requirePrivilege middleware', () => {
 
     it('allows owner privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'owner', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'owner' })],
         minLevel: 'admin',
       });
 
@@ -299,7 +312,7 @@ describe('requirePrivilege middleware', () => {
   describe('requirePrivilege("owner") level', () => {
     it('rejects read privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'read', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'read' })],
         minLevel: 'owner',
       });
 
@@ -310,7 +323,7 @@ describe('requirePrivilege middleware', () => {
 
     it('rejects write privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'write', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'write' })],
         minLevel: 'owner',
       });
 
@@ -321,7 +334,7 @@ describe('requirePrivilege middleware', () => {
 
     it('rejects admin privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'admin', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'admin' })],
         minLevel: 'owner',
       });
 
@@ -332,13 +345,164 @@ describe('requirePrivilege middleware', () => {
 
     it('allows owner privilege', async () => {
       const app = createTestApp({
-        memberRow: { id: TEST_MEMBER_ID, privilege: 'owner', visibleFromEpoch: 1 },
+        memberRows: [memberRow({ privilege: 'owner' })],
         minLevel: 'owner',
       });
 
       const res = await app.request(`/${TEST_CONVERSATION_ID}/test`);
 
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe('batch conversation IDs', () => {
+    const CONV_A = 'conv-batch-a';
+    const CONV_B = 'conv-batch-b';
+    const CONV_C = 'conv-batch-c';
+
+    function createBatchTestApp(options: {
+      memberRows: MemberRow[];
+      minLevel: MemberPrivilege;
+    }): Hono<AppEnv> {
+      const app = new Hono<AppEnv>();
+
+      app.use('*', async (c, next) => {
+        c.set('user', createMockUser());
+        c.set('session', createMockSession());
+        c.set('sessionData', createMockSession());
+        c.set('db', createMockDb(options.memberRows) as AppEnv['Variables']['db']);
+        await next();
+      });
+
+      app.post(
+        '/batch-test',
+        requirePrivilege(options.minLevel, {
+          resolve: (c) => {
+            const ids = c.req.header('x-test-ids');
+            return ids ? ids.split(',') : [];
+          },
+        }),
+        (c) => {
+          const members = c.get('members');
+          const serialized: Record<string, unknown> = {};
+          for (const [key, value] of members) {
+            serialized[key] = value;
+          }
+          return c.json({ members: serialized, callerId: c.get('callerId') }, 200);
+        }
+      );
+
+      return app;
+    }
+
+    it('allows access when user is a member of all requested conversations', async () => {
+      const app = createBatchTestApp({
+        memberRows: [
+          { conversationId: CONV_A, id: 'member-a', privilege: 'read', visibleFromEpoch: 1 },
+          { conversationId: CONV_B, id: 'member-b', privilege: 'write', visibleFromEpoch: 1 },
+        ],
+        minLevel: 'read',
+      });
+
+      const res = await app.request('/batch-test', {
+        method: 'POST',
+        headers: { 'x-test-ids': `${CONV_A},${CONV_B}` },
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{ members: Record<string, unknown>; callerId: string }>();
+      expect(Object.keys(body.members)).toHaveLength(2);
+      expect(body.callerId).toBe(TEST_USER_ID);
+    });
+
+    it('returns 404 when user is not a member of one of the requested conversations', async () => {
+      const app = createBatchTestApp({
+        memberRows: [
+          { conversationId: CONV_A, id: 'member-a', privilege: 'read', visibleFromEpoch: 1 },
+          // CONV_B is missing — user is not a member
+        ],
+        minLevel: 'read',
+      });
+
+      const res = await app.request('/batch-test', {
+        method: 'POST',
+        headers: { 'x-test-ids': `${CONV_A},${CONV_B}` },
+      });
+
+      expect(res.status).toBe(404);
+      const body = await res.json<{ code: string }>();
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
+    });
+
+    it('returns 403 when any member has insufficient privilege', async () => {
+      const app = createBatchTestApp({
+        memberRows: [
+          { conversationId: CONV_A, id: 'member-a', privilege: 'admin', visibleFromEpoch: 1 },
+          { conversationId: CONV_B, id: 'member-b', privilege: 'read', visibleFromEpoch: 1 },
+        ],
+        minLevel: 'write',
+      });
+
+      const res = await app.request('/batch-test', {
+        method: 'POST',
+        headers: { 'x-test-ids': `${CONV_A},${CONV_B}` },
+      });
+
+      expect(res.status).toBe(403);
+      const body = await res.json<{ code: string }>();
+      expect(body.code).toBe('PRIVILEGE_INSUFFICIENT');
+    });
+
+    it('returns 400 when resolve returns empty array', async () => {
+      const app = createBatchTestApp({
+        memberRows: [],
+        minLevel: 'read',
+      });
+
+      const res = await app.request('/batch-test', {
+        method: 'POST',
+        headers: { 'x-test-ids': '' },
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json<{ code: string }>();
+      expect(body.code).toBe('VALIDATION');
+    });
+
+    it('returns members map with all conversation entries', async () => {
+      const app = createBatchTestApp({
+        memberRows: [
+          { conversationId: CONV_A, id: 'member-a', privilege: 'read', visibleFromEpoch: 1 },
+          { conversationId: CONV_B, id: 'member-b', privilege: 'write', visibleFromEpoch: 2 },
+          { conversationId: CONV_C, id: 'member-c', privilege: 'admin', visibleFromEpoch: 3 },
+        ],
+        minLevel: 'read',
+      });
+
+      const res = await app.request('/batch-test', {
+        method: 'POST',
+        headers: { 'x-test-ids': `${CONV_A},${CONV_B},${CONV_C}` },
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{
+        members: Record<string, { id: string; privilege: string; visibleFromEpoch: number }>;
+      }>();
+      expect(body.members[CONV_A]).toEqual({
+        id: 'member-a',
+        privilege: 'read',
+        visibleFromEpoch: 1,
+      });
+      expect(body.members[CONV_B]).toEqual({
+        id: 'member-b',
+        privilege: 'write',
+        visibleFromEpoch: 2,
+      });
+      expect(body.members[CONV_C]).toEqual({
+        id: 'member-c',
+        privilege: 'admin',
+        visibleFromEpoch: 3,
+      });
     });
   });
 
@@ -395,9 +559,10 @@ describe('requirePrivilege middleware', () => {
         '/:conversationId/test',
         requirePrivilege(minLevel, { allowLinkGuest: true }),
         (c) => {
-          const member = c.get('member');
+          const members = c.get('members');
           const linkGuest = c.get('linkGuest');
           const callerId = c.get('callerId');
+          const member = members.get(TEST_CONVERSATION_ID);
           return c.json(
             { member, linkGuest: linkGuest ? { linkId: linkGuest.linkId } : null, callerId },
             200
@@ -445,7 +610,7 @@ describe('requirePrivilege middleware', () => {
       expect(res.status).toBe(401);
     });
 
-    it('sets member and linkGuest on context when link guest resolves with sufficient privilege', async () => {
+    it('sets members and linkGuest on context when link guest resolves with sufficient privilege', async () => {
       const linkMemberRow = { id: TEST_MEMBER_ID, privilege: 'write', visibleFromEpoch: 2 };
       const app = createLinkGuestTestApp({
         minLevel: 'read',
@@ -508,7 +673,7 @@ describe('requirePrivilege middleware', () => {
         c.set('session', null);
         c.set('sessionData', null);
         c.set('linkGuest', null);
-        c.set('db', createMockDb(null) as AppEnv['Variables']['db']);
+        c.set('db', createMockDb([]) as AppEnv['Variables']['db']);
         await next();
       });
 
@@ -529,19 +694,26 @@ describe('requirePrivilege middleware', () => {
       const mockDb = {
         select: () => ({
           from: () => ({
-            where: () => ({
-              limit: () => ({
+            where: () => {
+              const chain = {
+                limit: () => ({
+                  then: (resolve: (v: unknown[]) => unknown) => {
+                    queryCount++;
+                    if (queryCount === 1) {
+                      // First query: sharedLinks (findActiveSharedLink)
+                      return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
+                    }
+                    // Second query: conversationMembers by linkId
+                    return Promise.resolve(resolve([linkMemberRow]));
+                  },
+                }),
                 then: (resolve: (v: unknown[]) => unknown) => {
-                  queryCount++;
-                  if (queryCount === 1) {
-                    // First query: sharedLinks (findActiveSharedLink)
-                    return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
-                  }
-                  // Second query: conversationMembers by linkId
-                  return Promise.resolve(resolve([linkMemberRow]));
+                  // This shouldn't be called in the link-key-first path
+                  return Promise.resolve(resolve([]));
                 },
-              }),
-            }),
+              };
+              return chain;
+            },
           }),
         }),
       };
@@ -559,9 +731,10 @@ describe('requirePrivilege middleware', () => {
       });
 
       app.get('/:conversationId/test', requirePrivilege('read', { allowLinkGuest: true }), (c) => {
-        const member = c.get('member');
+        const members = c.get('members');
         const linkGuest = c.get('linkGuest');
         const callerId = c.get('callerId');
+        const member = members.get(TEST_CONVERSATION_ID);
         return c.json(
           { member, linkGuest: linkGuest ? { linkId: linkGuest.linkId } : null, callerId },
           200
@@ -589,19 +762,27 @@ describe('requirePrivilege middleware', () => {
       const mockDb = {
         select: () => ({
           from: () => ({
-            where: () => ({
-              limit: () => ({
+            where: () => {
+              const chain = {
+                limit: () => ({
+                  then: (resolve: (v: unknown[]) => unknown) => {
+                    queryCount++;
+                    if (queryCount === 1) {
+                      // batch lookupMembers — user not a member
+                      return Promise.resolve(resolve([]));
+                    }
+                    // sharedLinks — not found
+                    return Promise.resolve(resolve([]));
+                  },
+                }),
                 then: (resolve: (v: unknown[]) => unknown) => {
                   queryCount++;
-                  if (queryCount === 1) {
-                    // First query: conversationMembers for user — not found
-                    return Promise.resolve(resolve([]));
-                  }
-                  // Second query: sharedLinks (findActiveSharedLink) — not found
+                  // batch lookupMembers — user not a member
                   return Promise.resolve(resolve([]));
                 },
-              }),
-            }),
+              };
+              return chain;
+            },
           }),
         }),
       };
@@ -639,19 +820,25 @@ describe('requirePrivilege middleware', () => {
       const mockDb = {
         select: () => ({
           from: () => ({
-            where: () => ({
-              limit: () => ({
+            where: () => {
+              const chain = {
+                limit: () => ({
+                  then: (resolve: (v: unknown[]) => unknown) => {
+                    queryCount++;
+                    if (queryCount === 1) {
+                      // sharedLinks (findActiveSharedLink)
+                      return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
+                    }
+                    // conversationMembers by linkId
+                    return Promise.resolve(resolve([linkMemberRow]));
+                  },
+                }),
                 then: (resolve: (v: unknown[]) => unknown) => {
-                  queryCount++;
-                  if (queryCount === 1) {
-                    // First query: sharedLinks (findActiveSharedLink)
-                    return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
-                  }
-                  // Second query: conversationMembers by linkId
-                  return Promise.resolve(resolve([linkMemberRow]));
+                  return Promise.resolve(resolve([]));
                 },
-              }),
-            }),
+              };
+              return chain;
+            },
           }),
         }),
       };
@@ -689,19 +876,25 @@ describe('requirePrivilege middleware', () => {
       const mockDb = {
         select: () => ({
           from: () => ({
-            where: () => ({
-              limit: () => ({
+            where: () => {
+              const chain = {
+                limit: () => ({
+                  then: (resolve: (v: unknown[]) => unknown) => {
+                    queryCount++;
+                    if (queryCount === 1) {
+                      // sharedLinks (findActiveSharedLink)
+                      return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
+                    }
+                    // conversationMembers by linkId
+                    return Promise.resolve(resolve([linkMemberRow]));
+                  },
+                }),
                 then: (resolve: (v: unknown[]) => unknown) => {
-                  queryCount++;
-                  if (queryCount === 1) {
-                    // First query: sharedLinks (findActiveSharedLink)
-                    return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
-                  }
-                  // Second query: conversationMembers by linkId
-                  return Promise.resolve(resolve([linkMemberRow]));
+                  return Promise.resolve(resolve([]));
                 },
-              }),
-            }),
+              };
+              return chain;
+            },
           }),
         }),
       };
@@ -719,8 +912,9 @@ describe('requirePrivilege middleware', () => {
       });
 
       app.get('/:conversationId/test', requirePrivilege('read', { allowLinkGuest: true }), (c) => {
-        const member = c.get('member');
+        const members = c.get('members');
         const linkGuest = c.get('linkGuest');
+        const member = members.get(TEST_CONVERSATION_ID);
         return c.json({ member, linkGuest: linkGuest ? { linkId: linkGuest.linkId } : null }, 200);
       });
 
@@ -744,28 +938,31 @@ describe('requirePrivilege middleware', () => {
 
     /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
     function createMockDbWithOwner(
-      memberRow: { id: string; privilege: string; visibleFromEpoch: number } | null,
+      memberRows: MemberRow[],
       conversationRow: { userId: string } | null
     ): unknown {
       let queryCount = 0;
       return {
         select: () => ({
           from: () => ({
-            where: () => ({
-              limit: () => ({
+            where: () => {
+              const chain = {
+                limit: () => ({
+                  then: (resolve: (v: unknown[]) => unknown) => {
+                    queryCount++;
+                    // Second query: conversations (for ownerId)
+                    const result = conversationRow ? [conversationRow] : [];
+                    return Promise.resolve(resolve(result));
+                  },
+                }),
                 then: (resolve: (v: unknown[]) => unknown) => {
                   queryCount++;
-                  if (queryCount === 1) {
-                    // First query: conversationMembers
-                    const result = memberRow ? [memberRow] : [];
-                    return Promise.resolve(resolve(result));
-                  }
-                  // Second query: conversations (for ownerId)
-                  const result = conversationRow ? [conversationRow] : [];
-                  return Promise.resolve(resolve(result));
+                  // First query: batch lookupMembers
+                  return Promise.resolve(resolve(memberRows));
                 },
-              }),
-            }),
+              };
+              return chain;
+            },
           }),
         }),
       };
@@ -773,18 +970,18 @@ describe('requirePrivilege middleware', () => {
     /* eslint-enable unicorn/no-thenable */
 
     function createOwnerIdTestApp(options: {
-      memberRow?: { id: string; privilege: string; visibleFromEpoch: number } | null;
+      memberRows?: MemberRow[];
       conversationRow?: { userId: string } | null;
       minLevel: MemberPrivilege;
     }): Hono<AppEnv> {
-      const { memberRow = null, conversationRow = null, minLevel } = options;
+      const { memberRows = [], conversationRow = null, minLevel } = options;
       const app = new Hono<AppEnv>();
 
       app.use('*', async (c, next) => {
         c.set('user', createMockUser());
         c.set('session', createMockSession());
         c.set('sessionData', createMockSession());
-        c.set('db', createMockDbWithOwner(memberRow, conversationRow) as AppEnv['Variables']['db']);
+        c.set('db', createMockDbWithOwner(memberRows, conversationRow) as AppEnv['Variables']['db']);
         await next();
       });
 
@@ -792,9 +989,10 @@ describe('requirePrivilege middleware', () => {
         '/:conversationId/test',
         requirePrivilege(minLevel, { includeOwnerId: true }),
         (c) => {
-          const member = c.get('member');
+          const members = c.get('members');
           const callerId = c.get('callerId');
           const conversationOwnerId = c.get('conversationOwnerId');
+          const member = members.get(TEST_CONVERSATION_ID);
           return c.json({ member, callerId, conversationOwnerId }, 200);
         }
       );
@@ -803,9 +1001,8 @@ describe('requirePrivilege middleware', () => {
     }
 
     it('sets conversationOwnerId on context when includeOwnerId is true', async () => {
-      const memberRow = { id: TEST_MEMBER_ID, privilege: 'owner', visibleFromEpoch: 1 };
       const app = createOwnerIdTestApp({
-        memberRow,
+        memberRows: [memberRow()],
         conversationRow: { userId: TEST_OWNER_USER_ID },
         minLevel: 'read',
       });
@@ -818,9 +1015,8 @@ describe('requirePrivilege middleware', () => {
     });
 
     it('returns 404 when conversation not found during owner lookup', async () => {
-      const memberRow = { id: TEST_MEMBER_ID, privilege: 'owner', visibleFromEpoch: 1 };
       const app = createOwnerIdTestApp({
-        memberRow,
+        memberRows: [memberRow()],
         conversationRow: null,
         minLevel: 'read',
       });
@@ -832,10 +1028,10 @@ describe('requirePrivilege middleware', () => {
       expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
-    it('still sets member and callerId alongside conversationOwnerId', async () => {
-      const memberRow = { id: TEST_MEMBER_ID, privilege: 'write', visibleFromEpoch: 3 };
+    it('still sets members and callerId alongside conversationOwnerId', async () => {
+      const row = memberRow({ privilege: 'write', visibleFromEpoch: 3 });
       const app = createOwnerIdTestApp({
-        memberRow,
+        memberRows: [row],
         conversationRow: { userId: TEST_OWNER_USER_ID },
         minLevel: 'read',
       });
@@ -848,20 +1044,23 @@ describe('requirePrivilege middleware', () => {
         callerId: string;
         conversationOwnerId: string;
       }>();
-      expect(body.member).toEqual(memberRow);
+      expect(body.member).toEqual({
+        id: TEST_MEMBER_ID,
+        privilege: 'write',
+        visibleFromEpoch: 3,
+      });
       expect(body.callerId).toBe(TEST_USER_ID);
       expect(body.conversationOwnerId).toBe(TEST_OWNER_USER_ID);
     });
 
     it('does not set conversationOwnerId when includeOwnerId is false', async () => {
-      const memberRow = { id: TEST_MEMBER_ID, privilege: 'owner', visibleFromEpoch: 1 };
       const app = new Hono<AppEnv>();
 
       app.use('*', async (c, next) => {
         c.set('user', createMockUser());
         c.set('session', createMockSession());
         c.set('sessionData', createMockSession());
-        c.set('db', createMockDb(memberRow) as AppEnv['Variables']['db']);
+        c.set('db', createMockDb([memberRow()]) as AppEnv['Variables']['db']);
         await next();
       });
 
@@ -885,23 +1084,29 @@ describe('requirePrivilege middleware', () => {
       const mockDb = {
         select: () => ({
           from: () => ({
-            where: () => ({
-              limit: () => ({
+            where: () => {
+              const chain = {
+                limit: () => ({
+                  then: (resolve: (v: unknown[]) => unknown) => {
+                    queryCount++;
+                    if (queryCount === 1) {
+                      // sharedLinks (findActiveSharedLink)
+                      return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
+                    }
+                    if (queryCount === 2) {
+                      // conversationMembers by linkId
+                      return Promise.resolve(resolve([linkMemberRow]));
+                    }
+                    // conversations (for ownerId)
+                    return Promise.resolve(resolve([{ userId: TEST_OWNER_USER_ID }]));
+                  },
+                }),
                 then: (resolve: (v: unknown[]) => unknown) => {
-                  queryCount++;
-                  if (queryCount === 1) {
-                    // First query: sharedLinks (findActiveSharedLink)
-                    return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
-                  }
-                  if (queryCount === 2) {
-                    // Second query: conversationMembers by linkId
-                    return Promise.resolve(resolve([linkMemberRow]));
-                  }
-                  // Third query: conversations (for ownerId)
-                  return Promise.resolve(resolve([{ userId: TEST_OWNER_USER_ID }]));
+                  return Promise.resolve(resolve([]));
                 },
-              }),
-            }),
+              };
+              return chain;
+            },
           }),
         }),
       };
@@ -955,23 +1160,29 @@ describe('requirePrivilege middleware', () => {
       const mockDb = {
         select: () => ({
           from: () => ({
-            where: () => ({
-              limit: () => ({
+            where: () => {
+              const chain = {
+                limit: () => ({
+                  then: (resolve: (v: unknown[]) => unknown) => {
+                    queryCount++;
+                    if (queryCount === 1) {
+                      // sharedLinks
+                      return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
+                    }
+                    if (queryCount === 2) {
+                      // conversationMembers by linkId
+                      return Promise.resolve(resolve([linkMemberRow]));
+                    }
+                    // conversations (for ownerId)
+                    return Promise.resolve(resolve([{ userId: TEST_OWNER_USER_ID }]));
+                  },
+                }),
                 then: (resolve: (v: unknown[]) => unknown) => {
-                  queryCount++;
-                  if (queryCount === 1) {
-                    // First query: sharedLinks
-                    return Promise.resolve(resolve([{ id: TEST_LINK_ID }]));
-                  }
-                  if (queryCount === 2) {
-                    // Second query: conversationMembers by linkId
-                    return Promise.resolve(resolve([linkMemberRow]));
-                  }
-                  // Third query: conversations (for ownerId)
-                  return Promise.resolve(resolve([{ userId: TEST_OWNER_USER_ID }]));
+                  return Promise.resolve(resolve([]));
                 },
-              }),
-            }),
+              };
+              return chain;
+            },
           }),
         }),
       };

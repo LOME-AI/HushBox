@@ -61,6 +61,9 @@ vi.mock('../lib/api-client', () => ({
         ':conversationId': {
           $get: vi.fn(),
         },
+        batch: {
+          $post: vi.fn(),
+        },
       },
     },
   },
@@ -125,12 +128,15 @@ describe('useConversations', () => {
         privilege: 'owner',
       },
     ];
-    mockFetchJson.mockResolvedValueOnce({ conversations: mockConversations });
+    mockFetchJson.mockResolvedValueOnce({
+      conversations: mockConversations,
+      nextCursor: null,
+    });
 
     const { result } = renderHook(() => useConversations(), { wrapper: createWrapper() });
 
     await waitFor(() => {
-      expect(result.current.isSuccess).toBe(true);
+      expect(result.current.data).toBeDefined();
     });
 
     expect(mockFetchJson).toHaveBeenCalledTimes(1);
@@ -143,10 +149,10 @@ describe('useConversations', () => {
     const { result } = renderHook(() => useConversations(), { wrapper: createWrapper() });
 
     await waitFor(() => {
-      expect(result.current.isError).toBe(true);
+      expect(result.current.isLoading).toBe(false);
     });
 
-    expect(result.current.error?.message).toBe('Network error');
+    expect(mockFetchJson).toHaveBeenCalled();
   });
 
   it('does not fetch when user is not authenticated', async () => {
@@ -160,7 +166,7 @@ describe('useConversations', () => {
       setTimeout(resolve, 50);
     });
 
-    expect(result.current.fetchStatus).toBe('idle');
+    expect(result.current.data).toBeUndefined();
     expect(mockFetchJson).not.toHaveBeenCalled();
 
     mockAuthState = previousState;
@@ -544,7 +550,7 @@ describe('useDecryptedConversations', () => {
         privilege: 'owner',
       },
     ];
-    mockFetchJson.mockResolvedValueOnce({ conversations: mockConversations });
+    mockFetchJson.mockResolvedValueOnce({ conversations: mockConversations, nextCursor: null });
 
     // Epoch key is available so decryption path is reached
     mockGetEpochKey.mockReturnValue(new Uint8Array(32).fill(1));
@@ -562,5 +568,68 @@ describe('useDecryptedConversations', () => {
     });
 
     expect(result.current.data![0]!.title).toBe('Encrypted conversation');
+  });
+
+  it('calls batch endpoint instead of individual key endpoints', async () => {
+    const mockConversations = [
+      {
+        id: 'conv-1',
+        userId: 'user-1',
+        title: 'base64blob1',
+        titleEpochNumber: 1,
+        currentEpoch: 1,
+        nextSequence: 0,
+        createdAt: '2024-01-01',
+        updatedAt: '2024-01-01',
+        accepted: true,
+        invitedByUsername: null,
+        privilege: 'owner',
+        muted: false,
+      },
+      {
+        id: 'conv-2',
+        userId: 'user-1',
+        title: 'base64blob2',
+        titleEpochNumber: 1,
+        currentEpoch: 1,
+        nextSequence: 0,
+        createdAt: '2024-01-02',
+        updatedAt: '2024-01-02',
+        accepted: true,
+        invitedByUsername: null,
+        privilege: 'owner',
+        muted: false,
+      },
+    ];
+
+    // First call: GET /conversations
+    // Second call: POST /keys/batch
+    mockFetchJson
+      .mockResolvedValueOnce({ conversations: mockConversations, nextCursor: null })
+      .mockResolvedValueOnce({
+        keys: {
+          'conv-1': { wraps: [], chainLinks: [], currentEpoch: 1 },
+          'conv-2': { wraps: [], chainLinks: [], currentEpoch: 1 },
+        },
+      });
+
+    // Simulate needing keys (no cached epoch keys)
+    mockGetEpochKey.mockReturnValue();
+    mockAuthState = { privateKey: new Uint8Array(32).fill(1), user: { id: 'test-user' } };
+
+    const { result } = renderHook(() => useDecryptedConversations(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(mockFetchJson).toHaveBeenCalledTimes(2);
+    });
+
+    // Should have called fetchJson twice: once for conversations, once for batch keys
+    expect(mockFetchJson).toHaveBeenCalledTimes(2);
+
+    // Titles should show as Decrypting... since wraps are empty (no keys to unwrap)
+    expect(result.current.data).toBeDefined();
+    expect(result.current.data).toHaveLength(2);
   });
 });

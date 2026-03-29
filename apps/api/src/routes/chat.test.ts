@@ -109,6 +109,7 @@ const mockModels = [
 interface MockConversationMember {
   id: string;
   userId: string;
+  conversationId: string;
   privilege: string;
   visibleFromEpoch: number;
 }
@@ -137,6 +138,7 @@ function createMockDb(options: {
     {
       id: 'member-owner',
       userId: conversations[0]?.userId ?? 'unknown',
+      conversationId: conversations[0]?.id ?? 'unknown',
       privilege: 'owner',
       visibleFromEpoch: 1,
     },
@@ -2068,6 +2070,7 @@ describe('chat routes', () => {
             {
               id: TEST_MEMBER_CM_ID,
               userId: TEST_USER_ID,
+              conversationId: TEST_CONVERSATION_ID,
               privilege: 'write',
               visibleFromEpoch: 1,
             },
@@ -2137,6 +2140,7 @@ describe('chat routes', () => {
             {
               id: TEST_MEMBER_CM_ID,
               userId: TEST_USER_ID,
+              conversationId: TEST_CONVERSATION_ID,
               privilege: 'write',
               visibleFromEpoch: 1,
             },
@@ -2175,6 +2179,7 @@ describe('chat routes', () => {
             {
               id: TEST_MEMBER_CM_ID,
               userId: TEST_USER_ID,
+              conversationId: TEST_CONVERSATION_ID,
               privilege: 'write',
               visibleFromEpoch: 1,
             },
@@ -2218,6 +2223,7 @@ describe('chat routes', () => {
               {
                 id: TEST_MEMBER_CM_ID,
                 userId: TEST_USER_ID,
+                conversationId: TEST_CONVERSATION_ID,
                 privilege: 'write',
                 visibleFromEpoch: 1,
               },
@@ -2288,6 +2294,7 @@ describe('chat routes', () => {
               {
                 id: TEST_MEMBER_CM_ID,
                 userId: TEST_USER_ID,
+                conversationId: TEST_CONVERSATION_ID,
                 privilege: 'write',
                 visibleFromEpoch: 1,
               },
@@ -2335,6 +2342,7 @@ describe('chat routes', () => {
             {
               id: TEST_MEMBER_CM_ID,
               userId: TEST_USER_ID,
+              conversationId: TEST_CONVERSATION_ID,
               privilege: 'read',
               visibleFromEpoch: 1,
             },
@@ -2376,6 +2384,7 @@ describe('chat routes', () => {
             {
               id: TEST_MEMBER_CM_ID,
               userId: TEST_USER_ID,
+              conversationId: TEST_CONVERSATION_ID,
               privilege: 'admin',
               visibleFromEpoch: 1,
             },
@@ -2487,6 +2496,7 @@ describe('chat routes', () => {
             {
               id: TEST_MEMBER_CM_ID,
               userId: TEST_USER_ID,
+              conversationId: TEST_CONVERSATION_ID,
               privilege: 'write',
               visibleFromEpoch: 1,
             },
@@ -3287,6 +3297,7 @@ describe('chat routes', () => {
           {
             id: 'member-1',
             userId: TEST_USER_ID,
+            conversationId: TEST_CONVERSATION_ID,
             privilege: 'read_only',
             visibleFromEpoch: 1,
           },

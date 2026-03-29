@@ -59,7 +59,7 @@ export interface Variables {
     hasAcknowledgedPhrase: boolean;
     publicKey: Uint8Array;
   } | null;
-  member: { id: string; privilege: string; visibleFromEpoch: number };
+  members: Map<string, { id: string; privilege: string; visibleFromEpoch: number }>;
   callerId: string;
   conversationOwnerId: string;
   linkGuest: { linkId: string; publicKey: Uint8Array } | null;

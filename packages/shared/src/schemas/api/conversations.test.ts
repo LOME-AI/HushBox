@@ -1104,7 +1104,7 @@ describe('conversationListItemSchema', () => {
 
 describe('listConversationsResponseSchema', () => {
   it('accepts empty conversations array', () => {
-    const result = listConversationsResponseSchema.parse({ conversations: [] });
+    const result = listConversationsResponseSchema.parse({ conversations: [], nextCursor: null });
     expect(result.conversations).toEqual([]);
   });
 
@@ -1138,6 +1138,7 @@ describe('listConversationsResponseSchema', () => {
           privilege: 'write',
         },
       ],
+      nextCursor: null,
     });
     expect(result.conversations).toHaveLength(2);
     expect(result.conversations[0]?.accepted).toBe(true);

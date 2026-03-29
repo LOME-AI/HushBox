@@ -62,6 +62,16 @@ export { computeWorstCaseCents } from '../lib/stream-pipeline.js';
 
 const noOpRelease = (): Promise<void> => Promise.resolve();
 
+/** Retrieves the member from the members Map. Throws if not found (invariant after requirePrivilege). */
+function getMember(
+  c: Context<AppEnv>,
+  conversationId: string
+): { id: string; privilege: string; visibleFromEpoch: number } {
+  const member = c.get('members').get(conversationId);
+  if (!member) throw new Error('Member required after requirePrivilege');
+  return member;
+}
+
 /** Picks the right budget release strategy based on billing context. */
 function resolveReleaseReservation(
   redis: AppEnv['Variables']['redis'],
@@ -559,7 +569,7 @@ export const chatRoute = new Hono<AppEnv>()
     async (c) => {
       const { conversationId } = c.req.param();
       const callerId = c.get('callerId');
-      const member = c.get('member');
+      const member = getMember(c, conversationId);
       const linkGuest = c.get('linkGuest');
       const ownerId = c.get('conversationOwnerId');
       const db = c.get('db');
@@ -706,7 +716,7 @@ export const chatRoute = new Hono<AppEnv>()
       if (!user) throw new Error('User required after requirePrivilege');
       const { conversationId } = c.req.param();
       const ownerId = c.get('conversationOwnerId');
-      const member = c.get('member');
+      const member = getMember(c, conversationId);
       const isOwner = user.id === ownerId;
       const memberContext: MemberContext | undefined = isOwner
         ? undefined

@@ -181,6 +181,7 @@ export type ForkResponse = z.infer<typeof forkResponseSchema>;
  */
 export const listConversationsResponseSchema = z.object({
   conversations: z.array(conversationListItemSchema),
+  nextCursor: z.string().nullable(),
 });
 
 export type ListConversationsResponse = z.infer<typeof listConversationsResponseSchema>;

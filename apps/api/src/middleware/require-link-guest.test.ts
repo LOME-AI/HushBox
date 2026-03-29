@@ -55,7 +55,8 @@ function createTestApp(options: {
   });
 
   app.get('/:conversationId/test', requireLinkGuest(), (c) => {
-    const member = c.get('member');
+    const members = c.get('members');
+    const member = members.get(TEST_CONVERSATION_ID);
     const linkGuest = c.get('linkGuest');
     return c.json(
       {

@@ -61,7 +61,9 @@ function createMockDb(
     limit: () => ({
       then: (resolve: (v: unknown[]) => unknown) => {
         // First .limit().then() call is from the middleware
-        const result = middlewareMember ? [middlewareMember] : [];
+        const result = middlewareMember
+          ? [{ conversationId: TEST_CONVERSATION_ID, ...middlewareMember }]
+          : [];
         return Promise.resolve(resolve(result));
       },
     }),
@@ -215,6 +217,7 @@ function createAddMemberMockDb(config: AddMockDbConfig): {
     config.requesterMember
       ? [
           {
+            conversationId: TEST_CONVERSATION_ID,
             id: config.requesterMember.id,
             privilege: config.requesterMember.privilege,
             visibleFromEpoch: 1,
@@ -368,6 +371,7 @@ function createRemoveMemberMockDb(config: RemoveMockDbConfig): unknown {
     config.requesterMember
       ? [
           {
+            conversationId: TEST_CONVERSATION_ID,
             id: config.requesterMember.id,
             privilege: config.requesterMember.privilege,
             visibleFromEpoch: 1,
@@ -447,6 +451,7 @@ function createLeaveMockDb(config: LeaveMockDbConfig): unknown {
     config.requesterMember
       ? [
           {
+            conversationId: TEST_CONVERSATION_ID,
             id: config.requesterMember.id,
             privilege: config.requesterMember.privilege,
             visibleFromEpoch: 1,
@@ -522,6 +527,7 @@ function createPrivilegeMockDb(config: PrivilegeMockDbConfig): unknown {
     config.requesterMember
       ? [
           {
+            conversationId: TEST_CONVERSATION_ID,
             id: config.requesterMember.id,
             privilege: config.requesterMember.privilege,
             visibleFromEpoch: 1,
@@ -2102,6 +2108,7 @@ describe('members route', () => {
       config.requesterMember
         ? [
             {
+              conversationId: TEST_CONVERSATION_ID,
               id: config.requesterMember.id,
               privilege: config.requesterMember.privilege,
               visibleFromEpoch: 1,
@@ -2170,6 +2177,7 @@ describe('members route', () => {
       config.requesterMember
         ? [
             {
+              conversationId: TEST_CONVERSATION_ID,
               id: config.requesterMember.id,
               privilege: config.requesterMember.privilege,
               visibleFromEpoch: 1,

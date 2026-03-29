@@ -283,7 +283,8 @@ export const membersRoute = new Hono<AppEnv>()
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const { memberId, rotation } = c.req.valid('json');
-      const requesterMember = c.get('member');
+      const requesterMember = c.get('members').get(conversationId);
+      if (!requesterMember) throw new Error('Member required after requirePrivilege');
 
       // 1. Look up target membership by memberId
       const targetMember = await findActiveMember(db, memberId, conversationId);
@@ -365,7 +366,8 @@ export const membersRoute = new Hono<AppEnv>()
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const { memberId, privilege: newPrivilege } = c.req.valid('json');
-      const requesterMember = c.get('member');
+      const requesterMember = c.get('members').get(conversationId);
+      if (!requesterMember) throw new Error('Member required after requirePrivilege');
 
       // 1. Look up target membership by memberId
       const targetMember = await findActiveMember(db, memberId, conversationId);
@@ -427,7 +429,8 @@ export const membersRoute = new Hono<AppEnv>()
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
       const { rotation } = c.req.valid('json');
-      const requesterMember = c.get('member');
+      const requesterMember = c.get('members').get(conversationId);
+      if (!requesterMember) throw new Error('Member required after requirePrivilege');
 
       // Owner leaving deletes the entire conversation (CASCADE handles cleanup)
       if (isOwner(requesterMember.privilege)) {

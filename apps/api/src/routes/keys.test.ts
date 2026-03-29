@@ -23,7 +23,7 @@ interface ErrorResponse {
   details?: Record<string, unknown>;
 }
 
-interface KeyChainResponse {
+interface KeyChainResponseBody {
   wraps: {
     epochNumber: number;
     wrap: string;
@@ -36,6 +36,10 @@ interface KeyChainResponse {
     confirmationHash: string;
   }[];
   currentEpoch: number;
+}
+
+interface BatchKeysResponse {
+  keys: Record<string, KeyChainResponseBody>;
 }
 
 interface MemberKeysResponse {
@@ -384,7 +388,7 @@ describe('keys routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const json = (await res.json()) as KeyChainResponse;
+      const json = (await res.json()) as KeyChainResponseBody;
 
       // Single epoch, so one wrap
       expect(json.wraps).toHaveLength(1);
@@ -415,7 +419,7 @@ describe('keys routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const json = (await res.json()) as KeyChainResponse;
+      const json = (await res.json()) as KeyChainResponseBody;
 
       // Two epochs, so two wraps for testUser
       expect(json.wraps).toHaveLength(2);
@@ -459,7 +463,7 @@ describe('keys routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const json = (await res.json()) as KeyChainResponse;
+      const json = (await res.json()) as KeyChainResponseBody;
 
       // Only epoch 2 wrap should be returned (epoch 1 filtered by visibleFromEpoch)
       expect(json.wraps).toHaveLength(1);
@@ -613,6 +617,148 @@ describe('keys routes', () => {
       expect(res.status).toBe(404);
       const json = (await res.json()) as ErrorResponse;
       expect(json.code).toBe('CONVERSATION_NOT_FOUND');
+    });
+  });
+
+  describe('POST /keys/batch', () => {
+    it('returns 401 when not authenticated', async () => {
+      const res = await app.request('/keys/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationIds: [createdConversationIds[0]] }),
+      });
+
+      expect(res.status).toBe(401);
+      const json = (await res.json()) as ErrorResponse;
+      expect(json.code).toBe('NOT_AUTHENTICATED');
+    });
+
+    it('returns key chains for multiple conversations in one call', async () => {
+      const res = await app.request('/keys/batch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(testUserId),
+        },
+        body: JSON.stringify({ conversationIds: createdConversationIds }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as BatchKeysResponse;
+
+      // Both conversations should be present
+      expect(Object.keys(json.keys)).toHaveLength(2);
+
+      // Conv1: single epoch
+      const conv1Id = createdConversationIds[0]!;
+      const conv1Keys = json.keys[conv1Id]!;
+      expect(conv1Keys.wraps).toHaveLength(1);
+      expect(conv1Keys.wraps[0]!.epochNumber).toBe(1);
+      expect(conv1Keys.chainLinks).toHaveLength(0);
+      expect(conv1Keys.currentEpoch).toBe(1);
+
+      // Conv2: two epochs with chain link
+      const conv2Keys = json.keys[conversationWithChainId]!;
+      expect(conv2Keys.wraps).toHaveLength(2);
+      expect(conv2Keys.chainLinks).toHaveLength(1);
+      expect(conv2Keys.currentEpoch).toBe(2);
+    });
+
+    it('returns 404 when user is not a member of any requested conversation', async () => {
+      const res = await app.request('/keys/batch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(nonMemberUserId),
+        },
+        body: JSON.stringify({ conversationIds: createdConversationIds }),
+      });
+
+      expect(res.status).toBe(404);
+      const json = (await res.json()) as ErrorResponse;
+      expect(json.code).toBe('CONVERSATION_NOT_FOUND');
+    });
+
+    it('returns 404 when user is member of only some requested conversations', async () => {
+      // otherUser is only a member of conv2 — requesting both triggers all-or-nothing denial
+      const res = await app.request('/keys/batch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(otherUserId),
+        },
+        body: JSON.stringify({ conversationIds: createdConversationIds }),
+      });
+
+      expect(res.status).toBe(404);
+      const json = (await res.json()) as ErrorResponse;
+      expect(json.code).toBe('CONVERSATION_NOT_FOUND');
+    });
+
+    it('returns keys when user requests only conversations they are a member of', async () => {
+      // otherUser is a member of conv2 only — requesting just conv2 succeeds
+      const res = await app.request('/keys/batch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(otherUserId),
+        },
+        body: JSON.stringify({ conversationIds: [conversationWithChainId] }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as BatchKeysResponse;
+
+      // Only conv2 should be returned
+      expect(Object.keys(json.keys)).toHaveLength(1);
+      expect(json.keys[conversationWithChainId]).toBeDefined();
+
+      // otherUser has visibleFromEpoch=2, so only epoch 2 wrap
+      const conv2Keys = json.keys[conversationWithChainId]!;
+      expect(conv2Keys.wraps).toHaveLength(1);
+      expect(conv2Keys.wraps[0]!.epochNumber).toBe(2);
+    });
+
+    it('returns 404 for non-existent conversation ID', async () => {
+      const res = await app.request('/keys/batch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(testUserId),
+        },
+        body: JSON.stringify({ conversationIds: ['non-existent-id'] }),
+      });
+
+      expect(res.status).toBe(404);
+      const json = (await res.json()) as ErrorResponse;
+      expect(json.code).toBe('CONVERSATION_NOT_FOUND');
+    });
+
+    it('rejects request with more than 100 conversation IDs', async () => {
+      const tooManyIds = Array.from({ length: 101 }, (_, index) => `conv-${String(index)}`);
+      const res = await app.request('/keys/batch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(testUserId),
+        },
+        body: JSON.stringify({ conversationIds: tooManyIds }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects request with empty conversationIds array', async () => {
+      const res = await app.request('/keys/batch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(testUserId),
+        },
+        body: JSON.stringify({ conversationIds: [] }),
+      });
+
+      expect(res.status).toBe(400);
     });
   });
 });

@@ -24,8 +24,9 @@ export const budgetsRoute = new Hono<AppEnv>()
     async (c) => {
       const db = c.get('db');
       const redis = c.get('redis');
-      const member = c.get('member');
       const { conversationId } = c.req.valid('param');
+      const member = c.get('members').get(conversationId);
+      if (!member) throw new Error('Member required after requirePrivilege');
 
       const result = await getConversationBudgets(db, conversationId);
 

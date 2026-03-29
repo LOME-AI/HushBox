@@ -1,5 +1,6 @@
 export {
   getKeyChain,
+  getKeyChainBatch,
   getMemberKeys,
   verifyMembership,
   submitRotation,

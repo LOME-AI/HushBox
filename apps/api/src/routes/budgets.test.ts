@@ -106,6 +106,7 @@ function createGetBudgetsMockDb(config: GetBudgetsMockDbConfig): unknown {
     config.requesterMember
       ? [
           {
+            conversationId: TEST_CONVERSATION_ID,
             id: config.requesterMember.id,
             privilege: config.requesterMember.privilege,
             visibleFromEpoch: 1,
@@ -180,6 +181,7 @@ function createPatchBudgetMockDb(config: PatchBudgetMockDbConfig): unknown {
     config.requesterMember
       ? [
           {
+            conversationId: TEST_CONVERSATION_ID,
             id: config.requesterMember.id,
             privilege: config.requesterMember.privilege,
             visibleFromEpoch: 1,
@@ -241,6 +243,7 @@ function createPatchConversationBudgetMockDb(config: PatchConversationBudgetMock
     config.requesterMember
       ? [
           {
+            conversationId: TEST_CONVERSATION_ID,
             id: config.requesterMember.id,
             privilege: config.requesterMember.privilege,
             visibleFromEpoch: 1,
