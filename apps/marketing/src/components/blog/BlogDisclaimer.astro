@@ -1,0 +1,20 @@
+---
+import { formatPostDate } from '../../lib/blog';
+
+interface Props {
+  date: Date;
+}
+
+const { date } = Astro.props;
+---
+
+<p class="text-foreground-muted text-sm leading-relaxed">
+  This post was published on {formatPostDate(date)} and reflects our understanding at that time. We research
+  carefully, but information may have changed since publication. For the latest on HushBox,
+  <a
+    href="https://github.com/LOME-AI/HushBox"
+    target="_blank"
+    rel="noopener noreferrer"
+    class="text-brand-red hover:underline">our source code</a
+  > is the source of truth.
+</p>

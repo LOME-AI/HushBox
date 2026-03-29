@@ -3,6 +3,92 @@
 @source '../../../../packages/ui/src/components/marketing/**/*.tsx';
 @source '../../../../packages/ui/src/components/cipher-wall/**/*.tsx';
 
+/* Blog prose typography overrides */
+.prose-blog {
+  @apply text-foreground leading-relaxed;
+}
+
+.prose-blog :where(h2, h3, h4):not(:where([class~='not-prose'] *)) {
+  scroll-margin-top: 6rem;
+}
+
+.prose-blog :where(h2):not(:where([class~='not-prose'] *)) {
+  @apply text-brand-red mt-10 mb-4 text-2xl font-bold;
+}
+
+.prose-blog :where(h3):not(:where([class~='not-prose'] *)) {
+  @apply text-brand-red mt-8 mb-3 text-xl font-semibold;
+}
+
+.prose-blog :where(h4):not(:where([class~='not-prose'] *)) {
+  @apply text-brand-red mt-6 mb-2 text-lg font-semibold;
+}
+
+.prose-blog :where(p):not(:where([class~='not-prose'] *)) {
+  @apply mb-4;
+}
+
+.prose-blog :where(a):not(:where([class~='not-prose'] *)) {
+  @apply text-brand-red underline-offset-2 hover:underline;
+}
+
+.prose-blog :where(blockquote):not(:where([class~='not-prose'] *)) {
+  @apply border-brand-red bg-brand-red-subtle border-l-4 rounded-r-lg py-3 pl-4 italic;
+}
+
+.prose-blog :where(pre):not(:where([class~='not-prose'] *)) {
+  @apply bg-background-paper border-border overflow-x-auto rounded-lg border-2 p-4;
+}
+
+.prose-blog :where(code):not(:where(pre *)):not(:where([class~='not-prose'] *)) {
+  @apply bg-background-subtle rounded px-1.5 py-0.5 font-mono text-sm;
+}
+
+.prose-blog :where(pre code):not(:where([class~='not-prose'] *)) {
+  @apply bg-transparent p-0 font-mono text-sm;
+}
+
+.prose-blog :where(img):not(:where([class~='not-prose'] *)) {
+  @apply w-full rounded-lg;
+}
+
+.prose-blog :where(figcaption):not(:where([class~='not-prose'] *)) {
+  @apply text-foreground-muted mt-2 text-center text-sm;
+}
+
+.prose-blog :where(ul):not(:where([class~='not-prose'] *)) {
+  @apply mb-4 list-disc pl-6;
+}
+
+.prose-blog :where(ol):not(:where([class~='not-prose'] *)) {
+  @apply mb-4 list-decimal pl-6;
+}
+
+.prose-blog :where(li):not(:where([class~='not-prose'] *)) {
+  @apply mb-1;
+}
+
+.prose-blog :where(hr):not(:where([class~='not-prose'] *)) {
+  @apply border-border my-8;
+}
+
+.prose-blog :where(table):not(:where([class~='not-prose'] *)) {
+  @apply w-full text-sm;
+}
+
+.prose-blog :where(th):not(:where([class~='not-prose'] *)) {
+  @apply border-border border-b pb-2 text-left font-semibold;
+}
+
+.prose-blog :where(td):not(:where([class~='not-prose'] *)) {
+  @apply border-border border-b py-2;
+}
+
+/* Sources section: colored clickable links */
+.prose-blog :where(h2#sources ~ ol a, h2#sources ~ ul a):not(:where([class~='not-prose'] *)) {
+  @apply text-brand-red hover:text-brand-red-hover underline underline-offset-2 transition-colors;
+}
+
 /* ScrollReveal animations */
 [data-slot='scroll-reveal'][data-visible='false'] {
   opacity: 0;

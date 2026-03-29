@@ -1,0 +1,43 @@
+---
+import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
+import BlogLayout from '../../../layouts/BlogLayout.astro';
+import PageHeader from '../../../components/PageHeader.astro';
+import BlogPostCard from '../../../components/blog/BlogPostCard.astro';
+import { BlogSearch } from '../../../components/blog/BlogSearch';
+import { getPublishedPosts, getAllTags } from '../../../lib/blog';
+
+export const getStaticPaths = (async () => {
+  const posts = await getPublishedPosts();
+  const tags = getAllTags(posts);
+  return tags.map((tag) => ({
+    params: { tag },
+    props: { tag },
+  }));
+}) satisfies GetStaticPaths;
+
+type Props = InferGetStaticPropsType<typeof getStaticPaths>;
+
+const { tag } = Astro.props;
+const allPosts = await getPublishedPosts();
+const allTags = getAllTags(allPosts);
+const filteredPosts = allPosts.filter((post) => post.data.tags.includes(tag));
+const postCount = `${String(filteredPosts.length)} post${filteredPosts.length === 1 ? '' : 's'}`;
+---
+
+<BlogLayout title={`Posts tagged: ${tag}`} description={`HushBox blog posts about ${tag}.`}>
+  <div class="space-y-8">
+    <PageHeader title={`Posts tagged: ${tag}`} description={postCount} />
+
+    <BlogSearch allTags={allTags} activeTag={tag} client:load />
+
+    <div class="grid gap-6 pt-4 md:grid-cols-2">
+      {filteredPosts.map((post) => <BlogPostCard post={post} />)}
+    </div>
+
+    {
+      filteredPosts.length === 0 && (
+        <p class="text-foreground-muted py-12 text-center">No posts with this tag yet.</p>
+      )
+    }
+  </div>
+</BlogLayout>
