@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { MessageItem } from './message-item';
 import type { Message } from '@/lib/api';
@@ -91,6 +91,12 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const userScrolledAwayRef = useRef(false);
 
+  // Must exceed Footer height (10dvh) so scrollToIndex({ index: 'LAST' })
+  // lands within the threshold and atBottomStateChange reports true.
+  const [atBottomThreshold] = useState(
+    (): number => Math.ceil(window.innerHeight * 0.1) + 20
+  );
+
   useImperativeHandle(ref, () => {
     const virtuoso = virtuosoRef.current;
     if (!virtuoso) {
@@ -108,9 +114,8 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     userScrolledAwayRef.current = !atBottom;
   }, []);
 
-  const followOutput = useCallback((isAtBottom: boolean): boolean => {
-    if (userScrolledAwayRef.current) return false;
-    return isAtBottom;
+  const followOutput = useCallback((): boolean => {
+    return !userScrolledAwayRef.current;
   }, []);
 
   const chatContext = useMemo(
@@ -203,7 +208,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
           data={groups}
           followOutput={followOutput}
           atBottomStateChange={handleAtBottomStateChange}
-          atBottomThreshold={50}
+          atBottomThreshold={atBottomThreshold}
           {...(env.isE2E && {
             initialItemCount: groups.length,
             increaseViewportBy: { top: 999_999, bottom: 999_999 },

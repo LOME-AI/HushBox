@@ -414,12 +414,12 @@ describe('MessageList', () => {
       expect(followOutput(true)).toBe(true);
     });
 
-    it('followOutput returns false when user is not at bottom', () => {
+    it('followOutput returns true regardless of isAtBottom when user has not scrolled away', () => {
       render(<MessageList messages={messages} />);
       const followOutput = capturedVirtuosoProps['followOutput'] as (
         isAtBottom: boolean
       ) => boolean;
-      expect(followOutput(false)).toBe(false);
+      expect(followOutput(false)).toBe(true);
     });
 
     it('followOutput returns false after user scrolls away even when isAtBottom is true', () => {
