@@ -101,6 +101,7 @@ test.describe('Auth User Using Link', () => {
     await test.step('create read+no-history link', async () => {
       const result = await createInviteLink(authenticatedPage, sidebar, { extractLinkId: false });
       readUrl = result.url;
+      await sidebar.closeMobileSidebarIfOpen();
     });
 
     await test.step('Alice sends message in new epoch', async () => {
@@ -136,6 +137,7 @@ test.describe('Auth User Using Link', () => {
         displayName: 'Write Link No History',
       });
       writeUrl = result.url;
+      await sidebar.closeMobileSidebarIfOpen();
     });
 
     await test.step('Alice sends another message', async () => {

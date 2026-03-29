@@ -2,6 +2,7 @@ import type { Page, APIRequestContext } from '@playwright/test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { generateTotpCodeSync } from '@hushbox/crypto';
 import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
+import { isMobileWidth } from '@hushbox/shared';
 import { requireEnv } from './env.js';
 
 const API_BASE = requireEnv('VITE_API_URL');
@@ -119,10 +120,26 @@ export async function waitForNextTOTPCode(secret: string, currentCode: string): 
 }
 
 /**
+ * Opens the main sidebar Sheet on mobile if it's not already visible.
+ * On desktop viewports this is a no-op (sidebar is always rendered).
+ */
+async function openMobileSidebarIfNeeded(page: Page): Promise<void> {
+  const viewport = page.viewportSize();
+  if (viewport === null || !isMobileWidth(viewport.width)) return;
+
+  const sidebar = page.getByTestId('sidebar');
+  if (await sidebar.isVisible()) return;
+
+  await page.getByTestId('hamburger-button').click();
+  await sidebar.waitFor({ state: 'visible' });
+}
+
+/**
  * Logs out via the sidebar footer dropdown menu.
  * Clicks the sidebar trigger → "Log Out" → waits for /login.
  */
 export async function logoutViaUI(page: Page): Promise<void> {
+  await openMobileSidebarIfNeeded(page);
   await page.getByTestId('sidebar-trigger').click();
   await page.getByTestId('menu-logout').click();
   await page.waitForURL('/login', { timeout: 15_000 });
@@ -133,7 +150,19 @@ export async function logoutViaUI(page: Page): Promise<void> {
  * Clicks the sidebar trigger → "Settings" → waits for /settings.
  */
 export async function navigateToSettings(page: Page): Promise<void> {
+  await openMobileSidebarIfNeeded(page);
   await page.getByTestId('sidebar-trigger').click();
   await page.getByTestId('menu-settings').click();
   await page.waitForURL('/settings', { timeout: 15_000 });
+}
+
+/**
+ * Navigates to usage via the sidebar footer dropdown menu.
+ * Clicks the sidebar trigger → "Usage" → waits for /usage.
+ */
+export async function navigateToUsage(page: Page): Promise<void> {
+  await openMobileSidebarIfNeeded(page);
+  await page.getByTestId('sidebar-trigger').click();
+  await page.getByTestId('menu-usage').click();
+  await page.waitForURL('/usage', { timeout: 15_000 });
 }

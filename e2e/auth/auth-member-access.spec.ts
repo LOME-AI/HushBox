@@ -107,6 +107,8 @@ test.describe('Auth Member Access', () => {
       await unsettledExpect(sidebar.findMemberByUsername('test dave')).toBeVisible({
         timeout: 10_000,
       });
+
+      await sidebar.closeMobileSidebarIfOpen();
     });
 
     await test.step('Alice sends message in new epoch', async () => {

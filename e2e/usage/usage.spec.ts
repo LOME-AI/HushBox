@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures.js';
 import { UsagePage } from '../pages';
+import { navigateToUsage } from '../helpers/auth.js';
 
 test.describe('Usage Analytics', () => {
   test('usage page renders charts and filters work', async ({ authenticatedPage }) => {
@@ -7,9 +8,7 @@ test.describe('Usage Analytics', () => {
 
     await test.step('navigate via sidebar menu', async () => {
       await authenticatedPage.goto('/chat');
-      await authenticatedPage.getByTestId('sidebar-trigger').click();
-      await authenticatedPage.getByTestId('menu-usage').click();
-      await authenticatedPage.waitForURL('/usage');
+      await navigateToUsage(authenticatedPage);
       await expect(usagePage.usageContent).toBeVisible();
     });
 

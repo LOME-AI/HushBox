@@ -1,6 +1,6 @@
 import { type Page, type Locator } from '@playwright/test';
 import { expect } from '../helpers/settled-expect.js';
-import { normalizeUsername, displayUsername } from '@hushbox/shared';
+import { normalizeUsername, displayUsername, isMobileWidth } from '@hushbox/shared';
 
 export class MemberSidebarPage {
   readonly page: Page;
@@ -150,6 +150,20 @@ export class MemberSidebarPage {
 
   async closeSidebar(): Promise<void> {
     await this.sidebar.getByRole('button', { name: 'Close sidebar' }).click();
+  }
+
+  /**
+   * Closes the member sidebar Sheet on mobile if it's currently open.
+   * On desktop this is a no-op — the sidebar doesn't cover the main content.
+   */
+  async closeMobileSidebarIfOpen(): Promise<void> {
+    const viewport = this.page.viewportSize();
+    if (viewport === null || !isMobileWidth(viewport.width)) return;
+
+    if (!(await this.content.isVisible().catch(() => false))) return;
+
+    await this.page.keyboard.press('Escape');
+    await this.content.waitFor({ state: 'hidden', timeout: 5000 });
   }
 
   // --- Budget ---

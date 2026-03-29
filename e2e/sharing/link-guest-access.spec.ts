@@ -123,6 +123,7 @@ test.describe('Link Guest Access', () => {
     await test.step('create read+no-history link (triggers epoch rotation)', async () => {
       const result = await createInviteLink(authenticatedPage, sidebar, { extractLinkId: false });
       readUrl = result.url;
+      await sidebar.closeMobileSidebarIfOpen();
     });
 
     await test.step('Alice sends message in new epoch', async () => {
@@ -161,6 +162,7 @@ test.describe('Link Guest Access', () => {
         displayName: 'Write Guest',
       });
       writeUrl = result.url;
+      await sidebar.closeMobileSidebarIfOpen();
     });
 
     await test.step('Alice sends another message in latest epoch', async () => {

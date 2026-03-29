@@ -114,7 +114,7 @@ async function tryResolveLinkGuest(
     return c.json(createErrorResponse(ERROR_CODE_PRIVILEGE_INSUFFICIENT), 403);
   }
   c.set('linkGuest', { linkId: resolved.linkId, publicKey: resolved.publicKey });
-  c.set('callerId', resolved.member.id);
+  c.set('callerId', resolved.linkId);
   c.set('members', new Map([[conversationId, resolved.member]]));
 
   if (includeOwnerId) {

@@ -634,7 +634,7 @@ describe('requirePrivilege middleware', () => {
       expect(body.linkGuest).toEqual({ linkId: TEST_LINK_ID });
     });
 
-    it('sets callerId to member.id for link guests', async () => {
+    it('sets callerId to linkId for link guests', async () => {
       const linkMemberRow = { id: TEST_MEMBER_ID, privilege: 'write', visibleFromEpoch: 2 };
       const app = createLinkGuestTestApp({
         minLevel: 'read',
@@ -648,7 +648,7 @@ describe('requirePrivilege middleware', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json<{ callerId: string }>();
-      expect(body.callerId).toBe(TEST_MEMBER_ID);
+      expect(body.callerId).toBe(TEST_LINK_ID);
     });
 
     it('returns 403 when link guest has insufficient privilege', async () => {
@@ -756,7 +756,7 @@ describe('requirePrivilege middleware', () => {
       }>();
       expect(body.member).toEqual(linkMemberRow);
       expect(body.linkGuest).toEqual({ linkId: TEST_LINK_ID });
-      expect(body.callerId).toBe(TEST_MEMBER_ID);
+      expect(body.callerId).toBe(TEST_LINK_ID);
     });
 
     it('returns 404 when user not a member, allowLinkGuest true, but link resolution fails', async () => {

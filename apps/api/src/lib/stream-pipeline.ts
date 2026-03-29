@@ -263,6 +263,7 @@ interface HandleBillingOptions {
   billingPromise: Promise<SaveChatTurnResult>;
   assistantMessageId: string;
   userId: string;
+  senderId: string;
   model: string;
   generationId: string | undefined;
 }
@@ -270,7 +271,7 @@ interface HandleBillingOptions {
 export async function handleBillingResult(
   options: HandleBillingOptions
 ): Promise<SaveChatTurnResult | null> {
-  const { c, billingPromise, assistantMessageId, userId, model, generationId } = options;
+  const { c, billingPromise, assistantMessageId, userId, senderId, model, generationId } = options;
 
   // Ensure billing completes even if client disconnects (Workers only)
   try {
@@ -288,6 +289,7 @@ export async function handleBillingResult(
         event: 'billing_failed',
         messageId: assistantMessageId,
         userId,
+        senderId,
         model,
         generationId,
         error: billingError instanceof Error ? billingError.message : String(billingError),
@@ -858,6 +860,7 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
         billingPromise,
         assistantMessageId: getAssistantId(primaryModel),
         userId: billingUserId,
+        senderId,
         model: primaryModel,
         generationId: multiResults.get(primaryModel)?.generationId,
       });
