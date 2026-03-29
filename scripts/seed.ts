@@ -567,8 +567,7 @@ function createPersonaSampleData(
   personaName: string,
   userId: string,
   userPublicKey: Uint8Array,
-  now: Date,
-  conversationCount: number = 3
+  options: { now: Date; conversationCount?: number }
 ): {
   projects: ProjectWithId[];
   conversations: ConversationWithId[];
@@ -577,6 +576,7 @@ function createPersonaSampleData(
   epochMembers: EpochMemberWithId[];
   conversationMembers: ConversationMemberWithId[];
 } {
+  const { now, conversationCount = 3 } = options;
   const sampleProjects: ProjectWithId[] = [];
   const sampleConversations: ConversationWithId[] = [];
   const sampleMessages: MessageWithId[] = [];
@@ -1040,13 +1040,10 @@ export async function generatePersonaData(): Promise<PersonaData> {
     personaLedgerEntries.push(...walletData.ledgerEntries);
 
     if (persona.hasSampleData) {
-      const sampleData = createPersonaSampleData(
-        persona.name,
-        user.id,
-        publicKey,
+      const sampleData = createPersonaSampleData(persona.name, user.id, publicKey, {
         now,
-        persona.conversationCount
-      );
+        conversationCount: persona.conversationCount,
+      });
       personaProjects.push(...sampleData.projects);
       personaConversations.push(...sampleData.conversations);
       personaMessages.push(...sampleData.messages);
