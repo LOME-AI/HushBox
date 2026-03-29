@@ -452,6 +452,40 @@ describe('conversations service', () => {
       expect(result.rows).toHaveLength(3);
       expect(result.nextCursor).toBeNull();
     });
+
+    it('returns pinned as false by default', async () => {
+      const user = await createTestUser();
+      await createTestConversationWithEpoch(user.id, toBytes('My Conv'));
+
+      const result = await listConversations(db, user.id);
+
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]?.pinned).toBe(false);
+    });
+
+    it('returns pinned as true when member has pinned the conversation', async () => {
+      const user = await createTestUser();
+      const { conversationId } = await createTestConversationWithEpoch(
+        user.id,
+        toBytes('Pinned Conv')
+      );
+
+      // Pin the conversation
+      await db
+        .update(conversationMembers)
+        .set({ pinned: true })
+        .where(
+          and(
+            eq(conversationMembers.conversationId, conversationId),
+            eq(conversationMembers.userId, user.id)
+          )
+        );
+
+      const result = await listConversations(db, user.id);
+
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]?.pinned).toBe(true);
+    });
   });
 
   describe('getConversationForMember (unified)', () => {

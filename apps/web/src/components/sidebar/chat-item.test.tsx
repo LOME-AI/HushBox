@@ -71,6 +71,7 @@ vi.mock('@/hooks/chat', () => ({
 // Mock leave conversation hook
 const mockLeaveMutate = vi.fn();
 const mockMuteMutate = vi.fn();
+const mockPinMutate = vi.fn();
 vi.mock('@/hooks/use-conversation-members', () => ({
   useLeaveConversation: () => ({
     mutate: mockLeaveMutate,
@@ -78,6 +79,10 @@ vi.mock('@/hooks/use-conversation-members', () => ({
   }),
   useMuteConversation: () => ({
     mutate: mockMuteMutate,
+    isPending: false,
+  }),
+  usePinConversation: () => ({
+    mutate: mockPinMutate,
     isPending: false,
   }),
 }));
@@ -90,6 +95,7 @@ describe('ChatItem', () => {
     updatedAt: new Date().toISOString(),
     privilege: 'owner',
     muted: false,
+    pinned: false,
   };
 
   beforeEach(() => {
@@ -98,6 +104,7 @@ describe('ChatItem', () => {
     mockUpdateMutate.mockClear();
     mockLeaveMutate.mockClear();
     mockMuteMutate.mockClear();
+    mockPinMutate.mockClear();
     useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false });
   });
 
@@ -438,6 +445,63 @@ describe('ChatItem', () => {
       await user.click(screen.getByTestId('chat-item-more-button'));
 
       expect(screen.getByText('Mute')).toBeInTheDocument();
+    });
+  });
+
+  describe('pin action', () => {
+    it('shows Pin option for unpinned conversation', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={mockConversation} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+
+      expect(screen.getByText('Pin')).toBeInTheDocument();
+      expect(screen.queryByText('Unpin')).not.toBeInTheDocument();
+    });
+
+    it('shows Unpin option for pinned conversation', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={{ ...mockConversation, pinned: true }} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+
+      expect(screen.getByText('Unpin')).toBeInTheDocument();
+      expect(screen.queryByText('Pin')).not.toBeInTheDocument();
+    });
+
+    it('calls pin mutation when Pin is clicked', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={mockConversation} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByText('Pin'));
+
+      expect(mockPinMutate).toHaveBeenCalledWith({
+        conversationId: 'conv-123',
+        pinned: true,
+      });
+    });
+
+    it('calls unpin mutation when Unpin is clicked', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={{ ...mockConversation, pinned: true }} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByText('Unpin'));
+
+      expect(mockPinMutate).toHaveBeenCalledWith({
+        conversationId: 'conv-123',
+        pinned: false,
+      });
+    });
+
+    it('shows Pin option for non-owner members', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={{ ...mockConversation, privilege: 'write' }} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+
+      expect(screen.getByText('Pin')).toBeInTheDocument();
     });
   });
 });

@@ -2159,18 +2159,18 @@ describe('members route', () => {
     return app;
   }
 
-  // ── Mute mock infrastructure ──
+  // ── Shared mock infrastructure for simple update routes (mute, pin) ──
 
-  interface MuteMockDbConfig {
+  interface SimpleUpdateMockDbConfig {
     requesterMember?: { id: string; privilege: string; userId: string } | null;
   }
 
   /**
-   * Creates a mock Drizzle DB for the mute route:
+   * Creates a mock Drizzle DB for routes that do:
    * 0. Middleware: requester membership lookup (select→from→where→limit→then)
-   * 1. Mute: update chain returning rows affected
+   * 1. A single update chain
    */
-  function createMuteMockDb(config: MuteMockDbConfig): unknown {
+  function createSimpleUpdateMockDb(config: SimpleUpdateMockDbConfig): unknown {
     const indexRef = { value: 0 };
     const selectResults: unknown[][] = [
       // Query 0: middleware's membership lookup
@@ -2191,23 +2191,18 @@ describe('members route', () => {
       select: () => createQueryChain(),
       update: () => ({
         set: () => ({
-          where: () => ({
-            returning: () =>
-              Promise.resolve(
-                config.requesterMember ? [{ id: config.requesterMember.id, muted: true }] : []
-              ),
-          }),
+          where: () => Promise.resolve(),
         }),
       }),
     };
   }
 
-  interface MuteTestAppOptions {
+  interface SimpleUpdateTestAppOptions {
     user?: AppEnv['Variables']['user'] | null;
-    dbConfig?: MuteMockDbConfig;
+    dbConfig?: SimpleUpdateMockDbConfig;
   }
 
-  function createMuteTestApp(options: MuteTestAppOptions = {}): Hono<AppEnv> {
+  function createSimpleUpdateTestApp(options: SimpleUpdateTestAppOptions = {}): Hono<AppEnv> {
     const { user = createMockUser(), dbConfig = {} } = options;
     const app = new Hono<AppEnv>();
 
@@ -2218,7 +2213,7 @@ describe('members route', () => {
       c.set('user', user);
       c.set('session', user ? createMockSession() : null);
       c.set('sessionData', user ? createMockSession() : null);
-      c.set('db', createMuteMockDb(dbConfig) as AppEnv['Variables']['db']);
+      c.set('db', createSimpleUpdateMockDb(dbConfig) as AppEnv['Variables']['db']);
       await next();
     });
 
@@ -2226,9 +2221,11 @@ describe('members route', () => {
     return app;
   }
 
+  // ── Mute tests ──
+
   describe('PATCH /:conversationId/mute', () => {
     it('returns 401 when not authenticated', async () => {
-      const app = createMuteTestApp({ user: null });
+      const app = createSimpleUpdateTestApp({ user: null });
 
       const res = await app.request(`/${TEST_CONVERSATION_ID}/mute`, {
         method: 'PATCH',
@@ -2242,7 +2239,7 @@ describe('members route', () => {
     });
 
     it('returns 404 when not a member', async () => {
-      const app = createMuteTestApp({
+      const app = createSimpleUpdateTestApp({
         dbConfig: {
           requesterMember: null,
         },
@@ -2260,7 +2257,7 @@ describe('members route', () => {
     });
 
     it('returns 400 when muted field is missing', async () => {
-      const app = createMuteTestApp({
+      const app = createSimpleUpdateTestApp({
         dbConfig: {
           requesterMember: { id: 'member-1', privilege: 'read', userId: TEST_USER_ID },
         },
@@ -2276,7 +2273,7 @@ describe('members route', () => {
     });
 
     it('mutes notifications and returns 200', async () => {
-      const app = createMuteTestApp({
+      const app = createSimpleUpdateTestApp({
         dbConfig: {
           requesterMember: { id: 'member-1', privilege: 'read', userId: TEST_USER_ID },
         },
@@ -2294,7 +2291,7 @@ describe('members route', () => {
     });
 
     it('unmutes notifications and returns 200', async () => {
-      const app = createMuteTestApp({
+      const app = createSimpleUpdateTestApp({
         dbConfig: {
           requesterMember: { id: 'member-1', privilege: 'write', userId: TEST_USER_ID },
         },
@@ -2309,6 +2306,94 @@ describe('members route', () => {
       expect(res.status).toBe(200);
       const body = await res.json<{ muted: boolean }>();
       expect(body.muted).toBe(false);
+    });
+  });
+
+  // ── Pin tests ──
+
+  describe('PATCH /:conversationId/pin', () => {
+    it('returns 401 when not authenticated', async () => {
+      const app = createSimpleUpdateTestApp({ user: null });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/pin`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: true }),
+      });
+
+      expect(res.status).toBe(401);
+      const body = await res.json<{ code: string }>();
+      expect(body.code).toBe('NOT_AUTHENTICATED');
+    });
+
+    it('returns 404 when not a member', async () => {
+      const app = createSimpleUpdateTestApp({
+        dbConfig: {
+          requesterMember: null,
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/pin`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: true }),
+      });
+
+      expect(res.status).toBe(404);
+      const body = await res.json<{ code: string }>();
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
+    });
+
+    it('returns 400 when pinned field is missing', async () => {
+      const app = createSimpleUpdateTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'read', userId: TEST_USER_ID },
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/pin`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('pins conversation and returns 200', async () => {
+      const app = createSimpleUpdateTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'read', userId: TEST_USER_ID },
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/pin`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: true }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{ pinned: boolean }>();
+      expect(body.pinned).toBe(true);
+    });
+
+    it('unpins conversation and returns 200', async () => {
+      const app = createSimpleUpdateTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-1', privilege: 'write', userId: TEST_USER_ID },
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/pin`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: false }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{ pinned: boolean }>();
+      expect(body.pinned).toBe(false);
     });
   });
 

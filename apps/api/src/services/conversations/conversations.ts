@@ -18,6 +18,7 @@ export interface ConversationListRow {
   invitedByUsername: string | null;
   privilege: string;
   muted: boolean;
+  pinned: boolean;
 }
 
 export interface UpdateConversationParams {
@@ -142,6 +143,7 @@ export async function listConversations(
       invitedByUsername: inviter.username,
       privilege: conversationMembers.privilege,
       muted: conversationMembers.muted,
+      pinned: conversationMembers.pinned,
     })
     .from(conversationMembers)
     .innerJoin(conversations, eq(conversationMembers.conversationId, conversations.id))
@@ -180,6 +182,7 @@ export async function listConversations(
       invitedByUsername: row.invitedByUsername,
       privilege: row.privilege,
       muted: row.muted,
+      pinned: row.pinned,
     })),
     nextCursor,
   };

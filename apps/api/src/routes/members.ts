@@ -507,10 +507,37 @@ export const membersRoute = new Hono<AppEnv>()
             eq(conversationMembers.userId, user.id),
             isNull(conversationMembers.leftAt)
           )
-        )
-        .returning({ id: conversationMembers.id });
+        );
 
       return c.json({ muted }, 200);
+    }
+  )
+  .patch(
+    '/:conversationId/pin',
+    zValidator('param', z.object({ conversationId: z.string() })),
+    zValidator('json', z.object({ pinned: z.boolean() })),
+    requirePrivilege('read'),
+    async (c) => {
+      const user = c.get('user');
+      if (!user) {
+        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
+      }
+      const db = c.get('db');
+      const { conversationId } = c.req.valid('param');
+      const { pinned } = c.req.valid('json');
+
+      await db
+        .update(conversationMembers)
+        .set({ pinned })
+        .where(
+          and(
+            eq(conversationMembers.conversationId, conversationId),
+            eq(conversationMembers.userId, user.id),
+            isNull(conversationMembers.leftAt)
+          )
+        );
+
+      return c.json({ pinned }, 200);
     }
   )
   .patch(

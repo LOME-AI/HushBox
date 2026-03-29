@@ -19,6 +19,7 @@ interface Conversation {
   accepted?: boolean;
   invitedByUsername?: string | null;
   muted: boolean;
+  pinned: boolean;
 }
 
 interface FilteredConversations {
@@ -49,6 +50,7 @@ interface SidebarPanelsProps {
   unacceptedCount: number;
   sidebarOpen: boolean;
   filteredAccepted: Conversation[];
+  pinnedCount: number;
   filteredUnaccepted: Conversation[];
   activeConversationId?: string | undefined;
   isAuthenticated: boolean;
@@ -62,6 +64,7 @@ function SidebarPanels({
   unacceptedCount,
   sidebarOpen,
   filteredAccepted,
+  pinnedCount,
   filteredUnaccepted,
   activeConversationId,
   isAuthenticated,
@@ -69,6 +72,8 @@ function SidebarPanels({
   hasMore,
   isLoadingMore,
 }: Readonly<SidebarPanelsProps>): React.JSX.Element {
+  const hasPinnedAndUnpinned = pinnedCount > 0 && pinnedCount < filteredAccepted.length;
+
   return (
     <div className="scrollbar-hide min-h-0 flex-1 overflow-hidden">
       <div
@@ -83,14 +88,36 @@ function SidebarPanels({
             !sidebarOpen && 'scrollbar-hide'
           )}
         >
-          <ChatList
-            conversations={filteredAccepted}
-            activeId={activeConversationId}
-            isAuthenticated={isAuthenticated}
-            onLoadMore={onLoadMore}
-            hasMore={hasMore}
-            isLoadingMore={isLoadingMore}
-          />
+          {hasPinnedAndUnpinned ? (
+            <>
+              <ChatList
+                conversations={filteredAccepted.slice(0, pinnedCount)}
+                activeId={activeConversationId}
+                isAuthenticated={isAuthenticated}
+                label="Pinned conversations"
+              />
+              <div className="px-2 py-1">
+                <Separator className="bg-sidebar-border" data-testid="pinned-separator" />
+              </div>
+              <ChatList
+                conversations={filteredAccepted.slice(pinnedCount)}
+                activeId={activeConversationId}
+                isAuthenticated={isAuthenticated}
+                onLoadMore={onLoadMore}
+                hasMore={hasMore}
+                isLoadingMore={isLoadingMore}
+              />
+            </>
+          ) : (
+            <ChatList
+              conversations={filteredAccepted}
+              activeId={activeConversationId}
+              isAuthenticated={isAuthenticated}
+              onLoadMore={onLoadMore}
+              hasMore={hasMore}
+              isLoadingMore={isLoadingMore}
+            />
+          )}
         </div>
         {unacceptedCount > 0 && (
           <div className="h-full w-full flex-shrink-0 overflow-y-auto px-1">
@@ -196,6 +223,11 @@ export function SidebarContent({
     searchQuery
   );
 
+  // Stable-partition: pinned first, then unpinned (both keep existing order)
+  const pinned = filteredAccepted.filter((c) => c.pinned);
+  const unpinned = filteredAccepted.filter((c) => !c.pinned);
+  const sortedAccepted = [...pinned, ...unpinned];
+
   return (
     <nav
       data-testid="sidebar-nav"
@@ -230,7 +262,8 @@ export function SidebarContent({
         activeTab={activeTab}
         unacceptedCount={unaccepted.length}
         sidebarOpen={sidebarOpen}
-        filteredAccepted={filteredAccepted}
+        filteredAccepted={sortedAccepted}
+        pinnedCount={pinned.length}
         filteredUnaccepted={filteredUnaccepted}
         activeConversationId={activeConversationId}
         isAuthenticated={isAuthenticated}

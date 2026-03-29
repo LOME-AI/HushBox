@@ -109,12 +109,13 @@ export const conversationsRoute = new Hono<AppEnv>()
       return c.json(
         {
           conversations: userConversations.map(
-            ({ conversation, acceptedAt, invitedByUsername, privilege, muted }) => ({
+            ({ conversation, acceptedAt, invitedByUsername, privilege, muted, pinned }) => ({
               ...serializeConversation(conversation),
               accepted: acceptedAt !== null,
               invitedByUsername,
               privilege,
               muted,
+              pinned,
             })
           ),
           nextCursor,

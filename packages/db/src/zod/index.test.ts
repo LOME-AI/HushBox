@@ -763,6 +763,7 @@ describe('selectConversationMemberSchema', () => {
       leftAt: null,
       acceptedAt: null,
       muted: false,
+      pinned: false,
       invitedByUserId: null,
     });
     expect(result.success).toBe(true);

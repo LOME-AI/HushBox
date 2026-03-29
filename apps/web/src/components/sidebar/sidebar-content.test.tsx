@@ -67,6 +67,10 @@ vi.mock('@/hooks/use-conversation-members', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+  usePinConversation: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
 }));
 
 describe('SidebarContent', () => {
@@ -78,6 +82,7 @@ describe('SidebarContent', () => {
       updatedAt: new Date().toISOString(),
       privilege: 'owner',
       muted: false,
+      pinned: false,
     },
   ];
 
@@ -154,6 +159,7 @@ describe('SidebarContent', () => {
         invitedByUsername: null,
         privilege: 'owner',
         muted: false,
+        pinned: false,
       },
       {
         id: 'conv-2',
@@ -164,6 +170,7 @@ describe('SidebarContent', () => {
         invitedByUsername: null,
         privilege: 'write',
         muted: false,
+        pinned: false,
       },
     ];
 
@@ -177,6 +184,7 @@ describe('SidebarContent', () => {
         invitedByUsername: 'sarah',
         privilege: 'write',
         muted: false,
+        pinned: false,
       },
     ];
 
@@ -227,6 +235,107 @@ describe('SidebarContent', () => {
       render(<SidebarContent conversations={mockConversations} />);
       expect(screen.getByText('Recent Chats')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /invites/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('pinned conversations', () => {
+    it('renders pinned conversations above unpinned', () => {
+      const conversations = [
+        {
+          id: 'conv-unpinned-1',
+          title: 'Unpinned First',
+          currentEpoch: 1,
+          updatedAt: '2026-03-27T03:00:00Z',
+          privilege: 'owner',
+          muted: false,
+          pinned: false,
+        },
+        {
+          id: 'conv-pinned',
+          title: 'Pinned Chat',
+          currentEpoch: 1,
+          updatedAt: '2026-03-27T01:00:00Z',
+          privilege: 'owner',
+          muted: false,
+          pinned: true,
+        },
+        {
+          id: 'conv-unpinned-2',
+          title: 'Unpinned Second',
+          currentEpoch: 1,
+          updatedAt: '2026-03-27T02:00:00Z',
+          privilege: 'owner',
+          muted: false,
+          pinned: false,
+        },
+      ];
+
+      render(<SidebarContent conversations={conversations} />);
+
+      const items = screen.getAllByRole('listitem');
+      expect(items[0]).toHaveTextContent('Pinned Chat');
+      expect(items[1]).toHaveTextContent('Unpinned First');
+      expect(items[2]).toHaveTextContent('Unpinned Second');
+    });
+
+    it('renders separator between pinned and unpinned conversations', () => {
+      const conversations = [
+        {
+          id: 'conv-pinned',
+          title: 'Pinned Chat',
+          currentEpoch: 1,
+          updatedAt: '2026-03-27T01:00:00Z',
+          privilege: 'owner',
+          muted: false,
+          pinned: true,
+        },
+        {
+          id: 'conv-unpinned',
+          title: 'Unpinned Chat',
+          currentEpoch: 1,
+          updatedAt: '2026-03-27T02:00:00Z',
+          privilege: 'owner',
+          muted: false,
+          pinned: false,
+        },
+      ];
+
+      render(<SidebarContent conversations={conversations} />);
+
+      expect(screen.getByTestId('pinned-separator')).toBeInTheDocument();
+    });
+
+    it('does not render separator when no conversations are pinned', () => {
+      render(<SidebarContent conversations={mockConversations} />);
+
+      expect(screen.queryByTestId('pinned-separator')).not.toBeInTheDocument();
+    });
+
+    it('does not render separator when all conversations are pinned', () => {
+      const conversations = [
+        {
+          id: 'conv-pinned-1',
+          title: 'Pinned One',
+          currentEpoch: 1,
+          updatedAt: '2026-03-27T01:00:00Z',
+          privilege: 'owner',
+          muted: false,
+          pinned: true,
+        },
+        {
+          id: 'conv-pinned-2',
+          title: 'Pinned Two',
+          currentEpoch: 1,
+          updatedAt: '2026-03-27T02:00:00Z',
+          privilege: 'owner',
+          muted: false,
+          pinned: true,
+        },
+      ];
+
+      render(<SidebarContent conversations={conversations} />);
+
+      expect(screen.queryByTestId('pinned-separator')).not.toBeInTheDocument();
     });
   });
 });

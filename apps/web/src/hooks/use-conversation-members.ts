@@ -24,6 +24,25 @@ export function useMuteConversation() {
   });
 }
 
+export function usePinConversation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ conversationId, pinned }: { conversationId: string; pinned: boolean }) =>
+      fetchJson(
+        client.api.members[':conversationId'].pin.$patch({
+          param: { conversationId },
+          json: { pinned },
+        })
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: chatKeys.conversations(),
+      });
+    },
+  });
+}
+
 function invalidateMemberAndBudget(
   queryClient: QueryClient
 ): (_data: unknown, variables: { conversationId: string }) => Promise<void> {

@@ -19,6 +19,10 @@ vi.mock('@/hooks/use-conversation-members', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+  usePinConversation: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
 }));
 
 // Mock router for navigation after accept
