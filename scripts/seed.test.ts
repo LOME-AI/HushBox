@@ -530,11 +530,11 @@ describe('seed script', () => {
       expect(aliceProjects).toHaveLength(2);
     });
 
-    it('alice has exactly 8 conversations (3 sample + 5 screenshot)', async () => {
+    it('alice has exactly 155 conversations (150 sample + 5 screenshot)', async () => {
       const data = await generatePersonaData();
       const aliceId = seedUUID('dev-user-alice');
       const aliceConversations = data.conversations.filter((c) => c.userId === aliceId);
-      expect(aliceConversations).toHaveLength(8);
+      expect(aliceConversations).toHaveLength(155);
     });
 
     it('sets emailVerified correctly from persona definition', async () => {
