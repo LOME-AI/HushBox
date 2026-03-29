@@ -4,7 +4,7 @@ import { createEnvUtilities } from '@hushbox/shared';
 import { createOpenRouterClient, type EvidenceConfig } from './openrouter.js';
 import { createFastMockOpenRouterClient } from '../../test-helpers/openrouter-mocks.js';
 import type { OpenRouterClient } from './types.js';
-import { retryWithBackoff, isProviderError } from './test-utilities.js';
+import { retryWithBackoff, isProviderError } from './retry.js';
 
 /**
  * Integration tests for OpenRouter auto-router (`openrouter/auto`).
@@ -161,11 +161,7 @@ describe('Auto-Router Integration', () => {
 
     expect(generationId).toBeDefined();
 
-    // Fetch generation stats — may need a brief wait for stats to propagate
-    const stats = await retryWithBackoff(() => client.getGenerationStats(generationId!), {
-      maxAttempts: 5,
-      initialDelayMs: 2000,
-    });
+    const stats = await client.getGenerationStats(generationId!);
 
     expect(stats.id).toBeDefined();
     expect(stats.native_tokens_prompt).toBeGreaterThan(0);

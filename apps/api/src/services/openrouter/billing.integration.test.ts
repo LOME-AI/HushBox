@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createOpenRouterClient } from './openrouter.js';
-import { getPaidTestModel, clearTestModelCache, retryWithBackoff } from './test-utilities.js';
+import { getPaidTestModel, clearTestModelCache } from './test-utilities.js';
 import type { OpenRouterClient } from './types.js';
 import { applyFees, TOTAL_FEE_RATE } from '@hushbox/shared';
 
@@ -21,9 +21,6 @@ if (isCI && !hasApiKey) {
     'OPENROUTER_API_KEY is required in CI. Ensure the secret is set in GitHub Actions.'
   );
 }
-
-/** Generation stats retry config: 1s, 2s, 4s, 4s, ... (~39s total, within 60s timeout) */
-const GENERATION_STATS_RETRY = { maxAttempts: 12, initialDelayMs: 1000 } as const;
 
 describe.skipIf(!hasApiKey)('Billing Integration', () => {
   let client: OpenRouterClient;
@@ -56,11 +53,7 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
       const generationId = response.id;
       expect(generationId).toBeDefined();
 
-      // Get generation stats (may need to wait for availability)
-      const stats = await retryWithBackoff(
-        () => client.getGenerationStats(generationId),
-        GENERATION_STATS_RETRY
-      );
+      const stats = await client.getGenerationStats(generationId);
 
       // Verify stats structure
       expect(stats.id).toBe(generationId);
@@ -77,11 +70,7 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
         max_tokens: 20,
       });
 
-      // Get exact cost from OpenRouter
-      const stats = await retryWithBackoff(
-        () => client.getGenerationStats(response.id),
-        GENERATION_STATS_RETRY
-      );
+      const stats = await client.getGenerationStats(response.id);
 
       // Calculate what we would charge the user
       const openRouterCost = stats.total_cost;
@@ -111,10 +100,7 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
         max_tokens: 10,
       });
 
-      const stats = await retryWithBackoff(
-        () => client.getGenerationStats(response.id),
-        GENERATION_STATS_RETRY
-      );
+      const stats = await client.getGenerationStats(response.id);
 
       // Native tokens should be positive integers
       expect(Number.isInteger(stats.native_tokens_prompt)).toBe(true);

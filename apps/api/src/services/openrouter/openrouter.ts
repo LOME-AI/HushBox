@@ -11,9 +11,13 @@ import type {
   StreamToken,
 } from './types.js';
 import { parseContextLengthError } from './context-error.js';
+import { retryWithBackoff } from './retry.js';
 
 /** Minimum output tokens to justify a retry after context length error. */
 export const MINIMUM_OUTPUT_TOKENS = 1000;
+
+/** Generation stats retry: 1s, 2s, 4s, 4s, ... (~23s total, fits within Worker CPU limit) */
+const GENERATION_STATS_RETRY = { maxAttempts: 8, initialDelayMs: 1000, maxDelayMs: 4000 } as const;
 
 /**
  * Error thrown when the model's context is too full to produce useful output.
@@ -377,27 +381,29 @@ export function createOpenRouterClient(
     },
 
     async getGenerationStats(generationId: string): Promise<GenerationStats> {
-      const response = await fetch(`${OPENROUTER_API_URL}/generation?id=${generationId}`, {
-        method: 'GET',
-        headers,
-      });
-      await recordEvidence();
+      return retryWithBackoff(async () => {
+        const response = await fetch(`${OPENROUTER_API_URL}/generation?id=${generationId}`, {
+          method: 'GET',
+          headers,
+        });
+        await recordEvidence();
 
-      if (!response.ok) {
-        const error = await safeJsonParse<OpenRouterErrorResponse>(
+        if (!response.ok) {
+          const error = await safeJsonParse<OpenRouterErrorResponse>(
+            response,
+            'OpenRouter generation stats error'
+          );
+          throw new Error(
+            `Failed to get generation stats: ${error.error?.message ?? response.statusText}`
+          );
+        }
+
+        const responseData = await safeJsonParse<{ data: GenerationStats }>(
           response,
-          'OpenRouter generation stats error'
+          'OpenRouter generation stats'
         );
-        throw new Error(
-          `Failed to get generation stats: ${error.error?.message ?? response.statusText}`
-        );
-      }
-
-      const responseData = await safeJsonParse<{ data: GenerationStats }>(
-        response,
-        'OpenRouter generation stats'
-      );
-      return responseData.data;
+        return responseData.data;
+      }, GENERATION_STATS_RETRY);
     },
   };
 }

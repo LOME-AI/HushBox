@@ -464,6 +464,80 @@ describe('createOpenRouterClient', () => {
       );
     });
   });
+
+  describe('getGenerationStats', () => {
+    it('returns stats immediately when fetch succeeds on first attempt', async () => {
+      const statsData = {
+        id: 'gen-123',
+        native_tokens_prompt: 10,
+        native_tokens_completion: 5,
+        total_cost: 0.001,
+      };
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ data: statsData }),
+      });
+
+      const result = await client.getGenerationStats('gen-123');
+
+      expect(result).toEqual(statsData);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries when fetch fails and returns stats on subsequent attempt', async () => {
+      vi.useFakeTimers();
+
+      const statsData = {
+        id: 'gen-456',
+        native_tokens_prompt: 10,
+        native_tokens_completion: 5,
+        total_cost: 0.001,
+      };
+
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: false,
+          statusText: 'Not Found',
+          json: () => Promise.resolve({ error: { message: 'Generation gen-456 not found' } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ data: statsData }),
+        });
+
+      const promise = client.getGenerationStats('gen-456');
+      await vi.advanceTimersByTimeAsync(1000);
+      const result = await promise;
+
+      expect(result).toEqual(statsData);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      vi.useRealTimers();
+    });
+
+    it('throws after all retry attempts are exhausted', async () => {
+      vi.useFakeTimers();
+
+      fetchMock.mockResolvedValue({
+        ok: false,
+        statusText: 'Not Found',
+        json: () => Promise.resolve({ error: { message: 'Generation not found' } }),
+      });
+
+      const promise = client.getGenerationStats('gen-bad');
+      const assertion = expect(promise).rejects.toThrow(
+        'Failed to get generation stats: Generation not found'
+      );
+
+      // Advance through all retry delays: 1s, 2s, 4s, 4s, 4s, 4s, 4s = 23s for 8 attempts
+      await vi.advanceTimersByTimeAsync(30_000);
+      await assertion;
+
+      expect(fetchMock).toHaveBeenCalledTimes(8);
+
+      vi.useRealTimers();
+    });
+  });
 });
 
 describe('fetchModels (public, no auth required)', () => {

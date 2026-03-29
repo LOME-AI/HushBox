@@ -5,12 +5,8 @@ import { createOpenRouterClient, type EvidenceConfig } from './openrouter.js';
 import { fetchModels, fetchZdrModelIds } from '@hushbox/shared/models';
 import { createFastMockOpenRouterClient } from '../../test-helpers/openrouter-mocks.js';
 import type { OpenRouterClient, ModelInfo } from './types.js';
-import {
-  getPaidTestModel,
-  clearTestModelCache,
-  retryWithBackoff,
-  isProviderError,
-} from './test-utilities.js';
+import { getPaidTestModel, clearTestModelCache } from './test-utilities.js';
+import { retryWithBackoff, isProviderError } from './retry.js';
 
 /**
  * Integration tests for OpenRouter API.

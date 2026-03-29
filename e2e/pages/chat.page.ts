@@ -149,8 +149,9 @@ export class ChatPage {
   }
 
   async scrollUp(pixels: number): Promise<void> {
-    await this.viewport.hover();
-    await this.page.mouse.wheel(0, -pixels);
+    await this.viewport.evaluate((el, px) => {
+      el.scrollTop = Math.max(0, el.scrollTop - px);
+    }, pixels);
   }
 
   async isInputFocused(): Promise<boolean> {
