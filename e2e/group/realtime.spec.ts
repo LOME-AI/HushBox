@@ -17,7 +17,10 @@ test.describe('Real-time WebSocket events', () => {
     await aliceChatPage.waitForConversationLoaded();
     await bobChatPage.waitForConversationLoaded();
 
-    // Allow React effects to register WebSocket event listeners after connection
+    await aliceChatPage.waitForWebSocketConnected();
+    await bobChatPage.waitForWebSocketConnected();
+
+    // Allow server-side (Durable Object) to finish registering WebSocket connections
     await bobChatPage.page.waitForTimeout(500);
 
     // Alice toggles AI off (avoids waiting for streaming)
@@ -58,7 +61,7 @@ test.describe('Real-time WebSocket events', () => {
     await aliceChatPage.waitForWebSocketConnected();
     await bobChatPage.waitForWebSocketConnected();
 
-    // Allow React effects to register WebSocket event listeners after connection
+    // Allow server-side (Durable Object) to finish registering WebSocket connections
     await bobChatPage.page.waitForTimeout(500);
 
     // Alice sends a message with AI on (default)

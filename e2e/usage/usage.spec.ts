@@ -6,8 +6,8 @@ test.describe('Usage Analytics', () => {
     const usagePage = new UsagePage(authenticatedPage);
 
     await test.step('navigate via sidebar menu', async () => {
-      // Open sidebar footer dropdown
-      await authenticatedPage.getByTestId('sidebar-dropdown-trigger').click();
+      await authenticatedPage.goto('/chat');
+      await authenticatedPage.getByTestId('sidebar-trigger').click();
       await authenticatedPage.getByTestId('menu-usage').click();
       await authenticatedPage.waitForURL('/usage');
       await expect(usagePage.usageContent).toBeVisible();

@@ -240,7 +240,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
         data={messages}
         followOutput={followOutput}
         atBottomStateChange={handleAtBottomStateChange}
-        atBottomThreshold={50}
+        atBottomThreshold={atBottomThreshold}
         {...(env.isE2E && {
           initialItemCount: messages.length,
           increaseViewportBy: { top: 999_999, bottom: 999_999 },

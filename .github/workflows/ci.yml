@@ -40,6 +40,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-blacksmith
+      - name: Generate Astro types
+        run: pnpm --filter @hushbox/marketing exec astro sync
       - name: Lint
         run: pnpm lint
 
