@@ -104,6 +104,15 @@ export {
 export { FeeBreakdown, type FeeBreakdownProps } from './components/marketing/fee-breakdown';
 export { CostPieChart, type CostPieChartProps } from './components/marketing/cost-pie-chart';
 
+// Chart Components
+export {
+  ChartContainer,
+  ChartTooltipContent,
+  ChartLegendContent,
+  useChart,
+  type ChartConfig,
+} from './components/chart';
+
 // Utilities
 export { cn } from './lib/utilities';
 export { triggerViewTransition } from './lib/trigger-view-transition';

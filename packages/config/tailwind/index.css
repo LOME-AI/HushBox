@@ -45,6 +45,13 @@
   --message-user: #d4cdc4;
   --message-assistant: transparent;
 
+  /* Charts */
+  --chart-1: #ec4755;
+  --chart-2: #2563eb;
+  --chart-3: #16a34a;
+  --chart-4: #d97706;
+  --chart-5: #8b5cf6;
+
   --radius: 0.5rem;
 }
 
@@ -87,6 +94,13 @@
   /* Messages */
   --message-user: #2a2725;
   --message-assistant: transparent;
+
+  /* Charts */
+  --chart-1: #f87171;
+  --chart-2: #60a5fa;
+  --chart-3: #4ade80;
+  --chart-4: #fbbf24;
+  --chart-5: #a78bfa;
 
   /* Shiki dual-theme: override inline light-theme colors with dark-theme values.
      Shiki puts `color: #lightcolor` directly in inline style (cannot be overridden
@@ -156,6 +170,13 @@
   /* Messages */
   --color-message-user: var(--message-user);
   --color-message-assistant: var(--message-assistant);
+
+  /* Charts */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
 
   /* Radius */
   --radius-sm: calc(var(--radius) - 4px);

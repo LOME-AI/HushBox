@@ -9,6 +9,7 @@ import {
   User,
   Settings,
   CreditCard,
+  BarChart3,
   LogOut,
   LogIn,
   UserPlus,
@@ -114,6 +115,15 @@ function AuthenticatedMenuItems({ navigate }: Readonly<MenuItemsProps>): React.J
           Settings
         </DropdownMenuItem>
       )}
+      <DropdownMenuItem
+        onClick={() => {
+          void navigate({ to: ROUTES.USAGE });
+        }}
+        data-testid="menu-usage"
+      >
+        <BarChart3 className="mr-2 h-4 w-4" />
+        Usage
+      </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => {
           void navigate({ to: ROUTES.BILLING });
