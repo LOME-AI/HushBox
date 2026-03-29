@@ -391,6 +391,7 @@ describe('handleBillingResult', () => {
       billingPromise: Promise.resolve(billingResult),
       assistantMessageId: 'asst-123',
       userId: 'user-1',
+      senderId: 'user-1',
       model: 'openai/gpt-4o',
       generationId: 'gen-abc',
     });
@@ -407,6 +408,7 @@ describe('handleBillingResult', () => {
       billingPromise: Promise.reject(new Error('DB connection failed')),
       assistantMessageId: 'asst-456',
       userId: 'user-2',
+      senderId: 'user-2',
       model: 'anthropic/claude',
       generationId: 'gen-xyz',
     });
@@ -435,6 +437,7 @@ describe('handleBillingResult', () => {
       billingPromise: Promise.reject(new Error('string error')),
       assistantMessageId: 'asst-789',
       userId: 'user-3',
+      senderId: 'user-3',
       model: 'model/x',
       generationId: undefined,
     });
@@ -461,6 +464,7 @@ describe('handleBillingResult', () => {
       billingPromise,
       assistantMessageId: 'asst-1',
       userId: 'user-1',
+      senderId: 'user-1',
       model: 'model/a',
       generationId: undefined,
     });
@@ -484,6 +488,7 @@ describe('handleBillingResult', () => {
       billingPromise: Promise.resolve(billingResult),
       assistantMessageId: 'asst-1',
       userId: 'user-1',
+      senderId: 'user-1',
       model: 'model/a',
       generationId: undefined,
     });
