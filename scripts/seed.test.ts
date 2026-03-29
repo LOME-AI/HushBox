@@ -93,6 +93,9 @@ vi.mock('@hushbox/db', () => {
     epochs: { id: 'id' },
     epochMembers: { id: 'id' },
     conversationMembers: { id: 'id' },
+    usageRecords: { id: 'id' },
+    llmCompletions: { id: 'id' },
+    conversationSpending: { id: 'id' },
   };
 });
 
@@ -238,6 +241,32 @@ vi.mock('@hushbox/db/factories', () => ({
       ...overrides,
       joinedAt: new Date(),
       leftAt: null,
+    })),
+  },
+  usageRecordFactory: {
+    build: vi.fn((overrides: Record<string, unknown> = {}) => ({
+      id: 'test-usage-id',
+      userId: 'test-user-id',
+      type: 'llm_completion',
+      status: 'completed',
+      cost: '0.01000000',
+      sourceType: 'message',
+      sourceId: 'test-msg-id',
+      ...overrides,
+      createdAt: new Date(),
+      completedAt: new Date(),
+    })),
+  },
+  llmCompletionFactory: {
+    build: vi.fn((overrides: Record<string, unknown> = {}) => ({
+      id: 'test-completion-id',
+      usageRecordId: 'test-usage-id',
+      model: 'openai/gpt-4o',
+      provider: 'openai',
+      inputTokens: 100,
+      outputTokens: 50,
+      cachedTokens: 0,
+      ...overrides,
     })),
   },
 }));

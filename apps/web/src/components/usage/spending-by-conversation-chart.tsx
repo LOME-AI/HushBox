@@ -1,5 +1,5 @@
 import * as React from 'react';
-// eslint-disable-next-line @typescript-eslint/no-deprecated, sonarjs/deprecation -- recharts v3 still uses Cell for Pie coloring
+// eslint-disable-next-line sonarjs/deprecation -- recharts v3 still uses Cell for Pie coloring
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import {
   Card,
