@@ -1,5 +1,5 @@
 import { type Locator, type Page } from '@playwright/test';
-import { expect } from '../helpers/settled-expect.js';
+import { expect, unsettledExpect } from '../helpers/settled-expect.js';
 
 export class UsagePage {
   readonly page: Page;
@@ -66,7 +66,7 @@ export class UsagePage {
 
   async expectChartHasData(chart: Locator): Promise<void> {
     // Recharts renders SVG with class "recharts-surface" when data is present
-    await expect(chart.locator('.recharts-surface')).toBeVisible();
+    await unsettledExpect(chart.locator('.recharts-surface')).toBeVisible();
   }
 
   async getKpiTotalSpentText(): Promise<string> {

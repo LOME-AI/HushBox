@@ -162,7 +162,7 @@ export class MemberSidebarPage {
 
     if (!(await this.content.isVisible().catch(() => false))) return;
 
-    await this.page.keyboard.press('Escape');
+    await this.page.locator('[data-slot="sheet-overlay"]').click();
     await this.content.waitFor({ state: 'hidden', timeout: 5000 });
   }
 
