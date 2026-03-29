@@ -1,0 +1,13 @@
+---
+import LandingHeader from './LandingHeader.astro';
+---
+
+<body class="bg-background text-foreground flex min-h-dvh flex-col antialiased">
+  <LandingHeader />
+  <main class="mx-auto w-full max-w-5xl flex-1 px-6 pt-24 pb-12">
+    <slot />
+  </main>
+  <footer class="text-foreground-muted border-t py-8 text-center text-sm">
+    <p>&copy; {new Date().getFullYear()} LOME-AI LLC. All rights reserved.</p>
+  </footer>
+</body>

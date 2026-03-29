@@ -1,0 +1,135 @@
+---
+import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
+import { render } from 'astro:content';
+import BlogLayout from '../../layouts/BlogLayout.astro';
+import BlogPostCard from '../../components/blog/BlogPostCard.astro';
+import { TableOfContents } from '../../components/blog/TableOfContents';
+import BlogDisclaimer from '../../components/blog/BlogDisclaimer.astro';
+import { ShareButton } from '../../components/blog/ShareButton';
+import { getPublishedPosts, getRelatedPosts, getReadingTime, formatPostDate } from '../../lib/blog';
+import { Badge } from '@hushbox/ui';
+
+export const getStaticPaths = (async () => {
+  const posts = await getPublishedPosts();
+  return posts.map((post) => ({
+    params: { slug: post.id },
+    props: { post },
+  }));
+}) satisfies GetStaticPaths;
+
+type Props = InferGetStaticPropsType<typeof getStaticPaths>;
+
+const { post } = Astro.props;
+const allPosts = await getPublishedPosts();
+const relatedPosts = getRelatedPosts(post, allPosts);
+
+const { Content, headings } = await render(post);
+const readingTime = getReadingTime(post.body ?? '');
+
+const formattedDate = formatPostDate(post.data.date);
+
+const initials = post.data.author
+  .split(' ')
+  .map((w) => w[0])
+  .join('')
+  .slice(0, 2)
+  .toUpperCase();
+---
+
+<BlogLayout
+  title={post.data.title}
+  description={post.data.description}
+  author={post.data.author}
+  date={post.data.date}
+  tags={post.data.tags}
+  image={post.data.image?.src}
+>
+  <div>
+    <a
+      href="/blog"
+      class="text-foreground-muted hover:text-foreground inline-flex items-center gap-1 text-sm transition-colors"
+    >
+      &larr; Back to Blog
+    </a>
+
+    <!-- Article Header -->
+    <header class="mt-8">
+      <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
+        {post.data.title}
+      </h1>
+
+      <div class="mt-4 flex items-center gap-3">
+        <div
+          class="bg-brand-red-subtle text-brand-red flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold"
+        >
+          {initials}
+        </div>
+        <div>
+          <div class="text-foreground text-sm font-medium">{post.data.author}</div>
+          <div class="text-foreground-muted text-xs">
+            <time datetime={post.data.date.toISOString()}>{formattedDate}</time>
+            <span aria-hidden="true"> &middot; </span>
+            <span>{readingTime} min read</span>
+          </div>
+        </div>
+      </div>
+
+      {
+        post.data.tags.length > 0 && (
+          <div class="mt-4 flex flex-wrap gap-1.5">
+            {post.data.tags.map((tag) => (
+              <a href={`/blog/tag/${tag}`}>
+                <Badge variant="secondary" className="text-xs">
+                  {tag}
+                </Badge>
+              </a>
+            ))}
+          </div>
+        )
+      }
+    </header>
+
+    <!-- Mobile TOC (above article on small screens) -->
+    <details class="border-border mt-4 rounded-lg border p-4 lg:hidden">
+      <summary class="text-foreground cursor-pointer text-sm font-semibold">On this page</summary>
+      <div class="mt-3">
+        <TableOfContents headings={headings} client:visible />
+      </div>
+    </details>
+
+    <!-- Content + TOC -->
+    <div class="mt-4 lg:grid lg:grid-cols-[1fr_220px] lg:gap-10">
+      <article class="prose-blog max-w-none">
+        <Content />
+      </article>
+
+      <aside class="hidden lg:block">
+        <div class="sticky top-28">
+          <TableOfContents headings={headings} client:visible />
+        </div>
+      </aside>
+    </div>
+
+    <!-- Disclaimer + Share -->
+    <div
+      class="border-border mt-8 flex flex-col gap-4 border-t pt-6 sm:flex-row sm:items-start sm:justify-between"
+    >
+      <BlogDisclaimer date={post.data.date} />
+      <ShareButton client:visible />
+    </div>
+
+    <!-- Related Posts -->
+    {
+      relatedPosts.length > 0 && (
+        <div class="border-border mt-8 border-t pt-8">
+          <h2 class="mb-6 text-2xl font-bold">More from the blog</h2>
+          <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {relatedPosts.map((related) => (
+              <BlogPostCard post={related} />
+            ))}
+          </div>
+        </div>
+      )
+    }
+  </div>
+</BlogLayout>

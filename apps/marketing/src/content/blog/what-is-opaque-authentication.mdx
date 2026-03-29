@@ -1,0 +1,89 @@
+---
+title: "What Is OPAQUE Authentication?"
+description: "Your password exists in plaintext on every server you log into. OPAQUE is the protocol that ends this."
+author: "HushBox Team"
+date: 2026-03-28
+tags: ["privacy", "encryption", "security", "authentication"]
+draft: false
+---
+
+## The dirty secret of password authentication
+
+Every time you log into a website, you type your password and click "Sign In." TLS encrypts the connection. The lock icon glows green. You feel safe.
+
+Here's what actually happens: your password arrives at the server in plaintext. The server reads it, hashes it, compares the hash to what's stored in the database, then (hopefully) discards the original. For a few milliseconds, your password exists in raw form on someone else's machine. In their memory. On their internal bus. Accessible to their code, their logging pipeline, their compromised dependencies.
+
+This is how every major service works. Google, Apple, Amazon, your bank. The server must see your password to verify it. That's not a bug in any particular implementation. It's the fundamental design of password authentication as we've done it for decades.
+
+TLS protects the wire. Nothing protects the endpoint.
+
+So: does the server actually *need* to see your password?
+
+## What OPAQUE actually does
+
+OPAQUE is a cryptographic protocol that lets a server verify your password without ever seeing it. Not during registration. Not during login. Not ever.
+
+The name stands for "O-PAKE," where the O means "Oblivious," referring to the core mechanism: an Oblivious Pseudorandom Function, or OPRF. Here's how it works in concrete terms.
+
+**Registration** (creating an account):
+
+1. You type your password. Your browser "blinds" it, scrambling it with a random value before sending anything to the server.
+2. The server receives this blinded value. It applies its own secret key and sends the result back. The server has no idea what password produced this blinded value.
+3. Your browser "unblinds" the result, recovering a strong cryptographic key derived from *both* your password and the server's secret. This key encrypts your credentials into a sealed record.
+4. That sealed record is stored on the server. The server helped create it but can't open it. Only your password can.
+
+**Login** (coming back):
+
+1. You type your password. Your browser blinds it again with a fresh random value and sends it.
+2. The server applies its key and returns the result, along with your sealed record.
+3. Your browser unblinds, derives the same key as before, opens the sealed record, and uses the credentials inside to complete a mutual authentication handshake.
+4. Both sides now share a session key. The server has confirmed you know the password. You've confirmed you're talking to the real server. Neither side transmitted the password.
+
+The word "oblivious" is doing real work here. The server performs a computation on your password without learning anything about it. Think of it like asking someone to sign a document inside a sealed envelope. They apply their signature through the envelope. You open it and see the signed document. They never read a word.
+
+## Why this wasn't solved before
+
+Password-authenticated key exchange protocols have existed since Bellovin and Merritt proposed the first one in 1992. SRP, the most widely deployed variant, has been around since the late '90s. So why did we need something new?
+
+SRP and similar protocols had a structural weakness: the server transmitted the salt to the client during authentication. If an attacker breached the server and stole the database, they got both the password verifiers *and* the salts. With salts in hand, they could pre-compute dictionaries of common passwords and crack accounts in bulk.
+
+OPAQUE, introduced at EUROCRYPT 2018 by Stanislaw Jarecki, Hugo Krawczyk, and Jiayu Xu, was the first asymmetric PAKE protocol with a formal proof of resistance to pre-computation attacks. The salt never leaves the server. It's baked into the OPRF evaluation, invisible to the client and invisible to any attacker who compromises the database. A breach gives you encrypted records that require a per-user dictionary attack to crack, each one gated by the server's OPRF key.
+
+The cryptography community recognized this. In 2020, the IETF's Crypto Forum Research Group ran a formal selection process for PAKE standards, evaluating eight candidates across two categories. OPAQUE won the augmented (client-server) category. Five years of refinement later, it was published as RFC 9807 in July 2025.
+
+## Who uses OPAQUE today
+
+The honest answer: almost nobody.
+
+WhatsApp adopted OPAQUE in 2021 for their end-to-end encrypted backup system. When you protect your chat backup with a password, OPAQUE establishes a key with hardware security modules across five data centers. The HSMs never see your password. NCC Group audited the implementation, and a formal security analysis was published at CRYPTO 2023.
+
+Cloudflare built and open-sourced a TypeScript implementation (`@cloudflare/opaque-ts`), co-authored the RFC, and published detailed technical explainers. Meta has publicly stated they're exploring OPAQUE for credential protection. NIST hosted a presentation on the protocol at their Crypto Reading Club in October 2024.
+
+That's roughly the complete list. The protocol has been formally verified, standardized, endorsed by the IETF's cryptography research group, and adopted by a product with two billion users. Yet most services still send your password to their server in plaintext and hash it on arrival.
+
+Why? Because traditional password auth is easy. Every web framework ships with it. OPAQUE requires client-side cryptography, a multi-round protocol, and careful key management. For most companies, the security gap between "good enough" and "correct" doesn't justify the engineering cost. Their users won't know the difference, and their marketing page can still say "bank-grade security" either way.
+
+## How HushBox uses OPAQUE
+
+HushBox uses Cloudflare's `@cloudflare/opaque-ts` library with the P-256 elliptic curve.
+
+When you create a HushBox account, the OPAQUE registration flow runs entirely in your browser. Your password produces an export key through the protocol, and that export key derives a wrapping keypair that encrypts your account's private key. The server stores the OPAQUE registration record and your encrypted private key. It can verify you on future logins. It can't decrypt anything you've stored.
+
+When you log back in, the three-message OPAQUE exchange produces the same export key. Your browser uses it to unwrap your private key, which then decrypts your conversations. The server facilitates this without ever possessing the password or the decryption key.
+
+Two details worth calling out. First, when someone tries to log in with a username that doesn't exist, the server generates a fake OPAQUE response that's computationally indistinguishable from a real one. An attacker probing for valid accounts gets identical timing and identical response structure whether the account exists or not. Second, the server identifier is fixed rather than tied to the domain name, so authentication doesn't break if the domain changes.
+
+The practical consequence: HushBox's server is designed so that a complete breach of the database and application code wouldn't expose your password or your conversations. The password never existed on the server. The conversations are encrypted with a key derived from that password. Compromise one and you still have nothing useful.
+
+---
+
+## Sources
+
+1. [Jarecki, Krawczyk, Xu — "OPAQUE: An Asymmetric PAKE Protocol Secure Against Pre-Computation Attacks" (EUROCRYPT 2018)](https://eprint.iacr.org/2018/163)
+2. [RFC 9807 — The OPAQUE Augmented PAKE Protocol (July 2025)](https://datatracker.ietf.org/doc/rfc9807/)
+3. [RFC 9497 — Oblivious Pseudorandom Functions Using Prime-Order Groups (December 2023)](https://www.rfc-editor.org/rfc/rfc9497.html)
+4. [CFRG PAKE Selection Process](https://github.com/cfrg/pake-selection)
+5. [Meta Engineering — WhatsApp End-to-End Encrypted Backups (September 2021)](https://engineering.fb.com/2021/09/10/security/whatsapp-e2ee-backups/)
+6. [WhatsApp Security: Encrypted Backups Whitepaper](https://www.whatsapp.com/security/WhatsApp_Security_Encrypted_Backups_Whitepaper.pdf)
+7. [Cloudflare Blog — OPAQUE: The Best Passwords Never Leave Your Device](https://blog.cloudflare.com/opaque-oblivious-passwords/)
+8. [NIST CSRC — The OPAQUE Password Protocol (October 2024)](https://csrc.nist.gov/Presentations/2024/the-opaque-password-protocol)

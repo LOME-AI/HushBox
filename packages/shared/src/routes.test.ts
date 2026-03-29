@@ -6,7 +6,7 @@ describe('ROUTES constants', () => {
   const routeValues = Object.values(ROUTES);
 
   it('contains the expected number of route definitions', () => {
-    expect(routeEntries.length).toBe(19);
+    expect(routeEntries.length).toBe(20);
   });
 
   it('has all values as non-empty strings', () => {
@@ -39,6 +39,7 @@ describe('ROUTES constants', () => {
     expect(ROUTES).toMatchInlineSnapshot(`
       {
         "BILLING": "/billing",
+        "BLOG": "/blog",
         "CHAT": "/chat",
         "CHAT_ID": "/chat/$id",
         "CHAT_NEW": "/chat/new",

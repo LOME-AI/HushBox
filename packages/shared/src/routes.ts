@@ -26,6 +26,7 @@ export const ROUTES = {
 
   // Marketing / legal routes (public, no auth)
   MARKETING: '/welcome',
+  BLOG: '/blog',
   PRIVACY: '/privacy',
   TERMS: '/terms',
 

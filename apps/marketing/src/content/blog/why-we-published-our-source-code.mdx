@@ -1,0 +1,63 @@
+---
+title: "Why We Published Our Source Code"
+description: "Published code turns privacy claims into verifiable facts. Here's why that matters."
+author: "HushBox Team"
+date: 2026-03-28
+tags: ["privacy", "security", "transparency"]
+draft: false
+---
+
+## Every AI company says "trust us"
+
+Go to any AI company's website and you'll find the same promises. "Your privacy matters." "Your data is secure." "We take security seriously."
+
+How would you verify any of that? The code that runs ChatGPT is private. So is Claude's. So is Gemini's. Almost every major AI service asks you to take their word for it, because there's nothing else to take.
+
+In October 2025, researchers at Stanford's Human-Centered AI institute examined the privacy policies of major AI chatbots and flagged long data retention periods, training on children's data, and a general lack of transparency. Around the same time, OpenAI, Anthropic, and Google all updated their privacy settings. Anthropic extended its data retention from 30 days to five years for users who hadn't opted out of training. A federal judge ordered OpenAI to preserve and hand over 20 million ChatGPT conversation logs as part of the New York Times copyright lawsuit, including conversations users had already deleted.
+
+Users learned about these changes from news articles, not from reading the software. If you wanted to check what these services actually do with your conversations, you had no way to do it.
+
+## What "published source code" means
+
+Source code is the set of human-readable instructions that make software work. Every application you use runs on code that someone wrote. When that code is public, anyone with the skill to read it can see exactly what the software does. Not what the company's blog post says it does, but what it actually does.
+
+There's a distinction worth knowing. "Open source" means the code is public and anyone can freely use, modify, or redistribute it. "Source-available" means the code is public and anyone can read it, but there are restrictions on use. HushBox is source-available: the code is visible for inspection and contribution, but it's proprietary. We built a business, and the code is ours.
+
+That distinction matters to software lawyers. For the purpose of trust, the question is whether you can read the code, and at HushBox you can.
+
+## Security that works in the open
+
+In 1883, a Dutch cryptographer named Auguste Kerckhoffs published a principle that still governs how security systems are designed: a system should remain secure even if everything about it is public knowledge, except the key.
+
+Think of a door lock. A good lock works even if a burglar knows exactly how the mechanism functions, who manufactured it, and where you bought it. The lock's security depends on you having the key, not on the burglar being ignorant of the design. A lock that only works when nobody knows how it's built is a bad lock.
+
+Modern encryption follows the same logic. AES, the algorithm that protects classified government communications, is a published standard. RSA, the algorithm behind HTTPS, has been public since 1977. Their security comes from the mathematical difficulty of breaking them without the key.
+
+When security depends on hiding how it works, a single leak breaks everything. When security depends on the key alone, you can publish the design and nothing changes. HushBox encrypts messages with XChaCha20-Poly1305, a well-studied algorithm. The code that performs the encryption is public. If you want to verify that your messages are actually encrypted before they're stored, you can read the implementation yourself.
+
+## What this lets you verify
+
+Most people won't read source code themselves. That's fine. You don't personally audit the structural engineering of every bridge you cross, but someone can, and that's what matters.
+
+Published code lets security researchers check the implementation. Journalists covering AI privacy can reference it. A technically inclined friend can look into it on your behalf. Claims stop being promises and start being falsifiable statements.
+
+If a company says your password never leaves your device, the authentication flow is in the code. If they say messages are encrypted before storage, the function that does the encrypting is there to read. If they say their fee is 15%, you can search for the constant and see the number. The code is the receipt.
+
+## An open invitation
+
+Visible code invites participation. Security researchers can audit the cryptography and report weaknesses. Developers can read the codebase, spot improvements, and contribute code. Anyone who finds a bug can flag it.
+
+The door is open, and that's a deliberate choice. We'd rather build in public and invite scrutiny than build behind closed doors and ask for faith.
+
+If you have the skills and share the conviction that AI conversations deserve real privacy, the codebase is on GitHub.
+
+---
+
+## Sources
+
+1. [Be Careful What You Tell Your AI Chatbot (Stanford HAI, October 2025)](https://hai.stanford.edu/news/be-careful-what-you-tell-your-ai-chatbot)
+2. [OpenAI, Google & Anthropic All Quietly Backtracked User Privacy Settings (TV News Check)](https://tvnewscheck.com/business/article/openai-google-anthropic-user-privacy-settings/)
+3. [Anthropic Claude Data Retention Policy (Char.com)](https://char.com/blog/anthropic-data-retention-policy/)
+4. [OpenAI ChatGPT Data Retention Policy (Char.com)](https://char.com/blog/chatgpt-data-retention-policy/)
+5. [Kerckhoffs's Principle (Wikipedia)](https://en.wikipedia.org/wiki/Kerckhoffs%27s_principle)
+6. [A Note About Kerckhoffs's Principle (Cloudflare Blog)](https://blog.cloudflare.com/a-note-about-kerckhoffs-principle/)

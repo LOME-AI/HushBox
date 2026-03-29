@@ -14,11 +14,14 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@astrojs/mdx": "^4.3.14",
     "@astrojs/react": "^4.4.2",
+    "@astrojs/rss": "^4.0.18",
     "@astrojs/sitemap": "^3.7.0",
     "@hushbox/crypto": "workspace:*",
     "@hushbox/shared": "workspace:*",
     "@hushbox/ui": "workspace:*",
+    "lucide-react": "^0.577.0",
     "astro": "^5.18.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

@@ -1,5 +1,6 @@
 /* global process */
 import { defineConfig } from 'astro/config';
+import mdx from '@astrojs/mdx';
 import react from '@astrojs/react';
 import sitemap from '@astrojs/sitemap';
 import tailwindcss from '@tailwindcss/vite';
@@ -9,7 +10,7 @@ const astroPort = process.env['HB_ASTRO_PORT'];
 
 export default defineConfig({
   site: 'https://hushbox.ai',
-  integrations: [react(), sitemap()],
+  integrations: [mdx(), react(), sitemap()],
   server: {
     port: Number(astroPort ?? 4321),
   },

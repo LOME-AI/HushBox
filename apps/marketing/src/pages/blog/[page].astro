@@ -1,0 +1,42 @@
+---
+import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
+import BlogLayout from '../../layouts/BlogLayout.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import BlogPostCard from '../../components/blog/BlogPostCard.astro';
+import Pagination from '../../components/blog/Pagination.astro';
+import { BlogSearch } from '../../components/blog/BlogSearch';
+import { getPublishedPosts, getAllTags, POSTS_PER_PAGE, BLOG_DESCRIPTION } from '../../lib/blog';
+
+export const getStaticPaths = (async () => {
+  const allPosts = await getPublishedPosts();
+  const totalPages = Math.ceil(allPosts.length / POSTS_PER_PAGE);
+  if (totalPages <= 1) return [];
+
+  return Array.from({ length: totalPages - 1 }, (_, index) => ({
+    params: { page: String(index + 2) },
+    props: { page: index + 2, totalPages },
+  }));
+}) satisfies GetStaticPaths;
+
+type Props = InferGetStaticPropsType<typeof getStaticPaths>;
+
+const { page, totalPages } = Astro.props;
+const allPosts = await getPublishedPosts();
+const allTags = getAllTags(allPosts);
+const start = (page - 1) * POSTS_PER_PAGE;
+const pagePosts = allPosts.slice(start, start + POSTS_PER_PAGE);
+---
+
+<BlogLayout title={`Blog — Page ${String(page)}`} description={BLOG_DESCRIPTION}>
+  <div class="space-y-8">
+    <PageHeader title="Blog" description={BLOG_DESCRIPTION} />
+
+    <BlogSearch allTags={allTags} client:load />
+
+    <div class="grid gap-6 pt-4 md:grid-cols-2">
+      {pagePosts.map((post) => <BlogPostCard post={post} />)}
+    </div>
+
+    <Pagination currentPage={page} totalPages={totalPages} basePath="/blog" />
+  </div>
+</BlogLayout>
