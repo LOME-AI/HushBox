@@ -30,6 +30,7 @@ export const conversationMembers = pgTable(
     leftAt: timestamp('left_at', { withTimezone: true }),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
     muted: boolean('muted').notNull().default(false),
+    pinned: boolean('pinned').notNull().default(false),
     invitedByUserId: text('invited_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),

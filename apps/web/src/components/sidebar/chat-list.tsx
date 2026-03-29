@@ -11,6 +11,7 @@ interface Conversation {
   updatedAt: string;
   privilege: string;
   muted: boolean;
+  pinned: boolean;
 }
 
 export interface ChatListProps {
@@ -18,12 +19,15 @@ export interface ChatListProps {
   activeId?: string | undefined;
   /** Whether the user is authenticated */
   isAuthenticated?: boolean | undefined;
+  /** Accessible label for the list element */
+  label?: string | undefined;
 }
 
 export function ChatList({
   conversations,
   activeId,
   isAuthenticated = true,
+  label = 'Conversations',
 }: Readonly<ChatListProps>): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
 
@@ -52,7 +56,7 @@ export function ChatList({
   }
 
   return (
-    <ul role="list" aria-label="Conversations" className="flex flex-col gap-1 px-2">
+    <ul role="list" aria-label={label} className="flex flex-col gap-1 px-2">
       {conversations.map((conversation) => (
         <li key={conversation.id}>
           <ChatItem conversation={conversation} isActive={conversation.id === activeId} />

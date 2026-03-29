@@ -40,6 +40,10 @@ vi.mock('@/hooks/use-conversation-members', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+  usePinConversation: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
 }));
 
 // Mock @hushbox/shared with feature flags (partial mock)
@@ -160,6 +164,7 @@ describe('Sidebar', () => {
           invitedByUsername: null,
           privilege: 'owner',
           muted: false,
+          pinned: false,
         },
       ],
       isLoading: false,
@@ -305,6 +310,7 @@ describe('Sidebar', () => {
             invitedByUsername: null,
             privilege: 'owner',
             muted: false,
+            pinned: false,
           },
           {
             id: 'conv-2',
@@ -319,6 +325,7 @@ describe('Sidebar', () => {
             invitedByUsername: null,
             privilege: 'write',
             muted: false,
+            pinned: false,
           },
         ],
         isLoading: false,
@@ -351,6 +358,7 @@ describe('Sidebar', () => {
             invitedByUsername: null,
             privilege: 'owner',
             muted: false,
+            pinned: false,
           },
         ],
         isLoading: false,
@@ -425,6 +433,7 @@ describe('Sidebar', () => {
             invitedByUsername: null,
             privilege: 'owner',
             muted: false,
+            pinned: false,
           },
         ]
       );

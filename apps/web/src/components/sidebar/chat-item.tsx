@@ -1,13 +1,27 @@
 import * as React from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { cn, DropdownMenuItem } from '@hushbox/ui';
-import { Bell, BellOff, Lock, LogOut, MessageSquare, Pencil, Trash2 } from 'lucide-react';
+import {
+  Bell,
+  BellOff,
+  Lock,
+  LogOut,
+  MessageSquare,
+  Pencil,
+  Pin,
+  PinOff,
+  Trash2,
+} from 'lucide-react';
 import { ItemRow } from '@/components/shared/item-row';
 import { encryptMessageForStorage, getPublicKeyFromPrivate } from '@hushbox/crypto';
 import { toBase64, ROUTES } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { useDeleteConversation, useUpdateConversation, DECRYPTING_TITLE } from '@/hooks/chat';
-import { useLeaveConversation, useMuteConversation } from '@/hooks/use-conversation-members';
+import {
+  useLeaveConversation,
+  useMuteConversation,
+  usePinConversation,
+} from '@/hooks/use-conversation-members';
 import { getEpochKey } from '@/lib/epoch-key-cache';
 import { LeaveConfirmationModal } from '@/components/chat/leave-confirmation-modal';
 import { DeleteConversationDialog } from './delete-conversation-dialog';
@@ -20,6 +34,7 @@ interface Conversation {
   updatedAt: string;
   privilege: string;
   muted: boolean;
+  pinned: boolean;
 }
 
 interface ChatItemProps {
@@ -55,15 +70,72 @@ function encryptTitle(
   return toBase64(encryptMessageForStorage(epochPublicKey, trimmed));
 }
 
+function ChatItemMenuContent({
+  conversation,
+  onDelete,
+  onRename,
+  onLeave,
+}: Readonly<{
+  conversation: Conversation;
+  onDelete: () => void;
+  onRename: () => void;
+  onLeave: () => void;
+}>): React.JSX.Element {
+  const muteConversation = useMuteConversation();
+  const pinConversation = usePinConversation();
+  const isOwner = conversation.privilege === 'owner';
+
+  const handlePinToggle = (): void => {
+    pinConversation.mutate({
+      conversationId: conversation.id,
+      pinned: !conversation.pinned,
+    });
+  };
+
+  const handleMuteToggle = (): void => {
+    muteConversation.mutate({
+      conversationId: conversation.id,
+      muted: !conversation.muted,
+    });
+  };
+
+  return (
+    <>
+      <DropdownMenuItem onSelect={handlePinToggle}>
+        {conversation.pinned ? <PinOff /> : <Pin />}
+        {conversation.pinned ? 'Unpin' : 'Pin'}
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={handleMuteToggle}>
+        {conversation.muted ? <Bell /> : <BellOff />}
+        {conversation.muted ? 'Unmute' : 'Mute'}
+      </DropdownMenuItem>
+      {isOwner ? (
+        <>
+          <DropdownMenuItem onSelect={onRename}>
+            <Pencil />
+            Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onDelete} className="text-destructive">
+            <Trash2 />
+            Delete
+          </DropdownMenuItem>
+        </>
+      ) : (
+        <DropdownMenuItem onSelect={onLeave} className="text-destructive">
+          <LogOut />
+          Leave
+        </DropdownMenuItem>
+      )}
+    </>
+  );
+}
+
 export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): React.JSX.Element {
   const navigate = useNavigate();
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
   const deleteConversation = useDeleteConversation();
   const updateConversation = useUpdateConversation();
   const leaveConversation = useLeaveConversation();
-  const muteConversation = useMuteConversation();
-
-  const isOwner = conversation.privilege === 'owner';
 
   const [showDeleteDialog, setShowDeleteDialog] = React.useState(false);
   const [showRenameDialog, setShowRenameDialog] = React.useState(false);
@@ -85,13 +157,6 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
         setShowDeleteDialog(false);
         void navigate({ to: ROUTES.CHAT });
       },
-    });
-  };
-
-  const handleMuteToggle = (): void => {
-    muteConversation.mutate({
-      conversationId: conversation.id,
-      muted: !conversation.muted,
     });
   };
 
@@ -148,29 +213,12 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
           },
         }}
         menuContent={
-          <>
-            <DropdownMenuItem onSelect={handleMuteToggle}>
-              {conversation.muted ? <Bell /> : <BellOff />}
-              {conversation.muted ? 'Unmute' : 'Mute'}
-            </DropdownMenuItem>
-            {isOwner ? (
-              <>
-                <DropdownMenuItem onSelect={handleRenameClick}>
-                  <Pencil />
-                  Rename
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={handleDeleteClick} className="text-destructive">
-                  <Trash2 />
-                  Delete
-                </DropdownMenuItem>
-              </>
-            ) : (
-              <DropdownMenuItem onSelect={handleLeaveClick} className="text-destructive">
-                <LogOut />
-                Leave
-              </DropdownMenuItem>
-            )}
-          </>
+          <ChatItemMenuContent
+            conversation={conversation}
+            onDelete={handleDeleteClick}
+            onRename={handleRenameClick}
+            onLeave={handleLeaveClick}
+          />
         }
       >
         <Link

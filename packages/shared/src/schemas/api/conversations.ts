@@ -128,15 +128,16 @@ export type ConversationResponse = z.infer<typeof conversationResponseSchema>;
  * Schema for a conversation list item in GET /conversations responses.
  * Extends base conversation with membership acceptance state.
  *
- * `muted` is intentionally list-only — it's a per-user display preference
- * relevant when scanning conversations, not needed in the single-conversation
- * detail response (conversationResponseSchema).
+ * `muted` and `pinned` are intentionally list-only — they are per-user display
+ * preferences relevant when scanning conversations, not needed in the
+ * single-conversation detail response (conversationResponseSchema).
  */
 export const conversationListItemSchema = conversationResponseSchema.extend({
   accepted: z.boolean(),
   invitedByUsername: z.string().nullable(),
   privilege: memberPrivilegeSchema,
   muted: z.boolean().default(false),
+  pinned: z.boolean().default(false),
 });
 
 export type ConversationListItem = z.infer<typeof conversationListItemSchema>;

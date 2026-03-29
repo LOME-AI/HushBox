@@ -32,6 +32,10 @@ vi.mock('@/hooks/use-conversation-members', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+  usePinConversation: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
 }));
 
 // Mock chat hooks used by ChatItem
@@ -56,6 +60,7 @@ describe('ChatList', () => {
       updatedAt: new Date().toISOString(),
       privilege: 'owner',
       muted: false,
+      pinned: false,
     },
     {
       id: 'conv-2',
@@ -64,6 +69,7 @@ describe('ChatList', () => {
       updatedAt: new Date().toISOString(),
       privilege: 'owner',
       muted: false,
+      pinned: false,
     },
     {
       id: 'conv-3',
@@ -72,6 +78,7 @@ describe('ChatList', () => {
       updatedAt: new Date().toISOString(),
       privilege: 'owner',
       muted: false,
+      pinned: false,
     },
   ];
 
