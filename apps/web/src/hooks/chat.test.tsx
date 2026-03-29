@@ -614,7 +614,7 @@ describe('useDecryptedConversations', () => {
       });
 
     // Simulate needing keys (no cached epoch keys)
-    mockGetEpochKey.mockReturnValue();
+    mockGetEpochKey.mockReturnValue(undefined);
     mockAuthState = { privateKey: new Uint8Array(32).fill(1), user: { id: 'test-user' } };
 
     const { result } = renderHook(() => useDecryptedConversations(), {
