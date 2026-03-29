@@ -22,7 +22,8 @@ async function linkGuestHandler(c: Context<AppEnv>, next: Next): Promise<Respons
   }
 
   c.set('linkGuest', { linkId: resolved.linkId, publicKey: resolved.publicKey });
-  const conversationId = c.req.param('conversationId')!;
+  const conversationId = c.req.param('conversationId');
+  if (!conversationId) throw new Error('conversationId param required for requireLinkGuest');
   c.set(
     'members',
     new Map([

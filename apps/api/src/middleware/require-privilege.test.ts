@@ -39,7 +39,12 @@ function createMockUser(): AppEnv['Variables']['user'] {
   };
 }
 
-type MemberRow = { conversationId: string; id: string; privilege: string; visibleFromEpoch: number };
+interface MemberRow {
+  conversationId: string;
+  id: string;
+  privilege: string;
+  visibleFromEpoch: number;
+}
 
 /**
  * Creates a mock DB that returns the given member rows from the batch lookupMembers query.
@@ -67,9 +72,7 @@ interface TestAppOptions {
   minLevel: MemberPrivilege;
 }
 
-function memberRow(
-  overrides?: Partial<MemberRow>
-): MemberRow {
+function memberRow(overrides?: Partial<MemberRow>): MemberRow {
   return {
     conversationId: TEST_CONVERSATION_ID,
     id: TEST_MEMBER_ID,
@@ -941,7 +944,6 @@ describe('requirePrivilege middleware', () => {
       memberRows: MemberRow[],
       conversationRow: { userId: string } | null
     ): unknown {
-      let queryCount = 0;
       return {
         select: () => ({
           from: () => ({
@@ -949,14 +951,12 @@ describe('requirePrivilege middleware', () => {
               const chain = {
                 limit: () => ({
                   then: (resolve: (v: unknown[]) => unknown) => {
-                    queryCount++;
                     // Second query: conversations (for ownerId)
                     const result = conversationRow ? [conversationRow] : [];
                     return Promise.resolve(resolve(result));
                   },
                 }),
                 then: (resolve: (v: unknown[]) => unknown) => {
-                  queryCount++;
                   // First query: batch lookupMembers
                   return Promise.resolve(resolve(memberRows));
                 },
@@ -981,7 +981,10 @@ describe('requirePrivilege middleware', () => {
         c.set('user', createMockUser());
         c.set('session', createMockSession());
         c.set('sessionData', createMockSession());
-        c.set('db', createMockDbWithOwner(memberRows, conversationRow) as AppEnv['Variables']['db']);
+        c.set(
+          'db',
+          createMockDbWithOwner(memberRows, conversationRow) as AppEnv['Variables']['db']
+        );
         await next();
       });
 

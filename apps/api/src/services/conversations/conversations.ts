@@ -84,6 +84,27 @@ export interface PaginatedConversations {
   nextCursor: string | null;
 }
 
+/** Parses a base64-encoded cursor into {updatedAt, id}. Returns null if invalid. */
+function parseCursor(cursor: string): { updatedAt: Date; id: string } | null {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(cursor, 'base64').toString());
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      typeof (parsed as Record<string, unknown>)['updatedAt'] !== 'string' ||
+      typeof (parsed as Record<string, unknown>)['id'] !== 'string'
+    ) {
+      return null;
+    }
+    const { updatedAt, id } = parsed as { updatedAt: string; id: string };
+    const cursorDate = new Date(updatedAt);
+    if (Number.isNaN(cursorDate.getTime())) return null;
+    return { updatedAt: cursorDate, id };
+  } catch {
+    return null;
+  }
+}
+
 export async function listConversations(
   db: Database,
   userId: string,
@@ -95,30 +116,14 @@ export async function listConversations(
   const conditions = [eq(conversationMembers.userId, userId), isNull(conversationMembers.leftAt)];
 
   if (options?.cursor) {
-    try {
-      const parsed: unknown = JSON.parse(Buffer.from(options.cursor, 'base64').toString());
-      if (
-        typeof parsed !== 'object' ||
-        parsed === null ||
-        typeof (parsed as Record<string, unknown>)['updatedAt'] !== 'string' ||
-        typeof (parsed as Record<string, unknown>)['id'] !== 'string'
-      ) {
-        return { rows: [], nextCursor: null };
-      }
-      const { updatedAt, id } = parsed as { updatedAt: string; id: string };
-      const cursorDate = new Date(updatedAt);
-      if (Number.isNaN(cursorDate.getTime())) {
-        return { rows: [], nextCursor: null };
-      }
-      // (updatedAt, id) < (cursorDate, cursorId) for DESC ordering
-      const cursorCondition = or(
-        lt(conversations.updatedAt, cursorDate),
-        and(eq(conversations.updatedAt, cursorDate), lt(conversations.id, id))
-      );
-      if (cursorCondition) conditions.push(cursorCondition);
-    } catch {
-      return { rows: [], nextCursor: null };
-    }
+    const cursor = parseCursor(options.cursor);
+    if (!cursor) return { rows: [], nextCursor: null };
+    // (updatedAt, id) < (cursorDate, cursorId) for DESC ordering
+    const cursorCondition = or(
+      lt(conversations.updatedAt, cursor.updatedAt),
+      and(eq(conversations.updatedAt, cursor.updatedAt), lt(conversations.id, cursor.id))
+    );
+    if (cursorCondition) conditions.push(cursorCondition);
   }
 
   const rows = await db
