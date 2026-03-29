@@ -93,9 +93,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
 
   // Must exceed Footer height (10dvh) so scrollToIndex({ index: 'LAST' })
   // lands within the threshold and atBottomStateChange reports true.
-  const [atBottomThreshold] = useState(
-    (): number => Math.ceil(window.innerHeight * 0.1) + 20
-  );
+  const [atBottomThreshold] = useState((): number => Math.ceil(window.innerHeight * 0.1) + 20);
 
   useImperativeHandle(ref, () => {
     const virtuoso = virtuosoRef.current;
