@@ -246,10 +246,10 @@ test.describe('Multi-Model Chat', () => {
       await test.step('wait for 2 more AI responses (4 total)', async () => {
         // Wait for streaming to complete — cost badge signals billing + persistence done
         await chatPage.waitForStreamComplete(20_000);
-        // Verify follow-up generated 2 AI responses (visible at the bottom of the list)
-        // Use unsettledExpect — the settled indicator may fire before Virtuoso renders
-        const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
-        await unsettledExpect(assistantMessages).toHaveCount(4, { timeout: 20_000 });
+        // Verify via data attribute (client state) — Virtuoso may not render all items on mobile
+        await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '4', {
+          timeout: 20_000,
+        });
       });
     });
   });
@@ -268,6 +268,7 @@ test.describe('Multi-Model Chat', () => {
         await chatPage.sendNewChatMessage(setupMsg);
         await chatPage.waitForConversation();
         await chatPage.waitForAIResponse(setupMsg);
+        await chatPage.waitForStreamComplete();
 
         // Fork from the AI response → Fork 1 active
         await chatPage.clickFork(1);
@@ -285,15 +286,14 @@ test.describe('Multi-Model Chat', () => {
       });
 
       await test.step('verify both AI responses visible after stream completes', async () => {
-        // Wait for ALL 3 cost badges (1 setup + 2 multi-model).
-        // Cost badges appear after: done SSE → saveChatTurn committed → invalidateQueries refetched.
-        // This guarantees persistence before reload. Using waitForStreamComplete alone is
-        // insufficient here — it finds the setup AI's pre-existing cost badge immediately.
-        const costBadges = chatPage.messageList.locator('[data-testid="message-cost"]');
-        await unsettledExpect(costBadges).toHaveCount(3, { timeout: 20_000 });
-
-        const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
-        await unsettledExpect(assistantMessages).toHaveCount(3, { timeout: 15_000 });
+        // Verify via data attributes (client state) — Virtuoso may not render all items on mobile.
+        // Cost count confirms: done SSE → saveChatTurn committed → invalidateQueries refetched.
+        await unsettledExpect(chatPage.messageList).toHaveAttribute('data-cost-count', '3', {
+          timeout: 20_000,
+        });
+        await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '3', {
+          timeout: 15_000,
+        });
       });
 
       await test.step('verify distinct model nametags on multi-model responses', async () => {
@@ -318,9 +318,10 @@ test.describe('Multi-Model Chat', () => {
         // Fork 1 should still be active
         await chatPage.expectActiveForkTab('Fork 1');
 
-        // All 3 assistant messages should still be visible
-        const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
-        await unsettledExpect(assistantMessages).toHaveCount(3, { timeout: 15_000 });
+        // All 3 assistant messages should still be in client state
+        await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '3', {
+          timeout: 15_000,
+        });
       });
     });
   });

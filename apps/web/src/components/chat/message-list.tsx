@@ -193,12 +193,17 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     );
   }
 
+  const assistantCount = messages.filter((m) => m.role === 'assistant').length;
+  const costCount = messages.filter((m) => m.cost != null).length;
+
   if (groups) {
     return (
       <div
         role="log"
         aria-label="Chat messages"
         data-testid="message-list"
+        data-assistant-count={assistantCount}
+        data-cost-count={costCount}
         className="h-full min-h-0 flex-1"
       >
         <Virtuoso
@@ -233,6 +238,8 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       role="log"
       aria-label="Chat messages"
       data-testid="message-list"
+      data-assistant-count={assistantCount}
+      data-cost-count={costCount}
       className="h-full min-h-0 flex-1"
     >
       <Virtuoso

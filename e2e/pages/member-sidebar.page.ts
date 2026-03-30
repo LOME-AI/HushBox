@@ -162,7 +162,12 @@ export class MemberSidebarPage {
 
     if (!(await this.content.isVisible().catch(() => false))) return;
 
-    await this.page.locator('[data-slot="sheet-overlay"]').click();
+    // Wait for any overlapping modal to fully close before dismissing the sheet
+    await this.page
+      .locator('[data-slot="modal-overlay-content"]')
+      .waitFor({ state: 'hidden', timeout: 3000 })
+      .catch(() => {});
+    await this.page.keyboard.press('Escape');
     await this.content.waitFor({ state: 'hidden', timeout: 5000 });
   }
 

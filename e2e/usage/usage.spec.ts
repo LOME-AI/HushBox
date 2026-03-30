@@ -23,8 +23,8 @@ test.describe('Usage Analytics', () => {
       await usagePage.expectChartHasData(usagePage.balanceHistoryChart);
 
       // KPI cards should show non-zero values
-      await expect(usagePage.kpiTotalSpent).not.toContainText('$0.00');
-      await expect(usagePage.kpiMessages).not.toContainText('0');
+      await expect(usagePage.kpiTotalSpentValue).not.toHaveText('$0.00');
+      await expect(usagePage.kpiMessagesValue).not.toHaveText('0');
     });
 
     await test.step('date range filters update KPIs', async () => {

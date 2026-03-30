@@ -830,8 +830,8 @@ export function useAuthenticatedChat({
             },
           })
         );
-        removeOptimisticMessage(optimisticUserMessage.id);
         await queryClient.invalidateQueries({ queryKey: chatKeys.conversation(convId) });
+        removeOptimisticMessage(optimisticUserMessage.id);
       } catch (error: unknown) {
         console.error('User-only message failed:', error);
         removeOptimisticMessage(optimisticUserMessage.id);
@@ -910,7 +910,7 @@ export function useAuthenticatedChat({
 
       void (async () => {
         try {
-          const streamResult = await startRegenerateStream(request, {
+          await startRegenerateStream(request, {
             onStart: () => {
               updateOptimisticMessageContent(assistantMsgId, '');
             },
@@ -920,17 +920,16 @@ export function useAuthenticatedChat({
           });
 
           state.stopStreaming();
-          removeOptimisticMessage(assistantMsgId);
-          attachCostsToMessages(streamResult.models, setLocalMessages);
 
           await queryClient.invalidateQueries({
             queryKey: chatKeys.conversation(realConversationId),
           });
           void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+
+          removeOptimisticMessage(assistantMsgId);
           useStreamingActivityStore.getState().endStream();
         } catch (error: unknown) {
           state.stopStreaming();
-          removeOptimisticMessage(assistantMsgId);
 
           if (error instanceof BillingMismatchError) {
             await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
@@ -940,6 +939,8 @@ export function useAuthenticatedChat({
           await queryClient.invalidateQueries({
             queryKey: chatKeys.conversation(realConversationId),
           });
+
+          removeOptimisticMessage(assistantMsgId);
           useStreamingActivityStore.getState().endStream();
         }
       })();

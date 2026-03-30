@@ -9,7 +9,9 @@ export class UsagePage {
   readonly modelFilter: Locator;
   readonly kpiCards: Locator;
   readonly kpiTotalSpent: Locator;
+  readonly kpiTotalSpentValue: Locator;
   readonly kpiMessages: Locator;
+  readonly kpiMessagesValue: Locator;
   readonly kpiTokens: Locator;
   readonly kpiAvgCost: Locator;
   readonly spendingChart: Locator;
@@ -26,7 +28,9 @@ export class UsagePage {
     this.modelFilter = page.getByTestId('model-filter');
     this.kpiCards = page.getByTestId('usage-kpi-cards');
     this.kpiTotalSpent = page.getByTestId('kpi-total-spent');
+    this.kpiTotalSpentValue = page.getByTestId('kpi-total-spent-value');
     this.kpiMessages = page.getByTestId('kpi-messages');
+    this.kpiMessagesValue = page.getByTestId('kpi-messages-value');
     this.kpiTokens = page.getByTestId('kpi-tokens');
     this.kpiAvgCost = page.getByTestId('kpi-avg-cost');
     this.spendingChart = page.getByTestId('spending-over-time-chart');

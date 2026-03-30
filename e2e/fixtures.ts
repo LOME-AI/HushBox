@@ -325,6 +325,7 @@ export const test = base.extend<CustomFixtures>({
       await chatPage.sendNewChatMessage(testMessage);
       await chatPage.waitForConversation();
       await chatPage.waitForMultiModelResponses(2);
+      await chatPage.waitForStreamComplete();
 
       const url = new URL(authenticatedPage.url());
       const id = url.pathname.split('/').pop() ?? '';

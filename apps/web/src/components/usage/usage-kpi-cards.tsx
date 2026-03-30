@@ -50,7 +50,12 @@ function KpiCard({
             <div className="text-foreground-muted">{icon}</div>
             <div>
               <p className="text-foreground-muted text-xs">{label}</p>
-              <p className="text-foreground text-xl font-semibold tabular-nums">{value}</p>
+              <p
+                className="text-foreground text-xl font-semibold tabular-nums"
+                data-testid={`${testId}-value`}
+              >
+                {value}
+              </p>
             </div>
           </div>
         )}
