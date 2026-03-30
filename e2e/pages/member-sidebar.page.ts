@@ -166,6 +166,7 @@ export class MemberSidebarPage {
     await this.page
       .locator('[data-slot="modal-overlay-content"]')
       .waitFor({ state: 'hidden', timeout: 3000 })
+      // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentional swallow
       .catch(() => {});
     await this.page.keyboard.press('Escape');
     await this.content.waitFor({ state: 'hidden', timeout: 5000 });
