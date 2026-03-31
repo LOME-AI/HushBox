@@ -5,16 +5,22 @@
 
 User-agent: *
 
+# Public pages — explicitly allowed
+Allow: /terms
+Allow: /privacy
+Allow: /blog
+Allow: /chat
+Allow: /login
+Allow: /signup
+
 # App routes — not indexable
-Disallow: /chat
 Disallow: /billing
 Disallow: /settings
-Disallow: /login
-Disallow: /signup
 Disallow: /verify
 Disallow: /dev
 Disallow: /api
 Disallow: /share
+Disallow: /usage
 
 # Assets — no need to index images/scripts
 Disallow: /assets
