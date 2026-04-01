@@ -12,6 +12,7 @@ import { EncryptionDemo } from '../components/encryption-demo';
 import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
 import LandingLayout from '../layouts/LandingLayout.astro';
 import LandingHeader from '../components/LandingHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
 import PillarCard from '../components/PillarCard.astro';
 import TrustCard from '../components/TrustCard.astro';
 import CostComparison from '../components/CostComparison.astro';
@@ -396,23 +397,5 @@ const comingSoonFeatures = [
     </div>
   </section>
 
-  {/* ===== FOOTER ===== */}
-  <footer class="py-8">
-    <div
-      class="text-foreground mx-auto flex max-w-5xl flex-col items-center gap-4 px-6 text-center text-sm sm:flex-row sm:justify-between"
-    >
-      <div class="flex items-center gap-4">
-        <a href={ROUTES.PRIVACY} class="hover:text-foreground transition-colors">Privacy</a>
-        <span>|</span>
-        <a href={ROUTES.TERMS} class="hover:text-foreground transition-colors">Terms</a>
-        <span>|</span>
-        <a href={ROUTES.LOGIN} class="hover:text-foreground transition-colors">Log In</a>
-        <span>|</span>
-        <a href="mailto:security@hushbox.ai" class="hover:text-foreground transition-colors"
-          >security@hushbox.ai</a
-        >
-      </div>
-      <p>&copy; {new Date().getFullYear()} LOME-AI LLC. All rights reserved.</p>
-    </div>
-  </footer>
+  <SiteFooter />
 </LandingLayout>

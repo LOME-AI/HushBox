@@ -26,6 +26,7 @@ import {
   LOGO_OPACITY_BOOST,
   MARGIN_ROWS,
   MARGIN_COLS,
+  EXCLUSION_STRIDE,
 } from './cipher-wall-engine';
 import type { Cell, CipherWallState, ThemeColors } from './cipher-wall-engine';
 
@@ -40,6 +41,16 @@ function wideGrid(): CipherWallState {
 function triggerReveal(state: CipherWallState): void {
   state.revealTimer = 0.001;
   updateState(state, 0.002);
+}
+
+function excludeAllPlaceableCells(state: CipherWallState): Set<number> {
+  const zone = new Set<number>();
+  for (let r = MARGIN_ROWS; r < state.rows - MARGIN_ROWS; r++) {
+    for (let c = MARGIN_COLS; c < state.cols - MARGIN_COLS; c++) {
+      zone.add(r * EXCLUSION_STRIDE + c);
+    }
+  }
+  return zone;
 }
 
 function suppressNewReveals(state: CipherWallState): void {
@@ -128,6 +139,10 @@ describe('constants', () => {
     expect(CELL_HEIGHT).toBe(22);
     expect(FONT).toBe(`${String(FONT_SIZE)}px 'JetBrains Mono', monospace`);
   });
+
+  it('exports EXCLUSION_STRIDE as 1024', () => {
+    expect(EXCLUSION_STRIDE).toBe(1024);
+  });
 });
 
 describe('createGrid', () => {
@@ -215,6 +230,67 @@ describe('createGrid', () => {
     const sorted = state.messageQueue.toSorted((a, b) => a - b);
     expect(sorted).toEqual(Array.from({ length: MESSAGES.length }, (_, index) => index));
   });
+
+  it('initializes exclusionZone as null', () => {
+    const state = createGrid(10, 5);
+    expect(state.exclusionZone).toBeNull();
+  });
+
+  it('does not place reveals overlapping the exclusion zone', () => {
+    const state = wideGrid();
+    state.exclusionZone = excludeAllPlaceableCells(state);
+
+    // Try to place reveals — all should fail because every valid cell is excluded
+    for (let index = 0; index < 10; index++) {
+      triggerReveal(state);
+    }
+    expect(state.reveals).toHaveLength(0);
+  });
+
+  it('places reveals when exclusionZone is null (no exclusion)', () => {
+    const state = wideGrid();
+    state.exclusionZone = null;
+    triggerReveal(state);
+    expect(state.reveals.length).toBeGreaterThan(0);
+  });
+
+  it('places reveals in cells not covered by the exclusion zone', () => {
+    const state = wideGrid();
+    // Exclude only row 0 (which is within the margin, so reveals won't go there anyway)
+    // Exclude only the first margin row — reveals should still be placed elsewhere
+    const excluded = new Set<number>();
+    for (let c = 0; c < state.cols; c++) {
+      excluded.add(0 * EXCLUSION_STRIDE + c);
+    }
+    state.exclusionZone = excluded;
+
+    triggerReveal(state);
+    expect(state.reveals.length).toBeGreaterThan(0);
+  });
+
+  it('skips placement when any character of message overlaps an excluded cell', () => {
+    const state = wideGrid();
+    // Exclude a single cell at the exact center — any message whose span includes that cell is blocked
+    const centerRow = Math.floor(state.rows / 2);
+    const centerCol = Math.floor(state.cols / 2);
+    const excluded = new Set<number>([centerRow * EXCLUSION_STRIDE + centerCol]);
+    state.exclusionZone = excluded;
+
+    // Place many reveals — none should overlap the excluded cell
+    for (let index = 0; index < 20; index++) {
+      state.revealTimer = 0.001;
+      updateState(state, 0.002);
+    }
+
+    for (const reveal of state.reveals) {
+      if (reveal.row === centerRow) {
+        const revealEnd = reveal.col + reveal.text.length;
+        // The excluded cell should not be within the reveal's span
+        const overlaps = reveal.col <= centerCol && centerCol < revealEnd;
+        expect(overlaps).toBe(false);
+      }
+    }
+  });
 });
 
 describe('seedInitialReveals', () => {
@@ -242,6 +318,16 @@ describe('seedInitialReveals', () => {
   it('places no reveals when grid is too small', () => {
     const state = createGrid(5, 5);
     seedInitialReveals(state);
+    expect(state.reveals).toHaveLength(0);
+  });
+
+  it('does not place reveals overlapping the exclusion zone', () => {
+    const state = wideGrid();
+    state.exclusionZone = excludeAllPlaceableCells(state);
+
+    seedInitialReveals(state);
+
+    // With the entire placeable area excluded, no reveals should be placed
     expect(state.reveals).toHaveLength(0);
   });
 });
@@ -1111,5 +1197,10 @@ describe('createFrozenSnapshot', () => {
     // Grid too narrow for the longest splash message
     const state = createFrozenSnapshot(10, rows, 4);
     expect(countReadableCells(state.grid)).toBe(0);
+  });
+
+  it('initializes exclusionZone as null', () => {
+    const state = createFrozenSnapshot(cols, rows, 4);
+    expect(state.exclusionZone).toBeNull();
   });
 });

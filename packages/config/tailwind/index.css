@@ -191,7 +191,7 @@
   }
 
   body {
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: env(safe-area-inset-top, 0px) !important;
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-feature-settings:

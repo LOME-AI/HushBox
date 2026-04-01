@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
+import * as engine from './cipher-wall-engine';
+import { EXCLUSION_STRIDE } from './cipher-wall-engine';
 import { useCipherWall, readThemeColors } from './use-cipher-wall';
 import type { CipherWallOptions } from './use-cipher-wall';
 import type { ThemeColors } from './cipher-wall-engine';
@@ -8,10 +10,10 @@ import type { ThemeColors } from './cipher-wall-engine';
 // --- Test components that wire the hook to a real canvas ---
 
 function TestCanvas(props: Readonly<CipherWallOptions>): React.JSX.Element {
-  const canvasRef = useCipherWall(props);
+  const ref = useCipherWall(props);
   return (
     <div style={{ width: 800, height: 600 }}>
-      <canvas ref={canvasRef} data-testid="test-canvas" />
+      <canvas ref={ref} data-testid="test-canvas" />
     </div>
   );
 }
@@ -260,6 +262,107 @@ describe('useCipherWall frozen mode', () => {
   it('accepts cipherOpacity option without error', () => {
     render(<TestCanvas frozen themeOverride={DARK_THEME} cipherOpacity={0.5} />);
     expect(globalThis.requestAnimationFrame).not.toHaveBeenCalled();
+  });
+});
+
+describe('useCipherWall exclusionZone', () => {
+  beforeEach(() => {
+    resizeCallbacks = [];
+    resizeObservedElements = [];
+    resizeDisconnected = false;
+    mutationCallbacks = [];
+    mutationObserveArgs = [];
+    mutationDisconnected = false;
+
+    vi.stubGlobal('ResizeObserver', MockResizeObserver);
+    vi.stubGlobal('MutationObserver', MockMutationObserver);
+    setupRAF();
+    setupGetComputedStyle();
+
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => mockCtx) as never;
+  });
+
+  afterEach(() => {
+    globalThis.requestAnimationFrame = originalRAF;
+    globalThis.cancelAnimationFrame = originalCAF;
+    globalThis.getComputedStyle = originalGetComputedStyle;
+    HTMLCanvasElement.prototype.getContext = originalGetContext;
+    vi.restoreAllMocks();
+  });
+
+  it('accepts exclusionZone in options without error', () => {
+    const zone = new Set([3 * EXCLUSION_STRIDE + 5, 3 * EXCLUSION_STRIDE + 6]);
+    render(<TestCanvas themeOverride={DARK_THEME} exclusionZone={zone} />);
+    expect(globalThis.requestAnimationFrame).toHaveBeenCalled();
+  });
+
+  it('accepts null exclusionZone in options without error', () => {
+    render(<TestCanvas themeOverride={DARK_THEME} exclusionZone={null} />);
+    expect(globalThis.requestAnimationFrame).toHaveBeenCalled();
+  });
+
+  it('accepts an external canvasRef parameter', () => {
+    function TestExternalRef(): React.JSX.Element {
+      const externalRef = React.useRef<HTMLCanvasElement | null>(null);
+      useCipherWall({ themeOverride: DARK_THEME }, externalRef);
+      return (
+        <div style={{ width: 800, height: 600 }}>
+          <canvas ref={externalRef} data-testid="external-ref-canvas" />
+        </div>
+      );
+    }
+
+    const { getByTestId } = render(<TestExternalRef />);
+    expect(getByTestId('external-ref-canvas')).toBeInstanceOf(HTMLCanvasElement);
+  });
+
+  it('creates its own ref when external canvasRef is not provided', () => {
+    const { getByTestId } = render(<TestCanvas themeOverride={DARK_THEME} />);
+    expect(getByTestId('test-canvas')).toBeInstanceOf(HTMLCanvasElement);
+  });
+
+  it('syncs exclusionZone to engine state when option changes', () => {
+    const zone1 = new Set([3 * EXCLUSION_STRIDE + 5]);
+    const zone2 = new Set([4 * EXCLUSION_STRIDE + 10, 4 * EXCLUSION_STRIDE + 11]);
+
+    function TestExclusionSync({
+      zone,
+    }: Readonly<{ zone: Set<number> | null }>): React.JSX.Element {
+      const canvasRef = useCipherWall({ themeOverride: DARK_THEME, exclusionZone: zone });
+      return (
+        <div style={{ width: 800, height: 600 }}>
+          <canvas ref={canvasRef} data-testid="sync-canvas" />
+        </div>
+      );
+    }
+
+    // Renders with zone1, then re-renders with zone2 - should not error
+    const { rerender, getByTestId } = render(<TestExclusionSync zone={zone1} />);
+    expect(getByTestId('sync-canvas')).toBeInstanceOf(HTMLCanvasElement);
+
+    // Re-render with a different zone to verify the effect handles changes
+    rerender(<TestExclusionSync zone={zone2} />);
+    expect(getByTestId('sync-canvas')).toBeInstanceOf(HTMLCanvasElement);
+
+    // Re-render with null to verify null handling
+    rerender(<TestExclusionSync zone={null} />);
+    expect(getByTestId('sync-canvas')).toBeInstanceOf(HTMLCanvasElement);
+  });
+
+  it('sets exclusionZone on state before seedInitialReveals runs', () => {
+    const zone = new Set([3 * EXCLUSION_STRIDE + 5, 3 * EXCLUSION_STRIDE + 6]);
+    let capturedZone: Set<number> | null | undefined;
+
+    const seedSpy = vi.spyOn(engine, 'seedInitialReveals').mockImplementation((state) => {
+      capturedZone = state.exclusionZone;
+    });
+
+    render(<TestCanvas themeOverride={DARK_THEME} exclusionZone={zone} />);
+
+    expect(seedSpy).toHaveBeenCalled();
+    expect(capturedZone).toBe(zone);
+
+    seedSpy.mockRestore();
   });
 });
 

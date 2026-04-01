@@ -1,0 +1,27 @@
+---
+import { FOOTER_LINKS } from '@hushbox/shared/routes';
+---
+
+<footer class="border-border/50 mt-12 border-t">
+  <nav
+    aria-label="Footer"
+    class="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-x-6 gap-y-3 px-6 pt-8 pb-6"
+  >
+    {
+      FOOTER_LINKS.map((link, index) => (
+        <>
+          {index > 0 && <span class="bg-border h-4 w-0.5 rounded-full" aria-hidden="true" />}
+          <a
+            href={link.href}
+            class="text-foreground-muted hover:text-foreground text-sm transition-colors"
+          >
+            {link.label}
+          </a>
+        </>
+      ))
+    }
+  </nav>
+  <p class="text-foreground-muted pb-8 text-center text-xs">
+    &copy; {new Date().getFullYear()} LOME-AI LLC. All rights reserved.
+  </p>
+</footer>
