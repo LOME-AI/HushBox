@@ -29,6 +29,7 @@ export interface CipherWallState {
   reveals: MessageReveal[];
   revealTimer: number;
   messageQueue: number[];
+  exclusionZone: Set<number> | null;
 }
 
 export interface ThemeColors {
@@ -55,6 +56,7 @@ export const INITIAL_REVEALS = 3;
 export const LOGO_OPACITY_BOOST = 0.15;
 export const MARGIN_ROWS = 2;
 export const MARGIN_COLS = 5;
+export const EXCLUSION_STRIDE = 1024;
 
 export const MESSAGES: readonly string[] = [
   'Encrypted By Default',
@@ -173,6 +175,7 @@ export function createGrid(cols: number, rows: number): CipherWallState {
     reveals: [],
     revealTimer: REVEAL_INTERVAL,
     messageQueue: createMessageQueue(),
+    exclusionZone: null,
   };
 }
 
@@ -254,6 +257,19 @@ export function getCellColor(cell: Cell, colors: ThemeColors): string {
 
 // --- State Update ---
 
+function overlapsExclusionZone(
+  excluded: Set<number> | null,
+  row: number,
+  col: number,
+  length: number
+): boolean {
+  if (!excluded) return false;
+  for (let c = col; c < col + length; c++) {
+    if (excluded.has(row * EXCLUSION_STRIDE + c)) return true;
+  }
+  return false;
+}
+
 function overlapsExistingReveal(
   reveals: MessageReveal[],
   row: number,
@@ -286,6 +302,7 @@ function tryPlaceReveal(state: CipherWallState): MessageReveal | undefined {
     const row = MARGIN_ROWS + getSecureRandomIndex(availableRows);
     const col = MARGIN_COLS + getSecureRandomIndex(availableCols);
     if (overlapsExistingReveal(state.reveals, row, col, text.length)) continue;
+    if (overlapsExclusionZone(state.exclusionZone, row, col, text.length)) continue;
     state.messageQueue.shift();
     return {
       row,

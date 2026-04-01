@@ -18,6 +18,7 @@ export interface CipherWallOptions {
   frozenMessageCount?: number;
   themeOverride?: ThemeColors;
   cipherOpacity?: number;
+  exclusionZone?: Set<number> | null;
 }
 
 export function readThemeColors(): ThemeColors {
@@ -34,9 +35,11 @@ export function readThemeColors(): ThemeColors {
 }
 
 export function useCipherWall(
-  options?: CipherWallOptions
+  options?: CipherWallOptions,
+  externalCanvasRef?: React.RefObject<HTMLCanvasElement | null>
 ): React.RefObject<HTMLCanvasElement | null> {
-  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const internalCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const canvasRef = externalCanvasRef ?? internalCanvasRef;
   const stateRef = React.useRef<CipherWallState | null>(null);
   const colorsRef = React.useRef<ThemeColors | null>(null);
   const rafIdRef = React.useRef<number>(0);
@@ -46,6 +49,10 @@ export function useCipherWall(
   const frozenMessageCount = options?.frozenMessageCount ?? 4;
   const themeOverride = options?.themeOverride;
   const cipherOpacity = options?.cipherOpacity ?? 1;
+  const exclusionZone = options?.exclusionZone ?? null;
+
+  const exclusionZoneRef = React.useRef<Set<number> | null>(exclusionZone);
+  exclusionZoneRef.current = exclusionZone;
 
   React.useEffect(() => {
     const canvas = canvasRef.current;
@@ -83,6 +90,7 @@ export function useCipherWall(
         stateRef.current = createFrozenSnapshot(cols, rows, frozenMessageCount);
       } else {
         const state = createGrid(cols, rows);
+        state.exclusionZone = exclusionZoneRef.current;
         seedInitialReveals(state);
         stateRef.current = state;
       }
@@ -163,6 +171,12 @@ export function useCipherWall(
       mutationObserver.disconnect();
     };
   }, [frozen, frozenMessageCount, themeOverride, cipherOpacity]);
+
+  React.useEffect(() => {
+    if (stateRef.current) {
+      stateRef.current.exclusionZone = exclusionZone;
+    }
+  }, [exclusionZone]);
 
   return canvasRef;
 }
