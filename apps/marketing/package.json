@@ -17,7 +17,7 @@
     "@astrojs/mdx": "^4.3.14",
     "@astrojs/react": "^4.4.2",
     "@astrojs/rss": "^4.0.18",
-    "@astrojs/sitemap": "^3.7.0",
+    "@astrojs/sitemap": "^3.7.2",
     "@hushbox/crypto": "workspace:*",
     "@hushbox/shared": "workspace:*",
     "@hushbox/ui": "workspace:*",
@@ -39,7 +39,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.4",
     "jsdom": "^28.1.0",
-    "tailwindcss": "^4.2.1",
+    "tailwindcss": "^4.2.2",
     "vitest": "^4.0.18"
   }
 }
