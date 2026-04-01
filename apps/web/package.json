@@ -56,22 +56,22 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "@capacitor/cli": "^8.2.0",
+    "@capacitor/cli": "^8.3.0",
     "@hushbox/api": "workspace:*",
     "@hushbox/config": "workspace:*",
-    "@tailwindcss/vite": "^4.2.1",
-    "@tanstack/react-query-devtools": "^5.91.3",
-    "@tanstack/router-plugin": "^1.166.6",
+    "@tailwindcss/vite": "^4.2.2",
+    "@tanstack/react-query-devtools": "^5.96.0",
+    "@tanstack/router-plugin": "^1.167.12",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^25.4.0",
+    "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.4",
-    "jsdom": "^28.1.0",
-    "vite": "^7.3.1",
-    "vitest": "^4.0.18",
-    "wrangler": "^4.71.0"
+    "@vitejs/plugin-react": "^6.0.1",
+    "jsdom": "^29.0.1",
+    "vite": "^8.0.3",
+    "vitest": "^4.1.2",
+    "wrangler": "^4.79.0"
   }
 }
