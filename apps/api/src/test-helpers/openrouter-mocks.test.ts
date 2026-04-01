@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createFastMockOpenRouterClient } from './openrouter-mocks.js';
+import type { StreamToken } from '../services/openrouter/types.js';
 
 describe('createFastMockOpenRouterClient', () => {
   it('creates a mock client with default options', () => {
@@ -10,7 +11,6 @@ describe('createFastMockOpenRouterClient', () => {
     expect(typeof client.chatCompletionStreamWithMetadata).toBe('function');
     expect(typeof client.listModels).toBe('function');
     expect(typeof client.getModel).toBe('function');
-    expect(typeof client.getGenerationStats).toBe('function');
   });
 
   it('chatCompletion returns mock response', async () => {
@@ -121,13 +121,21 @@ describe('createFastMockOpenRouterClient', () => {
     await expect(client.getModel('nonexistent-model')).rejects.toThrow('Model not found');
   });
 
-  it('getGenerationStats returns mock stats with provided id', async () => {
+  it('chatCompletionStreamWithMetadata yields final token with inlineCost: 0.001', async () => {
     const client = createFastMockOpenRouterClient();
-    const stats = await client.getGenerationStats('my-gen-id');
+    const tokens: StreamToken[] = [];
 
-    expect(stats.id).toBe('my-gen-id');
-    expect(stats.native_tokens_prompt).toBe(100);
-    expect(stats.native_tokens_completion).toBe(50);
-    expect(stats.total_cost).toBe(0.001);
+    for await (const chunk of client.chatCompletionStreamWithMetadata({
+      model: 'test',
+      messages: [{ role: 'user', content: 'Hi' }],
+    })) {
+      tokens.push(chunk);
+    }
+
+    expect(tokens.length).toBeGreaterThanOrEqual(2);
+    const lastToken = tokens.at(-1);
+    expect(lastToken).toBeDefined();
+    expect(lastToken!.content).toBe('');
+    expect(lastToken!.inlineCost).toBe(0.001);
   });
 });

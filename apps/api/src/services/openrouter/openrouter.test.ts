@@ -12,6 +12,7 @@ import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
   ModelInfo,
+  StreamToken,
 } from './types.js';
 
 interface MockFetchResponse {
@@ -28,6 +29,38 @@ function createStreamResponse(tokens: string[]): MockFetchResponse & { body: Rea
     (t) => `data: ${JSON.stringify({ id: 'gen-123', choices: [{ delta: { content: t } }] })}\n\n`
   );
   chunks.push('data: [DONE]\n\n');
+
+  const encoder = new TextEncoder();
+  let index = 0;
+
+  return {
+    ok: true,
+    body: new ReadableStream({
+      pull(controller) {
+        if (index < chunks.length) {
+          controller.enqueue(encoder.encode(chunks[index]));
+          index++;
+        } else {
+          controller.close();
+        }
+      },
+    }),
+    json: () => Promise.resolve({}),
+  };
+}
+
+function createStreamResponseWithCost(
+  tokens: string[],
+  cost: number
+): MockFetchResponse & { body: ReadableStream } {
+  const chunks = tokens.map(
+    (t) => `data: ${JSON.stringify({ id: 'gen-123', choices: [{ delta: { content: t } }] })}\n\n`
+  );
+  // Final usage chunk with cost (empty choices, usage with cost), then [DONE]
+  chunks.push(
+    `data: ${JSON.stringify({ id: 'gen-123', choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost } })}\n\n`,
+    'data: [DONE]\n\n'
+  );
 
   const encoder = new TextEncoder();
   let index = 0;
@@ -465,77 +498,25 @@ describe('createOpenRouterClient', () => {
     });
   });
 
-  describe('getGenerationStats', () => {
-    it('returns stats immediately when fetch succeeds on first attempt', async () => {
-      const statsData = {
-        id: 'gen-123',
-        native_tokens_prompt: 10,
-        native_tokens_completion: 5,
-        total_cost: 0.001,
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: statsData }),
-      });
+  describe('chatCompletionStreamWithMetadata inline cost', () => {
+    it('yields a final token with inlineCost when stream includes usage.cost', async () => {
+      const usageCost = 0.000_42;
+      fetchMock.mockResolvedValueOnce(createStreamResponseWithCost(['Hi'], usageCost));
 
-      const result = await client.getGenerationStats('gen-123');
+      const tokens: StreamToken[] = [];
+      for await (const token of client.chatCompletionStreamWithMetadata({
+        model: 'test/model',
+        messages: [{ role: 'user', content: 'Hello' }],
+      })) {
+        tokens.push(token);
+      }
 
-      expect(result).toEqual(statsData);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
-    it('retries when fetch fails and returns stats on subsequent attempt', async () => {
-      vi.useFakeTimers();
-
-      const statsData = {
-        id: 'gen-456',
-        native_tokens_prompt: 10,
-        native_tokens_completion: 5,
-        total_cost: 0.001,
-      };
-
-      fetchMock
-        .mockResolvedValueOnce({
-          ok: false,
-          statusText: 'Not Found',
-          json: () => Promise.resolve({ error: { message: 'Generation gen-456 not found' } }),
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ data: statsData }),
-        });
-
-      const promise = client.getGenerationStats('gen-456');
-      await vi.advanceTimersByTimeAsync(1000);
-      const result = await promise;
-
-      expect(result).toEqual(statsData);
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-
-      vi.useRealTimers();
-    });
-
-    it('throws after all retry attempts are exhausted', async () => {
-      vi.useFakeTimers();
-
-      fetchMock.mockResolvedValue({
-        ok: false,
-        statusText: 'Not Found',
-        json: () => Promise.resolve({ error: { message: 'Generation not found' } }),
-      });
-
-      const promise = client.getGenerationStats('gen-bad');
-      const assertion = expect(promise).rejects.toThrow(
-        'Failed to get generation stats: Generation not found'
-      );
-
-      // Advance through all retry delays: 1s, 2s, 4s, 4s, 4s, 4s, 4s = 23s for 8 attempts
-      await vi.advanceTimersByTimeAsync(30_000);
-      await assertion;
-
-      expect(fetchMock).toHaveBeenCalledTimes(8);
-
-      vi.useRealTimers();
+      // Should have the content token plus a final cost token
+      expect(tokens.length).toBeGreaterThanOrEqual(2);
+      const lastToken = tokens.at(-1);
+      expect(lastToken).toBeDefined();
+      expect(lastToken!.content).toBe('');
+      expect(lastToken!.inlineCost).toBe(usageCost);
     });
   });
 });

@@ -3,12 +3,13 @@ import type { SSEEventWriter } from './stream-handler.js';
 export interface ModelStreamEntry {
   modelId: string;
   assistantMessageId: string;
-  stream: AsyncIterable<{ content: string; generationId?: string }>;
+  stream: AsyncIterable<{ content: string; generationId?: string; inlineCost?: number }>;
 }
 
 export interface MultiStreamResult {
   fullContent: string;
   generationId: string | undefined;
+  inlineCost: number | undefined;
   error: Error | null;
 }
 
@@ -18,6 +19,7 @@ async function collectSingleModel(
 ): Promise<MultiStreamResult> {
   let fullContent = '';
   let generationId: string | undefined;
+  let inlineCost: number | undefined;
   let error: Error | null = null;
 
   try {
@@ -25,8 +27,13 @@ async function collectSingleModel(
       if (token.generationId) {
         generationId = token.generationId;
       }
-      fullContent += token.content;
-      await writer.writeModelToken({ modelId: entry.modelId, content: token.content });
+      if (token.inlineCost !== undefined) {
+        inlineCost = token.inlineCost;
+      }
+      if (token.content) {
+        fullContent += token.content;
+        await writer.writeModelToken({ modelId: entry.modelId, content: token.content });
+      }
     }
 
     await writer.writeModelDone({
@@ -43,7 +50,7 @@ async function collectSingleModel(
     });
   }
 
-  return { fullContent, generationId, error };
+  return { fullContent, generationId, inlineCost, error };
 }
 
 /**
@@ -51,7 +58,7 @@ async function collectSingleModel(
  * SSE events as tokens arrive.
  *
  * Each model stream runs independently. If one fails, others continue.
- * Returns a Map of modelId → result (content, generationId, error).
+ * Returns a Map of modelId → result (content, generationId, inlineCost, error).
  */
 export async function collectMultiModelStreams(
   entries: ModelStreamEntry[],

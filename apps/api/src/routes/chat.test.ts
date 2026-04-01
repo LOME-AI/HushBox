@@ -603,9 +603,6 @@ describe('chat routes', () => {
         getModel() {
           return Promise.reject(new Error('Model not found'));
         },
-        getGenerationStats() {
-          return Promise.reject(new Error('Not implemented in mock'));
-        },
       };
 
       const mockDb = createMockDb({
@@ -880,15 +877,13 @@ describe('chat routes', () => {
     });
 
     describe('cost calculation routing', () => {
-      it('uses estimated cost in development/test mode (does NOT call getGenerationStats)', async () => {
+      it('uses inline cost from stream for billing', async () => {
         vi.useRealTimers();
-
-        let getGenerationStatsCalled = false;
 
         const app = new Hono<AppEnv>();
 
         const openrouter: OpenRouterClient = {
-          isMock: true, // Mock client should NOT call getGenerationStats
+          isMock: true,
           chatCompletion() {
             return Promise.resolve({
               id: 'mock-123',
@@ -902,6 +897,7 @@ describe('chat routes', () => {
           // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
           async *chatCompletionStreamWithMetadata() {
             yield { content: 'Hello', generationId: 'mock-gen-123' };
+            yield { content: '', inlineCost: 0.001 };
           },
           // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
           async *chatCompletionStream() {
@@ -912,15 +908,6 @@ describe('chat routes', () => {
           },
           getModel() {
             return Promise.reject(new Error('Model not found'));
-          },
-          getGenerationStats(generationId: string) {
-            getGenerationStatsCalled = true;
-            return Promise.resolve({
-              id: generationId,
-              native_tokens_prompt: 100,
-              native_tokens_completion: 50,
-              total_cost: 0.001,
-            });
           },
         };
 
@@ -976,116 +963,11 @@ describe('chat routes', () => {
           body: streamBody(),
         });
 
-        await res.text();
+        const body = await res.text();
 
-        // In development/test mode, getGenerationStats should NOT be called
-        expect(getGenerationStatsCalled).toBe(false);
-      });
-
-      it('calls getGenerationStats in production mode', async () => {
-        vi.useRealTimers();
-
-        let getGenerationStatsCalled = false;
-
-        const app = new Hono<AppEnv>();
-
-        const openrouter: OpenRouterClient = {
-          isMock: false, // Real client SHOULD call getGenerationStats
-          chatCompletion() {
-            return Promise.resolve({
-              id: 'mock-123',
-              model: 'openai/gpt-4-turbo',
-              choices: [
-                { index: 0, message: { role: 'assistant', content: 'Hi' }, finish_reason: 'stop' },
-              ],
-              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-            });
-          },
-          // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
-          async *chatCompletionStreamWithMetadata() {
-            yield { content: 'Hello', generationId: 'mock-gen-123' };
-          },
-          // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
-          async *chatCompletionStream() {
-            yield 'Hello';
-          },
-          listModels() {
-            return Promise.resolve([]);
-          },
-          getModel() {
-            return Promise.reject(new Error('Model not found'));
-          },
-          getGenerationStats(generationId: string) {
-            getGenerationStatsCalled = true;
-            return Promise.resolve({
-              id: generationId,
-              native_tokens_prompt: 100,
-              native_tokens_completion: 50,
-              total_cost: 0.001,
-            });
-          },
-        };
-
-        const mockDb = createMockDb({
-          conversations: [
-            {
-              id: TEST_CONVERSATION_ID,
-              userId: TEST_USER_ID,
-              title: 'Test',
-              currentEpoch: 1,
-              nextSequence: 0,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            },
-          ],
-          users: [{ id: TEST_USER_ID, balance: '10.00000000' }],
-        });
-
-        app.use('*', async (c, next) => {
-          c.set('user', {
-            id: TEST_USER_ID,
-            email: 'test@example.com',
-            username: 'test_user',
-            emailVerified: true,
-            totpEnabled: false,
-            hasAcknowledgedPhrase: false,
-
-            publicKey: new Uint8Array(32),
-          });
-          c.set('session', {
-            sessionId: 'session-123',
-            userId: TEST_USER_ID,
-            email: 'test@example.com',
-            username: 'test_user',
-            emailVerified: true,
-            totpEnabled: false,
-            hasAcknowledgedPhrase: false,
-            pending2FA: false,
-            pending2FAExpiresAt: 0,
-            createdAt: Date.now(),
-          });
-          c.set('openrouter', openrouter);
-          c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
-          c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
-          await next();
-        });
-        app.route('/', chatRoute);
-
-        // Pass NODE_ENV: 'production' to simulate production mode
-        const res = await app.request(
-          `/${TEST_CONVERSATION_ID}/stream`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: streamBody(),
-          },
-          { NODE_ENV: 'production' } as AppEnv['Bindings']
-        );
-
-        await res.text();
-
-        // In production mode, getGenerationStats SHOULD be called
-        expect(getGenerationStatsCalled).toBe(true);
+        // Stream completes with inline cost — no separate API call needed
+        expect(res.status).toBe(200);
+        expect(body).toContain('event: done');
       });
     });
 
@@ -1123,6 +1005,7 @@ describe('chat routes', () => {
             yield { content: ' are' };
             yield { content: ' you' };
             yield { content: '?' };
+            yield { content: '', inlineCost: 0.001 };
           },
           // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
           async *chatCompletionStream() {
@@ -1133,14 +1016,6 @@ describe('chat routes', () => {
           },
           getModel() {
             return Promise.reject(new Error('Model not found'));
-          },
-          getGenerationStats(generationId: string) {
-            return Promise.resolve({
-              id: generationId,
-              native_tokens_prompt: 100,
-              native_tokens_completion: 50,
-              total_cost: 0.001,
-            });
           },
         };
 
@@ -1239,6 +1114,7 @@ describe('chat routes', () => {
           async *chatCompletionStreamWithMetadata() {
             yield { content: 'Hello', generationId: 'mock-gen-123' };
             yield { content: ' World' };
+            yield { content: '', inlineCost: 0.001 };
           },
           // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
           async *chatCompletionStream() {
@@ -1249,14 +1125,6 @@ describe('chat routes', () => {
           },
           getModel() {
             return Promise.reject(new Error('Model not found'));
-          },
-          getGenerationStats(generationId: string) {
-            return Promise.resolve({
-              id: generationId,
-              native_tokens_prompt: 100,
-              native_tokens_completion: 50,
-              total_cost: 0.001,
-            });
           },
         };
 
@@ -1546,7 +1414,6 @@ describe('chat routes', () => {
           },
           listModels: () => Promise.resolve([]),
           getModel: () => Promise.reject(new Error('not found')),
-          getGenerationStats: () => Promise.reject(new Error('not implemented')),
         };
 
         const mockDb = createMockDb({
@@ -1624,12 +1491,12 @@ describe('chat routes', () => {
             // yields nothing
           },
 
+          // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
           async *chatCompletionStreamWithMetadata() {
-            // yields nothing
+            yield { content: '', inlineCost: 0.001 };
           },
           listModels: () => Promise.resolve([]),
           getModel: () => Promise.reject(new Error('not found')),
-          getGenerationStats: () => Promise.reject(new Error('not implemented')),
         };
 
         const mockDb = createMockDb({
@@ -1941,6 +1808,7 @@ describe('chat routes', () => {
             yield { content: 'B' };
             await new Promise((resolve) => setTimeout(resolve, 250));
             yield { content: 'C' };
+            yield { content: '', inlineCost: 0.001 };
           },
           // eslint-disable-next-line @typescript-eslint/require-await -- sync yields for test
           async *chatCompletionStream() {
@@ -1951,14 +1819,6 @@ describe('chat routes', () => {
           },
           getModel() {
             return Promise.reject(new Error('Model not found'));
-          },
-          getGenerationStats(generationId: string) {
-            return Promise.resolve({
-              id: generationId,
-              native_tokens_prompt: 100,
-              native_tokens_completion: 50,
-              total_cost: 0.001,
-            });
           },
         };
         const broadcastBodies: unknown[] = [];

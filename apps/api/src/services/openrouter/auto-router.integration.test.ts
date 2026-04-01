@@ -3,7 +3,7 @@ import { createDb, LOCAL_NEON_DEV_CONFIG, type Database } from '@hushbox/db';
 import { createEnvUtilities } from '@hushbox/shared';
 import { createOpenRouterClient, type EvidenceConfig } from './openrouter.js';
 import { createFastMockOpenRouterClient } from '../../test-helpers/openrouter-mocks.js';
-import type { OpenRouterClient } from './types.js';
+import type { OpenRouterClient, StreamToken } from './types.js';
 import { retryWithBackoff, isProviderError } from './retry.js';
 
 /**
@@ -140,35 +140,30 @@ describe('Auto-Router Integration', () => {
     expect(generationId!.length).toBeGreaterThan(0);
   }, 30_000);
 
-  it('returns generation stats with total_cost > 0', async () => {
-    // First, make a request to get a generation ID
-    let generationId: string | undefined;
-
-    await retryWithBackoff(
+  it('yields inlineCost > 0 on the final token', async () => {
+    const { tokens } = await retryWithBackoff(
       async () => {
+        const collected: StreamToken[] = [];
+
         for await (const token of client.chatCompletionStreamWithMetadata({
           model: AUTO_ROUTER_MODEL,
           messages: [{ role: 'user', content: 'Say one word' }],
           max_tokens: 10,
         })) {
-          if (token.generationId) {
-            generationId = token.generationId;
-          }
+          collected.push(token);
         }
+
+        return { tokens: collected };
       },
       { shouldRetry: isProviderError }
     );
 
-    expect(generationId).toBeDefined();
+    expect(tokens.length).toBeGreaterThanOrEqual(2);
 
-    const stats = await client.getGenerationStats(generationId!);
-
-    expect(stats.id).toBeDefined();
-    expect(stats.native_tokens_prompt).toBeGreaterThan(0);
-    expect(stats.native_tokens_completion).toBeGreaterThan(0);
-
-    // In CI, verify actual cost; mock returns a fixed cost
-    expect(stats.total_cost).toBeGreaterThan(0);
+    const lastToken = tokens.at(-1);
+    expect(lastToken).toBeDefined();
+    expect(lastToken!.content).toBe('');
+    expect(lastToken!.inlineCost).toBeGreaterThan(0);
   }, 60_000);
 
   it('works with ZDR provider enforcement', async () => {

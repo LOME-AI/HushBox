@@ -145,44 +145,75 @@ function flushBroadcastBuffer(broadcast: BroadcastContext, tokenBuffer: string):
   );
 }
 
-// eslint-disable-next-line sonarjs/cognitive-complexity -- streaming loop with broadcast batching is inherently nested
+interface BroadcastState {
+  buffer: string;
+  lastTime: number;
+}
+
+function writeTokenAndBroadcast(
+  content: string,
+  broadcast: BroadcastContext | undefined,
+  state: BroadcastState
+): BroadcastState {
+  if (!broadcast) return state;
+  const newBuffer = state.buffer + content;
+  if (Date.now() - state.lastTime >= BATCH_INTERVAL_MS) {
+    flushBroadcastBuffer(broadcast, newBuffer);
+    return { buffer: '', lastTime: Date.now() };
+  }
+  return { ...state, buffer: newBuffer };
+}
+
+interface TokenCollectorState {
+  fullContent: string;
+  generationId: string | undefined;
+  inlineCost: number | undefined;
+  broadcastState: BroadcastState;
+}
+
+function processStreamToken(
+  token: { content: string; generationId?: string; inlineCost?: number },
+  state: TokenCollectorState,
+  broadcast: BroadcastContext | undefined
+): TokenCollectorState {
+  const updated = { ...state };
+  if (token.generationId) updated.generationId = token.generationId;
+  if (token.inlineCost !== undefined) updated.inlineCost = token.inlineCost;
+  if (token.content) {
+    updated.fullContent += token.content;
+    updated.broadcastState = writeTokenAndBroadcast(token.content, broadcast, state.broadcastState);
+  }
+  return updated;
+}
+
 async function collectStreamTokens(
-  tokenStream: AsyncIterable<{ content: string; generationId?: string }>,
+  tokenStream: AsyncIterable<{ content: string; generationId?: string; inlineCost?: number }>,
   writer: SSEEventWriter,
   modelContext: { modelId: string; assistantMessageId: string },
   broadcast?: BroadcastContext
 ): Promise<StreamResult> {
   const { modelId, assistantMessageId: modelAssistantMessageId } = modelContext;
-  let fullContent = '';
-  let generationId: string | undefined;
+  let state: TokenCollectorState = {
+    fullContent: '',
+    generationId: undefined,
+    inlineCost: undefined,
+    broadcastState: { buffer: '', lastTime: Date.now() },
+  };
   let error: Error | null = null;
-  let tokenBuffer = '';
-  let lastBroadcastTime = Date.now();
 
   try {
     for await (const token of tokenStream) {
-      if (token.generationId) {
-        generationId = token.generationId;
-      }
-      fullContent += token.content;
-      await writer.writeModelToken({ modelId, content: token.content });
-
-      if (broadcast) {
-        tokenBuffer += token.content;
-        if (Date.now() - lastBroadcastTime >= BATCH_INTERVAL_MS) {
-          flushBroadcastBuffer(broadcast, tokenBuffer);
-          tokenBuffer = '';
-          lastBroadcastTime = Date.now();
-        }
+      state = processStreamToken(token, state, broadcast);
+      if (token.content) {
+        await writer.writeModelToken({ modelId, content: token.content });
       }
     }
   } catch (error_) {
     error = error_ instanceof Error ? error_ : new Error('Unknown error');
   }
 
-  // Flush remaining buffered tokens
-  if (broadcast && tokenBuffer) {
-    flushBroadcastBuffer(broadcast, tokenBuffer);
+  if (broadcast && state.broadcastState.buffer) {
+    flushBroadcastBuffer(broadcast, state.broadcastState.buffer);
   }
 
   if (!error) {
@@ -193,7 +224,12 @@ async function collectStreamTokens(
     });
   }
 
-  return { fullContent, generationId, error };
+  return {
+    fullContent: state.fullContent,
+    generationId: state.generationId,
+    inlineCost: state.inlineCost,
+    error,
+  };
 }
 
 interface BillingContext {
@@ -259,7 +295,6 @@ async function resolveUserBillingContext(
 
 interface PersistAndBroadcastRegenerationParams {
   db: AppEnv['Variables']['db'];
-  openrouter: AppEnv['Variables']['openrouter'];
   writer: SSEEventWriter;
   env: Bindings | undefined;
   conversationId: string;
@@ -299,7 +334,6 @@ async function persistAndBroadcastRegeneration(
 ): Promise<void> {
   const {
     db,
-    openrouter,
     writer,
     env,
     conversationId,
@@ -321,10 +355,9 @@ async function persistAndBroadcastRegeneration(
   } = params;
 
   const modelInfo = openrouterModels.find((m) => m.id === model);
-  const totalCost = await calculateMessageCost({
-    openrouter,
+  const totalCost = calculateMessageCost({
+    inlineCost: result.inlineCost,
     modelInfo,
-    generationId: result.generationId,
     inputContent: lastInferenceMessage?.content ?? '',
     outputContent: result.fullContent,
     webSearchCost,
@@ -813,7 +846,6 @@ export const chatRoute = new Hono<AppEnv>()
 
           await persistAndBroadcastRegeneration({
             db,
-            openrouter,
             writer,
             env: c.env,
             conversationId,

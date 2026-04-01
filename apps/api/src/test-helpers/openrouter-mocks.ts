@@ -23,9 +23,15 @@ export function createFastMockOpenRouterClient(
     streamContent?: string;
     generationId?: string;
     models?: MockModel[];
+    inlineCost?: number;
   } = {}
 ): OpenRouterClient {
-  const { streamContent = 'Echo: Hello', generationId = 'mock-gen-123', models = [] } = options;
+  const {
+    streamContent = 'Echo: Hello',
+    generationId = 'mock-gen-123',
+    models = [],
+    inlineCost = 0.001,
+  } = options;
 
   return {
     isMock: true,
@@ -60,6 +66,8 @@ export function createFastMockOpenRouterClient(
           yield { content: char };
         }
       }
+      // Yield inline cost (mirrors real OpenRouter final usage chunk)
+      yield { content: '', inlineCost };
     },
     listModels() {
       return Promise.resolve(models);
@@ -70,14 +78,6 @@ export function createFastMockOpenRouterClient(
         return Promise.resolve(model);
       }
       return Promise.reject(new Error('Model not found'));
-    },
-    getGenerationStats(genId: string) {
-      return Promise.resolve({
-        id: genId,
-        native_tokens_prompt: 100,
-        native_tokens_completion: 50,
-        total_cost: 0.001,
-      });
     },
   };
 }

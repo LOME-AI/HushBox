@@ -31,7 +31,6 @@ function createMockClientWithModels(models: ModelInfo[]): OpenRouterClient {
     chatCompletionStreamWithMetadata:
       vi.fn() as unknown as OpenRouterClient['chatCompletionStreamWithMetadata'],
     getModel: vi.fn(),
-    getGenerationStats: vi.fn(),
     listModels: vi.fn().mockResolvedValue(models),
   };
 }
@@ -88,7 +87,6 @@ describe('getPaidTestModel', () => {
       chatCompletionStreamWithMetadata:
         vi.fn() as unknown as OpenRouterClient['chatCompletionStreamWithMetadata'],
       getModel: vi.fn(),
-      getGenerationStats: vi.fn(),
       listModels: listModelsMock,
     };
 

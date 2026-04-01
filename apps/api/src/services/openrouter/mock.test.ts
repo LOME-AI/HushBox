@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { createMockOpenRouterClient } from './mock.js';
-import type { ChatCompletionRequest, MockOpenRouterClient } from './types.js';
+import type { ChatCompletionRequest, MockOpenRouterClient, StreamToken } from './types.js';
 
 describe('createMockOpenRouterClient', () => {
   let client: MockOpenRouterClient;
@@ -376,7 +376,7 @@ describe('createMockOpenRouterClient', () => {
   });
 
   describe('auto-router support', () => {
-    it('uses non-zero cost for auto-router in generation stats', async () => {
+    it('yields a final token with inlineCost > 0 and empty content for auto-router', async () => {
       vi.useFakeTimers();
 
       const request: ChatCompletionRequest = {
@@ -384,16 +384,13 @@ describe('createMockOpenRouterClient', () => {
         messages: [{ role: 'user', content: 'Hello' }],
       };
 
-      // Stream to populate generation data
-      let generationId: string | undefined;
+      const tokens: StreamToken[] = [];
       const iterator = client.chatCompletionStreamWithMetadata(request)[Symbol.asyncIterator]();
       let result = iterator.next();
       await vi.advanceTimersByTimeAsync(1100);
       let token = await result;
       while (!token.done) {
-        if (token.value.generationId) {
-          generationId = token.value.generationId;
-        }
+        tokens.push(token.value);
         result = iterator.next();
         await vi.advanceTimersByTimeAsync(10);
         token = await result;
@@ -401,9 +398,11 @@ describe('createMockOpenRouterClient', () => {
 
       vi.useRealTimers();
 
-      expect(generationId).toBeDefined();
-      const stats = await client.getGenerationStats(generationId!);
-      expect(stats.total_cost).toBeGreaterThan(0);
+      expect(tokens.length).toBeGreaterThanOrEqual(2);
+      const lastToken = tokens.at(-1);
+      expect(lastToken).toBeDefined();
+      expect(lastToken!.content).toBe('');
+      expect(lastToken!.inlineCost).toBeGreaterThan(0);
     });
 
     it('preserves auto-router plugin with allowed_models in history', async () => {

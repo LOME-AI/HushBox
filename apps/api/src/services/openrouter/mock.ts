@@ -2,7 +2,6 @@ import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
   ChatMessage,
-  GenerationStats,
   MockOpenRouterClient,
   StreamToken,
 } from './types.js';
@@ -21,12 +20,6 @@ const CHARS_PER_TOKEN = 4;
 /** Mid-range pricing for auto-router mock billing (per token, USD) */
 const AUTO_ROUTER_MOCK_INPUT_PRICE = 0.000_005;
 const AUTO_ROUTER_MOCK_OUTPUT_PRICE = 0.000_015;
-
-interface GenerationData {
-  modelId: string;
-  promptCharacters: number;
-  completionCharacters: number;
-}
 
 function hasWebSearchPlugin(request: ChatCompletionRequest): boolean {
   return request.plugins?.some((p) => p.id === 'web') === true;
@@ -74,10 +67,30 @@ export function clearFailingModels(): void {
   failingModels.clear();
 }
 
+/** Calculate mock inline cost using real model pricing (mirrors real OpenRouter inline usage). */
+async function calculateMockInlineCost(
+  modelId: string,
+  promptCharacters: number,
+  completionCharacters: number
+): Promise<number> {
+  const promptTokens = Math.ceil(promptCharacters / CHARS_PER_TOKEN);
+  const completionTokens = Math.ceil(completionCharacters / CHARS_PER_TOKEN);
+
+  if (modelId === AUTO_ROUTER_MODEL_ID) {
+    return (
+      promptTokens * AUTO_ROUTER_MOCK_INPUT_PRICE + completionTokens * AUTO_ROUTER_MOCK_OUTPUT_PRICE
+    );
+  }
+
+  // Get REAL model pricing (public OpenRouter API, 1hr cache)
+  const model = await getModel(modelId);
+  const pricePerInputToken = parseTokenPrice(model.pricing.prompt);
+  const pricePerOutputToken = parseTokenPrice(model.pricing.completion);
+  return promptTokens * pricePerInputToken + completionTokens * pricePerOutputToken;
+}
+
 export function createMockOpenRouterClient(): MockOpenRouterClient {
   const history: ChatCompletionRequest[] = [];
-  // Track generation data for billing lookups (generationId → data)
-  const generationData = new Map<string, GenerationData>();
 
   return {
     isMock: true,
@@ -125,16 +138,6 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
       const { response } = prepareMockResponse(request, history);
       const generationId = `mock-gen-${String(Date.now())}`;
 
-      // Calculate prompt characters (all messages sent to the model)
-      const promptCharacters = request.messages.reduce((sum, msg) => sum + msg.content.length, 0);
-
-      // Store generation data for billing lookup
-      generationData.set(generationId, {
-        modelId: request.model,
-        promptCharacters,
-        completionCharacters: response.length,
-      });
-
       // Simulate model thinking latency before first token
       await delay(100);
 
@@ -148,6 +151,11 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
         yield token;
         await delay(STREAM_DELAY_MS);
       }
+
+      // Yield inline cost (mirrors real OpenRouter final usage chunk)
+      const promptCharacters = request.messages.reduce((sum, msg) => sum + msg.content.length, 0);
+      const cost = await calculateMockInlineCost(request.model, promptCharacters, response.length);
+      yield { content: '', inlineCost: cost };
     },
 
     listModels() {
@@ -156,44 +164,6 @@ export function createMockOpenRouterClient(): MockOpenRouterClient {
 
     getModel() {
       throw new Error('Not implemented - use getModel() from openrouter.ts instead');
-    },
-
-    async getGenerationStats(generationId: string): Promise<GenerationStats> {
-      const data = generationData.get(generationId);
-      if (!data) {
-        throw new Error(`Unknown generation ID: ${generationId}`);
-      }
-
-      // Estimate tokens: characters / 4
-      const promptTokens = Math.ceil(data.promptCharacters / CHARS_PER_TOKEN);
-      const completionTokens = Math.ceil(data.completionCharacters / CHARS_PER_TOKEN);
-
-      // Auto-router: use mid-range pricing (actual model pricing is 0/0)
-      if (data.modelId === AUTO_ROUTER_MODEL_ID) {
-        return {
-          id: generationId,
-          native_tokens_prompt: promptTokens,
-          native_tokens_completion: completionTokens,
-          total_cost:
-            promptTokens * AUTO_ROUTER_MOCK_INPUT_PRICE +
-            completionTokens * AUTO_ROUTER_MOCK_OUTPUT_PRICE,
-        };
-      }
-
-      // Get REAL model pricing (public OpenRouter API, 1hr cache)
-      const model = await getModel(data.modelId);
-      const pricePerInputToken = parseTokenPrice(model.pricing.prompt);
-      const pricePerOutputToken = parseTokenPrice(model.pricing.completion);
-
-      // Calculate base cost using ACTUAL model pricing
-      const baseCost = promptTokens * pricePerInputToken + completionTokens * pricePerOutputToken;
-
-      return {
-        id: generationId,
-        native_tokens_prompt: promptTokens,
-        native_tokens_completion: completionTokens,
-        total_cost: baseCost,
-      };
     },
 
     getCompletionHistory(): ChatCompletionRequest[] {

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createOpenRouterClient } from './openrouter.js';
 import { getPaidTestModel, clearTestModelCache } from './test-utilities.js';
-import type { OpenRouterClient } from './types.js';
+import type { OpenRouterClient, StreamToken } from './types.js';
 import { applyFees, TOTAL_FEE_RATE } from '@hushbox/shared';
 
 /**
@@ -40,48 +40,48 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
     console.log(`Using paid test model: ${paidModel}`);
   }, 30_000);
 
-  describe('getGenerationStats', () => {
-    it('retrieves exact cost from /generation endpoint', async () => {
-      // Make a real API call
-      const response = await client.chatCompletion({
+  describe('streaming cost', () => {
+    it('yields inlineCost > 0 on the final token of a streaming request', async () => {
+      const tokens: StreamToken[] = [];
+
+      for await (const token of client.chatCompletionStreamWithMetadata({
         model: paidModel,
         messages: [{ role: 'user', content: 'Say hello' }],
         max_tokens: 10,
-      });
+      })) {
+        tokens.push(token);
+      }
 
-      // The response id is the generation id
-      const generationId = response.id;
-      expect(generationId).toBeDefined();
+      expect(tokens.length).toBeGreaterThanOrEqual(2);
 
-      const stats = await client.getGenerationStats(generationId);
-
-      // Verify stats structure
-      expect(stats.id).toBe(generationId);
-      expect(stats.native_tokens_prompt).toBeGreaterThan(0);
-      expect(stats.native_tokens_completion).toBeGreaterThan(0);
-      expect(stats.total_cost).toBeGreaterThan(0);
+      const lastToken = tokens.at(-1);
+      expect(lastToken).toBeDefined();
+      expect(lastToken!.content).toBe('');
+      expect(lastToken!.inlineCost).toBeGreaterThan(0);
+      expect(lastToken!.inlineCost).toBeLessThan(0.01); // sanity: should be well under a cent
     }, 60_000);
 
-    it('calculates our charge as exactly 15% higher than OpenRouter cost', async () => {
-      // Make a real API call
-      const response = await client.chatCompletion({
+    it('calculates fee ratio of ~1.15 from inlineCost', async () => {
+      const tokens: StreamToken[] = [];
+
+      for await (const token of client.chatCompletionStreamWithMetadata({
         model: paidModel,
         messages: [{ role: 'user', content: 'Count to three' }],
         max_tokens: 20,
-      });
+      })) {
+        tokens.push(token);
+      }
 
-      const stats = await client.getGenerationStats(response.id);
+      const lastToken = tokens.at(-1);
+      expect(lastToken).toBeDefined();
+      const openRouterCost = lastToken!.inlineCost!;
+      expect(openRouterCost).toBeGreaterThan(0);
 
-      // Calculate what we would charge the user
-      const openRouterCost = stats.total_cost;
       const ourCharge = applyFees(openRouterCost);
 
       // Verify our fee is exactly 15%
       const expectedCharge = openRouterCost * (1 + TOTAL_FEE_RATE);
       expect(ourCharge).toBeCloseTo(expectedCharge, 10);
-
-      // Verify we charge more than OpenRouter
-      expect(ourCharge).toBeGreaterThan(openRouterCost);
 
       // Verify the ratio is exactly 1.15
       const ratio = ourCharge / openRouterCost;
@@ -90,32 +90,6 @@ describe.skipIf(!hasApiKey)('Billing Integration', () => {
       console.log(`OpenRouter cost: $${openRouterCost.toFixed(10)}`);
       console.log(`Our charge: $${ourCharge.toFixed(10)}`);
       console.log(`Fee ratio: ${ratio.toFixed(4)}x (expected 1.15x)`);
-    }, 60_000);
-
-    it('returns native token counts (not normalized)', async () => {
-      // Make a real API call
-      const response = await client.chatCompletion({
-        model: paidModel,
-        messages: [{ role: 'user', content: 'Hello' }],
-        max_tokens: 10,
-      });
-
-      const stats = await client.getGenerationStats(response.id);
-
-      // Native tokens should be positive integers
-      expect(Number.isInteger(stats.native_tokens_prompt)).toBe(true);
-      expect(Number.isInteger(stats.native_tokens_completion)).toBe(true);
-      expect(stats.native_tokens_prompt).toBeGreaterThan(0);
-      expect(stats.native_tokens_completion).toBeGreaterThan(0);
-
-      // The immediate response uses normalized tokens (GPT-4o tokenizer)
-      // These may differ from native tokens
-      console.log(
-        `Normalized tokens (immediate): prompt=${String(response.usage.prompt_tokens)}, completion=${String(response.usage.completion_tokens)}`
-      );
-      console.log(
-        `Native tokens (generation): prompt=${String(stats.native_tokens_prompt)}, completion=${String(stats.native_tokens_completion)}`
-      );
     }, 60_000);
   });
 });

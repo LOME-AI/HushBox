@@ -7,17 +7,12 @@ import type {
   ChatCompletionChunk,
   ModelInfo,
   OpenRouterClient,
-  GenerationStats,
   StreamToken,
 } from './types.js';
 import { parseContextLengthError } from './context-error.js';
-import { retryWithBackoff } from './retry.js';
 
 /** Minimum output tokens to justify a retry after context length error. */
 export const MINIMUM_OUTPUT_TOKENS = 1000;
-
-/** Generation stats retry: 1s, 2s, 4s, 4s, ... (~23s total, fits within Worker CPU limit) */
-const GENERATION_STATS_RETRY = { maxAttempts: 8, initialDelayMs: 1000, maxDelayMs: 4000 } as const;
 
 /**
  * Error thrown when the model's context is too full to produce useful output.
@@ -148,6 +143,39 @@ interface SSELineResult {
   state: SSELineState;
 }
 
+function buildChunkToken(
+  chunk: ChatCompletionChunk,
+  state: SSELineState,
+  newGenerationId: string | undefined
+): { token?: StreamToken; state: SSELineState } {
+  const content = chunk.choices[0]?.delta.content;
+
+  // Final chunk before [DONE]: empty choices, usage with cost
+  if (!content && chunk.usage?.cost !== undefined) {
+    return {
+      token: { content: '', inlineCost: chunk.usage.cost },
+      state: { ...state, generationId: newGenerationId },
+    };
+  }
+
+  if (!content) {
+    return { state: { ...state, generationId: newGenerationId } };
+  }
+
+  const token: StreamToken = { content };
+  let newIsFirstTokenWithId = state.isFirstTokenWithId;
+
+  if (state.isFirstTokenWithId && newGenerationId) {
+    token.generationId = newGenerationId;
+    newIsFirstTokenWithId = false;
+  }
+
+  return {
+    token,
+    state: { generationId: newGenerationId, isFirstTokenWithId: newIsFirstTokenWithId },
+  };
+}
+
 function processSSELine(line: string, state: SSELineState): SSELineResult {
   if (!line.startsWith('data: ')) {
     return { done: false, state };
@@ -161,25 +189,8 @@ function processSSELine(line: string, state: SSELineState): SSELineResult {
   try {
     const chunk = JSON.parse(data) as ChatCompletionChunk;
     const newGenerationId = state.generationId ?? chunk.id;
-    const content = chunk.choices[0]?.delta.content;
-
-    if (!content) {
-      return { done: false, state: { ...state, generationId: newGenerationId } };
-    }
-
-    const token: StreamToken = { content };
-    let newIsFirstTokenWithId = state.isFirstTokenWithId;
-
-    if (state.isFirstTokenWithId && newGenerationId) {
-      token.generationId = newGenerationId;
-      newIsFirstTokenWithId = false;
-    }
-
-    return {
-      done: false,
-      token,
-      state: { generationId: newGenerationId, isFirstTokenWithId: newIsFirstTokenWithId },
-    };
+    const result = buildChunkToken(chunk, state, newGenerationId);
+    return { done: false, ...result };
   } catch {
     return { done: false, state };
   }
@@ -378,32 +389,6 @@ export function createOpenRouterClient(
       }
 
       return model;
-    },
-
-    async getGenerationStats(generationId: string): Promise<GenerationStats> {
-      return retryWithBackoff(async () => {
-        const response = await fetch(`${OPENROUTER_API_URL}/generation?id=${generationId}`, {
-          method: 'GET',
-          headers,
-        });
-        await recordEvidence();
-
-        if (!response.ok) {
-          const error = await safeJsonParse<OpenRouterErrorResponse>(
-            response,
-            'OpenRouter generation stats error'
-          );
-          throw new Error(
-            `Failed to get generation stats: ${error.error?.message ?? response.statusText}`
-          );
-        }
-
-        const responseData = await safeJsonParse<{ data: GenerationStats }>(
-          response,
-          'OpenRouter generation stats'
-        );
-        return responseData.data;
-      }, GENERATION_STATS_RETRY);
     },
   };
 }

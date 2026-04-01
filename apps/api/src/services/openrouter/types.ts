@@ -71,6 +71,7 @@ export interface ModelInfo {
 
 /**
  * Streaming chunk from OpenRouter API (SSE format).
+ * The final chunk before [DONE] has empty choices and includes usage stats.
  */
 export interface ChatCompletionChunk {
   id: string;
@@ -83,18 +84,14 @@ export interface ChatCompletionChunk {
     };
     finish_reason: 'stop' | 'tool_calls' | 'length' | null;
   }[];
-}
-
-/**
- * Generation stats from OpenRouter's /generation endpoint.
- * Contains exact cost and native token counts (not normalized).
- */
-export interface GenerationStats {
-  id: string;
-  native_tokens_prompt: number;
-  native_tokens_completion: number;
-  /** Exact USD cost that OpenRouter charged us */
-  total_cost: number;
+  /** Inline usage stats — present in the final chunk before [DONE] with empty choices */
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    /** Cost in USD. Optional per OpenRouter docs. */
+    cost?: number;
+  };
 }
 
 /**
@@ -107,6 +104,8 @@ export interface StreamToken {
   content: string;
   /** Generation ID from first chunk - only present on first token */
   generationId?: string;
+  /** Inline cost from OpenRouter's final usage chunk (USD). Undefined if usage chunk was missing. */
+  inlineCost?: number;
 }
 
 export interface OpenRouterClient {
@@ -114,12 +113,10 @@ export interface OpenRouterClient {
   readonly isMock: boolean;
   chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse>;
   chatCompletionStream(request: ChatCompletionRequest): AsyncIterable<string>;
-  /** Stream that yields tokens with generation ID on first token (for billing) */
+  /** Stream that yields tokens with generation ID on first token and inline cost on final token */
   chatCompletionStreamWithMetadata(request: ChatCompletionRequest): AsyncIterable<StreamToken>;
   listModels(): Promise<ModelInfo[]>;
   getModel(modelId: string): Promise<ModelInfo>;
-  /** Fetch exact generation stats including native token counts and actual cost */
-  getGenerationStats(generationId: string): Promise<GenerationStats>;
 }
 
 export interface MockOpenRouterClient extends OpenRouterClient {

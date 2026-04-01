@@ -92,6 +92,7 @@ export interface BroadcastContext {
 export interface StreamResult {
   fullContent: string;
   generationId: string | undefined;
+  inlineCost: number | undefined;
   error: Error | null;
 }
 
@@ -663,60 +664,46 @@ interface BuildAssistantMessagesOptions {
   successfulModels: [string, StreamResult][];
   getAssistantId: (modelId: string) => string;
   openrouterModels: Awaited<ReturnType<typeof fetchModels>>;
-  openrouter: {
-    chatCompletionStreamWithMetadata: unknown;
-    isMock: boolean;
-    getGenerationStats: (generationId: string) => Promise<{ total_cost: number }>;
-  };
   lastInferenceMessage: { content: string } | undefined;
   webSearchEnabled: boolean;
 }
 
 /** Builds the assistant message array from successful model results for persistence. */
-async function buildAssistantMessages(options: BuildAssistantMessagesOptions): Promise<
-  {
-    id: string;
-    content: string;
-    model: string;
-    cost: number;
-    inputTokens: number;
-    outputTokens: number;
-  }[]
-> {
+function buildAssistantMessages(options: BuildAssistantMessagesOptions): {
+  id: string;
+  content: string;
+  model: string;
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+}[] {
   const {
     successfulModels,
     getAssistantId,
     openrouterModels,
-    openrouter,
     lastInferenceMessage,
     webSearchEnabled,
   } = options;
-  return Promise.all(
-    successfulModels.map(async ([modelId, result]) => {
-      const assistantMessageId = getAssistantId(modelId);
-      const modelInfo = openrouterModels.find((m) => m.id === modelId);
-      const totalCost = await calculateMessageCost({
-        openrouter: {
-          isMock: openrouter.isMock,
-          getGenerationStats: openrouter.getGenerationStats,
-        },
-        modelInfo,
-        generationId: result.generationId,
-        inputContent: lastInferenceMessage?.content ?? '',
-        outputContent: result.fullContent,
-        webSearchCost: resolveWebSearchCost(webSearchEnabled, modelId, openrouterModels),
-      });
+  return successfulModels.map(([modelId, result]) => {
+    const assistantMessageId = getAssistantId(modelId);
+    const modelInfo = openrouterModels.find((m) => m.id === modelId);
+    const totalCost = calculateMessageCost({
+      inlineCost: result.inlineCost,
+      modelInfo,
+      inputContent: lastInferenceMessage?.content ?? '',
+      outputContent: result.fullContent,
+      webSearchCost: resolveWebSearchCost(webSearchEnabled, modelId, openrouterModels),
+    });
 
-      return {
-        id: assistantMessageId,
-        content: result.fullContent,
-        model: modelId,
-        cost: totalCost,
-        inputTokens: estimateTokenCount(lastInferenceMessage?.content ?? ''),
-        outputTokens: estimateTokenCount(result.fullContent),
-      };
-    })
-  );
+    return {
+      id: assistantMessageId,
+      content: result.fullContent,
+      model: modelId,
+      cost: totalCost,
+      inputTokens: estimateTokenCount(lastInferenceMessage?.content ?? ''),
+      outputTokens: estimateTokenCount(result.fullContent),
+    };
+  });
 }
 
 /**
@@ -830,11 +817,10 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
       }
 
       // Build assistant messages array from successful models
-      const assistantMessages = await buildAssistantMessages({
+      const assistantMessages = buildAssistantMessages({
         successfulModels,
         getAssistantId,
         openrouterModels,
-        openrouter,
         lastInferenceMessage,
         webSearchEnabled,
       });

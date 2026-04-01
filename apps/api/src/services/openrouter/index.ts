@@ -7,7 +7,6 @@ export type {
   ChatMessage,
   ChatCompletionRequest,
   ChatCompletionResponse,
-  GenerationStats,
   ModelInfo,
   MockOpenRouterClient,
   OpenRouterClient,
