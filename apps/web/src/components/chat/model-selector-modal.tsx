@@ -206,7 +206,7 @@ function ModelItemContent({
   return (
     <div
       className={cn(
-        'flex-1 cursor-pointer rounded-l-md p-3 transition-colors',
+        'w-0 min-w-0 flex-1 cursor-pointer rounded-l-md p-3 transition-colors',
         !isSelected && !isFocused && !isDisabled && 'hover:bg-muted'
       )}
       onClick={onClick}
@@ -331,44 +331,46 @@ function SearchAndSortSection({
   onToggleWebSearch,
 }: Readonly<SearchAndSortSectionProps>): React.JSX.Element {
   return (
-    <div className="border-border-strong grid grid-cols-[auto_1fr_1fr_auto] items-center gap-2 border-b px-4 py-2 sm:grid-cols-[auto_1fr_1fr]">
-      <span className="text-muted-foreground text-xs font-medium">Sort:</span>
-      <SortButton
-        field="price"
-        label="Price"
-        activeField={sortField}
-        direction={sortDirection}
-        onClick={onSortClick}
-      />
-      <SortButton
-        field="context"
-        label="Capacity"
-        activeField={sortField}
-        direction={sortDirection}
-        onClick={onSortClick}
-      />
-      <div className="sm:hidden" />
-
-      <div className="relative col-span-3 sm:col-span-2">
-        <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-        <Input
-          type="text"
-          placeholder="Search models"
-          value={searchQuery}
-          onChange={(e) => {
-            onSearchChange(e.target.value);
-          }}
-          className="pl-9"
+    <div className="border-border-strong space-y-2 border-b px-4 py-2">
+      <div className="grid grid-cols-[auto_1fr_1fr] items-center gap-2 pr-8 sm:pr-0">
+        <span className="text-muted-foreground text-xs font-medium">Sort:</span>
+        <SortButton
+          field="price"
+          label="Price"
+          activeField={sortField}
+          direction={sortDirection}
+          onClick={onSortClick}
+        />
+        <SortButton
+          field="context"
+          label="Capacity"
+          activeField={sortField}
+          direction={sortDirection}
+          onClick={onSortClick}
         />
       </div>
-      <Button
-        variant={webSearchFilter ? 'default' : 'outline'}
-        size="sm"
-        onClick={onToggleWebSearch}
-        aria-label={webSearchFilter ? 'Web search filter on' : 'Web search filter off'}
-      >
-        Web Search
-      </Button>
+      <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+        <div className="relative">
+          <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+          <Input
+            type="text"
+            placeholder="Search models"
+            value={searchQuery}
+            onChange={(e) => {
+              onSearchChange(e.target.value);
+            }}
+            className="pl-9"
+          />
+        </div>
+        <Button
+          variant={webSearchFilter ? 'default' : 'outline'}
+          size="sm"
+          onClick={onToggleWebSearch}
+          aria-label={webSearchFilter ? 'Web search filter on' : 'Web search filter off'}
+        >
+          Web Search
+        </Button>
+      </div>
     </div>
   );
 }
@@ -666,10 +668,10 @@ export function ModelSelectorModal({
               />
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col sm:flex-row">
               <div
                 data-testid="model-list-panel"
-                className="border-border-strong flex min-h-0 flex-[9] flex-col border-b sm:flex-1 sm:border-r sm:border-b-0"
+                className="border-border-strong flex min-h-0 min-w-0 flex-[9] flex-col overflow-x-hidden border-b sm:flex-1 sm:border-r sm:border-b-0"
               >
                 <div className="hidden flex-shrink-0 sm:block">
                   <SearchAndSortSection
@@ -684,7 +686,7 @@ export function ModelSelectorModal({
                 </div>
 
                 <ScrollArea data-testid="model-list-scroll" className="min-h-0 flex-1">
-                  <div className="p-2">
+                  <div className="overflow-hidden p-2">
                     {filteredModels.map((model) => {
                       const isAtLimit = localSelectedIds.size >= MAX_SELECTED_MODELS;
                       return (
