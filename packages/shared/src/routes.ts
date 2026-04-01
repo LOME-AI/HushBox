@@ -37,3 +37,13 @@ export const ROUTES = {
   DEV_ASSETS: '/dev/assets',
   DEV_RENDER_ASSET: '/dev/render-asset/$name',
 } as const;
+
+export const FOOTER_LINKS = [
+  { group: 'Product', label: 'Welcome', href: ROUTES.MARKETING },
+  { group: 'Product', label: 'Chat', href: ROUTES.CHAT },
+  { group: 'Product', label: 'Blog', href: ROUTES.BLOG },
+  { group: 'Account', label: 'Log In', href: ROUTES.LOGIN },
+  { group: 'Account', label: 'Sign Up', href: ROUTES.SIGNUP },
+  { group: 'Legal', label: 'Privacy', href: ROUTES.PRIVACY },
+  { group: 'Legal', label: 'Terms', href: ROUTES.TERMS },
+] as const;

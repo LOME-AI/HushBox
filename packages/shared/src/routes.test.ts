@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ROUTES, MARKETING_BASE_URL } from './routes.js';
+import { ROUTES, MARKETING_BASE_URL, FOOTER_LINKS } from './routes.js';
 
 describe('ROUTES constants', () => {
   const routeEntries = Object.entries(ROUTES);
@@ -64,6 +64,65 @@ describe('ROUTES constants', () => {
   });
   it('MARKETING route is not root to prevent Astro/Vite index.html conflict', () => {
     expect(ROUTES.MARKETING).not.toBe('/');
+  });
+});
+
+describe('FOOTER_LINKS', () => {
+  const routeValues = new Set(Object.values(ROUTES));
+
+  it('contains the expected footer links', () => {
+    expect(FOOTER_LINKS).toMatchInlineSnapshot(`
+      [
+        {
+          "group": "Product",
+          "href": "/welcome",
+          "label": "Welcome",
+        },
+        {
+          "group": "Product",
+          "href": "/chat",
+          "label": "Chat",
+        },
+        {
+          "group": "Product",
+          "href": "/blog",
+          "label": "Blog",
+        },
+        {
+          "group": "Account",
+          "href": "/login",
+          "label": "Log In",
+        },
+        {
+          "group": "Account",
+          "href": "/signup",
+          "label": "Sign Up",
+        },
+        {
+          "group": "Legal",
+          "href": "/privacy",
+          "label": "Privacy",
+        },
+        {
+          "group": "Legal",
+          "href": "/terms",
+          "label": "Terms",
+        },
+      ]
+    `);
+  });
+
+  it('has every href referencing an existing ROUTES value', () => {
+    for (const link of FOOTER_LINKS) {
+      expect(routeValues.has(link.href), `"${link.href}" is not a value in ROUTES`).toBe(true);
+    }
+  });
+
+  it('has non-empty labels and groups', () => {
+    for (const link of FOOTER_LINKS) {
+      expect(link.label.length).toBeGreaterThan(0);
+      expect(link.group.length).toBeGreaterThan(0);
+    }
   });
 });
 
