@@ -80,8 +80,17 @@ export class ChatPage {
     return url.pathname.split('/').pop() ?? '';
   }
 
-  async expectMessageVisible(message: string): Promise<void> {
-    await expect(this.messageList.getByText(message, { exact: true }).first()).toBeVisible();
+  async expectMessageVisible(message: string, timeout = 10_000): Promise<void> {
+    const locator = this.messageList.getByText(message, { exact: true }).first();
+
+    // Fast path: message already in DOM and visible (most callers — recent messages at bottom)
+    const alreadyVisible = await locator.isVisible().catch(() => false);
+    if (alreadyVisible) return;
+
+    // Slow path: message may be virtualized off-screen. Scroll to top to bring
+    // older messages into Virtuoso's render range, then retry.
+    await this.scrollToTop();
+    await expect(locator).toBeVisible({ timeout });
   }
 
   async expectNewChatPageVisible(): Promise<void> {

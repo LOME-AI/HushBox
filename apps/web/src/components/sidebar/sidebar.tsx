@@ -64,6 +64,26 @@ export function Sidebar(): React.JSX.Element {
     }
   }, [pathname, setMobileSidebarOpen]);
 
+  // Clear stale pointer-events left by react-remove-scroll after Sheet close animation.
+  // react-remove-scroll applies a CSS class (.block-interactivity-N) with pointer-events: none
+  // to <html> while the Sheet is open. Its React cleanup doesn't fire reliably after Radix
+  // Presence unmounts the Sheet content, leaving all clicks on the page blocked.
+  React.useEffect(() => {
+    if (mobileSidebarOpen) return;
+    const timer = setTimeout(() => {
+      document.documentElement.style.pointerEvents = '';
+      document.body.style.pointerEvents = '';
+      for (const el of [document.documentElement, document.body]) {
+        for (const cls of [...el.classList]) {
+          if (cls.startsWith('block-interactivity')) el.classList.remove(cls);
+        }
+      }
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [mobileSidebarOpen]);
+
   // Radix cleanup — prevent stale body styles when component unmounts mid-transition
   React.useLayoutEffect(() => {
     return () => {
