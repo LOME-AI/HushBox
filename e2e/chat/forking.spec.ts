@@ -278,9 +278,9 @@ test.describe('Fork URL and Refresh', () => {
 
     await test.step('verify messages load without crash', async () => {
       // Use auto-retrying assertion — Virtuoso may not have rendered all items yet
-      await expect(
-        chatPage.messageList.locator('[data-testid="message-item"]')
-      ).toHaveCount(2, { timeout: 10_000 });
+      await expect(chatPage.messageList.locator('[data-testid="message-item"]')).toHaveCount(2, {
+        timeout: 10_000,
+      });
     });
   });
 });

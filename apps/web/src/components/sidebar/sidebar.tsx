@@ -74,7 +74,7 @@ export function Sidebar(): React.JSX.Element {
       document.documentElement.style.pointerEvents = '';
       document.body.style.pointerEvents = '';
       for (const el of [document.documentElement, document.body]) {
-        for (const cls of [...el.classList]) {
+        for (const cls of Array.from(el.classList)) {
           if (cls.startsWith('block-interactivity')) el.classList.remove(cls);
         }
       }
