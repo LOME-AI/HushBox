@@ -103,7 +103,6 @@ test.describe('Document Panel', () => {
     authenticatedPage,
     testConversation: _testConversation,
   }) => {
-    test.slow();
     const chatPage = new ChatPage(authenticatedPage);
     const documentPanel = new DocumentPanelPage(authenticatedPage);
 
