@@ -98,6 +98,10 @@ test.describe('Link Guest Chat', () => {
 
       // AI response should appear with model nametag
       await guestChatPage.waitForAIResponse();
+      // Verify total AI count via data attribute (Virtuoso may not render all items on mobile)
+      await unsettledExpect(guestChatPage.messageList).toHaveAttribute('data-assistant-count', '4', {
+        timeout: 10_000,
+      });
       await guestChatPage.expectAllAIMessagesHaveNametag();
     });
 

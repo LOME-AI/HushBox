@@ -38,9 +38,17 @@ export class ChatPage {
     await expect(this.page.locator('[data-ws-connected="true"]')).toBeVisible({ timeout });
   }
 
-  /** Wait for a conversation page to load (message list visible). Use instead of waitForAppStable on conversation pages. */
+  /** Wait for a conversation page to load (message list visible and content rendered). Use instead of waitForAppStable on conversation pages. */
   async waitForConversationLoaded(timeout = 15_000): Promise<void> {
     await this.messageList.waitFor({ state: 'visible', timeout });
+    // Wait for Virtuoso to render at least one message OR the "No messages yet"
+    // empty state. Without this, getMessageCount() can race ahead of Virtuoso's
+    // layout pass. Uses .or() so a single locator resolves for either case.
+    await this.messageList
+      .locator('[data-testid="message-item"]')
+      .first()
+      .or(this.messageList.getByText('No messages yet'))
+      .waitFor({ state: 'visible', timeout });
   }
 
   async gotoTrialChat(): Promise<void> {
@@ -506,12 +514,13 @@ export class ChatPage {
     await expect(message.getByTestId('model-nametag')).toContainText(expectedName);
   }
 
-  /** Assert every assistant message has a model nametag. */
+  /** Assert every rendered assistant message has a model nametag.
+   *  Only checks DOM-visible items — Virtuoso may virtualise off-screen messages on mobile. */
   async expectAllAIMessagesHaveNametag(): Promise<void> {
-    const assistantMessages = this.messageList.locator('[data-role="assistant"]');
-    const count = await assistantMessages.count();
+    const rendered = this.messageList.locator('[data-role="assistant"]:visible');
+    const count = await rendered.count();
     for (let index = 0; index < count; index++) {
-      await expect(assistantMessages.nth(index).getByTestId('model-nametag')).toBeVisible();
+      await expect(rendered.nth(index).getByTestId('model-nametag')).toBeVisible();
     }
   }
 
