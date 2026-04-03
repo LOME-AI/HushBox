@@ -855,7 +855,9 @@ describe('mobile-test script', () => {
           call[1].includes('build')
       );
       expect(viteBuild).toBeDefined();
-      const options = (viteBuild as unknown as [string, string[], { env?: Record<string, string> }])[2];
+      const options = (
+        viteBuild as unknown as [string, string[], { env?: Record<string, string> }]
+      )[2];
       expect(options.env).toBeDefined();
       expect(options.env!['VITE_PLATFORM']).toBe('android-direct');
       expect(options.env!['VITE_APP_VERSION']).toBe('ota-v2');
