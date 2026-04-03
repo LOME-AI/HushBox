@@ -370,6 +370,8 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
           )}
           <Textarea
             ref={textareaRef}
+            id="prompt-input"
+            data-testid="prompt-input"
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}

@@ -108,7 +108,7 @@ describe('OpenRouter Integration', () => {
     clearTestModelCache();
     testModel = await getPaidTestModel(client);
     console.log(`Using paid test model: ${testModel}`);
-  });
+  }, 30_000);
 
   describe('listModels', () => {
     it('fetches real models from OpenRouter', async () => {
