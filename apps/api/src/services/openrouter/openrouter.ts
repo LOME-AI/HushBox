@@ -188,7 +188,7 @@ function processSSELine(line: string, state: SSELineState): SSELineResult {
 
   try {
     const chunk = JSON.parse(data) as ChatCompletionChunk;
-    const newGenerationId = state.generationId || chunk.id || undefined;
+    const newGenerationId = state.generationId ?? chunk.id;
     const result = buildChunkToken(chunk, state, newGenerationId);
     return { done: false, ...result };
   } catch {
