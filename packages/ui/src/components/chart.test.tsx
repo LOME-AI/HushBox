@@ -1,11 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
-import {
-  ChartContainer,
-  ChartTooltipContent,
-  ChartLegendContent,
-  useChart,
-} from './chart';
+import { ChartContainer, ChartTooltipContent, ChartLegendContent, useChart } from './chart';
 import type { ChartConfig } from './chart';
 
 const TEST_CONFIG: ChartConfig = {
@@ -56,9 +51,9 @@ describe('ChartContainer', () => {
         <span>child</span>
       </ChartContainer>
     );
-    const el = container.querySelector('[data-chart]') as HTMLElement;
-    expect(el.style.getPropertyValue('--color-revenue')).toBe('red');
-    expect(el.style.getPropertyValue('--color-cost')).toBe('blue');
+    const el = container.querySelector('[data-chart]')!;
+    expect((el as HTMLElement).style.getPropertyValue('--color-revenue')).toBe('red');
+    expect((el as HTMLElement).style.getPropertyValue('--color-cost')).toBe('blue');
   });
 
   it('skips config entries without a color', () => {
@@ -71,9 +66,9 @@ describe('ChartContainer', () => {
         <span>child</span>
       </ChartContainer>
     );
-    const el = container.querySelector('[data-chart]') as HTMLElement;
-    expect(el.style.getPropertyValue('--color-revenue')).toBe('');
-    expect(el.style.getPropertyValue('--color-cost')).toBe('blue');
+    const el = container.querySelector('[data-chart]')!;
+    expect((el as HTMLElement).style.getPropertyValue('--color-revenue')).toBe('');
+    expect((el as HTMLElement).style.getPropertyValue('--color-cost')).toBe('blue');
   });
 
   it('applies className', () => {
@@ -102,19 +97,23 @@ describe('ChartTooltipContent', () => {
   describe('visibility', () => {
     it('returns null when not active', () => {
       const { container } = renderTooltip({ active: false });
-      const chartEl = container.querySelector('[data-chart]') as HTMLElement;
+      const chartEl = container.querySelector('[data-chart]')!;
       expect(chartEl.children.length).toBe(0);
     });
 
-    it('returns null when payload is undefined', () => {
-      const { container } = renderTooltip({ payload: undefined });
-      const chartEl = container.querySelector('[data-chart]') as HTMLElement;
+    it('returns null when payload is not provided', () => {
+      const { container } = render(
+        <ChartContainer config={TEST_CONFIG}>
+          <ChartTooltipContent active label="Jan 1" />
+        </ChartContainer>
+      );
+      const chartEl = container.querySelector('[data-chart]')!;
       expect(chartEl.children.length).toBe(0);
     });
 
     it('returns null when payload is empty', () => {
       const { container } = renderTooltip({ payload: [] });
-      const chartEl = container.querySelector('[data-chart]') as HTMLElement;
+      const chartEl = container.querySelector('[data-chart]')!;
       expect(chartEl.children.length).toBe(0);
     });
 
@@ -153,7 +152,7 @@ describe('ChartTooltipContent', () => {
     });
 
     it('applies valueFormatter', () => {
-      renderTooltip({ valueFormatter: (v) => `$${v}` });
+      renderTooltip({ valueFormatter: (v) => `$${String(v)}` });
       expect(screen.getByText('$100')).toBeInTheDocument();
       expect(screen.getByText('$50')).toBeInTheDocument();
     });
@@ -194,7 +193,7 @@ describe('ChartTooltipContent', () => {
       const { container } = renderTooltip();
       const indicators = container.querySelectorAll('.shrink-0');
       expect(indicators.length).toBe(2);
-      const first = indicators[0] as HTMLElement;
+      const first = indicators[0]! as HTMLElement;
       expect(first.style.width).toBe('8px');
       expect(first.style.height).toBe('8px');
       expect(first.style.borderStyle).toBe('solid');
@@ -203,7 +202,7 @@ describe('ChartTooltipContent', () => {
     it('renders line indicators', () => {
       const { container } = renderTooltip({ indicator: 'line' });
       const indicators = container.querySelectorAll('.shrink-0');
-      const first = indicators[0] as HTMLElement;
+      const first = indicators[0]! as HTMLElement;
       expect(first.style.width).toBe('16px');
       expect(first.style.height).toBe('3px');
     });
@@ -211,7 +210,7 @@ describe('ChartTooltipContent', () => {
     it('renders dashed indicators', () => {
       const { container } = renderTooltip({ indicator: 'dashed' });
       const indicators = container.querySelectorAll('.shrink-0');
-      const first = indicators[0] as HTMLElement;
+      const first = indicators[0]! as HTMLElement;
       expect(first.style.borderStyle).toBe('dashed');
     });
 
@@ -265,14 +264,14 @@ describe('ChartTooltipContent', () => {
           { dataKey: 'cost', value: 0, color: 'blue' },
         ],
       });
-      const chartEl = container.querySelector('[data-chart]') as HTMLElement;
+      const chartEl = container.querySelector('[data-chart]')!;
       expect(chartEl.children.length).toBe(0);
     });
 
     it('keeps non-zero items intact when filtering', () => {
       renderTooltip({
         hideZeroValues: true,
-        valueFormatter: (v) => `$${v}`,
+        valueFormatter: (v) => `$${String(v)}`,
         payload: [
           { dataKey: 'revenue', value: 42, color: 'red' },
           { dataKey: 'cost', value: 0, color: 'blue' },
@@ -288,16 +287,16 @@ describe('ChartTooltipContent', () => {
       const { container } = renderTooltip({
         payload: [{ dataKey: 'revenue', value: 10, color: '#ff0000' }],
       });
-      const indicator = container.querySelector('.shrink-0') as HTMLElement;
-      expect(indicator.style.backgroundColor).toBe('rgb(255, 0, 0)');
+      const indicator = container.querySelector('.shrink-0')!;
+      expect((indicator as HTMLElement).style.backgroundColor).toBe('rgb(255, 0, 0)');
     });
 
     it('falls back to CSS variable when no item color', () => {
       const { container } = renderTooltip({
         payload: [{ dataKey: 'revenue', value: 10 }],
       });
-      const indicator = container.querySelector('.shrink-0') as HTMLElement;
-      expect(indicator.style.backgroundColor).toBe('var(--color-revenue)');
+      const indicator = container.querySelector('.shrink-0')!;
+      expect((indicator as HTMLElement).style.backgroundColor).toBe('var(--color-revenue)');
     });
   });
 });
@@ -319,15 +318,19 @@ describe('ChartLegendContent', () => {
     );
   }
 
-  it('returns null when payload is undefined', () => {
-    const { container } = renderLegend({ payload: undefined });
-    const chartEl = container.querySelector('[data-chart]') as HTMLElement;
+  it('returns null when payload is not provided', () => {
+    const { container } = render(
+      <ChartContainer config={TEST_CONFIG}>
+        <ChartLegendContent />
+      </ChartContainer>
+    );
+    const chartEl = container.querySelector('[data-chart]')!;
     expect(chartEl.children.length).toBe(0);
   });
 
   it('returns null when payload is empty', () => {
     const { container } = renderLegend({ payload: [] });
-    const chartEl = container.querySelector('[data-chart]') as HTMLElement;
+    const chartEl = container.querySelector('[data-chart]')!;
     expect(chartEl.children.length).toBe(0);
   });
 
@@ -356,7 +359,7 @@ describe('ChartLegendContent', () => {
     const { container } = renderLegend({
       payload: [{ value: 'revenue', dataKey: 'revenue' }],
     });
-    const indicator = container.querySelector('.h-2.w-2') as HTMLElement;
-    expect(indicator.style.backgroundColor).toBe('var(--color-revenue)');
+    const indicator = container.querySelector('.h-2.w-2')!;
+    expect((indicator as HTMLElement).style.backgroundColor).toBe('var(--color-revenue)');
   });
 });
