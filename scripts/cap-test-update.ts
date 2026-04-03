@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { MobilePlatform } from '@hushbox/shared';
 
 const API_BASE_URL = 'http://localhost:8787';
 
@@ -30,9 +31,9 @@ export function getSetVersionUrl(): string {
   return `${API_BASE_URL}/api/dev/set-version`;
 }
 
-/** Returns the R2 object key for a given version. */
-export function getR2ObjectKey(version: string): string {
-  return `hushbox-app-builds/builds/${version}.zip`;
+/** Returns the R2 object key for a given platform and version. */
+export function getR2ObjectKey(platform: MobilePlatform, version: string): string {
+  return `hushbox-app-builds/builds/${platform}/${version}.zip`;
 }
 
 /**
@@ -41,15 +42,18 @@ export function getR2ObjectKey(version: string): string {
  * Flow:
  * 1. Query GET /api/updates/current for the current version
  * 2. Generate a new version string
- * 3. Run `vite build` with VITE_APP_VERSION=<new-version>
+ * 3. Run vite build with the new version and platform env vars
  * 4. Zip apps/web/dist/
- * 5. Upload zip to local R2 via `wrangler r2 object put`
+ * 5. Upload zip to local R2 via wrangler (platform-specific key)
  * 6. Call POST /api/dev/set-version
  * 7. Log instructions
  *
  * Requires: pnpm dev running (Vite + Wrangler).
  */
-export async function runCapTestUpdate(rootDir: string): Promise<void> {
+export async function runCapTestUpdate(
+  rootDir: string,
+  platform: MobilePlatform = 'android-direct'
+): Promise<void> {
   const { $ } = await import('execa');
 
   // 1. Query current version
@@ -71,7 +75,7 @@ export async function runCapTestUpdate(rootDir: string): Promise<void> {
   await $({
     cwd: webDir,
     stdio: 'inherit',
-    env: { ...process.env, VITE_APP_VERSION: newVersion },
+    env: { ...process.env, VITE_APP_VERSION: newVersion, VITE_PLATFORM: platform },
   })`pnpm exec vite build`;
 
   // 4. Zip dist
@@ -81,7 +85,7 @@ export async function runCapTestUpdate(rootDir: string): Promise<void> {
   await $({ cwd: distributionDir, stdio: 'inherit' })`zip -r ${zipPath} .`;
 
   // 5. Upload to local R2
-  const r2Key = getR2ObjectKey(newVersion);
+  const r2Key = getR2ObjectKey(platform, newVersion);
   console.log(`Uploading to R2: ${r2Key}`);
   const apiDir = path.join(rootDir, 'apps', 'api');
   await $({
@@ -109,13 +113,21 @@ export async function runCapTestUpdate(rootDir: string): Promise<void> {
   console.log('Next API call from the emulator will trigger a Capgo update.');
 }
 
+/** Parses --platform from CLI args. Returns undefined if not provided. */
+export function parsePlatformArgument(args: string[]): MobilePlatform | undefined {
+  const index = args.indexOf('--platform');
+  if (index === -1 || index + 1 >= args.length) return undefined;
+  return args[index + 1] as MobilePlatform;
+}
+
 // CLI entry point
 /* v8 ignore next 2 */
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;
 if (isMain) {
-  /* v8 ignore next 5 */
+  /* v8 ignore next 6 */
   try {
-    await runCapTestUpdate(process.cwd());
+    const platform = parsePlatformArgument(process.argv.slice(2));
+    await runCapTestUpdate(process.cwd(), platform);
   } catch (error: unknown) {
     console.error('Cap test update failed:', error);
     process.exit(1);

@@ -45,7 +45,7 @@ export function versionCheck(): MiddlewareHandler<AppEnv> {
       {
         ...errorResponse,
         currentVersion: serverVersion,
-        updateUrl: `/api/updates/download/${serverVersion}`,
+        updateUrl: `/api/updates/download/${platform}/${serverVersion}`,
       },
       426
     );

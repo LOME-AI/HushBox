@@ -1,0 +1,49 @@
+appId: ai.hushbox.app
+name: OTA update downloads and applies
+tags:
+  - must
+androidWebViewHierarchy: devtools
+---
+# App installed with VITE_APP_VERSION=local-mobile-test.
+# Server version overridden to ota-v2 by orchestrator.
+# Two update paths may fire:
+#   1. useLiveUpdate auto-downloads and applies (silent reload)
+#   2. A 426 API response shows the "Update Required" modal
+# We handle both: wait briefly, tap Refresh if the modal appeared,
+# then wait for the app to stabilize post-update.
+
+- launchApp:
+    clearState: true
+
+# Give the app a moment to boot and potentially show the modal
+- waitForAnimationToEnd:
+    timeout: 5000
+
+# If the update modal appeared (426 raced with useLiveUpdate), tap Refresh.
+# If useLiveUpdate already applied the update silently, this is a no-op.
+- tapOn:
+    text: 'Refresh'
+    optional: true
+
+# Wait for app to stabilize after OTA update (either path).
+# After successful update: versions match, app renders normally.
+# Generous timeout: download + Capgo reload can take time on emulator.
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 30000
+
+# Update modal must NOT be showing (update succeeded, versions match)
+- assertNotVisible: 'Update Required'
+
+# Background + foreground to trigger onResume update check
+- pressKey: home
+- waitForAnimationToEnd:
+    timeout: 3000
+- launchApp:
+    stopApp: false
+
+# App should still be stable (no modal after resume)
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 15000
+- assertNotVisible: 'Update Required'

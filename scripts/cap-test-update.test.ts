@@ -6,6 +6,7 @@ import {
   getSetVersionUrl,
   getUpdatesCurrentUrl,
   getR2ObjectKey,
+  parsePlatformArgument,
 } from './cap-test-update.js';
 
 describe('generateVersionString', () => {
@@ -56,13 +57,35 @@ describe('getSetVersionUrl', () => {
 });
 
 describe('getR2ObjectKey', () => {
-  it('returns the R2 key for a given version', () => {
-    expect(getR2ObjectKey('abc123')).toBe('hushbox-app-builds/builds/abc123.zip');
+  it('returns platform-specific R2 key for ios', () => {
+    expect(getR2ObjectKey('ios', 'abc123')).toBe('hushbox-app-builds/builds/ios/abc123.zip');
   });
 
-  it('handles dev-update style versions', () => {
-    expect(getR2ObjectKey('dev-update-1234567890')).toBe(
-      'hushbox-app-builds/builds/dev-update-1234567890.zip'
+  it('returns platform-specific R2 key for android', () => {
+    expect(getR2ObjectKey('android', '1.0.0')).toBe('hushbox-app-builds/builds/android/1.0.0.zip');
+  });
+
+  it('returns platform-specific R2 key for android-direct', () => {
+    expect(getR2ObjectKey('android-direct', 'dev-update-1234567890')).toBe(
+      'hushbox-app-builds/builds/android-direct/dev-update-1234567890.zip'
     );
+  });
+});
+
+describe('parsePlatformArgument', () => {
+  it('returns undefined when --platform is not provided', () => {
+    expect(parsePlatformArgument([])).toBeUndefined();
+  });
+
+  it('returns undefined when --platform has no value', () => {
+    expect(parsePlatformArgument(['--platform'])).toBeUndefined();
+  });
+
+  it('returns the platform value when provided', () => {
+    expect(parsePlatformArgument(['--platform', 'ios'])).toBe('ios');
+  });
+
+  it('parses android-direct platform', () => {
+    expect(parsePlatformArgument(['--platform', 'android-direct'])).toBe('android-direct');
   });
 });

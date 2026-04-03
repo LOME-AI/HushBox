@@ -1,5 +1,5 @@
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
-import { isNative } from './platform.js';
+import { isNative, getPlatform } from './platform.js';
 import { getApiUrl } from '@/lib/api.js';
 import { useAppVersionStore } from '@/stores/app-version.js';
 
@@ -51,8 +51,9 @@ export async function applyUpdate(version: string): Promise<void> {
   }
 
   try {
+    const platform = getPlatform();
     const bundle = await CapacitorUpdater.download({
-      url: `${getApiUrl()}/api/updates/download/${version}`,
+      url: `${getApiUrl()}/api/updates/download/${platform}/${version}`,
       version,
     });
 

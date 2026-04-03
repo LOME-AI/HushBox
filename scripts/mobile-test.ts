@@ -487,6 +487,68 @@ function getFailedFlowPaths(output: string): string[] {
     .filter((p): p is string => p !== undefined);
 }
 
+const OTA_VERSION = 'ota-v2';
+const OTA_FLOW = 'mobile-tests/flows/13-ota-update.yaml';
+
+/**
+ * Builds an OTA bundle, uploads to local R2, and sets the version override.
+ * Uses the same codepaths as production (wrangler R2, /api/dev/set-version).
+ */
+export async function setupOtaUpdate(): Promise<void> {
+  const apiUrl = process.env['API_URL'] ?? 'http://localhost:8787';
+  const apiPort = process.env['HB_API_PORT'] ?? '8787';
+
+  console.log('Building OTA bundle...');
+  await execa('pnpm', ['exec', 'vite', 'build', '--outDir', 'dist-ota'], {
+    cwd: 'apps/web',
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      VITE_APP_VERSION: OTA_VERSION,
+      VITE_PLATFORM: 'android-direct',
+      VITE_API_URL: apiUrl,
+    },
+  });
+
+  console.log('Uploading OTA bundle to local R2...');
+  const zipPath = 'ota-bundle.zip';
+  await execa('zip', ['-r', zipPath, '.'], { cwd: 'apps/web/dist-ota', stdio: 'inherit' });
+  await execa(
+    'pnpm',
+    [
+      'exec',
+      'wrangler',
+      'r2',
+      'object',
+      'put',
+      `hushbox-app-builds/builds/android-direct/${OTA_VERSION}.zip`,
+      '--file',
+      `apps/web/dist-ota/${zipPath}`,
+    ],
+    { cwd: 'apps/api', stdio: 'inherit' }
+  );
+
+  console.log('Setting version override...');
+  const res = await fetch(`http://localhost:${apiPort}/api/dev/set-version`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ version: OTA_VERSION }),
+  });
+  if (!res.ok) {
+    throw new Error('Failed to set version override');
+  }
+  console.log(`Version override set to ${OTA_VERSION}`);
+}
+
+async function runMaestroOta(): Promise<void> {
+  const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
+
+  console.log('Running OTA update Maestro flow...');
+  await execa('maestro', ['test', '--device', `localhost:${adbPort}`, OTA_FLOW], {
+    stdio: 'inherit',
+  });
+}
+
 export async function main(): Promise<void> {
   const { smoke } = parseArgs(process.argv.slice(2));
 
@@ -499,6 +561,11 @@ export async function main(): Promise<void> {
     await installApk();
     await configureAppLinks();
     await runMaestro(smoke);
+
+    if (!smoke) {
+      await setupOtaUpdate();
+      await runMaestroOta();
+    }
 
     console.log('Mobile tests complete!');
   } finally {

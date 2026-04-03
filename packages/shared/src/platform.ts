@@ -9,6 +9,12 @@
 /** All valid platform targets, used for runtime validation and type derivation. */
 export const VALID_PLATFORMS = ['web', 'ios', 'android', 'android-direct'] as const;
 
+/** A platform that receives OTA updates (not web). */
+export type MobilePlatform = Exclude<Platform, 'web'>;
+
+/** Mobile-only platforms, derived from VALID_PLATFORMS. Used for OTA bundle validation and CI builds. */
+export const MOBILE_PLATFORMS = VALID_PLATFORMS.filter((p): p is MobilePlatform => p !== 'web');
+
 /** Build-time platform target set via VITE_PLATFORM / X-HushBox-Platform header. */
 export type Platform = (typeof VALID_PLATFORMS)[number];
 
