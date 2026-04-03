@@ -95,7 +95,10 @@ export function SpendingOverTimeChart({
                 />
                 <Tooltip
                   content={
-                    <ChartTooltipContent valueFormatter={(v) => `$${Number(v).toFixed(4)}`} />
+                    <ChartTooltipContent
+                      valueFormatter={(v) => `$${Number(v).toFixed(4)}`}
+                      hideZeroValues
+                    />
                   }
                 />
                 <Legend content={<ChartLegendContent />} />

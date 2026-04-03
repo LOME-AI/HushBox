@@ -167,6 +167,7 @@ interface ChartTooltipContentProps {
   valueFormatter?: (value: number | string) => string;
   hideLabel?: boolean;
   hideIndicator?: boolean;
+  hideZeroValues?: boolean;
   indicator?: IndicatorType;
 }
 
@@ -182,11 +183,20 @@ export function ChartTooltipContent({
   valueFormatter,
   hideLabel = false,
   hideIndicator = false,
+  hideZeroValues = false,
   indicator = 'dot',
 }: Readonly<ChartTooltipContentProps>): React.JSX.Element | null {
   const { config } = useChart();
 
   if (!active || !payload?.length) {
+    return null;
+  }
+
+  const visiblePayload = hideZeroValues
+    ? payload.filter((item) => Number(item.value) !== 0)
+    : payload;
+
+  if (visiblePayload.length === 0) {
     return null;
   }
 
@@ -198,7 +208,7 @@ export function ChartTooltipContent({
         <div className="text-foreground-muted font-medium">{formattedLabel}</div>
       )}
       <div className="grid gap-1.5">
-        {payload.map((item) => (
+        {visiblePayload.map((item) => (
           <TooltipItem
             key={resolvePayloadKey(item)}
             itemKey={resolvePayloadKey(item)}
