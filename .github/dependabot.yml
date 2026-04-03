@@ -10,23 +10,9 @@ updates:
       interval: 'monthly'
     open-pull-requests-limit: 10
     groups:
-      # Group all production dependency updates by type
-      production-minor-patch:
-        dependency-type: 'production'
-        update-types:
-          - 'minor'
-          - 'patch'
-      production-major:
-        dependency-type: 'production'
-        update-types:
-          - 'major'
-      # Group all development dependency updates together
-      development:
-        dependency-type: 'development'
-        update-types:
-          - 'minor'
-          - 'patch'
-          - 'major'
+      all-dependencies:
+        patterns:
+          - '*'
 
   # Docker Compose - postgres and neon-proxy images
   - package-ecosystem: 'docker-compose'
