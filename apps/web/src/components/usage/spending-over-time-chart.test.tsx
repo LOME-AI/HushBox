@@ -86,9 +86,7 @@ describe('SpendingOverTimeChart', () => {
         { period: '2025-01-02', model: 'GPT-4', totalCost: '0.75', count: 3 },
         { period: '2025-01-01', model: 'GPT-4', totalCost: '1.50', count: 10 },
       ]);
-      const { container } = render(
-        <SpendingOverTimeChart data={reversed} isLoading={false} />
-      );
+      const { container } = render(<SpendingOverTimeChart data={reversed} isLoading={false} />);
       // Chart should render (not crash) with reversed input
       expect(container.querySelector('[data-chart]')).toBeInTheDocument();
     });
