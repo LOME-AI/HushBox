@@ -74,7 +74,7 @@ function processSSEDataLine(line: string): SSEDataLineResult {
 
   try {
     const chunk = JSON.parse(data) as ChatCompletionChunk;
-    const content = chunk.choices[0]?.delta.content ?? null;
+    const content = chunk.choices?.[0]?.delta.content ?? null;
     return { done: false, content };
   } catch {
     return { done: false, content: null };
@@ -148,9 +148,9 @@ function buildChunkToken(
   state: SSELineState,
   newGenerationId: string | undefined
 ): { token?: StreamToken; state: SSELineState } {
-  const content = chunk.choices[0]?.delta.content;
+  const content = chunk.choices?.[0]?.delta.content;
 
-  // Final chunk before [DONE]: empty choices, usage with cost
+  // Final chunk before [DONE]: empty/absent choices, usage with cost
   if (!content && chunk.usage?.cost !== undefined) {
     return {
       token: { content: '', inlineCost: chunk.usage.cost },
@@ -188,7 +188,7 @@ function processSSELine(line: string, state: SSELineState): SSELineResult {
 
   try {
     const chunk = JSON.parse(data) as ChatCompletionChunk;
-    const newGenerationId = state.generationId ?? chunk.id;
+    const newGenerationId = state.generationId || chunk.id || undefined;
     const result = buildChunkToken(chunk, state, newGenerationId);
     return { done: false, ...result };
   } catch {

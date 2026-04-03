@@ -12,9 +12,8 @@ androidWebViewHierarchy: devtools
     visible: 'Sign up'
     timeout: 15000
 
-# Tap the prompt input to trigger the software keyboard (hintText not matched by tapOn)
-- tapOn:
-    point: '50%,35%'
+# Tap the prompt input to trigger the software keyboard
+- tapOn: 'Ask me anything...'
 
 # Verify app UI is still visible (not hidden behind keyboard)
 - assertVisible: 'Sign up'

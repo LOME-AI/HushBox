@@ -1,9 +1,11 @@
 import * as React from 'react';
 import {
   createGrid,
+  resizeCells,
   seedInitialReveals,
   createFrozenSnapshot,
   updateState,
+  pruneExcludedReveals,
   renderFrame,
   CELL_WIDTH,
   CELL_HEIGHT,
@@ -11,7 +13,6 @@ import {
 import type { CipherWallState, ThemeColors } from './cipher-wall-engine';
 
 const DPR_CAP = 2;
-export const RESIZE_DEBOUNCE_MS = 500;
 
 export interface CipherWallOptions {
   frozen?: boolean;
@@ -75,24 +76,14 @@ export function useCipherWall(
       };
     }
 
-    function resize(): void {
-      if (!canvas || !parent || !ctx) return;
-      const w = parent.clientWidth;
-      const h = parent.clientHeight;
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      ctx.scale(dpr, dpr);
-
-      const { cols, rows } = computeGridSize(w, h);
-      if (stateRef.current?.cols === cols && stateRef.current.rows === rows) return;
-
-      if (frozen) {
-        stateRef.current = createFrozenSnapshot(cols, rows, frozenMessageCount);
-      } else {
-        const state = createGrid(cols, rows);
-        state.exclusionZone = exclusionZoneRef.current;
-        seedInitialReveals(state);
-        stateRef.current = state;
+    function sizeCanvas(w: number, h: number): void {
+      if (!canvas || !ctx) return;
+      const targetW = w * dpr;
+      const targetH = h * dpr;
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
     }
 
@@ -109,34 +100,66 @@ export function useCipherWall(
       });
     }
 
-    resize();
+    // --- Initial setup ---
+    const initW = parent?.clientWidth ?? 0;
+    const initH = parent?.clientHeight ?? 0;
+    sizeCanvas(initW, initH);
+    const { cols: initCols, rows: initRows } = computeGridSize(initW, initH);
 
-    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastCols = initCols;
+    let lastRows = initRows;
 
     // --- Static render for frozen mode ---
     if (frozen) {
+      stateRef.current = createFrozenSnapshot(initCols, initRows, frozenMessageCount);
       tryRender();
 
-      const resizeObserver = new ResizeObserver(() => {
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
-          resize();
-          tryRender();
-        }, RESIZE_DEBOUNCE_MS);
-      });
-      if (parent) resizeObserver.observe(parent);
+      function handleFrozenResize(): void {
+        if (!parent) return;
+        const w = parent.clientWidth;
+        const h = parent.clientHeight;
+        sizeCanvas(w, h);
+        const { cols, rows } = computeGridSize(w, h);
+        if (cols !== lastCols || rows !== lastRows) {
+          stateRef.current = createFrozenSnapshot(cols, rows, frozenMessageCount);
+          lastCols = cols;
+          lastRows = rows;
+        }
+        tryRender();
+      }
+
+      window.addEventListener('resize', handleFrozenResize);
 
       return () => {
-        clearTimeout(resizeTimer);
-        resizeObserver.disconnect();
+        window.removeEventListener('resize', handleFrozenResize);
       };
     }
 
-    // --- Animation loop ---
+    // --- Animated mode ---
+    const state = createGrid(initCols, initRows);
+    state.exclusionZone = exclusionZoneRef.current;
+    seedInitialReveals(state);
+    stateRef.current = state;
+
     let lastTime = 0;
 
     function animate(time: number): void {
       rafIdRef.current = requestAnimationFrame(animate);
+
+      // Poll dimensions each frame
+      if (parent) {
+        const w = parent.clientWidth;
+        const h = parent.clientHeight;
+        sizeCanvas(w, h);
+        const { cols, rows } = computeGridSize(w, h);
+        if (cols !== lastCols || rows !== lastRows) {
+          if (stateRef.current) {
+            resizeCells(stateRef.current, cols, rows);
+          }
+          lastCols = cols;
+          lastRows = rows;
+        }
+      }
 
       const delta = lastTime === 0 ? 0.016 : (time - lastTime) / 1000;
       lastTime = time;
@@ -149,13 +172,7 @@ export function useCipherWall(
 
     rafIdRef.current = requestAnimationFrame(animate);
 
-    // --- Observers ---
-    const resizeObserver = new ResizeObserver(() => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(resize, RESIZE_DEBOUNCE_MS);
-    });
-    if (parent) resizeObserver.observe(parent);
-
+    // --- Theme observer ---
     const mutationObserver = new MutationObserver(() => {
       colorsRef.current = readThemeColors();
     });
@@ -165,9 +182,7 @@ export function useCipherWall(
     });
 
     return () => {
-      clearTimeout(resizeTimer);
       cancelAnimationFrame(rafIdRef.current);
-      resizeObserver.disconnect();
       mutationObserver.disconnect();
     };
   }, [frozen, frozenMessageCount, themeOverride, cipherOpacity]);
@@ -175,6 +190,9 @@ export function useCipherWall(
   React.useEffect(() => {
     if (stateRef.current) {
       stateRef.current.exclusionZone = exclusionZone;
+      if (exclusionZone) {
+        pruneExcludedReveals(stateRef.current);
+      }
     }
   }, [exclusionZone]);
 

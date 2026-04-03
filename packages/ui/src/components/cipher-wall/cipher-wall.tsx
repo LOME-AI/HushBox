@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useCipherWall, RESIZE_DEBOUNCE_MS } from './use-cipher-wall';
+import { useCipherWall } from './use-cipher-wall';
 import { CELL_WIDTH, CELL_HEIGHT, EXCLUSION_STRIDE } from './cipher-wall-engine';
 import type { ThemeColors } from './cipher-wall-engine';
 
@@ -120,14 +120,11 @@ export function useRadialMask(
 
     updateMask();
 
-    let maskTimer: ReturnType<typeof setTimeout> | undefined;
     const ro = new ResizeObserver(() => {
-      clearTimeout(maskTimer);
-      maskTimer = setTimeout(updateMask, RESIZE_DEBOUNCE_MS);
+      updateMask();
     });
     ro.observe(target);
     return (): void => {
-      clearTimeout(maskTimer);
       ro.disconnect();
     };
   }, [fadeMask, fadeMaskTarget, frozen, canvasRef]);

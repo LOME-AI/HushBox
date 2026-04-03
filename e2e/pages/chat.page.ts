@@ -529,7 +529,7 @@ export class ChatPage {
     const rendered = this.messageList.locator('[data-role="assistant"]:visible');
     const count = await rendered.count();
     for (let index = 0; index < count; index++) {
-      await expect(rendered.nth(index).getByTestId('model-nametag')).toBeVisible();
+      await unsettledExpect(rendered.nth(index).getByTestId('model-nametag')).toBeVisible();
     }
   }
 

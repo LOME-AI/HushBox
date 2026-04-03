@@ -12,8 +12,7 @@ export interface Cell {
 }
 
 export interface MessageReveal {
-  row: number;
-  col: number;
+  startIndex: number;
   text: string;
   charIndex: number;
   state: 'decrypting' | 'holding' | 'fading';
@@ -23,7 +22,7 @@ export interface MessageReveal {
 }
 
 export interface CipherWallState {
-  grid: Cell[][];
+  cells: Cell[];
   cols: number;
   rows: number;
   reveals: MessageReveal[];
@@ -125,11 +124,23 @@ export const CIPHER_CHARS: readonly string[] = [
 // --- Helpers ---
 
 /** Strict cell lookup — throws if out of bounds. */
-function getCell(grid: Cell[][], row: number, col: number): Cell {
-  const r = grid[row];
-  const cell = r?.[col];
-  if (!cell) throw new Error(`Cell [${String(row)},${String(col)}] out of bounds`);
+function getCell(cells: Cell[], index: number): Cell {
+  const cell = cells[index];
+  if (!cell)
+    throw new Error(`Cell [${String(index)}] out of bounds (length=${String(cells.length)})`);
+
   return cell;
+}
+
+function createCipherCell(): Cell {
+  return {
+    cipherChar: randomCipherChar(),
+    targetChar: '',
+    state: 'cipher',
+    progress: 0,
+    rollChar: '',
+    color: '',
+  };
 }
 
 // --- Grid Creation ---
@@ -153,23 +164,13 @@ function createMessageQueue(): number[] {
 }
 
 export function createGrid(cols: number, rows: number): CipherWallState {
-  const grid: Cell[][] = [];
-  for (let r = 0; r < rows; r++) {
-    const row: Cell[] = [];
-    for (let c = 0; c < cols; c++) {
-      row.push({
-        cipherChar: randomCipherChar(),
-        targetChar: '',
-        state: 'cipher',
-        progress: 0,
-        rollChar: '',
-        color: '',
-      });
-    }
-    grid.push(row);
+  const total = cols * rows;
+  const cells: Cell[] = [];
+  for (let index = 0; index < total; index++) {
+    cells.push(createCipherCell());
   }
   return {
-    grid,
+    cells,
     cols,
     rows,
     reveals: [],
@@ -179,9 +180,31 @@ export function createGrid(cols: number, rows: number): CipherWallState {
   };
 }
 
-function initializeRevealCells(grid: Cell[][], reveal: MessageReveal): void {
+export function resizeCells(state: CipherWallState, newCols: number, newRows: number): void {
+  const newTotal = newCols * newRows;
+  const oldTotal = state.cells.length;
+
+  if (newCols === state.cols && newRows === state.rows) return;
+
+  if (newTotal > oldTotal) {
+    for (let index = oldTotal; index < newTotal; index++) {
+      state.cells.push(createCipherCell());
+    }
+  } else if (newTotal < oldTotal) {
+    state.cells.length = newTotal;
+  }
+
+  state.cols = newCols;
+  state.rows = newRows;
+
+  state.reveals = state.reveals.filter(
+    (reveal) => reveal.startIndex + reveal.text.length <= newTotal
+  );
+}
+
+function initializeRevealCells(cells: Cell[], reveal: MessageReveal): void {
   for (let index = 0; index < reveal.text.length; index++) {
-    const cell = getCell(grid, reveal.row, reveal.col + index);
+    const cell = getCell(cells, reveal.startIndex + index);
     cell.state = 'decrypting';
     cell.targetChar = reveal.text.charAt(index);
     cell.rollChar = randomCipherChar();
@@ -194,7 +217,7 @@ export function seedInitialReveals(state: CipherWallState): void {
     const reveal = tryPlaceReveal(state);
     if (reveal) {
       state.reveals.push(reveal);
-      initializeRevealCells(state.grid, reveal);
+      initializeRevealCells(state.cells, reveal);
     }
   }
 }
@@ -259,28 +282,29 @@ export function getCellColor(cell: Cell, colors: ThemeColors): string {
 
 function overlapsExclusionZone(
   excluded: Set<number> | null,
-  row: number,
-  col: number,
-  length: number
+  startIndex: number,
+  length: number,
+  cols: number
 ): boolean {
   if (!excluded) return false;
-  for (let c = col; c < col + length; c++) {
-    if (excluded.has(row * EXCLUSION_STRIDE + c)) return true;
+  for (let index = 0; index < length; index++) {
+    const flatIndex = startIndex + index;
+    const row = Math.floor(flatIndex / cols);
+    const col = flatIndex % cols;
+    if (excluded.has(row * EXCLUSION_STRIDE + col)) return true;
   }
   return false;
 }
 
 function overlapsExistingReveal(
   reveals: MessageReveal[],
-  row: number,
-  col: number,
+  startIndex: number,
   length: number
 ): boolean {
+  const endIndex = startIndex + length;
   for (const r of reveals) {
-    if (r.row !== row) continue;
-    const rEnd = r.col + r.text.length;
-    const newEnd = col + length;
-    if (col < rEnd && r.col < newEnd) return true;
+    const rEnd = r.startIndex + r.text.length;
+    if (startIndex < rEnd && r.startIndex < endIndex) return true;
   }
   return false;
 }
@@ -301,12 +325,12 @@ function tryPlaceReveal(state: CipherWallState): MessageReveal | undefined {
   for (let attempt = 0; attempt < 20; attempt++) {
     const row = MARGIN_ROWS + getSecureRandomIndex(availableRows);
     const col = MARGIN_COLS + getSecureRandomIndex(availableCols);
-    if (overlapsExistingReveal(state.reveals, row, col, text.length)) continue;
-    if (overlapsExclusionZone(state.exclusionZone, row, col, text.length)) continue;
+    const startIndex = row * state.cols + col;
+    if (overlapsExistingReveal(state.reveals, startIndex, text.length)) continue;
+    if (overlapsExclusionZone(state.exclusionZone, startIndex, text.length, state.cols)) continue;
     state.messageQueue.shift();
     return {
-      row,
-      col,
+      startIndex,
       text,
       charIndex: 0,
       state: 'decrypting',
@@ -318,12 +342,12 @@ function tryPlaceReveal(state: CipherWallState): MessageReveal | undefined {
   return undefined;
 }
 
-function updateDecryptingPhase(reveal: MessageReveal, grid: Cell[][], dt: number): boolean {
+function updateDecryptingPhase(reveal: MessageReveal, cells: Cell[], dt: number): boolean {
   reveal.charIndex += dt / DECRYPT_SPEED;
   const resolved = Math.min(Math.floor(reveal.charIndex), reveal.text.length);
 
   for (let index = 0; index < resolved; index++) {
-    const cell = getCell(grid, reveal.row, reveal.col + index);
+    const cell = getCell(cells, reveal.startIndex + index);
     cell.state = 'readable';
     cell.targetChar = reveal.text.charAt(index);
     cell.progress = 1;
@@ -333,7 +357,7 @@ function updateDecryptingPhase(reveal: MessageReveal, grid: Cell[][], dt: number
   if (reveal.rollTickTimer >= DECRYPT_TICK) {
     reveal.rollTickTimer -= DECRYPT_TICK;
     for (let index = resolved; index < reveal.text.length; index++) {
-      getCell(grid, reveal.row, reveal.col + index).rollChar = randomCipherChar();
+      getCell(cells, reveal.startIndex + index).rollChar = randomCipherChar();
     }
   }
 
@@ -345,22 +369,22 @@ function updateDecryptingPhase(reveal: MessageReveal, grid: Cell[][], dt: number
   return false;
 }
 
-function updateHoldingPhase(reveal: MessageReveal, grid: Cell[][], dt: number): boolean {
+function updateHoldingPhase(reveal: MessageReveal, cells: Cell[], dt: number): boolean {
   reveal.holdTimer -= dt;
   if (reveal.holdTimer <= 0) {
     reveal.state = 'fading';
     reveal.rollTimer = ENCRYPT_ROLL_DURATION;
     reveal.rollTickTimer = 0;
     for (let index = 0; index < reveal.text.length; index++) {
-      getCell(grid, reveal.row, reveal.col + index).rollChar = randomCipherChar();
+      getCell(cells, reveal.startIndex + index).rollChar = randomCipherChar();
     }
   }
   return false;
 }
 
-function snapCellsToCipher(grid: Cell[][], reveal: MessageReveal): void {
+function snapCellsToCipher(cells: Cell[], reveal: MessageReveal): void {
   for (let index = 0; index < reveal.text.length; index++) {
-    const cell = getCell(grid, reveal.row, reveal.col + index);
+    const cell = getCell(cells, reveal.startIndex + index);
     cell.state = 'cipher';
     cell.targetChar = '';
     cell.progress = 0;
@@ -370,7 +394,7 @@ function snapCellsToCipher(grid: Cell[][], reveal: MessageReveal): void {
   }
 }
 
-function updateFadingPhase(reveal: MessageReveal, grid: Cell[][], dt: number): boolean {
+function updateFadingPhase(reveal: MessageReveal, cells: Cell[], dt: number): boolean {
   reveal.rollTimer -= dt;
   reveal.rollTickTimer += dt;
 
@@ -378,7 +402,7 @@ function updateFadingPhase(reveal: MessageReveal, grid: Cell[][], dt: number): b
   const changeRoll = reveal.rollTickTimer >= ENCRYPT_TICK;
 
   for (let index = 0; index < reveal.text.length; index++) {
-    const cell = getCell(grid, reveal.row, reveal.col + index);
+    const cell = getCell(cells, reveal.startIndex + index);
     cell.state = 'encrypting';
     cell.progress = progress;
     if (changeRoll) {
@@ -391,22 +415,22 @@ function updateFadingPhase(reveal: MessageReveal, grid: Cell[][], dt: number): b
   }
 
   if (reveal.rollTimer <= 0) {
-    snapCellsToCipher(grid, reveal);
+    snapCellsToCipher(cells, reveal);
     return true;
   }
   return false;
 }
 
-function updateReveal(reveal: MessageReveal, grid: Cell[][], dt: number): boolean {
+function updateReveal(reveal: MessageReveal, cells: Cell[], dt: number): boolean {
   switch (reveal.state) {
     case 'decrypting': {
-      return updateDecryptingPhase(reveal, grid, dt);
+      return updateDecryptingPhase(reveal, cells, dt);
     }
     case 'holding': {
-      return updateHoldingPhase(reveal, grid, dt);
+      return updateHoldingPhase(reveal, cells, dt);
     }
     case 'fading': {
-      return updateFadingPhase(reveal, grid, dt);
+      return updateFadingPhase(reveal, cells, dt);
     }
   }
 }
@@ -418,19 +442,31 @@ export function updateState(state: CipherWallState, dt: number): void {
     const reveal = tryPlaceReveal(state);
     if (reveal) {
       state.reveals.push(reveal);
-      initializeRevealCells(state.grid, reveal);
+      initializeRevealCells(state.cells, reveal);
     }
     state.revealTimer = REVEAL_INTERVAL;
   }
 
   const toRemove: number[] = [];
   for (const [index, reveal] of state.reveals.entries()) {
-    if (updateReveal(reveal, state.grid, dt)) toRemove.push(index);
+    if (updateReveal(reveal, state.cells, dt)) toRemove.push(index);
   }
   for (let index = toRemove.length - 1; index >= 0; index--) {
     const removeAt = toRemove[index];
     if (removeAt !== undefined) state.reveals.splice(removeAt, 1);
   }
+}
+
+export function pruneExcludedReveals(state: CipherWallState): void {
+  if (!state.exclusionZone) return;
+  const { exclusionZone, cols, cells } = state;
+  state.reveals = state.reveals.filter((reveal) => {
+    if (overlapsExclusionZone(exclusionZone, reveal.startIndex, reveal.text.length, cols)) {
+      snapCellsToCipher(cells, reveal);
+      return false;
+    }
+    return true;
+  });
 }
 
 // --- Rendering ---
@@ -477,21 +513,25 @@ export function renderFrame(input: Readonly<RenderFrameInput>): void {
   ctx.clearRect(0, 0, width, height);
   ctx.font = FONT;
 
-  for (let r = 0; r < state.rows; r++) {
-    for (let c = 0; c < state.cols; c++) {
-      const cell = getCell(state.grid, r, c);
-      const ch = getDisplayChar(cell);
-      const color = getCellColor(cell, colors);
-      const isInLogo = logoMask?.[r]?.[c] === true;
-      const baseAlpha = getCellOpacity(cell, isInLogo);
-      const alpha = cell.state === 'readable' ? baseAlpha : baseAlpha * cipherOpacity;
+  const total = state.cols * state.rows;
+  for (let index = 0; index < total; index++) {
+    const cell = state.cells[index];
+    if (!cell) continue;
 
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = color;
-      ctx.fillText(ch, c * CELL_WIDTH, r * CELL_HEIGHT + FONT_SIZE);
-      ctx.restore();
-    }
+    const c = index % state.cols;
+    const r = Math.floor(index / state.cols);
+
+    const ch = getDisplayChar(cell);
+    const color = getCellColor(cell, colors);
+    const isInLogo = logoMask?.[r]?.[c] === true;
+    const baseAlpha = getCellOpacity(cell, isInLogo);
+    const alpha = cell.state === 'readable' ? baseAlpha : baseAlpha * cipherOpacity;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.fillText(ch, c * CELL_WIDTH, r * CELL_HEIGHT + FONT_SIZE);
+    ctx.restore();
   }
 }
 
@@ -520,7 +560,9 @@ function placeFrozenMessage({ state, index, offsets, center }: FrozenPlacement):
   if (col < 0 || col + text.length > state.cols) return;
 
   for (let c = 0; c < text.length; c++) {
-    const cell = getCell(state.grid, row, col + c);
+    const flatIndex = row * state.cols + col + c;
+    const cell = state.cells[flatIndex];
+    if (!cell) return;
     cell.state = 'readable';
     cell.targetChar = text.charAt(c);
     cell.progress = 1;

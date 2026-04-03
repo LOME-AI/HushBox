@@ -27,35 +27,6 @@ const DARK_THEME: ThemeColors = {
 
 // --- Mock browser APIs ---
 
-type ResizeCallback = ResizeObserverCallback;
-
-let resizeCallbacks: ResizeCallback[];
-let resizeObservedElements: Element[];
-let resizeDisconnected: boolean;
-
-class MockResizeObserver {
-  callback: ResizeCallback;
-
-  constructor(callback: ResizeCallback) {
-    this.callback = callback;
-    resizeCallbacks.push(callback);
-  }
-
-  observe(el: Element): void {
-    resizeObservedElements.push(el);
-  }
-
-  unobserve(): void {
-    // no-op
-  }
-
-  disconnect(): void {
-    resizeDisconnected = true;
-    const index = resizeCallbacks.indexOf(this.callback);
-    if (index !== -1) resizeCallbacks.splice(index, 1);
-  }
-}
-
 let mutationCallbacks: MutationCallback[];
 let mutationObserveArgs: { target: Node; options: MutationObserverInit }[];
 let mutationDisconnected: boolean;
@@ -124,6 +95,7 @@ const mockCtx = {
   save: vi.fn(),
   restore: vi.fn(),
   scale: vi.fn(),
+  setTransform: vi.fn(),
   fillStyle: '',
   strokeStyle: '',
   lineWidth: 1,
@@ -136,17 +108,15 @@ const mockCtx = {
 };
 
 const originalGetContext = HTMLCanvasElement.prototype.getContext;
+const originalAddEventListener = window.addEventListener;
+const originalRemoveEventListener = window.removeEventListener;
 
 describe('useCipherWall', () => {
   beforeEach(() => {
-    resizeCallbacks = [];
-    resizeObservedElements = [];
-    resizeDisconnected = false;
     mutationCallbacks = [];
     mutationObserveArgs = [];
     mutationDisconnected = false;
 
-    vi.stubGlobal('ResizeObserver', MockResizeObserver);
     vi.stubGlobal('MutationObserver', MockMutationObserver);
     setupRAF();
     setupGetComputedStyle();
@@ -165,17 +135,6 @@ describe('useCipherWall', () => {
   it('renders canvas element via ref', () => {
     const { getByTestId } = render(<TestCanvas />);
     expect(getByTestId('test-canvas')).toBeInstanceOf(HTMLCanvasElement);
-  });
-
-  it('sets up ResizeObserver on mount', () => {
-    render(<TestCanvas />);
-    expect(resizeCallbacks).toHaveLength(1);
-  });
-
-  it('observes canvas parent element with ResizeObserver', () => {
-    render(<TestCanvas />);
-    expect(resizeObservedElements).toHaveLength(1);
-    expect(resizeObservedElements[0]!.tagName).toBe('DIV');
   });
 
   it('sets up MutationObserver on documentElement', () => {
@@ -197,12 +156,6 @@ describe('useCipherWall', () => {
     expect(globalThis.cancelAnimationFrame).toHaveBeenCalled();
   });
 
-  it('disconnects ResizeObserver on unmount', () => {
-    const { unmount } = render(<TestCanvas />);
-    unmount();
-    expect(resizeDisconnected).toBe(true);
-  });
-
   it('disconnects MutationObserver on unmount', () => {
     const { unmount } = render(<TestCanvas />);
     unmount();
@@ -211,20 +164,30 @@ describe('useCipherWall', () => {
 });
 
 describe('useCipherWall frozen mode', () => {
+  let addedListeners: { type: string; handler: EventListenerOrEventListenerObject }[];
+  let removedListeners: { type: string; handler: EventListenerOrEventListenerObject }[];
+
   beforeEach(() => {
-    resizeCallbacks = [];
-    resizeObservedElements = [];
-    resizeDisconnected = false;
     mutationCallbacks = [];
     mutationObserveArgs = [];
     mutationDisconnected = false;
+    addedListeners = [];
+    removedListeners = [];
 
-    vi.stubGlobal('ResizeObserver', MockResizeObserver);
     vi.stubGlobal('MutationObserver', MockMutationObserver);
     setupRAF();
     setupGetComputedStyle();
 
     HTMLCanvasElement.prototype.getContext = vi.fn(() => mockCtx) as never;
+
+    window.addEventListener = vi.fn((type: string, handler: EventListenerOrEventListenerObject) => {
+      addedListeners.push({ type, handler });
+    }) as never;
+    window.removeEventListener = vi.fn(
+      (type: string, handler: EventListenerOrEventListenerObject) => {
+        removedListeners.push({ type, handler });
+      }
+    ) as never;
   });
 
   afterEach(() => {
@@ -232,6 +195,8 @@ describe('useCipherWall frozen mode', () => {
     globalThis.cancelAnimationFrame = originalCAF;
     globalThis.getComputedStyle = originalGetComputedStyle;
     HTMLCanvasElement.prototype.getContext = originalGetContext;
+    window.addEventListener = originalAddEventListener;
+    window.removeEventListener = originalRemoveEventListener;
     vi.restoreAllMocks();
   });
 
@@ -240,10 +205,15 @@ describe('useCipherWall frozen mode', () => {
     expect(globalThis.requestAnimationFrame).not.toHaveBeenCalled();
   });
 
-  it('still sets up ResizeObserver when frozen', () => {
+  it('adds window resize listener when frozen', () => {
     render(<TestCanvas frozen />);
-    expect(resizeCallbacks).toHaveLength(1);
-    expect(resizeObservedElements).toHaveLength(1);
+    expect(addedListeners.some((l) => l.type === 'resize')).toBe(true);
+  });
+
+  it('removes window resize listener on unmount when frozen', () => {
+    const { unmount } = render(<TestCanvas frozen />);
+    unmount();
+    expect(removedListeners.some((l) => l.type === 'resize')).toBe(true);
   });
 
   it('does not set up MutationObserver when frozen', () => {
@@ -253,9 +223,6 @@ describe('useCipherWall frozen mode', () => {
 
   it('uses themeOverride when provided instead of reading CSS', () => {
     render(<TestCanvas frozen themeOverride={DARK_THEME} />);
-    // getComputedStyle should not be called for theme reading when override is provided
-    // (it may be called by JSDOM internally, but not by readThemeColors)
-    // The key test is that it renders without error using the override
     expect(globalThis.requestAnimationFrame).not.toHaveBeenCalled();
   });
 
@@ -267,14 +234,10 @@ describe('useCipherWall frozen mode', () => {
 
 describe('useCipherWall exclusionZone', () => {
   beforeEach(() => {
-    resizeCallbacks = [];
-    resizeObservedElements = [];
-    resizeDisconnected = false;
     mutationCallbacks = [];
     mutationObserveArgs = [];
     mutationDisconnected = false;
 
-    vi.stubGlobal('ResizeObserver', MockResizeObserver);
     vi.stubGlobal('MutationObserver', MockMutationObserver);
     setupRAF();
     setupGetComputedStyle();
@@ -336,15 +299,12 @@ describe('useCipherWall exclusionZone', () => {
       );
     }
 
-    // Renders with zone1, then re-renders with zone2 - should not error
     const { rerender, getByTestId } = render(<TestExclusionSync zone={zone1} />);
     expect(getByTestId('sync-canvas')).toBeInstanceOf(HTMLCanvasElement);
 
-    // Re-render with a different zone to verify the effect handles changes
     rerender(<TestExclusionSync zone={zone2} />);
     expect(getByTestId('sync-canvas')).toBeInstanceOf(HTMLCanvasElement);
 
-    // Re-render with null to verify null handling
     rerender(<TestExclusionSync zone={null} />);
     expect(getByTestId('sync-canvas')).toBeInstanceOf(HTMLCanvasElement);
   });
@@ -363,6 +323,31 @@ describe('useCipherWall exclusionZone', () => {
     expect(capturedZone).toBe(zone);
 
     seedSpy.mockRestore();
+  });
+
+  it('calls pruneExcludedReveals when exclusionZone changes from null to a Set', () => {
+    const pruneSpy = vi.spyOn(engine, 'pruneExcludedReveals');
+
+    function TestExclusionPrune({
+      zone,
+    }: Readonly<{ zone: Set<number> | null }>): React.JSX.Element {
+      const canvasRef = useCipherWall({ themeOverride: DARK_THEME, exclusionZone: zone });
+      return (
+        <div style={{ width: 800, height: 600 }}>
+          <canvas ref={canvasRef} data-testid="prune-canvas" />
+        </div>
+      );
+    }
+
+    const { rerender } = render(<TestExclusionPrune zone={null} />);
+
+    // Change exclusion zone from null to a Set
+    const zone = new Set([3 * EXCLUSION_STRIDE + 5]);
+    rerender(<TestExclusionPrune zone={zone} />);
+
+    expect(pruneSpy).toHaveBeenCalled();
+
+    pruneSpy.mockRestore();
   });
 });
 

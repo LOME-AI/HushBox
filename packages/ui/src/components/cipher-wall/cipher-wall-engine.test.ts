@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   createGrid,
+  resizeCells,
+  pruneExcludedReveals,
   seedInitialReveals,
   updateState,
   interpolateColor,
@@ -57,25 +59,31 @@ function suppressNewReveals(state: CipherWallState): void {
   state.revealTimer = 9999;
 }
 
-function countReadableCells(grid: Cell[][]): number {
+function countReadableCells(cells: Cell[]): number {
   let count = 0;
-  for (const row of grid) {
-    for (const cell of row) {
-      if (cell.state === 'readable') count++;
-    }
+  for (const cell of cells) {
+    if (cell.state === 'readable') count++;
   }
   return count;
 }
 
-function resetGrid(state: CipherWallState): void {
-  for (const row of state.grid) {
-    for (const cell of row) {
-      cell.state = 'cipher';
-      cell.progress = 0;
-      cell.targetChar = '';
-      cell.rollChar = '';
-      cell.color = '';
+function getReadableRows(state: CipherWallState): Set<number> {
+  const rowSet = new Set<number>();
+  for (let cellIndex = 0; cellIndex < state.cells.length; cellIndex++) {
+    if (state.cells[cellIndex]!.state === 'readable') {
+      rowSet.add(Math.floor(cellIndex / state.cols));
     }
+  }
+  return rowSet;
+}
+
+function resetCells(state: CipherWallState): void {
+  for (const cell of state.cells) {
+    cell.state = 'cipher';
+    cell.progress = 0;
+    cell.targetChar = '';
+    cell.rollChar = '';
+    cell.color = '';
   }
 }
 
@@ -146,60 +154,47 @@ describe('constants', () => {
 });
 
 describe('createGrid', () => {
-  it('creates grid with expected dimensions', () => {
+  it('creates flat cell array with expected total length', () => {
     const state = createGrid(80, 30);
     expect(state.cols).toBe(80);
     expect(state.rows).toBe(30);
-    expect(state.grid).toHaveLength(30);
-    for (const row of state.grid) {
-      expect(row).toHaveLength(80);
-    }
+    expect(state.cells).toHaveLength(80 * 30);
   });
 
   it('initializes every cell in cipher state', () => {
     const state = createGrid(10, 5);
-    for (const row of state.grid) {
-      for (const cell of row) {
-        expect(cell.state).toBe('cipher');
-      }
+    for (const cell of state.cells) {
+      expect(cell.state).toBe('cipher');
     }
   });
 
   it('assigns a non-empty cipherChar from CIPHER_CHARS to every cell', () => {
     const state = createGrid(10, 5);
-    for (const row of state.grid) {
-      for (const cell of row) {
-        expect(cell.cipherChar).toBeTruthy();
-        expect(CIPHER_CHARS).toContain(cell.cipherChar);
-      }
+    for (const cell of state.cells) {
+      expect(cell.cipherChar).toBeTruthy();
+      expect(CIPHER_CHARS).toContain(cell.cipherChar);
     }
   });
 
   it('initializes cells with empty targetChar', () => {
     const state = createGrid(10, 5);
-    for (const row of state.grid) {
-      for (const cell of row) {
-        expect(cell.targetChar).toBe('');
-      }
+    for (const cell of state.cells) {
+      expect(cell.targetChar).toBe('');
     }
   });
 
   it('initializes cells with zero progress', () => {
     const state = createGrid(10, 5);
-    for (const row of state.grid) {
-      for (const cell of row) {
-        expect(cell.progress).toBe(0);
-      }
+    for (const cell of state.cells) {
+      expect(cell.progress).toBe(0);
     }
   });
 
   it('initializes cells with empty rollChar and color', () => {
     const state = createGrid(10, 5);
-    for (const row of state.grid) {
-      for (const cell of row) {
-        expect(cell.rollChar).toBe('');
-        expect(cell.color).toBe('');
-      }
+    for (const cell of state.cells) {
+      expect(cell.rollChar).toBe('');
+      expect(cell.color).toBe('');
     }
   });
 
@@ -216,10 +211,8 @@ describe('createGrid', () => {
   it('uses randomness for cipherChar — not all identical', () => {
     const state = createGrid(40, 20);
     const chars = new Set<string>();
-    for (const row of state.grid) {
-      for (const cell of row) {
-        chars.add(cell.cipherChar);
-      }
+    for (const cell of state.cells) {
+      chars.add(cell.cipherChar);
     }
     expect(chars.size).toBeGreaterThan(1);
   });
@@ -240,7 +233,6 @@ describe('createGrid', () => {
     const state = wideGrid();
     state.exclusionZone = excludeAllPlaceableCells(state);
 
-    // Try to place reveals — all should fail because every valid cell is excluded
     for (let index = 0; index < 10; index++) {
       triggerReveal(state);
     }
@@ -256,8 +248,6 @@ describe('createGrid', () => {
 
   it('places reveals in cells not covered by the exclusion zone', () => {
     const state = wideGrid();
-    // Exclude only row 0 (which is within the margin, so reveals won't go there anyway)
-    // Exclude only the first margin row — reveals should still be placed elsewhere
     const excluded = new Set<number>();
     for (let c = 0; c < state.cols; c++) {
       excluded.add(0 * EXCLUSION_STRIDE + c);
@@ -270,26 +260,185 @@ describe('createGrid', () => {
 
   it('skips placement when any character of message overlaps an excluded cell', () => {
     const state = wideGrid();
-    // Exclude a single cell at the exact center — any message whose span includes that cell is blocked
     const centerRow = Math.floor(state.rows / 2);
     const centerCol = Math.floor(state.cols / 2);
     const excluded = new Set<number>([centerRow * EXCLUSION_STRIDE + centerCol]);
     state.exclusionZone = excluded;
 
-    // Place many reveals — none should overlap the excluded cell
     for (let index = 0; index < 20; index++) {
       state.revealTimer = 0.001;
       updateState(state, 0.002);
     }
 
     for (const reveal of state.reveals) {
-      if (reveal.row === centerRow) {
-        const revealEnd = reveal.col + reveal.text.length;
-        // The excluded cell should not be within the reveal's span
-        const overlaps = reveal.col <= centerCol && centerCol < revealEnd;
-        expect(overlaps).toBe(false);
+      for (let charIndex = 0; charIndex < reveal.text.length; charIndex++) {
+        const flatIndex = reveal.startIndex + charIndex;
+        const r = Math.floor(flatIndex / state.cols);
+        const c = flatIndex % state.cols;
+        if (r === centerRow) {
+          expect(c).not.toBe(centerCol);
+        }
       }
     }
+  });
+});
+
+describe('resizeCells', () => {
+  it('is a no-op when dimensions are unchanged', () => {
+    const state = createGrid(10, 5);
+    const originalLength = state.cells.length;
+    const firstCell = state.cells[0];
+    resizeCells(state, 10, 5);
+    expect(state.cells).toHaveLength(originalLength);
+    expect(state.cells[0]).toBe(firstCell);
+  });
+
+  it('expands the array when total increases', () => {
+    const state = createGrid(10, 5);
+    expect(state.cells).toHaveLength(50);
+    resizeCells(state, 10, 8);
+    expect(state.cells).toHaveLength(80);
+    expect(state.cols).toBe(10);
+    expect(state.rows).toBe(8);
+  });
+
+  it('fills new cells with cipher state', () => {
+    const state = createGrid(10, 5);
+    resizeCells(state, 10, 8);
+    for (let cellIndex = 50; cellIndex < 80; cellIndex++) {
+      expect(state.cells[cellIndex]!.state).toBe('cipher');
+      expect(CIPHER_CHARS).toContain(state.cells[cellIndex]!.cipherChar);
+    }
+  });
+
+  it('preserves existing cell identity on expansion', () => {
+    const state = createGrid(10, 5);
+    const references = state.cells.map((c) => c);
+    resizeCells(state, 10, 8);
+    for (let cellIndex = 0; cellIndex < 50; cellIndex++) {
+      expect(state.cells[cellIndex]).toBe(references[cellIndex]);
+    }
+  });
+
+  it('shrinks the array when total decreases', () => {
+    const state = createGrid(10, 5);
+    resizeCells(state, 10, 3);
+    expect(state.cells).toHaveLength(30);
+    expect(state.cols).toBe(10);
+    expect(state.rows).toBe(3);
+  });
+
+  it('preserves existing cell identity on shrink', () => {
+    const state = createGrid(10, 5);
+    const references = state.cells.slice(0, 30).map((c) => c);
+    resizeCells(state, 10, 3);
+    for (let cellIndex = 0; cellIndex < 30; cellIndex++) {
+      expect(state.cells[cellIndex]).toBe(references[cellIndex]);
+    }
+  });
+
+  it('prunes reveals that extend past the new total', () => {
+    const state = createGrid(80, 30);
+    // Manually place a reveal near the end
+    state.reveals.push({
+      startIndex: 80 * 29, // last row
+      text: 'Test Message',
+      charIndex: 0,
+      state: 'decrypting',
+      holdTimer: 0,
+      rollTimer: 0,
+      rollTickTimer: 0,
+    });
+    resizeCells(state, 80, 20);
+    expect(state.reveals).toHaveLength(0);
+  });
+
+  it('preserves reveals that are still within bounds', () => {
+    const state = createGrid(80, 30);
+    state.reveals.push({
+      startIndex: 80 * 2 + 5, // row 2, safe
+      text: 'Test',
+      charIndex: 0,
+      state: 'decrypting',
+      holdTimer: 0,
+      rollTimer: 0,
+      rollTickTimer: 0,
+    });
+    resizeCells(state, 80, 20);
+    expect(state.reveals).toHaveLength(1);
+  });
+
+  it('handles cols change correctly', () => {
+    const state = createGrid(80, 30);
+    resizeCells(state, 60, 30);
+    expect(state.cells).toHaveLength(60 * 30);
+    expect(state.cols).toBe(60);
+    expect(state.rows).toBe(30);
+  });
+});
+
+describe('pruneExcludedReveals', () => {
+  it('removes reveals that overlap the exclusion zone', () => {
+    const state = wideGrid();
+    seedInitialReveals(state);
+    expect(state.reveals.length).toBeGreaterThan(0);
+
+    // Exclude every placeable cell — all reveals should be pruned
+    state.exclusionZone = excludeAllPlaceableCells(state);
+    pruneExcludedReveals(state);
+    expect(state.reveals).toHaveLength(0);
+  });
+
+  it('keeps reveals that do not overlap the exclusion zone', () => {
+    const state = wideGrid();
+    seedInitialReveals(state);
+    const revealCount = state.reveals.length;
+    expect(revealCount).toBeGreaterThan(0);
+
+    // Exclude only row 0 (within margin, no reveals there)
+    const zone = new Set<number>();
+    for (let c = 0; c < state.cols; c++) {
+      zone.add(0 * EXCLUSION_STRIDE + c);
+    }
+    state.exclusionZone = zone;
+    pruneExcludedReveals(state);
+    expect(state.reveals).toHaveLength(revealCount);
+  });
+
+  it('resets pruned reveal cells to cipher state', () => {
+    const state = wideGrid();
+    triggerReveal(state);
+    const reveal = state.reveals[0]!;
+
+    // Verify cells are not in cipher state before prune
+    for (let index = 0; index < reveal.text.length; index++) {
+      expect(state.cells[reveal.startIndex + index]!.state).not.toBe('cipher');
+    }
+
+    // Exclude the exact cells of the reveal
+    const zone = new Set<number>();
+    for (let index = 0; index < reveal.text.length; index++) {
+      const flatIndex = reveal.startIndex + index;
+      const row = Math.floor(flatIndex / state.cols);
+      const col = flatIndex % state.cols;
+      zone.add(row * EXCLUSION_STRIDE + col);
+    }
+    state.exclusionZone = zone;
+    pruneExcludedReveals(state);
+
+    // Cells should be reset to cipher
+    for (let index = 0; index < reveal.text.length; index++) {
+      expect(state.cells[reveal.startIndex + index]!.state).toBe('cipher');
+    }
+  });
+
+  it('is a no-op when exclusion zone is null', () => {
+    const state = wideGrid();
+    seedInitialReveals(state);
+    const revealCount = state.reveals.length;
+    state.exclusionZone = null;
+    pruneExcludedReveals(state);
+    expect(state.reveals).toHaveLength(revealCount);
   });
 });
 
@@ -306,7 +455,7 @@ describe('seedInitialReveals', () => {
 
     for (const reveal of state.reveals) {
       for (let index = 0; index < reveal.text.length; index++) {
-        const cell = state.grid[reveal.row]![reveal.col + index]!;
+        const cell = state.cells[reveal.startIndex + index]!;
         expect(cell.state).toBe('decrypting');
         expect(cell.progress).toBe(1);
         expect(cell.targetChar).toBe(reveal.text[index]);
@@ -327,7 +476,6 @@ describe('seedInitialReveals', () => {
 
     seedInitialReveals(state);
 
-    // With the entire placeable area excluded, no reveals should be placed
     expect(state.reveals).toHaveLength(0);
   });
 });
@@ -376,7 +524,7 @@ describe('updateState', () => {
       expect(state.reveals.length).toBeLessThanOrEqual(MAX_ACTIVE_REVEALS);
     });
 
-    it('does not create overlapping reveals on the same row', () => {
+    it('does not create overlapping reveals', () => {
       const state = wideGrid();
       for (let index = 0; index < 3; index++) {
         state.revealTimer = 0.001;
@@ -386,11 +534,9 @@ describe('updateState', () => {
         for (let index_ = index + 1; index_ < state.reveals.length; index_++) {
           const a = state.reveals[index]!;
           const b = state.reveals[index_]!;
-          if (a.row === b.row) {
-            const aEnd = a.col + a.text.length;
-            const bEnd = b.col + b.text.length;
-            expect(a.col < bEnd && b.col < aEnd).toBe(false);
-          }
+          const aEnd = a.startIndex + a.text.length;
+          const bEnd = b.startIndex + b.text.length;
+          expect(a.startIndex < bEnd && b.startIndex < aEnd).toBe(false);
         }
       }
     });
@@ -401,11 +547,14 @@ describe('updateState', () => {
         state.revealTimer = 0.001;
         updateState(state, 0.002);
         for (const reveal of state.reveals) {
-          expect(reveal.row).toBeGreaterThanOrEqual(MARGIN_ROWS);
-          expect(reveal.row).toBeLessThan(state.rows - MARGIN_ROWS);
+          const startRow = Math.floor(reveal.startIndex / state.cols);
+          expect(startRow).toBeGreaterThanOrEqual(MARGIN_ROWS);
+          const endIndex = reveal.startIndex + reveal.text.length - 1;
+          const endRow = Math.floor(endIndex / state.cols);
+          expect(endRow).toBeLessThan(state.rows - MARGIN_ROWS);
         }
         state.reveals = [];
-        resetGrid(state);
+        resetCells(state);
       }
     });
 
@@ -415,11 +564,27 @@ describe('updateState', () => {
         state.revealTimer = 0.001;
         updateState(state, 0.002);
         for (const reveal of state.reveals) {
-          expect(reveal.col).toBeGreaterThanOrEqual(MARGIN_COLS);
-          expect(reveal.col + reveal.text.length).toBeLessThanOrEqual(state.cols - MARGIN_COLS);
+          const startCol = reveal.startIndex % state.cols;
+          expect(startCol).toBeGreaterThanOrEqual(MARGIN_COLS);
+          expect(startCol + reveal.text.length).toBeLessThanOrEqual(state.cols - MARGIN_COLS);
         }
         state.reveals = [];
-        resetGrid(state);
+        resetCells(state);
+      }
+    });
+
+    it('places reveals on a single row without wrapping', () => {
+      const state = wideGrid();
+      for (let index = 0; index < 30; index++) {
+        state.revealTimer = 0.001;
+        updateState(state, 0.002);
+        for (const reveal of state.reveals) {
+          const startRow = Math.floor(reveal.startIndex / state.cols);
+          const endRow = Math.floor((reveal.startIndex + reveal.text.length - 1) / state.cols);
+          expect(startRow).toBe(endRow);
+        }
+        state.reveals = [];
+        resetCells(state);
       }
     });
 
@@ -428,7 +593,7 @@ describe('updateState', () => {
       triggerReveal(state);
       const reveal = state.reveals[0]!;
       for (let index = 0; index < reveal.text.length; index++) {
-        const cell = state.grid[reveal.row]![reveal.col + index]!;
+        const cell = state.cells[reveal.startIndex + index]!;
         expect(cell.state).toBe('decrypting');
         expect(cell.progress).toBe(1);
       }
@@ -442,16 +607,15 @@ describe('updateState', () => {
       const reveal = state.reveals[0]!;
 
       for (let index = 0; index < reveal.text.length; index++) {
-        state.grid[reveal.row]![reveal.col + index]!.rollChar = 'MARKER';
+        state.cells[reveal.startIndex + index]!.rollChar = 'MARKER';
       }
 
       suppressNewReveals(state);
       updateState(state, DECRYPT_TICK * 0.3);
 
-      // Unresolved chars should keep MARKER (no cycle yet)
       const resolved = Math.floor((DECRYPT_TICK * 0.3) / DECRYPT_SPEED);
       for (let index = resolved; index < reveal.text.length; index++) {
-        expect(state.grid[reveal.row]![reveal.col + index]!.rollChar).toBe('MARKER');
+        expect(state.cells[reveal.startIndex + index]!.rollChar).toBe('MARKER');
       }
     });
 
@@ -461,17 +625,16 @@ describe('updateState', () => {
       const reveal = state.reveals[0]!;
 
       for (let index = 0; index < reveal.text.length; index++) {
-        state.grid[reveal.row]![reveal.col + index]!.rollChar = 'MARKER';
+        state.cells[reveal.startIndex + index]!.rollChar = 'MARKER';
       }
 
       suppressNewReveals(state);
       updateState(state, DECRYPT_TICK + 0.01);
 
-      // Some unresolved chars should have changed
       const resolved = Math.floor((DECRYPT_TICK + 0.01) / DECRYPT_SPEED);
       let anyChanged = false;
       for (let index = resolved; index < reveal.text.length; index++) {
-        if (state.grid[reveal.row]![reveal.col + index]!.rollChar !== 'MARKER') {
+        if (state.cells[reveal.startIndex + index]!.rollChar !== 'MARKER') {
           anyChanged = true;
         }
       }
@@ -484,12 +647,11 @@ describe('updateState', () => {
       const reveal = state.reveals[0]!;
 
       suppressNewReveals(state);
-      // 1 second = 6 chars resolved
       updateState(state, 1);
 
       let readableCount = 0;
       for (let index = 0; index < reveal.text.length; index++) {
-        if (state.grid[reveal.row]![reveal.col + index]!.state === 'readable') {
+        if (state.cells[reveal.startIndex + index]!.state === 'readable') {
           readableCount++;
         }
       }
@@ -505,7 +667,7 @@ describe('updateState', () => {
       updateState(state, DECRYPT_SPEED * 3 + 0.01);
 
       for (let index = 0; index < 3; index++) {
-        const cell = state.grid[reveal.row]![reveal.col + index]!;
+        const cell = state.cells[reveal.startIndex + index]!;
         expect(cell.state).toBe('readable');
         expect(cell.targetChar).toBe(reveal.text[index]);
       }
@@ -531,7 +693,7 @@ describe('updateState', () => {
       updateState(state, reveal.text.length * DECRYPT_SPEED + 0.01);
 
       for (let index = 0; index < reveal.text.length; index++) {
-        expect(state.grid[reveal.row]![reveal.col + index]!.state).toBe('readable');
+        expect(state.cells[reveal.startIndex + index]!.state).toBe('readable');
       }
     });
 
@@ -541,20 +703,15 @@ describe('updateState', () => {
       const reveal = state.reveals[0]!;
 
       suppressNewReveals(state);
-      // 10 small frames of 0.016s each = 0.16s total
-      // At DECRYPT_SPEED=1/6, 0.16/0.1667 = 0.96 chars → floor = 0
-      // Without float accumulation, charIndex would stay at 0 forever
       for (let index = 0; index < 10; index++) {
         updateState(state, 0.016);
       }
-      // 0.16s total, not enough for 1 char
-      expect(state.grid[reveal.row]![reveal.col]!.state).toBe('decrypting');
+      expect(state.cells[reveal.startIndex]!.state).toBe('decrypting');
 
-      // 3 more frames → 0.208s total → 1 char resolved
       for (let index = 0; index < 3; index++) {
         updateState(state, 0.016);
       }
-      expect(state.grid[reveal.row]![reveal.col]!.state).toBe('readable');
+      expect(state.cells[reveal.startIndex]!.state).toBe('readable');
     });
   });
 
@@ -609,12 +766,11 @@ describe('updateState', () => {
       suppressNewReveals(state);
       updateState(state, HOLD_DURATION + 0.1);
 
-      // One more tick to process fading
       suppressNewReveals(state);
       updateState(state, 0.01);
 
       for (let index = 0; index < reveal.text.length; index++) {
-        expect(state.grid[reveal.row]![reveal.col + index]!.state).toBe('encrypting');
+        expect(state.cells[reveal.startIndex + index]!.state).toBe('encrypting');
       }
     });
 
@@ -628,9 +784,8 @@ describe('updateState', () => {
       suppressNewReveals(state);
       updateState(state, HOLD_DURATION + 0.1);
 
-      // Set markers
       for (let index = 0; index < reveal.text.length; index++) {
-        state.grid[reveal.row]![reveal.col + index]!.rollChar = 'MARKER';
+        state.cells[reveal.startIndex + index]!.rollChar = 'MARKER';
       }
 
       suppressNewReveals(state);
@@ -638,7 +793,7 @@ describe('updateState', () => {
 
       let anyChanged = false;
       for (let index = 0; index < reveal.text.length; index++) {
-        if (state.grid[reveal.row]![reveal.col + index]!.rollChar !== 'MARKER') {
+        if (state.cells[reveal.startIndex + index]!.rollChar !== 'MARKER') {
           anyChanged = true;
         }
       }
@@ -649,7 +804,7 @@ describe('updateState', () => {
       const state = wideGrid();
       triggerReveal(state);
       const reveal = state.reveals[0]!;
-      const { row, col, text } = reveal;
+      const { startIndex, text } = reveal;
 
       suppressNewReveals(state);
       updateState(state, text.length * DECRYPT_SPEED + 0.01);
@@ -658,9 +813,8 @@ describe('updateState', () => {
       suppressNewReveals(state);
       updateState(state, ENCRYPT_ROLL_DURATION + 0.01);
 
-      // All cells should be back to cipher — no L→R dissolving
       for (let index = 0; index < text.length; index++) {
-        expect(state.grid[row]![col + index]!.state).toBe('cipher');
+        expect(state.cells[startIndex + index]!.state).toBe('cipher');
       }
       expect(state.reveals).toHaveLength(0);
     });
@@ -678,7 +832,7 @@ describe('updateState', () => {
           seen.push(state.reveals.at(-1)!.text);
         }
         state.reveals = [];
-        resetGrid(state);
+        resetCells(state);
       }
 
       expect(new Set(seen).size).toBe(MESSAGES.length);
@@ -897,8 +1051,9 @@ describe('renderFrame', () => {
   it('uses brandRed fillStyle for readable cells', () => {
     const ctx = mockCtx();
     const state = createGrid(5, 3);
-    state.grid[1]![2]!.state = 'readable';
-    state.grid[1]![2]!.targetChar = 'H';
+    // cell at row 1, col 2 = flat index 1*5+2 = 7
+    state.cells[7]!.state = 'readable';
+    state.cells[7]!.targetChar = 'H';
 
     renderFrame({
       ctx,
@@ -911,7 +1066,7 @@ describe('renderFrame', () => {
     });
 
     const fillTextCalls = vi.mocked(ctx.fillText).mock.calls;
-    const callIndex = 1 * 5 + 2;
+    const callIndex = 7;
     expect(fillTextCalls[callIndex]![0]).toBe('H');
   });
 
@@ -965,10 +1120,13 @@ describe('renderFrame', () => {
     });
 
     const fillTextCalls = vi.mocked(ctx.fillText).mock.calls;
+    // flat index 0 → col=0, row=0
     expect(fillTextCalls[0]![1]).toBe(0 * CELL_WIDTH);
     expect(fillTextCalls[0]![2]).toBe(0 * CELL_HEIGHT + FONT_SIZE);
+    // flat index 1 → col=1, row=0
     expect(fillTextCalls[1]![1]).toBe(1 * CELL_WIDTH);
     expect(fillTextCalls[1]![2]).toBe(0 * CELL_HEIGHT + FONT_SIZE);
+    // flat index 2 → col=0, row=1
     expect(fillTextCalls[2]![1]).toBe(0 * CELL_WIDTH);
     expect(fillTextCalls[2]![2]).toBe(1 * CELL_HEIGHT + FONT_SIZE);
   });
@@ -986,16 +1144,15 @@ describe('renderFrame', () => {
       cipherOpacity: 0.5,
     });
 
-    // cipher base opacity is 0.8, multiplied by 0.5 = 0.4
     expect(ctx.globalAlpha).toBeCloseTo(0.4);
   });
 
   it('does not apply cipherOpacity to readable cells', () => {
     const ctx = mockCtx();
     const state = createGrid(1, 1);
-    state.grid[0]![0]!.state = 'readable';
-    state.grid[0]![0]!.targetChar = 'H';
-    state.grid[0]![0]!.progress = 1;
+    state.cells[0]!.state = 'readable';
+    state.cells[0]!.targetChar = 'H';
+    state.cells[0]!.progress = 1;
 
     renderFrame({
       ctx,
@@ -1007,16 +1164,15 @@ describe('renderFrame', () => {
       cipherOpacity: 0.5,
     });
 
-    // readable opacity is 1.0, cipherOpacity does NOT apply
     expect(ctx.globalAlpha).toBeCloseTo(1);
   });
 
   it('applies cipherOpacity to decrypting cells', () => {
     const ctx = mockCtx();
     const state = createGrid(1, 1);
-    state.grid[0]![0]!.state = 'decrypting';
-    state.grid[0]![0]!.progress = 0.5;
-    state.grid[0]![0]!.rollChar = 'X';
+    state.cells[0]!.state = 'decrypting';
+    state.cells[0]!.progress = 0.5;
+    state.cells[0]!.rollChar = 'X';
 
     renderFrame({
       ctx,
@@ -1028,16 +1184,15 @@ describe('renderFrame', () => {
       cipherOpacity: 0.5,
     });
 
-    // decrypting at progress 0.5: base alpha = 0.8 + (1.0 - 0.8) * 0.5 = 0.9, × 0.5 = 0.45
     expect(ctx.globalAlpha).toBeCloseTo(0.45);
   });
 
   it('applies cipherOpacity to encrypting cells', () => {
     const ctx = mockCtx();
     const state = createGrid(1, 1);
-    state.grid[0]![0]!.state = 'encrypting';
-    state.grid[0]![0]!.progress = 0.5;
-    state.grid[0]![0]!.rollChar = 'X';
+    state.cells[0]!.state = 'encrypting';
+    state.cells[0]!.progress = 0.5;
+    state.cells[0]!.rollChar = 'X';
 
     renderFrame({
       ctx,
@@ -1049,7 +1204,6 @@ describe('renderFrame', () => {
       cipherOpacity: 0.5,
     });
 
-    // encrypting at progress 0.5: base alpha = 1.0 - (1.0 - 0.8) * 0.5 = 0.9, × 0.5 = 0.45
     expect(ctx.globalAlpha).toBeCloseTo(0.45);
   });
 
@@ -1066,7 +1220,6 @@ describe('renderFrame', () => {
       cipherOpacity: 1,
     });
 
-    // cipher base opacity is 0.8, × 1 = 0.8 (unchanged)
     expect(ctx.globalAlpha).toBeCloseTo(0.8);
   });
 });
@@ -1078,7 +1231,7 @@ function findReadableSpan(
   let firstCol = -1;
   let lastCol = -1;
   for (let c = 0; c < state.cols; c++) {
-    if (state.grid[row]![c]!.state === 'readable') {
+    if (state.cells[row * state.cols + c]!.state === 'readable') {
       if (firstCol === -1) firstCol = c;
       lastCol = c;
     }
@@ -1087,46 +1240,29 @@ function findReadableSpan(
 }
 
 describe('createFrozenSnapshot', () => {
-  // Use a grid large enough for all 4 messages (113×62 matches real splash at 1366×1366)
   const cols = 113;
   const rows = 62;
-  const centerRow = Math.floor(rows / 2); // 31
-  const centerCol = Math.floor(cols / 2); // 56
+  const centerRow = Math.floor(rows / 2);
+  const centerCol = Math.floor(cols / 2);
 
-  it('returns grid with correct dimensions', () => {
+  it('returns cells with correct dimensions', () => {
     const state = createFrozenSnapshot(cols, rows, 4);
     expect(state.cols).toBe(cols);
     expect(state.rows).toBe(rows);
-    expect(state.grid).toHaveLength(rows);
-    for (const row of state.grid) {
-      expect(row).toHaveLength(cols);
-    }
+    expect(state.cells).toHaveLength(cols * rows);
   });
 
   it('places 4 messages on 4 distinct rows', () => {
     const state = createFrozenSnapshot(cols, rows, 4);
-    const readableRows = new Set<number>();
-    for (let r = 0; r < state.rows; r++) {
-      for (const cell of state.grid[r]!) {
-        if (cell.state === 'readable') readableRows.add(r);
-      }
-    }
+    const readableRows = getReadableRows(state);
     expect(readableRows.size).toBe(4);
   });
 
   it('places messages at symmetric row offsets from center (±5 and ±8)', () => {
     const state = createFrozenSnapshot(cols, rows, 4);
-    const readableRows: number[] = [];
-    for (let r = 0; r < state.rows; r++) {
-      for (const cell of state.grid[r]!) {
-        if (cell.state === 'readable') {
-          readableRows.push(r);
-          break;
-        }
-      }
-    }
-    readableRows.sort((a, b) => a - b);
-    expect(readableRows).toEqual([centerRow - 8, centerRow - 5, centerRow + 5, centerRow + 8]);
+    const readableRows = getReadableRows(state);
+    const sorted = [...readableRows].toSorted((a, b) => a - b);
+    expect(sorted).toEqual([centerRow - 8, centerRow - 5, centerRow + 5, centerRow + 8]);
   });
 
   it('centers each message by its middle character on the center column', () => {
@@ -1147,7 +1283,7 @@ describe('createFrozenSnapshot', () => {
     for (let r = 0; r < state.rows; r++) {
       let rowText = '';
       for (let c = 0; c < state.cols; c++) {
-        const cell = state.grid[r]![c]!;
+        const cell = state.cells[r * state.cols + c]!;
         if (cell.state === 'readable') rowText += cell.targetChar;
       }
       if (rowText.length > 0) placedMessages.push(rowText);
@@ -1166,37 +1302,28 @@ describe('createFrozenSnapshot', () => {
 
   it('all non-readable cells are in cipher state', () => {
     const state = createFrozenSnapshot(cols, rows, 4);
-    for (const row of state.grid) {
-      for (const cell of row) {
-        if (cell.state !== 'readable') {
-          expect(cell.state).toBe('cipher');
-        }
+    for (const cell of state.cells) {
+      if (cell.state !== 'readable') {
+        expect(cell.state).toBe('cipher');
       }
     }
   });
 
   it('handles zero messageCount', () => {
     const state = createFrozenSnapshot(cols, rows, 0);
-    expect(countReadableCells(state.grid)).toBe(0);
+    expect(countReadableCells(state.cells)).toBe(0);
     expect(state.reveals).toHaveLength(0);
   });
 
   it('skips messages that do not fit in a small grid', () => {
-    // Grid with only 5 rows — offsets ±4 go out of bounds
     const state = createFrozenSnapshot(cols, 5, 4);
-    const readableRows = new Set<number>();
-    for (let r = 0; r < state.rows; r++) {
-      for (const cell of state.grid[r]!) {
-        if (cell.state === 'readable') readableRows.add(r);
-      }
-    }
+    const readableRows = getReadableRows(state);
     expect(readableRows.size).toBeLessThan(4);
   });
 
   it('skips messages that overflow columns in a narrow grid', () => {
-    // Grid too narrow for the longest splash message
     const state = createFrozenSnapshot(10, rows, 4);
-    expect(countReadableCells(state.grid)).toBe(0);
+    expect(countReadableCells(state.cells)).toBe(0);
   });
 
   it('initializes exclusionZone as null', () => {

@@ -71,12 +71,14 @@ export interface ModelInfo {
 
 /**
  * Streaming chunk from OpenRouter API (SSE format).
- * The final chunk before [DONE] has empty choices and includes usage stats.
+ * The final chunk before [DONE] includes usage stats. Some providers send it
+ * with an empty choices array; others omit the choices field entirely.
  */
 export interface ChatCompletionChunk {
   id: string;
   model: string;
-  choices: {
+  /** May be absent on usage-only chunks from some providers behind the auto-router. */
+  choices?: {
     index: number;
     delta: {
       role?: 'assistant';
@@ -84,13 +86,13 @@ export interface ChatCompletionChunk {
     };
     finish_reason: 'stop' | 'tool_calls' | 'length' | null;
   }[];
-  /** Inline usage stats — present in the final chunk before [DONE] with empty choices */
+  /** Inline usage stats — present in the final chunk before [DONE] */
   usage?: {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
-    /** Cost in USD. Optional per OpenRouter docs. */
-    cost?: number;
+    /** Cost in USD. Always present per OpenRouter docs. */
+    cost: number;
   };
 }
 
