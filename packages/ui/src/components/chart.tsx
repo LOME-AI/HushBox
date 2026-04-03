@@ -106,6 +106,16 @@ function resolveTooltipLabel(
   return labelFormatter ? labelFormatter(label ?? '') : label;
 }
 
+function resolveVisiblePayload(
+  payload: TooltipPayloadItem[] | undefined,
+  active: boolean | undefined,
+  hideZeroValues: boolean
+): TooltipPayloadItem[] | null {
+  if (!active || !payload?.length) return null;
+  const items = hideZeroValues ? payload.filter((item) => Number(item.value) !== 0) : payload;
+  return items.length > 0 ? items : null;
+}
+
 interface TooltipIndicatorProps {
   color: string;
   indicator: IndicatorType;
@@ -167,6 +177,7 @@ interface ChartTooltipContentProps {
   valueFormatter?: (value: number | string) => string;
   hideLabel?: boolean;
   hideIndicator?: boolean;
+  hideZeroValues?: boolean;
   indicator?: IndicatorType;
 }
 
@@ -182,13 +193,13 @@ export function ChartTooltipContent({
   valueFormatter,
   hideLabel = false,
   hideIndicator = false,
+  hideZeroValues = false,
   indicator = 'dot',
 }: Readonly<ChartTooltipContentProps>): React.JSX.Element | null {
   const { config } = useChart();
 
-  if (!active || !payload?.length) {
-    return null;
-  }
+  const visiblePayload = resolveVisiblePayload(payload, active, hideZeroValues);
+  if (!visiblePayload) return null;
 
   const formattedLabel = resolveTooltipLabel(label, labelFormatter);
 
@@ -198,7 +209,7 @@ export function ChartTooltipContent({
         <div className="text-foreground-muted font-medium">{formattedLabel}</div>
       )}
       <div className="grid gap-1.5">
-        {payload.map((item) => (
+        {visiblePayload.map((item) => (
           <TooltipItem
             key={resolvePayloadKey(item)}
             itemKey={resolvePayloadKey(item)}
