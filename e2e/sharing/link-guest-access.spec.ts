@@ -1,7 +1,10 @@
 import { test, expect } from '../fixtures.js';
 import { unsettledExpect } from '../helpers/settled-expect.js';
-import { ChatPage, MemberSidebarPage } from '../pages/index.js';
-import { setupGroupConversationWithSidebar } from '../helpers/group-test-setup.js';
+import { MemberSidebarPage } from '../pages/index.js';
+import {
+  setupConversationWithSidebar,
+  setupGroupConversationWithSidebar,
+} from '../helpers/group-test-setup.js';
 import { createInviteLink, createWriteLinkWithBudget } from '../helpers/invite-link.js';
 import {
   expectSharedConversationLoaded,
@@ -209,14 +212,7 @@ test.describe('Link Guest Access', () => {
   }) => {
     test.slow();
 
-    const chatPage = new ChatPage(authenticatedPage);
-
-    await chatPage.gotoConversation(groupConversation.id);
-    await chatPage.waitForConversationLoaded();
-
-    const sidebar = new MemberSidebarPage(authenticatedPage);
-    await sidebar.openViaFacepile();
-    await sidebar.waitForLoaded();
+    const { sidebar } = await setupConversationWithSidebar(authenticatedPage, groupConversation.id);
 
     let readUrl: string;
 

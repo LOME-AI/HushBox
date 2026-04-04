@@ -4,7 +4,6 @@ import { z } from 'zod';
 import {
   ERROR_CODE_FORBIDDEN,
   ERROR_CODE_INTERNAL,
-  ERROR_CODE_UNAUTHORIZED,
   ERROR_CODE_MESSAGE_NOT_FOUND,
   ERROR_CODE_SHARE_NOT_FOUND,
   toBase64,
@@ -14,6 +13,7 @@ import { sharedMessages, messages, conversationMembers } from '@hushbox/db';
 import { eq, and, isNull } from 'drizzle-orm';
 import type { AppEnv } from '../types.js';
 import { requireAuth } from '../middleware/require-auth.js';
+import { getUser } from '../lib/get-user.js';
 import { createErrorResponse } from '../lib/error-response.js';
 
 const createShareSchema = z.object({
@@ -27,10 +27,7 @@ export const messageSharesRoute = new Hono<AppEnv>().post(
   requireAuth(),
   zValidator('json', createShareSchema),
   async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+    const user = getUser(c);
     const db = c.get('db');
     const { messageId, shareBlob: shareBlobBase64 } = c.req.valid('json');
 

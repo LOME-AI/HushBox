@@ -2,6 +2,7 @@ import { test, expect } from '../fixtures.js';
 import { unsettledExpect } from '../helpers/settled-expect.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { searchAndSelectMember } from '../helpers/add-member.js';
+import { expectAccessRevoked } from '../helpers/member-actions.js';
 
 test.describe('Auth Member Access', () => {
   test('read member lifecycle: history access, removal, no-history re-add, privilege elevation', async ({
@@ -75,13 +76,7 @@ test.describe('Auth Member Access', () => {
     });
 
     await test.step('Dave loses access to conversation', async () => {
-      const daveChatPage = new ChatPage(testDavePage);
-      await daveChatPage.gotoConversation(groupConversation.id);
-
-      // Dave should be redirected away or see an error
-      await expect(testDavePage).not.toHaveURL(new RegExp(groupConversation.id), {
-        timeout: 10_000,
-      });
+      await expectAccessRevoked(testDavePage, groupConversation.id);
     });
 
     await test.step('add Dave as read+no-history member', async () => {

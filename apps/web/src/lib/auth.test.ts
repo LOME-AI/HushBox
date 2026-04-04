@@ -2044,6 +2044,90 @@ describe('auth', () => {
     });
   });
 
+  describe('authClient.tokenLogin', () => {
+    it('should return success on valid token', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+      } as Response);
+
+      const result = await authClient.tokenLogin({ token: 'valid-token' });
+
+      expect(result.error).toBeUndefined();
+      expect(fetch).toHaveBeenCalledWith('http://localhost:8787/api/auth/token-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: 'valid-token' }),
+        credentials: 'include',
+      });
+    });
+
+    it('should return error on failed token login', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: false,
+        json: () => Promise.resolve({ code: 'INVALID_OR_EXPIRED_TOKEN' }),
+      } as Response);
+
+      const result = await authClient.tokenLogin({ token: 'bad-token' });
+
+      expect(result.error).toEqual({
+        message: 'This link has expired. Please request a new verification email.',
+      });
+    });
+
+    it('should return error on network failure', async () => {
+      vi.mocked(fetch).mockRejectedValue(new Error('Network error'));
+
+      const result = await authClient.tokenLogin({ token: 'some-token' });
+
+      expect(result.error).toEqual({
+        message: 'Something went wrong. Please try again later.',
+      });
+    });
+  });
+
+  describe('authClient.resendVerification', () => {
+    it('should return success on valid email', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+      } as Response);
+
+      const result = await authClient.resendVerification({ email: 'test@example.com' });
+
+      expect(result.error).toBeUndefined();
+      expect(fetch).toHaveBeenCalledWith('http://localhost:8787/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'test@example.com' }),
+        credentials: 'include',
+      });
+    });
+
+    it('should return error on failed resend', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: false,
+        json: () => Promise.resolve({ code: 'RATE_LIMITED' }),
+      } as Response);
+
+      const result = await authClient.resendVerification({ email: 'test@example.com' });
+
+      expect(result.error).toEqual({
+        message: 'Too many requests. Please wait a moment and try again.',
+      });
+    });
+
+    it('should return error on network failure', async () => {
+      vi.mocked(fetch).mockRejectedValue(new Error('Network error'));
+
+      const result = await authClient.resendVerification({ email: 'test@example.com' });
+
+      expect(result.error).toEqual({
+        message: 'Something went wrong. Please try again later.',
+      });
+    });
+  });
+
   describe('authClient.verifyEmail', () => {
     it('should successfully verify email', async () => {
       vi.mocked(fetch).mockResolvedValue({

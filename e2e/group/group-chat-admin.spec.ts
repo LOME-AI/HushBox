@@ -1,6 +1,7 @@
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { searchAndSelectMember } from '../helpers/add-member.js';
+import { expectAccessRevoked } from '../helpers/member-actions.js';
 
 test.describe('Group Chat Admin', () => {
   test.describe.configure({ mode: 'serial' });
@@ -321,13 +322,7 @@ test.describe('Group Chat Admin', () => {
     });
 
     await test.step('Dave loses access to conversation', async () => {
-      const daveChatPage = new ChatPage(testDavePage);
-      await daveChatPage.gotoConversation(groupConversation.id);
-
-      // Dave should be redirected away or see an error
-      await expect(testDavePage).not.toHaveURL(new RegExp(groupConversation.id), {
-        timeout: 10_000,
-      });
+      await expectAccessRevoked(testDavePage, groupConversation.id);
     });
   });
 

@@ -1,16 +1,15 @@
 import * as React from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  ChartContainer,
-  ChartTooltipContent,
-} from '@hushbox/ui';
+import { BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+import { ChartTooltipContent } from '@hushbox/ui';
 import type { ChartConfig } from '@hushbox/ui';
 import type { CostByModelResponse } from '@hushbox/shared';
-import { ChartSkeleton } from './chart-utilities';
+import {
+  UsageChartCard,
+  DEFAULT_CHART_MARGIN,
+  DEFAULT_AXIS_PROPS,
+  formatDollarTick,
+  formatDollarTooltip,
+} from './chart-utilities';
 
 interface CostByModelChartProps {
   data: CostByModelResponse | undefined;
@@ -38,51 +37,25 @@ export function CostByModelChart({
   }, [data]);
 
   return (
-    <Card data-testid="cost-by-model-chart">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Cost by Model</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {isLoading && <ChartSkeleton />}
-        {!isLoading && chartData.length === 0 && (
-          <div className="text-foreground-muted flex h-[300px] items-center justify-center text-sm">
-            No usage data for this period
-          </div>
-        )}
-        {!isLoading && chartData.length > 0 && (
-          <ChartContainer config={chartConfig} className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={chartData}
-                layout="vertical"
-                margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
-              >
-                <XAxis
-                  type="number"
-                  tick={{ fontSize: 12 }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v: number) => `$${v.toFixed(2)}`}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="model"
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={120}
-                />
-                <Tooltip
-                  content={
-                    <ChartTooltipContent valueFormatter={(v) => `$${Number(v).toFixed(4)}`} />
-                  }
-                />
-                <Bar dataKey="totalCost" fill="var(--chart-1)" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartContainer>
-        )}
-      </CardContent>
-    </Card>
+    <UsageChartCard
+      title="Cost by Model"
+      testId="cost-by-model-chart"
+      isLoading={isLoading}
+      isEmpty={chartData.length === 0}
+      chartConfig={chartConfig}
+    >
+      <BarChart data={chartData} layout="vertical" margin={DEFAULT_CHART_MARGIN}>
+        <XAxis type="number" {...DEFAULT_AXIS_PROPS} tickFormatter={formatDollarTick} />
+        <YAxis
+          type="category"
+          dataKey="model"
+          {...DEFAULT_AXIS_PROPS}
+          tick={{ fontSize: 11 }}
+          width={120}
+        />
+        <Tooltip content={<ChartTooltipContent valueFormatter={formatDollarTooltip} />} />
+        <Bar dataKey="totalCost" fill="var(--chart-1)" radius={[0, 4, 4, 0]} />
+      </BarChart>
+    </UsageChartCard>
   );
 }

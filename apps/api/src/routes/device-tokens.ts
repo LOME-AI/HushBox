@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import { deviceTokens } from '@hushbox/db';
 import type { AppEnv } from '../types.js';
 import { requireAuth } from '../middleware/require-auth.js';
+import { getUser } from '../lib/get-user.js';
 
 export const deviceTokensRoute = new Hono<AppEnv>()
   .use('*', requireAuth())
@@ -19,8 +20,7 @@ export const deviceTokensRoute = new Hono<AppEnv>()
     ),
     async (c) => {
       const db = c.get('db');
-      const user = c.get('user');
-      if (!user) throw new Error('requireAuth must set user');
+      const user = getUser(c);
       const { token, platform } = c.req.valid('json');
 
       await db

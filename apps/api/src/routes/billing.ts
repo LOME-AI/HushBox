@@ -7,7 +7,6 @@ import {
   createPaymentRequestSchema,
   processPaymentRequestSchema,
   listTransactionsQuerySchema,
-  ERROR_CODE_UNAUTHORIZED,
   ERROR_CODE_PAYMENT_NOT_FOUND,
   ERROR_CODE_PAYMENT_ALREADY_PROCESSED,
   ERROR_CODE_PAYMENT_EXPIRED,
@@ -19,6 +18,7 @@ import {
 import { redisSet } from '../lib/redis-registry.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { requireAuth } from '../middleware/require-auth.js';
+import { getUser } from '../lib/get-user.js';
 import { getClientIp } from '../lib/client-ip.js';
 import { checkUserBalance } from '../services/billing/index.js';
 import type { AppEnv } from '../types.js';
@@ -40,10 +40,7 @@ export const billingRoute = new Hono<AppEnv>()
   .use('*', requireAuth())
 
   .post('/login-link', async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+    const user = getUser(c);
     const redis = c.get('redis');
     const token = crypto.randomUUID();
     await redisSet(redis, 'billingLoginToken', { userId: user.id }, token);
@@ -51,10 +48,7 @@ export const billingRoute = new Hono<AppEnv>()
   })
 
   .get('/balance', async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+    const user = getUser(c);
     const db = c.get('db');
 
     const balanceResult = await checkUserBalance(db, user.id);
@@ -69,10 +63,7 @@ export const billingRoute = new Hono<AppEnv>()
   })
 
   .get('/transactions', zValidator('query', listTransactionsQuerySchema), async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+    const user = getUser(c);
     const db = c.get('db');
     const query = c.req.valid('query');
     const limit = query.limit;
@@ -126,10 +117,7 @@ export const billingRoute = new Hono<AppEnv>()
   })
 
   .post('/payments', zValidator('json', createPaymentRequestSchema), async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+    const user = getUser(c);
     const db = c.get('db');
     const body = c.req.valid('json');
 
@@ -186,10 +174,7 @@ export const billingRoute = new Hono<AppEnv>()
     zValidator('param', z.object({ id: z.string() })),
     zValidator('json', processPaymentRequestSchema),
     async (c) => {
-      const user = c.get('user');
-      if (!user) {
-        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-      }
+      const user = getUser(c);
       const db = c.get('db');
       const helcim = c.get('helcim');
       const { id: paymentId } = c.req.valid('param');
@@ -274,10 +259,7 @@ export const billingRoute = new Hono<AppEnv>()
   )
 
   .get('/payments/:id', zValidator('param', z.object({ id: z.string() })), async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+    const user = getUser(c);
     const db = c.get('db');
     const { id: paymentId } = c.req.valid('param');
 

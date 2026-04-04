@@ -90,12 +90,14 @@ function computeBubbleClasses(
   return cn('px-4 py-2', 'bg-message-user text-foreground rounded-lg');
 }
 
-function ActionButton({
+function TooltipIconButton({
   label,
+  tooltip,
   icon,
   onClick,
 }: Readonly<{
   label: string;
+  tooltip?: string;
   icon: React.ReactNode;
   onClick: () => void;
 }>): React.JSX.Element {
@@ -113,7 +115,7 @@ function ActionButton({
         </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
-        <p>{label}</p>
+        <p>{tooltip ?? label}</p>
       </TooltipContent>
     </Tooltip>
   );
@@ -127,26 +129,18 @@ function CopyButton({
   onCopy: () => void;
 }>): React.JSX.Element {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-          onClick={onCopy}
-          aria-label={copied ? 'Copied' : 'Copy'}
-        >
-          {copied ? (
-            <Check className="h-3 w-3" aria-hidden="true" />
-          ) : (
-            <Copy className="h-3 w-3" aria-hidden="true" />
-          )}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">
-        <p>{copied ? 'Copied!' : 'Copy'}</p>
-      </TooltipContent>
-    </Tooltip>
+    <TooltipIconButton
+      label={copied ? 'Copied' : 'Copy'}
+      tooltip={copied ? 'Copied!' : 'Copy'}
+      icon={
+        copied ? (
+          <Check className="h-3 w-3" aria-hidden="true" />
+        ) : (
+          <Copy className="h-3 w-3" aria-hidden="true" />
+        )
+      }
+      onClick={onCopy}
+    />
   );
 }
 
@@ -179,7 +173,7 @@ function UserMessageActions({
     actions.push({
       key: 'retry',
       render: () => (
-        <ActionButton
+        <TooltipIconButton
           label="Retry"
           icon={<RefreshCw className="h-3 w-3" aria-hidden="true" />}
           onClick={() => {
@@ -195,7 +189,7 @@ function UserMessageActions({
     actions.push({
       key: 'edit',
       render: () => (
-        <ActionButton
+        <TooltipIconButton
           label="Edit"
           icon={<Pencil className="h-3 w-3" aria-hidden="true" />}
           onClick={() => {
@@ -211,7 +205,7 @@ function UserMessageActions({
     actions.push({
       key: 'fork',
       render: () => (
-        <ActionButton
+        <TooltipIconButton
           label="Fork"
           icon={<GitBranch className="h-3 w-3" aria-hidden="true" />}
           onClick={() => {
@@ -270,7 +264,7 @@ function MessageActions({
 
       <div className="ml-auto flex items-center gap-0.5">
         {showRegenerate && (
-          <ActionButton
+          <TooltipIconButton
             label="Regenerate"
             icon={<RefreshCw className="h-3 w-3" aria-hidden="true" />}
             onClick={() => {
@@ -279,7 +273,7 @@ function MessageActions({
           />
         )}
         {showFork && (
-          <ActionButton
+          <TooltipIconButton
             label="Fork"
             icon={<GitBranch className="h-3 w-3" aria-hidden="true" />}
             onClick={() => {
@@ -288,7 +282,7 @@ function MessageActions({
           />
         )}
         {showShare && (
-          <ActionButton
+          <TooltipIconButton
             label="Share"
             icon={<Share2 className="h-3 w-3" aria-hidden="true" />}
             onClick={() => {

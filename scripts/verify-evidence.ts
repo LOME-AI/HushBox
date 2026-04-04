@@ -16,6 +16,7 @@ import {
   SERVICE_NAMES,
   type ServiceName,
 } from '@hushbox/db';
+import { parseOrExit } from './lib/run-cli.js';
 
 const VALID_SERVICES = Object.values(SERVICE_NAMES);
 
@@ -67,12 +68,7 @@ export function formatResult(
  * Main CLI entry point
  */
 async function main(): Promise<void> {
-  const parsed = parseCliArgs(process.argv.slice(2));
-
-  if ('error' in parsed) {
-    console.error(parsed.error);
-    process.exit(1);
-  }
+  const parsed = parseOrExit(parseCliArgs);
 
   const databaseUrl = process.env['DATABASE_URL'];
   if (!databaseUrl) {

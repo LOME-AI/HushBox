@@ -16,6 +16,7 @@
     "**/*.test.ts",
     "**/*.test.tsx",
     "**/mocks/**",
+    "**/*.gen.ts",
     "**/.wrangler/**",
     "**/ios/App/App/public/**",
     "**/android/app/src/main/assets/public/**"

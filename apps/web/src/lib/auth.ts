@@ -697,6 +697,34 @@ export async function signOutAndClearCache(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// authClient helpers
+// ---------------------------------------------------------------------------
+
+async function simpleAuthPost(
+  path: string,
+  body: Record<string, unknown>,
+  fallbackErrorCode = 'INTERNAL'
+): Promise<{ error?: { message: string } }> {
+  try {
+    const response = await fetch(`${getApiUrl()}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const responseBody: unknown = await response.json();
+      return { error: { message: parseErrorMessage(responseBody) } };
+    }
+
+    return {};
+  } catch {
+    return { error: { message: friendlyErrorMessage(fallbackErrorCode) } };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // authClient (backward-compatible object)
 // ---------------------------------------------------------------------------
 
@@ -710,67 +738,14 @@ export const authClient = {
     return { data: null };
   },
 
-  tokenLogin: async (options: { token: string }): Promise<{ error?: { message: string } }> => {
-    try {
-      const response = await fetch(`${getApiUrl()}/api/auth/token-login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: options.token }),
-        credentials: 'include',
-      });
+  tokenLogin: (options: { token: string }): Promise<{ error?: { message: string } }> =>
+    simpleAuthPost('/api/auth/token-login', { token: options.token }),
 
-      if (!response.ok) {
-        const body: unknown = await response.json();
-        return { error: { message: parseErrorMessage(body) } };
-      }
+  resendVerification: (options: { email: string }): Promise<{ error?: { message: string } }> =>
+    simpleAuthPost('/api/auth/resend-verification', { email: options.email }),
 
-      return {};
-    } catch {
-      return { error: { message: friendlyErrorMessage('INTERNAL') } };
-    }
-  },
-
-  resendVerification: async (options: {
-    email: string;
-  }): Promise<{ error?: { message: string } }> => {
-    try {
-      const response = await fetch(`${getApiUrl()}/api/auth/resend-verification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: options.email }),
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        const body: unknown = await response.json();
-        return { error: { message: parseErrorMessage(body) } };
-      }
-
-      return {};
-    } catch {
-      return { error: { message: friendlyErrorMessage('INTERNAL') } };
-    }
-  },
-
-  verifyEmail: async (options: { query: { token: string } }): Promise<VerifyEmailResult> => {
-    try {
-      const response = await fetch(`${getApiUrl()}/api/auth/verify-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: options.query.token }),
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        const body: unknown = await response.json();
-        return { error: { message: parseErrorMessage(body) } };
-      }
-
-      return {};
-    } catch {
-      return { error: { message: friendlyErrorMessage('VERIFICATION_FAILED') } };
-    }
-  },
+  verifyEmail: (options: { query: { token: string } }): Promise<VerifyEmailResult> =>
+    simpleAuthPost('/api/auth/verify-email', { token: options.query.token }, 'VERIFICATION_FAILED'),
 };
 
 // ---------------------------------------------------------------------------

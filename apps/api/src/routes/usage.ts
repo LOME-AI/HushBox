@@ -7,10 +7,9 @@ import {
   usageTimeSeriesQuerySchema,
   usageConversationQuerySchema,
   usageBalanceHistoryQuerySchema,
-  ERROR_CODE_UNAUTHORIZED,
 } from '@hushbox/shared';
-import { createErrorResponse } from '../lib/error-response.js';
 import { requireAuth } from '../middleware/require-auth.js';
+import { getUser } from '../lib/get-user.js';
 import type { AppEnv } from '../types.js';
 
 function toStartOfDay(dateString: string): Date {
@@ -50,11 +49,15 @@ function buildSummaryResponse(result: Partial<SummaryResult> | undefined): Summa
   return { ...EMPTY_SUMMARY, ...result };
 }
 
-function buildTimeSeriesConditions(
+function parseDateRange(query: { startDate: string; endDate: string }): { start: Date; end: Date } {
+  return { start: toStartOfDay(query.startDate), end: toEndOfDay(query.endDate) };
+}
+
+function buildUsageConditions(
   userId: string,
   start: Date,
   end: Date,
-  model: string | undefined
+  model?: string
 ): ReturnType<typeof eq>[] {
   const conditions = [
     eq(usageRecords.userId, userId),
@@ -72,14 +75,12 @@ export const usageRoute = new Hono<AppEnv>()
   .use('*', requireAuth())
 
   .get('/summary', zValidator('query', usageDateRangeQuerySchema), async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+    const user = getUser(c);
     const db = c.get('db');
     const query = c.req.valid('query');
-    const start = toStartOfDay(query.startDate);
-    const end = toEndOfDay(query.endDate);
+    const { start, end } = parseDateRange(query);
+
+    const conditions = buildUsageConditions(user.id, start, end);
 
     const [result] = await db
       .select({
@@ -91,30 +92,19 @@ export const usageRoute = new Hono<AppEnv>()
       })
       .from(usageRecords)
       .innerJoin(llmCompletions, eq(llmCompletions.usageRecordId, usageRecords.id))
-      .where(
-        and(
-          eq(usageRecords.userId, user.id),
-          eq(usageRecords.status, 'completed'),
-          gte(usageRecords.createdAt, start),
-          lte(usageRecords.createdAt, end)
-        )
-      );
+      .where(and(...conditions));
 
     return c.json(buildSummaryResponse(result), 200);
   })
 
   .get('/spending-over-time', zValidator('query', usageTimeSeriesQuerySchema), async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+    const user = getUser(c);
     const db = c.get('db');
     const query = c.req.valid('query');
-    const start = toStartOfDay(query.startDate);
-    const end = toEndOfDay(query.endDate);
+    const { start, end } = parseDateRange(query);
     const granularity = query.granularity;
 
-    const conditions = buildTimeSeriesConditions(user.id, start, end, query.model);
+    const conditions = buildUsageConditions(user.id, start, end, query.model);
     const truncExpr = dateTrunc(granularity, usageRecords.createdAt);
 
     const data = await db
@@ -134,14 +124,12 @@ export const usageRoute = new Hono<AppEnv>()
   })
 
   .get('/cost-by-model', zValidator('query', usageDateRangeQuerySchema), async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+    const user = getUser(c);
     const db = c.get('db');
     const query = c.req.valid('query');
-    const start = toStartOfDay(query.startDate);
-    const end = toEndOfDay(query.endDate);
+    const { start, end } = parseDateRange(query);
+
+    const conditions = buildUsageConditions(user.id, start, end);
 
     const data = await db
       .select({
@@ -154,14 +142,7 @@ export const usageRoute = new Hono<AppEnv>()
       })
       .from(usageRecords)
       .innerJoin(llmCompletions, eq(llmCompletions.usageRecordId, usageRecords.id))
-      .where(
-        and(
-          eq(usageRecords.userId, user.id),
-          eq(usageRecords.status, 'completed'),
-          gte(usageRecords.createdAt, start),
-          lte(usageRecords.createdAt, end)
-        )
-      )
+      .where(and(...conditions))
       .groupBy(llmCompletions.model, llmCompletions.provider)
       .orderBy(desc(sql`sum(${usageRecords.cost}::numeric)`));
 
@@ -169,17 +150,13 @@ export const usageRoute = new Hono<AppEnv>()
   })
 
   .get('/token-usage-over-time', zValidator('query', usageTimeSeriesQuerySchema), async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+    const user = getUser(c);
     const db = c.get('db');
     const query = c.req.valid('query');
-    const start = toStartOfDay(query.startDate);
-    const end = toEndOfDay(query.endDate);
+    const { start, end } = parseDateRange(query);
     const granularity = query.granularity;
 
-    const conditions = buildTimeSeriesConditions(user.id, start, end, query.model);
+    const conditions = buildUsageConditions(user.id, start, end, query.model);
     const truncExpr = dateTrunc(granularity, usageRecords.createdAt);
 
     const data = await db
@@ -202,14 +179,10 @@ export const usageRoute = new Hono<AppEnv>()
     '/spending-by-conversation',
     zValidator('query', usageConversationQuerySchema),
     async (c) => {
-      const user = c.get('user');
-      if (!user) {
-        return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-      }
+      const user = getUser(c);
       const db = c.get('db');
       const query = c.req.valid('query');
-      const start = toStartOfDay(query.startDate);
-      const end = toEndOfDay(query.endDate);
+      const { start, end } = parseDateRange(query);
 
       const data = await db
         .select({
@@ -235,14 +208,10 @@ export const usageRoute = new Hono<AppEnv>()
   )
 
   .get('/balance-history', zValidator('query', usageBalanceHistoryQuerySchema), async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+    const user = getUser(c);
     const db = c.get('db');
     const query = c.req.valid('query');
-    const start = toStartOfDay(query.startDate);
-    const end = toEndOfDay(query.endDate);
+    const { start, end } = parseDateRange(query);
 
     const data = await db
       .select({
@@ -267,10 +236,7 @@ export const usageRoute = new Hono<AppEnv>()
   })
 
   .get('/models', async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_UNAUTHORIZED), 401);
-    }
+    const user = getUser(c);
     const db = c.get('db');
 
     const results = await db

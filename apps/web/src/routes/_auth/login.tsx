@@ -30,6 +30,23 @@ type Mode =
   | 'recovery-success'
   | 'email-not-verified';
 
+function AuthFormHeader({
+  title,
+  subtitle,
+  subtitleClassName = 'text-primary text-lg font-medium',
+}: Readonly<{
+  title: string;
+  subtitle: string;
+  subtitleClassName?: string;
+}>): React.JSX.Element {
+  return (
+    <div className="mb-5 text-center">
+      <h1 className="text-foreground mb-2 text-3xl font-bold">{title}</h1>
+      <p className={subtitleClassName}>{subtitle}</p>
+    </div>
+  );
+}
+
 interface IdentifierFieldProps {
   identifier: string;
   setIdentifier: (value: string) => void;
@@ -99,12 +116,10 @@ function RecoveryPhraseForm({
 
   return (
     <div>
-      <div className="mb-5 text-center">
-        <h1 className="text-foreground mb-2 text-3xl font-bold">Reset Password</h1>
-        <p className="text-primary text-lg font-medium">
-          Enter your email or username and 12-word recovery phrase
-        </p>
-      </div>
+      <AuthFormHeader
+        title="Reset Password"
+        subtitle="Enter your email or username and 12-word recovery phrase"
+      />
 
       <form
         ref={formRef}
@@ -221,10 +236,7 @@ function RecoveryNewPasswordForm({
 
   return (
     <div>
-      <div className="mb-5 text-center">
-        <h1 className="text-foreground mb-2 text-3xl font-bold">Create New Password</h1>
-        <p className="text-primary text-lg font-medium">Enter your new password</p>
-      </div>
+      <AuthFormHeader title="Create New Password" subtitle="Enter your new password" />
 
       <form
         ref={formRef}
@@ -298,12 +310,11 @@ function RecoverySuccessView({
 }: Readonly<RecoverySuccessViewProps>): React.JSX.Element {
   return (
     <div>
-      <div className="mb-5 text-center">
-        <h1 className="text-foreground mb-2 text-3xl font-bold">Password Reset Successful</h1>
-        <p className="text-muted-foreground text-sm">
-          Your password has been successfully reset. You can now log in with your new password.
-        </p>
-      </div>
+      <AuthFormHeader
+        title="Password Reset Successful"
+        subtitle="Your password has been successfully reset. You can now log in with your new password."
+        subtitleClassName="text-muted-foreground text-sm"
+      />
 
       <AuthButton type="button" className="w-full" onClick={onReturnToLogin}>
         Return to Login
@@ -449,10 +460,7 @@ export function LoginPage(): React.JSX.Element {
 
   return (
     <div>
-      <div className="mb-5 text-center">
-        <h1 className="text-foreground mb-2 text-3xl font-bold">Welcome back</h1>
-        <p className="text-primary text-lg font-medium">One interface. Every feature. Private.</p>
-      </div>
+      <AuthFormHeader title="Welcome back" subtitle="One interface. Every feature. Private." />
 
       <form
         ref={loginFormRef}

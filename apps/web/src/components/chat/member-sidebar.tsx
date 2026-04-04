@@ -41,28 +41,21 @@ import { SidebarFooterBase } from '@/components/shared/sidebar-footer-base';
 import { LeaveConfirmationModal } from './leave-confirmation-modal';
 import { ConfirmationModal } from '@/components/shared/confirmation-modal';
 
-interface MemberSidebarProps {
-  members?:
-    | {
-        id: string;
-        userId: string;
-        username: string;
-        privilege: string;
-      }[]
-    | undefined;
-  links?:
-    | {
-        id: string;
-        displayName: string | null;
-        privilege: string;
-        createdAt: string;
-      }[]
-    | undefined;
-  onlineMemberIds?: Set<string> | undefined;
-  currentUserId?: string | undefined;
-  currentUserLinkId?: string | null | undefined;
-  currentUserPrivilege?: string | undefined;
-  conversationId?: string | undefined;
+interface MemberEntry {
+  id: string;
+  userId: string;
+  username: string;
+  privilege: string;
+}
+
+interface LinkEntry {
+  id: string;
+  displayName: string | null;
+  privilege: string;
+  createdAt: string;
+}
+
+interface MemberSidebarCallbacks {
   onRemoveMember?: ((memberId: string) => void) | undefined;
   onChangePrivilege?: ((memberId: string, newPrivilege: string) => void) | undefined;
   onRevokeLinkClick?: ((linkId: string) => void) | undefined;
@@ -72,6 +65,16 @@ interface MemberSidebarProps {
   onLeaveClick?: (() => void) | undefined;
   onAddMember?: (() => void) | undefined;
   onInviteLink?: (() => void) | undefined;
+}
+
+interface MemberSidebarProps extends MemberSidebarCallbacks {
+  members?: MemberEntry[] | undefined;
+  links?: LinkEntry[] | undefined;
+  onlineMemberIds?: Set<string> | undefined;
+  currentUserId?: string | undefined;
+  currentUserLinkId?: string | null | undefined;
+  currentUserPrivilege?: string | undefined;
+  conversationId?: string | undefined;
 }
 
 interface AdminActionButtonsProps {
@@ -335,34 +338,15 @@ export function MemberSidebar(props: Readonly<MemberSidebarProps>): React.JSX.El
   return sidebar;
 }
 
-interface MemberSidebarBodyProps {
-  members: {
-    id: string;
-    userId: string;
-    username: string;
-    privilege: string;
-  }[];
-  links: {
-    id: string;
-    displayName: string | null;
-    privilege: string;
-    createdAt: string;
-  }[];
+interface MemberSidebarBodyProps extends MemberSidebarCallbacks {
+  members: MemberEntry[];
+  links: LinkEntry[];
   onlineMemberIds: Set<string>;
   currentUserId: string;
   currentUserLinkId: string | null;
   currentUserPrivilege: string;
   conversationId: string;
   collapsed: boolean;
-  onRemoveMember?: ((memberId: string) => void) | undefined;
-  onChangePrivilege?: ((memberId: string, newPrivilege: string) => void) | undefined;
-  onRevokeLinkClick?: ((linkId: string) => void) | undefined;
-  onSaveLinkName?: ((linkId: string, newName: string) => void) | undefined;
-  onChangeLinkPrivilege?: ((linkId: string, newPrivilege: string) => void) | undefined;
-  onBudgetSettingsClick?: (() => void) | undefined;
-  onLeaveClick?: (() => void) | undefined;
-  onAddMember?: (() => void) | undefined;
-  onInviteLink?: (() => void) | undefined;
 }
 
 function MemberSidebarBody({

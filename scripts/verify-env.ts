@@ -14,6 +14,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { createEnvUtilities, type EnvContext, type EnvUtilities } from '@hushbox/shared';
+import { parseOrExit } from './lib/run-cli.js';
 
 export type Mode = 'development' | 'ciVitest' | 'e2e' | 'ciE2E' | 'production';
 
@@ -67,6 +68,10 @@ export async function parseDevVariables(filePath: string): Promise<EnvContext> {
     variables[match[1]] = stripQuotes(match[2]);
   }
 
+  return buildEnvContext(variables);
+}
+
+function buildEnvContext(variables: Record<string, string>): EnvContext {
   return {
     ...(variables['NODE_ENV'] !== undefined && { NODE_ENV: variables['NODE_ENV'] }),
     ...(variables['CI'] !== undefined && { CI: variables['CI'] }),
@@ -99,11 +104,7 @@ export async function parseWranglerToml(filePath: string): Promise<EnvContext> {
     }
   }
 
-  return {
-    ...(variables['NODE_ENV'] !== undefined && { NODE_ENV: variables['NODE_ENV'] }),
-    ...(variables['CI'] !== undefined && { CI: variables['CI'] }),
-    ...(variables['E2E'] !== undefined && { E2E: variables['E2E'] }),
-  };
+  return buildEnvContext(variables);
 }
 
 /**
@@ -387,14 +388,7 @@ export function printVerificationResult(
  * Main CLI entry point
  */
 async function main(): Promise<void> {
-  const parsed = parseCliArgs(process.argv.slice(2));
-
-  if ('error' in parsed) {
-    console.error(parsed.error);
-    process.exit(1);
-  }
-
-  const { mode } = parsed;
+  const { mode } = parseOrExit(parseCliArgs);
 
   const paths = {
     devVarsPath: 'apps/api/.dev.vars',

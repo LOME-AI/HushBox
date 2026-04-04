@@ -1,17 +1,14 @@
 import * as React from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  ChartContainer,
-  ChartTooltipContent,
-  ChartLegendContent,
-} from '@hushbox/ui';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
+import { ChartTooltipContent, ChartLegendContent } from '@hushbox/ui';
 import type { ChartConfig } from '@hushbox/ui';
 import type { TokenUsageOverTimeResponse } from '@hushbox/shared';
-import { ChartSkeleton, formatTokenCount } from './chart-utilities';
+import {
+  UsageChartCard,
+  formatTokenCount,
+  DEFAULT_CHART_MARGIN,
+  DEFAULT_AXIS_PROPS,
+} from './chart-utilities';
 
 interface TokenUsageChartProps {
   data: TokenUsageOverTimeResponse | undefined;
@@ -42,42 +39,24 @@ export function TokenUsageChart({
   }, [data]);
 
   return (
-    <Card data-testid="token-usage-chart">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Token Usage</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {isLoading && <ChartSkeleton />}
-        {!isLoading && chartData.length === 0 && (
-          <div className="text-foreground-muted flex h-[300px] items-center justify-center text-sm">
-            No usage data for this period
-          </div>
-        )}
-        {!isLoading && chartData.length > 0 && (
-          <ChartContainer config={chartConfig} className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                <XAxis dataKey="period" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
-                <YAxis
-                  tick={{ fontSize: 12 }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={formatTokenCount}
-                />
-                <Tooltip
-                  content={
-                    <ChartTooltipContent valueFormatter={(v) => formatTokenCount(Number(v))} />
-                  }
-                />
-                <Legend content={<ChartLegendContent />} />
-                <Bar dataKey="inputTokens" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="outputTokens" fill="var(--chart-3)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="cachedTokens" fill="var(--chart-4)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartContainer>
-        )}
-      </CardContent>
-    </Card>
+    <UsageChartCard
+      title="Token Usage"
+      testId="token-usage-chart"
+      isLoading={isLoading}
+      isEmpty={chartData.length === 0}
+      chartConfig={chartConfig}
+    >
+      <BarChart data={chartData} margin={DEFAULT_CHART_MARGIN}>
+        <XAxis dataKey="period" {...DEFAULT_AXIS_PROPS} />
+        <YAxis {...DEFAULT_AXIS_PROPS} tickFormatter={formatTokenCount} />
+        <Tooltip
+          content={<ChartTooltipContent valueFormatter={(v) => formatTokenCount(Number(v))} />}
+        />
+        <Legend content={<ChartLegendContent />} />
+        <Bar dataKey="inputTokens" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="outputTokens" fill="var(--chart-3)" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="cachedTokens" fill="var(--chart-4)" radius={[4, 4, 0, 0]} />
+      </BarChart>
+    </UsageChartCard>
   );
 }

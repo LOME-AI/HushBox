@@ -1,17 +1,14 @@
 import { test, expect } from '../fixtures.js';
-import { ChatPage, MemberSidebarPage } from '../pages/index.js';
+import { setupConversationWithSidebar } from '../helpers/group-test-setup.js';
 
 test.describe('Group Chat Leave', () => {
   // Each test is destructive (leaving a conversation), so each gets its own groupConversation fixture
   test('non-owner leave navigates to /chat', async ({ testBobPage, groupConversation }) => {
-    const chatPage = new ChatPage(testBobPage);
-    await chatPage.gotoConversation(groupConversation.id);
-    await chatPage.waitForConversationLoaded();
+    const { chatPage, sidebar } = await setupConversationWithSidebar(
+      testBobPage,
+      groupConversation.id
+    );
     await chatPage.expectMessageVisible('Hello from Alice');
-
-    const sidebar = new MemberSidebarPage(testBobPage);
-    await sidebar.openViaFacepile();
-    await sidebar.waitForLoaded();
 
     await test.step('trigger leave and verify warning', async () => {
       const bobMemberId = await sidebar.getMemberIdByUsername('test_bob');
@@ -42,13 +39,7 @@ test.describe('Group Chat Leave', () => {
     groupConversation,
   }) => {
     test.slow();
-    const chatPage = new ChatPage(authenticatedPage);
-    await chatPage.gotoConversation(groupConversation.id);
-    await chatPage.waitForConversationLoaded();
-
-    const sidebar = new MemberSidebarPage(authenticatedPage);
-    await sidebar.openViaFacepile();
-    await sidebar.waitForLoaded();
+    const { sidebar } = await setupConversationWithSidebar(authenticatedPage, groupConversation.id);
 
     await test.step('trigger leave and verify owner-specific warning', async () => {
       const aliceMemberId = await sidebar.getMemberIdByUsername('test_alice');
@@ -77,14 +68,11 @@ test.describe('Group Chat Leave', () => {
   });
 
   test('cancel leave keeps user in conversation', async ({ testBobPage, groupConversation }) => {
-    const chatPage = new ChatPage(testBobPage);
-    await chatPage.gotoConversation(groupConversation.id);
-    await chatPage.waitForConversationLoaded();
+    const { chatPage, sidebar } = await setupConversationWithSidebar(
+      testBobPage,
+      groupConversation.id
+    );
     await chatPage.expectMessageVisible('Hello from Alice');
-
-    const sidebar = new MemberSidebarPage(testBobPage);
-    await sidebar.openViaFacepile();
-    await sidebar.waitForLoaded();
 
     const bobMemberId = await sidebar.getMemberIdByUsername('test_bob');
     await sidebar.openMemberActions(bobMemberId);

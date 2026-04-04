@@ -16,6 +16,7 @@ import { conversationForks } from '@hushbox/db';
 
 type ConversationFork = typeof conversationForks.$inferSelect;
 import { createErrorResponse } from '../lib/error-response.js';
+import { getUser } from '../lib/get-user.js';
 import { requireAuth, requirePrivilege } from '../middleware/index.js';
 import {
   listConversations,
@@ -97,8 +98,7 @@ export const conversationsRoute = new Hono<AppEnv>()
     ),
     requireAuth(),
     async (c) => {
-      const user = c.get('user');
-      if (!user) throw new Error('User required after requireAuth');
+      const user = getUser(c);
       const db = c.get('db');
       const query = c.req.valid('query');
 
@@ -165,8 +165,7 @@ export const conversationsRoute = new Hono<AppEnv>()
     }
   )
   .post('/', requireAuth(), zValidator('json', createConversationRequestSchema), async (c) => {
-    const user = c.get('user');
-    if (!user) throw new Error('User required after requireAuth');
+    const user = getUser(c);
     const db = c.get('db');
     const body = c.req.valid('json');
 

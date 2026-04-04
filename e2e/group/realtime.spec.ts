@@ -1,5 +1,29 @@
+import type { Page } from '@playwright/test';
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages';
+
+async function setupRealtimePair(
+  alicePage: Page,
+  bobPage: Page,
+  conversationId: string
+): Promise<{ aliceChatPage: ChatPage; bobChatPage: ChatPage }> {
+  const aliceChatPage = new ChatPage(alicePage);
+  const bobChatPage = new ChatPage(bobPage);
+
+  await aliceChatPage.gotoConversation(conversationId);
+  await bobChatPage.gotoConversation(conversationId);
+
+  await aliceChatPage.waitForConversationLoaded();
+  await bobChatPage.waitForConversationLoaded();
+
+  await aliceChatPage.waitForWebSocketConnected();
+  await bobChatPage.waitForWebSocketConnected();
+
+  // Allow server-side (Durable Object) to finish registering WebSocket connections
+  await bobChatPage.page.waitForTimeout(500);
+
+  return { aliceChatPage, bobChatPage };
+}
 
 test.describe('Real-time WebSocket events', () => {
   test('user-only message appears for other member in real time', async ({
@@ -7,21 +31,11 @@ test.describe('Real-time WebSocket events', () => {
     testBobPage,
     groupConversation,
   }) => {
-    // Both Alice and Bob navigate to the same conversation
-    const aliceChatPage = new ChatPage(authenticatedPage);
-    const bobChatPage = new ChatPage(testBobPage);
-
-    await aliceChatPage.gotoConversation(groupConversation.id);
-    await bobChatPage.gotoConversation(groupConversation.id);
-
-    await aliceChatPage.waitForConversationLoaded();
-    await bobChatPage.waitForConversationLoaded();
-
-    await aliceChatPage.waitForWebSocketConnected();
-    await bobChatPage.waitForWebSocketConnected();
-
-    // Allow server-side (Durable Object) to finish registering WebSocket connections
-    await bobChatPage.page.waitForTimeout(500);
+    const { aliceChatPage, bobChatPage } = await setupRealtimePair(
+      authenticatedPage,
+      testBobPage,
+      groupConversation.id
+    );
 
     // Alice toggles AI off (avoids waiting for streaming)
     const aiToggle = aliceChatPage.getAiToggleButton();
@@ -48,21 +62,11 @@ test.describe('Real-time WebSocket events', () => {
     groupConversation,
   }) => {
     test.slow();
-    // Both navigate to the group conversation
-    const aliceChatPage = new ChatPage(authenticatedPage);
-    const bobChatPage = new ChatPage(testBobPage);
-
-    await aliceChatPage.gotoConversation(groupConversation.id);
-    await bobChatPage.gotoConversation(groupConversation.id);
-
-    await aliceChatPage.waitForConversationLoaded();
-    await bobChatPage.waitForConversationLoaded();
-
-    await aliceChatPage.waitForWebSocketConnected();
-    await bobChatPage.waitForWebSocketConnected();
-
-    // Allow server-side (Durable Object) to finish registering WebSocket connections
-    await bobChatPage.page.waitForTimeout(500);
+    const { aliceChatPage, bobChatPage } = await setupRealtimePair(
+      authenticatedPage,
+      testBobPage,
+      groupConversation.id
+    );
 
     // Alice sends a message with AI on (default)
     const timestamp = String(Date.now());
@@ -95,7 +99,7 @@ test.describe('Real-time WebSocket events', () => {
     testBobPage,
     groupConversation,
   }) => {
-    // Both navigate to the group conversation
+    // Both navigate to the group conversation (no DO wait needed for typing)
     const aliceChatPage = new ChatPage(authenticatedPage);
     const bobChatPage = new ChatPage(testBobPage);
 
