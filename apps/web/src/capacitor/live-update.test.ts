@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Hoisted mocks
 const {
   mockIsNative,
+  mockGetPlatform,
   mockGetApiUrl,
   mockCurrent,
   mockDownload,
@@ -11,6 +12,7 @@ const {
   mockSetUpgradeRequired,
 } = vi.hoisted(() => ({
   mockIsNative: vi.fn(() => false),
+  mockGetPlatform: vi.fn(() => 'web'),
   mockGetApiUrl: vi.fn(() => 'http://localhost:8787'),
   mockCurrent: vi.fn(),
   mockDownload: vi.fn(),
@@ -21,6 +23,7 @@ const {
 
 vi.mock('./platform.js', () => ({
   isNative: mockIsNative,
+  getPlatform: mockGetPlatform,
 }));
 
 vi.mock('@/lib/api.js', () => ({
@@ -129,8 +132,9 @@ describe('live-update', () => {
       expect(mockDownload).not.toHaveBeenCalled();
     });
 
-    it('downloads bundle and applies it', async () => {
+    it('downloads bundle with platform-specific URL', async () => {
       mockIsNative.mockReturnValue(true);
+      mockGetPlatform.mockReturnValue('ios');
       mockDownload.mockResolvedValue({
         id: 'bundle-id',
         version: '1.2.3',
@@ -144,10 +148,31 @@ describe('live-update', () => {
       await applyUpdate('1.2.3');
 
       expect(mockDownload).toHaveBeenCalledWith({
-        url: 'http://localhost:8787/api/updates/download/1.2.3',
+        url: 'http://localhost:8787/api/updates/download/ios/1.2.3',
         version: '1.2.3',
       });
       expect(mockSet).toHaveBeenCalledWith({ id: 'bundle-id' });
+    });
+
+    it('uses android-direct platform in download URL', async () => {
+      mockIsNative.mockReturnValue(true);
+      mockGetPlatform.mockReturnValue('android-direct');
+      mockDownload.mockResolvedValue({
+        id: 'bundle-id',
+        version: '2.0.0',
+        downloaded: '',
+        checksum: '',
+        status: 'set',
+      });
+      // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
+      mockSet.mockResolvedValue(undefined);
+
+      await applyUpdate('2.0.0');
+
+      expect(mockDownload).toHaveBeenCalledWith({
+        url: 'http://localhost:8787/api/updates/download/android-direct/2.0.0',
+        version: '2.0.0',
+      });
     });
 
     it('sets upgradeRequired on download failure', async () => {

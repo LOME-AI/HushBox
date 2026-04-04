@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useCallback, useEffect } from 'react';
-import { ModalOverlay, Button, ModalActions } from '@hushbox/ui';
+import { Overlay, Button, ModalActions } from '@hushbox/ui';
 import { Copy, Check, Loader2 } from 'lucide-react';
 import { QRCode } from 'react-qrcode-logo';
 import logoUrl from '@hushbox/ui/assets/HushBoxLogo.png';
@@ -249,7 +249,7 @@ export function TwoFactorSetup({
   const effectiveError = step === 'verify' ? otpError : fetchError;
 
   return (
-    <ModalOverlay
+    <Overlay
       open={open}
       onOpenChange={onOpenChange}
       ariaLabel="Two-factor authentication setup"
@@ -280,7 +280,7 @@ export function TwoFactorSetup({
           onDone={handleDone}
         />
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }
 

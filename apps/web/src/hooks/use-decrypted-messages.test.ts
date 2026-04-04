@@ -5,6 +5,7 @@ import React, { createElement, type ReactNode } from 'react';
 import { useDecryptedMessages } from './use-decrypted-messages';
 import type { MessageResponse } from '@hushbox/shared';
 import { clearEpochKeyCache, getCacheSize } from '@/lib/epoch-key-cache';
+import { useDecryptionActivityStore } from '@/stores/decryption-activity';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -746,6 +747,90 @@ describe('useDecryptedMessages', () => {
     if (!msg) throw new Error('Expected message');
     expect(msg.senderId).toBe('user-77');
     expect(msg.content).toBe('[decryption failed: missing epoch key]');
+  });
+
+  describe('decryption activity tracking', () => {
+    beforeEach(() => {
+      useDecryptionActivityStore.setState({ pendingDecryptions: 0 });
+    });
+
+    it('marks pending when messages exist but decryption output is empty', async () => {
+      // Key chain fetch will never resolve — decrypted output stays empty
+      mockFetchJson.mockReturnValue(new Promise(() => {}));
+
+      const messages = [createMessageResponse()];
+      renderHook(() => useDecryptedMessages('conv-1', messages), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(useDecryptionActivityStore.getState().pendingDecryptions).toBe(1);
+      });
+    });
+
+    it('marks complete when decryption produces output', async () => {
+      mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
+      mockDecryptMessage.mockReturnValue('decrypted');
+
+      mockFetchJson.mockResolvedValue({
+        wraps: [
+          {
+            epochNumber: 1,
+            wrap: 'w',
+            confirmationHash: 'h',
+            privilege: 'owner',
+            visibleFromEpoch: 1,
+          },
+        ],
+        chainLinks: [],
+        currentEpoch: 1,
+      });
+
+      const messages = [createMessageResponse()];
+      const { result } = renderHook(() => useDecryptedMessages('conv-1', messages), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current).toHaveLength(1);
+      });
+
+      expect(useDecryptionActivityStore.getState().pendingDecryptions).toBe(0);
+    });
+
+    it('does not mark pending when there are no messages', () => {
+      renderHook(() => useDecryptedMessages('conv-1', []), {
+        wrapper: createWrapper(),
+      });
+
+      expect(useDecryptionActivityStore.getState().pendingDecryptions).toBe(0);
+    });
+
+    it('does not mark pending when conversationId is null', () => {
+      const messages = [createMessageResponse()];
+      renderHook(() => useDecryptedMessages(null, messages), {
+        wrapper: createWrapper(),
+      });
+
+      expect(useDecryptionActivityStore.getState().pendingDecryptions).toBe(0);
+    });
+
+    it('cleans up on unmount', async () => {
+      mockFetchJson.mockReturnValue(new Promise(() => {}));
+
+      const messages = [createMessageResponse()];
+      const { unmount } = renderHook(() => useDecryptedMessages('conv-1', messages), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(useDecryptionActivityStore.getState().pendingDecryptions).toBe(1);
+      });
+
+      unmount();
+
+      expect(useDecryptionActivityStore.getState().pendingDecryptions).toBe(0);
+    });
   });
 
   it('preserves createdAt from the message response', async () => {

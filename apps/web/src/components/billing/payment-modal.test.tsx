@@ -1,4 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('@/lib/api', () => ({
+  getApiUrl: () => 'http://localhost:8787',
+}));
+
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PaymentModal } from './payment-modal';
@@ -36,7 +41,7 @@ describe('PaymentModal', () => {
 
     it('renders modal backdrop', () => {
       render(<PaymentModal open={true} onOpenChange={vi.fn()} onSuccess={vi.fn()} />, { wrapper });
-      expect(screen.getByTestId('modal-overlay-backdrop')).toBeInTheDocument();
+      expect(screen.getByTestId('overlay-backdrop')).toBeInTheDocument();
     });
   });
 
@@ -48,7 +53,7 @@ describe('PaymentModal', () => {
         wrapper,
       });
 
-      await user.click(screen.getByTestId('modal-overlay-backdrop'));
+      await user.click(screen.getByTestId('overlay-backdrop'));
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
 

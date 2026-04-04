@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useMemo, useRef } from 'react';
-import { ModalOverlay, ModalActions, Input } from '@hushbox/ui';
+import { Overlay, ModalActions, Input } from '@hushbox/ui';
 import { displayUsername } from '@hushbox/shared';
 import {
   useConversationBudgets,
@@ -300,7 +300,7 @@ export function BudgetSettingsModal({
   }
 
   return (
-    <ModalOverlay open={open} onOpenChange={onOpenChange} ariaLabel="Budget Settings">
+    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Budget Settings">
       <div
         data-testid="budget-settings-modal"
         className="bg-background flex w-[90vw] max-w-lg flex-col rounded-lg border p-6 shadow-lg"
@@ -421,6 +421,6 @@ export function BudgetSettingsModal({
           </BudgetContent>
         )}
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

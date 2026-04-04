@@ -1,23 +1,23 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
-import { ModalOverlay } from './modal-overlay';
+import { Overlay } from './overlay';
 
-describe('ModalOverlay', () => {
+describe('Overlay', () => {
   it('renders children when open', () => {
     render(
-      <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
+      <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
         <div>Modal content</div>
-      </ModalOverlay>
+      </Overlay>
     );
     expect(screen.getByText('Modal content')).toBeInTheDocument();
   });
 
   it('does not render children when closed', () => {
     render(
-      <ModalOverlay open={false} onOpenChange={vi.fn()} ariaLabel="Test modal">
+      <Overlay open={false} onOpenChange={vi.fn()} ariaLabel="Test modal">
         <div>Modal content</div>
-      </ModalOverlay>
+      </Overlay>
     );
     expect(screen.queryByText('Modal content')).not.toBeInTheDocument();
   });
@@ -26,13 +26,13 @@ describe('ModalOverlay', () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
     render(
-      <ModalOverlay open={true} onOpenChange={onOpenChange} ariaLabel="Test modal">
+      <Overlay open={true} onOpenChange={onOpenChange} ariaLabel="Test modal">
         <div>Modal content</div>
-      </ModalOverlay>
+      </Overlay>
     );
 
     // Click the overlay (outside the content)
-    const overlay = screen.getByTestId('modal-overlay-backdrop');
+    const overlay = screen.getByTestId('overlay-backdrop');
     await user.click(overlay);
 
     await waitFor(() => {
@@ -44,9 +44,9 @@ describe('ModalOverlay', () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
     render(
-      <ModalOverlay open={true} onOpenChange={onOpenChange} ariaLabel="Test modal">
+      <Overlay open={true} onOpenChange={onOpenChange} ariaLabel="Test modal">
         <div>Modal content</div>
-      </ModalOverlay>
+      </Overlay>
     );
 
     await user.keyboard('{Escape}');
@@ -58,39 +58,34 @@ describe('ModalOverlay', () => {
 
   it('has blur effect on overlay', () => {
     render(
-      <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
+      <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
         <div>Modal content</div>
-      </ModalOverlay>
+      </Overlay>
     );
 
-    const overlay = screen.getByTestId('modal-overlay-backdrop');
+    const overlay = screen.getByTestId('overlay-backdrop');
     expect(overlay).toHaveClass('backdrop-blur-sm');
   });
 
   it('applies custom className to content wrapper', () => {
     render(
-      <ModalOverlay
-        open={true}
-        onOpenChange={vi.fn()}
-        ariaLabel="Test modal"
-        className="custom-class"
-      >
+      <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal" className="custom-class">
         <div>Modal content</div>
-      </ModalOverlay>
+      </Overlay>
     );
 
-    const content = screen.getByTestId('modal-overlay-content');
+    const content = screen.getByTestId('overlay-content');
     expect(content).toHaveClass('custom-class');
   });
 
   it('centers content on screen', () => {
     render(
-      <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
+      <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
         <div>Modal content</div>
-      </ModalOverlay>
+      </Overlay>
     );
 
-    const content = screen.getByTestId('modal-overlay-content');
+    const content = screen.getByTestId('overlay-content');
     expect(content).toHaveClass('fixed');
     expect(content).toHaveClass('top-[50%]');
     expect(content).toHaveClass('left-[50%]');
@@ -98,37 +93,31 @@ describe('ModalOverlay', () => {
 
   it('has top padding on content', () => {
     render(
-      <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
+      <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
         <div>Modal content</div>
-      </ModalOverlay>
+      </Overlay>
     );
 
-    const content = screen.getByTestId('modal-overlay-content');
+    const content = screen.getByTestId('overlay-content');
     expect(content).toHaveClass('pt-2');
   });
 
   it('has data-slot attributes', () => {
     render(
-      <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
+      <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
         <div>Modal content</div>
-      </ModalOverlay>
+      </Overlay>
     );
 
-    expect(screen.getByTestId('modal-overlay-backdrop')).toHaveAttribute(
-      'data-slot',
-      'modal-overlay-backdrop'
-    );
-    expect(screen.getByTestId('modal-overlay-content')).toHaveAttribute(
-      'data-slot',
-      'modal-overlay-content'
-    );
+    expect(screen.getByTestId('overlay-backdrop')).toHaveAttribute('data-slot', 'overlay-backdrop');
+    expect(screen.getByTestId('overlay-content')).toHaveAttribute('data-slot', 'overlay-content');
   });
 
   it('renders visually hidden accessible title', () => {
     render(
-      <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="My accessible title">
+      <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="My accessible title">
         <div>Modal content</div>
-      </ModalOverlay>
+      </Overlay>
     );
 
     const title = screen.getByText('My accessible title');
@@ -139,14 +128,14 @@ describe('ModalOverlay', () => {
   it('calls onOpenAutoFocus when modal opens', async () => {
     const onOpenAutoFocus = vi.fn();
     render(
-      <ModalOverlay
+      <Overlay
         open={true}
         onOpenChange={vi.fn()}
         ariaLabel="Test modal"
         onOpenAutoFocus={onOpenAutoFocus}
       >
         <div>Modal content</div>
-      </ModalOverlay>
+      </Overlay>
     );
 
     await waitFor(() => {
@@ -159,14 +148,14 @@ describe('ModalOverlay', () => {
       event.preventDefault();
     });
     render(
-      <ModalOverlay
+      <Overlay
         open={true}
         onOpenChange={vi.fn()}
         ariaLabel="Test modal"
         onOpenAutoFocus={handleOpenAutoFocus}
       >
         <input data-testid="test-input" />
-      </ModalOverlay>
+      </Overlay>
     );
 
     await waitFor(() => {
@@ -181,9 +170,9 @@ describe('ModalOverlay', () => {
   describe('close button', () => {
     it('renders close button by default', () => {
       render(
-        <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
+        <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
           <div>Modal content</div>
-        </ModalOverlay>
+        </Overlay>
       );
 
       expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument();
@@ -193,9 +182,9 @@ describe('ModalOverlay', () => {
       const user = userEvent.setup();
       const onOpenChange = vi.fn();
       render(
-        <ModalOverlay open={true} onOpenChange={onOpenChange} ariaLabel="Test modal">
+        <Overlay open={true} onOpenChange={onOpenChange} ariaLabel="Test modal">
           <div>Modal content</div>
-        </ModalOverlay>
+        </Overlay>
       );
 
       await user.click(screen.getByRole('button', { name: /close/i }));
@@ -205,9 +194,9 @@ describe('ModalOverlay', () => {
 
     it('positions close button in top-right corner with absolute positioning', () => {
       render(
-        <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
+        <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
           <div>Modal content</div>
-        </ModalOverlay>
+        </Overlay>
       );
 
       const closeButton = screen.getByRole('button', { name: /close/i });
@@ -218,9 +207,9 @@ describe('ModalOverlay', () => {
 
     it('has cursor-pointer on close button', () => {
       render(
-        <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
+        <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
           <div>Modal content</div>
-        </ModalOverlay>
+        </Overlay>
       );
 
       const closeButton = screen.getByRole('button', { name: /close/i });
@@ -229,14 +218,9 @@ describe('ModalOverlay', () => {
 
     it('can be hidden with showCloseButton=false', () => {
       render(
-        <ModalOverlay
-          open={true}
-          onOpenChange={vi.fn()}
-          ariaLabel="Test modal"
-          showCloseButton={false}
-        >
+        <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal" showCloseButton={false}>
           <div>Modal content</div>
-        </ModalOverlay>
+        </Overlay>
       );
 
       expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument();
@@ -246,9 +230,9 @@ describe('ModalOverlay', () => {
   describe('multi-step flow', () => {
     it('does not render back button when currentStep is undefined', () => {
       render(
-        <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
+        <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
           <div>Modal content</div>
-        </ModalOverlay>
+        </Overlay>
       );
 
       expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument();
@@ -256,7 +240,7 @@ describe('ModalOverlay', () => {
 
     it('does not render back button when currentStep is 1', () => {
       render(
-        <ModalOverlay
+        <Overlay
           open={true}
           onOpenChange={vi.fn()}
           ariaLabel="Test modal"
@@ -264,7 +248,7 @@ describe('ModalOverlay', () => {
           onBack={vi.fn()}
         >
           <div>Modal content</div>
-        </ModalOverlay>
+        </Overlay>
       );
 
       expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument();
@@ -272,7 +256,7 @@ describe('ModalOverlay', () => {
 
     it('renders back button when currentStep > 1', () => {
       render(
-        <ModalOverlay
+        <Overlay
           open={true}
           onOpenChange={vi.fn()}
           ariaLabel="Test modal"
@@ -280,7 +264,7 @@ describe('ModalOverlay', () => {
           onBack={vi.fn()}
         >
           <div>Modal content</div>
-        </ModalOverlay>
+        </Overlay>
       );
 
       expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument();
@@ -290,7 +274,7 @@ describe('ModalOverlay', () => {
       const user = userEvent.setup();
       const onBack = vi.fn();
       render(
-        <ModalOverlay
+        <Overlay
           open={true}
           onOpenChange={vi.fn()}
           ariaLabel="Test modal"
@@ -298,7 +282,7 @@ describe('ModalOverlay', () => {
           onBack={onBack}
         >
           <div>Modal content</div>
-        </ModalOverlay>
+        </Overlay>
       );
 
       await user.click(screen.getByRole('button', { name: /back/i }));
@@ -308,7 +292,7 @@ describe('ModalOverlay', () => {
 
     it('positions back button in top-left corner with absolute positioning', () => {
       render(
-        <ModalOverlay
+        <Overlay
           open={true}
           onOpenChange={vi.fn()}
           ariaLabel="Test modal"
@@ -316,7 +300,7 @@ describe('ModalOverlay', () => {
           onBack={vi.fn()}
         >
           <div>Modal content</div>
-        </ModalOverlay>
+        </Overlay>
       );
 
       const backButton = screen.getByRole('button', { name: /back/i });
@@ -327,7 +311,7 @@ describe('ModalOverlay', () => {
 
     it('has cursor-pointer on back button', () => {
       render(
-        <ModalOverlay
+        <Overlay
           open={true}
           onOpenChange={vi.fn()}
           ariaLabel="Test modal"
@@ -335,7 +319,7 @@ describe('ModalOverlay', () => {
           onBack={vi.fn()}
         >
           <div>Modal content</div>
-        </ModalOverlay>
+        </Overlay>
       );
 
       const backButton = screen.getByRole('button', { name: /back/i });
@@ -344,9 +328,9 @@ describe('ModalOverlay', () => {
 
     it('does not render back button when currentStep > 1 but onBack is not provided', () => {
       render(
-        <ModalOverlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal" currentStep={2}>
+        <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal" currentStep={2}>
           <div>Modal content</div>
-        </ModalOverlay>
+        </Overlay>
       );
 
       expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument();

@@ -1,6 +1,8 @@
+import * as React from 'react';
 import { renderHook, act } from '@testing-library/react';
 import { describe, expect, it, afterEach, vi } from 'vitest';
 import { useIsTouchDevice } from './use-is-touch-device';
+import { TouchDeviceOverrideContext } from './touch-device-override-context';
 
 describe('useIsTouchDevice', () => {
   const originalMatchMedia = globalThis.matchMedia;
@@ -96,5 +98,35 @@ describe('useIsTouchDevice', () => {
     unmount();
 
     expect(mediaQueryList.removeEventListener).toHaveBeenCalledWith('change', expect.any(Function));
+  });
+
+  it('returns true when context override is true, regardless of media query', () => {
+    createMockMatchMedia(false); // media query says non-touch
+    const wrapper = ({ children }: { children: React.ReactNode }): React.JSX.Element =>
+      React.createElement(TouchDeviceOverrideContext.Provider, { value: true }, children);
+
+    const { result } = renderHook(() => useIsTouchDevice(), { wrapper });
+
+    expect(result.current).toBe(true);
+  });
+
+  it('returns false when context override is false, regardless of media query', () => {
+    createMockMatchMedia(true); // media query says touch
+    const wrapper = ({ children }: { children: React.ReactNode }): React.JSX.Element =>
+      React.createElement(TouchDeviceOverrideContext.Provider, { value: false }, children);
+
+    const { result } = renderHook(() => useIsTouchDevice(), { wrapper });
+
+    expect(result.current).toBe(false);
+  });
+
+  it('falls back to media query when context override is null', () => {
+    createMockMatchMedia(true);
+    const wrapper = ({ children }: { children: React.ReactNode }): React.JSX.Element =>
+      React.createElement(TouchDeviceOverrideContext.Provider, { value: null }, children);
+
+    const { result } = renderHook(() => useIsTouchDevice(), { wrapper });
+
+    expect(result.current).toBe(true);
   });
 });

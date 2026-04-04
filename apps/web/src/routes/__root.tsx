@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { Outlet, createRootRoute, Navigate } from '@tanstack/react-router';
 import { QueryProvider } from '@/providers/query-provider';
 import { StabilityProvider, useStability } from '@/providers/stability-provider';
@@ -6,8 +7,9 @@ import { CapacitorProvider } from '@/capacitor';
 import { UpgradeRequiredModal } from '@/components/shared/upgrade-required-modal';
 import { OfflineOverlay } from '@/components/shared/offline-overlay';
 import { ROUTES } from '@hushbox/shared';
-import { Toaster } from '@hushbox/ui';
+import { Toaster, TouchDeviceOverrideContext } from '@hushbox/ui';
 import { SettledIndicator } from '@/components/shared/settled-indicator';
+import { useTouchOverrideStore } from '@/stores/touch-override';
 
 function NotFoundRedirect(): React.JSX.Element {
   return <Navigate to={ROUTES.CHAT} />;
@@ -26,15 +28,23 @@ function AppShell(): React.JSX.Element {
   );
 }
 
+function RootComponent(): React.JSX.Element {
+  const touchOverride = useTouchOverrideStore((state) => state.override);
+
+  return (
+    <TouchDeviceOverrideContext value={touchOverride}>
+      <ThemeProvider>
+        <QueryProvider>
+          <StabilityProvider>
+            <AppShell />
+          </StabilityProvider>
+        </QueryProvider>
+      </ThemeProvider>
+    </TouchDeviceOverrideContext>
+  );
+}
+
 export const Route = createRootRoute({
-  component: () => (
-    <ThemeProvider>
-      <QueryProvider>
-        <StabilityProvider>
-          <AppShell />
-        </StabilityProvider>
-      </QueryProvider>
-    </ThemeProvider>
-  ),
+  component: RootComponent,
   notFoundComponent: NotFoundRedirect,
 });

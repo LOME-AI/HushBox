@@ -29,6 +29,7 @@ import {
   buildApk,
   installApk,
   runMaestro,
+  setupOtaUpdate,
   main,
 } from './mobile-test.js';
 
@@ -698,6 +699,10 @@ describe('mobile-test script', () => {
     });
 
     it('runs prerequisites before parallel phase and sequential steps after', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
+      );
       const callOrder: string[] = [];
 
       const hasArgument = (args: readonly string[] | undefined, argument: string): boolean =>
@@ -733,6 +738,7 @@ describe('mobile-test script', () => {
           label: 'run-maestro',
           result: { exitCode: 0, stdout: '' },
         },
+        { cmd: 'zip', label: 'zip-ota' },
         { cmd: 'docker', argument: 'down', label: 'stop-emulator' },
       ];
 
@@ -747,6 +753,8 @@ describe('mobile-test script', () => {
       }) as never);
 
       await main();
+
+      vi.unstubAllGlobals();
 
       // Prerequisites run sequentially first
       expect(callOrder[0]).toBe('check-docker');
@@ -797,7 +805,7 @@ describe('mobile-test script', () => {
       expect(downCalls).toHaveLength(0);
     });
 
-    it('stops emulator even when a later step fails', async () => {
+    it('stops emulator even when a later step fails (no ota)', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
 
       mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
@@ -819,6 +827,79 @@ describe('mobile-test script', () => {
         (call) => call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('down')
       );
       expect(downCalls).toHaveLength(1);
+    });
+  });
+
+  describe('setupOtaUpdate', () => {
+    beforeEach(() => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
+      );
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('builds OTA bundle with correct VITE_PLATFORM and VITE_APP_VERSION', async () => {
+      mockExeca.mockResolvedValue({ exitCode: 0, stdout: '' } as never);
+
+      await setupOtaUpdate();
+
+      const viteBuild = mockExeca.mock.calls.find(
+        (call) =>
+          call[0] === 'pnpm' &&
+          Array.isArray(call[1]) &&
+          call[1].includes('vite') &&
+          call[1].includes('build')
+      );
+      expect(viteBuild).toBeDefined();
+      const options = (
+        viteBuild as unknown as [string, string[], { env?: Record<string, string> }]
+      )[2];
+      expect(options.env).toBeDefined();
+      expect(options.env!['VITE_PLATFORM']).toBe('android-direct');
+      expect(options.env!['VITE_APP_VERSION']).toBe('ota-v2');
+    });
+
+    it('uploads to platform-specific R2 key', async () => {
+      mockExeca.mockResolvedValue({ exitCode: 0, stdout: '' } as never);
+
+      await setupOtaUpdate();
+
+      const r2Upload = mockExeca.mock.calls.find(
+        (call) =>
+          call[0] === 'pnpm' &&
+          Array.isArray(call[1]) &&
+          call[1].some((argument: string) => argument.includes('hushbox-app-builds'))
+      );
+      expect(r2Upload).toBeDefined();
+      const r2Key = (r2Upload![1] as string[]).find((argument: string) =>
+        argument.includes('hushbox-app-builds')
+      );
+      expect(r2Key).toBe('hushbox-app-builds/builds/android-direct/ota-v2.zip');
+    });
+
+    it('sets version override via dev endpoint', async () => {
+      mockExeca.mockResolvedValue({ exitCode: 0, stdout: '' } as never);
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal('fetch', mockFetch);
+
+      await setupOtaUpdate();
+
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8787/api/dev/set-version', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: 'ota-v2' }),
+      });
+    });
+
+    it('throws when version override request fails', async () => {
+      mockExeca.mockResolvedValue({ exitCode: 0, stdout: '' } as never);
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+
+      await expect(setupOtaUpdate()).rejects.toThrow('Failed to set version override');
     });
   });
 });

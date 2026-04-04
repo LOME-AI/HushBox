@@ -204,6 +204,33 @@ jobs:
           name: web-dist
           path: apps/web/dist
 
+      - name: Build mobile OTA bundles (parallel)
+        if: needs.version.result == 'success'
+        run: |
+          for platform in ios android android-direct; do
+            (
+              VITE_API_URL=https://api.hushbox.ai \
+              VITE_HELCIM_JS_TOKEN="${VITE_HELCIM_JS_TOKEN}" \
+              VITE_PLATFORM=$platform \
+              VITE_APP_VERSION="${VITE_APP_VERSION}" \
+              pnpm --filter web exec vite build --outDir dist-$platform
+            ) &
+          done
+          wait
+        env:
+          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          VITE_APP_VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Upload mobile build artifacts
+        if: needs.version.result == 'success'
+        uses: actions/upload-artifact@v6
+        with:
+          name: mobile-dist
+          path: |
+            apps/web/dist-ios
+            apps/web/dist-android
+            apps/web/dist-android-direct
+
   # ── E2E tests (Blacksmith 4 vCPU + Docker + Playwright) ──
   e2e:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -543,12 +570,23 @@ jobs:
           sleep 10
           curl -f https://hushbox-api.${{ vars.WORKERS_SUBDOMAIN }}.workers.dev/api/health || exit 1
 
-      - name: Zip web dist for R2
-        run: cd apps/web/dist && zip -r ../../../web-dist.zip .
+      - name: Download mobile build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: mobile-dist
+          path: apps/web
 
-      - name: Upload build to R2
+      - name: Upload mobile OTA bundles to R2
         working-directory: apps/api
-        run: pnpm exec wrangler r2 object put "hushbox-app-builds/builds/${{ needs.version.outputs.version }}.zip" --file ../../web-dist.zip --remote
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          for platform in ios android android-direct; do
+            (cd ../../apps/web/dist-$platform && zip -r ../../../${platform}-dist.zip .)
+            pnpm exec wrangler r2 object put \
+              "hushbox-app-builds/builds/$platform/$VERSION.zip" \
+              --file ../../${platform}-dist.zip --remote
+            echo "Uploaded builds/$platform/$VERSION.zip"
+          done
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

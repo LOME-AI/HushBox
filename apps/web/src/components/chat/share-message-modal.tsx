@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useState } from 'react';
 import { Lock, Link as LinkIcon } from 'lucide-react';
-import { ModalOverlay, ModalActions, Alert } from '@hushbox/ui';
+import { Overlay, ModalActions, Alert } from '@hushbox/ui';
 import { useMessageShare } from '../../hooks/use-message-share.js';
 
 interface ShareMessageModalProps {
@@ -143,7 +143,7 @@ export function ShareMessageModal({
   }
 
   return (
-    <ModalOverlay open={open} onOpenChange={onOpenChange} ariaLabel="Share Message">
+    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Share Message">
       <div
         data-testid="share-message-modal"
         className="bg-background flex w-[90vw] max-w-md flex-col rounded-lg border p-6 shadow-lg"
@@ -172,6 +172,6 @@ export function ShareMessageModal({
           },
         })}
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

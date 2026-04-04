@@ -14,9 +14,10 @@ vi.mock('@tanstack/react-query', () => ({
   }),
 }));
 
-vi.mock('@/hooks/use-visual-viewport-height', () => ({
-  useVisualViewportHeight: () => 800,
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return { ...actual, useVisualViewportHeight: () => 800 };
+});
 
 vi.mock('@/hooks/use-keyboard-offset', () => ({
   useKeyboardOffset: () => ({ bottom: 0, isKeyboardVisible: false }),

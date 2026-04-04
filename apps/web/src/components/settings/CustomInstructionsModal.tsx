@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useCallback } from 'react';
-import { Alert, ModalOverlay, ModalActions, Textarea } from '@hushbox/ui';
+import { Alert, Overlay, ModalActions, Textarea } from '@hushbox/ui';
 import { toBase64 } from '@hushbox/shared';
 import { encryptMessageForStorage, getPublicKeyFromPrivate } from '@hushbox/crypto';
 import { useAuthStore } from '@/lib/auth';
@@ -69,7 +69,7 @@ export function CustomInstructionsModal({
   if (!open) return null;
 
   return (
-    <ModalOverlay open={open} onOpenChange={onOpenChange} ariaLabel="Custom instructions">
+    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Custom instructions">
       <div
         data-testid="custom-instructions-modal"
         className="bg-background w-[75vw] max-w-md rounded-lg border p-6 shadow-lg"
@@ -112,6 +112,6 @@ export function CustomInstructionsModal({
           />
         </div>
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

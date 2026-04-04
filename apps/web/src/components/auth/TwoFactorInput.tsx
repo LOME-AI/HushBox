@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ModalOverlay, ModalActions } from '@hushbox/ui';
+import { Overlay, ModalActions } from '@hushbox/ui';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { useOtpVerification } from '@/hooks/use-otp-verification';
 import { OtpInput } from '@/components/auth/otp-input';
@@ -35,7 +35,7 @@ export function TwoFactorInput({
   if (!open) return null;
 
   return (
-    <ModalOverlay
+    <Overlay
       open={open}
       onOpenChange={onOpenChange}
       ariaLabel="Two-factor authentication"
@@ -85,6 +85,6 @@ export function TwoFactorInput({
           )}
         </div>
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

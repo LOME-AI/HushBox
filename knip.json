@@ -40,6 +40,6 @@
     }
   },
   "ignoreDependencies": ["eslint-formatter-summary", "tailwindcss", "tw-animate-css", "vite"],
-  "ignoreBinaries": ["maestro", "adb", "cap"],
+  "ignoreBinaries": ["maestro", "adb", "cap", "wrangler"],
   "ignoreExportsUsedInFile": true
 }

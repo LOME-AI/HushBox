@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { ModalOverlay, ModalActions } from '@hushbox/ui';
+import { Overlay, ModalActions } from '@hushbox/ui';
 
 interface RegenerateConfirmModalProps {
   open: boolean;
@@ -14,7 +14,7 @@ export function RegenerateConfirmModal({
   onConfirm,
 }: Readonly<RegenerateConfirmModalProps>): React.JSX.Element {
   return (
-    <ModalOverlay
+    <Overlay
       open={open}
       onOpenChange={onOpenChange}
       ariaLabel="Regenerate recovery phrase confirmation"
@@ -46,6 +46,6 @@ export function RegenerateConfirmModal({
           />
         </div>
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

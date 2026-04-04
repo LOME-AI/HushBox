@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useState, useRef } from 'react';
 import { AlertTriangle, Link as LinkIcon } from 'lucide-react';
-import { Alert, ModalOverlay, ModalActions, Input } from '@hushbox/ui';
+import { Alert, Overlay, ModalActions, Input } from '@hushbox/ui';
 import { CheckboxField } from '../shared/checkbox-field.js';
 import { createSharedLink } from '@hushbox/crypto';
 import { fromBase64, toBase64, MAX_CONVERSATION_MEMBERS } from '@hushbox/shared';
@@ -105,7 +105,7 @@ export function InviteLinkModal({
   }
 
   return (
-    <ModalOverlay open={open} onOpenChange={onOpenChange} ariaLabel="Invite via Link">
+    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Invite via Link">
       <div
         data-testid="invite-link-modal"
         className="bg-background flex w-[90vw] max-w-md flex-col rounded-lg border p-6 shadow-lg"
@@ -256,6 +256,6 @@ export function InviteLinkModal({
           </>
         )}
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

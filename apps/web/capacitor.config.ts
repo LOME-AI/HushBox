@@ -14,6 +14,9 @@ const config: CapacitorConfig = {
     webContentsDebuggingEnabled: true,
   },
   plugins: {
+    CapacitorUpdater: {
+      autoUpdate: false,
+    },
     CapacitorCookies: { enabled: true },
     CapacitorHttp: { enabled: false },
     SplashScreen: {

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { RefreshCw, Loader2 } from 'lucide-react';
-import { Button, ModalOverlay } from '@hushbox/ui';
+import { Button, Overlay } from '@hushbox/ui';
 import { useAppVersionStore } from '@/stores/app-version';
 import { isNative } from '@/capacitor/platform';
 import { checkForUpdate, applyUpdate } from '@/capacitor/live-update';
@@ -31,7 +31,7 @@ export function UpgradeRequiredModal(): React.JSX.Element | null {
   };
 
   return (
-    <ModalOverlay
+    <Overlay
       open={upgradeRequired}
       onOpenChange={() => {
         /* non-dismissable */
@@ -69,6 +69,6 @@ export function UpgradeRequiredModal(): React.JSX.Element | null {
           )}
         </Button>
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

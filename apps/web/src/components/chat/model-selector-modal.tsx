@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { Search, ChevronUp, ChevronDown, Lock, Square, CheckSquare } from 'lucide-react';
-import { ModalOverlay, Input, Button, ModalActions, ScrollArea, cn } from '@hushbox/ui';
+import { Overlay, Input, Button, ModalActions, ScrollArea, cn } from '@hushbox/ui';
 import type { Model } from '@hushbox/shared';
 import type { ModelSelectorGatingProps } from './model-selector-types';
 import {
@@ -645,7 +645,7 @@ export function ModelSelectorModal({
 
   return (
     <>
-      <ModalOverlay
+      <Overlay
         open={open}
         onOpenChange={onOpenChange}
         ariaLabel="Select model"
@@ -740,7 +740,7 @@ export function ModelSelectorModal({
             }}
           />
         </div>
-      </ModalOverlay>
+      </Overlay>
       <SignupModal
         variant="multi-model"
         open={showMultiModelSignup}

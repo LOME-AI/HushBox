@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
+vi.mock('@/lib/api', () => ({
+  getApiUrl: () => 'http://localhost:8787',
+}));
+
 import { AppShell } from './app-shell';
 import { useUIStore } from '@/stores/ui';
 import { useModelValidation } from '@/hooks/use-model-validation';

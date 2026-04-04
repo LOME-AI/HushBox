@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { isPaymentDisabledPlatform, VALID_PLATFORMS, type Platform } from './platform.js';
+import {
+  isPaymentDisabledPlatform,
+  VALID_PLATFORMS,
+  MOBILE_PLATFORMS,
+  type Platform,
+  type MobilePlatform,
+} from './platform.js';
 
 describe('isPaymentDisabledPlatform', () => {
   it('returns true for ios', () => {
@@ -34,5 +40,22 @@ describe('Platform type', () => {
   it('accepts all valid platform values', () => {
     const platforms: Platform[] = [...VALID_PLATFORMS];
     expect(platforms).toHaveLength(4);
+  });
+});
+
+describe('MOBILE_PLATFORMS', () => {
+  it('contains all VALID_PLATFORMS except web', () => {
+    expect(MOBILE_PLATFORMS).toEqual(VALID_PLATFORMS.filter((p) => p !== 'web'));
+  });
+
+  it('does not include web', () => {
+    expect(MOBILE_PLATFORMS).not.toContain('web');
+  });
+});
+
+describe('MobilePlatform type', () => {
+  it('accepts all mobile platform values', () => {
+    const platforms: MobilePlatform[] = [...MOBILE_PLATFORMS];
+    expect(platforms).toHaveLength(MOBILE_PLATFORMS.length);
   });
 });

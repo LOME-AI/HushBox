@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { decryptMessage } from '@hushbox/crypto';
 import { useAuthStore } from '@/lib/auth';
@@ -7,6 +7,7 @@ import type { Message } from '@/lib/api';
 import { fromBase64 } from '@hushbox/shared';
 import type { MessageResponse } from '@hushbox/shared';
 import { getEpochKey, processKeyChain } from '@/lib/epoch-key-cache';
+import { useDecryptionActivityStore } from '@/stores/decryption-activity';
 import type { KeyChainResponse } from '@/lib/epoch-key-cache';
 
 function mapSenderTypeToRole(senderType: 'user' | 'ai'): 'user' | 'assistant' {
@@ -56,7 +57,7 @@ export function useDecryptedMessages(
     staleTime: 1000 * 60 * 60, // Key chains rarely change; refetch on epoch rotation
   });
 
-  return useMemo(() => {
+  const decrypted = useMemo(() => {
     if (
       !conversationId ||
       !messages ||
@@ -86,4 +87,22 @@ export function useDecryptedMessages(
       }
     });
   }, [conversationId, messages, effectivePrivateKey, keyChain]);
+
+  const isPending =
+    !!conversationId &&
+    !!effectivePrivateKey &&
+    (messages?.length ?? 0) > 0 &&
+    decrypted.length === 0;
+
+  const { markPending, markComplete } = useDecryptionActivityStore.getState();
+
+  useEffect(() => {
+    if (!isPending) return;
+    markPending();
+    return () => {
+      markComplete();
+    };
+  }, [isPending, markPending, markComplete]);
+
+  return decrypted;
 }

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ModalOverlay } from '@hushbox/ui';
+import { Overlay } from '@hushbox/ui';
 import { PaymentForm } from './payment-form';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 
@@ -37,7 +37,7 @@ export function PaymentModal({
   if (!open) return null;
 
   return (
-    <ModalOverlay
+    <Overlay
       open={open}
       onOpenChange={onOpenChange}
       ariaLabel="Add credits"
@@ -46,6 +46,6 @@ export function PaymentModal({
       <div data-testid="payment-modal">
         <PaymentForm onSuccess={handleSuccess} onCancel={handleCancel} />
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

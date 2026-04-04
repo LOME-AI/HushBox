@@ -69,7 +69,7 @@ describe('versionCheck', () => {
     expect(body.updateUrl).toBeUndefined();
   });
 
-  it('returns 426 with updateUrl for ios client version mismatch', async () => {
+  it('returns 426 with platform-specific updateUrl for ios client', async () => {
     const app = createApp('def456');
 
     const res = await app.request('/api/test', {
@@ -83,10 +83,10 @@ describe('versionCheck', () => {
     const body = await jsonBody<{ code: string; currentVersion: string; updateUrl: string }>(res);
     expect(body.code).toBe('UPGRADE_REQUIRED');
     expect(body.currentVersion).toBe('def456');
-    expect(body.updateUrl).toBe('/api/updates/download/def456');
+    expect(body.updateUrl).toBe('/api/updates/download/ios/def456');
   });
 
-  it('returns 426 with updateUrl for android client version mismatch', async () => {
+  it('returns 426 with platform-specific updateUrl for android client', async () => {
     const app = createApp('def456');
 
     const res = await app.request('/api/test', {
@@ -98,7 +98,22 @@ describe('versionCheck', () => {
 
     expect(res.status).toBe(426);
     const body = await jsonBody<{ updateUrl: string }>(res);
-    expect(body.updateUrl).toBe('/api/updates/download/def456');
+    expect(body.updateUrl).toBe('/api/updates/download/android/def456');
+  });
+
+  it('returns 426 with platform-specific updateUrl for android-direct client', async () => {
+    const app = createApp('def456');
+
+    const res = await app.request('/api/test', {
+      headers: {
+        'X-App-Version': 'abc123',
+        'X-HushBox-Platform': 'android-direct',
+      },
+    });
+
+    expect(res.status).toBe(426);
+    const body = await jsonBody<{ updateUrl: string }>(res);
+    expect(body.updateUrl).toBe('/api/updates/download/android-direct/def456');
   });
 
   it('skips check when server version is dev-local', async () => {
