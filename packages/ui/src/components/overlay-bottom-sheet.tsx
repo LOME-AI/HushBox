@@ -102,7 +102,7 @@ function OverlayBottomSheet({
           {/* Content wrapper — pt-2 matches DialogPrimitive.Content padding so buttons align identically */}
           <div
             ref={contentRef}
-            className="relative min-h-0 flex-1 overflow-hidden pt-2 pb-[env(safe-area-inset-bottom,0px)]"
+            className="relative flex min-h-0 flex-1 flex-col overflow-hidden pt-2 pb-[env(safe-area-inset-bottom,0px)]"
           >
             <OverlayNavButtons
               showBackButton={showBackButton}
@@ -116,8 +116,9 @@ function OverlayBottomSheet({
                 ) : null
               }
             />
-            {/* Child content — full-width override for children that set their own w-[90vw] */}
-            <div className="size-full [&>*]:max-h-full [&>*]:w-full [&>*]:max-w-none [&>*]:rounded-none [&>*]:border-x-0 [&>*]:border-b-0 [&>*]:shadow-none">
+            {/* Child content — flex layout constrains children to available height;
+                min-h-0 lets children with explicit viewport heights (e.g. h-[92dvh]) shrink to fit */}
+            <div className="flex min-h-0 flex-1 flex-col [&>*]:min-h-0 [&>*]:w-full [&>*]:max-w-none [&>*]:rounded-none [&>*]:border-x-0 [&>*]:border-b-0 [&>*]:shadow-none">
               {children}
             </div>
           </div>

@@ -183,17 +183,19 @@ describe('OverlayBottomSheet', () => {
     expect(overlay).toHaveClass('backdrop-blur-sm');
   });
 
-  it('constrains child max-height to prevent overflow', () => {
+  it('constrains children to available height via flex layout', () => {
     render(
       <OverlayBottomSheet open={true} onOpenChange={vi.fn()} ariaLabel="Test sheet">
-        <div>Sheet content</div>
+        <div data-testid="child">Sheet content</div>
       </OverlayBottomSheet>
     );
 
-    const content = screen.getByTestId('overlay-content');
-    // The children wrapper applies max-h-full to direct children
-    const childrenWrapper = content.querySelector('[class*="max-h-full"]');
-    expect(childrenWrapper).toBeInTheDocument();
+    // The child's parent (children wrapper) should be a flex column
+    const child = screen.getByTestId('child');
+    const childrenWrapper = child.parentElement!;
+    expect(childrenWrapper.className).toContain('flex-col');
+    expect(childrenWrapper.className).toContain('min-h-0');
+    expect(childrenWrapper.className).toContain('flex-1');
   });
 
   it('applies bottom sheet positioning', () => {

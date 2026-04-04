@@ -305,6 +305,7 @@ export async function buildApk(): Promise<void> {
     stdio: 'inherit',
     env: {
       ...process.env,
+      TURBO_FORCE: 'true',
       VITE_API_URL: apiUrl,
       VITE_PLATFORM: 'android-direct',
       VITE_APP_VERSION: 'local-mobile-test',
@@ -548,9 +549,18 @@ async function runMaestroOta(): Promise<void> {
   const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
 
   console.log('Running OTA update Maestro flow...');
-  await execa('maestro', ['test', '--device', `localhost:${adbPort}`, OTA_FLOW], {
-    stdio: 'inherit',
-  });
+  try {
+    await execa('maestro', ['test', '--device', `localhost:${adbPort}`, OTA_FLOW], {
+      stdio: 'inherit',
+    });
+  } catch (error: unknown) {
+    // Dump logcat before re-throwing so we can see Capgo/WebView errors
+    console.log('\n=== Logcat dump for OTA test failure ===');
+    await execa('adb', ['-s', `localhost:${adbPort}`, 'logcat', '-d', '-t', '500'], {
+      stdio: 'inherit',
+    }).catch(() => {});
+    throw error;
+  }
 }
 
 export async function main(): Promise<void> {
