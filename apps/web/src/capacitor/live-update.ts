@@ -1,6 +1,7 @@
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { isNative, getPlatform } from './platform.js';
 import { getApiUrl } from '@/lib/api.js';
+import { client, fetchJson } from '@/lib/api-client.js';
 import { useAppVersionStore } from '@/stores/app-version.js';
 
 interface CheckResult {
@@ -28,11 +29,7 @@ export async function getAppVersion(): Promise<string> {
 /** Fetches the current server version. Returns null on failure. */
 export async function getServerVersion(): Promise<string | null> {
   try {
-    const res = await fetch(`${getApiUrl()}/api/updates/current`);
-    if (!res.ok) {
-      return null;
-    }
-    const data = (await res.json()) as { version: string };
+    const data = await fetchJson<{ version: string }>(client.api.updates.current.$get());
     return data.version;
   } catch (error: unknown) {
     console.error('Failed to fetch server version:', error);
@@ -61,8 +58,7 @@ export async function applyUpdate(version: string): Promise<void> {
     await CapacitorUpdater.set({ id: bundle.id });
   } catch (error: unknown) {
     console.error('Failed to apply OTA update:', error);
-    // Clear in-progress before showing modal so the splash hides and modal is visible
-    useAppVersionStore.getState().setUpdateInProgress(false);
+    // Download or apply failed — show upgrade modal as fallback
     useAppVersionStore.getState().setUpgradeRequired(true);
   }
 }
@@ -77,10 +73,6 @@ export async function checkForUpdate(): Promise<CheckResult> {
     return { updateAvailable: false };
   }
 
-  // Signal that an update check is in progress — suppresses 426 modal
-  // and keeps the splash screen visible during the download.
-  useAppVersionStore.getState().setUpdateInProgress(true);
-
   // Notify Capgo that the current bundle booted successfully
   await CapacitorUpdater.notifyAppReady();
 
@@ -88,21 +80,17 @@ export async function checkForUpdate(): Promise<CheckResult> {
 
   // Can't check if server unreachable
   if (!serverVersion) {
-    useAppVersionStore.getState().setUpdateInProgress(false);
     return { updateAvailable: false };
   }
 
   // Skip comparison in dev
   if (serverVersion === 'dev-local') {
-    useAppVersionStore.getState().setUpdateInProgress(false);
     return { updateAvailable: false };
   }
 
   if (appVersion !== serverVersion) {
-    // Leave updateInProgress true — applyUpdate handles cleanup
     return { updateAvailable: true, serverVersion };
   }
 
-  useAppVersionStore.getState().setUpdateInProgress(false);
   return { updateAvailable: false };
 }

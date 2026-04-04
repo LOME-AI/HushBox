@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import { updatesRoute } from './updates.js';
+import { setVersionOverride, clearVersionOverride } from '../lib/version-override.js';
 import type { AppEnv } from '../types.js';
 
 async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> {
@@ -40,6 +41,21 @@ describe('GET /updates/current', () => {
     expect(res.status).toBe(200);
     const data = await jsonBody<{ version: string }>(res);
     expect(data.version).toBe('abc123');
+  });
+
+  afterEach(() => {
+    clearVersionOverride();
+  });
+
+  it('returns version override when set', async () => {
+    setVersionOverride('ota-v2');
+    const app = createTestApp({ appVersion: 'dev-local' });
+
+    const res = await app.request('/updates/current');
+
+    expect(res.status).toBe(200);
+    const data = await jsonBody<{ version: string }>(res);
+    expect(data.version).toBe('ota-v2');
   });
 
   it('returns version for dev-local', async () => {

@@ -14,13 +14,11 @@ import { useAppVersionStore } from '@/stores/app-version.js';
  */
 export function useSplashScreen(isAppStable: boolean): void {
   const upgradeRequired = useAppVersionStore((s) => s.upgradeRequired);
-  const updateInProgress = useAppVersionStore((s) => s.updateInProgress);
 
   useEffect(() => {
     if (!isNative()) return;
-    if (updateInProgress) return;
     if (!isAppStable && !upgradeRequired) return;
 
     void SplashScreen.hide();
-  }, [isAppStable, upgradeRequired, updateInProgress]);
+  }, [isAppStable, upgradeRequired]);
 }

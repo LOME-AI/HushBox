@@ -113,9 +113,7 @@ describe('mobile-test script', () => {
         '[Passed] Message list scrolls correctly (50s)',
       ].join('\n');
 
-      expect(parseFailedFlowNames(output)).toEqual([
-        'Keyboard appears and input remains visible',
-      ]);
+      expect(parseFailedFlowNames(output)).toEqual(['Keyboard appears and input remains visible']);
     });
   });
 

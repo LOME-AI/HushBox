@@ -1,14 +1,20 @@
 import { test, expect } from '../fixtures.js';
 import { setupConversationWithSidebar } from '../helpers/group-test-setup.js';
+import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 
 test.describe('Group Chat Leave', () => {
   // Each test is destructive (leaving a conversation), so each gets its own groupConversation fixture
   test('non-owner leave navigates to /chat', async ({ testBobPage, groupConversation }) => {
-    const { chatPage, sidebar } = await setupConversationWithSidebar(
-      testBobPage,
-      groupConversation.id
-    );
+    // Verify message visibility BEFORE opening sidebar — on mobile the sidebar
+    // is a modal Sheet that covers the chat, making messages invisible.
+    const chatPage = new ChatPage(testBobPage);
+    await chatPage.gotoConversation(groupConversation.id);
+    await chatPage.waitForConversationLoaded();
     await chatPage.expectMessageVisible('Hello from Alice');
+
+    const sidebar = new MemberSidebarPage(testBobPage);
+    await sidebar.openViaFacepile();
+    await sidebar.waitForLoaded();
 
     await test.step('trigger leave and verify warning', async () => {
       const bobMemberId = await sidebar.getMemberIdByUsername('test_bob');
@@ -68,11 +74,16 @@ test.describe('Group Chat Leave', () => {
   });
 
   test('cancel leave keeps user in conversation', async ({ testBobPage, groupConversation }) => {
-    const { chatPage, sidebar } = await setupConversationWithSidebar(
-      testBobPage,
-      groupConversation.id
-    );
+    // Verify message visibility BEFORE opening sidebar — on mobile the sidebar
+    // is a modal Sheet that covers the chat, making messages invisible.
+    const chatPage = new ChatPage(testBobPage);
+    await chatPage.gotoConversation(groupConversation.id);
+    await chatPage.waitForConversationLoaded();
     await chatPage.expectMessageVisible('Hello from Alice');
+
+    const sidebar = new MemberSidebarPage(testBobPage);
+    await sidebar.openViaFacepile();
+    await sidebar.waitForLoaded();
 
     const bobMemberId = await sidebar.getMemberIdByUsername('test_bob');
     await sidebar.openMemberActions(bobMemberId);

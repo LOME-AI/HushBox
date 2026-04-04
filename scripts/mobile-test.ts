@@ -416,7 +416,7 @@ export async function runMaestro(smoke: boolean): Promise<void> {
       ]
     : readdirSync(FLOW_DIR)
         .filter((f) => f.endsWith('.yaml') && f !== path.basename(OTA_FLOW))
-        .sort()
+        .toSorted((a, b) => a.localeCompare(b))
         .map((f) => `${FLOW_DIR}/${f}`);
   const args = [
     'test',
@@ -554,11 +554,24 @@ async function runMaestroOta(): Promise<void> {
       stdio: 'inherit',
     });
   } catch (error: unknown) {
-    // Dump logcat before re-throwing so we can see Capgo/WebView errors
-    console.log('\n=== Logcat dump for OTA test failure ===');
-    await execa('adb', ['-s', `localhost:${adbPort}`, 'logcat', '-d', '-t', '500'], {
-      stdio: 'inherit',
-    }).catch(() => {});
+    // Dump app-specific logcat before re-throwing so we can see Capgo/WebView errors
+    console.log('\n=== Logcat dump for OTA test failure (Capacitor + CapgoUpdater) ===');
+    await execa(
+      'adb',
+      [
+        '-s',
+        `localhost:${adbPort}`,
+        'logcat',
+        '-d',
+        '-s',
+        'Capacitor/Console:*',
+        'CapgoUpdater:*',
+        'SplashScreenView:*',
+      ],
+      { stdio: 'inherit' }
+    ).catch(() => {
+      // Ignored: logcat dump is best-effort diagnostic output
+    });
     throw error;
   }
 }

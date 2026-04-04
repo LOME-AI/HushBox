@@ -3,11 +3,13 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { ERROR_CODE_BUILD_NOT_FOUND, MOBILE_PLATFORMS } from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
+import { getVersionOverride } from '../lib/version-override.js';
 import type { AppEnv } from '../types.js';
 
 export const updatesRoute = new Hono<AppEnv>()
   .get('/current', (c) => {
-    return c.json({ version: c.env.APP_VERSION }, 200);
+    const version = getVersionOverride() ?? c.env.APP_VERSION;
+    return c.json({ version }, 200);
   })
 
   .get(
