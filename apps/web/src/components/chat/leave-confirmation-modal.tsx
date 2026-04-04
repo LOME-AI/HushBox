@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { Alert, ModalOverlay, ModalActions } from '@hushbox/ui';
+import { Alert, Overlay, ModalActions } from '@hushbox/ui';
 
 interface LeaveConfirmationModalProps {
   open: boolean;
@@ -16,7 +16,7 @@ export function LeaveConfirmationModal({
   onConfirm,
 }: Readonly<LeaveConfirmationModalProps>): React.JSX.Element {
   return (
-    <ModalOverlay open={open} onOpenChange={onOpenChange} ariaLabel="Leave Conversation">
+    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Leave Conversation">
       <div
         data-testid="leave-confirmation-modal"
         className="bg-background flex w-[90vw] max-w-md flex-col rounded-lg border p-6 shadow-lg"
@@ -53,6 +53,6 @@ export function LeaveConfirmationModal({
           }}
         />
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

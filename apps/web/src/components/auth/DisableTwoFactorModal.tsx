@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useCallback, useRef } from 'react';
-import { ModalOverlay, ModalActions } from '@hushbox/ui';
+import { Overlay, ModalActions } from '@hushbox/ui';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { useOtpVerification } from '@/hooks/use-otp-verification';
@@ -89,7 +89,7 @@ export function DisableTwoFactorModal({
   if (!open) return null;
 
   return (
-    <ModalOverlay
+    <Overlay
       open={open}
       onOpenChange={onOpenChange}
       ariaLabel="Disable two-factor authentication"
@@ -175,6 +175,6 @@ export function DisableTwoFactorModal({
           )}
         </div>
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

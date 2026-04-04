@@ -1,6 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { useQuery } from '@tanstack/react-query';
+
+vi.mock('@/lib/api', () => ({
+  getApiUrl: () => 'http://localhost:8787',
+  ApiError: class ApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public data?: unknown
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
+  },
+}));
+
 import { QueryProvider, shouldRetryQuery } from './query-provider';
 import { ApiError } from '@/lib/api';
 

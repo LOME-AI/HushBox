@@ -1,13 +1,5 @@
 import * as React from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  Input,
-  ModalActions,
-} from '@hushbox/ui';
+import { Overlay, Input, ModalActions } from '@hushbox/ui';
 import { useFormEnterNav } from '../../hooks/use-form-enter-nav.js';
 
 interface RenameConversationDialogProps {
@@ -29,12 +21,12 @@ export function RenameConversationDialog({
   useFormEnterNav(formRef);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Rename conversation</DialogTitle>
-          <DialogDescription>Enter a new name for this conversation.</DialogDescription>
-        </DialogHeader>
+    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Rename conversation dialog">
+      <div className="bg-background w-[90vw] max-w-md rounded-lg border p-6 shadow-lg">
+        <h2 className="text-lg font-semibold">Rename conversation</h2>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Enter a new name for this conversation.
+        </p>
         <form
           ref={formRef}
           onSubmit={(e) => {
@@ -66,7 +58,7 @@ export function RenameConversationDialog({
             }}
           />
         </form>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </Overlay>
   );
 }

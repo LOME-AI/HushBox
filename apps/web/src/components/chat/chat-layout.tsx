@@ -14,7 +14,7 @@ import { AddMemberModal } from '@/components/chat/add-member-modal';
 import { BudgetSettingsModal } from '@/components/chat/budget-settings-modal';
 import { InviteLinkModal } from '@/components/chat/invite-link-modal';
 import { ShareMessageModal } from '@/components/chat/share-message-modal';
-import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
+import { useVisualViewportHeight } from '@hushbox/ui';
 import { useKeyboardOffset } from '@/hooks/use-keyboard-offset';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { usePremiumModelClick } from '@/hooks/use-premium-model-click';

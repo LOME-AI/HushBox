@@ -49,8 +49,13 @@ vi.mock('@/components/shared/settled-indicator', () => ({
   SettledIndicator: () => <div data-testid="settled-indicator" />,
 }));
 
-vi.mock('@hushbox/ui', () => ({
-  Toaster: () => <div data-testid="toaster" />,
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return { ...actual, Toaster: () => <div data-testid="toaster" /> };
+});
+
+vi.mock('@/stores/touch-override', () => ({
+  useTouchOverrideStore: () => null,
 }));
 
 describe('root route', () => {

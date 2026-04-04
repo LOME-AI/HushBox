@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useState } from 'react';
 import { AlertTriangle, Search } from 'lucide-react';
-import { Alert, ModalOverlay, Input, ModalActions } from '@hushbox/ui';
+import { Alert, Overlay, Input, ModalActions } from '@hushbox/ui';
 import { MAX_CONVERSATION_MEMBERS, displayUsername } from '@hushbox/shared';
 import { CheckboxField } from '../shared/checkbox-field.js';
 import { useUserSearch } from '../../hooks/use-user-search.js';
@@ -69,7 +69,7 @@ export function AddMemberModal({
   }
 
   return (
-    <ModalOverlay open={open} onOpenChange={onOpenChange} ariaLabel="Add Member">
+    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Add Member">
       <div
         data-testid="add-member-modal"
         className="bg-background flex w-[90vw] max-w-md flex-col rounded-lg border p-6 shadow-lg"
@@ -181,6 +181,6 @@ export function AddMemberModal({
           }}
         />
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

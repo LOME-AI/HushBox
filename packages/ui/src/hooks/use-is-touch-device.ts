@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTouchDeviceOverride } from './touch-device-override-context';
 
 const TOUCH_QUERY = '(pointer: coarse)';
 
@@ -6,8 +7,13 @@ const TOUCH_QUERY = '(pointer: coarse)';
  * Hook to detect if the primary pointer is coarse (touch device).
  * Uses `(pointer: coarse)` media query — more accurate than viewport width
  * for detecting "can't hover" devices (phones, tablets).
+ *
+ * Checks TouchDeviceOverrideContext first — if non-null, returns the override.
+ * This enables dev-mode testing of touch behavior on desktop.
  */
 export function useIsTouchDevice(): boolean {
+  const override = useTouchDeviceOverride();
+
   const [isTouch, setIsTouch] = React.useState(() => {
     if (!('window' in globalThis)) return false;
     return globalThis.matchMedia(TOUCH_QUERY).matches;
@@ -26,5 +32,6 @@ export function useIsTouchDevice(): boolean {
     };
   }, []);
 
+  if (override !== null) return override;
   return isTouch;
 }

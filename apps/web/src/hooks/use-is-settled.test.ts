@@ -7,15 +7,21 @@ vi.mock('@/stores/streaming-activity', () => ({
   useStreamingActivityStore: vi.fn(),
 }));
 
+vi.mock('@/stores/decryption-activity', () => ({
+  useDecryptionActivityStore: vi.fn(),
+}));
+
 vi.mock('@/lib/auth', () => ({
   useAuthStore: vi.fn(),
 }));
 
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
+import { useDecryptionActivityStore } from '@/stores/decryption-activity';
 import { useAuthStore } from '@/lib/auth';
 import { useIsSettled } from './use-is-settled.js';
 
 const mockedUseStreamingActivityStore = vi.mocked(useStreamingActivityStore);
+const mockedUseDecryptionActivityStore = vi.mocked(useDecryptionActivityStore);
 const mockedUseAuthStore = vi.mocked(useAuthStore);
 
 function createWrapper(): React.FC<{ children: React.ReactNode }> {
@@ -32,6 +38,7 @@ describe('useIsSettled', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockedUseStreamingActivityStore.mockReturnValue(0);
+    mockedUseDecryptionActivityStore.mockReturnValue(0);
     mockedUseAuthStore.mockReturnValue(false);
   });
 
@@ -145,6 +152,40 @@ describe('useIsSettled', () => {
     });
 
     expect(result.current).toBe(false);
+  });
+
+  it('returns false when decryptions are pending', () => {
+    mockedUseDecryptionActivityStore.mockReturnValue(1);
+
+    const { result } = renderHook(() => useIsSettled(), { wrapper: createWrapper() });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(result.current).toBe(false);
+  });
+
+  it('transitions from false to true when decryptions complete', () => {
+    mockedUseDecryptionActivityStore.mockReturnValue(1);
+
+    const { result, rerender } = renderHook(() => useIsSettled(), {
+      wrapper: createWrapper(),
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(result.current).toBe(false);
+
+    mockedUseDecryptionActivityStore.mockReturnValue(0);
+    rerender();
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(result.current).toBe(true);
   });
 
   it('returns false when both auth loading and streams active', () => {

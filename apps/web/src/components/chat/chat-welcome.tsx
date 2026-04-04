@@ -12,7 +12,7 @@ import { useModelStore, type SelectedModelEntry } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
 import { useSelectedModelCapabilities } from '@/hooks/use-selected-model-capabilities';
 import { useStableBalance } from '@/hooks/use-stable-balance';
-import { useVisualViewportHeight } from '@/hooks/use-visual-viewport-height';
+import { useVisualViewportHeight } from '@hushbox/ui';
 import type { FundingSource } from '@hushbox/shared';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 

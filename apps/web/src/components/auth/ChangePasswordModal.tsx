@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useCallback, useMemo, useRef } from 'react';
-import { Alert, ModalOverlay, ModalActions } from '@hushbox/ui';
+import { Alert, Overlay, ModalActions } from '@hushbox/ui';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
@@ -88,7 +88,7 @@ export function ChangePasswordModal({
   if (!open) return null;
 
   return (
-    <ModalOverlay
+    <Overlay
       open={open}
       onOpenChange={onOpenChange}
       ariaLabel="Change password"
@@ -163,6 +163,6 @@ export function ChangePasswordModal({
           </form>
         </div>
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { ModalOverlay, ModalActions, Input } from '@hushbox/ui';
+import { Overlay, ModalActions, Input } from '@hushbox/ui';
 import { Copy, Check, AlertTriangle } from 'lucide-react';
 import { regenerateRecoveryPhrase } from '@hushbox/crypto';
 import { toBase64 } from '@hushbox/shared';
@@ -216,7 +216,7 @@ export function RecoveryPhraseModal({
   const showBackButton = step === 'verify';
 
   return (
-    <ModalOverlay
+    <Overlay
       open={open}
       onOpenChange={onOpenChange}
       ariaLabel="Recovery phrase setup"
@@ -266,7 +266,7 @@ export function RecoveryPhraseModal({
           />
         )}
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }
 

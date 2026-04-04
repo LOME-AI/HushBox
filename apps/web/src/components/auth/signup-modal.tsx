@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ModalOverlay, ModalActions } from '@hushbox/ui';
+import { Overlay, ModalActions } from '@hushbox/ui';
 import { ROUTES } from '@hushbox/shared';
 
 type SignupModalVariant = 'premium' | 'multi-model';
@@ -80,7 +80,7 @@ export function SignupModal({
   if (!open) return null;
 
   return (
-    <ModalOverlay open={open} onOpenChange={onOpenChange} ariaLabel={config.ariaLabel}>
+    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel={config.ariaLabel}>
       <div
         data-testid={config.testId}
         className="bg-background w-[90vw] max-w-md rounded-lg border p-6 shadow-lg"
@@ -98,6 +98,6 @@ export function SignupModal({
           }}
         />
       </div>
-    </ModalOverlay>
+    </Overlay>
   );
 }

@@ -2,10 +2,12 @@ import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { DropdownMenuItem, DropdownMenuSeparator } from '@hushbox/ui';
 import {
+  Check,
   Database,
   ExternalLink as ExternalLinkIcon,
   Image,
   Mail,
+  Smartphone,
   User,
   Settings,
   CreditCard,
@@ -20,6 +22,7 @@ import { FEATURE_FLAGS, displayUsername, ROUTES } from '@hushbox/shared';
 import { ExternalPageLink } from '@/components/shared/external-page-link';
 
 import { useUIStore } from '@/stores/ui';
+import { useTouchOverrideStore } from '@/stores/touch-override';
 import { useSession, signOutAndClearCache } from '@/lib/auth';
 import { useStableBalance } from '@/hooks/use-stable-balance';
 import { DRIZZLE_STUDIO_URL } from '@/lib/routes';
@@ -52,6 +55,9 @@ function MarketingMenuItem(): React.JSX.Element {
 function DevMenuItems({
   navigate,
 }: Readonly<{ navigate: ReturnType<typeof useNavigate> }>): React.JSX.Element {
+  const touchOverride = useTouchOverrideStore((state) => state.override);
+  const toggleTouch = useTouchOverrideStore((state) => state.toggle);
+
   return (
     <DevOnly>
       <DropdownMenuSeparator />
@@ -87,6 +93,17 @@ function DevMenuItems({
           <Database className="mr-2 h-4 w-4" />
           Database Studio
         </a>
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={(e) => {
+          e.preventDefault();
+          toggleTouch();
+        }}
+        data-testid="menu-touch-mode"
+      >
+        <Smartphone className="mr-2 h-4 w-4" />
+        Touch Mode
+        {touchOverride === true && <Check className="ml-auto h-4 w-4" />}
       </DropdownMenuItem>
     </DevOnly>
   );

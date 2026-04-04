@@ -1,12 +1,5 @@
 import * as React from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  ModalActions,
-} from '@hushbox/ui';
+import { Overlay, ModalActions } from '@hushbox/ui';
 
 interface DeleteConversationDialogProps {
   open: boolean;
@@ -22,14 +15,12 @@ export function DeleteConversationDialog({
   onConfirm,
 }: Readonly<DeleteConversationDialogProps>): React.JSX.Element {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Delete conversation?</DialogTitle>
-          <DialogDescription>
-            This will permanently delete &quot;{title}&quot;. This action cannot be undone.
-          </DialogDescription>
-        </DialogHeader>
+    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Delete conversation dialog">
+      <div className="bg-background w-[90vw] max-w-md rounded-lg border p-6 shadow-lg">
+        <h2 className="text-lg font-semibold">Delete conversation?</h2>
+        <p className="text-muted-foreground mt-1 text-sm">
+          This will permanently delete &quot;{title}&quot;. This action cannot be undone.
+        </p>
         <ModalActions
           cancel={{
             label: 'Cancel',
@@ -45,7 +36,7 @@ export function DeleteConversationDialog({
             testId: 'confirm-delete-button',
           }}
         />
-      </DialogContent>
-    </Dialog>
+      </div>
+    </Overlay>
   );
 }
