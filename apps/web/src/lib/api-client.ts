@@ -47,7 +47,7 @@ export async function fetchJson<T>(responsePromise: Promise<Response>): Promise<
       typeof (body as Record<string, unknown>)['code'] === 'string'
         ? ((body as Record<string, unknown>)['code'] as string)
         : 'INTERNAL';
-    if (res.status === 426) {
+    if (res.status === 426 && !useAppVersionStore.getState().updateInProgress) {
       useAppVersionStore.getState().setUpgradeRequired(true);
     }
     throw new ApiError(code, res.status, body);

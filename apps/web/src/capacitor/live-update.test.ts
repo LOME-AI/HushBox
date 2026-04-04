@@ -10,6 +10,7 @@ const {
   mockSet,
   mockNotifyAppReady,
   mockSetUpgradeRequired,
+  mockSetUpdateInProgress,
 } = vi.hoisted(() => ({
   mockIsNative: vi.fn(() => false),
   mockGetPlatform: vi.fn(() => 'web'),
@@ -19,6 +20,7 @@ const {
   mockSet: vi.fn(),
   mockNotifyAppReady: vi.fn(),
   mockSetUpgradeRequired: vi.fn(),
+  mockSetUpdateInProgress: vi.fn(),
 }));
 
 vi.mock('./platform.js', () => ({
@@ -43,6 +45,7 @@ vi.mock('@/stores/app-version.js', () => ({
   useAppVersionStore: {
     getState: () => ({
       setUpgradeRequired: mockSetUpgradeRequired,
+      setUpdateInProgress: mockSetUpdateInProgress,
     }),
   },
 }));
@@ -184,6 +187,18 @@ describe('live-update', () => {
       expect(mockSetUpgradeRequired).toHaveBeenCalledWith(true);
       expect(mockSet).not.toHaveBeenCalled();
     });
+
+    it('clears updateInProgress before setting upgradeRequired on failure', async () => {
+      mockIsNative.mockReturnValue(true);
+      mockDownload.mockRejectedValue(new Error('Download failed'));
+
+      await applyUpdate('1.2.3');
+
+      const progressCall = mockSetUpdateInProgress.mock.invocationCallOrder[0]!;
+      const upgradeCall = mockSetUpgradeRequired.mock.invocationCallOrder[0]!;
+      expect(mockSetUpdateInProgress).toHaveBeenCalledWith(false);
+      expect(progressCall).toBeLessThan(upgradeCall);
+    });
   });
 
   describe('checkForUpdate', () => {
@@ -194,9 +209,10 @@ describe('live-update', () => {
 
       expect(result).toEqual({ updateAvailable: false });
       expect(mockFetch).not.toHaveBeenCalled();
+      expect(mockSetUpdateInProgress).not.toHaveBeenCalled();
     });
 
-    it('notifies app ready and returns no update when versions match', async () => {
+    it('sets updateInProgress true at start and false when versions match', async () => {
       mockIsNative.mockReturnValue(true);
       mockCurrent.mockResolvedValue({
         bundle: { version: 'abc123', id: 'some-id', downloaded: '', checksum: '', status: 'set' },
@@ -211,9 +227,11 @@ describe('live-update', () => {
 
       expect(result).toEqual({ updateAvailable: false });
       expect(mockNotifyAppReady).toHaveBeenCalled();
+      expect(mockSetUpdateInProgress).toHaveBeenCalledWith(true);
+      expect(mockSetUpdateInProgress).toHaveBeenCalledWith(false);
     });
 
-    it('notifies app ready and returns update info when versions differ', async () => {
+    it('sets updateInProgress true and leaves it true when update is available', async () => {
       mockIsNative.mockReturnValue(true);
       mockCurrent.mockResolvedValue({
         bundle: {
@@ -237,9 +255,11 @@ describe('live-update', () => {
         serverVersion: 'new-version',
       });
       expect(mockNotifyAppReady).toHaveBeenCalled();
+      expect(mockSetUpdateInProgress).toHaveBeenCalledWith(true);
+      expect(mockSetUpdateInProgress).not.toHaveBeenCalledWith(false);
     });
 
-    it('skips version check when server version is dev-local', async () => {
+    it('clears updateInProgress when server version is dev-local', async () => {
       mockIsNative.mockReturnValue(true);
       mockCurrent.mockResolvedValue({
         bundle: { version: '1.0.0', id: 'some-id', downloaded: '', checksum: '', status: 'set' },
@@ -253,9 +273,10 @@ describe('live-update', () => {
       const result = await checkForUpdate();
 
       expect(result).toEqual({ updateAvailable: false });
+      expect(mockSetUpdateInProgress).toHaveBeenCalledWith(false);
     });
 
-    it('returns no update when server version fetch fails', async () => {
+    it('clears updateInProgress when server version fetch fails', async () => {
       mockIsNative.mockReturnValue(true);
       mockCurrent.mockResolvedValue({
         bundle: { version: '1.0.0', id: 'some-id', downloaded: '', checksum: '', status: 'set' },
@@ -267,6 +288,7 @@ describe('live-update', () => {
 
       expect(result).toEqual({ updateAvailable: false });
       expect(mockNotifyAppReady).toHaveBeenCalled();
+      expect(mockSetUpdateInProgress).toHaveBeenCalledWith(false);
     });
   });
 });

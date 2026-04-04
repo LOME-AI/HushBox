@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useState, useRef } from 'react';
 import { AlertTriangle, Link as LinkIcon } from 'lucide-react';
-import { Alert, Overlay, ModalActions, Input } from '@hushbox/ui';
+import { Alert, Overlay, OverlayContent, OverlayHeader, ModalActions, Input } from '@hushbox/ui';
 import { CheckboxField } from '../shared/checkbox-field.js';
 import { createSharedLink } from '@hushbox/crypto';
 import { fromBase64, toBase64, MAX_CONVERSATION_MEMBERS } from '@hushbox/shared';
@@ -106,101 +106,102 @@ export function InviteLinkModal({
 
   return (
     <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Invite via Link">
-      <div
-        data-testid="invite-link-modal"
-        className="bg-background flex w-[90vw] max-w-md flex-col rounded-lg border p-6 shadow-lg"
-      >
-        <h2 className="mb-4 text-lg font-semibold">Invite via Link</h2>
+      <OverlayContent data-testid="invite-link-modal" size="md">
+        <OverlayHeader title="Invite via Link" />
 
         {generatedUrl === null ? (
-          <form
-            ref={formRef}
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleGenerate();
-            }}
-          >
-            <p className="text-muted-foreground mb-3 text-sm">
-              Create a link for someone without a HushBox account to access this conversation.
-            </p>
+          <>
+            <form
+              id="invite-link-form"
+              ref={formRef}
+              className="flex flex-col gap-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleGenerate();
+              }}
+            >
+              <p className="text-muted-foreground text-sm">
+                Create a link for someone without a HushBox account to access this conversation.
+              </p>
 
-            {atCapacity && (
-              <Alert className="mb-4">
+              {atCapacity && (
+                <Alert>
+                  <AlertTriangle />
+                  <span>
+                    This conversation has reached the maximum of {MAX_CONVERSATION_MEMBERS} members.
+                  </span>
+                </Alert>
+              )}
+
+              {/* Warning */}
+              <Alert data-testid="invite-link-warning">
                 <AlertTriangle />
                 <span>
-                  This conversation has reached the maximum of {MAX_CONVERSATION_MEMBERS} members.
+                  Anyone with this link can decrypt the entire conversation. Only share it with
+                  people you trust.
                 </span>
               </Alert>
-            )}
 
-            {/* Warning */}
-            <Alert data-testid="invite-link-warning" className="mb-4">
-              <AlertTriangle />
-              <span>
-                Anyone with this link can decrypt the entire conversation. Only share it with people
-                you trust.
-              </span>
-            </Alert>
+              {/* Permission selector */}
+              <div>
+                <label
+                  htmlFor="invite-privilege-select"
+                  className="text-muted-foreground mb-1 block text-xs font-medium uppercase"
+                >
+                  Permission
+                </label>
+                <select
+                  id="invite-privilege-select"
+                  data-testid="invite-link-privilege-select"
+                  value={privilege}
+                  onChange={(e) => {
+                    setPrivilege(e.target.value);
+                  }}
+                  className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                >
+                  <option value="read">Read</option>
+                  <option value="write">Write</option>
+                </select>
+              </div>
 
-            {/* Permission selector */}
-            <div className="mb-3">
-              <label
-                htmlFor="invite-privilege-select"
-                className="text-muted-foreground mb-1 block text-xs font-medium uppercase"
-              >
-                Permission
-              </label>
-              <select
-                id="invite-privilege-select"
-                data-testid="invite-link-privilege-select"
-                value={privilege}
-                onChange={(e) => {
-                  setPrivilege(e.target.value);
-                }}
-                className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
-              >
-                <option value="read">Read</option>
-                <option value="write">Write</option>
-              </select>
-            </div>
+              {/* History checkbox */}
+              <div>
+                <CheckboxField
+                  id="invite-history-checkbox"
+                  checked={includeHistory}
+                  onCheckedChange={setIncludeHistory}
+                  label="Give access to all history"
+                  description="Leaving this unchecked will only show messages from now on"
+                  testId="invite-link-history-checkbox"
+                />
+              </div>
 
-            {/* History checkbox */}
-            <div className="mb-3">
-              <CheckboxField
-                id="invite-history-checkbox"
-                checked={includeHistory}
-                onCheckedChange={setIncludeHistory}
-                label="Give access to all history"
-                description="Leaving this unchecked will only show messages from now on"
-                testId="invite-link-history-checkbox"
-              />
-            </div>
+              {/* Guest name input */}
+              <div>
+                <label
+                  htmlFor="invite-name-input"
+                  className="text-muted-foreground mb-1 block text-xs font-medium uppercase"
+                >
+                  Guest name (optional)
+                </label>
+                <Input
+                  id="invite-name-input"
+                  data-testid="invite-link-name-input"
+                  type="text"
+                  placeholder="This can be changed later"
+                  value={guestName}
+                  onChange={(e) => {
+                    setGuestName(e.target.value);
+                  }}
+                />
+              </div>
 
-            {/* Guest name input */}
-            <div className="mb-4">
-              <label
-                htmlFor="invite-name-input"
-                className="text-muted-foreground mb-1 block text-xs font-medium uppercase"
-              >
-                Guest name (optional)
-              </label>
-              <Input
-                id="invite-name-input"
-                data-testid="invite-link-name-input"
-                type="text"
-                placeholder="This can be changed later"
-                value={guestName}
-                onChange={(e) => {
-                  setGuestName(e.target.value);
-                }}
-              />
-            </div>
-
-            {privilege === 'write' && (
-              <p className="text-muted-foreground mb-4 text-xs">
-                To let link guests send messages, allocate them a budget in Budget Settings.
-              </p>
-            )}
+              {privilege === 'write' && (
+                <p className="text-muted-foreground text-xs">
+                  To let link guests send messages, allocate them a budget in Budget Settings.
+                </p>
+              )}
+            </form>
 
             {/* Action buttons */}
             <ModalActions
@@ -211,6 +212,7 @@ export function InviteLinkModal({
               }}
               primary={{
                 label: 'Generate Link',
+                form: 'invite-link-form',
                 onClick: () => {
                   void handleGenerate();
                 },
@@ -218,10 +220,10 @@ export function InviteLinkModal({
                 testId: 'invite-link-generate-button',
               }}
             />
-          </form>
+          </>
         ) : (
           <>
-            <div className="mb-4 flex items-center gap-2 text-sm text-green-600">
+            <div className="flex items-center gap-2 text-sm text-green-600">
               <LinkIcon className="h-4 w-4" />
               <span>Link created! You can manage or revoke it from the member list.</span>
             </div>
@@ -229,7 +231,7 @@ export function InviteLinkModal({
             {/* Generated URL */}
             <div
               data-testid="invite-link-url"
-              className="bg-muted mb-4 overflow-hidden rounded-md p-3 text-xs break-all"
+              className="bg-muted overflow-hidden rounded-md p-3 text-xs break-all"
             >
               {generatedUrl}
             </div>
@@ -255,7 +257,7 @@ export function InviteLinkModal({
             />
           </>
         )}
-      </div>
+      </OverlayContent>
     </Overlay>
   );
 }

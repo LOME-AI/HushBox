@@ -148,6 +148,30 @@ describe('OverlayBottomSheet', () => {
     expect(screen.getByTestId('overlay-content')).toHaveAttribute('data-slot', 'overlay-content');
   });
 
+  it('close button has data-slot="overlay-close" for E2E selector parity', () => {
+    render(
+      <OverlayBottomSheet open={true} onOpenChange={vi.fn()} ariaLabel="Test sheet">
+        <div>Sheet content</div>
+      </OverlayBottomSheet>
+    );
+
+    const closeButton = screen.getByRole('button', { name: /close/i });
+    expect(closeButton).toHaveAttribute('data-slot', 'overlay-close');
+  });
+
+  it('has data-overlay-variant="bottom-sheet" on content', () => {
+    render(
+      <OverlayBottomSheet open={true} onOpenChange={vi.fn()} ariaLabel="Test sheet">
+        <div>Sheet content</div>
+      </OverlayBottomSheet>
+    );
+
+    expect(screen.getByTestId('overlay-content')).toHaveAttribute(
+      'data-overlay-variant',
+      'bottom-sheet'
+    );
+  });
+
   it('has blur effect on overlay', () => {
     render(
       <OverlayBottomSheet open={true} onOpenChange={vi.fn()} ariaLabel="Test sheet">
@@ -157,6 +181,19 @@ describe('OverlayBottomSheet', () => {
 
     const overlay = screen.getByTestId('overlay-backdrop');
     expect(overlay).toHaveClass('backdrop-blur-sm');
+  });
+
+  it('constrains child max-height to prevent overflow', () => {
+    render(
+      <OverlayBottomSheet open={true} onOpenChange={vi.fn()} ariaLabel="Test sheet">
+        <div>Sheet content</div>
+      </OverlayBottomSheet>
+    );
+
+    const content = screen.getByTestId('overlay-content');
+    // The children wrapper applies max-h-full to direct children
+    const childrenWrapper = content.querySelector('[class*="max-h-full"]');
+    expect(childrenWrapper).toBeInTheDocument();
   });
 
   it('applies bottom sheet positioning', () => {

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useCallback, useRef } from 'react';
-import { Overlay, ModalActions } from '@hushbox/ui';
+import { Overlay, OverlayContent, OverlayHeader, ModalActions } from '@hushbox/ui';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { useOtpVerification } from '@/hooks/use-otp-verification';
@@ -97,84 +97,77 @@ export function DisableTwoFactorModal({
       currentStep={step === 'password' ? 1 : 2}
       {...(step === 'code' && { onBack: handleBack })}
     >
-      <div
-        data-testid="disable-two-factor-modal"
-        className="bg-background w-[75vw] max-w-md rounded-lg border p-6 shadow-lg"
-      >
-        <div className="space-y-4">
-          {step === 'password' ? (
+      <OverlayContent data-testid="disable-two-factor-modal" className="w-[75vw]">
+        {step === 'password' ? (
+          <>
+            <OverlayHeader
+              title="Disable Two-Factor Authentication"
+              description="Enter your password to confirm. This will remove the extra security layer from your account."
+            />
+
             <form
+              id="disable-2fa-password-form"
               ref={formRef}
               onSubmit={(e) => {
                 e.preventDefault();
                 void handlePasswordSubmit();
               }}
             >
-              <div className="space-y-4">
-                <div>
-                  <h2 className="text-lg font-semibold">Disable Two-Factor Authentication</h2>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    Enter your password to confirm. This will remove the extra security layer from
-                    your account.
-                  </p>
-                </div>
-
-                <AuthPasswordInput
-                  id="current-password"
-                  label="Current Password"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                  }}
-                />
-
-                {passwordError && <p className="text-destructive text-sm">{passwordError}</p>}
-
-                <ModalActions
-                  primary={{
-                    label: 'Continue',
-                    onClick: () => {
-                      void handlePasswordSubmit();
-                    },
-                    disabled: password.length === 0,
-                    loading: isPasswordSubmitting,
-                    loadingLabel: 'Verifying...',
-                  }}
-                />
-              </div>
-            </form>
-          ) : (
-            <>
-              <div>
-                <h2 className="text-lg font-semibold">Enter Verification Code</h2>
-                <p className="text-muted-foreground mt-1 text-sm">
-                  Enter the 6-digit code from your authenticator app to confirm.
-                </p>
-              </div>
-
-              <OtpInput
-                value={otpValue}
-                onChange={setOtpValue}
-                onComplete={handleComplete}
-                error={otpError}
-              />
-
-              <ModalActions
-                primary={{
-                  label: 'Disable 2FA',
-                  variant: 'destructive',
-                  onClick: () => {
-                    handleVerify();
-                  },
-                  disabled: otpValue.length !== 6,
-                  loading: isVerifying,
-                  loadingLabel: 'Disabling...',
+              <AuthPasswordInput
+                id="current-password"
+                label="Current Password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
                 }}
               />
-            </>
-          )}
-        </div>
-      </div>
+            </form>
+
+            {passwordError && <p className="text-destructive text-sm">{passwordError}</p>}
+
+            <ModalActions
+              primary={{
+                label: 'Continue',
+                type: 'submit',
+                form: 'disable-2fa-password-form',
+                onClick: () => {
+                  /* handled by form submit */
+                },
+                disabled: password.length === 0,
+                loading: isPasswordSubmitting,
+                loadingLabel: 'Verifying...',
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <OverlayHeader
+              title="Enter Verification Code"
+              description="Enter the 6-digit code from your authenticator app to confirm."
+            />
+
+            <OtpInput
+              value={otpValue}
+              onChange={setOtpValue}
+              onComplete={handleComplete}
+              error={otpError}
+            />
+
+            <ModalActions
+              primary={{
+                label: 'Disable 2FA',
+                variant: 'destructive',
+                onClick: () => {
+                  handleVerify();
+                },
+                disabled: otpValue.length !== 6,
+                loading: isVerifying,
+                loadingLabel: 'Disabling...',
+              }}
+            />
+          </>
+        )}
+      </OverlayContent>
     </Overlay>
   );
 }

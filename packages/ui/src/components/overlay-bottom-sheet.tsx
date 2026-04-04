@@ -64,10 +64,10 @@ function OverlayBottomSheet({
     };
   }, [open]);
 
-  // When the keyboard is open, visualViewport shrinks below the CSS 85dvh.
+  // When the keyboard is open, visualViewport shrinks below the CSS 90dvh.
   // Apply a JS override only in that case; otherwise let CSS dvh handle it.
   const isKeyboardOpen = viewportHeight < window.innerHeight * 0.8;
-  const keyboardStyle = isKeyboardOpen ? { maxHeight: viewportHeight * 0.85 } : undefined;
+  const keyboardStyle = isKeyboardOpen ? { maxHeight: viewportHeight * 0.9 } : undefined;
 
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange}>
@@ -83,8 +83,9 @@ function OverlayBottomSheet({
         <Drawer.Content
           data-slot="overlay-content"
           data-testid="overlay-content"
+          data-overlay-variant="bottom-sheet"
           className={cn(
-            'bg-background fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] flex-col rounded-t-xl outline-none',
+            'bg-background fixed inset-x-0 bottom-0 z-50 flex max-h-[90dvh] flex-col rounded-t-xl outline-none',
             className
           )}
           style={keyboardStyle}
@@ -108,7 +109,7 @@ function OverlayBottomSheet({
               onBack={onBack}
               closeElement={
                 showCloseButton ? (
-                  <Drawer.Close className={CLOSE_BUTTON_CLASS}>
+                  <Drawer.Close data-slot="overlay-close" className={CLOSE_BUTTON_CLASS}>
                     <XIcon />
                     <span className="sr-only">Close</span>
                   </Drawer.Close>
@@ -116,7 +117,7 @@ function OverlayBottomSheet({
               }
             />
             {/* Child content — full-width override for children that set their own w-[90vw] */}
-            <div className="size-full [&>*]:w-full [&>*]:max-w-none [&>*]:rounded-none [&>*]:border-x-0 [&>*]:border-b-0 [&>*]:shadow-none">
+            <div className="size-full [&>*]:max-h-full [&>*]:w-full [&>*]:max-w-none [&>*]:rounded-none [&>*]:border-x-0 [&>*]:border-b-0 [&>*]:shadow-none">
               {children}
             </div>
           </div>

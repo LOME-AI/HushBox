@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useCallback, useMemo, useRef } from 'react';
-import { Alert, Overlay, ModalActions } from '@hushbox/ui';
+import { Alert, Overlay, OverlayContent, OverlayHeader, ModalActions } from '@hushbox/ui';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
@@ -94,75 +94,72 @@ export function ChangePasswordModal({
       ariaLabel="Change password"
       onOpenAutoFocus={handleOpenAutoFocus}
     >
-      <div
-        data-testid="change-password-modal"
-        className="bg-background w-[75vw] max-w-md rounded-lg border p-6 shadow-lg"
-      >
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold">Change Password</h2>
-            <p className="text-muted-foreground mt-1 text-sm">
-              Enter your current password and choose a new one.
-            </p>
-          </div>
+      <OverlayContent data-testid="change-password-modal" className="w-[75vw]">
+        <OverlayHeader
+          title="Change Password"
+          description="Enter your current password and choose a new one."
+        />
 
-          {error && <Alert>{error}</Alert>}
+        {error && <Alert>{error}</Alert>}
 
-          <form
-            ref={formRef}
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleSubmit();
-            }}
-          >
-            <div className="space-y-4">
-              <AuthPasswordInput
-                id="current-password"
-                label="Current Password"
-                value={currentPassword}
-                onChange={(e) => {
-                  setCurrentPassword(e.target.value);
-                }}
-              />
-
-              <AuthPasswordInput
-                id="new-password"
-                label="New Password"
-                value={newPassword}
-                onChange={(e) => {
-                  setNewPassword(e.target.value);
-                }}
-                showStrength
-                error={
-                  passwordLongEnough
-                    ? undefined
-                    : `Password must be at least ${String(MIN_PASSWORD_LENGTH)} characters`
-                }
-              />
-
-              <AuthPasswordInput
-                id="confirm-password"
-                label="Confirm New Password"
-                value={confirmPassword}
-                onChange={(e) => {
-                  setConfirmPassword(e.target.value);
-                }}
-                error={passwordsMatch ? undefined : 'Passwords do not match'}
-              />
-            </div>
-
-            <ModalActions
-              primary={{
-                label: 'Change Password',
-                onClick: () => void handleSubmit(),
-                disabled: !isValid,
-                loading: isSubmitting,
-                loadingLabel: 'Changing...',
+        <form
+          id="change-password-form"
+          ref={formRef}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSubmit();
+          }}
+        >
+          <div className="space-y-4">
+            <AuthPasswordInput
+              id="current-password"
+              label="Current Password"
+              value={currentPassword}
+              onChange={(e) => {
+                setCurrentPassword(e.target.value);
               }}
             />
-          </form>
-        </div>
-      </div>
+
+            <AuthPasswordInput
+              id="new-password"
+              label="New Password"
+              value={newPassword}
+              onChange={(e) => {
+                setNewPassword(e.target.value);
+              }}
+              showStrength
+              error={
+                passwordLongEnough
+                  ? undefined
+                  : `Password must be at least ${String(MIN_PASSWORD_LENGTH)} characters`
+              }
+            />
+
+            <AuthPasswordInput
+              id="confirm-password"
+              label="Confirm New Password"
+              value={confirmPassword}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+              }}
+              error={passwordsMatch ? undefined : 'Passwords do not match'}
+            />
+          </div>
+        </form>
+        <ModalActions
+          primary={{
+            label: 'Change Password',
+            type: 'submit',
+            form: 'change-password-form',
+            onClick: () => {
+              /* handled by form submit */
+            },
+            disabled: !isValid,
+            loading: isSubmitting,
+            loadingLabel: 'Changing...',
+          }}
+        />
+      </OverlayContent>
     </Overlay>
   );
 }

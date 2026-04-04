@@ -20,6 +20,8 @@ export interface ModalActionButton {
   icon?: React.ReactNode;
   /** HTML button type. Defaults to 'button'. Use 'submit' for form buttons. */
   type?: 'button' | 'submit';
+  /** HTML form attribute — links this button to a form by id, even outside the form element. */
+  form?: string;
   /** data-testid for the button. */
   testId?: string;
 }
@@ -50,6 +52,7 @@ function renderButton(
       onClick={config.onClick}
       disabled={isDisabled}
       type={config.type ?? 'button'}
+      {...(config.form !== undefined && { form: config.form })}
       {...(config.testId !== undefined && { 'data-testid': config.testId })}
     >
       {isLoading ? (

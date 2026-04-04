@@ -76,6 +76,8 @@ export { toast } from 'sonner';
 export { Label } from './components/label';
 export { Checkbox } from './components/checkbox';
 export { Overlay, type OverlayProps } from './components/overlay';
+export { OverlayContent, type OverlayContentProps } from './components/overlay-content';
+export { OverlayHeader, type OverlayHeaderProps } from './components/overlay-header';
 export {
   ModalActions,
   type ModalActionsProps,
@@ -115,7 +117,7 @@ export {
 
 // Hooks
 export { useVisualViewportHeight } from './hooks/use-visual-viewport-height';
-export { useIsTouchDevice } from './hooks/use-is-touch-device';
+export { useIsTouchDevice, TOUCH_QUERY } from './hooks/use-is-touch-device';
 export {
   TouchDeviceOverrideContext,
   useTouchDeviceOverride,

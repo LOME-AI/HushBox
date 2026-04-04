@@ -219,6 +219,22 @@ describe('ModalActions', () => {
     });
   });
 
+  describe('form', () => {
+    it('passes form attribute to the button', () => {
+      render(
+        <ModalActions
+          primary={{ label: 'Save', onClick: vi.fn(), type: 'submit', form: 'my-form' }}
+        />
+      );
+      expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute('form', 'my-form');
+    });
+
+    it('does not render form attribute when not specified', () => {
+      render(<ModalActions primary={{ label: 'Save', onClick: vi.fn() }} />);
+      expect(screen.getByRole('button', { name: 'Save' })).not.toHaveAttribute('form');
+    });
+  });
+
   describe('className', () => {
     it('applies className to container in two-button mode', () => {
       const { container } = render(

@@ -164,7 +164,7 @@ export class MemberSidebarPage {
 
     // Wait for any overlapping modal to fully close before dismissing the sheet
     await this.page
-      .locator('[data-slot="modal-overlay-content"]')
+      .locator('[data-slot="overlay-content"]')
       .waitFor({ state: 'hidden', timeout: 3000 })
       // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentional swallow
       .catch(() => {});

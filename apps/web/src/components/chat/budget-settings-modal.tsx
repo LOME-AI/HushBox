@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useMemo, useRef } from 'react';
-import { Overlay, ModalActions, Input } from '@hushbox/ui';
+import { Overlay, OverlayContent, OverlayHeader, ModalActions, Input } from '@hushbox/ui';
 import { displayUsername } from '@hushbox/shared';
 import {
   useConversationBudgets,
@@ -118,7 +118,9 @@ function BudgetContent({
   if (formRef && onSubmit) {
     return (
       <form
+        id="budget-settings-form"
         ref={formRef}
+        className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           onSubmit();
@@ -301,14 +303,14 @@ export function BudgetSettingsModal({
 
   return (
     <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Budget Settings">
-      <div
+      <OverlayContent
         data-testid="budget-settings-modal"
-        className="bg-background flex w-[90vw] max-w-lg flex-col rounded-lg border p-6 shadow-lg"
+        size="lg"
       >
-        <h2 className="text-lg font-semibold">Budget Settings</h2>
-        <p className="text-muted-foreground mb-4 text-xs">
-          The owner can fund AI usage for members. When exhausted, members use their own balance.
-        </p>
+        <OverlayHeader
+          title="Budget Settings"
+          description="The owner can fund AI usage for members. When exhausted, members use their own balance."
+        />
 
         {isLoading || !budgetData ? (
           <div
@@ -318,78 +320,80 @@ export function BudgetSettingsModal({
             Loading budgets...
           </div>
         ) : (
-          <BudgetContent
-            {...(isOwner && { formRef })}
-            {...(isOwner && {
-              onSubmit: () => {
-                void handleSave();
-              },
-            })}
-          >
-            {/* Conversation */}
-            <div
-              data-testid="budget-conversation-section"
-              className="mb-4 overflow-y-auto pr-2 [scrollbar-gutter:stable]"
+          <>
+            <BudgetContent
+              {...(isOwner && { formRef })}
+              {...(isOwner && {
+                onSubmit: () => {
+                  void handleSave();
+                },
+              })}
             >
-              <span className="text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase">
-                Conversation
-              </span>
-              <BudgetRow
-                label="Funding limit"
-                budgetValue={currentConvBudget}
-                spentValue={formatDollars(budgetData.totalSpent)}
-                isEditable={isOwner}
-                onChange={(value) => {
-                  setEditedConvBudget(value);
-                }}
-                inputTestId={isOwner ? 'budget-conversation-input' : 'budget-conversation-value'}
-                spentTestId="budget-total-spent"
-              />
-            </div>
+              {/* Conversation */}
+              <div
+                data-testid="budget-conversation-section"
+                className="overflow-y-auto pr-2 [scrollbar-gutter:stable]"
+              >
+                <span className="text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase">
+                  Conversation
+                </span>
+                <BudgetRow
+                  label="Funding limit"
+                  budgetValue={currentConvBudget}
+                  spentValue={formatDollars(budgetData.totalSpent)}
+                  isEditable={isOwner}
+                  onChange={(value) => {
+                    setEditedConvBudget(value);
+                  }}
+                  inputTestId={isOwner ? 'budget-conversation-input' : 'budget-conversation-value'}
+                  spentTestId="budget-total-spent"
+                />
+              </div>
 
-            {budgetData.memberBudgets.length > 0 && (
-              <>
-                {/* Members */}
-                <div className="mb-4">
-                  <span className="text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase">
-                    Members
-                  </span>
-                  <div
-                    data-testid="budget-members-list"
-                    className="max-h-60 space-y-1 overflow-y-auto pr-2 [scrollbar-gutter:stable]"
-                  >
-                    {budgetData.memberBudgets.map((mb) => (
-                      <BudgetRow
-                        key={mb.memberId}
-                        label={getMemberName(mb)}
-                        budgetValue={currentValues[mb.memberId] ?? formatDollars(mb.budget)}
-                        spentValue={formatDollars(mb.spent)}
-                        isEditable={isOwner}
-                        onChange={(value) => {
-                          handleInputChange(mb.memberId, value);
-                        }}
-                        inputTestId={
-                          isOwner ? `budget-input-${mb.memberId}` : `budget-value-${mb.memberId}`
-                        }
-                        spentTestId="budget-spent"
-                        rowTestId={`budget-member-${mb.memberId}`}
-                      />
-                    ))}
+              {budgetData.memberBudgets.length > 0 && (
+                <>
+                  {/* Members */}
+                  <div>
+                    <span className="text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase">
+                      Members
+                    </span>
+                    <div
+                      data-testid="budget-members-list"
+                      className="max-h-60 space-y-1 overflow-y-auto pr-2 [scrollbar-gutter:stable]"
+                    >
+                      {budgetData.memberBudgets.map((mb) => (
+                        <BudgetRow
+                          key={mb.memberId}
+                          label={getMemberName(mb)}
+                          budgetValue={currentValues[mb.memberId] ?? formatDollars(mb.budget)}
+                          spentValue={formatDollars(mb.spent)}
+                          isEditable={isOwner}
+                          onChange={(value) => {
+                            handleInputChange(mb.memberId, value);
+                          }}
+                          inputTestId={
+                            isOwner ? `budget-input-${mb.memberId}` : `budget-value-${mb.memberId}`
+                          }
+                          spentTestId="budget-spent"
+                          rowTestId={`budget-member-${mb.memberId}`}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
 
-                {/* Allocated */}
-                <div className="border-border mb-6 overflow-y-auto border-t pt-3 pr-2 [scrollbar-gutter:stable]">
-                  <BudgetRow
-                    label="Allocated"
-                    budgetValue={(allocatedCents / 100).toFixed(2)}
-                    spentValue={formatDollars(budgetData.totalSpent)}
-                    isSummary
-                    rowTestId="budget-total-allocated"
-                  />
-                </div>
-              </>
-            )}
+                  {/* Allocated */}
+                  <div className="border-border overflow-y-auto border-t pt-3 pr-2 [scrollbar-gutter:stable]">
+                    <BudgetRow
+                      label="Allocated"
+                      budgetValue={(allocatedCents / 100).toFixed(2)}
+                      spentValue={formatDollars(budgetData.totalSpent)}
+                      isSummary
+                      rowTestId="budget-total-allocated"
+                    />
+                  </div>
+                </>
+              )}
+            </BudgetContent>
 
             {/* Action buttons */}
             {isOwner ? (
@@ -401,6 +405,7 @@ export function BudgetSettingsModal({
                 }}
                 primary={{
                   label: 'Save Changes',
+                  form: 'budget-settings-form',
                   onClick: () => {
                     void handleSave();
                   },
@@ -418,9 +423,9 @@ export function BudgetSettingsModal({
                 }}
               />
             )}
-          </BudgetContent>
+          </>
         )}
-      </div>
+      </OverlayContent>
     </Overlay>
   );
 }

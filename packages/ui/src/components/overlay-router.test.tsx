@@ -42,6 +42,7 @@ describe('Overlay router', () => {
     // Dialog uses centered positioning
     expect(content).toHaveClass('top-[50%]');
     expect(content).toHaveClass('left-[50%]');
+    expect(content).toHaveAttribute('data-overlay-variant', 'dialog');
   });
 
   it('renders OverlayBottomSheet on touch devices (bottom)', () => {
@@ -56,6 +57,7 @@ describe('Overlay router', () => {
     // Bottom sheet uses bottom positioning
     expect(content).toHaveClass('bottom-0');
     expect(content).toHaveClass('rounded-t-xl');
+    expect(content).toHaveAttribute('data-overlay-variant', 'bottom-sheet');
   });
 
   it('forceBottomSheet=true renders bottom sheet on non-touch device', () => {

@@ -1,5 +1,6 @@
 import { type Page, type Locator } from '@playwright/test';
 import { expect } from '../helpers/settled-expect.js';
+import { expectCorrectOverlayVariant } from '../helpers/overlay.js';
 import { isMobileWidth } from '@hushbox/shared';
 
 export class SidebarPage {
@@ -60,20 +61,22 @@ export class SidebarPage {
   async renameConversation(conversationId: string, newName: string): Promise<void> {
     await this.openMoreMenu(conversationId);
     await this.page.getByRole('menuitem', { name: 'Rename' }).click();
-    await expect(this.page.getByText('Rename conversation')).toBeVisible();
+    await expect(this.page.getByText('Rename conversation', { exact: true })).toBeVisible();
+    await expectCorrectOverlayVariant(this.page);
 
     const input = this.page.locator('input[placeholder="Conversation title"]');
     await input.clear();
     await input.fill(newName);
     await this.page.getByTestId('save-rename-button').click();
 
-    await expect(this.page.getByText('Rename conversation')).not.toBeVisible();
+    await expect(this.page.getByText('Rename conversation', { exact: true })).not.toBeVisible();
   }
 
   async deleteConversation(conversationId: string): Promise<void> {
     await this.openMoreMenu(conversationId);
     await this.page.getByRole('menuitem', { name: 'Delete' }).click();
     await expect(this.page.getByText('Delete conversation?')).toBeVisible();
+    await expectCorrectOverlayVariant(this.page);
     await this.page.getByTestId('confirm-delete-button').click();
   }
 

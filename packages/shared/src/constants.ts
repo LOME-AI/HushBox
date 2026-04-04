@@ -1,6 +1,9 @@
 // MESSAGE_ROLES moved to enums.ts - re-export for backwards compatibility
 export { MESSAGE_ROLES, type MessageRole } from './enums.js';
 
+/** CSS media query for detecting coarse pointer (touch) devices */
+export const TOUCH_QUERY = '(pointer: coarse)';
+
 /** Shared password for all dev personas. Only for local development. */
 // eslint-disable-next-line sonarjs/no-hardcoded-passwords -- intentional dev-only password
 export const DEV_PASSWORD = 'password123';

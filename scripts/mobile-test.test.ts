@@ -5,12 +5,24 @@ vi.mock('execa', () => ({
   execa: vi.fn(),
 }));
 
-// Mock fs.existsSync for /dev/kvm check
+// Mock fs functions used across tests
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
   return {
     ...actual,
     existsSync: vi.fn().mockReturnValue(true),
+    readdirSync: vi.fn().mockImplementation((dir: string) => {
+      if (dir === 'mobile-tests/flows') {
+        return [
+          '01-app-launch.yaml',
+          '02-splash-screen.yaml',
+          '03-webview-renders.yaml',
+          '04-back-button.yaml',
+          '13-ota-update.yaml',
+        ];
+      }
+      return actual.readdirSync(dir);
+    }),
     writeFileSync: vi.fn(),
   };
 });
@@ -92,6 +104,18 @@ describe('mobile-test script', () => {
       ].join('\n');
 
       expect(parseFailedFlowNames(output)).toEqual(['Flow A', 'Flow C']);
+    });
+
+    it('extracts failed flow names with multi-minute durations', () => {
+      const output = [
+        '[Passed] App launches without crashing (13s)',
+        '[Failed] Keyboard appears and input remains visible (2m 32s)',
+        '[Passed] Message list scrolls correctly (50s)',
+      ].join('\n');
+
+      expect(parseFailedFlowNames(output)).toEqual([
+        'Keyboard appears and input remains visible',
+      ]);
     });
   });
 
@@ -608,7 +632,7 @@ describe('mobile-test script', () => {
       delete process.env['HB_API_PORT'];
     });
 
-    it('runs all flows with --device flag when smoke is false', async () => {
+    it('runs all flows except OTA with --device flag when smoke is false', async () => {
       process.env['HB_EMULATOR_ADB_PORT'] = '5555';
       process.env['HB_API_PORT'] = '8787';
       mockExeca.mockImplementation(((cmd: string) => {
@@ -618,19 +642,16 @@ describe('mobile-test script', () => {
 
       await runMaestro(false);
 
-      expect(mockExeca).toHaveBeenCalledWith(
-        'maestro',
-        [
-          'test',
-          '--device',
-          'localhost:5555',
-          '--debug-output',
-          'maestro-results',
-          '--flatten-debug-output',
-          'mobile-tests/flows/',
-        ],
-        { stdout: ['pipe', 'inherit'], stderr: 'inherit', reject: false }
+      const maestroCall = mockExeca.mock.calls.find(
+        (call) => call[0] === 'maestro' && Array.isArray(call[1]) && call[1].includes('test')
       );
+      expect(maestroCall).toBeDefined();
+      const flowArgs = (maestroCall![1] as string[]).filter((a) => a.endsWith('.yaml'));
+
+      // Includes non-OTA flows
+      expect(flowArgs).toContain('mobile-tests/flows/01-app-launch.yaml');
+      // Excludes OTA flow (run separately after setupOtaUpdate)
+      expect(flowArgs).not.toContain('mobile-tests/flows/13-ota-update.yaml');
 
       delete process.env['HB_EMULATOR_ADB_PORT'];
       delete process.env['HB_API_PORT'];

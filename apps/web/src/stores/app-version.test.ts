@@ -3,7 +3,7 @@ import { useAppVersionStore } from './app-version';
 
 describe('useAppVersionStore', () => {
   beforeEach(() => {
-    useAppVersionStore.setState({ upgradeRequired: false });
+    useAppVersionStore.setState({ upgradeRequired: false, updateInProgress: false });
   });
 
   it('starts with upgradeRequired as false', () => {
@@ -21,5 +21,22 @@ describe('useAppVersionStore', () => {
     useAppVersionStore.getState().setUpgradeRequired(false);
 
     expect(useAppVersionStore.getState().upgradeRequired).toBe(false);
+  });
+
+  it('starts with updateInProgress as false', () => {
+    expect(useAppVersionStore.getState().updateInProgress).toBe(false);
+  });
+
+  it('sets updateInProgress to true', () => {
+    useAppVersionStore.getState().setUpdateInProgress(true);
+
+    expect(useAppVersionStore.getState().updateInProgress).toBe(true);
+  });
+
+  it('sets updateInProgress back to false', () => {
+    useAppVersionStore.getState().setUpdateInProgress(true);
+    useAppVersionStore.getState().setUpdateInProgress(false);
+
+    expect(useAppVersionStore.getState().updateInProgress).toBe(false);
   });
 });

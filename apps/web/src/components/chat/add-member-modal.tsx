@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useState } from 'react';
 import { AlertTriangle, Search } from 'lucide-react';
-import { Alert, Overlay, Input, ModalActions } from '@hushbox/ui';
+import { Alert, Overlay, OverlayContent, OverlayHeader, Input, ModalActions } from '@hushbox/ui';
 import { MAX_CONVERSATION_MEMBERS, displayUsername } from '@hushbox/shared';
 import { CheckboxField } from '../shared/checkbox-field.js';
 import { useUserSearch } from '../../hooks/use-user-search.js';
@@ -70,14 +70,11 @@ export function AddMemberModal({
 
   return (
     <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Add Member">
-      <div
-        data-testid="add-member-modal"
-        className="bg-background flex w-[90vw] max-w-md flex-col rounded-lg border p-6 shadow-lg"
-      >
-        <h2 className="mb-4 text-lg font-semibold">Add Member</h2>
+      <OverlayContent data-testid="add-member-modal" size="md">
+        <OverlayHeader title="Add Member" />
 
         {atCapacity && (
-          <Alert className="mb-4">
+          <Alert>
             <AlertTriangle />
             <span>
               This conversation has reached the maximum of {MAX_CONVERSATION_MEMBERS} members.
@@ -86,7 +83,7 @@ export function AddMemberModal({
         )}
 
         {/* Search input + results */}
-        <div className="relative mb-3">
+        <div className="relative">
           <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
           <Input
             data-testid="add-member-search-input"
@@ -125,14 +122,14 @@ export function AddMemberModal({
         {selectedUser && (
           <div
             data-testid="add-member-selected"
-            className="border-border mb-4 rounded-md border px-3 py-2 text-sm"
+            className="border-border rounded-md border px-3 py-2 text-sm"
           >
             Selected: <span className="font-medium">{displayUsername(selectedUser.username)}</span>
           </div>
         )}
 
         {/* Privilege selector */}
-        <div className="mb-3">
+        <div>
           <label
             htmlFor="privilege-select"
             className="text-muted-foreground mb-1 block text-xs font-medium uppercase"
@@ -155,7 +152,7 @@ export function AddMemberModal({
         </div>
 
         {/* History access checkbox */}
-        <div className="mb-6">
+        <div>
           <CheckboxField
             id="history-checkbox"
             checked={giveFullHistory}
@@ -180,7 +177,7 @@ export function AddMemberModal({
             testId: 'add-member-submit-button',
           }}
         />
-      </div>
+      </OverlayContent>
     </Overlay>
   );
 }

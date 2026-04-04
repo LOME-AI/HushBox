@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, unsettledExpect } from './settled-expect.js';
+import { closeOverlay, expectCorrectOverlayVariant } from './overlay.js';
 import type { MemberSidebarPage } from '../pages/member-sidebar.page.js';
 import type { BudgetHelper } from './budget.js';
 
@@ -36,7 +37,7 @@ async function closeModal(page: Page, method: 'escape' | 'overlay-close'): Promi
   if (method === 'escape') {
     await page.keyboard.press('Escape');
   } else {
-    await page.locator('[data-slot="modal-overlay-close"]').click();
+    await closeOverlay(page);
   }
 }
 
@@ -88,6 +89,7 @@ export async function createInviteLink(
   await sidebar.clickInviteLink();
   const modal = page.getByTestId('invite-link-modal');
   await expect(modal).toBeVisible();
+  await expectCorrectOverlayVariant(page);
 
   await fillInviteLinkModal(page, privilege, withHistory, displayName);
 

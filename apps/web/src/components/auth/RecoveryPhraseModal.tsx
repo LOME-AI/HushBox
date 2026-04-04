@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Overlay, ModalActions, Input } from '@hushbox/ui';
+import { Overlay, OverlayContent, ModalActions, Input } from '@hushbox/ui';
 import { Copy, Check, AlertTriangle } from 'lucide-react';
 import { regenerateRecoveryPhrase } from '@hushbox/crypto';
 import { toBase64 } from '@hushbox/shared';
@@ -224,10 +224,7 @@ export function RecoveryPhraseModal({
       currentStep={currentStep}
       {...(showBackButton && { onBack: handleBack })}
     >
-      <div
-        data-testid="recovery-phrase-modal"
-        className="bg-background w-[75vw] max-w-xl rounded-lg border p-6 shadow-lg"
-      >
+      <OverlayContent data-testid="recovery-phrase-modal" size="xl" className="w-[75vw]">
         <ErrorBanner error={error} phrase={phrase} />
 
         {step === 'display' && phrase && (
@@ -265,7 +262,7 @@ export function RecoveryPhraseModal({
             onDone={handleDone}
           />
         )}
-      </div>
+      </OverlayContent>
     </Overlay>
   );
 }

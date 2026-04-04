@@ -366,12 +366,12 @@ export class ChatPage {
   // --- Rename / Delete modals (shared with sidebar) ---
 
   async confirmRename(newName: string): Promise<void> {
-    await expect(this.page.getByText('Rename conversation')).toBeVisible();
+    await expect(this.page.getByText('Rename conversation', { exact: true })).toBeVisible();
     const input = this.page.locator('input[placeholder="Conversation title"]');
     await input.clear();
     await input.fill(newName);
     await this.page.getByTestId('save-rename-button').click();
-    await expect(this.page.getByText('Rename conversation')).not.toBeVisible();
+    await expect(this.page.getByText('Rename conversation', { exact: true })).not.toBeVisible();
   }
 
   async confirmDelete(): Promise<void> {

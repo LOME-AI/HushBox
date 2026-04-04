@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Overlay, ModalActions } from '@hushbox/ui';
+import { Overlay, OverlayContent, OverlayHeader, ModalActions } from '@hushbox/ui';
 import { ROUTES } from '@hushbox/shared';
 
 type SignupModalVariant = 'premium' | 'multi-model';
@@ -81,12 +81,8 @@ export function SignupModal({
 
   return (
     <Overlay open={open} onOpenChange={onOpenChange} ariaLabel={config.ariaLabel}>
-      <div
-        data-testid={config.testId}
-        className="bg-background w-[90vw] max-w-md rounded-lg border p-6 shadow-lg"
-      >
-        <h2 className="mb-4 text-xl font-semibold">{config.title}</h2>
-        <p className="text-muted-foreground mb-6">{getSignupMessage(variant, modelName)}</p>
+      <OverlayContent data-testid={config.testId}>
+        <OverlayHeader title={config.title} description={getSignupMessage(variant, modelName)} />
         <ModalActions
           cancel={{
             label: 'Maybe Later',
@@ -97,7 +93,7 @@ export function SignupModal({
             onClick: handleSignUp,
           }}
         />
-      </div>
+      </OverlayContent>
     </Overlay>
   );
 }

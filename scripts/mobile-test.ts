@@ -406,13 +406,17 @@ export async function runMaestro(smoke: boolean): Promise<void> {
   console.log(`Re-establishing adb reverse for API port ${apiPort}...`);
   await execa('adb', ['-s', `localhost:${adbPort}`, 'reverse', `tcp:${apiPort}`, `tcp:${apiPort}`]);
 
+  const FLOW_DIR = 'mobile-tests/flows';
   const flowArgs = smoke
     ? [
-        'mobile-tests/flows/01-app-launch.yaml',
-        'mobile-tests/flows/02-splash-screen.yaml',
-        'mobile-tests/flows/03-webview-renders.yaml',
+        `${FLOW_DIR}/01-app-launch.yaml`,
+        `${FLOW_DIR}/02-splash-screen.yaml`,
+        `${FLOW_DIR}/03-webview-renders.yaml`,
       ]
-    : ['mobile-tests/flows/'];
+    : readdirSync(FLOW_DIR)
+        .filter((f) => f.endsWith('.yaml') && f !== path.basename(OTA_FLOW))
+        .sort()
+        .map((f) => `${FLOW_DIR}/${f}`);
   const args = [
     'test',
     '--device',
@@ -458,7 +462,7 @@ export async function runMaestro(smoke: boolean): Promise<void> {
 /** Parse `[Failed] Flow Name (Xs)` lines from maestro output. */
 export function parseFailedFlowNames(output: string): string[] {
   const failed: string[] = [];
-  const regex = /\[Failed\]\s+(.+?)\s+\(\d+s\)/g;
+  const regex = /\[Failed\]\s+(.+?)\s+\([\dm\s]+s\)/g;
   let match = regex.exec(output);
   while (match !== null) {
     if (match[1] !== undefined) failed.push(match[1].trim());

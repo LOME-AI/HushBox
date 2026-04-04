@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useState } from 'react';
 import { Lock, Link as LinkIcon } from 'lucide-react';
-import { Overlay, ModalActions, Alert } from '@hushbox/ui';
+import { Overlay, ModalActions, Alert, OverlayContent, OverlayHeader } from '@hushbox/ui';
 import { useMessageShare } from '../../hooks/use-message-share.js';
 
 interface ShareMessageModalProps {
@@ -36,13 +36,13 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
         {/* Message preview */}
         <div
           data-testid="share-message-preview"
-          className="border-border mb-4 rounded-md border p-3"
+          className="border-border rounded-md border p-3"
         >
           <p className="line-clamp-4 text-sm">{input.messageContent}</p>
         </div>
 
         {/* Isolation info */}
-        <Alert variant="default" data-testid="share-message-isolation-info" className="mb-4">
+        <Alert variant="default" data-testid="share-message-isolation-info">
           <Lock />
           <span>
             Cryptographically isolated. This link gives access to this single message only.
@@ -71,7 +71,7 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
 
   return (
     <>
-      <div className="mb-4 flex items-center gap-2 text-sm text-green-600">
+      <div className="flex items-center gap-2 text-sm text-green-600">
         <LinkIcon className="h-4 w-4" />
         <span>Share link created!</span>
       </div>
@@ -79,7 +79,7 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
       {/* Generated URL */}
       <div
         data-testid="share-message-url"
-        className="bg-muted mb-4 overflow-hidden rounded-md p-3 text-xs break-all"
+        className="bg-muted overflow-hidden rounded-md p-3 text-xs break-all"
       >
         {input.generatedUrl}
       </div>
@@ -144,11 +144,8 @@ export function ShareMessageModal({
 
   return (
     <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Share Message">
-      <div
-        data-testid="share-message-modal"
-        className="bg-background flex w-[90vw] max-w-md flex-col rounded-lg border p-6 shadow-lg"
-      >
-        <h2 className="mb-4 text-lg font-semibold">Share Message</h2>
+      <OverlayContent data-testid="share-message-modal">
+        <OverlayHeader title="Share Message" />
 
         {renderShareContent({
           messageId,
@@ -171,7 +168,7 @@ export function ShareMessageModal({
             }
           },
         })}
-      </div>
+      </OverlayContent>
     </Overlay>
   );
 }

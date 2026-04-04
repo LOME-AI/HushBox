@@ -1,7 +1,10 @@
 import * as React from 'react';
+
+import { TOUCH_QUERY } from '@hushbox/shared';
+
 import { useTouchDeviceOverride } from './touch-device-override-context';
 
-const TOUCH_QUERY = '(pointer: coarse)';
+export { TOUCH_QUERY } from '@hushbox/shared';
 
 /**
  * Hook to detect if the primary pointer is coarse (touch device).

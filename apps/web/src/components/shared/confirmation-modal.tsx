@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { Alert, ModalActions, Overlay } from '@hushbox/ui';
+import { Alert, ModalActions, Overlay, OverlayContent, OverlayHeader } from '@hushbox/ui';
 
 interface ConfirmationModalProps {
   open: boolean;
@@ -25,15 +25,12 @@ export function ConfirmationModal({
 }: Readonly<ConfirmationModalProps>): React.JSX.Element {
   return (
     <Overlay open={open} onOpenChange={onOpenChange} ariaLabel={ariaLabel}>
-      <div
-        data-testid={`${testIdPrefix}-modal`}
-        className="bg-background flex w-[90vw] max-w-md flex-col rounded-lg border p-6 shadow-lg"
-      >
-        <h2 data-testid={`${testIdPrefix}-title`} className="mb-4 text-lg font-semibold">
-          {title}
-        </h2>
+      <OverlayContent data-testid={`${testIdPrefix}-modal`}>
+        <div data-testid={`${testIdPrefix}-title`}>
+          <OverlayHeader title={title} />
+        </div>
 
-        <Alert data-testid={`${testIdPrefix}-warning`} className="mb-4">
+        <Alert data-testid={`${testIdPrefix}-warning`}>
           <AlertTriangle />
           <span>{warning}</span>
         </Alert>
@@ -56,7 +53,7 @@ export function ConfirmationModal({
             testId: `${testIdPrefix}-confirm`,
           }}
         />
-      </div>
+      </OverlayContent>
     </Overlay>
   );
 }

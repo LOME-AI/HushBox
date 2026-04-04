@@ -61,7 +61,8 @@ export async function applyUpdate(version: string): Promise<void> {
     await CapacitorUpdater.set({ id: bundle.id });
   } catch (error: unknown) {
     console.error('Failed to apply OTA update:', error);
-    // Download or apply failed — show upgrade modal as fallback
+    // Clear in-progress before showing modal so the splash hides and modal is visible
+    useAppVersionStore.getState().setUpdateInProgress(false);
     useAppVersionStore.getState().setUpgradeRequired(true);
   }
 }
@@ -76,6 +77,10 @@ export async function checkForUpdate(): Promise<CheckResult> {
     return { updateAvailable: false };
   }
 
+  // Signal that an update check is in progress — suppresses 426 modal
+  // and keeps the splash screen visible during the download.
+  useAppVersionStore.getState().setUpdateInProgress(true);
+
   // Notify Capgo that the current bundle booted successfully
   await CapacitorUpdater.notifyAppReady();
 
@@ -83,17 +88,21 @@ export async function checkForUpdate(): Promise<CheckResult> {
 
   // Can't check if server unreachable
   if (!serverVersion) {
+    useAppVersionStore.getState().setUpdateInProgress(false);
     return { updateAvailable: false };
   }
 
   // Skip comparison in dev
   if (serverVersion === 'dev-local') {
+    useAppVersionStore.getState().setUpdateInProgress(false);
     return { updateAvailable: false };
   }
 
   if (appVersion !== serverVersion) {
+    // Leave updateInProgress true — applyUpdate handles cleanup
     return { updateAvailable: true, serverVersion };
   }
 
+  useAppVersionStore.getState().setUpdateInProgress(false);
   return { updateAvailable: false };
 }

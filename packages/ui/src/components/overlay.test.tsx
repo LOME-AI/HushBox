@@ -113,6 +113,16 @@ describe('Overlay', () => {
     expect(screen.getByTestId('overlay-content')).toHaveAttribute('data-slot', 'overlay-content');
   });
 
+  it('has data-overlay-variant="dialog" on content', () => {
+    render(
+      <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal">
+        <div>Modal content</div>
+      </Overlay>
+    );
+
+    expect(screen.getByTestId('overlay-content')).toHaveAttribute('data-overlay-variant', 'dialog');
+  });
+
   it('renders visually hidden accessible title', () => {
     render(
       <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="My accessible title">

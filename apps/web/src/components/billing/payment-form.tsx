@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Button, ModalActions } from '@hushbox/ui';
+import { Button, ModalActions, OverlayContent, OverlayHeader } from '@hushbox/ui';
 import { DollarSign, CreditCard, Lock, MapPin, User, Home } from 'lucide-react';
 import { HelcimLogo } from './helcim-logo.js';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@hushbox/ui';
 import { FormInput } from '@/components/shared/form-input';
 import { DevOnly } from '@/components/shared/dev-only';
 import { env } from '@/lib/env';
@@ -71,28 +70,23 @@ function PaymentSuccessCard({
   onClose,
 }: Readonly<PaymentSuccessCardProps>): React.JSX.Element {
   return (
-    <Card className="w-[90vw] max-w-md">
-      <CardHeader>
-        <CardTitle>Payment Successful</CardTitle>
-        <CardDescription>Your deposit has been processed</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="py-4 text-center">
-          <p className="text-primary text-2xl font-semibold">
-            +${Number.parseFloat(amount || '0').toFixed(2)}
-          </p>
-          <p className="text-muted-foreground mt-2">Added to your balance</p>
-        </div>
-        <ModalActions
-          primary={{
-            label: 'Close',
-            onClick: () => {
-              onClose?.();
-            },
-          }}
-        />
-      </CardContent>
-    </Card>
+    <OverlayContent>
+      <OverlayHeader title="Payment Successful" description="Your deposit has been processed" />
+      <div className="py-4 text-center">
+        <p className="text-primary text-2xl font-semibold">
+          +${Number.parseFloat(amount || '0').toFixed(2)}
+        </p>
+        <p className="text-muted-foreground mt-2">Added to your balance</p>
+      </div>
+      <ModalActions
+        primary={{
+          label: 'Close',
+          onClick: () => {
+            onClose?.();
+          },
+        }}
+      />
+    </OverlayContent>
   );
 }
 
@@ -108,43 +102,41 @@ function PaymentErrorCard({
   onRetry,
 }: Readonly<PaymentErrorCardProps>): React.JSX.Element {
   return (
-    <Card className="w-[90vw] max-w-md">
-      <CardHeader>
-        <CardTitle>Payment Failed</CardTitle>
-        <CardDescription>We couldn&apos;t process your payment</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="py-4 text-center">
-          <p className="text-destructive">
-            Something went wrong. Please try again or contact support.
-          </p>
-        </div>
-        <DevOnly>
-          <p className="text-muted-foreground text-center text-sm">
-            {errorMessage ?? 'An unexpected error occurred'}
-          </p>
-        </DevOnly>
-        {onCancel ? (
-          <ModalActions
-            cancel={{
-              label: 'Cancel',
-              onClick: onCancel,
-            }}
-            primary={{
-              label: 'Try Again',
-              onClick: onRetry,
-            }}
-          />
-        ) : (
-          <ModalActions
-            primary={{
-              label: 'Try Again',
-              onClick: onRetry,
-            }}
-          />
-        )}
-      </CardContent>
-    </Card>
+    <OverlayContent>
+      <OverlayHeader
+        title="Payment Failed"
+        description="We couldn&apos;t process your payment"
+      />
+      <div className="py-4 text-center">
+        <p className="text-destructive">
+          Something went wrong. Please try again or contact support.
+        </p>
+      </div>
+      <DevOnly>
+        <p className="text-muted-foreground text-center text-sm">
+          {errorMessage ?? 'An unexpected error occurred'}
+        </p>
+      </DevOnly>
+      {onCancel ? (
+        <ModalActions
+          cancel={{
+            label: 'Cancel',
+            onClick: onCancel,
+          }}
+          primary={{
+            label: 'Try Again',
+            onClick: onRetry,
+          }}
+        />
+      ) : (
+        <ModalActions
+          primary={{
+            label: 'Try Again',
+            onClick: onRetry,
+          }}
+        />
+      )}
+    </OverlayContent>
   );
 }
 
@@ -339,6 +331,7 @@ function PaymentFormActions({
       /* noop — form uses type="submit" */
     },
     type: 'submit' as const,
+    form: 'helcimForm',
     disabled: !scriptLoaded || isProcessing,
     loading: isProcessing,
     loadingLabel: 'Processing...',
@@ -649,94 +642,89 @@ export function PaymentForm({
   }
 
   return (
-    <Card className="w-[90vw] max-w-md">
-      <CardHeader>
-        <CardTitle>Add Credits</CardTitle>
-        <CardDescription>Enter amount and card details</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form
-          ref={paymentFormRef}
-          id="helcimForm"
-          onSubmit={(e) => {
-            void handleSubmit(e);
+    <OverlayContent>
+      <OverlayHeader title="Add Credits" description="Enter amount and card details" />
+      <form
+        ref={paymentFormRef}
+        id="helcimForm"
+        onSubmit={(e) => {
+          void handleSubmit(e);
+        }}
+        className="space-y-2"
+        noValidate
+      >
+        {/* Hidden Helcim fields */}
+        <input type="hidden" id="token" value={jsToken ?? ''} />
+        <input type="hidden" id="amount" value={form.amount} />
+
+        <FormInput
+          id="amount-input"
+          label="Amount (USD) - Minimum $5"
+          type="number"
+          min={MIN_DEPOSIT_AMOUNT}
+          max={MAX_DEPOSIT_AMOUNT}
+          step="0.01"
+          icon={<DollarSign className="h-5 w-5" />}
+          value={form.amount}
+          onChange={(e) => {
+            form.handleAmountChange(e.target.value);
           }}
-          className="space-y-2"
-          noValidate
-        >
-          {/* Hidden Helcim fields */}
-          <input type="hidden" id="token" value={jsToken ?? ''} />
-          <input type="hidden" id="amount" value={form.amount} />
+          onKeyDown={(e) => {
+            // Block non-numeric characters that number inputs allow (e, E, +, -)
+            if (['e', 'E', '+', '-'].includes(e.key)) {
+              e.preventDefault();
+            }
+          }}
+          aria-invalid={!!form.amountValidation.error}
+          error={form.amountValidation.error}
+          success={form.amountValidation.success}
+          className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
 
-          <FormInput
-            id="amount-input"
-            label="Amount (USD) - Minimum $5"
-            type="number"
-            min={MIN_DEPOSIT_AMOUNT}
-            max={MAX_DEPOSIT_AMOUNT}
-            step="0.01"
-            icon={<DollarSign className="h-5 w-5" />}
-            value={form.amount}
-            onChange={(e) => {
-              form.handleAmountChange(e.target.value);
-            }}
-            onKeyDown={(e) => {
-              // Block non-numeric characters that number inputs allow (e, E, +, -)
-              if (['e', 'E', '+', '-'].includes(e.key)) {
-                e.preventDefault();
-              }
-            }}
-            aria-invalid={!!form.amountValidation.error}
-            error={form.amountValidation.error}
-            success={form.amountValidation.success}
-            className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-          />
+        <CardFormSection scriptError={scriptError} scriptLoaded={scriptLoaded} form={form} />
 
-          <CardFormSection scriptError={scriptError} scriptLoaded={scriptLoaded} form={form} />
-
-          {paymentState === 'processing' && (
-            <div className="py-4 text-center">
-              <p className="text-muted-foreground animate-pulse">Processing payment...</p>
-            </div>
-          )}
-
-          <PaymentFormActions
-            onCancel={onCancel}
-            scriptLoaded={scriptLoaded}
-            paymentState={paymentState}
-            isPaymentPending={createPayment.isPending}
-          />
-
-          <div data-testid="helcim-security-badge" className="flex justify-center pt-4">
-            <HelcimLogo />
+        {paymentState === 'processing' && (
+          <div className="py-4 text-center">
+            <p className="text-muted-foreground animate-pulse">Processing payment...</p>
           </div>
+        )}
+      </form>
 
-          <DevOnly>
-            <div className="flex gap-2" data-testid="dev-simulation-buttons">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleSimulateSuccess}
-                disabled={paymentState === 'processing'}
-                className="flex-1"
-                data-testid="simulate-success-btn"
-              >
-                Simulate Success
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={handleSimulateFailure}
-                disabled={paymentState === 'processing'}
-                className="flex-1"
-                data-testid="simulate-failure-btn"
-              >
-                Simulate Failure
-              </Button>
-            </div>
-          </DevOnly>
-        </form>
-      </CardContent>
-    </Card>
+      <PaymentFormActions
+        onCancel={onCancel}
+        scriptLoaded={scriptLoaded}
+        paymentState={paymentState}
+        isPaymentPending={createPayment.isPending}
+      />
+
+      <div data-testid="helcim-security-badge" className="flex justify-center">
+        <HelcimLogo />
+      </div>
+
+      <DevOnly>
+        <div className="flex gap-2" data-testid="dev-simulation-buttons">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleSimulateSuccess}
+            disabled={paymentState === 'processing'}
+            className="flex-1"
+            data-testid="simulate-success-btn"
+          >
+            Simulate Success
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={handleSimulateFailure}
+            disabled={paymentState === 'processing'}
+            className="flex-1"
+            data-testid="simulate-failure-btn"
+          >
+            Simulate Failure
+          </Button>
+        </div>
+      </DevOnly>
+    </OverlayContent>
   );
 }

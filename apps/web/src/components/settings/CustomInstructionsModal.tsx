@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useCallback } from 'react';
-import { Alert, Overlay, ModalActions, Textarea } from '@hushbox/ui';
+import { Alert, Overlay, OverlayContent, OverlayHeader, ModalActions, Textarea } from '@hushbox/ui';
 import { toBase64 } from '@hushbox/shared';
 import { encryptMessageForStorage, getPublicKeyFromPrivate } from '@hushbox/crypto';
 import { useAuthStore } from '@/lib/auth';
@@ -70,48 +70,45 @@ export function CustomInstructionsModal({
 
   return (
     <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Custom instructions">
-      <div
-        data-testid="custom-instructions-modal"
-        className="bg-background w-[75vw] max-w-md rounded-lg border p-6 shadow-lg"
-      >
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold">Custom Instructions</h2>
-            <p className="text-muted-foreground mt-1 text-sm">
+      <OverlayContent data-testid="custom-instructions-modal" size="md" className="w-[75vw]">
+        <OverlayHeader
+          title="Custom Instructions"
+          description={
+            <>
               These instructions are included in every conversation. Tell the AI about yourself and
               {"how you'd like it to respond."}
-            </p>
-          </div>
+            </>
+          }
+        />
 
-          {error && <Alert>{error}</Alert>}
+        {error && <Alert>{error}</Alert>}
 
-          <div className="space-y-2">
-            <Textarea
-              value={value}
-              onChange={(e) => {
-                setValue(e.target.value);
-              }}
-              maxLength={MAX_LENGTH}
-              rows={6}
-              placeholder="e.g., I'm a software engineer. Be concise and use code examples."
-              className="resize-none overflow-y-auto"
-              style={{ height: 'calc(6 * 1.5em + 1rem)' }}
-            />
-            <p className="text-muted-foreground text-right text-xs">
-              {value.length.toLocaleString()} / {MAX_LENGTH.toLocaleString()}
-            </p>
-          </div>
-
-          <ModalActions
-            primary={{
-              label: 'Save',
-              onClick: () => void handleSave(),
-              loading: isSaving,
-              loadingLabel: 'Saving...',
+        <div className="space-y-2">
+          <Textarea
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
             }}
+            maxLength={MAX_LENGTH}
+            rows={6}
+            placeholder="e.g., I'm a software engineer. Be concise and use code examples."
+            className="resize-none overflow-y-auto"
+            style={{ height: 'calc(6 * 1.5em + 1rem)' }}
           />
+          <p className="text-muted-foreground text-right text-xs">
+            {value.length.toLocaleString()} / {MAX_LENGTH.toLocaleString()}
+          </p>
         </div>
-      </div>
+
+        <ModalActions
+          primary={{
+            label: 'Save',
+            onClick: () => void handleSave(),
+            loading: isSaving,
+            loadingLabel: 'Saving...',
+          }}
+        />
+      </OverlayContent>
     </Overlay>
   );
 }

@@ -103,7 +103,7 @@ describe('api-client', () => {
 
 describe('fetchJson', () => {
   beforeEach(() => {
-    useAppVersionStore.setState({ upgradeRequired: false });
+    useAppVersionStore.setState({ upgradeRequired: false, updateInProgress: false });
   });
 
   it('returns parsed JSON on successful response', async () => {
@@ -229,6 +229,21 @@ describe('fetchJson', () => {
 
     await expect(fetchJson(response)).rejects.toThrow('UPGRADE_REQUIRED');
     expect(useAppVersionStore.getState().upgradeRequired).toBe(true);
+  });
+
+  it('does not set upgradeRequired on 426 when updateInProgress is true', async () => {
+    useAppVersionStore.setState({ updateInProgress: true });
+    const { fetchJson } = await import('./api-client.js');
+    const errorBody = { code: 'UPGRADE_REQUIRED', currentVersion: 'abc123' };
+    const response = Promise.resolve(
+      Response.json(errorBody, {
+        status: 426,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await expect(fetchJson(response)).rejects.toThrow('UPGRADE_REQUIRED');
+    expect(useAppVersionStore.getState().upgradeRequired).toBe(false);
   });
 
   it('still throws ApiError on 426 after setting store', async () => {

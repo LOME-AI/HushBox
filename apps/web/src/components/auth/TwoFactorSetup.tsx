@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useCallback, useEffect } from 'react';
-import { Overlay, Button, ModalActions } from '@hushbox/ui';
+import { Overlay, OverlayContent, Button, ModalActions } from '@hushbox/ui';
 import { Copy, Check, Loader2 } from 'lucide-react';
 import { QRCode } from 'react-qrcode-logo';
 import logoUrl from '@hushbox/ui/assets/HushBoxLogo.png';
@@ -257,10 +257,7 @@ export function TwoFactorSetup({
       currentStep={currentStep}
       {...(showBackButton && { onBack: handleBack })}
     >
-      <div
-        data-testid="two-factor-setup-modal"
-        className="bg-background w-[75vw] max-w-md rounded-lg border p-6 shadow-lg"
-      >
+      <OverlayContent data-testid="two-factor-setup-modal" className="w-[75vw]">
         <StepContent
           step={step}
           totpData={totpData}
@@ -279,7 +276,7 @@ export function TwoFactorSetup({
           }}
           onDone={handleDone}
         />
-      </div>
+      </OverlayContent>
     </Overlay>
   );
 }

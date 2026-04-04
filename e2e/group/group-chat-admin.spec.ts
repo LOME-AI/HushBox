@@ -2,6 +2,7 @@ import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { searchAndSelectMember } from '../helpers/add-member.js';
 import { expectAccessRevoked } from '../helpers/member-actions.js';
+import { closeOverlay } from '../helpers/overlay.js';
 
 test.describe('Group Chat Admin', () => {
   test.describe.configure({ mode: 'serial' });
@@ -365,7 +366,7 @@ test.describe('Group Chat Admin', () => {
       await expect(authenticatedPage.getByTestId('invite-link-copy-button')).toBeVisible();
 
       // Close modal via X button (Escape would also close the sidebar Sheet on tablet)
-      await authenticatedPage.locator('[data-slot="modal-overlay-close"]').click();
+      await closeOverlay(authenticatedPage);
     });
 
     await test.step('read link appears in sidebar', async () => {
@@ -395,7 +396,7 @@ test.describe('Group Chat Admin', () => {
       await expect(urlEl).toBeVisible();
 
       // Close modal via X button (Escape would also close the sidebar Sheet on tablet)
-      await authenticatedPage.locator('[data-slot="modal-overlay-close"]').click();
+      await closeOverlay(authenticatedPage);
     });
 
     await test.step('rename link', async () => {

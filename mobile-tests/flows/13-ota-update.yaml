@@ -6,33 +6,22 @@ androidWebViewHierarchy: devtools
 ---
 # App installed with VITE_APP_VERSION=local-mobile-test.
 # Server version overridden to ota-v2 by orchestrator.
-# Two update paths may fire:
-#   1. useLiveUpdate auto-downloads and applies (silent reload)
-#   2. A 426 API response shows the "Update Required" modal
-# We handle both: wait briefly, tap Refresh if the modal appeared,
-# then wait for the app to stabilize post-update.
+# On launch, useLiveUpdate detects the mismatch, downloads the OTA bundle,
+# and applies it via Capgo (silent reload). After reload, versions match
+# and the app renders normally without an "Update Required" modal.
 
 - launchApp:
     clearState: true
 
-# Give the app a moment to boot and potentially show the modal
-- waitForAnimationToEnd:
-    timeout: 5000
-
-# If the update modal appeared (426 raced with useLiveUpdate), tap Refresh.
-# If useLiveUpdate already applied the update silently, this is a no-op.
-- tapOn:
-    text: 'Refresh'
-    optional: true
-
-# Wait for app to stabilize after OTA update (either path).
-# After successful update: versions match, app renders normally.
-# Generous timeout: download + Capgo reload can take time on emulator.
+# useLiveUpdate fires on mount: detects version mismatch, downloads the
+# OTA bundle from R2, and calls CapacitorUpdater.set() which reloads the
+# app with the new bundle. After reload, versions match and no modal appears.
+# Give the full cycle (download + Capgo reload) up to 60s on the emulator.
 - extendedWaitUntil:
     visible: 'Sign up'
-    timeout: 30000
+    timeout: 60000
 
-# Update modal must NOT be showing (update succeeded, versions match)
+# Silent update should have completed — no modal
 - assertNotVisible: 'Update Required'
 
 # Background + foreground to trigger onResume update check
