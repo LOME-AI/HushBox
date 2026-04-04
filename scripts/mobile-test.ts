@@ -523,7 +523,7 @@ export async function setupOtaUpdate(): Promise<void> {
       'put',
       `hushbox-app-builds/builds/android-direct/${OTA_VERSION}.zip`,
       '--file',
-      `apps/web/dist-ota/${zipPath}`,
+      `../web/dist-ota/${zipPath}`,
     ],
     { cwd: 'apps/api', stdio: 'inherit' }
   );
