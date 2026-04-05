@@ -34,10 +34,7 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
     return (
       <>
         {/* Message preview */}
-        <div
-          data-testid="share-message-preview"
-          className="border-border rounded-md border p-3"
-        >
+        <div data-testid="share-message-preview" className="border-border rounded-md border p-3">
           <p className="line-clamp-4 text-sm">{input.messageContent}</p>
         </div>
 

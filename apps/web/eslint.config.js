@@ -5,6 +5,7 @@ export default [
   {
     ignores: [
       'src/routeTree.gen.ts',
+      'dist-ota/**',
       'android/**',
       '!android/**/*.test.ts',
       'ios/**',

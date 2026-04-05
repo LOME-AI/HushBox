@@ -103,10 +103,7 @@ function PaymentErrorCard({
 }: Readonly<PaymentErrorCardProps>): React.JSX.Element {
   return (
     <OverlayContent>
-      <OverlayHeader
-        title="Payment Failed"
-        description="We couldn&apos;t process your payment"
-      />
+      <OverlayHeader title="Payment Failed" description="We couldn't process your payment" />
       <div className="py-4 text-center">
         <p className="text-destructive">
           Something went wrong. Please try again or contact support.

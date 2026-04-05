@@ -41,7 +41,8 @@ vi.mock('@/lib/api-client', () => ({
   fetchJson: (...args: unknown[]) => mockFetchJson(...args),
 }));
 
-vi.mock('@hushbox/shared', () => ({
+vi.mock('@hushbox/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@hushbox/shared')>()),
   toBase64: (bytes: Uint8Array) => Buffer.from(bytes).toString('base64'),
   friendlyErrorMessage: (code: string) => `Error: ${code}`,
 }));

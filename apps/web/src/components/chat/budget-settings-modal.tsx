@@ -303,10 +303,7 @@ export function BudgetSettingsModal({
 
   return (
     <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Budget Settings">
-      <OverlayContent
-        data-testid="budget-settings-modal"
-        size="lg"
-      >
+      <OverlayContent data-testid="budget-settings-modal" size="lg">
         <OverlayHeader
           title="Budget Settings"
           description="The owner can fund AI usage for members. When exhausted, members use their own balance."

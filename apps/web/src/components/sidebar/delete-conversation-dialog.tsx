@@ -20,9 +20,7 @@ export function DeleteConversationDialog({
         <OverlayHeader
           title="Delete conversation?"
           description={
-            <>
-              This will permanently delete &quot;{title}&quot;. This action cannot be undone.
-            </>
+            <>This will permanently delete &quot;{title}&quot;. This action cannot be undone.</>
           }
         />
         <ModalActions
