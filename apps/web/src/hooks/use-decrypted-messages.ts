@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { decryptMessage } from '@hushbox/crypto';
 import { useAuthStore } from '@/lib/auth';
 import { client, fetchJson } from '@/lib/api-client';
@@ -44,6 +44,13 @@ export function useDecryptedMessages(
 ): Message[] {
   const accountPrivateKey = useAuthStore((s) => s.privateKey);
   const effectivePrivateKey = privateKeyOverride ?? accountPrivateKey;
+  const queryClient = useQueryClient();
+  const refetchedForEpochRef = useRef(0);
+
+  // Reset refetch guard when conversation changes.
+  useEffect(() => {
+    refetchedForEpochRef.current = 0;
+  }, [conversationId]);
 
   const { data: keyChain } = useQuery({
     queryKey: ['keys', conversationId],
@@ -87,6 +94,21 @@ export function useDecryptedMessages(
       }
     });
   }, [conversationId, messages, effectivePrivateKey, keyChain]);
+
+  // Refetch key chain when messages reference epochs beyond the cached currentEpoch.
+  // This handles the race where WebSocket rotation:complete hasn't arrived yet.
+  useEffect(() => {
+    if (!conversationId || !keyChain || !messages || messages.length === 0) return;
+
+    const hasNewerEpoch = messages.some((msg) => msg.epochNumber > keyChain.currentEpoch);
+    if (!hasNewerEpoch) return;
+
+    // Prevent infinite loop: only refetch once per stale currentEpoch value.
+    if (refetchedForEpochRef.current === keyChain.currentEpoch) return;
+    refetchedForEpochRef.current = keyChain.currentEpoch;
+
+    void queryClient.invalidateQueries({ queryKey: ['keys', conversationId] });
+  }, [conversationId, keyChain, messages, queryClient]);
 
   const isPending =
     !!conversationId &&

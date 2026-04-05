@@ -865,4 +865,150 @@ describe('useDecryptedMessages', () => {
     if (!msg) throw new Error('Expected message');
     expect(msg.createdAt).toBe('2026-02-01T12:00:00Z');
   });
+
+  describe('stale epoch key refetch', () => {
+    beforeEach(() => {
+      mockFetchJson.mockReset();
+    });
+
+    it('refetches keys when a message epoch exceeds the cached currentEpoch', async () => {
+      mockUnwrapEpochKey.mockReturnValue(new Uint8Array([10]));
+      mockDecryptMessage.mockReturnValue('decrypted-content');
+
+      // First response: stale, only knows about epoch 1
+      mockFetchJson
+        .mockResolvedValueOnce({
+          wraps: [
+            {
+              epochNumber: 1,
+              wrap: 'w1',
+              confirmationHash: 'h',
+              privilege: 'owner',
+              visibleFromEpoch: 1,
+            },
+          ],
+          chainLinks: [],
+          currentEpoch: 1,
+        })
+        // Second response: fresh, knows about epoch 2
+        .mockResolvedValueOnce({
+          wraps: [
+            {
+              epochNumber: 1,
+              wrap: 'w1',
+              confirmationHash: 'h',
+              privilege: 'owner',
+              visibleFromEpoch: 1,
+            },
+            {
+              epochNumber: 2,
+              wrap: 'w2',
+              confirmationHash: 'h',
+              privilege: 'owner',
+              visibleFromEpoch: 1,
+            },
+          ],
+          chainLinks: [{ epochNumber: 2, chainLink: 'cl', confirmationHash: 'h' }],
+          currentEpoch: 2,
+        });
+
+      const messages = [
+        createMessageResponse({ id: 'msg-1', conversationId: 'conv-refetch-1', epochNumber: 1 }),
+        createMessageResponse({ id: 'msg-2', conversationId: 'conv-refetch-1', epochNumber: 2 }),
+      ];
+
+      const { result } = renderHook(() => useDecryptedMessages('conv-refetch-1', messages), {
+        wrapper: createWrapper(),
+      });
+
+      // After refetch, both messages should be decrypted
+      await waitFor(() => {
+        const msg2 = result.current.find((m) => m.id === 'msg-2');
+        expect(msg2?.content).toBe('decrypted-content');
+      });
+
+      // fetchJson called twice: initial fetch + refetch after detecting stale epoch
+      expect(mockFetchJson).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not refetch when missing epoch keys are within currentEpoch', async () => {
+      mockUnwrapEpochKey.mockReturnValue(new Uint8Array([20]));
+      mockDecryptMessage.mockReturnValue('epoch2-content');
+
+      mockFetchJson.mockResolvedValue({
+        wraps: [
+          {
+            epochNumber: 2,
+            wrap: 'w2',
+            confirmationHash: 'h',
+            privilege: 'owner',
+            visibleFromEpoch: 1,
+          },
+        ],
+        chainLinks: [],
+        currentEpoch: 2,
+      });
+
+      const messages = [
+        createMessageResponse({ id: 'orphan', conversationId: 'conv-refetch-2', epochNumber: 1 }),
+        createMessageResponse({ id: 'good', conversationId: 'conv-refetch-2', epochNumber: 2 }),
+      ];
+
+      const { result } = renderHook(() => useDecryptedMessages('conv-refetch-2', messages), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current).toHaveLength(2);
+      });
+
+      const orphan = result.current[0];
+      if (!orphan) throw new Error('Expected orphan message');
+      expect(orphan.content).toBe('[decryption failed: missing epoch key]');
+
+      // Only one fetch — no refetch triggered since epoch 1 <= currentEpoch 2
+      expect(mockFetchJson).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not refetch more than once for the same stale currentEpoch', async () => {
+      mockUnwrapEpochKey.mockReturnValue(new Uint8Array([10]));
+      mockDecryptMessage.mockReturnValue('content');
+
+      // Server always returns currentEpoch: 1 (simulates delayed rotation)
+      mockFetchJson.mockResolvedValue({
+        wraps: [
+          {
+            epochNumber: 1,
+            wrap: 'w1',
+            confirmationHash: 'h',
+            privilege: 'owner',
+            visibleFromEpoch: 1,
+          },
+        ],
+        chainLinks: [],
+        currentEpoch: 1,
+      });
+
+      const messages = [
+        createMessageResponse({ id: 'msg-1', conversationId: 'conv-refetch-3', epochNumber: 1 }),
+        createMessageResponse({ id: 'msg-2', conversationId: 'conv-refetch-3', epochNumber: 3 }),
+      ];
+
+      const { result } = renderHook(() => useDecryptedMessages('conv-refetch-3', messages), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current).toHaveLength(2);
+      });
+
+      // Wait a tick to ensure no further refetches are triggered
+      await new Promise((resolve) => {
+        setTimeout(resolve, 50);
+      });
+
+      // Initial fetch + exactly one refetch = 2 calls total, NOT more
+      expect(mockFetchJson).toHaveBeenCalledTimes(2);
+    });
+  });
 });
