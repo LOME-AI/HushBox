@@ -65,7 +65,7 @@ None of this requires assuming bad faith. Safety monitoring, abuse prevention, a
 
 ## A different architecture
 
-HushBox encrypts your messages in your browser before they reach our servers. The encryption uses XChaCha20-Poly1305, a modern cipher that produces output indistinguishable from random noise without the correct key. That key is derived from your password through OPAQUE, a zero-knowledge authentication protocol where the server never sees the password itself. Even if you told us your username, we couldn't pull up your conversations.
+HushBox encrypts your messages before storing them. The encryption uses XChaCha20-Poly1305, a modern cipher that produces output indistinguishable from random noise without the correct key. That key is derived from your password through OPAQUE, a zero-knowledge authentication protocol where the server never sees the password itself. Even if you told us your username, we couldn't pull up your conversations.
 
 What our servers store are encrypted blobs. We can deliver them, back them up, migrate them between databases. We can't read them. Not "we choose not to." We don't have the keys.
 
