@@ -168,7 +168,7 @@ Never use these structures anywhere:
 
 ### Banned Structural Patterns
 
-**Em-dash overuse.** One em-dash per 500 words maximum. If you've used one, the next connector must be a comma, semicolon, colon, period, or parenthetical. The em-dash is not a universal joint.
+**No em-dashes.** Never use em-dashes (—). Use commas, semicolons, colons, periods, or parentheticals instead. Zero tolerance.
 
 **Rule of three.** Do not list three adjectives, three short phrases, or three parallel clauses unless you are making a genuinely tripartite point. "Fast, secure, and private" is a real triad. "Dynamic, innovative, and transformative" is slop.
 
@@ -199,7 +199,7 @@ Before presenting the draft, run this exact checklist:
 
 1. Ctrl+F every word in the banned vocabulary list. Replace all hits.
 2. Read the first sentence of every paragraph. If more than two start with the same word or structure, rewrite.
-3. Count em-dashes. Enforce the limit.
+3. Search for em-dashes (—). If any exist, replace them. Zero allowed.
 4. Check paragraph lengths. If three consecutive paragraphs are the same length (within one sentence), rewrite one.
 5. Read the last sentence of every section. If more than one is a "kicker" (short, punchy, meant to land hard), keep the best one and rewrite the rest.
 6. Search for "not just...but" and "more than just...it's" constructions. Delete all of them.

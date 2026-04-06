@@ -1,0 +1,87 @@
+---
+title: "What Happens to Everything You Tell Your AI"
+description: "The things you tell your AI are more personal than your search history. And they're stored as readable text on someone else's server."
+author: "HushBox Team"
+date: 2026-04-05
+tags: ["privacy", "security", "ai-models"]
+draft: false
+---
+
+## What you've told your AI
+
+Think about the last month of conversations you've had with an AI chatbot. Maybe you asked about a symptom you didn't want to Google with your name attached. Maybe you worked through a financial problem you haven't told anyone about. Maybe you asked a legal question you weren't ready to bring to a lawyer, or practiced a difficult conversation with your boss before having it for real.
+
+Maybe it was late at night and you just needed something to talk to.
+
+People share things with AI they wouldn't put in a search engine, because the format invites it. You're not typing keywords. You're having a conversation. You provide context, you follow up, you correct yourself, you think out loud. Over months, the accumulated chat history builds into something more intimate than your search history, your email inbox, or maybe even your journal. It's a record of your worries, your plans, your health, your finances, and your unfiltered thoughts.
+
+All of it, by default, is stored as readable text on a server you don't control.
+
+## Where those words live
+
+When you send a message to ChatGPT, Claude, or Gemini, the text travels to the provider's servers, where it's processed by the AI model and stored. These services use encryption at rest, which protects against outside attackers. If someone breaches the datacenter, they can't read the raw drives.
+
+But encryption at rest doesn't protect against the provider itself. The provider holds the decryption keys. That's how the system has to work for the service to function.
+
+Picture a storage unit in a building with good security. The locks keep strangers out. The building owner still has a master key. They may never open your unit. They may have a policy against it. But the capability is there, and your deepest conversations are inside.
+
+## What the policies permit
+
+Every major AI provider publishes a privacy policy describing what they can do with your data. Here's what they actually say.
+
+**OpenAI** trains models on ChatGPT conversations by default. Free and Plus users are opted in unless they manually toggle off "Improve the model for everyone" under Settings > Data Controls. Even with training disabled, conversations are retained for up to 30 days for abuse monitoring. Business and Enterprise accounts are excluded by default.
+
+**Google** is the most direct about human involvement. The Gemini Apps Privacy Hub states that human reviewers "read, annotate, and process" user conversations. Conversations selected for review are retained for up to three years. Google tells users not to enter confidential information they wouldn't want a reviewer to see. That conversation about your debt. That question about your child's behavior. A Google employee could read it, and the record can persist for three years after you delete it.
+
+**Anthropic** updated its Claude policy in September 2025. Training on consumer conversations (Free, Pro, Max) became opt-in rather than automatic. Users who opt in may have their data retained in de-identified form for up to five years. Those who don't will see deleted conversations removed from backend systems within 30 days.
+
+**xAI** took a different path with Grok. In July 2024, X enabled sharing of user posts and interactions with Grok by default. The opt-out toggle was initially available only on the web version, not the mobile app, so users who never checked their desktop settings were opted in without taking any action.
+
+These policies are published on public pages anyone can visit. But a 2023 Pew Research survey of 11,201 U.S. adults found that 52% feel more concerned than excited about AI, and a majority feel their information isn't being kept safe. The gap between what's written and what's understood is wide.
+
+## When this data leaks
+
+Policies govern normal operations. Breaches don't follow policies.
+
+In March 2023, a bug in ChatGPT's infrastructure caused some users to see other users' conversation titles and first messages. For nine hours, strangers could read what other people had been asking about. OpenAI confirmed the incident affected about 1.2% of ChatGPT Plus subscribers, and also exposed names, email addresses, and partial payment information.
+
+Three years later, a security researcher found an exposed database belonging to Chat & Ask AI, a chatbot app with over 50 million users. The breach exposed 300 million messages from 25 million people. Not metadata. Messages.
+
+Think about what was in those conversations. Tax questions that reveal income and debts. Parenting worries. Job search plans hidden from a current employer. Unfiltered venting about people by name. Conversations that felt like they'd stay between you and the screen.
+
+Now think about what that data is worth to someone who shouldn't have it.
+
+A stolen password can be changed. A leaked credit card can be cancelled. But your health concerns, your financial situation, the names of your children, the fears you shared because no one was supposed to see them: those can't be revoked. In the wrong hands, that's material for identity theft, social engineering, or blackmail. Not the Hollywood version of blackmail. The quiet kind: a message from an unknown sender that says "I have your AI conversations" and a request for payment.
+
+Every company gets breached eventually. The only variable is what the attacker finds inside.
+
+## Promises versus physics
+
+Privacy policies are business decisions written in legal language. They can be revised with a new terms-of-service notification and an email most users won't open.
+
+In October 2025, researchers at Stanford's Human-Centered AI institute examined privacy practices across six major providers: Amazon, Anthropic, Google, Meta, Microsoft, and OpenAI. They found that all six used chat data for model training, that some allowed human review of user transcripts, and that multiproduct companies routinely merged AI conversation data with other user information: search queries, purchases, social media activity. Jennifer King, a privacy fellow at Stanford HAI, said: "If you share sensitive information in a dialog with ChatGPT, Gemini, or other frontier models, it may be collected and used for training."
+
+None of this requires assuming bad faith. Safety monitoring, abuse prevention, and model improvement are real needs. But a system that promises not to read your data and a system that *can't* read your data are different things. One requires you to trust the company. The other is a property of the system itself.
+
+## A different architecture
+
+HushBox encrypts your messages in your browser before they reach our servers. The encryption uses XChaCha20-Poly1305, a modern cipher that produces output indistinguishable from random noise without the correct key. That key is derived from your password through OPAQUE, a zero-knowledge authentication protocol where the server never sees the password itself. Even if you told us your username, we couldn't pull up your conversations.
+
+What our servers store are encrypted blobs. We can deliver them, back them up, migrate them between databases. We can't read them. Not "we choose not to." We don't have the keys.
+
+If someone breached every server we operate, they'd find encrypted bytes with no way to decrypt them. No conversation titles. No message content. Nothing readable at all. Just noise.
+
+The math doesn't care about terms of service.
+
+---
+
+## Sources
+
+1. [Gemini Apps Privacy Hub (Google)](https://support.google.com/gemini/answer/13594961)
+2. [How your data is used to improve model performance (OpenAI)](https://help.openai.com/en/articles/5722486-how-your-data-is-used-to-improve-model-performance)
+3. [Updates to our Privacy Policy (Anthropic, September 2025)](https://privacy.claude.com/en/articles/10301952-updates-to-our-privacy-policy)
+4. [Here's how to disable X from using your data to train its Grok AI (TechCrunch, 2024)](https://techcrunch.com/2024/07/26/heres-how-to-disable-x-twitter-from-using-your-data-to-train-its-grok-ai/)
+5. [Growing public concern about the role of artificial intelligence in daily life (Pew Research, 2023)](https://www.pewresearch.org/short-reads/2023/08/28/growing-public-concern-about-the-role-of-artificial-intelligence-in-daily-life/)
+6. [March 20 ChatGPT outage: Here's what happened (OpenAI, 2023)](https://openai.com/index/march-20-chatgpt-outage)
+7. [AI chat app leak exposes 300 million messages tied to 25 million users (Malwarebytes, 2026)](https://www.malwarebytes.com/blog/news/2026/02/ai-chat-app-leak-exposes-300-million-messages-tied-to-25-million-users)
+8. [Study exposes privacy risks of AI chatbot conversations (Stanford HAI, October 2025)](https://techxplore.com/news/2025-10-exposes-privacy-ai-chatbot-conversations.html)
