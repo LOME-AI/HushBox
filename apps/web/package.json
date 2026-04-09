@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.native-tests.json",
+    "typecheck": "tsgo --noEmit && tsgo --noEmit -p tsconfig.native-tests.json",
     "test": "../../scripts/with-env vitest run",
     "test:watch": "../../scripts/with-env vitest",
     "test:coverage": "../../scripts/with-env vitest run --coverage",

@@ -11,7 +11,7 @@
     "test:watch": "../../scripts/with-env vitest",
     "test:coverage": "../../scripts/with-env vitest run --coverage --passWithNoTests",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
     "@hushbox/config": "workspace:*",

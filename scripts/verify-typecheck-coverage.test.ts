@@ -3,10 +3,6 @@ import { mkdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-vi.mock('execa', () => ({
-  execa: vi.fn(),
-}));
-
 vi.mock('./workspaces.js', () => ({
   discoverWorkspaces: vi.fn(),
 }));
@@ -147,57 +143,108 @@ describe('verify-typecheck-coverage', () => {
   });
 
   describe('getFilesFromTsconfig', () => {
-    it('runs tsc --listFiles and returns file paths', async () => {
+    it('returns source files covered by a tsconfig include pattern', async () => {
       const { getFilesFromTsconfig } = await import('./verify-typecheck-coverage.js');
-      const { execa } = await import('execa');
 
-      vi.mocked(execa).mockResolvedValue({
-        stdout: '/root/src/app.ts\n/root/src/utils.ts\n/root/node_modules/@types/node/index.d.ts',
-      } as never);
-
-      const files = await getFilesFromTsconfig('/root/tsconfig.json');
-
-      expect(execa).toHaveBeenCalledWith(
-        'tsc',
-        ['--listFiles', '--noEmit', '-p', '/root/tsconfig.json'],
-        expect.objectContaining({ reject: false })
+      await mkdir(path.join(TEST_DIR, 'src'), { recursive: true });
+      await writeFile(
+        path.join(TEST_DIR, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: { skipLibCheck: true, noEmit: true, types: [] },
+          include: ['src/**/*.ts'],
+        })
       );
-      // Should filter out node_modules files
-      expect(files).toContain('/root/src/app.ts');
-      expect(files).toContain('/root/src/utils.ts');
-      expect(files).not.toContain('/root/node_modules/@types/node/index.d.ts');
+      await writeFile(path.join(TEST_DIR, 'src/app.ts'), 'export const x = 1;\n');
+      await writeFile(path.join(TEST_DIR, 'src/util.ts'), 'export const y = 2;\n');
+
+      const files = getFilesFromTsconfig(path.join(TEST_DIR, 'tsconfig.json'));
+
+      expect(files.some((f) => f.endsWith('src/app.ts'))).toBe(true);
+      expect(files.some((f) => f.endsWith('src/util.ts'))).toBe(true);
     });
 
-    it('returns empty array when tsc fails', async () => {
+    it('returns empty array when the tsconfig cannot be parsed', async () => {
       const { getFilesFromTsconfig } = await import('./verify-typecheck-coverage.js');
-      const { execa } = await import('execa');
 
-      vi.mocked(execa).mockResolvedValue({
-        stdout: '',
-        stderr: 'error TS6059',
-        exitCode: 2,
-      } as never);
-
-      const files = await getFilesFromTsconfig('/root/tsconfig.json');
+      const files = getFilesFromTsconfig(path.join(TEST_DIR, 'does-not-exist.json'));
 
       expect(files).toEqual([]);
     });
 
-    it('filters out .d.ts files from node_modules', async () => {
+    it('filters out files inside node_modules', async () => {
       const { getFilesFromTsconfig } = await import('./verify-typecheck-coverage.js');
-      const { execa } = await import('execa');
 
-      vi.mocked(execa).mockResolvedValue({
-        stdout: [
-          '/root/src/index.ts',
-          '/root/node_modules/typescript/lib/lib.es2022.d.ts',
-          '/root/node_modules/.pnpm/@types+node@22/node_modules/@types/node/index.d.ts',
-        ].join('\n'),
-      } as never);
+      await mkdir(path.join(TEST_DIR, 'src'), { recursive: true });
+      await writeFile(
+        path.join(TEST_DIR, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: { skipLibCheck: true, noEmit: true, types: [] },
+          include: ['src/**/*.ts'],
+        })
+      );
+      await writeFile(path.join(TEST_DIR, 'src/app.ts'), 'export const x = 1;\n');
 
-      const files = await getFilesFromTsconfig('/root/tsconfig.json');
+      const files = getFilesFromTsconfig(path.join(TEST_DIR, 'tsconfig.json'));
 
-      expect(files).toEqual(['/root/src/index.ts']);
+      expect(files.some((f) => f.endsWith('src/app.ts'))).toBe(true);
+      expect(files.every((f) => !f.includes('/node_modules/'))).toBe(true);
+    });
+
+    it('resolves files through tsconfig "extends"', async () => {
+      const { getFilesFromTsconfig } = await import('./verify-typecheck-coverage.js');
+
+      await mkdir(path.join(TEST_DIR, 'src'), { recursive: true });
+      await writeFile(
+        path.join(TEST_DIR, 'tsconfig.base.json'),
+        JSON.stringify({
+          compilerOptions: {
+            skipLibCheck: true,
+            noEmit: true,
+            strict: true,
+            types: [],
+          },
+        })
+      );
+      await writeFile(
+        path.join(TEST_DIR, 'tsconfig.json'),
+        JSON.stringify({
+          extends: './tsconfig.base.json',
+          include: ['src/**/*.ts'],
+        })
+      );
+      await writeFile(path.join(TEST_DIR, 'src/app.ts'), 'export const x: number = 1;\n');
+
+      const files = getFilesFromTsconfig(path.join(TEST_DIR, 'tsconfig.json'));
+
+      expect(files.some((f) => f.endsWith('src/app.ts'))).toBe(true);
+    });
+
+    it('returns transitively imported files outside the include pattern', async () => {
+      const { getFilesFromTsconfig } = await import('./verify-typecheck-coverage.js');
+
+      await mkdir(path.join(TEST_DIR, 'src'), { recursive: true });
+      await mkdir(path.join(TEST_DIR, 'lib'), { recursive: true });
+      await writeFile(
+        path.join(TEST_DIR, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: { skipLibCheck: true, noEmit: true, types: [] },
+          include: ['src/entry.ts'],
+        })
+      );
+      await writeFile(
+        path.join(TEST_DIR, 'src/entry.ts'),
+        "import { helper } from '../lib/util.js';\nexport const x = helper();\n"
+      );
+      await writeFile(
+        path.join(TEST_DIR, 'lib/util.ts'),
+        'export function helper(): number {\n  return 1;\n}\n'
+      );
+
+      const files = getFilesFromTsconfig(path.join(TEST_DIR, 'tsconfig.json'));
+
+      // entry.ts is in `include`; util.ts is not, but is reachable via import
+      expect(files.some((f) => f.endsWith('src/entry.ts'))).toBe(true);
+      expect(files.some((f) => f.endsWith('lib/util.ts'))).toBe(true);
     });
   });
 
@@ -296,26 +343,26 @@ describe('verify-typecheck-coverage', () => {
     it('returns success when all source files are covered', async () => {
       const { verify } = await import('./verify-typecheck-coverage.js');
       const { discoverWorkspaces } = await import('./workspaces.js');
-      const { execa } = await import('execa');
 
       vi.mocked(discoverWorkspaces).mockReturnValue([
         { name: 'pkg', path: 'pkg', fullName: '@test/pkg' },
       ]);
 
-      // Create workspace with tsconfig and source file
-      await mkdir(path.join(TEST_DIR, 'pkg'), { recursive: true });
-      await writeFile(path.join(TEST_DIR, 'pkg/tsconfig.json'), '{}');
-      await writeFile(path.join(TEST_DIR, 'tsconfig.json'), '{}');
       await mkdir(path.join(TEST_DIR, 'pkg/src'), { recursive: true });
-      await writeFile(path.join(TEST_DIR, 'pkg/src/index.ts'), '');
+      await writeFile(
+        path.join(TEST_DIR, 'pkg/tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: { skipLibCheck: true, noEmit: true, types: [] },
+          include: ['src/**/*.ts'],
+        })
+      );
+      await writeFile(
+        path.join(TEST_DIR, 'tsconfig.json'),
+        JSON.stringify({ compilerOptions: { skipLibCheck: true, noEmit: true, types: [] } })
+      );
+      await writeFile(path.join(TEST_DIR, 'pkg/src/index.ts'), 'export const x = 1;\n');
 
-      // Mock tsc to report the source file as covered
-      const sourceFile = path.join(TEST_DIR, 'pkg/src/index.ts');
-      vi.mocked(execa).mockResolvedValue({
-        stdout: sourceFile,
-      } as never);
-
-      const result = await verify(TEST_DIR);
+      const result = verify(TEST_DIR);
 
       expect(result.success).toBe(true);
       expect(result.orphanedFiles).toEqual([]);
@@ -324,27 +371,35 @@ describe('verify-typecheck-coverage', () => {
     it('returns failure when source files are not covered', async () => {
       const { verify } = await import('./verify-typecheck-coverage.js');
       const { discoverWorkspaces } = await import('./workspaces.js');
-      const { execa } = await import('execa');
 
       vi.mocked(discoverWorkspaces).mockReturnValue([
         { name: 'pkg', path: 'pkg', fullName: '@test/pkg' },
       ]);
 
-      // Create workspace with tsconfig and TWO source files
       await mkdir(path.join(TEST_DIR, 'pkg/src'), { recursive: true });
       await mkdir(path.join(TEST_DIR, 'pkg/orphan'), { recursive: true });
-      await writeFile(path.join(TEST_DIR, 'pkg/tsconfig.json'), '{}');
-      await writeFile(path.join(TEST_DIR, 'tsconfig.json'), '{}');
-      await writeFile(path.join(TEST_DIR, 'pkg/src/index.ts'), '');
-      await writeFile(path.join(TEST_DIR, 'pkg/orphan/lost.ts'), '');
+      // pkg tsconfig only covers src/, leaving orphan/ uncovered
+      await writeFile(
+        path.join(TEST_DIR, 'pkg/tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: { skipLibCheck: true, noEmit: true, types: [] },
+          include: ['src/**/*.ts'],
+        })
+      );
+      // Root tsconfig is scoped to a dummy root file so it does NOT fall back
+      // to the default "**/*" include that would otherwise pick up orphan/lost.ts
+      await writeFile(path.join(TEST_DIR, 'root.ts'), 'export {};\n');
+      await writeFile(
+        path.join(TEST_DIR, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: { skipLibCheck: true, noEmit: true, types: [] },
+          include: ['root.ts'],
+        })
+      );
+      await writeFile(path.join(TEST_DIR, 'pkg/src/index.ts'), 'export const x = 1;\n');
+      await writeFile(path.join(TEST_DIR, 'pkg/orphan/lost.ts'), 'export const y = 2;\n');
 
-      // Mock tsc to only report ONE file as covered
-      const coveredFile = path.join(TEST_DIR, 'pkg/src/index.ts');
-      vi.mocked(execa).mockResolvedValue({
-        stdout: coveredFile,
-      } as never);
-
-      const result = await verify(TEST_DIR);
+      const result = verify(TEST_DIR);
 
       expect(result.success).toBe(false);
       expect(result.orphanedFiles).toContain(path.join(TEST_DIR, 'pkg/orphan/lost.ts'));

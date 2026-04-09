@@ -18,7 +18,7 @@
     "test:watch": "../../scripts/with-env vitest",
     "test:coverage": "../../scripts/with-env vitest run --coverage",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

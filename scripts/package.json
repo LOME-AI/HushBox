@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "test": "./with-env vitest run --passWithNoTests",
     "test:coverage": "./with-env vitest run --coverage --passWithNoTests"
   },

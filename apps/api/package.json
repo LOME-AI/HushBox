@@ -12,7 +12,7 @@
     "test:watch": "../../scripts/with-env vitest",
     "test:coverage": "../../scripts/with-env vitest run --coverage",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.7.6",
