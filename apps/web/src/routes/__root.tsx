@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Outlet, createRootRoute, Navigate } from '@tanstack/react-router';
+import { Outlet, createRootRouteWithContext, Navigate } from '@tanstack/react-router';
+import type { RouterContext } from '@/router';
 import { QueryProvider } from '@/providers/query-provider';
 import { StabilityProvider, useStability } from '@/providers/stability-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
@@ -44,7 +45,7 @@ function RootComponent(): React.JSX.Element {
   );
 }
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<RouterContext>()({
   component: RootComponent,
   notFoundComponent: NotFoundRedirect,
 });

@@ -19,12 +19,18 @@ vi.mock('@/hooks/billing', () => ({
   useBalance: vi.fn(),
 }));
 
+vi.mock('@/lib/auth-client', () => ({
+  hasStoredAuth: vi.fn(),
+}));
+
 import { useSession, initAuth } from '@/lib/auth';
 import { useBalance } from '@/hooks/billing';
+import { hasStoredAuth } from '@/lib/auth-client';
 
 const mockedUseSession = vi.mocked(useSession);
 const mockedUseBalance = vi.mocked(useBalance);
 const mockedInitAuth = vi.mocked(initAuth);
+const mockedHasStoredAuth = vi.mocked(hasStoredAuth);
 
 function createWrapper(): ({ children }: Readonly<{ children: ReactNode }>) => ReactNode {
   function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
@@ -312,6 +318,40 @@ describe('useStability', () => {
       });
 
       expect(result.current.isAppStable).toBe(true);
+    });
+  });
+
+  describe('optimistic balance query', () => {
+    it('fires balance immediately when stored auth exists', () => {
+      mockedHasStoredAuth.mockReturnValue(true);
+      mockedUseSession.mockReturnValue({
+        data: null,
+        isPending: true,
+      } as unknown as ReturnType<typeof useSession>);
+      mockedUseBalance.mockReturnValue({
+        data: null,
+        isPending: true,
+      } as unknown as ReturnType<typeof useBalance>);
+
+      renderHook(() => useStability(), { wrapper: createWrapper() });
+
+      expect(mockedUseBalance).toHaveBeenCalledWith({ enabled: true });
+    });
+
+    it('does not fire balance when no stored auth exists', () => {
+      mockedHasStoredAuth.mockReturnValue(false);
+      mockedUseSession.mockReturnValue({
+        data: null,
+        isPending: false,
+      } as unknown as ReturnType<typeof useSession>);
+      mockedUseBalance.mockReturnValue({
+        data: null,
+        isPending: false,
+      } as unknown as ReturnType<typeof useBalance>);
+
+      renderHook(() => useStability(), { wrapper: createWrapper() });
+
+      expect(mockedUseBalance).toHaveBeenCalledWith({ enabled: false });
     });
   });
 });

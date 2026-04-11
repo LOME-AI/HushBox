@@ -109,6 +109,10 @@ test.describe('Auth Member Access', () => {
     await test.step('Alice sends message in new epoch', async () => {
       const newMessage = `Post-rotation for Dave ${String(Date.now())}`;
       await aliceChatPage.sendFollowUpMessage(newMessage);
+      // Wait for stream completion (cost badge visible) so the message is
+      // persisted to the DB before Dave's page fetches. Otherwise Dave's
+      // API call can beat the DB commit and return an empty conversation.
+      await aliceChatPage.waitForStreamComplete();
       await aliceChatPage.expectMessageVisible(newMessage);
     });
 
@@ -117,13 +121,11 @@ test.describe('Auth Member Access', () => {
       await daveChatPage.gotoConversation(groupConversation.id);
       await daveChatPage.waitForConversationLoaded();
 
-      // Should NOT see pre-rotation messages
-      await expect(testDavePage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
+      // Should NOT see pre-rotation messages anywhere in the conversation
+      await daveChatPage.assertMessageNotVisible('Hello from Alice', { exact: true });
 
-      // Should see post-rotation message (decryption may lag behind fetch settlement)
-      await unsettledExpect(testDavePage.getByText('Post-rotation for Dave').first()).toBeVisible({
-        timeout: 10_000,
-      });
+      // Should see post-rotation message (helper auto-scrolls if virtualised)
+      await daveChatPage.assertMessageVisible('Post-rotation for Dave');
 
       // Read privilege: send input should be disabled or hidden
       const sendInput = testDavePage.getByRole('textbox', { name: 'Ask me anything...' });
@@ -150,12 +152,10 @@ test.describe('Auth Member Access', () => {
       await daveChatPage.waitForConversationLoaded();
 
       // Still should NOT see pre-rotation messages (privilege change doesn't grant history)
-      await expect(testDavePage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
+      await daveChatPage.assertMessageNotVisible('Hello from Alice', { exact: true });
 
-      // Should still see post-rotation message (decryption may lag behind fetch settlement)
-      await unsettledExpect(testDavePage.getByText('Post-rotation for Dave').first()).toBeVisible({
-        timeout: 10_000,
-      });
+      // Should still see post-rotation message (helper auto-scrolls if virtualised)
+      await daveChatPage.assertMessageVisible('Post-rotation for Dave');
     });
   });
 });

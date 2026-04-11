@@ -157,10 +157,8 @@ test.describe('Group Chat Admin', () => {
       await bobChatPage.gotoConversation(groupConversation.id);
       await bobChatPage.waitForConversationLoaded();
 
-      // Wait for WebSocket presence to propagate
-      await authenticatedPage.waitForTimeout(2000);
-
       const bobMemberId = await sidebar.getMemberIdByUsername(bobMember.username);
+      // Wait for WebSocket presence to propagate (online indicators appear asynchronously)
       await sidebar.expectOnlineIndicator(aliceMemberId);
       await sidebar.expectOnlineIndicator(bobMemberId);
     });
@@ -412,7 +410,10 @@ test.describe('Group Chat Admin', () => {
     await test.step('change link privilege', async () => {
       await sidebar.openLinkActions(readLinkId);
       await sidebar.clickChangeLinkPrivilege(readLinkId, 'write');
-      await authenticatedPage.waitForTimeout(500);
+      // Verify link moved to the "write" privilege section
+      await expect(
+        authenticatedPage.getByTestId('member-section-write').getByTestId(`link-item-${readLinkId}`)
+      ).toBeVisible();
     });
 
     await test.step('revoke link with confirmation', async () => {
@@ -642,8 +643,8 @@ test.describe('Group Chat Admin', () => {
       await daveChatPage.gotoConversation(groupConversation.id);
       await daveChatPage.waitForConversationLoaded();
 
-      // Dave should NOT see Alice's old message (added without history)
-      await expect(testDavePage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
+      // Dave should NOT see Alice's old message (added without history) anywhere
+      await daveChatPage.assertMessageNotVisible('Hello from Alice', { exact: true });
     });
   });
 });

@@ -8,7 +8,6 @@ import {
   type APIRequestContext,
   type TestInfo,
 } from '@playwright/test';
-import { expect } from './helpers/settled-expect.js';
 import { ChatPage } from './pages';
 import { requireEnv } from './helpers/env.js';
 
@@ -45,13 +44,16 @@ function createPageFixture(
 ) => Promise<void> {
   return async ({ browser }, use, testInfo) => {
     const harPath = testInfo.outputPath(`${label}.har`);
+    const isRetry = testInfo.retry > 0;
     const context = await browser.newContext({
       storageState,
-      recordHar: {
-        path: harPath,
-        mode: 'minimal',
-        urlFilter: /\/api\//,
-      },
+      ...(isRetry && {
+        recordHar: {
+          path: harPath,
+          mode: 'minimal',
+          urlFilter: /\/api\//,
+        },
+      }),
     });
     const page = await context.newPage();
     const { errors, cleanup } = attachConsoleErrors(page);
@@ -79,7 +81,7 @@ function createPageFixture(
     cleanup();
     await context.close();
 
-    if (failed && existsSync(harPath)) {
+    if (failed && isRetry && existsSync(harPath)) {
       await testInfo.attach(`har-${label}`, { path: harPath, contentType: 'application/json' });
     }
   };
@@ -186,13 +188,16 @@ export const test = base.extend<CustomFixtures>({
     let counter = 0;
 
     const DEFAULT_STORAGE_STATE: StorageState = { cookies: [], origins: [] };
+    const isRetry = testInfo.retry > 0;
     const factory = async (storageState: StorageState = DEFAULT_STORAGE_STATE): Promise<Page> => {
       counter++;
       const label = `unauthenticatedPage-${String(counter)}`;
       const harPath = testInfo.outputPath(`${label}.har`);
       const context = await browser.newContext({
         storageState,
-        recordHar: { path: harPath, mode: 'minimal', urlFilter: /\/api\// },
+        ...(isRetry && {
+          recordHar: { path: harPath, mode: 'minimal', urlFilter: /\/api\// },
+        }),
       });
       const page = await context.newPage();
       const { errors, cleanup } = attachConsoleErrors(page);
@@ -335,37 +340,30 @@ export const test = base.extend<CustomFixtures>({
     { timeout: 60_000 },
   ],
 
-  testConversation: async (
-    { authenticatedPage, authenticatedRequest: _authenticatedRequest },
-    use
-  ) => {
-    const page = authenticatedPage;
-    await page.goto('/chat');
-
-    // Wait for app to stabilize (auth + balance loaded) before interacting
-    await page.locator('[data-app-stable="true"]').waitFor({ state: 'visible', timeout: 15_000 });
-
+  testConversation: async ({ authenticatedPage, authenticatedRequest }, use) => {
     const testMessage = `Fixture setup ${String(Date.now())}`;
-    const input = page.getByRole('textbox', { name: 'Ask me anything...' });
-    await input.fill(testMessage);
+    const response = await authenticatedRequest.post('/api/dev/conversation', {
+      data: {
+        ownerEmail: 'test-alice@test.hushbox.ai',
+        messages: [
+          { content: testMessage, senderType: 'user' },
+          { content: `Echo: ${testMessage}`, senderType: 'ai' },
+        ],
+      },
+    });
 
-    const sendButton = page.getByRole('button', { name: 'Send' });
-    await expect(sendButton).toBeEnabled({ timeout: 15_000 });
-    await sendButton.click();
+    rawExpect(response.ok(), `conversation creation failed: ${String(response.status())}`).toBe(
+      true
+    );
+    const data = (await response.json()) as { conversationId: string };
+    const id = data.conversationId;
 
-    // Wait for navigation to conversation page first (happens on successful message send)
-    await expect(page).toHaveURL(/\/chat\/[a-f0-9-]+(\?.*)?$/, { timeout: 20_000 });
+    // Navigate to the conversation so the page is ready for test interactions
+    await authenticatedPage.goto(`/chat/${id}`, { waitUntil: 'domcontentloaded' });
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.waitForConversationLoaded();
 
-    // Then wait for the Echo response to appear
-    const echoMessage = page.getByRole('log', { name: 'Chat messages' }).getByText('Echo:');
-    await expect(echoMessage).toBeVisible({ timeout: 15_000 });
-
-    const url = new URL(page.url());
-    const id = url.pathname.split('/').pop() ?? '';
-
-    await use({ id, url: page.url() });
-    // No cleanup — CI database is ephemeral. Deleting here races with deferred
-    // saveChatTurn() running via Wrangler's waitUntil(), producing billing_failed errors.
+    await use({ id, url: `/chat/${id}` });
   },
 });
 

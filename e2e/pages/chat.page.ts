@@ -1,5 +1,6 @@
 import { type Page, type Locator } from '@playwright/test';
 import { expect, unsettledExpect } from '../helpers/settled-expect.js';
+import { isTouchDevice } from '../helpers/overlay.js';
 import { requireEnv } from '../helpers/env.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
@@ -26,7 +27,7 @@ export class ChatPage {
   }
 
   async goto(): Promise<void> {
-    await this.page.goto('/chat');
+    await this.page.goto('/chat', { waitUntil: 'domcontentloaded' });
   }
 
   async waitForAppStable(timeout = 15_000): Promise<void> {
@@ -38,12 +39,23 @@ export class ChatPage {
     await expect(this.page.locator('[data-ws-connected="true"]')).toBeVisible({ timeout });
   }
 
+  /** Wait for the WebSocket server-side registration to complete (DO ready for fan-out). */
+  async waitForWebSocketReady(timeout = 10_000): Promise<void> {
+    await this.page.locator('[data-ws-ready="true"]').waitFor({ state: 'attached', timeout });
+  }
+
+  /** Wait for the message list to finish scrolling (layout stable). Use after programmatic scroll operations. */
+  async waitForScrollStable(timeout = 5000): Promise<void> {
+    await this.page
+      .locator('[data-virtuoso-scrolling="false"]')
+      .waitFor({ state: 'attached', timeout });
+  }
+
   /** Wait for a conversation page to load (message list visible and content rendered). Use instead of waitForAppStable on conversation pages. */
   async waitForConversationLoaded(timeout = 15_000): Promise<void> {
     await this.messageList.waitFor({ state: 'visible', timeout });
-    // Wait for Virtuoso to render at least one message OR the "No messages yet"
-    // empty state. Without this, getMessageCount() can race ahead of Virtuoso's
-    // layout pass. Uses .or() so a single locator resolves for either case.
+    // Wait for at least one message to render OR the "No messages yet" empty
+    // state. Uses .or() so a single locator resolves for either case.
     await this.messageList
       .locator('[data-testid="message-item"]')
       .first()
@@ -52,11 +64,11 @@ export class ChatPage {
   }
 
   async gotoTrialChat(): Promise<void> {
-    await this.page.goto('/chat/trial');
+    await this.page.goto('/chat/trial', { waitUntil: 'domcontentloaded' });
   }
 
   async gotoConversation(conversationId: string): Promise<void> {
-    await this.page.goto(`/chat/${conversationId}`);
+    await this.page.goto(`/chat/${conversationId}`, { waitUntil: 'domcontentloaded' });
   }
 
   async sendNewChatMessage(message: string): Promise<void> {
@@ -81,16 +93,194 @@ export class ChatPage {
   }
 
   async expectMessageVisible(message: string, timeout = 10_000): Promise<void> {
-    const locator = this.messageList.getByText(message, { exact: true }).first();
+    // Thin alias so existing call sites keep working. Prefer assertMessageVisible
+    // for new code — it is virtualization-agnostic and auto-scrolls if needed.
+    await this.assertMessageVisible(message, { exact: true, timeout });
+  }
 
-    // Fast path: message already in DOM and visible (most callers — recent messages at bottom)
-    const alreadyVisible = await locator.isVisible().catch(() => false);
-    if (alreadyVisible) return;
+  /**
+   * Count messages in the conversation. Happy path (instant): `data-message-count`
+   * from React state matches the DOM count of `[data-message-id]`, meaning
+   * every message is currently rendered. Otherwise scrolls top→bottom once
+   * collecting unique `data-message-id` values.
+   *
+   * @param role - optional filter ('user' | 'assistant'); when set, counts only
+   *               messages of that role (still scrolling through all to collect
+   *               them reliably).
+   */
+  async countMessages(role?: 'user' | 'assistant'): Promise<number> {
+    const stateCount = Number(await this.messageList.getAttribute('data-message-count'));
+    const domCount = await this.messageList.locator('[data-message-id]').count();
 
-    // Slow path: message may be virtualized off-screen. Scroll to top to bring
-    // older messages into Virtuoso's render range, then retry.
+    // Happy path: every message is already rendered, no scrolling needed.
+    if (stateCount === domCount) {
+      if (role === undefined) return stateCount;
+      return await this.messageList.locator(`[data-role="${role}"]`).count();
+    }
+
+    // Slow path: scroll through and collect unique ids.
+    const seen = await this.collectMessagesByScrolling(role);
+    return seen.size;
+  }
+
+  /**
+   * Assert a message containing the given text exists somewhere in the
+   * conversation. Happy path: already visible in the current DOM, optionally
+   * after a short wait to cover decryption lag. Otherwise scrolls to find
+   * it, auto-detecting direction from the current scroll position (closer
+   * to top → scroll down first; closer to bottom → scroll up first). Falls
+   * back to the opposite direction if the first direction exhausts.
+   */
+  async assertMessageVisible(
+    text: string,
+    opts?: { exact?: boolean; timeout?: number }
+  ): Promise<void> {
+    const exact = opts?.exact ?? false;
+    const timeout = opts?.timeout ?? 10_000;
+    const locator = this.messageList.getByText(text, { exact }).first();
+
+    // Happy path: already visible, or appears within a short wait window.
+    // The short wait covers normal async lag (decryption, streaming) without
+    // needing to scroll. If the message is genuinely off-screen due to
+    // virtualization, this wait returns fast (locator stays not-visible)
+    // and we fall through to the scroll path.
+    const happyWait = Math.min(3_000, timeout);
+    const appeared = await locator
+      .waitFor({ state: 'visible', timeout: happyWait })
+      .then(() => true)
+      .catch(() => false);
+    if (appeared) return;
+
+    // Slow path: scroll to find it with the remaining time budget.
+    const remaining = Math.max(1_000, timeout - happyWait);
+    await this.scrollUntilLocatorVisible(locator, text, remaining);
+  }
+
+  /**
+   * Assert no message containing the given text exists anywhere in the
+   * conversation. Happy path (instant): every message is already in the DOM
+   * (`data-message-count` === DOM `[data-message-id]` count), so a single
+   * negative check is definitive. Otherwise scrolls top→bottom confirming the
+   * text never appears at any scroll position.
+   */
+  async assertMessageNotVisible(text: string, opts?: { exact?: boolean }): Promise<void> {
+    const exact = opts?.exact ?? false;
+    const locator = this.messageList.getByText(text, { exact });
+
+    const stateCount = Number(await this.messageList.getAttribute('data-message-count'));
+    const domCount = await this.messageList.locator('[data-message-id]').count();
+
+    // Happy path: all messages are rendered — one negative check is definitive.
+    if (stateCount === domCount) {
+      await expect(locator).not.toBeVisible();
+      return;
+    }
+
+    // Slow path: scroll top→bottom, confirm text never appears.
     await this.scrollToTop();
-    await expect(locator).toBeVisible({ timeout });
+    await this.waitForScrollStable();
+    while (true) {
+      if (await locator.first().isVisible().catch(() => false)) {
+        throw new Error(`assertMessageNotVisible: found message with text "${text}"`);
+      }
+      if (await this.isAtScrollBottom()) break;
+      await this.scrollByViewportFraction(0.8);
+      await this.waitForScrollStable();
+    }
+  }
+
+  /**
+   * Scroll top→bottom collecting unique `data-message-id` values that enter
+   * the DOM. Used internally by `countMessages` and the nametag assertion.
+   */
+  private async collectMessagesByScrolling(
+    role?: 'user' | 'assistant'
+  ): Promise<Set<string>> {
+    const seen = new Set<string>();
+    await this.scrollToTop();
+    await this.waitForScrollStable();
+
+    const selector =
+      role === undefined
+        ? '[data-message-id]'
+        : `[data-role="${role}"][data-message-id]`;
+
+    while (true) {
+      const ids = await this.messageList
+        .locator(selector)
+        .evaluateAll((els) =>
+          els.map((el) => (el as HTMLElement).dataset['messageId'] ?? null)
+        );
+      for (const id of ids) {
+        if (id !== null) seen.add(id);
+      }
+
+      if (await this.isAtScrollBottom()) break;
+      await this.scrollByViewportFraction(0.8);
+      await this.waitForScrollStable();
+    }
+    return seen;
+  }
+
+  /**
+   * Scroll to find `locator`, auto-detecting direction from the current
+   * scroll position. If the first direction exhausts, tries the opposite.
+   */
+  private async scrollUntilLocatorVisible(
+    locator: Locator,
+    text: string,
+    timeout: number
+  ): Promise<void> {
+    const start = Date.now();
+    const { scrollTop, scrollHeight, clientHeight } = await this.getScrollPosition();
+
+    // Auto-detect: if we're in the upper half, missing message is likely
+    // below. If we're in the lower half, it's likely above.
+    const maxScroll = Math.max(1, scrollHeight - clientHeight);
+    const relPos = scrollTop / maxScroll;
+    const firstDir: 1 | -1 = relPos < 0.5 ? 1 : -1;
+
+    if (await this.scanDirection(locator, firstDir, Math.floor(timeout / 2))) return;
+
+    const remaining = Math.max(1000, timeout - (Date.now() - start));
+    const secondDir: 1 | -1 = firstDir === 1 ? -1 : 1;
+    if (await this.scanDirection(locator, secondDir, remaining)) return;
+
+    throw new Error(
+      `assertMessageVisible: no message matching "${text}" found after scrolling both directions`
+    );
+  }
+
+  private async scanDirection(
+    locator: Locator,
+    dir: 1 | -1,
+    timeout: number
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      if (await locator.isVisible().catch(() => false)) return true;
+      const atEdge = dir === 1 ? await this.isAtScrollBottom() : await this.isAtScrollTop();
+      if (atEdge) return false;
+      await this.scrollByViewportFraction(0.8 * dir);
+      await this.waitForScrollStable();
+    }
+    return false;
+  }
+
+  private async scrollByViewportFraction(frac: number): Promise<void> {
+    await this.viewport.evaluate((el, f) => {
+      el.scrollTop += el.clientHeight * f;
+    }, frac);
+  }
+
+  private async isAtScrollBottom(): Promise<boolean> {
+    const { scrollTop, scrollHeight, clientHeight } = await this.getScrollPosition();
+    return scrollTop + clientHeight >= scrollHeight - 10;
+  }
+
+  private async isAtScrollTop(): Promise<boolean> {
+    const { scrollTop } = await this.getScrollPosition();
+    return scrollTop <= 10;
   }
 
   async expectNewChatPageVisible(): Promise<void> {
@@ -248,12 +438,22 @@ export class ChatPage {
 
   /** Hover over the nth message to reveal action buttons (opacity-0 until hover). */
   async hoverMessage(index: number): Promise<void> {
-    await this.getMessage(index).hover();
+    const target = this.getMessage(index);
+    if (await isTouchDevice(this.page)) {
+      await target.click();
+    } else {
+      await target.hover();
+    }
   }
 
-  /** Hover over the last message. */
+  /** Hover over the last message (click on touch devices to trigger sticky hover). */
   async hoverLastMessage(): Promise<void> {
-    await this.getLastMessage().hover();
+    const target = this.getLastMessage();
+    if (await isTouchDevice(this.page)) {
+      await target.click();
+    } else {
+      await target.hover();
+    }
   }
 
   /** Get action button on a specific message by aria-label. */
@@ -424,7 +624,7 @@ export class ChatPage {
     const clearButton = modal.getByTestId('clear-selection-button');
     if (await clearButton.isVisible()) {
       await clearButton.click();
-      await this.page.waitForTimeout(100);
+      await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
     }
 
     // Select exactly `count` non-premium models
@@ -435,8 +635,7 @@ export class ChatPage {
       const isSelected = (await item.getAttribute('data-selected')) === 'true';
       if (!isSelected) {
         await item.getByTestId('model-checkbox').click();
-        // Wait for React re-render to settle before querying next item
-        await this.page.waitForTimeout(100);
+        await expect(item).toHaveAttribute('data-selected', 'true');
       }
     }
 
@@ -460,7 +659,7 @@ export class ChatPage {
     const clearButton = modal.getByTestId('clear-selection-button');
     if (await clearButton.isVisible()) {
       await clearButton.click();
-      await this.page.waitForTimeout(100);
+      await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
     }
 
     const available = await nonPremiumItems.count();
@@ -468,14 +667,14 @@ export class ChatPage {
     // Select first model (success target)
     const firstItem = nonPremiumItems.nth(0);
     await firstItem.getByTestId('model-checkbox').click();
-    await this.page.waitForTimeout(100);
+    await expect(firstItem).toHaveAttribute('data-selected', 'true');
     const firstTestId = await firstItem.getAttribute('data-testid');
     const successModelId = (firstTestId ?? '').replace('model-item-', '');
 
     // Select LAST model (fail target) — never picked by selectModels(N)
     const lastItem = nonPremiumItems.nth(available - 1);
     await lastItem.getByTestId('model-checkbox').click();
-    await this.page.waitForTimeout(100);
+    await expect(lastItem).toHaveAttribute('data-selected', 'true');
     const lastTestId = await lastItem.getAttribute('data-testid');
     const failModelId = (lastTestId ?? '').replace('model-item-', '');
 
@@ -523,13 +722,28 @@ export class ChatPage {
     await expect(message.getByTestId('model-nametag')).toContainText(expectedName);
   }
 
-  /** Assert every rendered assistant message has a model nametag.
-   *  Only checks DOM-visible items — Virtuoso may virtualise off-screen messages on mobile. */
+  /**
+   * Assert every assistant message in the conversation has a model nametag.
+   * Uses an atomic negative selector ("zero assistants lack a nametag") so
+   * there is no TOCTOU gap between counting and per-item checks — the bug
+   * that caused the WebKit flake in the first place. We check the items
+   * Virtuoso has currently rendered rather than scrolling through every
+   * virtualised row, because (a) nametag visibility is a per-item render
+   * concern (if rendered, the nametag is there), and (b) scrolling through
+   * a long conversation on mobile burns too much test time.
+   */
   async expectAllAIMessagesHaveNametag(): Promise<void> {
-    const rendered = this.messageList.locator('[data-role="assistant"]:visible');
-    const count = await rendered.count();
-    for (let index = 0; index < count; index++) {
-      await unsettledExpect(rendered.nth(index).getByTestId('model-nametag')).toBeVisible();
+    const assistantsWithoutNametag = this.messageList.locator(
+      '[data-role="assistant"]:not(:has([data-testid="model-nametag"]))'
+    );
+    // Atomic: Playwright re-queries the locator each poll.
+    await expect(assistantsWithoutNametag).toHaveCount(0, { timeout: 5_000 });
+
+    const renderedAssistants = await this.messageList
+      .locator('[data-role="assistant"]')
+      .count();
+    if (renderedAssistants === 0) {
+      throw new Error('expectAllAIMessagesHaveNametag: no assistant messages rendered');
     }
   }
 

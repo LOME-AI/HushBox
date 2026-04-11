@@ -19,8 +19,10 @@ async function setupRealtimePair(
   await aliceChatPage.waitForWebSocketConnected();
   await bobChatPage.waitForWebSocketConnected();
 
-  // Allow server-side (Durable Object) to finish registering WebSocket connections
-  await bobChatPage.page.waitForTimeout(500);
+  // Wait for server-side Durable Object to finish registering both connections.
+  // The DO sends { type: 'ready' } after handleSession() + broadcastPresence().
+  await aliceChatPage.waitForWebSocketReady();
+  await bobChatPage.waitForWebSocketReady();
 
   return { aliceChatPage, bobChatPage };
 }

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useEffect, useState } from 'react';
-import { createFileRoute, useSearch, useNavigate, Link } from '@tanstack/react-router';
+import { createFileRoute, useSearch, Link } from '@tanstack/react-router';
 import { toast } from '@hushbox/ui';
 import { authClient } from '@/lib/auth';
 import { ROUTES } from '@hushbox/shared';
@@ -13,7 +13,6 @@ export const Route = createFileRoute('/_auth/verify')({
 
 export function VerifyPage(): React.JSX.Element {
   const search = useSearch({ from: '/_auth/verify' });
-  const navigate = useNavigate();
   const [state, setState] = useState<VerifyState>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');
 
@@ -37,7 +36,6 @@ export function VerifyPage(): React.JSX.Element {
         }
         setState('success');
         toast.success('Email verified successfully!');
-        void navigate({ to: ROUTES.LOGIN });
       } catch {
         setState('error');
         setErrorMessage('Verification failed. Please try again.');
@@ -45,7 +43,7 @@ export function VerifyPage(): React.JSX.Element {
     }
 
     void verify();
-  }, [token, navigate]);
+  }, [token]);
 
   if (!token) {
     return (
@@ -54,6 +52,20 @@ export function VerifyPage(): React.JSX.Element {
         <p className="text-muted">
           The verification link appears to be invalid. Please check your email for the correct link.
         </p>
+      </div>
+    );
+  }
+
+  if (state === 'success') {
+    return (
+      <div className="text-center">
+        <h1 className="text-foreground mb-2 text-3xl font-bold">Email verified</h1>
+        <p className="text-muted-foreground mb-6">
+          Your email has been verified successfully.
+        </p>
+        <Link to={ROUTES.LOGIN} className="text-primary font-medium hover:underline">
+          Continue to login
+        </Link>
       </div>
     );
   }

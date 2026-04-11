@@ -184,17 +184,19 @@ test.describe('Document Panel', () => {
       const initialWidth = await documentPanel.getPanelWidth();
 
       await documentPanel.fullscreenButton().click();
-      // Wait for width transition
-      await authenticatedPage.waitForTimeout(400);
-      const fullscreenWidth = await documentPanel.getPanelWidth();
-      expect(fullscreenWidth).toBeGreaterThan(initialWidth);
+      // Wait for width transition to complete
+      await expect(async () => {
+        const w = await documentPanel.getPanelWidth();
+        expect(w).toBeGreaterThan(initialWidth);
+      }).toPass({ timeout: 2000 });
       await expect(documentPanel.exitFullscreenButton()).toBeVisible();
 
       await documentPanel.exitFullscreenButton().click();
-      await authenticatedPage.waitForTimeout(400);
-      const restoredWidth = await documentPanel.getPanelWidth();
-      // Restored width should be close to initial (within 10px tolerance)
-      expect(Math.abs(restoredWidth - initialWidth)).toBeLessThan(10);
+      // Wait for width transition to restore
+      await expect(async () => {
+        const w = await documentPanel.getPanelWidth();
+        expect(Math.abs(w - initialWidth)).toBeLessThan(10);
+      }).toPass({ timeout: 2000 });
       await expect(documentPanel.fullscreenButton()).toBeVisible();
     });
 

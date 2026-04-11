@@ -255,7 +255,6 @@ test.describe('Group Chat Billing', () => {
     await test.step('Alice sees no free_tier_notice (paid tier)', async () => {
       // ownerRemaining = 0 (Bob has $0) → effectiveCents = 0 → personal
       // Alice is paid tier → personal_balance → no free_tier_notice
-      await authenticatedPage.waitForTimeout(2000);
       await expect(
         authenticatedPage.getByTestId('budget-message-free_tier_notice')
       ).not.toBeVisible();

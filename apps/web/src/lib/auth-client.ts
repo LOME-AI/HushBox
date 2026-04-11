@@ -82,6 +82,19 @@ export function getStoredAuth(): RestoredAuth | null {
 }
 
 /**
+ * Returns true if stored auth credentials exist (sync localStorage check).
+ * Used to fire optimistic queries (e.g. balance) before initAuth() completes.
+ * Returns false if storage is unavailable or throws.
+ */
+export function hasStoredAuth(): boolean {
+  try {
+    return getStoredAuth() !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Clears all stored auth data from both localStorage and sessionStorage.
  *
  * Should be called on:

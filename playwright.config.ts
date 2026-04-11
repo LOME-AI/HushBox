@@ -14,7 +14,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: isCI,
   retries: isCI ? 2 : 1,
-  workers: isCI ? 2 : 2,
+  workers: isCI ? 3 : 3,
   timeout: 45_000,
   expect: {
     timeout: 10_000,
@@ -47,23 +47,34 @@ export default defineConfig({
     },
   ],
   projects: [
-    // Per-browser setup projects — each authenticates personas using its own engine,
-    // so CI jobs only need to install one browser (no chromium dependency on all jobs)
-    {
-      name: 'setup-chromium',
-      testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'setup-firefox',
-      testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'setup-webkit',
-      testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Desktop Safari'] },
-    },
+    // In CI, each matrix job installs one browser engine, so setup must match.
+    // Locally, all browsers are installed — use a single chromium setup to save time
+    // (iron-session cookies are engine-agnostic).
+    ...(isCI
+      ? [
+          {
+            name: 'setup-chromium',
+            testMatch: /auth\.setup\.ts/,
+            use: { ...devices['Desktop Chrome'] },
+          },
+          {
+            name: 'setup-firefox',
+            testMatch: /auth\.setup\.ts/,
+            use: { ...devices['Desktop Firefox'] },
+          },
+          {
+            name: 'setup-webkit',
+            testMatch: /auth\.setup\.ts/,
+            use: { ...devices['Desktop Safari'] },
+          },
+        ]
+      : [
+          {
+            name: 'setup',
+            testMatch: /auth\.setup\.ts/,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]),
     // Auth tests create their own users — no dependency on setup project
     {
       name: 'auth-tests',
@@ -79,40 +90,40 @@ export default defineConfig({
       },
       testDir: './e2e',
       testIgnore: ['**/mobile/**'],
-      dependencies: ['setup-chromium'],
+      dependencies: [isCI ? 'setup-chromium' : 'setup'],
     },
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'], storageState: 'e2e/.auth/test-alice.json' },
       testDir: './e2e',
       testIgnore: ['**/mobile/**', '**/smoke.spec.ts'],
-      dependencies: ['setup-firefox'],
+      dependencies: [isCI ? 'setup-firefox' : 'setup'],
     },
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'], storageState: 'e2e/.auth/test-alice.json' },
       testDir: './e2e',
       testIgnore: ['**/mobile/**', '**/smoke.spec.ts'],
-      dependencies: ['setup-webkit'],
+      dependencies: [isCI ? 'setup-webkit' : 'setup'],
     },
     // Mobile device projects run all tests (including mobile-specific)
     {
       name: 'iphone-15',
       use: { ...devices['iPhone 15'], storageState: 'e2e/.auth/test-alice.json' },
       testIgnore: ['**/smoke.spec.ts'],
-      dependencies: ['setup-webkit'],
+      dependencies: [isCI ? 'setup-webkit' : 'setup'],
     },
     {
       name: 'pixel-7',
       use: { ...devices['Pixel 7'], storageState: 'e2e/.auth/test-alice.json' },
       testIgnore: ['**/smoke.spec.ts'],
-      dependencies: ['setup-chromium'],
+      dependencies: [isCI ? 'setup-chromium' : 'setup'],
     },
     {
       name: 'ipad-pro',
       use: { ...devices['iPad Pro 11'], storageState: 'e2e/.auth/test-alice.json' },
       testIgnore: ['**/smoke.spec.ts'],
-      dependencies: ['setup-webkit'],
+      dependencies: [isCI ? 'setup-webkit' : 'setup'],
     },
   ],
 });

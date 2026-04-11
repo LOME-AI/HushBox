@@ -49,7 +49,7 @@ for (const persona of standardPersonas) {
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    await page.goto('/dev/personas?type=test');
+    await page.goto('/dev/personas?type=test', { waitUntil: 'domcontentloaded' });
     await page.locator(`[data-testid="persona-card-${persona.name}"]`).click();
     await page.waitForURL('/chat', { timeout: 30_000 });
 
@@ -73,7 +73,7 @@ for (const persona of twoFactorPersonas) {
 
     const email = `${persona.name}@test.hushbox.ai`;
 
-    await page.goto('/login');
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
     await page.getByLabel('Email or Username').fill(email);
     await page.getByLabel('Password', { exact: true }).fill(DEV_PASSWORD);
     await page.getByLabel('Keep me signed in').check();

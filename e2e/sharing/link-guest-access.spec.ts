@@ -44,7 +44,7 @@ test.describe('Link Guest Access', () => {
     });
 
     await test.step('read guest sees all history and has no send input', async () => {
-      await unauthenticatedPage.goto(readUrl);
+      await unauthenticatedPage.goto(readUrl, { waitUntil: 'domcontentloaded' });
 
       await expectSharedConversationLoaded(unauthenticatedPage);
 
@@ -71,7 +71,7 @@ test.describe('Link Guest Access', () => {
     await test.step('write guest sees history and can send', async () => {
       // Use fresh context to avoid cache from read guest
       const freshPage = await createPage();
-      await freshPage.goto(writeUrl);
+      await freshPage.goto(writeUrl, { waitUntil: 'domcontentloaded' });
 
       await expectSharedConversationLoaded(freshPage);
 
@@ -136,7 +136,7 @@ test.describe('Link Guest Access', () => {
     });
 
     await test.step('read guest does NOT see old messages, sees new message', async () => {
-      await unauthenticatedPage.goto(readUrl);
+      await unauthenticatedPage.goto(readUrl, { waitUntil: 'domcontentloaded' });
 
       await expectSharedConversationLoaded(unauthenticatedPage);
 
@@ -176,7 +176,7 @@ test.describe('Link Guest Access', () => {
 
     await test.step('write guest sees only new messages and can send', async () => {
       const freshPage = await createPage();
-      await freshPage.goto(writeUrl);
+      await freshPage.goto(writeUrl, { waitUntil: 'domcontentloaded' });
 
       await expectSharedConversationLoaded(freshPage);
 
@@ -226,7 +226,7 @@ test.describe('Link Guest Access', () => {
 
     await test.step('read guest sees read-only notice (not trial notice)', async () => {
       // Guest opens link without any new messages being sent after link creation
-      await unauthenticatedPage.goto(readUrl);
+      await unauthenticatedPage.goto(readUrl, { waitUntil: 'domcontentloaded' });
 
       await expectSharedConversationLoaded(unauthenticatedPage);
       await expectReadOnlyNotice(unauthenticatedPage);
@@ -258,7 +258,7 @@ test.describe('Link Guest Access', () => {
     });
 
     await test.step('guest opens sidebar and sees no leave action', async () => {
-      await unauthenticatedPage.goto(readUrl);
+      await unauthenticatedPage.goto(readUrl, { waitUntil: 'domcontentloaded' });
       await expectSharedConversationLoaded(unauthenticatedPage);
 
       const guestSidebar = new MemberSidebarPage(unauthenticatedPage);

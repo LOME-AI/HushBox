@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import {
   chatKeys,
+  conversationQueryOptions,
   useConversations,
   useConversation,
   useMessages,
@@ -103,6 +104,23 @@ describe('chatKeys', () => {
     it('returns conversation key with id', () => {
       expect(chatKeys.conversation('conv-123')).toEqual(['chat', 'conversations', 'conv-123']);
     });
+  });
+});
+
+describe('conversationQueryOptions', () => {
+  it('returns correct queryKey for a given id', () => {
+    const options = conversationQueryOptions('conv-abc');
+    expect(options.queryKey).toEqual(['chat', 'conversations', 'conv-abc']);
+  });
+
+  it('returns a callable queryFn', () => {
+    const options = conversationQueryOptions('conv-abc');
+    expect(typeof options.queryFn).toBe('function');
+  });
+
+  it('uses the same queryKey as chatKeys.conversation', () => {
+    const options = conversationQueryOptions('conv-xyz');
+    expect(options.queryKey).toEqual(chatKeys.conversation('conv-xyz'));
   });
 });
 

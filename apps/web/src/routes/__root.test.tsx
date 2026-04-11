@@ -5,13 +5,12 @@ import * as React from 'react';
 // Mock all dependencies to isolate the root route composition
 vi.mock('@tanstack/react-router', () => ({
   Outlet: () => <div data-testid="outlet" />,
-  createRootRoute: (options: {
-    component: React.ComponentType;
-    notFoundComponent: React.ComponentType;
-  }) => ({
-    component: options.component,
-    notFoundComponent: options.notFoundComponent,
-  }),
+  createRootRouteWithContext:
+    () =>
+    (options: { component: React.ComponentType; notFoundComponent: React.ComponentType }) => ({
+      component: options.component,
+      notFoundComponent: options.notFoundComponent,
+    }),
   Navigate: () => null,
   useNavigate: vi.fn(() => vi.fn()),
 }));

@@ -39,7 +39,9 @@ describe('useConversationWebSocket', () => {
   it('creates and connects WebSocket when conversationId is provided', () => {
     const { result } = renderHook(() => useConversationWebSocket('conv-123'));
 
-    expect(MockClass).toHaveBeenCalledWith({ conversationId: 'conv-123' });
+    expect(MockClass).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: 'conv-123' })
+    );
     expect(mockConnect).toHaveBeenCalledTimes(1);
     expect(result.current).not.toBeNull();
   });
@@ -108,5 +110,16 @@ describe('useConversationWebSocket', () => {
 
     expect(result.current).toBeNull();
     expect(MockClass).not.toHaveBeenCalled();
+  });
+
+  it('passes onConnectionChange and onReadyChange callbacks to constructor', () => {
+    renderHook(() => useConversationWebSocket('conv-789'));
+
+    const constructorArgs = MockClass.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(constructorArgs).toHaveProperty('conversationId', 'conv-789');
+    expect(constructorArgs).toHaveProperty('onConnectionChange');
+    expect(constructorArgs).toHaveProperty('onReadyChange');
+    expect(typeof constructorArgs['onConnectionChange']).toBe('function');
+    expect(typeof constructorArgs['onReadyChange']).toBe('function');
   });
 });

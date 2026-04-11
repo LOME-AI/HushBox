@@ -230,6 +230,7 @@ test.describe('Group Chat Regeneration', () => {
     const chatPage = new ChatPage(authenticatedPage);
     await chatPage.gotoConversation(groupConversation.id);
     await chatPage.waitForConversationLoaded();
+    await chatPage.expectMessageVisible('Hello from Alice');
 
     await test.step('hover Alice first message — no retry/edit (blocked by guard)', async () => {
       // First message is Alice's "Hello from Alice" — Bob replied after

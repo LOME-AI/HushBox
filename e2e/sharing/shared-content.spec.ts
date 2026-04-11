@@ -33,7 +33,7 @@ test.describe('Shared Content', () => {
     });
 
     await test.step('unauthenticated user sees decrypted messages', async () => {
-      await unauthenticatedPage.goto(inviteUrl);
+      await unauthenticatedPage.goto(inviteUrl, { waitUntil: 'domcontentloaded' });
 
       // Wait for loading to finish
       await expect(unauthenticatedPage.getByTestId('shared-conversation-loading')).not.toBeVisible({
@@ -64,7 +64,7 @@ test.describe('Shared Content', () => {
     await test.step('revoked link shows error', async () => {
       // Fresh context to avoid TanStack Query cache from step 2
       const freshPage = await createPage();
-      await freshPage.goto(inviteUrl);
+      await freshPage.goto(inviteUrl, { waitUntil: 'domcontentloaded' });
 
       await expect(freshPage.getByTestId('shared-conversation-error')).toBeVisible({
         timeout: 15_000,
@@ -106,7 +106,7 @@ test.describe('Shared Content', () => {
     });
 
     await test.step('unauthenticated user sees decrypted message', async () => {
-      await unauthenticatedPage.goto(shareUrl);
+      await unauthenticatedPage.goto(shareUrl, { waitUntil: 'domcontentloaded' });
 
       // Wait for loading to finish
       await expect(unauthenticatedPage.getByTestId('shared-message-loading')).not.toBeVisible({
@@ -125,7 +125,9 @@ test.describe('Shared Content', () => {
 
   test('invalid share links show error states', async ({ unauthenticatedPage }) => {
     await test.step('invalid conversation link shows error', async () => {
-      await unauthenticatedPage.goto('/share/c/nonexistent#invalidkey');
+      await unauthenticatedPage.goto('/share/c/nonexistent#invalidkey', {
+        waitUntil: 'domcontentloaded',
+      });
 
       await expect(unauthenticatedPage.getByTestId('shared-conversation-error')).toBeVisible({
         timeout: 15_000,
@@ -133,7 +135,9 @@ test.describe('Shared Content', () => {
     });
 
     await test.step('invalid message link shows error', async () => {
-      await unauthenticatedPage.goto('/share/m/nonexistent#invalidkey');
+      await unauthenticatedPage.goto('/share/m/nonexistent#invalidkey', {
+        waitUntil: 'domcontentloaded',
+      });
 
       await expect(unauthenticatedPage.getByTestId('shared-message-error')).toBeVisible({
         timeout: 15_000,

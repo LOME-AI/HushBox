@@ -30,6 +30,9 @@ test.describe('Registration & Verification', () => {
     await test.step('verify email via dev API succeeds', async () => {
       await verifyEmailViaAPI(request, unauthenticatedPage, email);
       await expect(unauthenticatedPage).toHaveURL(/\/verify\?token=/, { timeout: 10_000 });
+      await expect(
+        unauthenticatedPage.getByRole('heading', { name: /email verified/i })
+      ).toBeVisible();
     });
 
     await test.step('login with new credentials navigates to /chat', async () => {

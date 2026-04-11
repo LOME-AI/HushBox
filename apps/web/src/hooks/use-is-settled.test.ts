@@ -57,7 +57,7 @@ describe('useIsSettled', () => {
     const { result } = renderHook(() => useIsSettled(), { wrapper: createWrapper() });
 
     act(() => {
-      vi.advanceTimersByTime(300);
+      vi.advanceTimersByTime(600);
     });
 
     expect(result.current).toBe(true);
@@ -103,7 +103,7 @@ describe('useIsSettled', () => {
     rerender();
 
     act(() => {
-      vi.advanceTimersByTime(300);
+      vi.advanceTimersByTime(600);
     });
 
     expect(result.current).toBe(true);
@@ -125,7 +125,7 @@ describe('useIsSettled', () => {
     rerender();
 
     act(() => {
-      vi.advanceTimersByTime(300);
+      vi.advanceTimersByTime(600);
     });
 
     expect(result.current).toBe(true);
@@ -182,7 +182,7 @@ describe('useIsSettled', () => {
     rerender();
 
     act(() => {
-      vi.advanceTimersByTime(300);
+      vi.advanceTimersByTime(600);
     });
 
     expect(result.current).toBe(true);

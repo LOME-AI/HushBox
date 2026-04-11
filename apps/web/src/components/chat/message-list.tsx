@@ -11,7 +11,29 @@ import {
   type MessageContext,
 } from '@/lib/message-actions';
 import type { MemberPrivilege } from '@hushbox/shared';
-import { env } from '@/lib/env';
+
+/**
+ * Data row for a single Virtuoso item. Wraps the message (or group) together
+ * with the per-row render state (`isStreaming`, `isError`). These flags are
+ * baked into the data so that any change to streaming / error state produces
+ * a new `data` array reference — which is how React Virtuoso decides whether
+ * to re-render items. Passing this state via closure or via the `context`
+ * prop is unreliable on WebKit: the virtualized ItemComponent stays memoised
+ * on the same item reference and misses closure changes, leaving the UI with
+ * a stale `isStreaming=true` after the stream completes (action buttons go
+ * missing even though the cost badge is rendered). Baking state into the
+ * item avoids the problem entirely.
+ */
+interface MessageRow {
+  /** Stable React key — the message or group id. */
+  key: string;
+  /** For flat-list mode: the message being rendered. */
+  message?: Message;
+  /** For group-chat mode: the group being rendered. */
+  group?: MessageGroup;
+  isStreaming: boolean;
+  isError: boolean;
+}
 
 interface MemberInfo {
   id: string;
@@ -90,6 +112,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
 ) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const userScrolledAwayRef = useRef(false);
+  const [isVirtuosoScrolling, setIsVirtuosoScrolling] = useState(false);
 
   // Must exceed Footer height (10dvh) so scrollToIndex({ index: 'LAST' })
   // lands within the threshold and atBottomStateChange reports true.
@@ -132,6 +155,37 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     () => (isGroupChat ? groupConsecutiveMessages(messages) : null),
     [isGroupChat, messages]
   );
+
+  // Bake per-row render state into the data array. When streamingMessageIds
+  // or errorMessageId changes, this produces a fresh array with fresh row
+  // objects — guaranteeing Virtuoso sees a data-identity change and
+  // re-renders items. See MessageRow docstring for the WebKit rationale.
+  const rows = useMemo<MessageRow[]>(() => {
+    if (groups) {
+      return groups.map((group) => {
+        const first = group.messages[0];
+        return {
+          key: group.id,
+          group,
+          ...(first !== undefined && { message: first }),
+          isStreaming: group.messages.some(
+            (m) => streamingMessageIds?.has(m.id) ?? false
+          ),
+          isError: group.messages.some(
+            (m) => m.id === errorMessageId || m.errorCode !== undefined
+          ),
+        };
+      });
+    }
+    return messages.map((message) => ({
+      key: message.id,
+      message,
+      isStreaming: streamingMessageIds?.has(message.id) ?? false,
+      isError: message.id === errorMessageId || message.errorCode !== undefined,
+    }));
+  }, [groups, messages, streamingMessageIds, errorMessageId]);
+
+  const computeItemKey = useCallback((_index: number, row: MessageRow): string => row.key, []);
 
   if (messages.length === 0) {
     return (
@@ -196,43 +250,6 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   const assistantCount = messages.filter((m) => m.role === 'assistant').length;
   const costCount = messages.filter((m) => m.cost != null).length;
 
-  if (groups) {
-    return (
-      <div
-        role="log"
-        aria-label="Chat messages"
-        data-testid="message-list"
-        data-assistant-count={assistantCount}
-        data-cost-count={costCount}
-        className="h-full min-h-0 flex-1"
-      >
-        <Virtuoso
-          ref={virtuosoRef}
-          data={groups}
-          followOutput={followOutput}
-          atBottomStateChange={handleAtBottomStateChange}
-          atBottomThreshold={atBottomThreshold}
-          {...(env.isE2E && {
-            initialItemCount: groups.length,
-            increaseViewportBy: { top: 999_999, bottom: 999_999 },
-          })}
-          itemContent={(_index, group) => {
-            const firstMessage = group.messages[0];
-            if (!firstMessage) return null;
-            const isStreamingGroup = group.messages.some(
-              (m) => streamingMessageIds?.has(m.id) ?? false
-            );
-            const isErrorGroup = group.messages.some(
-              (m) => m.id === errorMessageId || m.errorCode !== undefined
-            );
-            return renderMessageItem(firstMessage, isStreamingGroup, isErrorGroup, group);
-          }}
-          components={components}
-        />
-      </div>
-    );
-  }
-
   return (
     <div
       role="log"
@@ -240,22 +257,21 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       data-testid="message-list"
       data-assistant-count={assistantCount}
       data-cost-count={costCount}
+      data-message-count={messages.length}
+      data-virtuoso-scrolling={String(isVirtuosoScrolling)}
       className="h-full min-h-0 flex-1"
     >
-      <Virtuoso
+      <Virtuoso<MessageRow>
         ref={virtuosoRef}
-        data={messages}
+        data={rows}
+        computeItemKey={computeItemKey}
+        isScrolling={setIsVirtuosoScrolling}
         followOutput={followOutput}
         atBottomStateChange={handleAtBottomStateChange}
         atBottomThreshold={atBottomThreshold}
-        {...(env.isE2E && {
-          initialItemCount: messages.length,
-          increaseViewportBy: { top: 999_999, bottom: 999_999 },
-        })}
-        itemContent={(_index, message) => {
-          const isStreamingMsg = streamingMessageIds?.has(message.id) ?? false;
-          const isErrorMsg = message.id === errorMessageId || message.errorCode !== undefined;
-          return renderMessageItem(message, isStreamingMsg, isErrorMsg);
+        itemContent={(_index, row) => {
+          if (row.message === undefined) return null;
+          return renderMessageItem(row.message, row.isStreaming, row.isError, row.group);
         }}
         components={components}
       />

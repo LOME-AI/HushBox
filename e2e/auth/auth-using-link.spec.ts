@@ -37,7 +37,7 @@ test.describe('Auth User Using Link', () => {
     });
 
     await test.step('Bob opens read link — messages decrypt correctly', async () => {
-      await testBobPage.goto(readUrl);
+      await testBobPage.goto(readUrl, { waitUntil: 'domcontentloaded' });
 
       await expectSharedConversationLoaded(testBobPage);
 
@@ -65,7 +65,7 @@ test.describe('Auth User Using Link', () => {
     });
 
     await test.step('Bob opens write link — messages decrypt, can send', async () => {
-      await testBobPage.goto(writeUrl);
+      await testBobPage.goto(writeUrl, { waitUntil: 'domcontentloaded' });
 
       await expectSharedConversationLoaded(testBobPage);
 
@@ -111,7 +111,7 @@ test.describe('Auth User Using Link', () => {
     });
 
     await test.step('Bob opens read link — sees only new messages, no errors', async () => {
-      await testBobPage.goto(readUrl);
+      await testBobPage.goto(readUrl, { waitUntil: 'domcontentloaded' });
 
       await expectSharedConversationLoaded(testBobPage);
 
@@ -147,7 +147,7 @@ test.describe('Auth User Using Link', () => {
     });
 
     await test.step('Bob opens write link — sees only new, can send, no errors', async () => {
-      await testBobPage.goto(writeUrl);
+      await testBobPage.goto(writeUrl, { waitUntil: 'domcontentloaded' });
 
       await expectSharedConversationLoaded(testBobPage);
 

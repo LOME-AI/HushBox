@@ -19,8 +19,13 @@ export const modelKeys = {
   detail: (id: string) => [...modelKeys.all, id] as const,
 };
 
-export function useModels(): ReturnType<typeof useQuery<ModelsData, Error>> {
-  return useQuery({
+/** Reusable query options for models list. Shared by hooks and route loaders. */
+export function modelsQueryOptions(): {
+  queryKey: readonly ['models', 'list'];
+  queryFn: () => Promise<ModelsData>;
+  staleTime: number;
+} {
+  return {
     queryKey: modelKeys.list(),
     queryFn: async (): Promise<ModelsData> => {
       const response = await fetchJson<ModelsListResponse>(client.api.models.$get());
@@ -30,7 +35,11 @@ export function useModels(): ReturnType<typeof useQuery<ModelsData, Error>> {
       };
     },
     staleTime: 1000 * 60 * 60,
-  });
+  };
+}
+
+export function useModels(): ReturnType<typeof useQuery<ModelsData, Error>> {
+  return useQuery(modelsQueryOptions());
 }
 
 function findStrongestAndValueBasicModels(

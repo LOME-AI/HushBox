@@ -15,6 +15,7 @@ export interface ConversationWebSocketOptions {
   conversationId: string;
   onEvent?: (event: RealtimeEvent) => void;
   onConnectionChange?: (connected: boolean) => void;
+  onReadyChange?: (ready: boolean) => void;
   initialBackoffMs?: number;
   maxBackoffMs?: number;
 }
@@ -23,6 +24,7 @@ interface ResolvedOptions {
   conversationId: string;
   onEvent?: (event: RealtimeEvent) => void;
   onConnectionChange?: (connected: boolean) => void;
+  onReadyChange?: (ready: boolean) => void;
   initialBackoffMs: number;
   maxBackoffMs: number;
 }
@@ -34,6 +36,7 @@ export class ConversationWebSocket {
   private currentBackoff: number;
   private intentionalClose = false;
   private shouldBeConnected = false;
+  private _ready = false;
   private networkUnsubscribe: (() => void) | null = null;
   private listeners = new Map<string, Set<AnyEventListener>>();
 
@@ -75,6 +78,11 @@ export class ConversationWebSocket {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
+  /** True when the server has completed WebSocket registration (fan-out ready). */
+  get ready(): boolean {
+    return this._ready;
+  }
+
   on<T extends RealtimeEventType>(type: T, listener: EventListener<T>): () => void {
     if (!this.listeners.has(type)) {
       this.listeners.set(type, new Set());
@@ -113,8 +121,17 @@ export class ConversationWebSocket {
 
     socket.addEventListener('message', (messageEvent: MessageEvent): void => {
       if (this.ws !== socket) return;
+
+      // Handle connection-level signals before parsing as realtime events
+      const raw = String(messageEvent.data);
+      if (raw === '{"type":"ready"}') {
+        this._ready = true;
+        this.options.onReadyChange?.(true);
+        return;
+      }
+
       try {
-        const event = parseEvent(String(messageEvent.data));
+        const event = parseEvent(raw);
         this.options.onEvent?.(event);
         const typeListeners = this.listeners.get(event.type);
         if (typeListeners) {
@@ -131,7 +148,9 @@ export class ConversationWebSocket {
     socket.addEventListener('close', (): void => {
       if (this.ws !== socket) return;
       this.ws = null;
+      this._ready = false;
       this.options.onConnectionChange?.(false);
+      this.options.onReadyChange?.(false);
       if (!this.intentionalClose) {
         this.scheduleReconnect();
       }

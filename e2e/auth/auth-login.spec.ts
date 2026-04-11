@@ -71,7 +71,7 @@ test.describe('Login & Session', () => {
     test('authenticated user visiting /login is redirected to /chat', async ({
       authenticatedPage,
     }) => {
-      await authenticatedPage.goto('/login');
+      await authenticatedPage.goto('/login', { waitUntil: 'domcontentloaded' });
       await expect(authenticatedPage).toHaveURL('/chat', { timeout: 15_000 });
     });
 
@@ -96,7 +96,7 @@ test.describe('Login & Session', () => {
       });
 
       await test.step('after logout, /chat loads as trial user', async () => {
-        await page.goto('/chat');
+        await page.goto('/chat', { waitUntil: 'domcontentloaded' });
         // Trial user sees the chat page with prompt input visible
         await expect(page.getByRole('textbox', { name: /ask me anything/i })).toBeVisible({
           timeout: 15_000,

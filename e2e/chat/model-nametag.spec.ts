@@ -24,7 +24,9 @@ test.describe('Model Nametag', () => {
     const nametagBefore = await assistantMessage.getByTestId('model-nametag').textContent();
 
     await test.step('reload page', async () => {
-      await authenticatedPage.goto(`/chat/${testConversation.id}`);
+      await authenticatedPage.goto(`/chat/${testConversation.id}`, {
+        waitUntil: 'domcontentloaded',
+      });
       await chatPage.waitForConversationLoaded();
     });
 
@@ -46,17 +48,21 @@ test.describe('Model Nametag', () => {
     });
 
     await test.step('verify different nametag text per model', async () => {
-      const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
-      const count = await assistantMessages.count();
-      expect(count).toBe(2);
+      // Assert React-state count via countMessages (virtualization-safe).
+      expect(await chatPage.countMessages('assistant')).toBe(2);
 
+      // For index-based iteration use DOM count — avoid iterating past the
+      // DOM end under virtualization (the 2 multi-model responses are newest
+      // and always rendered, so this matches state count in practice).
+      const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
+      const domCount = await assistantMessages.count();
       const names = new Set<string>();
-      for (let index = 0; index < count; index++) {
+      for (let index = 0; index < domCount; index++) {
         const text = await assistantMessages.nth(index).getByTestId('model-nametag').textContent();
         if (text) names.add(text);
       }
       // Each model should produce a distinct nametag
-      expect(names.size).toBe(count);
+      expect(names.size).toBe(domCount);
     });
   });
 });

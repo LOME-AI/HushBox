@@ -10,6 +10,7 @@ import {
   restoreSession,
   clearStoredAuth,
   getStoredAuth,
+  hasStoredAuth,
   setUnwrapImpl,
   resetUnwrapImpl,
   STORAGE_KEY,
@@ -477,5 +478,56 @@ describe('auth-client', () => {
       expect(result).toBeNull();
       expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     });
+  });
+});
+
+describe('hasStoredAuth', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', createInMemoryStorage());
+    vi.stubGlobal('sessionStorage', createInMemoryStorage());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns true when stored auth exists in localStorage', () => {
+    const kek = new Uint8Array(32).fill(1);
+    persistExportKey(kek, 'user-1', true);
+    expect(hasStoredAuth()).toBe(true);
+  });
+
+  it('returns true when stored auth exists in sessionStorage', () => {
+    const kek = new Uint8Array(32).fill(1);
+    persistExportKey(kek, 'user-1', false);
+    expect(hasStoredAuth()).toBe(true);
+  });
+
+  it('returns false when no stored auth exists', () => {
+    expect(hasStoredAuth()).toBe(false);
+  });
+
+  it('returns false when localStorage throws', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('SecurityError');
+      },
+      setItem: () => {},
+      removeItem: () => {},
+      clear: () => {},
+      length: 0,
+      key: () => null,
+    });
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => {
+        throw new Error('SecurityError');
+      },
+      setItem: () => {},
+      removeItem: () => {},
+      clear: () => {},
+      length: 0,
+      key: () => null,
+    });
+    expect(hasStoredAuth()).toBe(false);
   });
 });

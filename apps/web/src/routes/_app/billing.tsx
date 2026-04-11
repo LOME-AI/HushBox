@@ -4,10 +4,14 @@ import { requireAuth } from '@/lib/auth';
 import { PageHeader } from '@/components/shared/page-header';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { BillingContent } from '@/components/billing/billing-content';
+import { balanceQueryOptions } from '@/hooks/billing';
 
 export const Route = createFileRoute('/_app/billing')({
   beforeLoad: async () => {
     await requireAuth();
+  },
+  loader: ({ context }) => {
+    void context.queryClient.prefetchQuery(balanceQueryOptions());
   },
   component: BillingPage,
 });

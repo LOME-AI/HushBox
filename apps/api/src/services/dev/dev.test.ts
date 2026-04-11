@@ -6,6 +6,7 @@ import {
   resetTrialUsage,
   resetAuthRateLimits,
   createDevGroupChat,
+  createDevConversation,
   setWalletBalance,
 } from './dev.js';
 
@@ -15,6 +16,25 @@ vi.mock('../billing/index.js', () => ({
     currentBalance: '10.00000000',
     freeAllowanceCents: 0,
   }),
+}));
+
+const mockCreateOrGetConversation = vi.fn();
+vi.mock('../conversations/index.js', () => ({
+  createOrGetConversation: (...args: unknown[]) => mockCreateOrGetConversation(...args),
+}));
+
+const mockSaveUserOnlyMessage = vi.fn();
+vi.mock('../chat/index.js', () => ({
+  saveUserOnlyMessage: (...args: unknown[]) => mockSaveUserOnlyMessage(...args),
+}));
+
+const mockAssignSequenceNumbers = vi.fn();
+const mockFetchEpochPublicKey = vi.fn();
+const mockInsertEncryptedMessage = vi.fn();
+vi.mock('../chat/message-helpers.js', () => ({
+  assignSequenceNumbers: (...args: unknown[]) => mockAssignSequenceNumbers(...args),
+  fetchEpochPublicKey: (...args: unknown[]) => mockFetchEpochPublicKey(...args),
+  insertEncryptedMessage: (...args: unknown[]) => mockInsertEncryptedMessage(...args),
 }));
 
 const mockCreateFirstEpoch = vi.fn();
@@ -608,6 +628,152 @@ describe('dev service', () => {
           balance: '10.00000000',
         })
       ).rejects.toThrow('Wallet not found');
+    });
+  });
+
+  describe('createDevConversation', () => {
+    const ALICE_PUBLIC_KEY = new Uint8Array([1, 2, 3, 4]);
+    const EPOCH_PUBLIC_KEY = new Uint8Array([10, 11, 12, 13]);
+    const CONFIRMATION_HASH = new Uint8Array([20, 21, 22]);
+    const ALICE_WRAP = new Uint8Array([30, 31]);
+
+    beforeEach(() => {
+      mockCreateFirstEpoch.mockReset();
+      mockCreateOrGetConversation.mockReset();
+      mockSaveUserOnlyMessage.mockReset();
+      mockAssignSequenceNumbers.mockReset();
+      mockFetchEpochPublicKey.mockReset();
+      mockInsertEncryptedMessage.mockReset();
+
+      mockCreateFirstEpoch.mockReturnValue({
+        epochPublicKey: EPOCH_PUBLIC_KEY,
+        confirmationHash: CONFIRMATION_HASH,
+        memberWraps: [{ wrap: ALICE_WRAP }],
+      });
+
+      mockAssignSequenceNumbers.mockResolvedValue({ sequences: [1], currentEpoch: 1 });
+      mockFetchEpochPublicKey.mockResolvedValue({
+        epochPublicKey: EPOCH_PUBLIC_KEY,
+        epochNumber: 1,
+      });
+      mockInsertEncryptedMessage.mockClear();
+    });
+
+    function createMockDb(
+      userRows: { id: string; username: string; email: string; publicKey: Uint8Array }[]
+    ): unknown {
+      const txMock = {};
+      return {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue(userRows),
+          }),
+        }),
+        transaction: vi
+          .fn()
+          .mockImplementation(async (function_: (tx: typeof txMock) => Promise<void>) =>
+            function_(txMock)
+          ),
+      };
+    }
+
+    it('looks up user by email and calls createOrGetConversation', async () => {
+      const mockDb = createMockDb([
+        {
+          id: 'alice-id',
+          username: 'alice',
+          email: 'alice@test.hushbox.ai',
+          publicKey: ALICE_PUBLIC_KEY,
+        },
+      ]);
+
+      mockCreateOrGetConversation.mockResolvedValue({
+        conversation: { id: 'conv-123' },
+        isNew: true,
+      });
+
+      const result = await createDevConversation(mockDb as never, {
+        ownerEmail: 'alice@test.hushbox.ai',
+      });
+
+      expect(result.conversationId).toBe('conv-123');
+      expect(mockCreateFirstEpoch).toHaveBeenCalledWith([ALICE_PUBLIC_KEY]);
+      expect(mockCreateOrGetConversation).toHaveBeenCalledWith(
+        mockDb,
+        'alice-id',
+        expect.objectContaining({
+          epochPublicKey: EPOCH_PUBLIC_KEY,
+          confirmationHash: CONFIRMATION_HASH,
+          memberWrap: ALICE_WRAP,
+          userPublicKey: ALICE_PUBLIC_KEY,
+        })
+      );
+    });
+
+    it('throws when user not found', async () => {
+      const mockDb = createMockDb([]);
+
+      await expect(
+        createDevConversation(mockDb as never, { ownerEmail: 'nobody@test.hushbox.ai' })
+      ).rejects.toThrow('User not found: nobody@test.hushbox.ai');
+    });
+
+    it('seeds user messages via saveUserOnlyMessage', async () => {
+      const mockDb = createMockDb([
+        {
+          id: 'alice-id',
+          username: 'alice',
+          email: 'alice@test.hushbox.ai',
+          publicKey: ALICE_PUBLIC_KEY,
+        },
+      ]);
+
+      mockCreateOrGetConversation.mockResolvedValue({
+        conversation: { id: 'conv-123' },
+        isNew: true,
+      });
+      mockSaveUserOnlyMessage.mockResolvedValue({ sequenceNumber: 1, epochNumber: 1 });
+
+      await createDevConversation(mockDb as never, {
+        ownerEmail: 'alice@test.hushbox.ai',
+        messages: [
+          { content: 'Hello', senderType: 'user' },
+          { content: 'Echo: Hello', senderType: 'ai' },
+        ],
+      });
+
+      // User messages use saveUserOnlyMessage
+      expect(mockSaveUserOnlyMessage).toHaveBeenCalledWith(
+        mockDb,
+        expect.objectContaining({
+          conversationId: 'conv-123',
+          senderId: 'alice-id',
+          content: 'Hello',
+        })
+      );
+    });
+
+    it('returns conversationId without messages when none provided', async () => {
+      const mockDb = createMockDb([
+        {
+          id: 'alice-id',
+          username: 'alice',
+          email: 'alice@test.hushbox.ai',
+          publicKey: ALICE_PUBLIC_KEY,
+        },
+      ]);
+
+      mockCreateOrGetConversation.mockResolvedValue({
+        conversation: { id: 'conv-456' },
+        isNew: true,
+      });
+
+      const result = await createDevConversation(mockDb as never, {
+        ownerEmail: 'alice@test.hushbox.ai',
+      });
+
+      expect(result.conversationId).toBe('conv-456');
+      expect(mockSaveUserOnlyMessage).not.toHaveBeenCalled();
     });
   });
 });

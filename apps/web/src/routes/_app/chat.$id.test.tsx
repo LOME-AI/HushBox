@@ -27,6 +27,23 @@ vi.mock('@/components/chat/authenticated-chat-page', () => ({
   AuthenticatedChatPage: () => <div data-testid="authenticated-chat">chat page</div>,
 }));
 
+// Mock query options
+const mockConversationOptions = {
+  queryKey: ['chat', 'conversations', 'test-id'],
+  queryFn: vi.fn(),
+};
+const mockKeyChainOptions = {
+  queryKey: ['keys', 'test-id'],
+  queryFn: vi.fn(),
+  staleTime: 3_600_000,
+};
+vi.mock('@/hooks/chat', () => ({
+  conversationQueryOptions: vi.fn(() => mockConversationOptions),
+}));
+vi.mock('@/hooks/keys', () => ({
+  keyChainQueryOptions: vi.fn(() => mockKeyChainOptions),
+}));
+
 describe('chat.$id route beforeLoad', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -63,5 +80,35 @@ describe('chat.$id route beforeLoad', () => {
     };
 
     await expect(routeConfig.beforeLoad!()).rejects.toThrow('REDIRECT');
+  });
+});
+
+describe('chat.$id route loader', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('prefetches conversation and key chain data', async () => {
+    mockRequireAuth.mockResolvedValue({ user: { id: 'user-1' } });
+
+    const { Route } = await import('./chat.$id');
+    const routeConfig = Route as unknown as {
+      loader?: (args: {
+        params: { id: string };
+        context: { queryClient: { prefetchQuery: ReturnType<typeof vi.fn> } };
+      }) => void;
+    };
+
+    expect(routeConfig.loader).toBeDefined();
+
+    const mockPrefetchQuery = vi.fn();
+    routeConfig.loader!({
+      params: { id: 'conv-123' },
+      context: { queryClient: { prefetchQuery: mockPrefetchQuery } },
+    });
+
+    expect(mockPrefetchQuery).toHaveBeenCalledTimes(2);
+    expect(mockPrefetchQuery).toHaveBeenCalledWith(mockConversationOptions);
+    expect(mockPrefetchQuery).toHaveBeenCalledWith(mockKeyChainOptions);
   });
 });

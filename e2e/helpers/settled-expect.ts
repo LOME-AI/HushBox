@@ -3,7 +3,7 @@
  *
  * Automatically races locator/page assertions against the app's settled signal.
  * When the app settles (all TanStack Query fetches, mutations, and SSE streams
- * complete with 300ms debounce) and an assertion hasn't passed, it fails
+ * complete with 600ms debounce) and an assertion hasn't passed, it fails
  * immediately instead of waiting for the full timeout.
  *
  * Opt out for assertions that wait for external events (webhooks, WebSocket):

@@ -132,10 +132,10 @@ test.describe('Multi-Model Chat', () => {
 
       await test.step('reopen modal, clear, select 1 model, confirm', async () => {
         await chatPage.openModelSelector();
-        await authenticatedPage.getByTestId('clear-selection-button').click();
-        await authenticatedPage.waitForTimeout(100);
-        // With 0 selected, Close reverts — select 1 model in the already-open modal
         const modal = authenticatedPage.getByTestId('model-selector-modal');
+        await authenticatedPage.getByTestId('clear-selection-button').click();
+        await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
+        // With 0 selected, Close reverts — select 1 model in the already-open modal
         const firstNonPremium = modal.locator(
           '[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))'
         );
@@ -207,10 +207,12 @@ test.describe('Multi-Model Chat', () => {
       });
 
       await test.step('verify nametags show different model names', async () => {
-        const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
-        const count = await assistantMessages.count();
-        expect(count).toBe(2);
+        // Assert React-state count via countMessages (virtualization-safe).
+        expect(await chatPage.countMessages('assistant')).toBe(2);
 
+        // For index-based access use DOM count — the 2 multi-model responses
+        // are always rendered because they're the newest messages.
+        const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
         const nametag1 = await assistantMessages.nth(0).getByTestId('model-nametag').textContent();
         const nametag2 = await assistantMessages.nth(1).getByTestId('model-nametag').textContent();
         // The 2 models selected by fixture should have different names
@@ -297,15 +299,19 @@ test.describe('Multi-Model Chat', () => {
       });
 
       await test.step('verify distinct model nametags on multi-model responses', async () => {
+        // Index-based access needs DOM count (state count may exceed rendered
+        // count under virtualization, causing nth() to wait for a non-existent
+        // node). The multi-model responses are the two newest assistant items,
+        // which Virtuoso always keeps rendered since it auto-scrolls on new
+        // content.
         const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
-        const count = await assistantMessages.count();
-        // Last 2 should have different model nametags
+        const domCount = await assistantMessages.count();
         const nametag1 = await assistantMessages
-          .nth(count - 2)
+          .nth(domCount - 2)
           .getByTestId('model-nametag')
           .textContent();
         const nametag2 = await assistantMessages
-          .nth(count - 1)
+          .nth(domCount - 1)
           .getByTestId('model-nametag')
           .textContent();
         expect(nametag1).not.toBe(nametag2);

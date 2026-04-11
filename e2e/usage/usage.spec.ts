@@ -7,7 +7,7 @@ test.describe('Usage Analytics', () => {
     const usagePage = new UsagePage(authenticatedPage);
 
     await test.step('navigate via sidebar menu', async () => {
-      await authenticatedPage.goto('/chat');
+      await authenticatedPage.goto('/chat', { waitUntil: 'domcontentloaded' });
       await navigateToUsage(authenticatedPage);
       await expect(usagePage.usageContent).toBeVisible();
     });

@@ -57,7 +57,7 @@ export class BillingPage {
   }
 
   async goto(): Promise<void> {
-    await this.page.goto('/billing');
+    await this.page.goto('/billing', { waitUntil: 'domcontentloaded' });
   }
 
   async expectBalanceVisible(): Promise<void> {
@@ -165,7 +165,8 @@ export class BillingPage {
     const pollInterval = 2000;
 
     while (Date.now() - startTime < timeout) {
-      await this.page.reload({ waitUntil: 'networkidle' });
+      await this.page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(this.balanceDisplay).toBeVisible();
 
       // Detect session loss — fail fast instead of waiting for timeout
       if (this.page.url().includes('/login')) {

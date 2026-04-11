@@ -101,7 +101,7 @@ export class DocumentPanelPage {
       return;
 
     await chatPage.scrollToTop();
-    await this.page.waitForTimeout(300);
+    await chatPage.waitForScrollStable();
 
     await expect(async () => {
       await chatPage.viewport.evaluate((el) => {

@@ -1,5 +1,5 @@
 import { type Page, type Locator } from '@playwright/test';
-import { expect } from '../helpers/settled-expect.js';
+import { expect, unsettledExpect } from '../helpers/settled-expect.js';
 import { normalizeUsername, displayUsername, isMobileWidth } from '@hushbox/shared';
 
 export class MemberSidebarPage {
@@ -67,7 +67,11 @@ export class MemberSidebarPage {
   }
 
   async expectOnlineIndicator(entityId: string): Promise<void> {
-    await expect(this.page.getByTestId(`member-online-${entityId}`)).toBeVisible();
+    // WebSocket presence is an external event from the Durable Object — not tracked
+    // by the settled indicator. Use unsettledExpect to wait the full timeout.
+    await unsettledExpect(this.page.getByTestId(`member-online-${entityId}`)).toBeVisible({
+      timeout: 10_000,
+    });
   }
 
   linkRow(linkId: string): Locator {

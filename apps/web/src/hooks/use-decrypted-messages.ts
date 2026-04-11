@@ -2,13 +2,12 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { decryptMessage } from '@hushbox/crypto';
 import { useAuthStore } from '@/lib/auth';
-import { client, fetchJson } from '@/lib/api-client';
 import type { Message } from '@/lib/api';
 import { fromBase64 } from '@hushbox/shared';
 import type { MessageResponse } from '@hushbox/shared';
 import { getEpochKey, processKeyChain } from '@/lib/epoch-key-cache';
 import { useDecryptionActivityStore } from '@/stores/decryption-activity';
-import type { KeyChainResponse } from '@/lib/epoch-key-cache';
+import { keyChainQueryOptions } from '@/hooks/keys';
 
 function mapSenderTypeToRole(senderType: 'user' | 'ai'): 'user' | 'assistant' {
   return senderType === 'ai' ? 'assistant' : 'user';
@@ -53,15 +52,8 @@ export function useDecryptedMessages(
   }, [conversationId]);
 
   const { data: keyChain } = useQuery({
-    queryKey: ['keys', conversationId],
-    queryFn: async (): Promise<KeyChainResponse> => {
-      if (!conversationId) throw new Error('conversationId is required');
-      return fetchJson<KeyChainResponse>(
-        client.api.keys[':conversationId'].$get({ param: { conversationId } })
-      );
-    },
+    ...keyChainQueryOptions(conversationId ?? ''),
     enabled: !!conversationId && !!effectivePrivateKey,
-    staleTime: 1000 * 60 * 60, // Key chains rarely change; refetch on epoch rotation
   });
 
   const decrypted = useMemo(() => {

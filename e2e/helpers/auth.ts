@@ -15,7 +15,7 @@ export async function signUpViaUI(
   page: Page,
   options: { username: string; email: string; password: string }
 ): Promise<void> {
-  await page.goto('/signup');
+  await page.goto('/signup', { waitUntil: 'domcontentloaded' });
   await page.getByLabel('Username').fill(options.username);
   await page.getByLabel('Email').fill(options.email);
   await page.getByLabel('Password', { exact: true }).fill(options.password);
@@ -40,7 +40,7 @@ export async function verifyEmailViaAPI(
     throw new Error(`Failed to get verify token for ${email}: ${String(response.status())}`);
   }
   const { token } = (await response.json()) as { token: string };
-  await page.goto(`/verify?token=${token}`);
+  await page.goto(`/verify?token=${token}`, { waitUntil: 'domcontentloaded' });
   return token;
 }
 
@@ -52,7 +52,7 @@ export async function loginViaUI(
   page: Page,
   options: { email: string; password: string; keepSignedIn?: boolean }
 ): Promise<void> {
-  await page.goto('/login');
+  await page.goto('/login', { waitUntil: 'domcontentloaded' });
   await page.getByLabel('Email or Username').fill(options.email);
   await page.getByLabel('Password', { exact: true }).fill(options.password);
 

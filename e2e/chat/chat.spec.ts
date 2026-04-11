@@ -24,10 +24,9 @@ test.describe('Chat Functionality', () => {
       await chatPage.waitForAIResponse();
       await chatPage.expectAssistantMessageContains('Echo:');
 
-      await authenticatedPage.waitForTimeout(1000);
-
-      const matchingCount = await sidebar.countConversationsWithText(uniqueId);
-      expect(matchingCount).toBe(1);
+      await expect
+        .poll(() => sidebar.countConversationsWithText(uniqueId), { timeout: 5000 })
+        .toBe(1);
     });
   });
 

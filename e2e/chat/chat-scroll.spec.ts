@@ -69,8 +69,14 @@ test.describe('Auto-scroll During Streaming', () => {
     ).toBeVisible({ timeout: 10_000 });
 
     await chatPage.scrollUp(300);
+    await chatPage.waitForScrollStable();
 
-    await authenticatedPage.waitForTimeout(1000);
+    // Verify scroll position holds while streaming continues
+    await expect(async () => {
+      const pos = await chatPage.getScrollPosition();
+      const distanceFromBottom = pos.scrollHeight - pos.scrollTop - pos.clientHeight;
+      expect(distanceFromBottom).toBeGreaterThan(20);
+    }).toPass({ timeout: 10_000 });
 
     const midStreamPos = await chatPage.getScrollPosition();
     const midStreamDistance =
@@ -79,7 +85,8 @@ test.describe('Auto-scroll During Streaming', () => {
     const minDistance = Math.max(20, midStreamPos.clientHeight * 0.05);
     expect(midStreamDistance).toBeGreaterThan(minDistance);
 
-    await authenticatedPage.waitForTimeout(2000);
+    // Wait for streaming to complete, then verify user stayed scrolled up
+    await chatPage.waitForStreamComplete();
 
     const finalPos = await chatPage.getScrollPosition();
     const distanceFromBottom = finalPos.scrollHeight - finalPos.scrollTop - finalPos.clientHeight;
@@ -98,7 +105,6 @@ test.describe('Dynamic Over-scroll Space', () => {
     await chatPage.waitForAIResponse('Test message');
 
     await chatPage.scrollToBottom();
-    await authenticatedPage.waitForTimeout(100);
 
     const { scrollTop, scrollHeight, clientHeight } = await chatPage.getScrollPosition();
 
@@ -200,7 +206,6 @@ test.describe('Input Ready After Streaming', () => {
 
     await chatPage.messageList.click();
     await chatPage.waitForAIResponse(message);
-    await authenticatedPage.waitForTimeout(200);
 
     await expect(chatPage.messageInput).not.toBeFocused();
   });

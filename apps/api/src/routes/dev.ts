@@ -10,6 +10,7 @@ import {
   cleanupTestData,
   resetTrialUsage,
   resetAuthRateLimits,
+  createDevConversation,
   createDevGroupChat,
   setWalletBalance,
 } from '../services/dev/index.js';
@@ -107,6 +108,29 @@ export const devRoute = new Hono<AppEnv>()
     const result = await resetAuthRateLimits(redis);
     return c.json({ success: true, deleted: result.deleted });
   })
+  .post(
+    '/conversation',
+    zValidator(
+      'json',
+      z.object({
+        ownerEmail: z.email(),
+        messages: z
+          .array(
+            z.object({
+              content: z.string(),
+              senderType: z.enum(['user', 'ai']),
+            })
+          )
+          .optional(),
+      })
+    ),
+    async (c) => {
+      const db = c.get('db');
+      const body = c.req.valid('json');
+      const result = await createDevConversation(db, body);
+      return c.json(result, 201);
+    }
+  )
   .post(
     '/group-chat',
     zValidator(

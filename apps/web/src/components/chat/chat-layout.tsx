@@ -732,6 +732,20 @@ function ChatLayoutModals({
   );
 }
 
+interface WebSocketAttributes {
+  wsConnected: string | undefined;
+  wsReady: string | undefined;
+}
+
+function getWebSocketAttributes(
+  ws: { connected: boolean; ready: boolean } | undefined
+): WebSocketAttributes {
+  return {
+    wsConnected: ws?.connected === true ? 'true' : undefined,
+    wsReady: ws?.ready === true ? 'true' : undefined,
+  };
+}
+
 export function ChatLayout({
   title,
   messages,
@@ -842,13 +856,14 @@ export function ChatLayout({
   const handleTypingChange = useTypingBroadcast(groupChat);
 
   const inputStyle = getMobileInputStyle({ isMobile, keyboardOffset, isKeyboardVisible });
-  const wsConnected = groupChat?.ws?.connected === true ? 'true' : undefined;
+  const { wsConnected, wsReady } = getWebSocketAttributes(groupChat?.ws);
 
   return (
     <div
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
       style={{ height: `${String(viewportHeight)}px` }}
       data-ws-connected={wsConnected}
+      data-ws-ready={wsReady}
     >
       <div data-chat-header>
         <ChatHeader

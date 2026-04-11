@@ -4,7 +4,7 @@ import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useDecryptionActivityStore } from '@/stores/decryption-activity';
 import { useAuthStore } from '@/lib/auth';
 
-const DEBOUNCE_MS = 300;
+const DEBOUNCE_MS = 600;
 
 export function useIsSettled(): boolean {
   const isFetching = useIsFetching();

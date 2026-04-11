@@ -605,6 +605,7 @@ export function MessageItem({
       <div
         data-testid="message-item"
         data-role={effectiveRole}
+        data-message-id={primaryMessage.id}
         {...(isError ? { 'data-error': 'true' } : {})}
         className={containerClasses}
       >

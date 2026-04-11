@@ -19,6 +19,17 @@ export const billingKeys = {
   payment: (id: string) => [...billingKeys.payments(), id] as const,
 };
 
+/** Reusable query options for balance. Shared by hooks and route loaders. */
+export function balanceQueryOptions(): {
+  queryKey: readonly ['billing', 'balance'];
+  queryFn: () => Promise<GetBalanceResponse>;
+} {
+  return {
+    queryKey: billingKeys.balance(),
+    queryFn: () => fetchJson<GetBalanceResponse>(client.api.billing.balance.$get()),
+  };
+}
+
 /**
  * Hook to fetch user's current balance.
  * Skips the API call for trial (unauthenticated) users unless `enabled` is explicitly set.
@@ -30,8 +41,7 @@ export function useBalance(options?: {
   const isAuthenticated = Boolean(session?.user);
 
   return useQuery({
-    queryKey: billingKeys.balance(),
-    queryFn: () => fetchJson<GetBalanceResponse>(client.api.billing.balance.$get()),
+    ...balanceQueryOptions(),
     enabled: options?.enabled ?? isAuthenticated,
   });
 }

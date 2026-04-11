@@ -264,3 +264,12 @@
     opacity: 0.6;
   }
 }
+
+/* E2E: disable all CSS transitions and animations to eliminate timing races.
+   The [data-e2e] attribute is set on <html> when VITE_E2E is true. */
+[data-e2e] *,
+[data-e2e] *::before,
+[data-e2e] *::after {
+  transition-duration: 0s !important;
+  animation-duration: 0s !important;
+}

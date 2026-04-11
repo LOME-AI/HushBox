@@ -41,7 +41,7 @@ export class UsagePage {
   }
 
   async goto(): Promise<void> {
-    await this.page.goto('/usage');
+    await this.page.goto('/usage', { waitUntil: 'domcontentloaded' });
     await expect(this.usageContent).toBeVisible();
   }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { useBalance, billingKeys } from './billing.js';
+import { useBalance, billingKeys, balanceQueryOptions } from './billing.js';
 
 vi.mock('@/lib/auth', () => ({
   useSession: vi.fn(),
@@ -91,5 +91,17 @@ describe('useBalance', () => {
         enabled: false,
       })
     );
+  });
+});
+
+describe('balanceQueryOptions', () => {
+  it('returns correct queryKey', () => {
+    const options = balanceQueryOptions();
+    expect(options.queryKey).toEqual(billingKeys.balance());
+  });
+
+  it('returns a callable queryFn', () => {
+    const options = balanceQueryOptions();
+    expect(typeof options.queryFn).toBe('function');
   });
 });

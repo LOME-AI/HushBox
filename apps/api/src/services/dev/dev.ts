@@ -14,6 +14,13 @@ import {
 import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN, type DevPersona } from '@hushbox/shared';
 import { createFirstEpoch, encryptMessageForStorage } from '@hushbox/crypto';
 import { checkUserBalance } from '../billing/index.js';
+import { createOrGetConversation } from '../conversations/index.js';
+import { saveUserOnlyMessage } from '../chat/index.js';
+import {
+  insertEncryptedMessage,
+  assignSequenceNumbers,
+  fetchEpochPublicKey,
+} from '../chat/message-helpers.js';
 import type { Redis } from '@upstash/redis';
 
 export interface ResetTrialUsageResult {
@@ -182,6 +189,117 @@ export async function resetAuthRateLimits(redis: Redis): Promise<ResetAuthRateLi
   }
 
   return { deleted };
+}
+
+export interface CreateDevConversationParams {
+  ownerEmail: string;
+  messages?:
+    | {
+        content: string;
+        senderType: 'user' | 'ai';
+      }[]
+    | undefined;
+}
+
+export interface CreateDevConversationResult {
+  conversationId: string;
+}
+
+/**
+ * Create a single-user conversation for E2E testing.
+ * Uses production services (createOrGetConversation, saveUserOnlyMessage) to avoid
+ * duplicating DB insertion logic. Server-side crypto generation via createFirstEpoch.
+ */
+export async function createDevConversation(
+  db: Database,
+  params: CreateDevConversationParams
+): Promise<CreateDevConversationResult> {
+  const [user] = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      publicKey: users.publicKey,
+    })
+    .from(users)
+    .where(eq(users.email, params.ownerEmail));
+
+  if (!user) {
+    throw new Error(`User not found: ${params.ownerEmail}`);
+  }
+
+  const epochResult = createFirstEpoch([user.publicKey]);
+  const conversationId = crypto.randomUUID();
+
+  const result = await createOrGetConversation(db, user.id, {
+    id: conversationId,
+    epochPublicKey: epochResult.epochPublicKey,
+    confirmationHash: epochResult.confirmationHash,
+    memberWrap: (() => {
+      const wrap = epochResult.memberWraps[0];
+      if (!wrap) throw new Error('invariant: missing member wrap');
+      return wrap.wrap;
+    })(),
+    userPublicKey: user.publicKey,
+  });
+
+  if (!result) {
+    throw new Error('Failed to create conversation');
+  }
+
+  // Seed messages using production services
+  if (params.messages && params.messages.length > 0) {
+    let lastMessageId: string | null = null;
+
+    for (const msg of params.messages) {
+      const messageId = crypto.randomUUID();
+
+      if (msg.senderType === 'user') {
+        await saveUserOnlyMessage(db, {
+          conversationId: result.conversation.id,
+          userId: user.id,
+          senderId: user.id,
+          messageId,
+          content: msg.content,
+          parentMessageId: lastMessageId,
+        });
+      } else {
+        // AI messages: use production helpers directly in a transaction
+        await db.transaction(async (tx) => {
+          const txDb = tx as unknown as Database;
+          const { sequences, currentEpoch } = await assignSequenceNumbers(
+            txDb,
+            result.conversation.id,
+            1
+          );
+          const seq = sequences[0];
+          if (seq === undefined) throw new Error('invariant: expected sequence number');
+
+          const { epochPublicKey, epochNumber } = await fetchEpochPublicKey(
+            txDb,
+            result.conversation.id,
+            currentEpoch
+          );
+
+          await insertEncryptedMessage(txDb, {
+            id: messageId,
+            conversationId: result.conversation.id,
+            content: msg.content,
+            epochPublicKey,
+            epochNumber,
+            sequenceNumber: seq,
+            senderType: 'ai',
+            modelName: 'anthropic/claude-3.5-sonnet',
+            parentMessageId: lastMessageId,
+          });
+        });
+      }
+
+      lastMessageId = messageId;
+    }
+  }
+
+  return { conversationId: result.conversation.id };
 }
 
 export interface CreateDevGroupChatParams {

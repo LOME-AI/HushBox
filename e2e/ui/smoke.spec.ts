@@ -51,13 +51,13 @@ test.describe('Production Build Smoke Tests', () => {
   });
 
   test('core pages load correctly', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveURL('/chat');
 
     await expect(page.getByRole('textbox', { name: 'Ask me anything...' })).toBeVisible();
 
     // Verify SPA routing works for sub-paths (unauthenticated users get redirected to login)
-    await page.goto('/projects');
+    await page.goto('/projects', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('body')).not.toBeEmpty();
   });
 });

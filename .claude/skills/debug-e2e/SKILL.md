@@ -33,7 +33,7 @@ For every failed and flaky test in the report:
 
 ## Step 3 — Deep Investigation Per Failure
 
-For EACH failed test, do ALL of the following:
+For EACH failed AND flaky test, do ALL of the following:
 
 ### 3a. Read the full error
 - Read `e2e/report/<latest>/failed/<test-slug>/error.txt`
@@ -73,6 +73,7 @@ For EACH failed test, do ALL of the following:
 
 ### 3h. Check for recent changes
 - Run `git log --oneline -20 -- <relevant-files>` for files involved in the failure
+- Run `git diff <file>` for any files with uncommitted changes — these are the most likely culprits
 - If a file was recently changed, read the diff to see if the change could have caused the failure
 
 ## Step 4 — Diagnose Root Causes
@@ -91,7 +92,17 @@ For each failure, determine ONE of:
 
 ## Step 5 — Present Findings
 
-For each failure, present:
+For each failure, include a checklist of every file in that test's artifact directory. Every file must appear. Mark as read or note why it was skipped:
+
+```
+**Artifacts reviewed:**
+- [x] `error.txt`
+- [x] `network.har`
+- [x] `screenshot.png`
+- [ ] `trace.zip` (not readable)
+```
+
+Then present:
 
 ### [Test Name] ([project])
 
@@ -126,4 +137,5 @@ For each failure, present:
 - **Be specific.** File paths, line numbers, variable names, exact values.
 - **Group related failures.** If 5 tests fail because of the same API bug, say so once, not 5 times.
 - **Check for cascading failures.** One root cause can produce multiple test failures. Identify the root.
+- **Read ALL artifact files.** No skipping screenshots, HAR files, or step logs. Every artifact exists for a reason.
 - **Report staleness.** If any file referenced in this skill does not exist at the expected path, stop and tell the user the skill needs updating.

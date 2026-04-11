@@ -41,6 +41,17 @@ function conversationQueryFunction(id: string): () => Promise<ConversationRespon
   };
 }
 
+/** Reusable query options for a single conversation. Shared by hooks and route loaders. */
+export function conversationQueryOptions(id: string): {
+  queryKey: readonly ['chat', 'conversations', string];
+  queryFn: () => Promise<ConversationResponse>;
+} {
+  return {
+    queryKey: chatKeys.conversation(id),
+    queryFn: conversationQueryFunction(id),
+  };
+}
+
 export function useConversations(): {
   data: ConversationListItem[] | undefined;
   isLoading: boolean;
@@ -155,8 +166,7 @@ export function useConversation(
   id: string
 ): ReturnType<typeof useQuery<ConversationResponse, Error, ConversationWithCaller>> {
   return useQuery({
-    queryKey: chatKeys.conversation(id),
-    queryFn: conversationQueryFunction(id),
+    ...conversationQueryOptions(id),
     select: (data): ConversationWithCaller => ({
       ...data.conversation,
       callerId: data.callerId,
@@ -170,8 +180,7 @@ export function useMessages(
   conversationId: string
 ): ReturnType<typeof useQuery<ConversationResponse, Error, MessageResponse[]>> {
   return useQuery({
-    queryKey: chatKeys.conversation(conversationId),
-    queryFn: conversationQueryFunction(conversationId),
+    ...conversationQueryOptions(conversationId),
     select: (data): MessageResponse[] => data.messages,
     enabled: !!conversationId,
   });

@@ -32,7 +32,7 @@ test.describe('Group Chat Leave', () => {
     });
 
     await test.step('navigating back to conversation redirects', async () => {
-      await testBobPage.goto(`/chat/${groupConversation.id}`);
+      await testBobPage.goto(`/chat/${groupConversation.id}`, { waitUntil: 'domcontentloaded' });
       // Should redirect away since Bob is no longer a member
       await expect(testBobPage).not.toHaveURL(new RegExp(groupConversation.id), {
         timeout: 10_000,
@@ -66,7 +66,9 @@ test.describe('Group Chat Leave', () => {
     });
 
     await test.step('conversation no longer accessible', async () => {
-      await authenticatedPage.goto(`/chat/${groupConversation.id}`);
+      await authenticatedPage.goto(`/chat/${groupConversation.id}`, {
+        waitUntil: 'domcontentloaded',
+      });
       await expect(authenticatedPage).not.toHaveURL(new RegExp(groupConversation.id), {
         timeout: 10_000,
       });
@@ -99,11 +101,9 @@ test.describe('Group Chat Leave', () => {
     // Close sidebar so message list is accessible on mobile
     await sidebar.closeSidebar();
 
-    // Scroll to top so first messages are in Virtuoso render range after Sheet close
-    await chatPage.scrollToTop();
-
-    // Still on conversation page with messages visible
+    // Still on conversation page with messages visible (the new helper
+    // auto-scrolls through virtualised items — no manual scrollToTop needed)
     await expect(testBobPage).toHaveURL(new RegExp(groupConversation.id));
-    await chatPage.expectMessageVisible('Hello from Alice');
+    await chatPage.assertMessageVisible('Hello from Alice');
   });
 });

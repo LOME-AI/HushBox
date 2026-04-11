@@ -34,7 +34,10 @@ vi.mock('react-virtuoso', () => ({
   ) {
     Object.assign(capturedVirtuosoProps, props);
     const data = props['data'] as unknown[];
-    const itemContent = props['itemContent'] as (index: number, item: unknown) => React.ReactNode;
+    const itemContent = props['itemContent'] as (
+      index: number,
+      item: unknown
+    ) => React.ReactNode;
     const components = props['components'] as { Footer?: () => React.ReactNode } | undefined;
     React.useImperativeHandle(ref, () => ({
       scrollToIndex: vi.fn(),
@@ -131,6 +134,106 @@ describe('MessageList', () => {
     render(<MessageList messages={messages} streamingMessageIds={new Set(['2'])} />);
     const messageItems = screen.getAllByTestId('message-item');
     expect(messageItems).toHaveLength(3);
+  });
+
+  it('exposes data-message-count matching messages.length', () => {
+    render(<MessageList messages={messages} />);
+    const container = screen.getByTestId('message-list');
+    expect(container).toHaveAttribute('data-message-count', '3');
+  });
+
+  it('exposes data-message-id on every rendered message item', () => {
+    render(<MessageList messages={messages} />);
+    const messageItems = screen.getAllByTestId('message-item');
+    expect(messageItems[0]).toHaveAttribute('data-message-id', '1');
+    expect(messageItems[1]).toHaveAttribute('data-message-id', '2');
+    expect(messageItems[2]).toHaveAttribute('data-message-id', '3');
+  });
+
+  describe('streaming / error state baked into Virtuoso data', () => {
+    beforeEach(() => {
+      capturedVirtuosoProps = {};
+    });
+
+    it('bakes isStreaming into each row based on streamingMessageIds', () => {
+      render(<MessageList messages={messages} streamingMessageIds={new Set(['2'])} />);
+      const data = capturedVirtuosoProps['data'] as { key: string; isStreaming: boolean }[];
+      expect(data).toHaveLength(3);
+      const streamingRow = data.find((r) => r.key === '2');
+      expect(streamingRow?.isStreaming).toBe(true);
+      const nonStreamingRow = data.find((r) => r.key === '1');
+      expect(nonStreamingRow?.isStreaming).toBe(false);
+    });
+
+    it('bakes isError into the row matching errorMessageId', () => {
+      render(<MessageList messages={messages} errorMessageId="2" />);
+      const data = capturedVirtuosoProps['data'] as { key: string; isError: boolean }[];
+      const errorRow = data.find((r) => r.key === '2');
+      expect(errorRow?.isError).toBe(true);
+      const okRow = data.find((r) => r.key === '1');
+      expect(okRow?.isError).toBe(false);
+    });
+
+    it('produces a new data array reference when streamingMessageIds changes', () => {
+      // Regression test for the stale-isStreaming bug that caused regenerate
+      // buttons to go missing after streaming completed. Baking streaming
+      // state into the data array ensures Virtuoso's data-identity check sees
+      // a change and re-renders items.
+      const { rerender } = render(
+        <MessageList messages={messages} streamingMessageIds={new Set(['2'])} />
+      );
+      const firstData = capturedVirtuosoProps['data'];
+
+      rerender(<MessageList messages={messages} streamingMessageIds={new Set()} />);
+      const secondData = capturedVirtuosoProps['data'];
+
+      expect(firstData).not.toBe(secondData);
+    });
+
+    it('clearing streamingMessageIds re-renders items without isStreaming so action buttons appear', () => {
+      // End-to-end check of the fix: start with an assistant message streaming
+      // (no action buttons), clear streaming, action buttons should appear.
+      const singleAssistant: Message[] = [
+        {
+          id: 'u1',
+          conversationId: 'conv-1',
+          role: 'user',
+          content: 'hi',
+          createdAt: '2024-01-01T00:00:00Z',
+          parentMessageId: null,
+        },
+        {
+          id: 'a1',
+          conversationId: 'conv-1',
+          role: 'assistant',
+          content: 'hello back',
+          createdAt: '2024-01-01T00:00:01Z',
+          parentMessageId: 'u1',
+        },
+      ];
+      const onRegenerate = vi.fn();
+
+      const { rerender } = render(
+        <MessageList
+          messages={singleAssistant}
+          streamingMessageIds={new Set(['a1'])}
+          onRegenerate={onRegenerate}
+        />
+      );
+      // While streaming, regenerate button should not be present on the AI message
+      expect(screen.queryByLabelText('Regenerate')).not.toBeInTheDocument();
+
+      // Clear streaming WITHOUT changing the messages array reference
+      rerender(
+        <MessageList
+          messages={singleAssistant}
+          streamingMessageIds={new Set()}
+          onRegenerate={onRegenerate}
+        />
+      );
+      // Now the regenerate button should appear
+      expect(screen.getByLabelText('Regenerate')).toBeInTheDocument();
+    });
   });
 
   describe('forwardRef', () => {

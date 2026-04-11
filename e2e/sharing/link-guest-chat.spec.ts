@@ -40,14 +40,13 @@ test.describe('Link Guest Chat', () => {
     const initialBalance = await helper.getBalance();
 
     await test.step('guest opens shared conversation and sees messages', async () => {
-      await unauthenticatedPage.goto(inviteUrl);
+      await unauthenticatedPage.goto(inviteUrl, { waitUntil: 'domcontentloaded' });
 
       await expectSharedConversationLoaded(unauthenticatedPage);
 
-      // Existing messages from group fixture should be visible (decryption may lag behind fetch settlement)
-      await unsettledExpect(unauthenticatedPage.getByText('Hello from Alice').first()).toBeVisible({
-        timeout: 10_000,
-      });
+      // Existing seeded messages should be visible (helper auto-scrolls if virtualised)
+      const guestChatPage = new ChatPage(unauthenticatedPage);
+      await guestChatPage.assertMessageVisible('Hello from Alice');
     });
 
     await test.step('guest does not see "Top up to unlock" on premium models', async () => {
@@ -56,6 +55,7 @@ test.describe('Link Guest Chat', () => {
     });
 
     await test.step('guest sends message and receives AI response', async () => {
+      const guestChatPage = new ChatPage(unauthenticatedPage);
       const guestInput = unauthenticatedPage.getByRole('textbox', { name: /message/i });
       await expect(guestInput).toBeVisible({ timeout: 5000 });
 
@@ -68,15 +68,9 @@ test.describe('Link Guest Chat', () => {
       await expect(sendButton).toBeEnabled({ timeout: 15_000 });
       await sendButton.click();
 
-      // Guest's message should appear
-      await expect(unauthenticatedPage.getByText(guestMessage).first()).toBeVisible({
-        timeout: 10_000,
-      });
-
-      // AI Echo response should appear
-      await expect(
-        unauthenticatedPage.getByRole('log', { name: 'Chat messages' }).getByText('Echo:').first()
-      ).toBeVisible({ timeout: 15_000 });
+      // Guest's message and AI Echo response should appear
+      await guestChatPage.assertMessageVisible(guestMessage);
+      await guestChatPage.assertMessageVisible('Echo:');
     });
 
     await test.step('guest selects a model and sends another message', async () => {
@@ -92,20 +86,18 @@ test.describe('Link Guest Chat', () => {
       await sendButton.click();
 
       // Guest's message should appear
-      await expect(unauthenticatedPage.getByText(modelMessage).first()).toBeVisible({
-        timeout: 10_000,
-      });
+      await guestChatPage.assertMessageVisible(modelMessage);
 
       // AI response should appear with model nametag
       await guestChatPage.waitForAIResponse();
-      // Verify total AI count via data attribute (Virtuoso may not render all items on mobile)
+      // Sanity: React state knows about all 4 assistant messages
       await unsettledExpect(guestChatPage.messageList).toHaveAttribute(
         'data-assistant-count',
         '4',
-        {
-          timeout: 10_000,
-        }
+        { timeout: 10_000 }
       );
+      // New nametag helper scrolls through every assistant message, so this
+      // works even when Virtuoso virtualises earlier seeded messages.
       await guestChatPage.expectAllAIMessagesHaveNametag();
     });
 

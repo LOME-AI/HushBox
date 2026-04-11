@@ -7,7 +7,7 @@ test.describe('Custom Instructions', () => {
     authenticatedPage,
   }) => {
     await test.step('settings page renders correctly', async () => {
-      await authenticatedPage.goto('/chat');
+      await authenticatedPage.goto('/chat', { waitUntil: 'domcontentloaded' });
       await navigateToSettings(authenticatedPage);
       const settingsPage = new SettingsPage(authenticatedPage);
 

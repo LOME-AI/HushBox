@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement } from 'react';
 import type { Model } from '@hushbox/shared';
 import { STRONGEST_MODEL_ID, VALUE_MODEL_ID, AUTO_ROUTER_MODEL_ID } from '@hushbox/shared';
-import { useModels, getAccessibleModelIds } from './models.js';
+import { useModels, getAccessibleModelIds, modelKeys, modelsQueryOptions } from './models.js';
 
 // Mock the api-client module
 vi.mock('../lib/api-client.js', () => ({
@@ -321,5 +321,22 @@ describe('getAccessibleModelIds', () => {
     // The important thing is that it doesn't crash and returns valid IDs
     expect(modelsWithVaryingPrices.map((m) => m.id)).toContain(result.strongestId);
     expect(modelsWithVaryingPrices.map((m) => m.id)).toContain(result.valueId);
+  });
+});
+
+describe('modelsQueryOptions', () => {
+  it('returns correct queryKey', () => {
+    const options = modelsQueryOptions();
+    expect(options.queryKey).toEqual(modelKeys.list());
+  });
+
+  it('returns a callable queryFn', () => {
+    const options = modelsQueryOptions();
+    expect(typeof options.queryFn).toBe('function');
+  });
+
+  it('returns staleTime of 1 hour', () => {
+    const options = modelsQueryOptions();
+    expect(options.staleTime).toBe(1000 * 60 * 60);
   });
 });

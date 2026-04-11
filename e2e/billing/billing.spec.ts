@@ -46,10 +46,9 @@ test.describe('Billing & Payments', () => {
       await billingPage.closeSuccessAndReset();
 
       // Wait for balance to update (cache invalidation and refetch)
-      await billingPage.page.waitForTimeout(1000);
-
-      const newBalance = await billingPage.getBalance();
-      expect(newBalance).toBe(initialBalance + 25);
+      await expect
+        .poll(() => billingPage.getBalance(), { timeout: 5000 })
+        .toBe(initialBalance + 25);
     });
 
     test('simulates failed payment and shows error', async ({ billingFailurePage }) => {
@@ -63,7 +62,6 @@ test.describe('Billing & Payments', () => {
       // Balance should not change
       await billingPage.closeErrorAndRetry();
       await billingFailurePage.keyboard.press('Escape');
-      await billingFailurePage.waitForTimeout(500);
 
       const newBalance = await billingPage.getBalance();
       expect(newBalance).toBe(initialBalance);
@@ -287,7 +285,9 @@ test.describe('Billing & Payments', () => {
       });
 
       await test.step('open billing portal with token', async () => {
-        await unauthenticatedPage.goto(`/billing-portal?token=${billingToken}`);
+        await unauthenticatedPage.goto(`/billing-portal?token=${billingToken}`, {
+          waitUntil: 'domcontentloaded',
+        });
 
         // Token exchange + /api/auth/me hydration are async — opt out of settled
         await unsettledExpect(unauthenticatedPage.getByTestId('billing-portal')).toBeVisible({
@@ -334,7 +334,9 @@ test.describe('Billing & Payments', () => {
         expect(freshResponse.ok()).toBe(true);
         const { token: freshToken } = (await freshResponse.json()) as { token: string };
 
-        await unauthenticatedPage.goto(`/billing-portal?token=${freshToken}`);
+        await unauthenticatedPage.goto(`/billing-portal?token=${freshToken}`, {
+          waitUntil: 'domcontentloaded',
+        });
         await billingPage.waitForWebhookConfirmation(initialBalance, 5, 30_000);
 
         const newBalance = await billingPage.getBalance();
@@ -342,7 +344,7 @@ test.describe('Billing & Payments', () => {
       });
 
       await test.step('billing-only session cannot access chat', async () => {
-        await unauthenticatedPage.goto('/chat');
+        await unauthenticatedPage.goto('/chat', { waitUntil: 'domcontentloaded' });
         await expect(unauthenticatedPage.getByText('Free preview')).toBeVisible({
           timeout: 15_000,
         });

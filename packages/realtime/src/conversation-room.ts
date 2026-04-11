@@ -63,6 +63,10 @@ export class ConversationRoom extends DurableObject {
     server.serializeAttachment(meta);
     this.broadcastPresence();
 
+    // Signal to the client that server-side registration is complete.
+    // Tests wait for this instead of using hard-coded timeouts.
+    server.send(JSON.stringify({ type: 'ready' }));
+
     return new Response(null, { status: 101, webSocket: client });
   }
 

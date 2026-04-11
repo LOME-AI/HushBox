@@ -15,7 +15,7 @@ test.describe('Fork and Regeneration Interaction', () => {
       const followup = `Followup ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(followup);
       await chatPage.waitForAIResponse(followup);
-      expect(await chatPage.getMessageCount()).toBe(4);
+      expect(await chatPage.countMessages()).toBe(4);
     });
 
     await test.step('fork from first AI response', async () => {
@@ -30,7 +30,7 @@ test.describe('Fork and Regeneration Interaction', () => {
       await chatPage.waitForAIResponse(forkMsg);
     });
 
-    const fork1Count = await chatPage.getMessageCount();
+    const fork1Count = await chatPage.countMessages();
 
     await test.step('switch to Main and retry follow-up user message', async () => {
       await chatPage.clickForkTab('Main');
@@ -44,7 +44,7 @@ test.describe('Fork and Regeneration Interaction', () => {
     await test.step('switch to Fork 1 — verify unchanged', async () => {
       await chatPage.clickForkTab('Fork 1');
       await unsettledExpect
-        .poll(() => chatPage.getMessageCount(), { timeout: 5000 })
+        .poll(() => chatPage.countMessages(), { timeout: 5000 })
         .toBe(fork1Count);
     });
   });
@@ -68,7 +68,7 @@ test.describe('Fork and Regeneration Interaction', () => {
       const followup = `Second msg ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(followup);
       await chatPage.waitForAIResponse(followup);
-      expect(await chatPage.getMessageCount()).toBe(4);
+      expect(await chatPage.countMessages()).toBe(4);
     });
 
     await test.step('fork from second AI response (index 1)', async () => {
@@ -88,13 +88,13 @@ test.describe('Fork and Regeneration Interaction', () => {
       await chatPage.waitForAIResponse();
       // After retry + refetch, Main's fork chain should have only 2 messages.
       // Use poll — the fork filter updates asynchronously after query refetch.
-      await unsettledExpect.poll(() => chatPage.getMessageCount(), { timeout: 10_000 }).toBe(2);
+      await unsettledExpect.poll(() => chatPage.countMessages(), { timeout: 10_000 }).toBe(2);
     });
 
     await test.step('Fork 1 still intact with its messages', async () => {
       await chatPage.clickForkTab('Fork 1');
       // Fork 1 chain walk from its tip should include the shared early messages
-      const count = await chatPage.getMessageCount();
+      const count = await chatPage.countMessages();
       expect(count).toBeGreaterThanOrEqual(4);
     });
   });
@@ -193,7 +193,7 @@ test.describe('Fork and Regeneration Interaction', () => {
 
     await test.step('verify Main messages intact', async () => {
       await chatPage.expectMessageVisible(msg);
-      const count = await chatPage.getMessageCount();
+      const count = await chatPage.countMessages();
       expect(count).toBeGreaterThanOrEqual(2);
     });
 

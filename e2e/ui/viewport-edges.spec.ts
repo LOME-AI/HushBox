@@ -75,7 +75,7 @@ async function verifyNoScrollbars(page: Page): Promise<void> {
 test.describe('Viewport edge visibility', () => {
   test('all viewport constraints are satisfied', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-    await page.goto('/chat');
+    await page.goto('/chat', { waitUntil: 'domcontentloaded' });
 
     await expect(page.getByTestId('app-shell')).toBeVisible();
 

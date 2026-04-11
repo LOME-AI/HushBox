@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useSession, initAuth } from '@/lib/auth';
+import { hasStoredAuth } from '@/lib/auth-client';
 import { useBalance } from '@/hooks/billing';
 
 interface StabilityState {
@@ -25,7 +26,11 @@ export function StabilityProvider({
   }, []);
 
   const { data: session, isPending: isSessionPending } = useSession();
-  const { data: balanceData } = useBalance();
+
+  // Fire balance query optimistically if stored auth exists (sync localStorage check).
+  // This runs in parallel with initAuth()'s /api/auth/me call instead of waiting for it.
+  const likelyAuthenticated = React.useMemo(() => hasStoredAuth(), []);
+  const { data: balanceData } = useBalance({ enabled: likelyAuthenticated });
 
   const isAuthenticated = Boolean(session?.user);
 

@@ -59,16 +59,20 @@ describe('VerifyPage', () => {
     expect(screen.getByText(/verifying/i)).toBeInTheDocument();
   });
 
-  it('redirects to /chat on successful verification', async () => {
+  it('shows success state on successful verification', async () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({});
     const { VerifyPage } = await import('./verify');
 
     render(<VerifyPage />);
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith({ to: '/login' });
+      expect(screen.getByRole('heading', { name: /email verified/i })).toBeInTheDocument();
     });
     expect(toast.success).toHaveBeenCalledWith('Email verified successfully!');
+    expect(screen.getByRole('link', { name: /continue to login/i })).toHaveAttribute(
+      'href',
+      '/login'
+    );
   });
 
   it('shows error state on verification failure', async () => {

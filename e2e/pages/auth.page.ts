@@ -32,7 +32,7 @@ export class LoginPage {
   }
 
   async goto(): Promise<void> {
-    await this.page.goto('/login');
+    await this.page.goto('/login', { waitUntil: 'domcontentloaded' });
   }
 
   async login(email: string, password: string): Promise<void> {
@@ -77,7 +77,7 @@ export class SignupPage {
   }
 
   async goto(): Promise<void> {
-    await this.page.goto('/signup');
+    await this.page.goto('/signup', { waitUntil: 'domcontentloaded' });
   }
 
   async fillForm(options: { username: string; email: string; password: string }): Promise<void> {
@@ -121,7 +121,7 @@ export class SettingsPage {
   }
 
   async goto(): Promise<void> {
-    await this.page.goto('/settings');
+    await this.page.goto('/settings', { waitUntil: 'domcontentloaded' });
   }
 
   async openChangePassword(): Promise<void> {

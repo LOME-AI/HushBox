@@ -53,14 +53,14 @@ test.describe('Fork Lifecycle', () => {
       await chatPage.waitForAIResponse(msg);
     });
 
-    const fork1MessageCount = await chatPage.getMessageCount();
+    const fork1MessageCount = await chatPage.countMessages();
 
     await test.step('switch to Main tab — fewer messages', async () => {
       await unsettledExpect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
       await chatPage.clickForkTab('Main');
       await chatPage.expectActiveForkTab('Main');
       await chatPage.waitForConversationLoaded();
-      const mainCount = await chatPage.getMessageCount();
+      const mainCount = await chatPage.countMessages();
       expect(mainCount).toBeLessThan(fork1MessageCount);
     });
 
@@ -69,7 +69,7 @@ test.describe('Fork Lifecycle', () => {
       await chatPage.clickForkTab('Fork 1');
       await chatPage.expectActiveForkTab('Fork 1');
       await chatPage.waitForConversationLoaded();
-      const count = await chatPage.getMessageCount();
+      const count = await chatPage.countMessages();
       expect(count).toBe(fork1MessageCount);
     });
   });
@@ -177,7 +177,7 @@ test.describe('Fork Lifecycle', () => {
     });
 
     await test.step('verify messages display normally', async () => {
-      const count = await chatPage.getMessageCount();
+      const count = await chatPage.countMessages();
       expect(count).toBeGreaterThanOrEqual(2);
     });
   });
@@ -210,8 +210,6 @@ test.describe('Fork Lifecycle', () => {
       await chatPage.getForkButton(1).click();
 
       // Should show an error (toast or similar) rather than creating a 6th tab
-      // Wait a moment to ensure no new tab appears
-      await authenticatedPage.waitForTimeout(2000);
       await chatPage.expectForkTabCount(5);
     });
   });
@@ -234,7 +232,9 @@ test.describe('Fork URL and Refresh', () => {
     expect(forkId).not.toBeNull();
 
     await test.step('navigate directly to fork URL', async () => {
-      await authenticatedPage.goto(`/chat/${testConversation.id}?fork=${forkId!}`);
+      await authenticatedPage.goto(`/chat/${testConversation.id}?fork=${forkId!}`, {
+        waitUntil: 'domcontentloaded',
+      });
       await chatPage.waitForConversationLoaded();
     });
 
@@ -272,7 +272,9 @@ test.describe('Fork URL and Refresh', () => {
     const chatPage = new ChatPage(authenticatedPage);
 
     await test.step('navigate with invalid fork ID', async () => {
-      await authenticatedPage.goto(`/chat/${testConversation.id}?fork=nonexistent-id`);
+      await authenticatedPage.goto(`/chat/${testConversation.id}?fork=nonexistent-id`, {
+        waitUntil: 'domcontentloaded',
+      });
       await chatPage.waitForConversationLoaded();
     });
 
@@ -353,7 +355,7 @@ test.describe('Fork History Preservation', () => {
     });
 
     await test.step('Fork 1 shows messages up to fork point', async () => {
-      const forkCount = await chatPage.getMessageCount();
+      const forkCount = await chatPage.countMessages();
       expect(forkCount).toBe(4);
     });
 
@@ -368,7 +370,7 @@ test.describe('Fork History Preservation', () => {
     await test.step('switching back to Fork 1 preserves 4 messages', async () => {
       await chatPage.clickForkTab('Fork 1');
       await chatPage.expectActiveForkTab('Fork 1');
-      const forkCount = await chatPage.getMessageCount();
+      const forkCount = await chatPage.countMessages();
       expect(forkCount).toBe(4);
     });
   });
@@ -405,7 +407,7 @@ test.describe('Fork History Preservation', () => {
     });
 
     await test.step('Fork 1 shows first message content', async () => {
-      const forkCount = await chatPage.getMessageCount();
+      const forkCount = await chatPage.countMessages();
       expect(forkCount).toBe(4);
       await chatPage.expectMessageVisible(msg1);
       await chatPage.expectMessageVisible(msg2);
@@ -453,7 +455,7 @@ test.describe('Fork History Preservation', () => {
     });
 
     await test.step('Fork 1 has the forked AI message only', async () => {
-      const forkCount = await chatPage.getMessageCount();
+      const forkCount = await chatPage.countMessages();
       expect(forkCount).toBe(3); // 1 user + 2 AI siblings (multi-model responses always grouped)
       await chatPage.expectModelNametag(1, firstAiNametag!);
     });
@@ -462,7 +464,7 @@ test.describe('Fork History Preservation', () => {
       await unsettledExpect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
       await chatPage.clickForkTab('Main');
       await chatPage.expectActiveForkTab('Main');
-      const mainCount = await chatPage.getMessageCount();
+      const mainCount = await chatPage.countMessages();
       expect(mainCount).toBe(3);
     });
   });
