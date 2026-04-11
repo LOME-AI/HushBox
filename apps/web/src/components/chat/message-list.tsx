@@ -168,12 +168,8 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
           key: group.id,
           group,
           ...(first !== undefined && { message: first }),
-          isStreaming: group.messages.some(
-            (m) => streamingMessageIds?.has(m.id) ?? false
-          ),
-          isError: group.messages.some(
-            (m) => m.id === errorMessageId || m.errorCode !== undefined
-          ),
+          isStreaming: group.messages.some((m) => streamingMessageIds?.has(m.id) ?? false),
+          isError: group.messages.some((m) => m.id === errorMessageId || m.errorCode !== undefined),
         };
       });
     }

@@ -587,6 +587,33 @@ describe('withBroadcast', () => {
     expect(eventPayload).not.toHaveProperty('modelName');
   });
 
+  it('includes senderId in broadcast events when provided', async () => {
+    const broadcastWithSender: BroadcastContext = {
+      env: {} as BroadcastContext['env'],
+      conversationId: 'conv-1',
+      assistantMessageId: 'asst-1',
+      modelName: 'openai/gpt-4o',
+      senderId: 'user-42',
+    };
+    const stream = tokenStream(['hi']);
+    const wrapped = withBroadcast(stream, broadcastWithSender);
+
+    await collectAll(wrapped);
+
+    const eventPayload = vi.mocked(createEvent).mock.calls[0]![1] as Record<string, unknown>;
+    expect(eventPayload['senderId']).toBe('user-42');
+  });
+
+  it('omits senderId from broadcast events when undefined', async () => {
+    const stream = tokenStream(['hi']);
+    const wrapped = withBroadcast(stream, broadcast);
+
+    await collectAll(wrapped);
+
+    const eventPayload = vi.mocked(createEvent).mock.calls[0]![1] as Record<string, unknown>;
+    expect(eventPayload).not.toHaveProperty('senderId');
+  });
+
   it('handles empty stream without error', async () => {
     async function* empty(): AsyncIterable<{ content: string; generationId?: string }> {
       // yields nothing

@@ -174,6 +174,29 @@ describe('events', () => {
       };
       expect(() => messageStreamEventSchema.parse(event)).toThrow();
     });
+
+    it('accepts senderId so clients can filter own-sender broadcasts', () => {
+      const event = {
+        type: 'message:stream' as const,
+        timestamp: Date.now(),
+        messageId: 'msg-1',
+        token: 'Hello',
+        senderId: 'user-42',
+      };
+      const result = messageStreamEventSchema.parse(event);
+      expect(result.senderId).toBe('user-42');
+    });
+
+    it('accepts message:stream without senderId', () => {
+      const event = {
+        type: 'message:stream' as const,
+        timestamp: Date.now(),
+        messageId: 'msg-1',
+        token: 'Hello',
+      };
+      const result = messageStreamEventSchema.parse(event);
+      expect(result.senderId).toBeUndefined();
+    });
   });
 
   describe('messageCompleteEventSchema', () => {

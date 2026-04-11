@@ -133,10 +133,10 @@ export class ChatPage {
    */
   async assertMessageVisible(
     text: string,
-    opts?: { exact?: boolean; timeout?: number }
+    options?: { exact?: boolean; timeout?: number }
   ): Promise<void> {
-    const exact = opts?.exact ?? false;
-    const timeout = opts?.timeout ?? 10_000;
+    const exact = options?.exact ?? false;
+    const timeout = options?.timeout ?? 10_000;
     const locator = this.messageList.getByText(text, { exact }).first();
 
     // Happy path: already visible, or appears within a short wait window.
@@ -144,7 +144,7 @@ export class ChatPage {
     // needing to scroll. If the message is genuinely off-screen due to
     // virtualization, this wait returns fast (locator stays not-visible)
     // and we fall through to the scroll path.
-    const happyWait = Math.min(3_000, timeout);
+    const happyWait = Math.min(3000, timeout);
     const appeared = await locator
       .waitFor({ state: 'visible', timeout: happyWait })
       .then(() => true)
@@ -152,7 +152,7 @@ export class ChatPage {
     if (appeared) return;
 
     // Slow path: scroll to find it with the remaining time budget.
-    const remaining = Math.max(1_000, timeout - happyWait);
+    const remaining = Math.max(1000, timeout - happyWait);
     await this.scrollUntilLocatorVisible(locator, text, remaining);
   }
 
@@ -163,8 +163,8 @@ export class ChatPage {
    * negative check is definitive. Otherwise scrolls top→bottom confirming the
    * text never appears at any scroll position.
    */
-  async assertMessageNotVisible(text: string, opts?: { exact?: boolean }): Promise<void> {
-    const exact = opts?.exact ?? false;
+  async assertMessageNotVisible(text: string, options?: { exact?: boolean }): Promise<void> {
+    const exact = options?.exact ?? false;
     const locator = this.messageList.getByText(text, { exact });
 
     const stateCount = Number(await this.messageList.getAttribute('data-message-count'));
@@ -179,13 +179,22 @@ export class ChatPage {
     // Slow path: scroll top→bottom, confirm text never appears.
     await this.scrollToTop();
     await this.waitForScrollStable();
-    while (true) {
-      if (await locator.first().isVisible().catch(() => false)) {
+    let done = false;
+    while (!done) {
+      if (
+        await locator
+          .first()
+          .isVisible()
+          .catch(() => false)
+      ) {
         throw new Error(`assertMessageNotVisible: found message with text "${text}"`);
       }
-      if (await this.isAtScrollBottom()) break;
-      await this.scrollByViewportFraction(0.8);
-      await this.waitForScrollStable();
+      if (await this.isAtScrollBottom()) {
+        done = true;
+      } else {
+        await this.scrollByViewportFraction(0.8);
+        await this.waitForScrollStable();
+      }
     }
   }
 
@@ -193,31 +202,29 @@ export class ChatPage {
    * Scroll top→bottom collecting unique `data-message-id` values that enter
    * the DOM. Used internally by `countMessages` and the nametag assertion.
    */
-  private async collectMessagesByScrolling(
-    role?: 'user' | 'assistant'
-  ): Promise<Set<string>> {
+  private async collectMessagesByScrolling(role?: 'user' | 'assistant'): Promise<Set<string>> {
     const seen = new Set<string>();
     await this.scrollToTop();
     await this.waitForScrollStable();
 
     const selector =
-      role === undefined
-        ? '[data-message-id]'
-        : `[data-role="${role}"][data-message-id]`;
+      role === undefined ? '[data-message-id]' : `[data-role="${role}"][data-message-id]`;
 
-    while (true) {
+    let done = false;
+    while (!done) {
       const ids = await this.messageList
         .locator(selector)
-        .evaluateAll((els) =>
-          els.map((el) => (el as HTMLElement).dataset['messageId'] ?? null)
-        );
+        .evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset['messageId'] ?? null));
       for (const id of ids) {
         if (id !== null) seen.add(id);
       }
 
-      if (await this.isAtScrollBottom()) break;
-      await this.scrollByViewportFraction(0.8);
-      await this.waitForScrollStable();
+      if (await this.isAtScrollBottom()) {
+        done = true;
+      } else {
+        await this.scrollByViewportFraction(0.8);
+        await this.waitForScrollStable();
+      }
     }
     return seen;
   }
@@ -237,8 +244,8 @@ export class ChatPage {
     // Auto-detect: if we're in the upper half, missing message is likely
     // below. If we're in the lower half, it's likely above.
     const maxScroll = Math.max(1, scrollHeight - clientHeight);
-    const relPos = scrollTop / maxScroll;
-    const firstDir: 1 | -1 = relPos < 0.5 ? 1 : -1;
+    const relativePos = scrollTop / maxScroll;
+    const firstDir: 1 | -1 = relativePos < 0.5 ? 1 : -1;
 
     if (await this.scanDirection(locator, firstDir, Math.floor(timeout / 2))) return;
 
@@ -251,11 +258,7 @@ export class ChatPage {
     );
   }
 
-  private async scanDirection(
-    locator: Locator,
-    dir: 1 | -1,
-    timeout: number
-  ): Promise<boolean> {
+  private async scanDirection(locator: Locator, dir: 1 | -1, timeout: number): Promise<boolean> {
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
       if (await locator.isVisible().catch(() => false)) return true;
@@ -737,11 +740,9 @@ export class ChatPage {
       '[data-role="assistant"]:not(:has([data-testid="model-nametag"]))'
     );
     // Atomic: Playwright re-queries the locator each poll.
-    await expect(assistantsWithoutNametag).toHaveCount(0, { timeout: 5_000 });
+    await expect(assistantsWithoutNametag).toHaveCount(0, { timeout: 5000 });
 
-    const renderedAssistants = await this.messageList
-      .locator('[data-role="assistant"]')
-      .count();
+    const renderedAssistants = await this.messageList.locator('[data-role="assistant"]').count();
     if (renderedAssistants === 0) {
       throw new Error('expectAllAIMessagesHaveNametag: no assistant messages rendered');
     }

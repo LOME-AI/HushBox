@@ -18,6 +18,7 @@ export const messageStreamEventSchema = z.object({
   messageId: z.string(),
   token: z.string(),
   modelName: z.string().optional(),
+  senderId: z.string().optional(),
 });
 
 export const messageCompleteEventSchema = z.object({

@@ -87,6 +87,7 @@ export interface BroadcastContext {
   conversationId: string;
   assistantMessageId: string;
   modelName?: string;
+  senderId?: string;
 }
 
 export interface StreamResult {
@@ -230,6 +231,7 @@ export function withBroadcast(
               messageId: broadcast.assistantMessageId,
               token: tokenBuffer,
               ...(broadcast.modelName !== undefined && { modelName: broadcast.modelName }),
+              ...(broadcast.senderId !== undefined && { senderId: broadcast.senderId }),
             })
           );
           tokenBuffer = '';
@@ -789,6 +791,7 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
         conversationId,
         assistantMessageId: assistantMsgId,
         modelName: modelId,
+        senderId,
       }),
     };
   });

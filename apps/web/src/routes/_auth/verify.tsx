@@ -60,9 +60,7 @@ export function VerifyPage(): React.JSX.Element {
     return (
       <div className="text-center">
         <h1 className="text-foreground mb-2 text-3xl font-bold">Email verified</h1>
-        <p className="text-muted-foreground mb-6">
-          Your email has been verified successfully.
-        </p>
+        <p className="text-muted-foreground mb-6">Your email has been verified successfully.</p>
         <Link to={ROUTES.LOGIN} className="text-primary font-medium hover:underline">
           Continue to login
         </Link>

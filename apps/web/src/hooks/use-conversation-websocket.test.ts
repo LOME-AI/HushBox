@@ -1,12 +1,14 @@
 import { renderHook } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+import type { ConversationWebSocketOptions } from '../lib/ws-client.js';
+
 const mockConnect = vi.fn();
 const mockDisconnect = vi.fn();
 
 // Use vi.hoisted so the mock class is available in vi.mock's factory
 const MockClass = vi.hoisted(() =>
-  vi.fn(function (this: Record<string, unknown>) {
+  vi.fn<(options: ConversationWebSocketOptions) => void>(function (this: Record<string, unknown>) {
     this['connect'] = vi.fn();
     this['disconnect'] = vi.fn();
     this['connected'] = false;
@@ -39,9 +41,7 @@ describe('useConversationWebSocket', () => {
   it('creates and connects WebSocket when conversationId is provided', () => {
     const { result } = renderHook(() => useConversationWebSocket('conv-123'));
 
-    expect(MockClass).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationId: 'conv-123' })
-    );
+    expect(MockClass).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'conv-123' }));
     expect(mockConnect).toHaveBeenCalledTimes(1);
     expect(result.current).not.toBeNull();
   });
@@ -115,11 +115,12 @@ describe('useConversationWebSocket', () => {
   it('passes onConnectionChange and onReadyChange callbacks to constructor', () => {
     renderHook(() => useConversationWebSocket('conv-789'));
 
-    const constructorArgs = MockClass.mock.calls[0]?.[0] as Record<string, unknown>;
+    const constructorArgs = MockClass.mock.calls[0]?.[0];
+    expect(constructorArgs).toBeDefined();
     expect(constructorArgs).toHaveProperty('conversationId', 'conv-789');
     expect(constructorArgs).toHaveProperty('onConnectionChange');
     expect(constructorArgs).toHaveProperty('onReadyChange');
-    expect(typeof constructorArgs['onConnectionChange']).toBe('function');
-    expect(typeof constructorArgs['onReadyChange']).toBe('function');
+    expect(typeof constructorArgs?.onConnectionChange).toBe('function');
+    expect(typeof constructorArgs?.onReadyChange).toBe('function');
   });
 });

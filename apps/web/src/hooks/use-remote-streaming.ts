@@ -35,6 +35,7 @@ export function useRemoteStreaming(
         });
       }),
       ws.on('message:stream', (event) => {
+        if (currentUserId != null && event.senderId === currentUserId) return;
         if (localStreamingIdsRef?.current.has(event.messageId)) return;
         setPhantoms((previous) => {
           const next = new Map(previous);

@@ -505,6 +505,50 @@ describe('useRemoteStreaming', () => {
     });
   });
 
+  it('message:stream from self (senderId matches currentUserId) is skipped', () => {
+    const mockWs = createMockWs();
+
+    const { result } = renderHook(() =>
+      useRemoteStreaming(mockWs as unknown as ConversationWebSocket, 'current-user')
+    );
+
+    act(() => {
+      mockWs.emit('message:stream', {
+        type: 'message:stream',
+        timestamp: Date.now(),
+        messageId: 'ai-msg-1',
+        token: 'Hello',
+        senderId: 'current-user',
+      });
+    });
+
+    expect(result.current.size).toBe(0);
+  });
+
+  it('message:stream from other user (senderId differs) creates phantom', () => {
+    const mockWs = createMockWs();
+
+    const { result } = renderHook(() =>
+      useRemoteStreaming(mockWs as unknown as ConversationWebSocket, 'current-user')
+    );
+
+    act(() => {
+      mockWs.emit('message:stream', {
+        type: 'message:stream',
+        timestamp: Date.now(),
+        messageId: 'ai-msg-1',
+        token: 'Hello',
+        senderId: 'other-user',
+      });
+    });
+
+    expect(result.current.size).toBe(1);
+    expect(result.current.get('ai-msg-1')).toMatchObject({
+      content: 'Hello',
+      senderType: 'ai',
+    });
+  });
+
   it('message:new phantom includes senderId when present', () => {
     const mockWs = createMockWs();
 

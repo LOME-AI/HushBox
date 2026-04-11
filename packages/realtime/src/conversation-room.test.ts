@@ -259,8 +259,9 @@ describe('ConversationRoom', () => {
 
       await room.fetch(request);
 
-      // The newly connected socket (mockPairServer) should receive presence:update
-      expect(mockPairServer.send).toHaveBeenCalledTimes(1);
+      // The newly connected socket receives two messages: presence:update first,
+      // then the ready signal. Verify the presence payload specifically.
+      expect(mockPairServer.send).toHaveBeenCalledTimes(2);
       const sentData = asPresenceUpdate(
         JSON.parse(mockPairServer.send.mock.calls[0]?.[0] as string) as RealtimeEvent
       );
@@ -269,6 +270,20 @@ describe('ConversationRoom', () => {
       expect(sentData.members[0]).toEqual(
         expect.objectContaining({ userId: 'user-1', isGuest: false })
       );
+    });
+
+    it('sends ready signal to the new socket after presence broadcast', async () => {
+      const { ctx } = createMockCtx();
+      const room = new ConversationRoom(ctx as never, {} as never);
+      const request = new Request('https://fake-host/websocket?userId=user-1');
+
+      await room.fetch(request);
+
+      expect(mockPairServer.send).toHaveBeenCalledTimes(2);
+      const readyPayload = JSON.parse(mockPairServer.send.mock.calls[1]?.[0] as string) as {
+        type: string;
+      };
+      expect(readyPayload).toEqual({ type: 'ready' });
     });
   });
 
