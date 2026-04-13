@@ -480,7 +480,9 @@ test.describe('Group Chat Admin', () => {
       await saveButton.click();
 
       // Modal closes after save
-      await unsettledExpect(authenticatedPage.getByTestId('budget-settings-modal')).not.toBeVisible();
+      await unsettledExpect(
+        authenticatedPage.getByTestId('budget-settings-modal')
+      ).not.toBeVisible();
     });
 
     await test.step('non-owner sees read-only budget modal', async () => {

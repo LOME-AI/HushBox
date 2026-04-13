@@ -276,8 +276,7 @@ function isFlakyTest(test: FlattenedTestResult): boolean {
   // was interrupted when a later test in the serial block failed.
   if (test.testStatus === 'flaky') {
     const hasErrors = (test.errors ?? []).length > 0;
-    if (test.status === 'passed' && !hasErrors) return false;
-    return true;
+    return !(test.status === 'passed' && !hasErrors);
   }
   return test.status === 'passed' && test.retry > 0;
 }
