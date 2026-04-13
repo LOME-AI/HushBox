@@ -234,6 +234,26 @@ describe('e2e-debug', () => {
       expect(result.failed).toHaveLength(1);
     });
 
+    it('serial-mode interrupted tests are not falsely marked flaky', () => {
+      // When a serial block fails, Playwright interrupts preceding tests that
+      // already passed. On retry they pass again, making testStatus 'flaky'.
+      // The interrupted result has no error — it should be skipped in favor of
+      // the passing result, categorizing the test as passed, not flaky.
+      const tests = [
+        createTestResult({
+          testStatus: 'flaky',
+          status: 'passed',
+          retry: 1,
+          attempts: 2,
+        }),
+      ];
+
+      const result = categorizeTests(tests);
+
+      expect(result.flaky).toHaveLength(0);
+      expect(result.passed).toHaveLength(1);
+    });
+
     it('skips skipped tests', () => {
       const tests = [createTestResult({ status: 'skipped' })];
 

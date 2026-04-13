@@ -90,7 +90,8 @@ test.describe('Auto-scroll During Streaming', () => {
 
     const finalPos = await chatPage.getScrollPosition();
     const distanceFromBottom = finalPos.scrollHeight - finalPos.scrollTop - finalPos.clientHeight;
-    expect(distanceFromBottom).toBeGreaterThan(50);
+    const finalMinDistance = Math.max(50, finalPos.clientHeight * 0.05);
+    expect(distanceFromBottom).toBeGreaterThan(finalMinDistance);
   });
 });
 

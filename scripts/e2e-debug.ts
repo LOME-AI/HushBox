@@ -271,7 +271,15 @@ function buildPassedEntry(test: FlattenedTestResult): PassedTest {
 function isFlakyTest(test: FlattenedTestResult): boolean {
   // Playwright-reported test-level status wins; fall back to the legacy
   // "passed with retry > 0" heuristic so older callers still categorize.
-  return test.testStatus === 'flaky' || (test.status === 'passed' && test.retry > 0);
+  // However, serial-mode collateral tests (testStatus 'flaky' but the chosen
+  // result passed with no errors) are not real flakes — their first attempt
+  // was interrupted when a later test in the serial block failed.
+  if (test.testStatus === 'flaky') {
+    const hasErrors = (test.errors ?? []).length > 0;
+    if (test.status === 'passed' && !hasErrors) return false;
+    return true;
+  }
+  return test.status === 'passed' && test.retry > 0;
 }
 
 export function categorizeTests(tests: FlattenedTestResult[]): CategorizedTests {
@@ -369,7 +377,9 @@ function collectTestsFromSuite(suite: PlaywrightSuite): FlattenedTestResult[] {
         test.status === 'flaky'
           ? (test.results
               .toReversed()
-              .find((r) => r.status !== 'passed' && r.status !== 'skipped') ?? test.results.at(-1))
+              .find(
+                (r) => r.status !== 'passed' && r.status !== 'skipped' && r.status !== 'interrupted'
+              ) ?? test.results.at(-1))
           : test.results.at(-1);
       if (!chosen) continue;
       tests.push(createFlattenedResult(spec, test, chosen));

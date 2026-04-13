@@ -379,6 +379,7 @@ export function useAuthenticatedChat({
   );
   const [localMessages, setLocalMessages] = React.useState<Message[]>([]);
   const [localTitle, setLocalTitle] = React.useState<string | null>(null);
+  const [retryPrunedIds, setRetryPrunedIds] = React.useState<ReadonlySet<string>>(new Set());
 
   const {
     optimisticMessages,
@@ -869,20 +870,25 @@ export function useAuthenticatedChat({
       const userContent = resolveUserContent(action, editedContent, allMsgs, targetMessageId);
 
       if (action === 'retry') {
-        pruneMessagesAfterTarget(allMsgs, targetMessageId, setLocalMessages);
-
-        // Optimistically update the query cache so forkFilteredDecrypted (which drives
-        // the displayed message list for existing conversations) reflects the pruning
-        // immediately, before streaming starts. On error, invalidateQueries restores state.
         const targetIndex = allMsgs.findIndex((m) => m.id === targetMessageId);
         if (targetIndex !== -1) {
           const idsToRemove = new Set(allMsgs.slice(targetIndex + 1).map((m) => m.id));
+
+          // Apply prune at the top of the pipeline (allMessages useMemo) so it
+          // takes effect in the same React commit, regardless of whether the
+          // query cache update propagates through the hook chain.
+          setRetryPrunedIds(idsToRemove);
+
+          // Also update the query cache optimistically — when the hook chain
+          // propagates correctly, this avoids a brief flash.
           queryClient.setQueryData<import('@/lib/api').ConversationResponse>(
             chatKeys.conversation(realConversationId),
             (old) =>
               old ? { ...old, messages: old.messages.filter((m) => !idsToRemove.has(m.id)) } : old
           );
         }
+
+        pruneMessagesAfterTarget(allMsgs, targetMessageId, setLocalMessages);
       }
 
       const request: RegenerateStreamRequest = {
@@ -924,6 +930,7 @@ export function useAuthenticatedChat({
           await queryClient.invalidateQueries({
             queryKey: chatKeys.conversation(realConversationId),
           });
+          setRetryPrunedIds(new Set());
           void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
 
           removeOptimisticMessage(assistantMsgId);
@@ -939,6 +946,7 @@ export function useAuthenticatedChat({
           await queryClient.invalidateQueries({
             queryKey: chatKeys.conversation(realConversationId),
           });
+          setRetryPrunedIds(new Set());
 
           removeOptimisticMessage(assistantMsgId);
           useStreamingActivityStore.getState().endStream();
@@ -964,27 +972,30 @@ export function useAuthenticatedChat({
 
   const primaryModelId = getPrimaryModel(selectedModels).id;
 
-  const allMessages = React.useMemo(
-    () =>
-      mergeMessages({
-        isCreateMode,
-        realConversationId,
-        localMessages,
-        decryptedApiMessages: forkFilteredDecrypted,
-        optimisticMessages,
-        chatError,
-        primaryModelId,
-      }),
-    [
+  const allMessages = React.useMemo(() => {
+    const merged = mergeMessages({
       isCreateMode,
       realConversationId,
       localMessages,
-      forkFilteredDecrypted,
+      decryptedApiMessages: forkFilteredDecrypted,
       optimisticMessages,
       chatError,
       primaryModelId,
-    ]
-  );
+    });
+    if (retryPrunedIds.size > 0) {
+      return merged.filter((m) => !retryPrunedIds.has(m.id));
+    }
+    return merged;
+  }, [
+    isCreateMode,
+    realConversationId,
+    localMessages,
+    forkFilteredDecrypted,
+    optimisticMessages,
+    chatError,
+    primaryModelId,
+    retryPrunedIds,
+  ]);
 
   const historyCharacters = React.useMemo(() => {
     return allMessages.reduce((total, message) => total + message.content.length, 0);
