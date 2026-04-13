@@ -7,6 +7,7 @@ import {
   LOCAL_NEON_DEV_CONFIG,
   conversations,
   messages,
+  contentItems,
   users,
   epochs,
   epochMembers,
@@ -61,6 +62,41 @@ function placeholderBytes(length: number): Uint8Array {
     bytes[index] = index % 256;
   }
   return bytes;
+}
+
+/** Helper: insert a message row + text content item in one go (reduces test setup complexity). */
+async function insertTestMessageWithContent(
+  dbInstance: ReturnType<typeof createDb>,
+  options: {
+    conversationId: string;
+    senderType: string;
+    senderId: string | null;
+    epochNumber: number;
+    sequenceNumber: number;
+    text: string;
+    modelName?: string;
+  }
+): Promise<void> {
+  const [msg] = await dbInstance
+    .insert(messages)
+    .values({
+      conversationId: options.conversationId,
+      wrappedContentKey: placeholderBytes(81),
+      senderType: options.senderType,
+      senderId: options.senderId,
+      epochNumber: options.epochNumber,
+      sequenceNumber: options.sequenceNumber,
+    })
+    .returning();
+  if (!msg) return;
+  await dbInstance.insert(contentItems).values({
+    messageId: msg.id,
+    contentType: 'text',
+    position: 0,
+    encryptedBlob: toBytes(options.text),
+    ...(options.modelName !== undefined && { modelName: options.modelName }),
+    isSmartModel: false,
+  });
 }
 
 // Store for mocking user/session per request - keyed by user ID
@@ -207,26 +243,23 @@ describe('conversations routes', () => {
         acceptedAt: new Date(),
       });
 
-      // Create test messages with new schema (encryptedBlob, senderType, epochNumber, sequenceNumber)
-      await db.insert(messages).values({
+      // Create test messages under the wrap-once envelope model.
+      await insertTestMessageWithContent(db, {
         conversationId: conv1.id,
-        encryptedBlob: toBytes('encrypted-hello'),
         senderType: 'user',
         senderId: testUserId,
-        payerId: null,
         epochNumber: 1,
         sequenceNumber: 1,
+        text: 'encrypted-hello',
       });
-
-      await db.insert(messages).values({
+      await insertTestMessageWithContent(db, {
         conversationId: conv1.id,
-        encryptedBlob: toBytes('encrypted-hi-there'),
         senderType: 'ai',
         senderId: null,
-        modelName: 'GPT-4',
-        payerId: testUserId,
         epochNumber: 1,
         sequenceNumber: 2,
+        text: 'encrypted-hi-there',
+        modelName: 'GPT-4',
       });
     }
 
@@ -359,9 +392,17 @@ describe('conversations routes', () => {
       userId: string,
       messages: ConversationDetailResponse['messages']
     ): void {
-      expect(userMsg.encryptedBlob).toBeDefined();
-      expect(fromBase64(userMsg.encryptedBlob)).toBe('encrypted-hello');
-      expect(fromBase64(aiMsg.encryptedBlob)).toBe('encrypted-hi-there');
+      expect(userMsg.wrappedContentKey).toBeDefined();
+      expect(userMsg.contentItems).toHaveLength(1);
+      expect(aiMsg.contentItems).toHaveLength(1);
+      const userText = userMsg.contentItems[0];
+      const aiText = aiMsg.contentItems[0];
+      if (!userText || !aiText) throw new Error('Expected content items');
+      expect(userText.contentType).toBe('text');
+      expect(aiText.contentType).toBe('text');
+      expect(userText.encryptedBlob).toBeDefined();
+      expect(fromBase64(userText.encryptedBlob!)).toBe('encrypted-hello');
+      expect(fromBase64(aiText.encryptedBlob!)).toBe('encrypted-hi-there');
 
       expect(userMsg.epochNumber).toBe(1);
       expect(userMsg.sequenceNumber).toBe(1);
@@ -369,7 +410,7 @@ describe('conversations routes', () => {
       expect(aiMsg.sequenceNumber).toBe(2);
 
       expect(userMsg.senderId).toBe(userId);
-      expect(aiMsg.modelName).toBe('GPT-4');
+      expect(aiText.modelName).toBe('GPT-4');
 
       const first = messages[0];
       const second = messages[1];
@@ -941,21 +982,23 @@ describe('conversations routes', () => {
         visibleFromEpoch: 2,
       });
 
-      // Messages in epoch 1 and epoch 2
-      await db.insert(messages).values({
+      // Messages in epoch 1 and epoch 2 under the wrap-once envelope model.
+      await insertTestMessageWithContent(db, {
         conversationId: epochConv.id,
-        encryptedBlob: toBytes('epoch-1-msg'),
         senderType: 'user',
+        senderId: null,
         epochNumber: 1,
         sequenceNumber: 1,
+        text: 'epoch-1-msg',
       });
-      await db.insert(messages).values({
+      await insertTestMessageWithContent(db, {
         conversationId: epochConv.id,
-        encryptedBlob: toBytes('epoch-2-msg'),
         senderType: 'ai',
-        modelName: 'test-model',
+        senderId: null,
         epochNumber: 2,
         sequenceNumber: 2,
+        text: 'epoch-2-msg',
+        modelName: 'test-model',
       });
 
       // Member should only see epoch 2 messages

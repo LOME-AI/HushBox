@@ -243,10 +243,10 @@ describe('selectConversationSchema', () => {
 });
 
 describe('insertMessageSchema', () => {
-  it('accepts valid message data with encrypted blob', () => {
+  it('accepts valid message data with wrapped content key', () => {
     const result = insertMessageSchema.safeParse({
       conversationId: '550e8400-e29b-41d4-a716-446655440000',
-      encryptedBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
       senderType: 'user',
       epochNumber: 1,
       sequenceNumber: 1,
@@ -257,7 +257,7 @@ describe('insertMessageSchema', () => {
   it('accepts message with optional senderId', () => {
     const result = insertMessageSchema.safeParse({
       conversationId: '550e8400-e29b-41d4-a716-446655440000',
-      encryptedBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
       senderType: 'ai',
       epochNumber: 1,
       sequenceNumber: 2,
@@ -266,7 +266,7 @@ describe('insertMessageSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects missing encryptedBlob', () => {
+  it('rejects missing wrappedContentKey', () => {
     const result = insertMessageSchema.safeParse({
       conversationId: '550e8400-e29b-41d4-a716-446655440000',
       senderType: 'user',
@@ -279,7 +279,7 @@ describe('insertMessageSchema', () => {
   it('rejects missing senderType', () => {
     const result = insertMessageSchema.safeParse({
       conversationId: '550e8400-e29b-41d4-a716-446655440000',
-      encryptedBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
       epochNumber: 1,
       sequenceNumber: 1,
     });
@@ -292,12 +292,9 @@ describe('selectMessageSchema', () => {
     const result = selectMessageSchema.safeParse({
       id: '550e8400-e29b-41d4-a716-446655440000',
       conversationId: '550e8400-e29b-41d4-a716-446655440001',
-      encryptedBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
       senderType: 'user',
       senderId: '550e8400-e29b-41d4-a716-446655440002',
-      modelName: null,
-      payerId: null,
-      cost: null,
       epochNumber: 1,
       sequenceNumber: 1,
       parentMessageId: null,
@@ -310,12 +307,9 @@ describe('selectMessageSchema', () => {
     const result = selectMessageSchema.safeParse({
       id: '550e8400-e29b-41d4-a716-446655440000',
       conversationId: '550e8400-e29b-41d4-a716-446655440001',
-      encryptedBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
       senderType: 'ai',
       senderId: null,
-      modelName: null,
-      payerId: '550e8400-e29b-41d4-a716-446655440002',
-      cost: null,
       epochNumber: 1,
       sequenceNumber: 2,
       parentMessageId: null,
@@ -878,19 +872,19 @@ describe('insertSharedMessageSchema', () => {
   it('accepts valid shared message data', () => {
     const result = insertSharedMessageSchema.safeParse({
       messageId: '550e8400-e29b-41d4-a716-446655440000',
-      shareBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
     });
     expect(result.success).toBe(true);
   });
 
   it('rejects missing messageId', () => {
     const result = insertSharedMessageSchema.safeParse({
-      shareBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
     });
     expect(result.success).toBe(false);
   });
 
-  it('rejects missing shareBlob', () => {
+  it('rejects missing wrappedContentKey', () => {
     const result = insertSharedMessageSchema.safeParse({
       messageId: '550e8400-e29b-41d4-a716-446655440000',
     });
@@ -903,7 +897,7 @@ describe('selectSharedMessageSchema', () => {
     const result = selectSharedMessageSchema.safeParse({
       id: '550e8400-e29b-41d4-a716-446655440000',
       messageId: '550e8400-e29b-41d4-a716-446655440001',
-      shareBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
       createdAt: new Date(),
     });
     expect(result.success).toBe(true);

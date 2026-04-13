@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, index, integer, numeric } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, index, integer } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 import { bytea } from './bytea';
@@ -13,12 +13,9 @@ export const messages = pgTable(
     conversationId: text('conversation_id')
       .notNull()
       .references(() => conversations.id, { onDelete: 'cascade' }),
-    encryptedBlob: bytea('encrypted_blob').notNull(),
     senderType: text('sender_type').notNull(),
     senderId: text('sender_id'),
-    modelName: text('model_name'),
-    payerId: text('payer_id'),
-    cost: numeric('cost', { precision: 20, scale: 8 }),
+    wrappedContentKey: bytea('wrapped_content_key').notNull(),
     epochNumber: integer('epoch_number').notNull(),
     sequenceNumber: integer('sequence_number').notNull(),
     parentMessageId: text('parent_message_id'),

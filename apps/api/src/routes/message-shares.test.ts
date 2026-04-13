@@ -9,8 +9,9 @@ const TEST_USER_ID = 'user-share-001';
 const TEST_MESSAGE_ID = 'msg-share-001';
 const TEST_CONVERSATION_ID = 'conv-share-001';
 const TEST_SHARE_ID = 'share-001';
-const TEST_SHARE_BLOB = new Uint8Array([10, 20, 30, 40, 50]);
-const TEST_SHARE_BLOB_BASE64 = toBase64(TEST_SHARE_BLOB);
+const TEST_WRAPPED_SHARE_KEY = new Uint8Array([10, 20, 30, 40, 50]);
+const TEST_WRAPPED_SHARE_KEY_BASE64 = toBase64(TEST_WRAPPED_SHARE_KEY);
+const TEST_ENCRYPTED_BLOB = new Uint8Array([60, 70, 80]);
 
 interface ErrorBody {
   code: string;
@@ -51,21 +52,11 @@ interface CreateShareMockDbConfig {
   insertedShare?: { id: string };
 }
 
-/**
- * Creates a mock Drizzle DB for the POST /share route.
- *
- * The route performs 2 sequential SELECT queries then 1 INSERT:
- * 1. message lookup (select with limit+then)
- * 2. membership lookup (select with limit+then)
- * 3. insert into sharedMessages (insert with returning)
- */
 /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
 function createShareMockDb(config: CreateShareMockDbConfig): unknown {
   let selectCallIndex = 0;
   const selectResults: unknown[][] = [
-    // 1st select: message lookup
     config.message ? [config.message] : [],
-    // 2nd select: membership lookup
     config.membership ? [config.membership] : [],
   ];
 
@@ -122,7 +113,7 @@ function createShareTestApp(options: CreateShareTestAppOptions = {}): Hono<AppEn
 function createShareBody(overrides?: Record<string, unknown>): Record<string, unknown> {
   return {
     messageId: TEST_MESSAGE_ID,
-    shareBlob: TEST_SHARE_BLOB_BASE64,
+    wrappedShareKey: TEST_WRAPPED_SHARE_KEY_BASE64,
     ...overrides,
   };
 }
@@ -133,24 +124,51 @@ interface GetShareMockDbConfig {
   share?: {
     id: string;
     messageId: string;
-    shareBlob: Uint8Array;
+    wrappedShareKey: Uint8Array;
     createdAt: Date;
   } | null;
+  contentItems?: {
+    id: string;
+    messageId: string;
+    contentType: string;
+    position: number;
+    encryptedBlob: Uint8Array | null;
+    storageKey: string | null;
+    mimeType: string | null;
+    sizeBytes: number | null;
+    width: number | null;
+    height: number | null;
+    durationMs: number | null;
+    modelName: string | null;
+    cost: string | null;
+    isSmartModel: boolean;
+  }[];
 }
 
 /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
 function createGetShareMockDb(config: GetShareMockDbConfig): unknown {
+  let selectCallIndex = 0;
+
+  // The public GET route does two selects:
+  // 1. sharedMessages lookup (by shareId)
+  // 2. contentItems lookup (by messageId)
+  const selectResults: unknown[][] = [
+    config.share ? [config.share] : [],
+    config.contentItems ?? [],
+  ];
+
   const createQueryChain = (): Record<string, unknown> => ({
     from: () => createQueryChain(),
     where: () => createQueryChain(),
+    orderBy: () => createQueryChain(),
     limit: () => ({
       then: (resolve: (v: unknown[]) => unknown) => {
-        const result = config.share ? [config.share] : [];
+        const result = selectResults[selectCallIndex++] ?? [];
         return Promise.resolve(resolve(result));
       },
     }),
     then: (resolve: (v: unknown[]) => unknown) => {
-      const result = config.share ? [config.share] : [];
+      const result = selectResults[selectCallIndex++] ?? [];
       return Promise.resolve(resolve(result));
     },
   });
@@ -182,6 +200,25 @@ function createGetShareTestApp(options: GetShareTestAppOptions = {}): Hono<AppEn
   app.route('/', publicSharesRoute);
   return app;
 }
+
+const defaultContentItems = [
+  {
+    id: 'ci-001',
+    messageId: TEST_MESSAGE_ID,
+    contentType: 'text',
+    position: 0,
+    encryptedBlob: TEST_ENCRYPTED_BLOB,
+    storageKey: null,
+    mimeType: null,
+    sizeBytes: null,
+    width: null,
+    height: null,
+    durationMs: null,
+    modelName: null,
+    cost: null,
+    isSmartModel: false,
+  },
+];
 
 describe('message-shares routes', () => {
   describe('POST /share (messageSharesRoute)', () => {
@@ -256,10 +293,9 @@ describe('message-shares routes', () => {
       expect(body.shareId).toBe(TEST_SHARE_ID);
     });
 
-    it('decodes shareBlob from base64 before storing', async () => {
+    it('decodes wrappedShareKey from base64 before storing', async () => {
       let capturedValues: unknown = null;
 
-      // Custom mock that captures insert values
       /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
       const mockDb = {
         select: (() => {
@@ -309,11 +345,11 @@ describe('message-shares routes', () => {
       });
 
       expect(capturedValues).toBeDefined();
-      const values = capturedValues as { messageId: string; shareBlob: Uint8Array };
+      const values = capturedValues as { messageId: string; wrappedContentKey: Uint8Array };
       expect(values.messageId).toBe(TEST_MESSAGE_ID);
-      // shareBlob should be a Uint8Array, not a base64 string
-      expect(values.shareBlob).toBeInstanceOf(Uint8Array);
-      expect(values.shareBlob).toEqual(TEST_SHARE_BLOB);
+      // wrappedContentKey should be a Uint8Array, not a base64 string
+      expect(values.wrappedContentKey).toBeInstanceOf(Uint8Array);
+      expect(values.wrappedContentKey).toEqual(TEST_WRAPPED_SHARE_KEY);
     });
   });
 
@@ -332,16 +368,17 @@ describe('message-shares routes', () => {
       expect(body.code).toBe('SHARE_NOT_FOUND');
     });
 
-    it('returns share data with base64-encoded shareBlob', async () => {
+    it('returns share data with wrappedShareKey and content items', async () => {
       const createdAt = new Date('2025-07-01T12:00:00.000Z');
       const app = createGetShareTestApp({
         dbConfig: {
           share: {
             id: TEST_SHARE_ID,
             messageId: TEST_MESSAGE_ID,
-            shareBlob: TEST_SHARE_BLOB,
+            wrappedShareKey: TEST_WRAPPED_SHARE_KEY,
             createdAt,
           },
+          contentItems: defaultContentItems,
         },
       });
 
@@ -351,12 +388,20 @@ describe('message-shares routes', () => {
       const body = await res.json<{
         shareId: string;
         messageId: string;
-        shareBlob: string;
+        wrappedShareKey: string;
+        contentItems: {
+          id: string;
+          contentType: string;
+          position: number;
+          encryptedBlob: string | null;
+        }[];
         createdAt: string;
       }>();
       expect(body.shareId).toBe(TEST_SHARE_ID);
       expect(body.messageId).toBe(TEST_MESSAGE_ID);
-      expect(body.shareBlob).toBe(TEST_SHARE_BLOB_BASE64);
+      expect(body.wrappedShareKey).toBe(TEST_WRAPPED_SHARE_KEY_BASE64);
+      expect(body.contentItems).toHaveLength(1);
+      expect(body.contentItems[0]!.contentType).toBe('text');
       expect(body.createdAt).toBe('2025-07-01T12:00:00.000Z');
     });
 
@@ -368,9 +413,10 @@ describe('message-shares routes', () => {
           share: {
             id: TEST_SHARE_ID,
             messageId: TEST_MESSAGE_ID,
-            shareBlob: TEST_SHARE_BLOB,
+            wrappedShareKey: TEST_WRAPPED_SHARE_KEY,
             createdAt,
           },
+          contentItems: defaultContentItems,
         },
       });
 

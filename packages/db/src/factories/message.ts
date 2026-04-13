@@ -6,20 +6,17 @@ import { placeholderBytes } from './helpers.js';
 
 type Message = typeof messages.$inferSelect;
 
+// Approximate ECIES-wrapped content key size (1 version + 32 ephemeral pub + 32 content key + 16 tag).
+const WRAPPED_CONTENT_KEY_BYTES = 81;
+
 export const messageFactory = Factory.define<Message>(({ params }) => {
   const senderType = params.senderType ?? faker.helpers.arrayElement(['user', 'ai'] as const);
   return {
     id: crypto.randomUUID(),
     conversationId: crypto.randomUUID(),
-    encryptedBlob: placeholderBytes(64),
     senderType,
     senderId: crypto.randomUUID(),
-    modelName:
-      senderType === 'ai'
-        ? faker.helpers.arrayElement(['GPT-4o', 'Claude 3.5 Sonnet', 'Gemini Pro'])
-        : null,
-    payerId: null,
-    cost: null,
+    wrappedContentKey: placeholderBytes(WRAPPED_CONTENT_KEY_BYTES),
     epochNumber: 1,
     sequenceNumber: faker.number.int({ min: 1, max: 1000 }),
     parentMessageId: null,

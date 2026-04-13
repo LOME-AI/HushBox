@@ -17,7 +17,7 @@ import { checkUserBalance } from '../billing/index.js';
 import { createOrGetConversation } from '../conversations/index.js';
 import { saveUserOnlyMessage } from '../chat/index.js';
 import {
-  insertEncryptedMessage,
+  insertEnvelopeTextMessage,
   assignSequenceNumbers,
   fetchEpochPublicKey,
 } from '../chat/message-helpers.js';
@@ -281,10 +281,10 @@ export async function createDevConversation(
             currentEpoch
           );
 
-          await insertEncryptedMessage(txDb, {
+          await insertEnvelopeTextMessage(txDb, {
             id: messageId,
             conversationId: result.conversation.id,
-            content: msg.content,
+            textContent: msg.content,
             epochPublicKey,
             epochNumber,
             sequenceNumber: seq,
@@ -300,6 +300,59 @@ export async function createDevConversation(
   }
 
   return { conversationId: result.conversation.id };
+}
+
+interface InsertGroupChatMessagesParams {
+  txDb: Database;
+  conversationId: string;
+  epochPublicKey: Uint8Array;
+  msgs: { senderEmail?: string; content: string; senderType: 'user' | 'ai' }[];
+  orderedUsers: { id: string; email: string | null }[];
+}
+
+/** Insert dev group-chat messages inside a transaction (extracted for complexity). */
+async function insertGroupChatMessages(params: InsertGroupChatMessagesParams): Promise<void> {
+  const { txDb, conversationId, epochPublicKey, msgs, orderedUsers } = params;
+  const messageIds = msgs.map(() => crypto.randomUUID());
+
+  for (const [index, msg] of msgs.entries()) {
+    const senderId =
+      msg.senderType === 'user' && msg.senderEmail
+        ? (orderedUsers.find((u) => u.email != null && u.email === msg.senderEmail)?.id ?? null)
+        : null;
+
+    const msgId = messageIds[index];
+    if (!msgId) throw new Error(`invariant: messageIds[${String(index)}] is undefined`);
+
+    const parentMessageId =
+      index > 0
+        ? (() => {
+            const parentId = messageIds[index - 1];
+            if (!parentId)
+              throw new Error(`invariant: messageIds[${String(index - 1)}] is undefined`);
+            return parentId;
+          })()
+        : null;
+
+    await insertEnvelopeTextMessage(txDb, {
+      id: msgId,
+      conversationId,
+      textContent: msg.content,
+      epochPublicKey,
+      epochNumber: 1,
+      sequenceNumber: index + 1,
+      senderType: msg.senderType,
+      ...(senderId !== null && { senderId }),
+      ...(msg.senderType === 'ai' && { modelName: 'anthropic/claude-3.5-sonnet' }),
+      parentMessageId,
+    });
+  }
+
+  // Keep nextSequence in sync so saveChatTurn assigns non-overlapping sequences
+  await txDb
+    .update(conversations)
+    .set({ nextSequence: msgs.length + 1 })
+    .where(eq(conversations.id, conversationId));
 }
 
 export interface CreateDevGroupChatParams {
@@ -405,48 +458,15 @@ export async function createDevGroupChat(
       }))
     );
 
-    // Insert messages if provided
+    // Insert messages if provided — one wrap-once envelope per message
     if (params.messages && params.messages.length > 0) {
-      const messageIds = params.messages.map(() => crypto.randomUUID());
-      await tx.insert(messages).values(
-        params.messages.map((msg, index) => {
-          const senderId =
-            msg.senderType === 'user' && msg.senderEmail
-              ? (orderedUsers.find((u) => u.email != null && u.email === msg.senderEmail)?.id ??
-                null)
-              : null;
-
-          const msgId = messageIds[index];
-          if (!msgId) throw new Error(`invariant: messageIds[${String(index)}] is undefined`);
-
-          return {
-            id: msgId,
-            conversationId,
-            encryptedBlob: encryptMessageForStorage(epochResult.epochPublicKey, msg.content),
-            senderType: msg.senderType,
-            senderId,
-            ...(msg.senderType === 'ai' ? { modelName: 'anthropic/claude-3.5-sonnet' } : {}),
-            epochNumber: 1,
-            sequenceNumber: index + 1,
-            ...(index > 0
-              ? {
-                  parentMessageId: (() => {
-                    const parentId = messageIds[index - 1];
-                    if (!parentId)
-                      throw new Error(`invariant: messageIds[${String(index - 1)}] is undefined`);
-                    return parentId;
-                  })(),
-                }
-              : {}),
-          };
-        })
-      );
-
-      // Keep nextSequence in sync so saveChatTurn assigns non-overlapping sequences
-      await tx
-        .update(conversations)
-        .set({ nextSequence: params.messages.length + 1 })
-        .where(eq(conversations.id, conversationId));
+      await insertGroupChatMessages({
+        txDb: tx as unknown as Database,
+        conversationId,
+        epochPublicKey: epochResult.epochPublicKey,
+        msgs: params.messages,
+        orderedUsers,
+      });
     }
   });
 

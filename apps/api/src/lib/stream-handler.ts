@@ -41,7 +41,43 @@ export interface TokenEventData {
   content: string;
 }
 
-export interface DoneModelEntry {
+/**
+ * A single content item delivered in the SSE done event.
+ * Mirrors the write-path shape of a row inserted into `content_items` under
+ * the wrap-once envelope model. Text items carry `encryptedBlob` (base64);
+ * media items carry only metadata (Step 1 text-only, but the shape is ready
+ * for image/audio/video in later steps).
+ */
+export interface DoneContentItem {
+  id: string;
+  contentType: 'text' | 'image' | 'audio' | 'video';
+  position: number;
+  /** Base64-encoded symmetric ciphertext under the message's content key. Text items only. */
+  encryptedBlob?: string | null;
+  /** Set for media items only. */
+  storageKey?: string | null;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  durationMs?: number | null;
+  modelName: string | null;
+  cost: string | null;
+  isSmartModel: boolean;
+}
+
+/**
+ * The wrap-once envelope for a single persisted message, delivered in the SSE
+ * done event. Clients unwrap `wrappedContentKey` once with their epoch private
+ * key and decrypt every content item with the resulting content key.
+ */
+export interface DoneMessageEnvelope {
+  /** Base64-encoded ECIES-wrapped content key for the message. */
+  wrappedContentKey: string;
+  contentItems: DoneContentItem[];
+}
+
+export interface DoneModelEntry extends DoneMessageEnvelope {
   modelId: string;
   assistantMessageId: string;
   aiSequence: number;
@@ -55,6 +91,8 @@ export interface DoneEventData {
   aiSequence: number;
   epochNumber: number;
   cost: string;
+  /** Envelope for the user message itself (sender_type='user'). */
+  userEnvelope?: DoneMessageEnvelope;
   models?: DoneModelEntry[];
 }
 

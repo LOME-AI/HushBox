@@ -36,6 +36,13 @@ export interface Message {
   modelName?: string | null;
   parentMessageId?: string | null;
   errorCode?: string;
+  /**
+   * Wrap-once envelope metadata forwarded from the API response. Required by
+   * `useMessageShare` to re-wrap the content key under a `shareSecret`.
+   * Base64-encoded ECIES blob — safe to keep on the display object.
+   */
+  wrappedContentKey?: string;
+  epochNumber?: number;
 }
 
 export {

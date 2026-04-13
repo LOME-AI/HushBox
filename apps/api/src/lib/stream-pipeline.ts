@@ -42,7 +42,15 @@ import { buildOpenRouterMessages, saveChatTurn } from '../services/chat/index.js
 import type { SaveChatTurnResult } from '../services/chat/index.js';
 import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createErrorResponse } from './error-response.js';
-import { createSSEEventWriter } from './stream-handler.js';
+import {
+  createSSEEventWriter,
+  type DoneContentItem,
+  type DoneMessageEnvelope,
+  type DoneModelEntry,
+} from './stream-handler.js';
+import { toBase64 } from '@hushbox/shared';
+import type { InsertedTextContentItem } from '../services/chat/message-helpers.js';
+import type { PersistedEnvelope, AssistantResult } from '../services/chat/index.js';
 import { collectMultiModelStreams, type ModelStreamEntry } from './multi-stream.js';
 import { broadcastFireAndForget } from './broadcast.js';
 import { createEvent } from '@hushbox/realtime/events';
@@ -313,6 +321,39 @@ interface BroadcastAndFinishOptions {
   modelName?: string;
 }
 
+/**
+ * Serializes an inserted text content item into the transport shape used by
+ * the SSE `done` event. Base64-encodes the binary `encryptedBlob`.
+ */
+function serializeDoneContentItem(item: InsertedTextContentItem): DoneContentItem {
+  return {
+    id: item.id,
+    contentType: item.contentType,
+    position: item.position,
+    encryptedBlob: toBase64(item.encryptedBlob),
+    modelName: item.modelName,
+    cost: item.cost,
+    isSmartModel: item.isSmartModel,
+  };
+}
+
+function serializeEnvelope(envelope: PersistedEnvelope): DoneMessageEnvelope {
+  return {
+    wrappedContentKey: toBase64(envelope.wrappedContentKey),
+    contentItems: [serializeDoneContentItem(envelope.contentItem)],
+  };
+}
+
+function serializeAssistantResult(result: AssistantResult): DoneModelEntry {
+  return {
+    modelId: result.model,
+    assistantMessageId: result.assistantMessageId,
+    aiSequence: result.aiSequence,
+    cost: result.cost,
+    ...serializeEnvelope(result.envelope),
+  };
+}
+
 export async function broadcastAndFinish(options: BroadcastAndFinishOptions): Promise<void> {
   const { c, conversationId, userMessageId, assistantMessageId, billingResult, writer, modelName } =
     options;
@@ -337,6 +378,8 @@ export async function broadcastAndFinish(options: BroadcastAndFinishOptions): Pr
     aiSequence: billingResult.aiSequence,
     epochNumber: billingResult.epochNumber,
     cost: billingResult.cost,
+    userEnvelope: serializeEnvelope(billingResult.userEnvelope),
+    models: billingResult.assistantResults.map((r) => serializeAssistantResult(r)),
   });
 }
 

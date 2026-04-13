@@ -1,6 +1,13 @@
 import { eq, and, desc, sql } from 'drizzle-orm';
-import { messages, conversations, epochs, conversationForks, type Database } from '@hushbox/db';
-import { encryptMessageForStorage } from '@hushbox/crypto';
+import {
+  messages,
+  contentItems,
+  conversations,
+  epochs,
+  conversationForks,
+  type Database,
+} from '@hushbox/db';
+import { beginMessageEnvelope, encryptTextWithContentKey } from '@hushbox/crypto';
 import { ERROR_CODE_INVALID_PARENT_MESSAGE } from '@hushbox/shared';
 import { chargeForUsage } from '../billing/transaction-writer.js';
 import { updateGroupSpending } from '../billing/budgets.js';
@@ -140,47 +147,96 @@ export async function fetchEpochPublicKey(
 }
 
 // ============================================================================
-// Encrypted Message Insertion
+// Envelope Message Insertion (wrap-once)
 // ============================================================================
 
-export interface InsertEncryptedMessageParams {
+export interface InsertEnvelopeTextMessageParams {
   id: string;
   conversationId: string;
-  content: string;
+  textContent: string;
   epochPublicKey: Uint8Array;
   epochNumber: number;
   sequenceNumber: number;
   senderType: 'user' | 'ai';
   senderId?: string;
   modelName?: string;
-  payerId?: string;
   cost?: string;
+  isSmartModel?: boolean;
   parentMessageId: string | null;
 }
 
+export interface InsertedTextContentItem {
+  id: string;
+  contentType: 'text';
+  position: number;
+  encryptedBlob: Uint8Array;
+  modelName: string | null;
+  cost: string | null;
+  isSmartModel: boolean;
+}
+
+export interface InsertEnvelopeTextMessageResult {
+  wrappedContentKey: Uint8Array;
+  contentItem: InsertedTextContentItem;
+}
+
 /**
- * Encrypts content with the epoch public key and inserts into the messages table.
- * Optional fields passed as `undefined` are omitted from the INSERT (DB defaults apply).
+ * Persists a single-text-content message under the wrap-once envelope model.
+ *
+ * Generates a fresh content key, wraps it under the epoch public key, encrypts the
+ * plaintext under the content key, and inserts one `messages` row plus one
+ * `content_items` row with `content_type = 'text'`. The content key is discarded
+ * from memory after the inserts.
+ *
+ * Returns the `wrappedContentKey` and the inserted content item so the caller can
+ * forward them to the client via the SSE `done` event.
  */
-export async function insertEncryptedMessage(
+export async function insertEnvelopeTextMessage(
   tx: Database,
-  params: InsertEncryptedMessageParams
-): Promise<void> {
-  const blob = encryptMessageForStorage(params.epochPublicKey, params.content);
+  params: InsertEnvelopeTextMessageParams
+): Promise<InsertEnvelopeTextMessageResult> {
+  const { contentKey, wrappedContentKey } = beginMessageEnvelope(params.epochPublicKey);
+  const encryptedBlob = encryptTextWithContentKey(contentKey, params.textContent);
 
   await tx.insert(messages).values({
     id: params.id,
     conversationId: params.conversationId,
-    encryptedBlob: blob,
+    wrappedContentKey,
     senderType: params.senderType,
     senderId: params.senderId,
-    modelName: params.modelName,
-    payerId: params.payerId,
-    cost: params.cost,
     epochNumber: params.epochNumber,
     sequenceNumber: params.sequenceNumber,
     parentMessageId: params.parentMessageId,
   });
+
+  const contentItemId = crypto.randomUUID();
+  const modelName = params.modelName ?? null;
+  const cost = params.cost ?? null;
+  const isSmartModel = params.isSmartModel ?? false;
+
+  await tx.insert(contentItems).values({
+    id: contentItemId,
+    messageId: params.id,
+    contentType: 'text',
+    position: 0,
+    encryptedBlob,
+    modelName,
+    cost,
+    isSmartModel,
+  });
+
+  return {
+    wrappedContentKey,
+    contentItem: {
+      id: contentItemId,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob,
+      modelName,
+      cost,
+      isSmartModel,
+    },
+  };
 }
 
 // ============================================================================

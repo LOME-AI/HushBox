@@ -5,6 +5,7 @@ import {
   LOCAL_NEON_DEV_CONFIG,
   users,
   messages,
+  contentItems,
   conversations,
   epochs,
   wallets,
@@ -20,7 +21,12 @@ import {
   messageFactory,
   conversationForkFactory,
 } from '@hushbox/db/factories';
-import { createFirstEpoch, decryptMessage, generateKeyPair } from '@hushbox/crypto';
+import {
+  createFirstEpoch,
+  generateKeyPair,
+  openMessageEnvelope,
+  decryptTextWithContentKey,
+} from '@hushbox/crypto';
 import { saveRegeneratedResponse, saveEditedChatTurn } from './regeneration-persistence.js';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
@@ -84,10 +90,8 @@ async function insertTestMessage(
     epochNumber: number;
   }
 ): Promise<typeof messages.$inferSelect> {
-  const effectiveSenderType = overrides.senderType ?? 'user';
   const data = messageFactory.build({
     senderType: 'user',
-    ...(effectiveSenderType === 'ai' && !overrides.modelName ? { modelName: 'test-model' } : {}),
     ...overrides,
   });
   const [msg] = await db.insert(messages).values(data).returning();
@@ -198,12 +202,15 @@ describe('saveRegeneratedResponse', () => {
     expect(ids).toContain(msg1.id);
     expect(ids).toContain(newAiId);
 
-    // New AI message should be encrypted and decryptable
+    // New AI message should be encrypted and decryptable via wrap-once envelope
     const [aiMsg] = await db.select().from(messages).where(eq(messages.id, newAiId));
     if (!aiMsg) throw new Error('AI message not found');
     expect(aiMsg.senderType).toBe('ai');
     expect(aiMsg.parentMessageId).toBe(msg1.id);
-    const decrypted = decryptMessage(setup.epochPrivateKey, aiMsg.encryptedBlob);
+    const [aiCi] = await db.select().from(contentItems).where(eq(contentItems.messageId, newAiId));
+    if (!aiCi?.encryptedBlob) throw new Error('AI content item not found');
+    const contentKey = openMessageEnvelope(setup.epochPrivateKey, aiMsg.wrappedContentKey);
+    const decrypted = decryptTextWithContentKey(contentKey, aiCi.encryptedBlob);
     expect(decrypted).toBe('Regenerated response');
   });
 
@@ -490,10 +497,19 @@ describe('saveEditedChatTurn', () => {
     expect(newAiMsg.parentMessageId).toBe(newUserId);
     expect(newAiMsg.senderType).toBe('ai');
 
-    // Verify encryption
-    const decryptedUser = decryptMessage(setup.epochPrivateKey, newUserMsg.encryptedBlob);
+    // Verify encryption via wrap-once envelope
+    const [userCi] = await db
+      .select()
+      .from(contentItems)
+      .where(eq(contentItems.messageId, newUserId));
+    if (!userCi?.encryptedBlob) throw new Error('User content item not found');
+    const userCk = openMessageEnvelope(setup.epochPrivateKey, newUserMsg.wrappedContentKey);
+    const decryptedUser = decryptTextWithContentKey(userCk, userCi.encryptedBlob);
     expect(decryptedUser).toBe('Edited user message');
-    const decryptedAi = decryptMessage(setup.epochPrivateKey, newAiMsg.encryptedBlob);
+    const [aiCi] = await db.select().from(contentItems).where(eq(contentItems.messageId, newAiId));
+    if (!aiCi?.encryptedBlob) throw new Error('AI content item not found');
+    const aiCk = openMessageEnvelope(setup.epochPrivateKey, newAiMsg.wrappedContentKey);
+    const decryptedAi = decryptTextWithContentKey(aiCk, aiCi.encryptedBlob);
     expect(decryptedAi).toBe('New AI response to edit');
   }, 15_000);
 

@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import { z as zodInstance } from 'zod';
 
 import {
+  contentItems,
   conversationMembers,
   conversationSpending,
   conversations,
@@ -10,6 +11,7 @@ import {
   epochs,
   ledgerEntries,
   llmCompletions,
+  mediaGenerations,
   memberBudgets,
   messages,
   payments,
@@ -41,10 +43,18 @@ export const insertConversationSchema = createInsertSchema(conversations, {
 
 // --- Messages ---
 export const selectMessageSchema = createSelectSchema(messages, {
-  encryptedBlob: () => zodInstance.instanceof(Uint8Array),
+  wrappedContentKey: () => zodInstance.instanceof(Uint8Array),
 });
 export const insertMessageSchema = createInsertSchema(messages, {
-  encryptedBlob: () => zodInstance.instanceof(Uint8Array),
+  wrappedContentKey: () => zodInstance.instanceof(Uint8Array),
+});
+
+// --- Content Items ---
+export const selectContentItemSchema = createSelectSchema(contentItems, {
+  encryptedBlob: () => zodInstance.instanceof(Uint8Array).nullable(),
+});
+export const insertContentItemSchema = createInsertSchema(contentItems, {
+  encryptedBlob: () => zodInstance.instanceof(Uint8Array).nullable(),
 });
 
 // --- Projects ---
@@ -76,6 +86,10 @@ export const insertUsageRecordSchema = createInsertSchema(usageRecords);
 // --- LLM Completions ---
 export const selectLlmCompletionSchema = createSelectSchema(llmCompletions);
 export const insertLlmCompletionSchema = createInsertSchema(llmCompletions);
+
+// --- Media Generations ---
+export const selectMediaGenerationSchema = createSelectSchema(mediaGenerations);
+export const insertMediaGenerationSchema = createInsertSchema(mediaGenerations);
 
 // --- Ledger Entries ---
 export const selectLedgerEntrySchema = createSelectSchema(ledgerEntries);
@@ -117,10 +131,10 @@ export const insertEpochMemberSchema = createInsertSchema(epochMembers, {
 
 // --- Shared Messages ---
 export const selectSharedMessageSchema = createSelectSchema(sharedMessages, {
-  shareBlob: () => zodInstance.instanceof(Uint8Array),
+  wrappedContentKey: () => zodInstance.instanceof(Uint8Array),
 });
 export const insertSharedMessageSchema = createInsertSchema(sharedMessages, {
-  shareBlob: () => zodInstance.instanceof(Uint8Array),
+  wrappedContentKey: () => zodInstance.instanceof(Uint8Array),
 });
 
 // --- Member Budgets ---
@@ -138,6 +152,8 @@ export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = z.infer<typeof insertConversationSchema>;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = z.infer<typeof insertMessageSchema>;
+export type ContentItem = typeof contentItems.$inferSelect;
+export type NewContentItem = z.infer<typeof insertContentItemSchema>;
 export type Project = z.infer<typeof selectProjectSchema>;
 export type NewProject = z.infer<typeof insertProjectSchema>;
 export type Payment = z.infer<typeof selectPaymentSchema>;
@@ -150,6 +166,8 @@ export type UsageRecord = z.infer<typeof selectUsageRecordSchema>;
 export type NewUsageRecord = z.infer<typeof insertUsageRecordSchema>;
 export type LlmCompletion = z.infer<typeof selectLlmCompletionSchema>;
 export type NewLlmCompletion = z.infer<typeof insertLlmCompletionSchema>;
+export type MediaGeneration = z.infer<typeof selectMediaGenerationSchema>;
+export type NewMediaGeneration = z.infer<typeof insertMediaGenerationSchema>;
 export type LedgerEntry = z.infer<typeof selectLedgerEntrySchema>;
 export type NewLedgerEntry = z.infer<typeof insertLedgerEntrySchema>;
 export type SharedLink = z.infer<typeof selectSharedLinkSchema>;

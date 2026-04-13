@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, asc } from 'drizzle-orm';
 import {
   createDb,
   LOCAL_NEON_DEV_CONFIG,
   users,
   messages,
+  contentItems,
   conversations,
   conversationMembers,
   conversationSpending,
@@ -23,11 +24,16 @@ import {
   conversationForkFactory,
   conversationMemberFactory,
 } from '@hushbox/db/factories';
-import { createFirstEpoch, decryptMessage, generateKeyPair } from '@hushbox/crypto';
+import {
+  createFirstEpoch,
+  generateKeyPair,
+  openMessageEnvelope,
+  decryptTextWithContentKey,
+} from '@hushbox/crypto';
 import {
   assignSequenceNumbers,
   fetchEpochPublicKey,
-  insertEncryptedMessage,
+  insertEnvelopeTextMessage,
   chargeAndTrackUsage,
   updateForkTip,
   resolveParentMessageId,
@@ -192,16 +198,29 @@ describe('message-helpers', () => {
     });
   });
 
-  describe('insertEncryptedMessage', () => {
-    it('inserts a user message that can be decrypted', async () => {
+  describe('insertEnvelopeTextMessage', () => {
+    async function fetchFirstContentItem(
+      dbInst: Database,
+      messageId: string
+    ): Promise<typeof contentItems.$inferSelect | undefined> {
+      const [item] = await dbInst
+        .select()
+        .from(contentItems)
+        .where(eq(contentItems.messageId, messageId))
+        .orderBy(asc(contentItems.position))
+        .limit(1);
+      return item;
+    }
+
+    it('inserts a user message that can be decrypted via the envelope', async () => {
       const setup = await createTestSetup(db);
       createdUserIds.push(setup.user.id);
 
       const msgId = crypto.randomUUID();
-      await insertEncryptedMessage(db, {
+      await insertEnvelopeTextMessage(db, {
         id: msgId,
         conversationId: setup.conversation.id,
-        content: 'Hello from user',
+        textContent: 'Hello from user',
         epochPublicKey: setup.epoch.epochPublicKey,
         epochNumber: 1,
         sequenceNumber: 0,
@@ -211,26 +230,31 @@ describe('message-helpers', () => {
       });
 
       const [inserted] = await db.select().from(messages).where(eq(messages.id, msgId));
-
       expect(inserted).toBeDefined();
       expect(inserted!.senderType).toBe('user');
       expect(inserted!.senderId).toBe(setup.user.id);
       expect(inserted!.sequenceNumber).toBe(0);
       expect(inserted!.epochNumber).toBe(1);
 
-      const decrypted = decryptMessage(setup.epochPrivateKey, inserted!.encryptedBlob);
+      const contentKey = openMessageEnvelope(setup.epochPrivateKey, inserted!.wrappedContentKey);
+      const item = await fetchFirstContentItem(db, msgId);
+      expect(item).toBeDefined();
+      expect(item!.contentType).toBe('text');
+      expect(item!.modelName).toBeNull();
+      expect(item!.cost).toBeNull();
+      const decrypted = decryptTextWithContentKey(contentKey, item!.encryptedBlob!);
       expect(decrypted).toBe('Hello from user');
     });
 
-    it('inserts an AI message without senderId', async () => {
+    it('inserts an AI message without senderId and records cost on the content item', async () => {
       const setup = await createTestSetup(db);
       createdUserIds.push(setup.user.id);
 
       const msgId = crypto.randomUUID();
-      await insertEncryptedMessage(db, {
+      await insertEnvelopeTextMessage(db, {
         id: msgId,
         conversationId: setup.conversation.id,
-        content: 'AI response',
+        textContent: 'AI response',
         epochPublicKey: setup.epoch.epochPublicKey,
         epochNumber: 1,
         sequenceNumber: 1,
@@ -241,11 +265,13 @@ describe('message-helpers', () => {
       });
 
       const [inserted] = await db.select().from(messages).where(eq(messages.id, msgId));
-
       expect(inserted).toBeDefined();
       expect(inserted!.senderType).toBe('ai');
       expect(inserted!.senderId).toBeNull();
-      expect(inserted!.cost).toBe('0.00100000');
+
+      const item = await fetchFirstContentItem(db, msgId);
+      expect(item!.cost).toBe('0.00100000');
+      expect(item!.modelName).toBe('test-model');
     });
 
     it('inserts a message with parentMessageId', async () => {
@@ -253,10 +279,10 @@ describe('message-helpers', () => {
       createdUserIds.push(setup.user.id);
 
       const parentId = crypto.randomUUID();
-      await insertEncryptedMessage(db, {
+      await insertEnvelopeTextMessage(db, {
         id: parentId,
         conversationId: setup.conversation.id,
-        content: 'Parent message',
+        textContent: 'Parent message',
         epochPublicKey: setup.epoch.epochPublicKey,
         epochNumber: 1,
         sequenceNumber: 0,
@@ -266,10 +292,10 @@ describe('message-helpers', () => {
       });
 
       const childId = crypto.randomUUID();
-      await insertEncryptedMessage(db, {
+      await insertEnvelopeTextMessage(db, {
         id: childId,
         conversationId: setup.conversation.id,
-        content: 'Child message',
+        textContent: 'Child message',
         epochPublicKey: setup.epoch.epochPublicKey,
         epochNumber: 1,
         sequenceNumber: 1,
@@ -279,20 +305,19 @@ describe('message-helpers', () => {
       });
 
       const [child] = await db.select().from(messages).where(eq(messages.id, childId));
-
       expect(child).toBeDefined();
       expect(child!.parentMessageId).toBe(parentId);
     });
 
-    it('inserts an AI message with modelName', async () => {
+    it('inserts an AI message whose content item records modelName', async () => {
       const setup = await createTestSetup(db);
       createdUserIds.push(setup.user.id);
 
       const msgId = crypto.randomUUID();
-      await insertEncryptedMessage(db, {
+      await insertEnvelopeTextMessage(db, {
         id: msgId,
         conversationId: setup.conversation.id,
-        content: 'AI response',
+        textContent: 'AI response',
         epochPublicKey: setup.epoch.epochPublicKey,
         epochNumber: 1,
         sequenceNumber: 1,
@@ -303,36 +328,35 @@ describe('message-helpers', () => {
       });
 
       const [inserted] = await db.select().from(messages).where(eq(messages.id, msgId));
-
       expect(inserted).toBeDefined();
       expect(inserted!.senderType).toBe('ai');
-      expect(inserted!.modelName).toBe('GPT-4o');
+
+      const item = await fetchFirstContentItem(db, msgId);
+      expect(item!.modelName).toBe('GPT-4o');
     });
 
-    it('inserts a message with payerId', async () => {
+    it('returns wrappedContentKey + content item metadata to the caller', async () => {
       const setup = await createTestSetup(db);
       createdUserIds.push(setup.user.id);
 
       const msgId = crypto.randomUUID();
-      await insertEncryptedMessage(db, {
+      const result = await insertEnvelopeTextMessage(db, {
         id: msgId,
         conversationId: setup.conversation.id,
-        content: 'Paid message',
+        textContent: 'Paid message',
         epochPublicKey: setup.epoch.epochPublicKey,
         epochNumber: 1,
         sequenceNumber: 0,
         senderType: 'ai',
         modelName: 'test-model',
-        payerId: setup.user.id,
         cost: '0.00200000',
         parentMessageId: null,
       });
 
-      const [inserted] = await db.select().from(messages).where(eq(messages.id, msgId));
-
-      expect(inserted).toBeDefined();
-      expect(inserted!.payerId).toBe(setup.user.id);
-      expect(inserted!.cost).toBe('0.00200000');
+      expect(result.wrappedContentKey).toBeInstanceOf(Uint8Array);
+      expect(result.contentItem.contentType).toBe('text');
+      expect(result.contentItem.modelName).toBe('test-model');
+      expect(result.contentItem.cost).toBe('0.00200000');
     });
   });
 
@@ -432,10 +456,10 @@ describe('message-helpers', () => {
 
       // Insert a message to use as tip
       const msgId = crypto.randomUUID();
-      await insertEncryptedMessage(db, {
+      await insertEnvelopeTextMessage(db, {
         id: msgId,
         conversationId: setup.conversation.id,
-        content: 'Tip message',
+        textContent: 'Tip message',
         epochPublicKey: setup.epoch.epochPublicKey,
         epochNumber: 1,
         sequenceNumber: 0,
@@ -455,10 +479,10 @@ describe('message-helpers', () => {
 
       // Insert a new message to be the new tip
       const newTipId = crypto.randomUUID();
-      await insertEncryptedMessage(db, {
+      await insertEnvelopeTextMessage(db, {
         id: newTipId,
         conversationId: setup.conversation.id,
-        content: 'New tip message',
+        textContent: 'New tip message',
         epochPublicKey: setup.epoch.epochPublicKey,
         epochNumber: 1,
         sequenceNumber: 1,
@@ -501,10 +525,10 @@ describe('message-helpers', () => {
       createdUserIds.push(setup.user.id);
 
       const msg1Id = crypto.randomUUID();
-      await insertEncryptedMessage(db, {
+      await insertEnvelopeTextMessage(db, {
         id: msg1Id,
         conversationId: setup.conversation.id,
-        content: 'User message',
+        textContent: 'User message',
         epochPublicKey: setup.epoch.epochPublicKey,
         epochNumber: 1,
         sequenceNumber: 1,
@@ -514,10 +538,10 @@ describe('message-helpers', () => {
       });
 
       const msg2Id = crypto.randomUUID();
-      await insertEncryptedMessage(db, {
+      await insertEnvelopeTextMessage(db, {
         id: msg2Id,
         conversationId: setup.conversation.id,
-        content: 'AI response',
+        textContent: 'AI response',
         epochPublicKey: setup.epoch.epochPublicKey,
         epochNumber: 1,
         sequenceNumber: 2,
@@ -536,10 +560,10 @@ describe('message-helpers', () => {
       createdUserIds.push(setup.user.id);
 
       const msgId = crypto.randomUUID();
-      await insertEncryptedMessage(db, {
+      await insertEnvelopeTextMessage(db, {
         id: msgId,
         conversationId: setup.conversation.id,
-        content: 'Tip message',
+        textContent: 'Tip message',
         epochPublicKey: setup.epoch.epochPublicKey,
         epochNumber: 1,
         sequenceNumber: 1,

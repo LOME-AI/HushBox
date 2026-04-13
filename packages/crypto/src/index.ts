@@ -21,8 +21,30 @@ export {
 } from './epoch.js';
 export type { EpochMemberWrap, CreateEpochResult, EpochRotationResult } from './epoch.js';
 
-// Message encryption
-export { encryptMessageForStorage, decryptMessage } from './message-encrypt.js';
+// Content key envelope
+export {
+  generateContentKey,
+  wrapContentKeyForEpoch,
+  unwrapContentKeyForEpoch,
+  wrapContentKeyForShare,
+  unwrapContentKeyForShare,
+  CONTENT_KEY_LENGTH,
+  SHARE_WRAP_INFO,
+} from './content-key.js';
+export type { ContentKey, WrappedContentKey } from './content-key.js';
+
+// Message envelope encryption (wrap-once)
+export {
+  beginMessageEnvelope,
+  openMessageEnvelope,
+  encryptTextWithContentKey,
+  decryptTextWithContentKey,
+  encryptBinaryWithContentKey,
+  decryptBinaryWithContentKey,
+  encryptMessageForStorage,
+  decryptMessage,
+} from './message-encrypt.js';
+export type { MessageEnvelope } from './message-encrypt.js';
 
 // Member management
 export { wrapEpochKeyForNewMember } from './member.js';
@@ -31,9 +53,9 @@ export { wrapEpochKeyForNewMember } from './member.js';
 export { createSharedLink, deriveKeysFromLinkSecret } from './link.js';
 export type { CreateSharedLinkResult } from './link.js';
 
-// Message sharing
-export { createMessageShare, decryptMessageShare } from './message-share.js';
-export type { CreateMessageShareResult } from './message-share.js';
+// Message sharing (wrap-once)
+export { createShare, openShare } from './message-share.js';
+export type { CreateShareResult } from './message-share.js';
 
 // TOTP (two-factor authentication)
 export {

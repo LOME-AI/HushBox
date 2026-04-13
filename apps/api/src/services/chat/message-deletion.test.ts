@@ -80,10 +80,8 @@ async function insertTestMessage(
     epochNumber: number;
   }
 ): Promise<typeof messages.$inferSelect> {
-  const effectiveSenderType = overrides.senderType ?? 'user';
   const data = messageFactory.build({
     senderType: 'user',
-    ...(effectiveSenderType === 'ai' && !overrides.modelName ? { modelName: 'test-model' } : {}),
     ...overrides,
   });
   const [msg] = await db.insert(messages).values(data).returning();

@@ -1,12 +1,14 @@
 export { users } from './users';
 export { conversations } from './conversations';
 export { messages } from './messages';
+export { contentItems } from './content-items';
 export { projects } from './projects';
 export { payments } from './payments';
 export { serviceEvidence } from './service-evidence';
 export { wallets } from './wallets';
 export { usageRecords } from './usage-records';
 export { llmCompletions } from './llm-completions';
+export { mediaGenerations } from './media-generations';
 export { ledgerEntries } from './ledger-entries';
 export { sharedLinks } from './shared-links';
 export { conversationMembers } from './conversation-members';

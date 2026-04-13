@@ -37,6 +37,11 @@ vi.mock('@hushbox/crypto', () => ({
     })),
   })),
   encryptMessageForStorage: vi.fn(() => mockCryptoBytes(64)),
+  beginMessageEnvelope: vi.fn(() => ({
+    contentKey: mockCryptoBytes(32),
+    wrappedContentKey: mockCryptoBytes(81),
+  })),
+  encryptTextWithContentKey: vi.fn(() => mockCryptoBytes(64)),
   generateKeyPair: vi.fn(() => ({
     publicKey: mockCryptoBytes(32),
     privateKey: mockCryptoBytes(32),
@@ -86,6 +91,7 @@ vi.mock('@hushbox/db', () => {
     users: { id: 'id' },
     conversations: { id: 'id' },
     messages: { id: 'id' },
+    contentItems: { id: 'id' },
     projects: { id: 'id' },
     payments: { id: 'id' },
     wallets: { id: 'id' },
@@ -136,13 +142,31 @@ vi.mock('@hushbox/db/factories', () => ({
     build: vi.fn((overrides: Record<string, unknown> = {}) => ({
       id: 'test-msg-id',
       conversationId: 'test-conv-id',
-      encryptedBlob: mockCryptoBytes(64),
+      wrappedContentKey: mockCryptoBytes(81),
       senderType: 'user',
       senderId: 'test-user-id',
-      modelName: null,
-      payerId: null,
       epochNumber: 1,
       sequenceNumber: 1,
+      ...overrides,
+      createdAt: new Date(),
+    })),
+  },
+  contentItemFactory: {
+    build: vi.fn((overrides: Record<string, unknown> = {}) => ({
+      id: 'test-ci-id',
+      messageId: 'test-msg-id',
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: mockCryptoBytes(64),
+      storageKey: null,
+      mimeType: null,
+      sizeBytes: null,
+      width: null,
+      height: null,
+      durationMs: null,
+      modelName: null,
+      cost: null,
+      isSmartModel: false,
       ...overrides,
       createdAt: new Date(),
     })),
@@ -412,13 +436,22 @@ describe('seed script', () => {
       expect(data.conversationMembers).toHaveLength(expectedConversationMembers);
     });
 
-    it('messages have encrypted blobs instead of plaintext content', () => {
+    it('messages have wrappedContentKey instead of plaintext content', () => {
       const data = generateSeedData();
       const firstMsg = data.messages[0];
       expect(firstMsg).toBeDefined();
-      expect(firstMsg?.encryptedBlob).toBeInstanceOf(Uint8Array);
+      expect(firstMsg?.wrappedContentKey).toBeInstanceOf(Uint8Array);
       expect('content' in (firstMsg ?? {})).toBe(false);
       expect('role' in (firstMsg ?? {})).toBe(false);
+    });
+
+    it('generates content items for each message', () => {
+      const data = generateSeedData();
+      expect(data.contentItems).toHaveLength(data.messages.length);
+      const firstItem = data.contentItems[0];
+      expect(firstItem).toBeDefined();
+      expect(firstItem?.encryptedBlob).toBeInstanceOf(Uint8Array);
+      expect(firstItem?.contentType).toBe('text');
     });
 
     it('conversations have encrypted titles', () => {
@@ -916,10 +949,19 @@ describe('seed script', () => {
       }
     });
 
-    it('all messages are encrypted', () => {
+    it('all messages have wrappedContentKey', () => {
       const result = createScreenshotConversations(buildScreenshotParams());
       for (const msg of result.messages) {
-        expect(msg.encryptedBlob).toBeInstanceOf(Uint8Array);
+        expect(msg.wrappedContentKey).toBeInstanceOf(Uint8Array);
+      }
+    });
+
+    it('creates content items for each message', () => {
+      const result = createScreenshotConversations(buildScreenshotParams());
+      expect(result.contentItems).toHaveLength(result.messages.length);
+      for (const item of result.contentItems) {
+        expect(item.encryptedBlob).toBeInstanceOf(Uint8Array);
+        expect(item.contentType).toBe('text');
       }
     });
   });

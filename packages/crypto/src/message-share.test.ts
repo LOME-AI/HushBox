@@ -1,87 +1,67 @@
 import { describe, it, expect } from 'vitest';
-import { createMessageShare, decryptMessageShare, SHARE_INFO } from './message-share.js';
-import { DecryptionError } from './errors.js';
 import { randomBytes } from '@noble/hashes/utils.js';
+import { createShare, openShare } from './message-share.js';
+import { generateContentKey } from './content-key.js';
+import { DecryptionError } from './errors.js';
 
 describe('message-share', () => {
-  it('uses share-msg-v1 as HKDF info string', () => {
-    expect(SHARE_INFO).toBe('share-msg-v1');
-  });
+  describe('createShare', () => {
+    it('returns a 32-byte share secret and a wrapped share key', () => {
+      const contentKey = generateContentKey();
 
-  describe('createMessageShare', () => {
-    it('returns shareSecret and shareBlob', () => {
-      const result = createMessageShare('Hello, World!');
+      const result = createShare(contentKey);
 
       expect(result.shareSecret).toBeInstanceOf(Uint8Array);
       expect(result.shareSecret.length).toBe(32);
-      expect(result.shareBlob).toBeInstanceOf(Uint8Array);
+      expect(result.wrappedShareKey).toBeInstanceOf(Uint8Array);
     });
 
-    it('generates unique secrets per call', () => {
-      const result1 = createMessageShare('Hello');
-      const result2 = createMessageShare('Hello');
+    it('does not leak the content key in the wrapped bytes', () => {
+      const contentKey = generateContentKey();
 
-      expect(result1.shareSecret).not.toEqual(result2.shareSecret);
-      expect(result1.shareBlob).not.toEqual(result2.shareBlob);
+      const { wrappedShareKey } = createShare(contentKey);
+
+      expect(wrappedShareKey).not.toEqual(contentKey);
+    });
+
+    it('generates a unique share secret on each call', () => {
+      const contentKey = generateContentKey();
+
+      const r1 = createShare(contentKey);
+      const r2 = createShare(contentKey);
+
+      expect(r1.shareSecret).not.toEqual(r2.shareSecret);
+      expect(r1.wrappedShareKey).not.toEqual(r2.wrappedShareKey);
     });
   });
 
-  describe('decryptMessageShare', () => {
-    it('round-trips short message', () => {
-      const text = 'Hello, World!';
+  describe('openShare', () => {
+    it('round-trips the content key with the matching share secret', () => {
+      const contentKey = generateContentKey();
 
-      const { shareSecret, shareBlob } = createMessageShare(text);
-      const result = decryptMessageShare(shareSecret, shareBlob);
+      const { shareSecret, wrappedShareKey } = createShare(contentKey);
+      const recovered = openShare(shareSecret, wrappedShareKey);
 
-      expect(result).toBe(text);
+      expect(recovered).toEqual(contentKey);
     });
 
-    it('round-trips large message with compression', () => {
-      const text = 'The quick brown fox jumps over the lazy dog. '.repeat(500);
-
-      const { shareSecret, shareBlob } = createMessageShare(text);
-      const result = decryptMessageShare(shareSecret, shareBlob);
-
-      expect(result).toBe(text);
-    });
-
-    it('handles empty string', () => {
-      const { shareSecret, shareBlob } = createMessageShare('');
-      const result = decryptMessageShare(shareSecret, shareBlob);
-
-      expect(result).toBe('');
-    });
-
-    it('handles unicode content', () => {
-      const text = '密码🔐émojis 日本語';
-
-      const { shareSecret, shareBlob } = createMessageShare(text);
-      const result = decryptMessageShare(shareSecret, shareBlob);
-
-      expect(result).toBe(text);
-    });
-
-    it('throws DecryptionError with wrong secret', () => {
-      const { shareBlob } = createMessageShare('Secret');
+    it('throws DecryptionError with a wrong share secret', () => {
+      const contentKey = generateContentKey();
       const wrongSecret = randomBytes(32);
 
-      expect(() => decryptMessageShare(wrongSecret, shareBlob)).toThrow(DecryptionError);
+      const { wrappedShareKey } = createShare(contentKey);
+
+      expect(() => openShare(wrongSecret, wrappedShareKey)).toThrow(DecryptionError);
     });
 
-    it('throws with tampered blob', () => {
-      const { shareSecret, shareBlob } = createMessageShare('Secret');
-      const tampered = new Uint8Array(shareBlob);
+    it('throws on a tampered wrapped share key', () => {
+      const contentKey = generateContentKey();
+
+      const { shareSecret, wrappedShareKey } = createShare(contentKey);
+      const tampered = new Uint8Array(wrappedShareKey);
       tampered[tampered.length - 1] = (tampered.at(-1) ?? 0) ^ 0xff;
 
-      expect(() => decryptMessageShare(shareSecret, tampered)).toThrow();
-    });
-
-    it('compressed share blob is smaller than plaintext', () => {
-      const text = 'A'.repeat(10_000);
-
-      const { shareBlob } = createMessageShare(text);
-
-      expect(shareBlob.length).toBeLessThan(text.length);
+      expect(() => openShare(shareSecret, tampered)).toThrow();
     });
   });
 });

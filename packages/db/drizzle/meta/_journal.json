@@ -211,6 +211,13 @@
       "when": 1772409600000,
       "tag": "0029_conversation_member_pinned",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1775923392301,
+      "tag": "0030_wrap_once_content_items_and_media",
+      "breakpoints": true
     }
   ]
 }

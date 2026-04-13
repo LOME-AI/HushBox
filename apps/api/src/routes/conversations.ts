@@ -6,13 +6,15 @@ import {
   updateConversationRequestSchema,
   conversationResponseSchema,
   messageResponseSchema,
+  contentItemResponseSchema,
   ERROR_CODE_CONVERSATION_NOT_FOUND,
   toBase64,
   fromBase64,
 } from '@hushbox/shared';
 import { eq } from 'drizzle-orm';
-import type { Conversation, Message, Database } from '@hushbox/db';
+import type { Conversation, ContentItem, Database } from '@hushbox/db';
 import { conversationForks } from '@hushbox/db';
+import type { MessageWithContent } from '../services/conversations/conversations.js';
 
 type ConversationFork = typeof conversationForks.$inferSelect;
 import { createErrorResponse } from '../lib/error-response.js';
@@ -41,22 +43,39 @@ function serializeConversation(conv: Conversation): z.infer<typeof conversationR
   };
 }
 
-/** Serialize a message entity for API responses. */
-function serializeMessage(msg: Message): z.infer<typeof messageResponseSchema> {
+/** Serialize a content item for API responses. */
+function serializeContentItem(item: ContentItem): z.infer<typeof contentItemResponseSchema> {
+  return {
+    id: item.id,
+    contentType: item.contentType as 'text' | 'image' | 'audio' | 'video',
+    position: item.position,
+    encryptedBlob: item.encryptedBlob ? toBase64(item.encryptedBlob) : null,
+    storageKey: item.storageKey,
+    mimeType: item.mimeType,
+    sizeBytes: item.sizeBytes,
+    width: item.width,
+    height: item.height,
+    durationMs: item.durationMs,
+    modelName: item.modelName,
+    cost: item.cost,
+    isSmartModel: item.isSmartModel,
+  };
+}
+
+/** Serialize a message with its content items for API responses. */
+function serializeMessage(msg: MessageWithContent): z.infer<typeof messageResponseSchema> {
   return {
     id: msg.id,
     conversationId: msg.conversationId,
-    encryptedBlob: toBase64(msg.encryptedBlob),
-    // DB CHECK constraint guarantees senderType IN ('user', 'ai')
+    wrappedContentKey: toBase64(msg.wrappedContentKey),
+    // DB constraint guarantees senderType IN ('user', 'ai')
     senderType: msg.senderType as 'user' | 'ai',
     senderId: msg.senderId ?? null,
-    modelName: msg.modelName ?? null,
-    payerId: msg.payerId ?? null,
-    cost: msg.cost ?? null,
     epochNumber: msg.epochNumber,
     sequenceNumber: msg.sequenceNumber,
     parentMessageId: msg.parentMessageId ?? null,
     createdAt: msg.createdAt.toISOString(),
+    contentItems: msg.contentItems.map((ci) => serializeContentItem(ci)),
   };
 }
 

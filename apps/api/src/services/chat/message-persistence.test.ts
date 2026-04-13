@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
+import { asc, eq as eqDrizzle } from 'drizzle-orm';
 import {
   createDb,
   LOCAL_NEON_DEV_CONFIG,
   users,
   messages,
+  contentItems,
   conversations,
   conversationMembers,
   conversationSpending,
@@ -23,8 +25,38 @@ import {
   conversationMemberFactory,
   walletFactory,
 } from '@hushbox/db/factories';
-import { createFirstEpoch, decryptMessage, generateKeyPair } from '@hushbox/crypto';
+import {
+  createFirstEpoch,
+  generateKeyPair,
+  openMessageEnvelope,
+  decryptTextWithContentKey,
+} from '@hushbox/crypto';
 import { saveChatTurn, saveUserOnlyMessage } from './message-persistence.js';
+
+/** Fetch the first text content item for a message. */
+async function getTextContentItem(
+  dbInst: Database,
+  messageId: string
+): Promise<typeof contentItems.$inferSelect> {
+  const [item] = await dbInst
+    .select()
+    .from(contentItems)
+    .where(eqDrizzle(contentItems.messageId, messageId))
+    .orderBy(asc(contentItems.position))
+    .limit(1);
+  if (!item) throw new Error(`No content item found for message ${messageId}`);
+  return item;
+}
+
+/** Decrypt a message's text content item using the epoch private key. */
+function decryptMessageText(
+  epochPrivateKey: Uint8Array,
+  wrappedContentKey: Uint8Array,
+  encryptedBlob: Uint8Array
+): string {
+  const contentKey = openMessageEnvelope(epochPrivateKey, wrappedContentKey);
+  return decryptTextWithContentKey(contentKey, encryptedBlob);
+}
 
 const DATABASE_URL = process.env['DATABASE_URL'];
 if (!DATABASE_URL) {
@@ -144,20 +176,23 @@ describe('saveChatTurn', () => {
     if (!userMsg) throw new Error('User message not found');
     expect(userMsg.senderType).toBe('user');
     expect(userMsg.senderId).toBe(setup.user.id);
-    expect(userMsg.encryptedBlob).toBeInstanceOf(Uint8Array);
+    expect(userMsg.wrappedContentKey).toBeInstanceOf(Uint8Array);
     expect(userMsg.epochNumber).toBe(1);
 
     // AI message exists with correct fields
     const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
     if (!aiMsg) throw new Error('AI message not found');
     expect(aiMsg.senderType).toBe('ai');
-    expect(aiMsg.payerId).toBe(setup.user.id);
-    expect(aiMsg.encryptedBlob).toBeInstanceOf(Uint8Array);
+    expect(aiMsg.wrappedContentKey).toBeInstanceOf(Uint8Array);
     expect(aiMsg.epochNumber).toBe(1);
-    expect(aiMsg.cost).toBe('0.00136000');
 
-    // User message should not have cost
-    expect(userMsg.cost).toBeNull();
+    // Cost and modelName now live on content_items
+    const aiCi = await getTextContentItem(db, assistantMessageId);
+    expect(aiCi.cost).toBe('0.00136000');
+
+    // User content item should not have cost
+    const userCi = await getTextContentItem(db, userMessageId);
+    expect(userCi.cost).toBeNull();
 
     expect(result.epochNumber).toBe(1);
   });
@@ -186,16 +221,26 @@ describe('saveChatTurn', () => {
       parentMessageId: null,
     });
 
-    // Decrypt user message with epoch private key
+    // Decrypt user message via wrap-once envelope
     const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
     if (!userMsg) throw new Error('User message not found');
-    const decryptedUser = decryptMessage(setup.epochPrivateKey, userMsg.encryptedBlob);
+    const userCi = await getTextContentItem(db, userMessageId);
+    const decryptedUser = decryptMessageText(
+      setup.epochPrivateKey,
+      userMsg.wrappedContentKey,
+      userCi.encryptedBlob!
+    );
     expect(decryptedUser).toBe(userText);
 
-    // Decrypt AI message with epoch private key
+    // Decrypt AI message via wrap-once envelope
     const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
     if (!aiMsg) throw new Error('AI message not found');
-    const decryptedAi = decryptMessage(setup.epochPrivateKey, aiMsg.encryptedBlob);
+    const aiCi = await getTextContentItem(db, assistantMessageId);
+    const decryptedAi = decryptMessageText(
+      setup.epochPrivateKey,
+      aiMsg.wrappedContentKey,
+      aiCi.encryptedBlob!
+    );
     expect(decryptedAi).toBe(aiText);
   });
 
@@ -670,19 +715,29 @@ describe('saveChatTurn', () => {
       parentMessageId: null,
     });
 
-    // Decrypt and verify exact content roundtrip
+    // Decrypt and verify exact content roundtrip via wrap-once envelope
     const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
     if (!userMsg) throw new Error('User message not found');
-    const decryptedUser = decryptMessage(setup.epochPrivateKey, userMsg.encryptedBlob);
+    const userCi = await getTextContentItem(db, userMessageId);
+    const decryptedUser = decryptMessageText(
+      setup.epochPrivateKey,
+      userMsg.wrappedContentKey,
+      userCi.encryptedBlob!
+    );
     expect(decryptedUser).toBe(longUserContent);
 
     const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
     if (!aiMsg) throw new Error('AI message not found');
-    const decryptedAi = decryptMessage(setup.epochPrivateKey, aiMsg.encryptedBlob);
+    const aiCi = await getTextContentItem(db, assistantMessageId);
+    const decryptedAi = decryptMessageText(
+      setup.epochPrivateKey,
+      aiMsg.wrappedContentKey,
+      aiCi.encryptedBlob!
+    );
     expect(decryptedAi).toBe(longAiContent);
 
     // Encrypted blob should be smaller than plaintext (compression working)
-    expect(aiMsg.encryptedBlob.length).toBeLessThan(Buffer.from(longAiContent).length);
+    expect(aiCi.encryptedBlob!.length).toBeLessThan(Buffer.from(longAiContent).length);
   });
 
   it('throws when conversation does not exist', async () => {
@@ -803,7 +858,12 @@ describe('saveChatTurn', () => {
     expect(userMsg.epochNumber).toBe(3);
 
     // Can decrypt with the epoch 3 private key
-    const decrypted = decryptMessage(epochResult.epochPrivateKey, userMsg.encryptedBlob);
+    const userCiD = await getTextContentItem(db, userMessageId);
+    const decrypted = decryptMessageText(
+      epochResult.epochPrivateKey,
+      userMsg.wrappedContentKey,
+      userCiD.encryptedBlob!
+    );
     expect(decrypted).toBe('Message in epoch 3');
   });
 
@@ -831,12 +891,22 @@ describe('saveChatTurn', () => {
 
     const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
     if (!userMsg) throw new Error('User message not found');
-    const decryptedUser = decryptMessage(setup.epochPrivateKey, userMsg.encryptedBlob);
+    const userCiE = await getTextContentItem(db, userMessageId);
+    const decryptedUser = decryptMessageText(
+      setup.epochPrivateKey,
+      userMsg.wrappedContentKey,
+      userCiE.encryptedBlob!
+    );
     expect(decryptedUser).toBe('');
 
     const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
     if (!aiMsg) throw new Error('AI message not found');
-    const decryptedAi = decryptMessage(setup.epochPrivateKey, aiMsg.encryptedBlob);
+    const aiCiE = await getTextContentItem(db, assistantMessageId);
+    const decryptedAi = decryptMessageText(
+      setup.epochPrivateKey,
+      aiMsg.wrappedContentKey,
+      aiCiE.encryptedBlob!
+    );
     expect(decryptedAi).toBe('');
   });
 
@@ -1192,9 +1262,11 @@ describe('saveChatTurn', () => {
       expect(ai1Msg.sequenceNumber).toBe(2);
       expect(ai2Msg.sequenceNumber).toBe(3);
 
-      // Both AI messages have correct model names
-      expect(ai1Msg.modelName).toBe('openai/gpt-4o');
-      expect(ai2Msg.modelName).toBe('anthropic/claude-3.5-sonnet');
+      // Both AI messages' content items have correct model names
+      const ai1Ci = await getTextContentItem(db, assistantId1);
+      const ai2Ci = await getTextContentItem(db, assistantId2);
+      expect(ai1Ci.modelName).toBe('openai/gpt-4o');
+      expect(ai2Ci.modelName).toBe('anthropic/claude-3.5-sonnet');
 
       // Both AI messages are parented to the user message
       expect(ai1Msg.parentMessageId).toBe(userMessageId);
@@ -1465,12 +1537,19 @@ describe('saveUserOnlyMessage', () => {
     if (!msg) throw new Error('Message not found');
     expect(msg.senderType).toBe('user');
     expect(msg.senderId).toBe(setup.user.id);
-    expect(msg.cost).toBeNull();
     expect(msg.epochNumber).toBe(1);
-    expect(msg.encryptedBlob).toBeInstanceOf(Uint8Array);
+    expect(msg.wrappedContentKey).toBeInstanceOf(Uint8Array);
 
-    // Can decrypt
-    const decrypted = decryptMessage(setup.epochPrivateKey, msg.encryptedBlob);
+    // Cost now lives on content_items; user messages have null cost
+    const ci = await getTextContentItem(db, messageId);
+    expect(ci.cost).toBeNull();
+
+    // Can decrypt via wrap-once envelope
+    const decrypted = decryptMessageText(
+      setup.epochPrivateKey,
+      msg.wrappedContentKey,
+      ci.encryptedBlob!
+    );
     expect(decrypted).toBe('Hello from user only');
 
     expect(result.sequenceNumber).toBeDefined();
@@ -1679,10 +1758,11 @@ describe('saveUserOnlyMessage', () => {
     expect(userMsg.senderId).toBe(sender.id);
     expect(userMsg.senderId).not.toBe(setup.user.id);
 
-    // AI message payerId should still be the billing user (owner)
+    // Billing user (owner) is recorded on usage_records, not on messages.
+    // AI message senderType confirms it's AI-authored.
     const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
     if (!aiMsg) throw new Error('AI message not found');
-    expect(aiMsg.payerId).toBe(setup.user.id);
+    expect(aiMsg.senderType).toBe('ai');
   });
 
   it('saveUserOnlyMessage persists senderId separately from userId', async () => {

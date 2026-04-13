@@ -24,7 +24,24 @@ describe('index barrel exports', () => {
     expect(typeof module_.traverseChainLink).toBe('function');
     expect(typeof module_.verifyEpochKeyConfirmation).toBe('function');
 
-    // Message encryption
+    // Content key envelope
+    expect(typeof module_.generateContentKey).toBe('function');
+    expect(typeof module_.wrapContentKeyForEpoch).toBe('function');
+    expect(typeof module_.unwrapContentKeyForEpoch).toBe('function');
+    expect(typeof module_.wrapContentKeyForShare).toBe('function');
+    expect(typeof module_.unwrapContentKeyForShare).toBe('function');
+    expect(typeof module_.CONTENT_KEY_LENGTH).toBe('number');
+    expect(typeof module_.SHARE_WRAP_INFO).toBe('string');
+
+    // Message envelope encryption (wrap-once)
+    expect(typeof module_.beginMessageEnvelope).toBe('function');
+    expect(typeof module_.openMessageEnvelope).toBe('function');
+    expect(typeof module_.encryptTextWithContentKey).toBe('function');
+    expect(typeof module_.decryptTextWithContentKey).toBe('function');
+    expect(typeof module_.encryptBinaryWithContentKey).toBe('function');
+    expect(typeof module_.decryptBinaryWithContentKey).toBe('function');
+
+    // Generic single-blob ECIES (for non-message bytea fields like titles, projects)
     expect(typeof module_.encryptMessageForStorage).toBe('function');
     expect(typeof module_.decryptMessage).toBe('function');
 
@@ -35,9 +52,9 @@ describe('index barrel exports', () => {
     expect(typeof module_.createSharedLink).toBe('function');
     expect(typeof module_.deriveKeysFromLinkSecret).toBe('function');
 
-    // Message sharing
-    expect(typeof module_.createMessageShare).toBe('function');
-    expect(typeof module_.decryptMessageShare).toBe('function');
+    // Message sharing (wrap-once)
+    expect(typeof module_.createShare).toBe('function');
+    expect(typeof module_.openShare).toBe('function');
 
     // TOTP
     expect(typeof module_.deriveTotpEncryptionKey).toBe('function');
@@ -132,5 +149,14 @@ describe('index barrel exports', () => {
     expect('wrapKey' in module_).toBe(false);
     expect('unwrapKey' in module_).toBe(false);
     expect('EciesEncryptResult' in module_).toBe(false);
+
+    // Removed pre-wrap-once share helpers (share now rewraps the content key)
+    expect('createMessageShare' in module_).toBe(false);
+    expect('decryptMessageShare' in module_).toBe(false);
+    expect('SHARE_INFO' in module_).toBe(false);
+
+    // Binary codec helpers remain internal
+    expect('encodeBinary' in module_).toBe(false);
+    expect('decodeBinary' in module_).toBe(false);
   });
 });

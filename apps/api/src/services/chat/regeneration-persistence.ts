@@ -3,10 +3,11 @@ import { messages, type Database } from '@hushbox/db';
 import {
   assignSequenceNumbers,
   fetchEpochPublicKey,
-  insertEncryptedMessage,
+  insertEnvelopeTextMessage,
   chargeAndTrackUsage,
   updateForkTip,
 } from './message-helpers.js';
+import type { PersistedEnvelope } from './message-persistence.js';
 import { deleteMessagesAfterAnchor } from './message-deletion.js';
 
 // ============================================================================
@@ -38,26 +39,32 @@ interface InsertChargeAndFinalizeForkParams extends SharedBillingParams {
   parentMessageId: string;
 }
 
+interface InsertChargeResult {
+  cost: string;
+  usageRecordId: string;
+  envelope: PersistedEnvelope;
+}
+
 /**
- * Inserts an encrypted AI message, charges the user's wallet, and optionally
- * updates the fork tip. Shared by both saveRegeneratedResponse and saveEditedChatTurn.
+ * Persists a single-text AI message under a wrap-once envelope, charges the user's
+ * wallet, and optionally updates the fork tip. Shared by both
+ * saveRegeneratedResponse and saveEditedChatTurn.
  */
 async function insertChargeAndFinalizeFork(
   txDb: Database,
   params: InsertChargeAndFinalizeForkParams
-): Promise<{ cost: string; usageRecordId: string }> {
+): Promise<InsertChargeResult> {
   const costAmount = params.totalCost.toFixed(8);
 
-  await insertEncryptedMessage(txDb, {
+  const persisted = await insertEnvelopeTextMessage(txDb, {
     id: params.assistantMessageId,
     conversationId: params.conversationId,
-    content: params.assistantContent,
+    textContent: params.assistantContent,
     epochPublicKey: params.epochPublicKey,
     epochNumber: params.epochNumber,
     sequenceNumber: params.aiSequence,
     senderType: 'ai',
     modelName: params.model,
-    payerId: params.userId,
     cost: costAmount,
     parentMessageId: params.parentMessageId,
   });
@@ -80,7 +87,15 @@ async function insertChargeAndFinalizeFork(
     await updateForkTip(txDb, params.forkId, params.assistantMessageId);
   }
 
-  return { cost: costAmount, usageRecordId };
+  return {
+    cost: costAmount,
+    usageRecordId,
+    envelope: {
+      messageId: params.assistantMessageId,
+      wrappedContentKey: persisted.wrappedContentKey,
+      contentItem: persisted.contentItem,
+    },
+  };
 }
 
 // ============================================================================
@@ -160,6 +175,7 @@ export interface SaveRegeneratedResponseResult {
   epochNumber: number;
   cost: string;
   usageRecordId: string;
+  envelope: PersistedEnvelope;
 }
 
 /**
@@ -200,13 +216,14 @@ export async function saveRegeneratedResponse(
       aiSequence: aiSeq,
       parentMessageId: anchorMessageId,
     });
-    const { cost, usageRecordId } = await insertChargeAndFinalizeFork(txDb, chargeParams);
+    const { cost, usageRecordId, envelope } = await insertChargeAndFinalizeFork(txDb, chargeParams);
 
     return {
       aiSequence: aiSeq,
       epochNumber,
       cost,
       usageRecordId,
+      envelope,
     };
   });
 }
@@ -229,6 +246,8 @@ export interface SaveEditedChatTurnResult {
   epochNumber: number;
   cost: string;
   usageRecordId: string;
+  userEnvelope: PersistedEnvelope;
+  assistantEnvelope: PersistedEnvelope;
 }
 
 /**
@@ -292,10 +311,10 @@ export async function saveEditedChatTurn(
     );
     const [userSeq, aiSeq] = sequences as [number, number];
 
-    await insertEncryptedMessage(txDb, {
+    const userPersisted = await insertEnvelopeTextMessage(txDb, {
       id: newUserMessageId,
       conversationId,
-      content: newUserContent,
+      textContent: newUserContent,
       epochPublicKey,
       epochNumber,
       sequenceNumber: userSeq,
@@ -311,7 +330,7 @@ export async function saveEditedChatTurn(
       aiSequence: aiSeq,
       parentMessageId: newUserMessageId,
     });
-    const { cost, usageRecordId } = await insertChargeAndFinalizeFork(txDb, chargeParams);
+    const { cost, usageRecordId, envelope } = await insertChargeAndFinalizeFork(txDb, chargeParams);
 
     return {
       userSequence: userSeq,
@@ -319,6 +338,12 @@ export async function saveEditedChatTurn(
       epochNumber,
       cost,
       usageRecordId,
+      userEnvelope: {
+        messageId: newUserMessageId,
+        wrappedContentKey: userPersisted.wrappedContentKey,
+        contentItem: userPersisted.contentItem,
+      },
+      assistantEnvelope: envelope,
     };
   });
 }

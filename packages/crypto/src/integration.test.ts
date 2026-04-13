@@ -15,12 +15,37 @@ import {
   traverseChainLink,
   verifyEpochKeyConfirmation,
 } from './epoch.js';
-import { encryptMessageForStorage, decryptMessage } from './message-encrypt.js';
+import {
+  beginMessageEnvelope,
+  openMessageEnvelope,
+  encryptTextWithContentKey,
+  decryptTextWithContentKey,
+} from './message-encrypt.js';
 import { wrapEpochKeyForNewMember } from './member.js';
 import { createSharedLink, deriveKeysFromLinkSecret } from './link.js';
-import { createMessageShare, decryptMessageShare } from './message-share.js';
+import { createShare, openShare } from './message-share.js';
 import { DecryptionError } from './errors.js';
 import { at } from '@hushbox/shared/src/test-utilities.js';
+
+/**
+ * Small test helpers that mirror the wrap-once storage model:
+ * one content key per message, wrapped once, used for one content item.
+ */
+interface StoredMessage {
+  wrappedContentKey: Uint8Array;
+  ciphertext: Uint8Array;
+}
+
+function storeMessage(epochPublicKey: Uint8Array, text: string): StoredMessage {
+  const { contentKey, wrappedContentKey } = beginMessageEnvelope(epochPublicKey);
+  const ciphertext = encryptTextWithContentKey(contentKey, text);
+  return { wrappedContentKey, ciphertext };
+}
+
+function readMessage(epochPrivateKey: Uint8Array, stored: StoredMessage): string {
+  const contentKey = openMessageEnvelope(epochPrivateKey, stored.wrappedContentKey);
+  return decryptTextWithContentKey(contentKey, stored.ciphertext);
+}
 
 describe('integration', () => {
   describe('1. Full user lifecycle', () => {
@@ -53,10 +78,9 @@ describe('integration', () => {
       // Verify epoch key confirmation
       expect(verifyEpochKeyConfirmation(epochPrivKey, epoch.confirmationHash)).toBe(true);
 
-      // Encrypt and decrypt a message
-      const blob = encryptMessageForStorage(epoch.epochPublicKey, 'Hello world');
-      const decrypted = decryptMessage(epochPrivKey, blob);
-      expect(decrypted).toBe('Hello world');
+      // Store and read a message (wrap-once)
+      const stored = storeMessage(epoch.epochPublicKey, 'Hello world');
+      expect(readMessage(epochPrivKey, stored)).toBe('Hello world');
     });
   });
 
@@ -81,14 +105,14 @@ describe('integration', () => {
       expect(aliceEpochKey).toEqual(bobEpochKey);
       expect(aliceEpochKey).toEqual(epoch.epochPrivateKey);
 
-      // Encrypt 3 messages
+      // Store 3 messages under the wrap-once envelope
       const messages = ['First message', 'Second message', 'Third message with emoji 🎉'];
-      const blobs = messages.map((m) => encryptMessageForStorage(epoch.epochPublicKey, m));
+      const stored = messages.map((m) => storeMessage(epoch.epochPublicKey, m));
 
       // Both decrypt all 3
       for (const [index, message] of messages.entries()) {
-        expect(decryptMessage(aliceEpochKey, at(blobs, index))).toBe(message);
-        expect(decryptMessage(bobEpochKey, at(blobs, index))).toBe(message);
+        expect(readMessage(aliceEpochKey, at(stored, index))).toBe(message);
+        expect(readMessage(bobEpochKey, at(stored, index))).toBe(message);
       }
     });
   });
@@ -98,32 +122,32 @@ describe('integration', () => {
       const memberPriv = randomBytes(32);
       const memberPub = x25519.getPublicKey(memberPriv);
 
-      // Epoch 1: encrypt 2 messages
+      // Epoch 1: store 2 messages
       const epoch1 = createFirstEpoch([memberPub]);
-      const msg1 = encryptMessageForStorage(epoch1.epochPublicKey, 'Message in epoch 1');
-      const msg2 = encryptMessageForStorage(epoch1.epochPublicKey, 'Another epoch 1 message');
+      const msg1 = storeMessage(epoch1.epochPublicKey, 'Message in epoch 1');
+      const msg2 = storeMessage(epoch1.epochPublicKey, 'Another epoch 1 message');
 
       // Rotate to epoch 2
       const epoch2 = performEpochRotation(epoch1.epochPrivateKey, [memberPub]);
 
-      // Encrypt 2 messages in epoch 2
-      const msg3 = encryptMessageForStorage(epoch2.epochPublicKey, 'Message in epoch 2');
-      const msg4 = encryptMessageForStorage(epoch2.epochPublicKey, 'Another epoch 2 message');
+      // Store 2 messages in epoch 2
+      const msg3 = storeMessage(epoch2.epochPublicKey, 'Message in epoch 2');
+      const msg4 = storeMessage(epoch2.epochPublicKey, 'Another epoch 2 message');
 
       // Unwrap epoch 2 from member wrap
       const epoch2Key = unwrapEpochKey(memberPriv, at(epoch2.memberWraps, 0).wrap);
 
       // Decrypt epoch 2 messages
-      expect(decryptMessage(epoch2Key, msg3)).toBe('Message in epoch 2');
-      expect(decryptMessage(epoch2Key, msg4)).toBe('Another epoch 2 message');
+      expect(readMessage(epoch2Key, msg3)).toBe('Message in epoch 2');
+      expect(readMessage(epoch2Key, msg4)).toBe('Another epoch 2 message');
 
       // Traverse chain link to get epoch 1 key
       const epoch1Key = traverseChainLink(epoch2Key, epoch2.chainLink);
       expect(epoch1Key).toEqual(epoch1.epochPrivateKey);
 
       // Decrypt epoch 1 messages
-      expect(decryptMessage(epoch1Key, msg1)).toBe('Message in epoch 1');
-      expect(decryptMessage(epoch1Key, msg2)).toBe('Another epoch 1 message');
+      expect(readMessage(epoch1Key, msg1)).toBe('Message in epoch 1');
+      expect(readMessage(epoch1Key, msg2)).toBe('Another epoch 1 message');
     });
   });
 
@@ -133,25 +157,25 @@ describe('integration', () => {
       const pub = x25519.getPublicKey(priv);
 
       const epoch1 = createFirstEpoch([pub]);
-      const msgE1 = encryptMessageForStorage(epoch1.epochPublicKey, 'Epoch 1 content');
+      const msgE1 = storeMessage(epoch1.epochPublicKey, 'Epoch 1 content');
 
       const epoch2 = performEpochRotation(epoch1.epochPrivateKey, [pub]);
-      const msgE2 = encryptMessageForStorage(epoch2.epochPublicKey, 'Epoch 2 content');
+      const msgE2 = storeMessage(epoch2.epochPublicKey, 'Epoch 2 content');
 
       const epoch3 = performEpochRotation(epoch2.epochPrivateKey, [pub]);
-      const msgE3 = encryptMessageForStorage(epoch3.epochPublicKey, 'Epoch 3 content');
+      const msgE3 = storeMessage(epoch3.epochPublicKey, 'Epoch 3 content');
 
       // Start from epoch 3 member wrap
       const key3 = unwrapEpochKey(priv, at(epoch3.memberWraps, 0).wrap);
-      expect(decryptMessage(key3, msgE3)).toBe('Epoch 3 content');
+      expect(readMessage(key3, msgE3)).toBe('Epoch 3 content');
 
       // Traverse 3→2
       const key2 = traverseChainLink(key3, epoch3.chainLink);
-      expect(decryptMessage(key2, msgE2)).toBe('Epoch 2 content');
+      expect(readMessage(key2, msgE2)).toBe('Epoch 2 content');
 
       // Traverse 2→1
       const key1 = traverseChainLink(key2, epoch2.chainLink);
-      expect(decryptMessage(key1, msgE1)).toBe('Epoch 1 content');
+      expect(readMessage(key1, msgE1)).toBe('Epoch 1 content');
 
       // Verify chain integrity: keys match original epoch keys
       expect(key3).toEqual(epoch3.epochPrivateKey);
@@ -169,25 +193,25 @@ describe('integration', () => {
 
       // Epoch 1: both Alice and Bob
       const epoch1 = createFirstEpoch([alicePub, bobPub]);
-      const msg1 = encryptMessageForStorage(epoch1.epochPublicKey, 'Shared message');
+      const msg1 = storeMessage(epoch1.epochPublicKey, 'Shared message');
 
       // Both can decrypt epoch 1
       const aliceEpoch1Key = unwrapEpochKey(alicePriv, at(epoch1.memberWraps, 0).wrap);
       const bobEpoch1Key = unwrapEpochKey(bobPriv, at(epoch1.memberWraps, 1).wrap);
-      expect(decryptMessage(aliceEpoch1Key, msg1)).toBe('Shared message');
-      expect(decryptMessage(bobEpoch1Key, msg1)).toBe('Shared message');
+      expect(readMessage(aliceEpoch1Key, msg1)).toBe('Shared message');
+      expect(readMessage(bobEpoch1Key, msg1)).toBe('Shared message');
 
       // Remove Bob: rotate to epoch 2 with only Alice
       const epoch2 = performEpochRotation(epoch1.epochPrivateKey, [alicePub]);
-      const msg2 = encryptMessageForStorage(epoch2.epochPublicKey, 'Alice-only message');
+      const msg2 = storeMessage(epoch2.epochPublicKey, 'Alice-only message');
 
       // Alice can unwrap epoch 2 and decrypt new message
       const aliceEpoch2Key = unwrapEpochKey(alicePriv, at(epoch2.memberWraps, 0).wrap);
-      expect(decryptMessage(aliceEpoch2Key, msg2)).toBe('Alice-only message');
+      expect(readMessage(aliceEpoch2Key, msg2)).toBe('Alice-only message');
 
       // Alice can traverse chain to decrypt old message
       const aliceRecoveredKey = traverseChainLink(aliceEpoch2Key, epoch2.chainLink);
-      expect(decryptMessage(aliceRecoveredKey, msg1)).toBe('Shared message');
+      expect(readMessage(aliceRecoveredKey, msg1)).toBe('Shared message');
 
       // Bob: NO wrap exists for Bob in epoch 2
       const bobWraps = epoch2.memberWraps.filter((w) =>
@@ -201,7 +225,7 @@ describe('integration', () => {
       );
 
       // Bob: CAN still decrypt epoch 1 messages with his retained epoch 1 key
-      expect(decryptMessage(bobEpoch1Key, msg1)).toBe('Shared message');
+      expect(readMessage(bobEpoch1Key, msg1)).toBe('Shared message');
     });
   });
 
@@ -213,9 +237,9 @@ describe('integration', () => {
       // Unwrap with original password
       const privKey = unwrapAccountKeyWithPassword(exportKey1, account.passwordWrappedPrivateKey);
 
-      // Create epoch and encrypt messages
+      // Create epoch and store messages
       const epoch = createFirstEpoch([account.publicKey]);
-      const msg = encryptMessageForStorage(epoch.epochPublicKey, 'Before password change');
+      const msg = storeMessage(epoch.epochPublicKey, 'Before password change');
 
       // Change password
       const exportKey2 = randomBytes(64);
@@ -227,7 +251,7 @@ describe('integration', () => {
 
       // Decrypt messages with same account key
       const epochKey = unwrapEpochKey(privKeyFromNew, at(epoch.memberWraps, 0).wrap);
-      expect(decryptMessage(epochKey, msg)).toBe('Before password change');
+      expect(readMessage(epochKey, msg)).toBe('Before password change');
 
       // Old password CANNOT unwrap new blob
       expect(() => unwrapAccountKeyWithPassword(exportKey1, newPasswordBlob)).toThrow(
@@ -246,9 +270,9 @@ describe('integration', () => {
         account.passwordWrappedPrivateKey
       );
 
-      // Create epoch and encrypt messages
+      // Create epoch and store messages
       const epoch = createFirstEpoch([account.publicKey]);
-      const msg = encryptMessageForStorage(epoch.epochPublicKey, 'Secret conversation');
+      const msg = storeMessage(epoch.epochPublicKey, 'Secret conversation');
 
       // Recover from mnemonic
       const recoveredPrivKey = await recoverAccountFromMnemonic(
@@ -259,7 +283,7 @@ describe('integration', () => {
 
       // Recovered key can decrypt everything
       const recoveredEpochKey = unwrapEpochKey(recoveredPrivKey, at(epoch.memberWraps, 0).wrap);
-      expect(decryptMessage(recoveredEpochKey, msg)).toBe('Secret conversation');
+      expect(readMessage(recoveredEpochKey, msg)).toBe('Secret conversation');
 
       // Regenerate recovery phrase
       const regen = await regenerateRecoveryPhrase(originalPrivKey);
@@ -285,8 +309,8 @@ describe('integration', () => {
       const pub = x25519.getPublicKey(priv);
 
       const epoch = createFirstEpoch([pub]);
-      const msg1 = encryptMessageForStorage(epoch.epochPublicKey, 'Visible via link');
-      const msg2 = encryptMessageForStorage(epoch.epochPublicKey, 'Also visible');
+      const msg1 = storeMessage(epoch.epochPublicKey, 'Visible via link');
+      const msg2 = storeMessage(epoch.epochPublicKey, 'Also visible');
 
       // Create shared link
       const link = createSharedLink(epoch.epochPrivateKey);
@@ -300,8 +324,8 @@ describe('integration', () => {
       expect(epochKeyFromLink).toEqual(epoch.epochPrivateKey);
 
       // Link holder decrypts messages
-      expect(decryptMessage(epochKeyFromLink, msg1)).toBe('Visible via link');
-      expect(decryptMessage(epochKeyFromLink, msg2)).toBe('Also visible');
+      expect(readMessage(epochKeyFromLink, msg1)).toBe('Visible via link');
+      expect(readMessage(epochKeyFromLink, msg2)).toBe('Also visible');
 
       // Wrong secret derives wrong keys
       const wrongSecret = randomBytes(32);
@@ -313,41 +337,44 @@ describe('integration', () => {
     });
   });
 
-  describe('9. Message share — cryptographic isolation', () => {
-    it('share uses independent encryption, isolated from epoch keys', () => {
+  describe('9. Message share — wrap-once rewrap of content key', () => {
+    it('share rewraps the message content key under a shareSecret, same ciphertext decrypts', () => {
       const priv = randomBytes(32);
       const pub = x25519.getPublicKey(priv);
 
-      // Create epoch and encrypt a message
+      // Create epoch and store a message (wrap-once)
       const epoch = createFirstEpoch([pub]);
       const originalText = 'This message will be shared individually';
-      const epochBlob = encryptMessageForStorage(epoch.epochPublicKey, originalText);
+      const stored = storeMessage(epoch.epochPublicKey, originalText);
 
-      // Decrypt to get plaintext
-      const decrypted = decryptMessage(epoch.epochPrivateKey, epochBlob);
-      expect(decrypted).toBe(originalText);
+      // Member path: unwrap content key via epoch private key
+      const epochMemberContentKey = openMessageEnvelope(
+        epoch.epochPrivateKey,
+        stored.wrappedContentKey
+      );
+      expect(decryptTextWithContentKey(epochMemberContentKey, stored.ciphertext)).toBe(
+        originalText
+      );
 
-      // Create message share from plaintext
-      const share = createMessageShare(decrypted);
+      // Owner creates a share: rewraps the SAME content key under a new shareSecret
+      const share = createShare(epochMemberContentKey);
 
-      // Share holder decrypts
-      const fromShare = decryptMessageShare(share.shareSecret, share.shareBlob);
-      expect(fromShare).toBe(originalText);
+      // Share recipient: unwrap via shareSecret, decrypt the same ciphertext (no new R2 object, no new blob)
+      const shareRecipientKey = openShare(share.shareSecret, share.wrappedShareKey);
+      expect(shareRecipientKey).toEqual(epochMemberContentKey);
+      expect(decryptTextWithContentKey(shareRecipientKey, stored.ciphertext)).toBe(originalText);
 
-      // Epoch private key CANNOT decrypt shareBlob (different scheme: symmetric vs ECIES)
-      // shareBlob is symmetric (nonce||ct||tag), not ECIES (0x01||eph||ct||tag)
-      // Attempting ECIES decrypt will fail due to format mismatch
-      expect(() => decryptMessage(epoch.epochPrivateKey, share.shareBlob)).toThrow();
+      // The wrapped share key is NOT the content key itself
+      expect(share.wrappedShareKey).not.toEqual(epochMemberContentKey);
 
-      // shareSecret has no relationship to epoch keys (randomly generated)
-      // Prove: different share of same text produces different secret
-      const share2 = createMessageShare(decrypted);
+      // Two successive shares of the same content key produce distinct secrets and wraps
+      const share2 = createShare(epochMemberContentKey);
       expect(share2.shareSecret).not.toEqual(share.shareSecret);
-      expect(share2.shareBlob).not.toEqual(share.shareBlob);
+      expect(share2.wrappedShareKey).not.toEqual(share.wrappedShareKey);
 
-      // Wrong shareSecret CANNOT decrypt
+      // Wrong shareSecret CANNOT unwrap
       const wrongSecret = randomBytes(32);
-      expect(() => decryptMessageShare(wrongSecret, share.shareBlob)).toThrow(DecryptionError);
+      expect(() => openShare(wrongSecret, share.wrappedShareKey)).toThrow(DecryptionError);
     });
   });
 
@@ -358,13 +385,13 @@ describe('integration', () => {
       const bobPriv = randomBytes(32);
       const bobPub = x25519.getPublicKey(bobPriv);
 
-      // Epoch 1: Alice only, encrypt msg1
+      // Epoch 1: Alice only, store msg1
       const epoch1 = createFirstEpoch([alicePub]);
-      const msg1 = encryptMessageForStorage(epoch1.epochPublicKey, 'Before Bob joined');
+      const msg1 = storeMessage(epoch1.epochPublicKey, 'Before Bob joined');
 
-      // Rotate → epoch 2 (still Alice only), encrypt msg2
+      // Rotate → epoch 2 (still Alice only), store msg2
       const epoch2 = performEpochRotation(epoch1.epochPrivateKey, [alicePub]);
-      const msg2 = encryptMessageForStorage(epoch2.epochPublicKey, 'Still before Bob');
+      const msg2 = storeMessage(epoch2.epochPublicKey, 'Still before Bob');
 
       // Bob joins: admin wraps epoch 2 key for Bob
       const bobWrap = wrapEpochKeyForNewMember(epoch2.epochPrivateKey, bobPub);
@@ -374,14 +401,14 @@ describe('integration', () => {
       expect(bobEpoch2Key).toEqual(epoch2.epochPrivateKey);
 
       // Bob decrypts epoch 2 messages
-      expect(decryptMessage(bobEpoch2Key, msg2)).toBe('Still before Bob');
+      expect(readMessage(bobEpoch2Key, msg2)).toBe('Still before Bob');
 
       // Bob traverses chain link 2→1 to get epoch 1 key
       const bobEpoch1Key = traverseChainLink(bobEpoch2Key, epoch2.chainLink);
       expect(bobEpoch1Key).toEqual(epoch1.epochPrivateKey);
 
       // Bob decrypts epoch 1 messages (historical access)
-      expect(decryptMessage(bobEpoch1Key, msg1)).toBe('Before Bob joined');
+      expect(readMessage(bobEpoch1Key, msg1)).toBe('Before Bob joined');
     });
   });
 
@@ -392,9 +419,9 @@ describe('integration', () => {
 
       const privKey = unwrapAccountKeyWithPassword(exportKey1, account.passwordWrappedPrivateKey);
 
-      // Create epoch and encrypt a message
+      // Create epoch and store a message
       const epoch = createFirstEpoch([account.publicKey]);
-      const msg = encryptMessageForStorage(epoch.epochPublicKey, 'Important data');
+      const msg = storeMessage(epoch.epochPublicKey, 'Important data');
 
       // Change password
       const exportKey2 = randomBytes(64);
@@ -418,7 +445,7 @@ describe('integration', () => {
 
       // Recovered key can decrypt messages
       const epochKey = unwrapEpochKey(recoveredPrivKey, at(epoch.memberWraps, 0).wrap);
-      expect(decryptMessage(epochKey, msg)).toBe('Important data');
+      expect(readMessage(epochKey, msg)).toBe('Important data');
     });
   });
 
@@ -429,7 +456,7 @@ describe('integration', () => {
 
       // Epoch 1: create conversation with shared link
       const epoch1 = createFirstEpoch([ownerPub]);
-      const msg1 = encryptMessageForStorage(epoch1.epochPublicKey, 'Visible to link holder');
+      const msg1 = storeMessage(epoch1.epochPublicKey, 'Visible to link holder');
 
       // Create shared link for epoch 1
       const link = createSharedLink(epoch1.epochPrivateKey);
@@ -437,15 +464,15 @@ describe('integration', () => {
 
       // Link holder can decrypt epoch 1 messages
       const linkEpoch1Key = unwrapEpochKey(linkKeyPair.privateKey, link.linkWrap);
-      expect(decryptMessage(linkEpoch1Key, msg1)).toBe('Visible to link holder');
+      expect(readMessage(linkEpoch1Key, msg1)).toBe('Visible to link holder');
 
       // Revoke link: rotate to epoch 2 WITHOUT including link's public key
       const epoch2 = performEpochRotation(epoch1.epochPrivateKey, [ownerPub]);
-      const msg2 = encryptMessageForStorage(epoch2.epochPublicKey, 'After link revocation');
+      const msg2 = storeMessage(epoch2.epochPublicKey, 'After link revocation');
 
       // Owner can decrypt epoch 2 messages
       const ownerEpoch2Key = unwrapEpochKey(ownerPriv, at(epoch2.memberWraps, 0).wrap);
-      expect(decryptMessage(ownerEpoch2Key, msg2)).toBe('After link revocation');
+      expect(readMessage(ownerEpoch2Key, msg2)).toBe('After link revocation');
 
       // Link holder: NO wrap exists for link in epoch 2
       // epoch2.memberWraps only contains owner's wrap
@@ -455,7 +482,7 @@ describe('integration', () => {
       );
 
       // Link holder: CAN still decrypt epoch 1 messages with retained key
-      expect(decryptMessage(linkEpoch1Key, msg1)).toBe('Visible to link holder');
+      expect(readMessage(linkEpoch1Key, msg1)).toBe('Visible to link holder');
     });
   });
 });

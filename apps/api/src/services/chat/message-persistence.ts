@@ -2,7 +2,8 @@ import { type Database } from '@hushbox/db';
 import {
   assignSequenceNumbers,
   fetchEpochPublicKey,
-  insertEncryptedMessage,
+  insertEnvelopeTextMessage,
+  type InsertedTextContentItem,
   chargeAndTrackUsage,
   updateForkTip,
   validateParentMessageId,
@@ -18,9 +19,16 @@ export interface SaveUserOnlyMessageParams {
   forkId?: string;
 }
 
+export interface PersistedEnvelope {
+  messageId: string;
+  wrappedContentKey: Uint8Array;
+  contentItem: InsertedTextContentItem;
+}
+
 export interface SaveUserOnlyMessageResult {
   sequenceNumber: number;
   epochNumber: number;
+  envelope: PersistedEnvelope;
 }
 
 /**
@@ -51,23 +59,30 @@ export async function saveUserOnlyMessage(
       currentEpoch
     );
 
-    await insertEncryptedMessage(tx as unknown as Database, {
-      id: messageId,
-      conversationId,
-      content,
-      epochPublicKey,
-      epochNumber,
-      sequenceNumber: seq,
-      senderType: 'user',
-      senderId,
-      parentMessageId,
-    });
+    const { wrappedContentKey, contentItem } = await insertEnvelopeTextMessage(
+      tx as unknown as Database,
+      {
+        id: messageId,
+        conversationId,
+        textContent: content,
+        epochPublicKey,
+        epochNumber,
+        sequenceNumber: seq,
+        senderType: 'user',
+        senderId,
+        parentMessageId,
+      }
+    );
 
     if (forkId) {
       await updateForkTip(tx as unknown as Database, forkId, messageId);
     }
 
-    return { sequenceNumber: seq, epochNumber };
+    return {
+      sequenceNumber: seq,
+      epochNumber,
+      envelope: { messageId, wrappedContentKey, contentItem },
+    };
   });
 }
 
@@ -110,9 +125,14 @@ interface SaveChatTurnMultiParams extends SaveChatTurnBaseParams {
 export type SaveChatTurnParams = SaveChatTurnLegacyParams | SaveChatTurnMultiParams;
 
 export interface AssistantResult {
+  /** The canonical assistant message id (also present on envelope.messageId). */
+  assistantMessageId: string;
+  /** The AI model id (e.g. `openai/gpt-4o`). Needed by SSE done-event construction. */
+  model: string;
   aiSequence: number;
   cost: string;
   usageRecordId: string;
+  envelope: PersistedEnvelope;
 }
 
 export interface SaveChatTurnResult {
@@ -121,6 +141,7 @@ export interface SaveChatTurnResult {
   epochNumber: number;
   cost: string;
   usageRecordId: string;
+  userEnvelope: PersistedEnvelope;
   assistantResults: AssistantResult[];
 }
 
@@ -143,7 +164,7 @@ function normalizeAssistantMessages(params: SaveChatTurnParams): AssistantMessag
 
 /**
  * Atomically saves user + N assistant messages, assigns sequence numbers,
- * encrypts with epoch public key, and charges the user's wallet per model.
+ * encrypts each under a wrap-once envelope, and charges the user's wallet per model.
  *
  * All steps run inside a single database transaction. If any step fails,
  * the entire operation rolls back -- no partial state.
@@ -197,10 +218,10 @@ export async function saveChatTurn(
       currentEpoch
     );
 
-    await insertEncryptedMessage(tx as unknown as Database, {
+    const userPersisted = await insertEnvelopeTextMessage(tx as unknown as Database, {
       id: userMessageId,
       conversationId,
-      content: userContent,
+      textContent: userContent,
       epochPublicKey,
       epochNumber,
       sequenceNumber: userSeq,
@@ -218,16 +239,15 @@ export async function saveChatTurn(
         throw new Error(`invariant: expected sequence number at index ${String(1 + index)}`);
       const costAmount = msg.cost.toFixed(8);
 
-      await insertEncryptedMessage(tx as unknown as Database, {
+      const persisted = await insertEnvelopeTextMessage(tx as unknown as Database, {
         id: msg.id,
         conversationId,
-        content: msg.content,
+        textContent: msg.content,
         epochPublicKey,
         epochNumber,
         sequenceNumber: aiSeq,
         senderType: 'ai',
         modelName: msg.model,
-        payerId: userId,
         cost: costAmount,
         parentMessageId: userMessageId,
       });
@@ -244,7 +264,18 @@ export async function saveChatTurn(
         ...(groupBillingContext !== undefined && { groupBillingContext }),
       });
 
-      assistantResults.push({ aiSequence: aiSeq, cost: costAmount, usageRecordId });
+      assistantResults.push({
+        assistantMessageId: msg.id,
+        model: msg.model,
+        aiSequence: aiSeq,
+        cost: costAmount,
+        usageRecordId,
+        envelope: {
+          messageId: msg.id,
+          wrappedContentKey: persisted.wrappedContentKey,
+          contentItem: persisted.contentItem,
+        },
+      });
     }
 
     if (forkId) {
@@ -263,6 +294,11 @@ export async function saveChatTurn(
       epochNumber,
       cost: firstResult.cost,
       usageRecordId: firstResult.usageRecordId,
+      userEnvelope: {
+        messageId: userMessageId,
+        wrappedContentKey: userPersisted.wrappedContentKey,
+        contentItem: userPersisted.contentItem,
+      },
       assistantResults,
     };
   });

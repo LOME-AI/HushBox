@@ -1,8 +1,9 @@
-import { eq, and, desc, asc, gte, lt, or, isNull, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, gte, lt, or, isNull, inArray, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   conversations,
   messages,
+  contentItems,
   epochs,
   epochMembers,
   conversationMembers,
@@ -10,7 +11,73 @@ import {
   type Database,
   type Conversation,
   type Message,
+  type ContentItem,
 } from '@hushbox/db';
+
+/**
+ * A message row joined with all of its content_items rows.
+ * Content items are ordered by `position` within each message.
+ */
+export interface MessageWithContent extends Message {
+  contentItems: ContentItem[];
+}
+
+/**
+ * Fetches messages for a conversation and groups their content_items.
+ * One round-trip each for messages and content items; the second query
+ * uses `IN (...)` to get all content items in bulk.
+ */
+function buildMessagesWhereClause(
+  conversationId: string,
+  visibleFromEpoch?: number
+): ReturnType<typeof eq> {
+  const base = eq(messages.conversationId, conversationId);
+  if (visibleFromEpoch === undefined || visibleFromEpoch <= 1) return base;
+  // and() returns SQL | undefined; this usage is always defined because base is defined
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- and() with two defined operands always returns defined
+  return and(base, gte(messages.epochNumber, visibleFromEpoch))!;
+}
+
+function groupContentItemsByMessage(items: ContentItem[]): Map<string, ContentItem[]> {
+  const grouped = new Map<string, ContentItem[]>();
+  for (const item of items) {
+    const bucket = grouped.get(item.messageId);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      grouped.set(item.messageId, [item]);
+    }
+  }
+  return grouped;
+}
+
+export async function fetchMessagesWithContent(
+  db: Database,
+  conversationId: string,
+  visibleFromEpoch?: number
+): Promise<MessageWithContent[]> {
+  const rows = await db
+    .select()
+    .from(messages)
+    .where(buildMessagesWhereClause(conversationId, visibleFromEpoch))
+    .orderBy(asc(messages.sequenceNumber));
+
+  if (rows.length === 0) return [];
+
+  const messageIds = rows.map((m) => m.id);
+  const items = await db
+    .select()
+    .from(contentItems)
+    .where(inArray(contentItems.messageId, messageIds))
+    .orderBy(asc(contentItems.messageId), asc(contentItems.position));
+
+  const itemsByMessage = groupContentItemsByMessage(items);
+
+  return rows.map((msg) => ({
+    ...msg,
+    contentItems: itemsByMessage.get(msg.id) ?? [],
+  }));
+}
 
 export interface ConversationListRow {
   conversation: Conversation;
@@ -37,7 +104,7 @@ export interface CreateOrGetConversationParams {
 
 export interface CreateOrGetConversationResult {
   conversation: Conversation;
-  messages?: Message[] | undefined; // All messages when returning existing
+  messages?: MessageWithContent[] | undefined; // All messages when returning existing
   isNew: boolean; // true = created, false = existing
 }
 
@@ -236,12 +303,11 @@ export async function createOrGetConversation(
     const isNew = row.is_new;
 
     if (!isNew) {
-      // Existing conversation - fetch all messages
-      const existingMessages = await tx
-        .select()
-        .from(messages)
-        .where(eq(messages.conversationId, conversation.id))
-        .orderBy(asc(messages.sequenceNumber));
+      // Existing conversation - fetch all messages with their content items
+      const existingMessages = await fetchMessagesWithContent(
+        tx as unknown as Database,
+        conversation.id
+      );
 
       return { conversation, messages: existingMessages, isNew: false };
     }
@@ -286,7 +352,7 @@ export async function createOrGetConversation(
 
 export interface ConversationForMember {
   conversation: Conversation;
-  messages: Message[];
+  messages: MessageWithContent[];
   acceptedAt: Date | null;
   invitedByUsername: string | null;
 }
@@ -315,18 +381,7 @@ export async function getConversationForMember(
     return null;
   }
 
-  const conversationMessages = await db
-    .select()
-    .from(messages)
-    .where(
-      visibleFromEpoch > 1
-        ? and(
-            eq(messages.conversationId, conversationId),
-            gte(messages.epochNumber, visibleFromEpoch)
-          )
-        : eq(messages.conversationId, conversationId)
-    )
-    .orderBy(asc(messages.sequenceNumber));
+  const conversationMessages = await fetchMessagesWithContent(db, conversationId, visibleFromEpoch);
 
   if (!userId) {
     return {

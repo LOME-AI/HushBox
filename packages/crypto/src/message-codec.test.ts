@@ -1,8 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { encodeForEncryption, decodeFromDecryption } from './message-codec.js';
+import {
+  encodeForEncryption,
+  decodeFromDecryption,
+  encodeBinary,
+  decodeBinary,
+} from './message-codec.js';
+import { InvalidBlobError } from './errors.js';
 
 const FLAG_UNCOMPRESSED = 0x00;
 const FLAG_COMPRESSED = 0x01;
+const FLAG_BINARY_UNCOMPRESSED = 0x02;
 
 describe('message-codec', () => {
   describe('encodeForEncryption', () => {
@@ -116,6 +123,76 @@ describe('message-codec', () => {
       const decoded = decodeFromDecryption(encoded);
 
       expect(decoded).toBe(text);
+    });
+  });
+
+  describe('encodeBinary', () => {
+    it('prepends 0x02 binary flag', () => {
+      const bytes = new Uint8Array([1, 2, 3, 4]);
+
+      const encoded = encodeBinary(bytes);
+
+      expect(encoded[0]).toBe(FLAG_BINARY_UNCOMPRESSED);
+      expect(encoded.length).toBe(bytes.length + 1);
+    });
+
+    it('stores bytes verbatim with no compression', () => {
+      const bytes = new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0]);
+
+      const encoded = encodeBinary(bytes);
+
+      expect(encoded.subarray(1)).toEqual(bytes);
+    });
+
+    it('handles empty bytes', () => {
+      const encoded = encodeBinary(new Uint8Array(0));
+
+      expect(encoded.length).toBe(1);
+      expect(encoded[0]).toBe(FLAG_BINARY_UNCOMPRESSED);
+    });
+  });
+
+  describe('decodeBinary', () => {
+    it('strips the flag byte and returns the original bytes', () => {
+      const bytes = new Uint8Array([9, 8, 7, 6, 5]);
+      const encoded = encodeBinary(bytes);
+
+      const decoded = decodeBinary(encoded);
+
+      expect(decoded).toEqual(bytes);
+    });
+
+    it('round-trips empty bytes', () => {
+      const encoded = encodeBinary(new Uint8Array(0));
+
+      const decoded = decodeBinary(encoded);
+
+      expect(decoded.length).toBe(0);
+    });
+
+    it('throws InvalidBlobError on wrong flag', () => {
+      const payload = new Uint8Array([FLAG_UNCOMPRESSED, 1, 2, 3]);
+
+      expect(() => decodeBinary(payload)).toThrow(InvalidBlobError);
+    });
+
+    it('throws InvalidBlobError on empty payload', () => {
+      expect(() => decodeBinary(new Uint8Array(0))).toThrow(InvalidBlobError);
+    });
+  });
+
+  describe('flag isolation', () => {
+    it('decodeFromDecryption throws on a binary flag payload', () => {
+      const bytes = new Uint8Array([1, 2, 3]);
+      const binary = encodeBinary(bytes);
+
+      expect(() => decodeFromDecryption(binary)).toThrow(InvalidBlobError);
+    });
+
+    it('decodeBinary throws on a text payload', () => {
+      const text = encodeForEncryption('hello');
+
+      expect(() => decodeBinary(text)).toThrow(InvalidBlobError);
     });
   });
 });

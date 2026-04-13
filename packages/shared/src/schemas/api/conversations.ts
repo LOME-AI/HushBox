@@ -143,23 +143,56 @@ export const conversationListItemSchema = conversationResponseSchema.extend({
 export type ConversationListItem = z.infer<typeof conversationListItemSchema>;
 
 /**
+ * Schema for a single content item inside a message.
+ * Text items carry `encryptedBlob` (base64) inline. Media items (image/audio/video)
+ * carry `storageKey` + mime/size/dimensions and are fetched via presigned GET URLs.
+ * Fields not applicable to a given `contentType` are null.
+ */
+export const contentItemResponseSchema = z.object({
+  id: z.string(),
+  contentType: z.enum(['text', 'image', 'audio', 'video']),
+  position: z.number().int().nonnegative(),
+
+  /** Base64-encoded symmetric ciphertext under the parent message's content key. Set for text items, null for media. */
+  encryptedBlob: z.string().nullable(),
+
+  /** R2 object key for media items. Null for text items. */
+  storageKey: z.string().nullable(),
+  mimeType: z.string().nullable(),
+  sizeBytes: z.number().int().nullable(),
+  width: z.number().int().nullable(),
+  height: z.number().int().nullable(),
+  durationMs: z.number().int().nullable(),
+
+  /** AI generation metadata. Null for user-authored content. */
+  modelName: z.string().nullable(),
+  cost: z.string().nullable(),
+  isSmartModel: z.boolean(),
+});
+
+export type ContentItemResponse = z.infer<typeof contentItemResponseSchema>;
+
+/**
  * Schema for a message entity in API responses.
- * Uses epoch-based ECIES encryption model.
- * encryptedBlob is base64-encoded ECIES blob.
+ *
+ * Under the wrap-once envelope model, each message has one `wrappedContentKey`
+ * (ECIES-wrapped under the epoch public key) plus one or more `contentItems`
+ * encrypted symmetrically under the unwrapped content key. Clients unwrap the
+ * content key once and decrypt every content item with it.
  */
 export const messageResponseSchema = z.object({
   id: z.string(),
   conversationId: z.string(),
-  encryptedBlob: z.string(), // base64-encoded ECIES blob
+  /** Base64-encoded ECIES-wrapped content key for this message. */
+  wrappedContentKey: z.string(),
   senderType: z.enum(['user', 'ai']),
   senderId: z.string().nullable(),
-  modelName: z.string().nullable(),
-  payerId: z.string().nullable(),
-  cost: z.string().nullable(),
   epochNumber: z.number().int().min(1),
   sequenceNumber: z.number().int().nonnegative(),
   parentMessageId: z.string().nullable(),
   createdAt: z.string(),
+  /** Discrete content items belonging to this message, ordered by position. */
+  contentItems: z.array(contentItemResponseSchema),
 });
 
 export type MessageResponse = z.infer<typeof messageResponseSchema>;

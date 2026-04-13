@@ -5,6 +5,7 @@ import {
   LOCAL_NEON_DEV_CONFIG,
   users,
   messages,
+  contentItems,
   conversations,
   conversationMembers,
   epochs,
@@ -71,7 +72,8 @@ async function createTestSetup(db: Database): Promise<TestSetup> {
   };
 }
 
-const encryptedBlob = placeholderBytes(64);
+const textBlob = placeholderBytes(64);
+const wrappedContentKey = placeholderBytes(81);
 
 /** Generates a unique message ID to avoid PK collisions across test runs. */
 function msgId(): string {
@@ -92,13 +94,20 @@ async function insertMessage(
   await db.insert(messages).values({
     id: params.id,
     conversationId: params.conversationId,
-    encryptedBlob,
+    wrappedContentKey,
     senderType: params.senderType,
     senderId: params.senderId,
-    ...(params.senderType === 'ai' ? { modelName: 'test-model' } : {}),
     epochNumber: 1,
     sequenceNumber: params.sequenceNumber,
     parentMessageId: params.parentMessageId ?? undefined,
+  });
+  await db.insert(contentItems).values({
+    messageId: params.id,
+    contentType: 'text',
+    position: 0,
+    encryptedBlob: textBlob,
+    ...(params.senderType === 'ai' ? { modelName: 'test-model' } : {}),
+    isSmartModel: false,
   });
 }
 

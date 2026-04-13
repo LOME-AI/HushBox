@@ -679,255 +679,166 @@ describe('conversationResponseSchema', () => {
   });
 });
 
+// Helper: build a valid MessageResponse-shaped object with one text content
+// item. Override any field for the specific test case.
+function buildMessageResponse(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const contentItemOverrides = overrides['contentItemOverrides'] as
+    | Record<string, unknown>
+    | undefined;
+  const base: Record<string, unknown> = {
+    id: 'msg-123',
+    conversationId: 'conv-456',
+    wrappedContentKey: 'base64wrappedkey',
+    senderType: 'user',
+    senderId: 'user-789',
+    epochNumber: 1,
+    sequenceNumber: 0,
+    parentMessageId: null,
+    createdAt: '2024-01-01T00:00:00Z',
+    contentItems: [
+      {
+        id: 'ci-1',
+        contentType: 'text',
+        position: 0,
+        encryptedBlob: 'base64blob',
+        storageKey: null,
+        mimeType: null,
+        sizeBytes: null,
+        width: null,
+        height: null,
+        durationMs: null,
+        modelName: null,
+        cost: null,
+        isSmartModel: false,
+        ...contentItemOverrides,
+      },
+    ],
+  };
+  const rest = Object.fromEntries(
+    Object.entries(overrides).filter(([key]) => key !== 'contentItemOverrides')
+  );
+  return { ...base, ...rest };
+}
+
 describe('messageResponseSchema', () => {
-  it('accepts valid epoch-based message with parentMessageId', () => {
-    const result = messageResponseSchema.parse({
-      id: 'msg-123',
-      conversationId: 'conv-456',
-      encryptedBlob: 'base64eciesblob',
-      senderType: 'user',
-      senderId: 'user-789',
-      modelName: 'Alice',
-      payerId: null,
-      cost: null,
-      epochNumber: 1,
-      sequenceNumber: 0,
-      parentMessageId: null,
-      createdAt: '2024-01-01T00:00:00Z',
-    });
+  it('accepts a valid wrap-once message with one text content item', () => {
+    const result = messageResponseSchema.parse(
+      buildMessageResponse({
+        contentItemOverrides: { modelName: 'Alice' },
+      })
+    );
     expect(result.id).toBe('msg-123');
-    expect(result.encryptedBlob).toBe('base64eciesblob');
+    expect(result.wrappedContentKey).toBe('base64wrappedkey');
     expect(result.senderType).toBe('user');
     expect(result.senderId).toBe('user-789');
-    expect(result.modelName).toBe('Alice');
-    expect(result.payerId).toBeNull();
-    expect(result.cost).toBeNull();
+    expect(result.contentItems).toHaveLength(1);
+    expect(result.contentItems[0]!.contentType).toBe('text');
+    expect(result.contentItems[0]!.encryptedBlob).toBe('base64blob');
+    expect(result.contentItems[0]!.modelName).toBe('Alice');
+    expect(result.contentItems[0]!.cost).toBeNull();
     expect(result.epochNumber).toBe(1);
     expect(result.sequenceNumber).toBe(0);
     expect(result.parentMessageId).toBeNull();
   });
 
   it('accepts message with non-null parentMessageId', () => {
-    const result = messageResponseSchema.parse({
-      id: 'msg-124',
-      conversationId: 'conv-456',
-      encryptedBlob: 'base64blob',
-      senderType: 'ai',
-      senderId: null,
-      modelName: null,
-      payerId: 'user-789',
-      cost: '0.00136000',
-      epochNumber: 1,
-      sequenceNumber: 1,
-      parentMessageId: 'msg-123',
-      createdAt: '2024-01-01T00:00:00Z',
-    });
+    const result = messageResponseSchema.parse(
+      buildMessageResponse({
+        id: 'msg-124',
+        senderType: 'ai',
+        senderId: null,
+        sequenceNumber: 1,
+        parentMessageId: 'msg-123',
+        contentItemOverrides: { cost: '0.00136000' },
+      })
+    );
     expect(result.parentMessageId).toBe('msg-123');
+    expect(result.contentItems[0]!.cost).toBe('0.00136000');
   });
 
-  it('accepts AI message with null senderId and payerId', () => {
-    const result = messageResponseSchema.parse({
-      id: 'msg-124',
-      conversationId: 'conv-456',
-      encryptedBlob: 'base64airesponseblob',
-      senderType: 'ai',
-      senderId: null,
-      modelName: null,
-      payerId: 'user-789',
-      cost: '0.00136000',
-      epochNumber: 1,
-      sequenceNumber: 1,
-      parentMessageId: null,
-      createdAt: '2024-01-01T00:00:00Z',
-    });
+  it('accepts AI message with null senderId and AI-authored content item', () => {
+    const result = messageResponseSchema.parse(
+      buildMessageResponse({
+        id: 'msg-124',
+        senderType: 'ai',
+        senderId: null,
+        sequenceNumber: 1,
+        contentItemOverrides: {
+          modelName: 'anthropic/claude-sonnet-4.6',
+          cost: '0.00136000',
+        },
+      })
+    );
     expect(result.senderType).toBe('ai');
     expect(result.senderId).toBeNull();
-    expect(result.modelName).toBeNull();
-    expect(result.payerId).toBe('user-789');
-    expect(result.cost).toBe('0.00136000');
+    expect(result.contentItems[0]!.modelName).toBe('anthropic/claude-sonnet-4.6');
+    expect(result.contentItems[0]!.cost).toBe('0.00136000');
   });
 
-  it('accepts message with null cost (user messages)', () => {
-    const result = messageResponseSchema.parse({
-      id: 'msg-125',
-      conversationId: 'conv-456',
-      encryptedBlob: 'base64blob',
-      senderType: 'user',
-      senderId: 'user-789',
-      modelName: null,
-      payerId: null,
-      cost: null,
-      epochNumber: 1,
-      sequenceNumber: 0,
-      parentMessageId: null,
-      createdAt: '2024-01-01T00:00:00Z',
-    });
-    expect(result.cost).toBeNull();
+  it('accepts a user message whose content item has null cost', () => {
+    const result = messageResponseSchema.parse(
+      buildMessageResponse({
+        id: 'msg-125',
+        contentItemOverrides: { cost: null },
+      })
+    );
+    expect(result.contentItems[0]!.cost).toBeNull();
   });
 
   it('rejects invalid senderType', () => {
     expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'system',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 1,
-        sequenceNumber: 0,
-        parentMessageId: null,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
+      messageResponseSchema.parse(buildMessageResponse({ senderType: 'system' }))
     ).toThrow();
   });
 
-  it('rejects missing encryptedBlob', () => {
-    expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 1,
-        sequenceNumber: 0,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
-    ).toThrow();
+  it('rejects missing wrappedContentKey', () => {
+    const msg = buildMessageResponse();
+    delete msg['wrappedContentKey'];
+    expect(() => messageResponseSchema.parse(msg)).toThrow();
   });
 
   it('rejects non-integer epochNumber', () => {
-    expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 1.5,
-        sequenceNumber: 0,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
-    ).toThrow();
+    expect(() => messageResponseSchema.parse(buildMessageResponse({ epochNumber: 1.5 }))).toThrow();
   });
 
   it('rejects non-integer sequenceNumber', () => {
     expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 1,
-        sequenceNumber: 0.5,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
+      messageResponseSchema.parse(buildMessageResponse({ sequenceNumber: 0.5 }))
     ).toThrow();
   });
 
   it('rejects missing epochNumber', () => {
-    expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        sequenceNumber: 0,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
-    ).toThrow();
+    const msg = buildMessageResponse();
+    delete msg['epochNumber'];
+    expect(() => messageResponseSchema.parse(msg)).toThrow();
   });
 
   it('rejects zero epochNumber', () => {
-    expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 0,
-        sequenceNumber: 0,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
-    ).toThrow();
+    expect(() => messageResponseSchema.parse(buildMessageResponse({ epochNumber: 0 }))).toThrow();
   });
 
   it('rejects negative sequenceNumber', () => {
     expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 1,
-        sequenceNumber: -1,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
+      messageResponseSchema.parse(buildMessageResponse({ sequenceNumber: -1 }))
     ).toThrow();
   });
 
   it('rejects missing sequenceNumber', () => {
-    expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 1,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
-    ).toThrow();
+    const msg = buildMessageResponse();
+    delete msg['sequenceNumber'];
+    expect(() => messageResponseSchema.parse(msg)).toThrow();
   });
 
-  it('does not accept old DEK fields (role, content, iv, pendingReEncryption)', () => {
-    // Old fields should be stripped by Zod (object strips unknown keys)
-    const result = messageResponseSchema.parse({
-      id: 'msg-123',
-      conversationId: 'conv-456',
-      encryptedBlob: 'base64eciesblob',
-      senderType: 'user',
-      senderId: null,
-      modelName: null,
-      payerId: null,
-      cost: null,
-      epochNumber: 1,
-      sequenceNumber: 0,
-      parentMessageId: null,
-      createdAt: '2024-01-01T00:00:00Z',
-      // old fields — should be stripped
-      role: 'user',
-      content: 'plaintext',
-      iv: 'oldiv',
-      pendingReEncryption: false,
-    });
+  it('strips unknown old DEK fields like role/content/iv', () => {
+    // Zod object strips unknown keys by default
+    const result = messageResponseSchema.parse(
+      buildMessageResponse({
+        role: 'user',
+        content: 'plaintext',
+        iv: 'oldiv',
+        pendingReEncryption: false,
+      })
+    );
     expect('role' in result).toBe(false);
     expect('content' in result).toBe(false);
     expect('iv' in result).toBe(false);
@@ -1197,20 +1108,7 @@ describe('getConversationResponseSchema', () => {
         updatedAt: '2024-01-01T00:00:00Z',
       },
       messages: [
-        {
-          id: 'msg-1',
-          conversationId: 'conv-123',
-          encryptedBlob: 'base64blob',
-          senderType: 'user',
-          senderId: 'user-456',
-          modelName: 'Alice',
-          payerId: null,
-          cost: null,
-          epochNumber: 1,
-          sequenceNumber: 0,
-          parentMessageId: null,
-          createdAt: '2024-01-01T00:00:00Z',
-        },
+        buildMessageResponse({ id: 'msg-1', conversationId: 'conv-123', senderId: 'user-456' }),
       ],
       accepted: true,
       invitedByUsername: null,
@@ -1426,20 +1324,7 @@ describe('createConversationResponseSchema', () => {
     const result = createConversationResponseSchema.parse({
       conversation: validConversation,
       messages: [
-        {
-          id: 'msg-1',
-          conversationId: 'conv-123',
-          encryptedBlob: 'base64blob',
-          senderType: 'user',
-          senderId: 'user-456',
-          modelName: 'Alice',
-          payerId: null,
-          cost: null,
-          epochNumber: 1,
-          sequenceNumber: 0,
-          parentMessageId: null,
-          createdAt: '2024-01-01T00:00:00Z',
-        },
+        buildMessageResponse({ id: 'msg-1', conversationId: 'conv-123', senderId: 'user-456' }),
       ],
       isNew: false,
       accepted: true,
@@ -1452,20 +1337,11 @@ describe('createConversationResponseSchema', () => {
   it('does not have a singular message field', () => {
     const result = createConversationResponseSchema.parse({
       conversation: validConversation,
-      message: {
+      message: buildMessageResponse({
         id: 'msg-1',
         conversationId: 'conv-123',
-        encryptedBlob: 'base64blob',
-        senderType: 'user',
         senderId: 'user-456',
-        modelName: 'Alice',
-        payerId: null,
-        cost: null,
-        epochNumber: 1,
-        sequenceNumber: 0,
-        parentMessageId: null,
-        createdAt: '2024-01-01T00:00:00Z',
-      },
+      }),
       isNew: true,
       accepted: true,
       invitedByUsername: null,

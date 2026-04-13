@@ -31,6 +31,44 @@ export function parseSSELine(line: string): SSELineResult | null {
   return null;
 }
 
+/**
+ * A single content item delivered in the SSE done event. Mirrors the
+ * server-side shape in `apps/api/src/lib/stream-handler.ts`.
+ */
+export interface DoneContentItem {
+  id: string;
+  contentType: 'text' | 'image' | 'audio' | 'video';
+  position: number;
+  /** Base64-encoded symmetric ciphertext under the message content key. Text items only. */
+  encryptedBlob?: string | null;
+  storageKey?: string | null;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  durationMs?: number | null;
+  modelName: string | null;
+  cost: string | null;
+  isSmartModel: boolean;
+}
+
+/**
+ * Wrap-once envelope for a single persisted message delivered in the SSE done
+ * event. Clients unwrap `wrappedContentKey` once with the epoch private key
+ * and decrypt every content item with the resulting content key.
+ */
+export interface DoneMessageEnvelope {
+  wrappedContentKey: string;
+  contentItems: DoneContentItem[];
+}
+
+export interface DoneModelEntry extends DoneMessageEnvelope {
+  modelId: string;
+  assistantMessageId: string;
+  aiSequence: number;
+  cost: string;
+}
+
 export interface DoneEventData {
   userMessageId: string;
   assistantMessageId: string;
@@ -38,6 +76,10 @@ export interface DoneEventData {
   aiSequence: number;
   epochNumber: number;
   cost: string;
+  /** Envelope for the user message itself (sender_type='user'). */
+  userEnvelope?: DoneMessageEnvelope;
+  /** Per-model envelopes + metadata, one entry per selected assistant message. */
+  models?: DoneModelEntry[];
 }
 
 export interface ModelTokenData {

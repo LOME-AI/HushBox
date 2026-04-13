@@ -11,7 +11,6 @@ export const sharedMessages = pgTable('shared_messages', {
   messageId: text('message_id')
     .notNull()
     .references(() => messages.id, { onDelete: 'cascade' }),
-  // eslint-disable-next-line no-secrets/no-secrets -- false positive on column name
-  shareBlob: bytea('share_blob').notNull(),
+  wrappedContentKey: bytea('wrapped_content_key').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });

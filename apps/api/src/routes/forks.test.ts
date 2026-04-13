@@ -7,6 +7,7 @@ import {
   LOCAL_NEON_DEV_CONFIG,
   conversations,
   messages,
+  contentItems,
   users,
   epochs,
   epochMembers,
@@ -193,12 +194,12 @@ describe('fork routes', () => {
       acceptedAt: new Date(),
     });
 
-    // Create messages: m1 (user) → m2 (ai) → m3 (user)
+    // Create messages: m1 (user) → m2 (ai) → m3 (user) under the wrap-once envelope model.
     await db.insert(messages).values([
       {
         id: msgId1,
         conversationId: convId,
-        encryptedBlob: toBytes('message-1'),
+        wrappedContentKey: placeholderBytes(81),
         senderType: 'user',
         senderId: ownerId,
         epochNumber: 1,
@@ -208,9 +209,8 @@ describe('fork routes', () => {
       {
         id: msgId2,
         conversationId: convId,
-        encryptedBlob: toBytes('message-2'),
+        wrappedContentKey: placeholderBytes(81),
         senderType: 'ai',
-        modelName: 'test-model',
         epochNumber: 1,
         sequenceNumber: 2,
         parentMessageId: msgId1,
@@ -218,12 +218,36 @@ describe('fork routes', () => {
       {
         id: msgId3,
         conversationId: convId,
-        encryptedBlob: toBytes('message-3'),
+        wrappedContentKey: placeholderBytes(81),
         senderType: 'user',
         senderId: ownerId,
         epochNumber: 1,
         sequenceNumber: 3,
         parentMessageId: msgId2,
+      },
+    ]);
+    await db.insert(contentItems).values([
+      {
+        messageId: msgId1,
+        contentType: 'text',
+        position: 0,
+        encryptedBlob: toBytes('message-1'),
+        isSmartModel: false,
+      },
+      {
+        messageId: msgId2,
+        contentType: 'text',
+        position: 0,
+        encryptedBlob: toBytes('message-2'),
+        modelName: 'test-model',
+        isSmartModel: false,
+      },
+      {
+        messageId: msgId3,
+        contentType: 'text',
+        position: 0,
+        encryptedBlob: toBytes('message-3'),
+        isSmartModel: false,
       },
     ]);
   });
@@ -570,12 +594,19 @@ describe('fork routes', () => {
       await db.insert(messages).values({
         id: soloMsgId,
         conversationId: soloConvId,
-        encryptedBlob: toBytes('solo message'),
+        wrappedContentKey: placeholderBytes(81),
         senderType: 'user',
         senderId: ownerId,
         epochNumber: 1,
         sequenceNumber: 1,
         parentMessageId: null,
+      });
+      await db.insert(contentItems).values({
+        messageId: soloMsgId,
+        contentType: 'text',
+        position: 0,
+        encryptedBlob: toBytes('solo message'),
+        isSmartModel: false,
       });
     });
 

@@ -9,6 +9,12 @@ interface ShareMessageModalProps {
   onOpenChange: (open: boolean) => void;
   messageId: string | null;
   messageContent: string | null;
+  /** Conversation the message belongs to — needed to look up the epoch key. */
+  conversationId: string | null;
+  /** Epoch number the message was encrypted under. */
+  epochNumber: number | null;
+  /** Base64-encoded wrapped content key from the message envelope. */
+  wrappedContentKey: string | null;
 }
 
 interface ShareContentInput {
@@ -101,21 +107,16 @@ export function ShareMessageModal({
   onOpenChange,
   messageId,
   messageContent,
+  conversationId,
+  epochNumber,
+  wrappedContentKey,
 }: Readonly<ShareMessageModalProps>): React.JSX.Element {
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const share = useMessageShare();
-  const mutateAsync = (
-    share as {
-      mutateAsync: (args: {
-        messageId: string;
-        plaintextContent: string;
-      }) => Promise<{ shareId: string; url: string }>;
-      isPending: boolean;
-    }
-  ).mutateAsync;
-  const isPending = (share as { isPending: boolean }).isPending;
+  const mutateAsync = share.mutateAsync;
+  const isPending = share.isPending;
 
   // Reset state when modal reopens
   const [previousOpen, setPreviousOpen] = useState(open);
@@ -125,11 +126,21 @@ export function ShareMessageModal({
   }
 
   async function handleCreate(): Promise<void> {
-    if (!messageId || !messageContent) return;
+    if (
+      !messageId ||
+      !messageContent ||
+      !conversationId ||
+      epochNumber == null ||
+      !wrappedContentKey
+    ) {
+      return;
+    }
 
     const result = await mutateAsync({
       messageId,
-      plaintextContent: messageContent,
+      conversationId,
+      epochNumber,
+      wrappedContentKey,
     });
 
     setGeneratedUrl(result.url);

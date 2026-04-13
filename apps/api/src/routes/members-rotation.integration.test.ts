@@ -10,6 +10,7 @@ import {
   conversationMembers,
   sharedLinks,
   messages,
+  contentItems,
   type Database,
 } from '@hushbox/db';
 import { userFactory } from '@hushbox/db/factories';
@@ -21,6 +22,10 @@ import {
   unwrapEpochKey,
   traverseChainLink,
   decryptMessage,
+  beginMessageEnvelope,
+  openMessageEnvelope,
+  encryptTextWithContentKey,
+  decryptTextWithContentKey,
 } from '@hushbox/crypto';
 import {
   createOrGetConversation,
@@ -368,14 +373,24 @@ describe('member rotation integration', () => {
       owner.publicKey
     );
 
+    const env1a = beginMessageEnvelope(epoch1Result.epochPublicKey);
+    const blob1a = encryptTextWithContentKey(env1a.contentKey, 'epoch 1 message');
+    const msg1aId = crypto.randomUUID();
     await db.insert(messages).values({
-      id: crypto.randomUUID(),
+      id: msg1aId,
       conversationId,
-      encryptedBlob: encryptMessageForStorage(epoch1Result.epochPublicKey, 'epoch 1 message'),
+      wrappedContentKey: env1a.wrappedContentKey,
       senderType: 'user',
       senderId: owner.id,
       epochNumber: 1,
       sequenceNumber: 1,
+    });
+    await db.insert(contentItems).values({
+      messageId: msg1aId,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: blob1a,
+      isSmartModel: false,
     });
 
     const rotation12 = performEpochRotation(epoch1Result.epochPrivateKey, [owner.publicKey]);
@@ -414,14 +429,24 @@ describe('member rotation integration', () => {
       visibleFromEpoch: 2,
     });
 
+    const env2a = beginMessageEnvelope(rotation12.epochPublicKey);
+    const blob2a = encryptTextWithContentKey(env2a.contentKey, 'epoch 2 message');
+    const msg2aId = crypto.randomUUID();
     await db.insert(messages).values({
-      id: crypto.randomUUID(),
+      id: msg2aId,
       conversationId,
-      encryptedBlob: encryptMessageForStorage(rotation12.epochPublicKey, 'epoch 2 message'),
+      wrappedContentKey: env2a.wrappedContentKey,
       senderType: 'user',
       senderId: owner.id,
       epochNumber: 2,
       sequenceNumber: 2,
+    });
+    await db.insert(contentItems).values({
+      messageId: msg2aId,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: blob2a,
+      isSmartModel: false,
     });
 
     const memberBKeyChain = await getKeyChain(db, conversationId, memberB.publicKey);
@@ -460,12 +485,11 @@ describe('member rotation integration', () => {
       defined(kcC.chainLinks[0]).chainLink
     );
 
-    const msg1 = decryptMessage(
-      epoch1PrivateKey,
-      defined(
-        defined(await getConversationForMember(db, conversationId, 1, memberC.id)).messages[0]
-      ).encryptedBlob
+    const msgRow1 = defined(
+      defined(await getConversationForMember(db, conversationId, 1, memberC.id)).messages[0]
     );
+    const ck1 = openMessageEnvelope(epoch1PrivateKey, msgRow1.wrappedContentKey);
+    const msg1 = decryptTextWithContentKey(ck1, defined(msgRow1.contentItems[0]).encryptedBlob!);
     expect(msg1).toBe('epoch 1 message');
   });
 
@@ -694,14 +718,24 @@ describe('member rotation integration', () => {
       owner.publicKey
     );
 
+    const envE1 = beginMessageEnvelope(epoch1Result.epochPublicKey);
+    const blobE1 = encryptTextWithContentKey(envE1.contentKey, 'msg epoch 1');
+    const msgE1Id = crypto.randomUUID();
     await db.insert(messages).values({
-      id: crypto.randomUUID(),
+      id: msgE1Id,
       conversationId,
-      encryptedBlob: encryptMessageForStorage(epoch1Result.epochPublicKey, 'msg epoch 1'),
+      wrappedContentKey: envE1.wrappedContentKey,
       senderType: 'user',
       senderId: owner.id,
       epochNumber: 1,
       sequenceNumber: 1,
+    });
+    await db.insert(contentItems).values({
+      messageId: msgE1Id,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: blobE1,
+      isSmartModel: false,
     });
 
     const rotation12 = performEpochRotation(epoch1Result.epochPrivateKey, [
@@ -746,14 +780,24 @@ describe('member rotation integration', () => {
       encryptedTitle: encryptMessageForStorage(rotation12.epochPublicKey, 'Title 2'),
     });
 
+    const envE2 = beginMessageEnvelope(rotation12.epochPublicKey);
+    const blobE2 = encryptTextWithContentKey(envE2.contentKey, 'msg epoch 2');
+    const msgE2Id = crypto.randomUUID();
     await db.insert(messages).values({
-      id: crypto.randomUUID(),
+      id: msgE2Id,
       conversationId,
-      encryptedBlob: encryptMessageForStorage(rotation12.epochPublicKey, 'msg epoch 2'),
+      wrappedContentKey: envE2.wrappedContentKey,
       senderType: 'user',
       senderId: owner.id,
       epochNumber: 2,
       sequenceNumber: 2,
+    });
+    await db.insert(contentItems).values({
+      messageId: msgE2Id,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: blobE2,
+      isSmartModel: false,
     });
 
     const rotation23 = performEpochRotation(rotation12.epochPrivateKey, [owner.publicKey]);
@@ -785,14 +829,24 @@ describe('member rotation integration', () => {
       encryptedTitle: encryptMessageForStorage(rotation23.epochPublicKey, 'Title 3'),
     });
 
+    const envE3 = beginMessageEnvelope(rotation23.epochPublicKey);
+    const blobE3 = encryptTextWithContentKey(envE3.contentKey, 'msg epoch 3');
+    const msgE3Id = crypto.randomUUID();
     await db.insert(messages).values({
-      id: crypto.randomUUID(),
+      id: msgE3Id,
       conversationId,
-      encryptedBlob: encryptMessageForStorage(rotation23.epochPublicKey, 'msg epoch 3'),
+      wrappedContentKey: envE3.wrappedContentKey,
       senderType: 'user',
       senderId: owner.id,
       epochNumber: 3,
       sequenceNumber: 3,
+    });
+    await db.insert(contentItems).values({
+      messageId: msgE3Id,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: blobE3,
+      isSmartModel: false,
     });
 
     await db.insert(conversationMembers).values({
@@ -830,9 +884,18 @@ describe('member rotation integration', () => {
     const msgs = defined(memberCConversation).messages;
     expect(msgs).toHaveLength(3);
 
-    expect(decryptMessage(epoch1PrivateKey, defined(msgs[0]).encryptedBlob)).toBe('msg epoch 1');
-    expect(decryptMessage(epoch2PrivateKey, defined(msgs[1]).encryptedBlob)).toBe('msg epoch 2');
-    expect(decryptMessage(epoch3PrivateKey, defined(msgs[2]).encryptedBlob)).toBe('msg epoch 3');
+    const ckE1 = openMessageEnvelope(epoch1PrivateKey, defined(msgs[0]).wrappedContentKey);
+    expect(
+      decryptTextWithContentKey(ckE1, defined(defined(msgs[0]).contentItems[0]).encryptedBlob!)
+    ).toBe('msg epoch 1');
+    const ckE2 = openMessageEnvelope(epoch2PrivateKey, defined(msgs[1]).wrappedContentKey);
+    expect(
+      decryptTextWithContentKey(ckE2, defined(defined(msgs[1]).contentItems[0]).encryptedBlob!)
+    ).toBe('msg epoch 2');
+    const ckE3 = openMessageEnvelope(epoch3PrivateKey, defined(msgs[2]).wrappedContentKey);
+    expect(
+      decryptTextWithContentKey(ckE3, defined(defined(msgs[2]).contentItems[0]).encryptedBlob!)
+    ).toBe('msg epoch 3');
   });
 
   it('idempotent retry of add-without-history', async () => {
@@ -975,14 +1038,24 @@ describe('member rotation integration', () => {
       visibleFromEpoch: 1,
     });
 
+    const envBR = beginMessageEnvelope(epoch1Result.epochPublicKey);
+    const blobBR = encryptTextWithContentKey(envBR.contentKey, 'before removal');
+    const msgBRId = crypto.randomUUID();
     await db.insert(messages).values({
-      id: crypto.randomUUID(),
+      id: msgBRId,
       conversationId,
-      encryptedBlob: encryptMessageForStorage(epoch1Result.epochPublicKey, 'before removal'),
+      wrappedContentKey: envBR.wrappedContentKey,
       senderType: 'user',
       senderId: owner.id,
       epochNumber: 1,
       sequenceNumber: 1,
+    });
+    await db.insert(contentItems).values({
+      messageId: msgBRId,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: blobBR,
+      isSmartModel: false,
     });
 
     const rotation12 = performEpochRotation(epoch1Result.epochPrivateKey, [owner.publicKey]);
@@ -1060,7 +1133,10 @@ describe('member rotation integration', () => {
     const memberBConversation = await getConversationForMember(db, conversationId, 1, memberB.id);
     const msgs = defined(memberBConversation).messages;
     expect(msgs).toHaveLength(1);
-    expect(decryptMessage(epoch1PrivateKey, defined(msgs[0]).encryptedBlob)).toBe('before removal');
+    const ckBR = openMessageEnvelope(epoch1PrivateKey, defined(msgs[0]).wrappedContentKey);
+    expect(
+      decryptTextWithContentKey(ckBR, defined(defined(msgs[0]).contentItems[0]).encryptedBlob!)
+    ).toBe('before removal');
   });
 
   it('no-history link guest creation succeeds with rotation (no WRAP_SET_MISMATCH)', async () => {
@@ -1137,14 +1213,24 @@ describe('member rotation integration', () => {
     );
 
     // Insert a message at epoch 1
-    const msg1 = encryptMessageForStorage(epoch1Result.epochPublicKey, 'secret epoch 1 message');
+    const envS1 = beginMessageEnvelope(epoch1Result.epochPublicKey);
+    const blobS1 = encryptTextWithContentKey(envS1.contentKey, 'secret epoch 1 message');
+    const msgS1Id = crypto.randomUUID();
     await db.insert(messages).values({
+      id: msgS1Id,
       conversationId,
       epochNumber: 1,
-      encryptedBlob: msg1,
+      wrappedContentKey: envS1.wrappedContentKey,
       senderId: owner.id,
       senderType: 'user',
       sequenceNumber: 1,
+    });
+    await db.insert(contentItems).values({
+      messageId: msgS1Id,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: blobS1,
+      isSmartModel: false,
     });
 
     // Add member B without history — rotation from epoch 1 → 2
@@ -1209,14 +1295,24 @@ describe('member rotation integration', () => {
 
     // Insert a message at epoch 1
     const epoch1Id = await getEpochId(conversationId, 1);
-    const msg1 = encryptMessageForStorage(epoch1Result.epochPublicKey, 'secret epoch 1 message');
+    const envSL1 = beginMessageEnvelope(epoch1Result.epochPublicKey);
+    const blobSL1 = encryptTextWithContentKey(envSL1.contentKey, 'secret epoch 1 message');
+    const msgSL1Id = crypto.randomUUID();
     await db.insert(messages).values({
+      id: msgSL1Id,
       conversationId,
       epochNumber: 1,
-      encryptedBlob: msg1,
+      wrappedContentKey: envSL1.wrappedContentKey,
       senderId: owner.id,
       senderType: 'user',
       sequenceNumber: 1,
+    });
+    await db.insert(contentItems).values({
+      messageId: msgSL1Id,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: blobSL1,
+      isSmartModel: false,
     });
 
     // Create link guest without history — rotation from epoch 1 → 2
@@ -1278,14 +1374,24 @@ describe('member rotation integration', () => {
     );
 
     // Insert message at epoch 1
-    const msg1 = encryptMessageForStorage(epoch1Result.epochPublicKey, 'epoch 1 message');
+    const envWH1 = beginMessageEnvelope(epoch1Result.epochPublicKey);
+    const blobWH1 = encryptTextWithContentKey(envWH1.contentKey, 'epoch 1 message');
+    const msgWH1Id = crypto.randomUUID();
     await db.insert(messages).values({
+      id: msgWH1Id,
       conversationId,
       epochNumber: 1,
-      encryptedBlob: msg1,
+      wrappedContentKey: envWH1.wrappedContentKey,
       senderId: owner.id,
       senderType: 'user',
       sequenceNumber: 1,
+    });
+    await db.insert(contentItems).values({
+      messageId: msgWH1Id,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: blobWH1,
+      isSmartModel: false,
     });
 
     // Rotation to epoch 2
@@ -1341,7 +1447,10 @@ describe('member rotation integration', () => {
     const memberBConv = await getConversationForMember(db, conversationId, 1, memberB.id);
     const msgs = defined(memberBConv).messages;
     expect(msgs).toHaveLength(1);
-    expect(decryptMessage(epoch1Key, defined(msgs[0]).encryptedBlob)).toBe('epoch 1 message');
+    const ckWH = openMessageEnvelope(epoch1Key, defined(msgs[0]).wrappedContentKey);
+    expect(
+      decryptTextWithContentKey(ckWH, defined(defined(msgs[0]).contentItems[0]).encryptedBlob!)
+    ).toBe('epoch 1 message');
   });
 
   it('with-history link guest can traverse chain links to epoch 1', async () => {
@@ -1353,14 +1462,24 @@ describe('member rotation integration', () => {
 
     // Insert message at epoch 1
     const epoch1Id = await getEpochId(conversationId, 1);
-    const msg1 = encryptMessageForStorage(epoch1Result.epochPublicKey, 'epoch 1 link message');
+    const envLG1 = beginMessageEnvelope(epoch1Result.epochPublicKey);
+    const blobLG1 = encryptTextWithContentKey(envLG1.contentKey, 'epoch 1 link message');
+    const msgLG1Id = crypto.randomUUID();
     await db.insert(messages).values({
+      id: msgLG1Id,
       conversationId,
       epochNumber: 1,
-      encryptedBlob: msg1,
+      wrappedContentKey: envLG1.wrappedContentKey,
       senderId: owner.id,
       senderType: 'user',
       sequenceNumber: 1,
+    });
+    await db.insert(contentItems).values({
+      messageId: msgLG1Id,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: blobLG1,
+      isSmartModel: false,
     });
 
     // Create link guest with history (visibleFromEpoch = 1) — no rotation needed
@@ -1418,7 +1537,8 @@ describe('member rotation integration', () => {
     const epoch1Key = traverseChainLink(epoch2Key, defined(kc.chainLinks[0]).chainLink);
 
     // Decrypt epoch 1 message
-    expect(decryptMessage(epoch1Key, msg1)).toBe('epoch 1 link message');
+    const ckLG = openMessageEnvelope(epoch1Key, envLG1.wrappedContentKey);
+    expect(decryptTextWithContentKey(ckLG, blobLG1)).toBe('epoch 1 link message');
   });
 
   it('no-history member with later rotations can access from join epoch but not before', async () => {
@@ -1430,14 +1550,24 @@ describe('member rotation integration', () => {
     );
 
     // Message at epoch 1
-    const msg1 = encryptMessageForStorage(epoch1Result.epochPublicKey, 'epoch 1 secret');
+    const envNH1 = beginMessageEnvelope(epoch1Result.epochPublicKey);
+    const blobNH1 = encryptTextWithContentKey(envNH1.contentKey, 'epoch 1 secret');
+    const msgNH1Id = crypto.randomUUID();
     await db.insert(messages).values({
+      id: msgNH1Id,
       conversationId,
       epochNumber: 1,
-      encryptedBlob: msg1,
+      wrappedContentKey: envNH1.wrappedContentKey,
       senderId: owner.id,
       senderType: 'user',
       sequenceNumber: 1,
+    });
+    await db.insert(contentItems).values({
+      messageId: msgNH1Id,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: blobNH1,
+      isSmartModel: false,
     });
 
     // Rotation epoch 1 → 2 (owner only)
@@ -1488,14 +1618,24 @@ describe('member rotation integration', () => {
     });
 
     // Message at epoch 3
-    const msg3 = encryptMessageForStorage(rotation2to3.epochPublicKey, 'epoch 3 visible');
+    const envNH3 = beginMessageEnvelope(rotation2to3.epochPublicKey);
+    const blobNH3 = encryptTextWithContentKey(envNH3.contentKey, 'epoch 3 visible');
+    const msgNH3Id = crypto.randomUUID();
     await db.insert(messages).values({
+      id: msgNH3Id,
       conversationId,
       epochNumber: 3,
-      encryptedBlob: msg3,
+      wrappedContentKey: envNH3.wrappedContentKey,
       senderId: owner.id,
       senderType: 'user',
       sequenceNumber: 2,
+    });
+    await db.insert(contentItems).values({
+      messageId: msgNH3Id,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: blobNH3,
+      isSmartModel: false,
     });
 
     // Rotation epoch 3 → 4
@@ -1568,7 +1708,8 @@ describe('member rotation integration', () => {
     const derivedEpoch3Key = traverseChainLink(derivedEpoch4Key, cl4.chainLink);
 
     // Can decrypt epoch 3 message
-    expect(decryptMessage(derivedEpoch3Key, msg3)).toBe('epoch 3 visible');
+    const ckNH3 = openMessageEnvelope(derivedEpoch3Key, envNH3.wrappedContentKey);
+    expect(decryptTextWithContentKey(ckNH3, blobNH3)).toBe('epoch 3 visible');
 
     // Messages filtered to epoch 3+
     const memberBConv = await getConversationForMember(db, conversationId, 3, memberB.id);

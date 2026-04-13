@@ -18,6 +18,9 @@ describe('ShareMessageModal', () => {
     onOpenChange: vi.fn(),
     messageId: 'msg-123',
     messageContent: 'Here is the final API design for the encryption layer.',
+    conversationId: 'conv-1',
+    epochNumber: 1,
+    wrappedContentKey: 'base64-wrapped-content-key',
   };
 
   beforeEach(() => {
@@ -59,14 +62,16 @@ describe('ShareMessageModal', () => {
     expect(isolationInfo).toHaveAttribute('role', 'alert');
   });
 
-  it('calls useMessageShare on Create Link click', async () => {
+  it('calls useMessageShare with envelope metadata on Create Link click', async () => {
     render(<ShareMessageModal {...defaultProps} />);
 
     await userEvent.click(screen.getByTestId('share-message-create-button'));
 
     expect(mockMutateAsync).toHaveBeenCalledWith({
       messageId: 'msg-123',
-      plaintextContent: 'Here is the final API design for the encryption layer.',
+      conversationId: 'conv-1',
+      epochNumber: 1,
+      wrappedContentKey: 'base64-wrapped-content-key',
     });
   });
 

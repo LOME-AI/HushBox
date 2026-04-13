@@ -30,11 +30,11 @@ vi.mock('../chat/index.js', () => ({
 
 const mockAssignSequenceNumbers = vi.fn();
 const mockFetchEpochPublicKey = vi.fn();
-const mockInsertEncryptedMessage = vi.fn();
+const mockInsertEnvelopeTextMessage = vi.fn();
 vi.mock('../chat/message-helpers.js', () => ({
   assignSequenceNumbers: (...args: unknown[]) => mockAssignSequenceNumbers(...args),
   fetchEpochPublicKey: (...args: unknown[]) => mockFetchEpochPublicKey(...args),
-  insertEncryptedMessage: (...args: unknown[]) => mockInsertEncryptedMessage(...args),
+  insertEnvelopeTextMessage: (...args: unknown[]) => mockInsertEnvelopeTextMessage(...args),
 }));
 
 const mockCreateFirstEpoch = vi.fn();
@@ -478,31 +478,22 @@ describe('dev service', () => {
         ],
       });
 
-      const msgInsert = insertCalls.find((c) => c.table === messages);
-      expect(msgInsert).toBeDefined();
-      expect(mockEncryptMessageForStorage).toHaveBeenCalledTimes(3);
+      // Title encryption still uses encryptMessageForStorage (1 call for the empty title)
+      expect(mockEncryptMessageForStorage).toHaveBeenCalledTimes(1);
       expect(mockEncryptMessageForStorage).toHaveBeenCalledWith(EPOCH_PUBLIC_KEY, '');
-      expect(mockEncryptMessageForStorage).toHaveBeenCalledWith(
-        EPOCH_PUBLIC_KEY,
-        'Hello from Alice'
-      );
-      expect(mockEncryptMessageForStorage).toHaveBeenCalledWith(EPOCH_PUBLIC_KEY, 'Echo: Hello');
 
-      const msgRows = msgInsert!.values as {
-        senderType: string;
-        senderId: string | null;
-        sequenceNumber: number;
-        modelName?: string;
-      }[];
-      expect(msgRows).toHaveLength(2);
-      expect(msgRows[0]?.senderType).toBe('user');
-      expect(msgRows[0]?.senderId).toBe('alice-id');
-      expect(msgRows[0]?.sequenceNumber).toBe(1);
-      expect(msgRows[0]?.modelName).toBeUndefined();
-      expect(msgRows[1]?.senderType).toBe('ai');
-      expect(msgRows[1]?.senderId).toBeNull();
-      expect(msgRows[1]?.sequenceNumber).toBe(2);
-      expect(msgRows[1]?.modelName).toBe('anthropic/claude-3.5-sonnet');
+      // Messages are now persisted via insertEnvelopeTextMessage (one call per message)
+      expect(mockInsertEnvelopeTextMessage).toHaveBeenCalledTimes(2);
+
+      const call0 = mockInsertEnvelopeTextMessage.mock.calls[0]![1] as Record<string, unknown>;
+      expect(call0['senderType']).toBe('user');
+      expect(call0['senderId']).toBe('alice-id');
+      expect(call0['sequenceNumber']).toBe(1);
+
+      const call1 = mockInsertEnvelopeTextMessage.mock.calls[1]![1] as Record<string, unknown>;
+      expect(call1['senderType']).toBe('ai');
+      expect(call1['sequenceNumber']).toBe(2);
+      expect(call1['modelName']).toBe('anthropic/claude-3.5-sonnet');
     });
 
     it('does not insert messages when none provided', async () => {
@@ -643,7 +634,7 @@ describe('dev service', () => {
       mockSaveUserOnlyMessage.mockReset();
       mockAssignSequenceNumbers.mockReset();
       mockFetchEpochPublicKey.mockReset();
-      mockInsertEncryptedMessage.mockReset();
+      mockInsertEnvelopeTextMessage.mockReset();
 
       mockCreateFirstEpoch.mockReturnValue({
         epochPublicKey: EPOCH_PUBLIC_KEY,
@@ -656,7 +647,7 @@ describe('dev service', () => {
         epochPublicKey: EPOCH_PUBLIC_KEY,
         epochNumber: 1,
       });
-      mockInsertEncryptedMessage.mockClear();
+      mockInsertEnvelopeTextMessage.mockClear();
     });
 
     function createMockDb(

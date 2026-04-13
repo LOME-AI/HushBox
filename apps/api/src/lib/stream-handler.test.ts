@@ -196,6 +196,35 @@ describe('createSSEEventWriter', () => {
       const stream = createMockStream();
       const writer = createSSEEventWriter(stream);
 
+      const envelopeA = {
+        wrappedContentKey: 'd3JhcHBlZC1h',
+        contentItems: [
+          {
+            id: 'ci-a',
+            contentType: 'text' as const,
+            position: 0,
+            encryptedBlob: 'Y2lwaGVyLWE=',
+            modelName: 'openai/gpt-4o',
+            cost: '0.00200000',
+            isSmartModel: false,
+          },
+        ],
+      };
+      const envelopeB = {
+        wrappedContentKey: 'd3JhcHBlZC1i',
+        contentItems: [
+          {
+            id: 'ci-b',
+            contentType: 'text' as const,
+            position: 0,
+            encryptedBlob: 'Y2lwaGVyLWI=',
+            modelName: 'anthropic/claude-3.5-sonnet',
+            cost: '0.00300000',
+            isSmartModel: false,
+          },
+        ],
+      };
+
       await writer.writeDone({
         userMessageId: 'user-1',
         assistantMessageId: 'asst-1',
@@ -209,12 +238,14 @@ describe('createSSEEventWriter', () => {
             assistantMessageId: 'asst-1',
             aiSequence: 2,
             cost: '0.00200000',
+            ...envelopeA,
           },
           {
             modelId: 'anthropic/claude-3.5-sonnet',
             assistantMessageId: 'asst-2',
             aiSequence: 3,
             cost: '0.00300000',
+            ...envelopeB,
           },
         ],
       });
@@ -236,6 +267,77 @@ describe('createSSEEventWriter', () => {
       await writer.writeModelError({ modelId: 'openai/gpt-4o', message: 'err' });
 
       expect(stream.events).toHaveLength(0);
+    });
+  });
+
+  describe('wrap-once envelope payload on done event', () => {
+    it('carries the user message wrapped_content_key and content items in the done event', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      const userContentItem = {
+        id: 'ci-user-1',
+        contentType: 'text' as const,
+        position: 0,
+        encryptedBlob: 'dXNlci1jaXBoZXJ0ZXh0',
+        modelName: null,
+        cost: null,
+        isSmartModel: false,
+      };
+
+      await writer.writeDone({
+        userMessageId: 'user-1',
+        assistantMessageId: 'asst-1',
+        userSequence: 1,
+        aiSequence: 2,
+        epochNumber: 1,
+        cost: '0.00200000',
+        userEnvelope: {
+          wrappedContentKey: 'dXNlci13cmFwcGVk',
+          contentItems: [userContentItem],
+        },
+        models: [
+          {
+            modelId: 'openai/gpt-4o',
+            assistantMessageId: 'asst-1',
+            aiSequence: 2,
+            cost: '0.00200000',
+            wrappedContentKey: 'YWlfd3JhcHBlZA==',
+            contentItems: [
+              {
+                id: 'ci-ai-1',
+                contentType: 'text' as const,
+                position: 0,
+                encryptedBlob: 'YWktY2lwaGVydGV4dA==',
+                modelName: 'openai/gpt-4o',
+                cost: '0.00200000',
+                isSmartModel: false,
+              },
+            ],
+          },
+        ],
+      });
+
+      const firstEvent = stream.events[0];
+      if (!firstEvent) throw new Error('Expected event');
+      const parsed = JSON.parse(firstEvent.data) as Record<string, unknown>;
+
+      const userEnvelope = parsed['userEnvelope'] as Record<string, unknown>;
+      expect(userEnvelope['wrappedContentKey']).toBe('dXNlci13cmFwcGVk');
+      expect(userEnvelope['contentItems']).toHaveLength(1);
+
+      const models = parsed['models'] as Record<string, unknown>[];
+      expect(models).toHaveLength(1);
+      const first = models[0];
+      if (!first) throw new Error('Expected model entry');
+      expect(first['wrappedContentKey']).toBe('YWlfd3JhcHBlZA==');
+      expect(first['contentItems']).toHaveLength(1);
+      const items = first['contentItems'] as Record<string, unknown>[];
+      const firstItem = items[0];
+      if (!firstItem) throw new Error('Expected content item');
+      expect(firstItem['id']).toBe('ci-ai-1');
+      expect(firstItem['encryptedBlob']).toBe('YWktY2lwaGVydGV4dA==');
+      expect(firstItem['modelName']).toBe('openai/gpt-4o');
     });
   });
 

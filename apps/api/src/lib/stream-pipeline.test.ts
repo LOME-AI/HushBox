@@ -37,6 +37,23 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Stub envelope/content-item used by billingResult fixtures. Uses the fishery
+// factories would complicate the pure unit test setup, so inline a minimal
+// shape matching the InsertedTextContentItem type.
+const stubUserEnvelope = {
+  messageId: 'user-msg-stub',
+  wrappedContentKey: new Uint8Array([0, 1, 2, 3]),
+  contentItem: {
+    id: 'ci-stub',
+    contentType: 'text' as const,
+    position: 0,
+    encryptedBlob: new Uint8Array([9, 9, 9]),
+    modelName: null,
+    cost: null,
+    isSmartModel: false,
+  },
+};
+
 function makeModelInfo(overrides: Partial<ModelInfo> = {}): ModelInfo {
   return {
     id: 'openai/gpt-4o',
@@ -383,6 +400,7 @@ describe('handleBillingResult', () => {
       epochNumber: 1,
       cost: '0.0042',
       usageRecordId: 'usage-123',
+      userEnvelope: stubUserEnvelope,
       assistantResults: [],
     };
 
@@ -456,6 +474,7 @@ describe('handleBillingResult', () => {
       epochNumber: 1,
       cost: '0.001',
       usageRecordId: 'u-1',
+      userEnvelope: stubUserEnvelope,
       assistantResults: [],
     });
 
@@ -480,6 +499,7 @@ describe('handleBillingResult', () => {
       epochNumber: 1,
       cost: '0.001',
       usageRecordId: 'u-1',
+      userEnvelope: stubUserEnvelope,
       assistantResults: [],
     };
 
@@ -634,6 +654,28 @@ describe('withBroadcast', () => {
 // ---------------------------------------------------------------------------
 
 describe('broadcastAndFinish', () => {
+  const stubTextContentItem = (overrides: {
+    id: string;
+    encryptedBlob: Uint8Array;
+    modelName?: string | null;
+    cost?: string | null;
+  }) => ({
+    id: overrides.id,
+    contentType: 'text' as const,
+    position: 0,
+    encryptedBlob: overrides.encryptedBlob,
+    storageKey: null,
+    mimeType: null,
+    sizeBytes: null,
+    width: null,
+    height: null,
+    durationMs: null,
+    modelName: overrides.modelName ?? null,
+    cost: overrides.cost ?? null,
+    isSmartModel: false,
+    createdAt: new Date(),
+  });
+
   beforeEach(() => {
     vi.mocked(broadcastFireAndForget).mockClear();
     vi.mocked(createEvent).mockClear();
@@ -662,6 +704,14 @@ describe('broadcastAndFinish', () => {
         epochNumber: 3,
         cost: '0.005',
         usageRecordId: 'u-1',
+        userEnvelope: {
+          messageId: 'user-1',
+          wrappedContentKey: new Uint8Array([1, 2, 3]),
+          contentItem: stubTextContentItem({
+            id: 'ci-user',
+            encryptedBlob: new Uint8Array([9, 9, 9]),
+          }),
+        },
         assistantResults: [],
       },
       writer,
@@ -677,14 +727,7 @@ describe('broadcastAndFinish', () => {
     });
     expect(broadcastFireAndForget).toHaveBeenCalledOnce();
 
-    expect(writeDone).toHaveBeenCalledWith({
-      userMessageId: 'user-1',
-      assistantMessageId: 'asst-1',
-      userSequence: 1,
-      aiSequence: 2,
-      epochNumber: 3,
-      cost: '0.005',
-    });
+    expect(writeDone).toHaveBeenCalledOnce();
   });
 
   it('omits modelName from broadcast when undefined', async () => {
@@ -710,6 +753,14 @@ describe('broadcastAndFinish', () => {
         epochNumber: 3,
         cost: '0.005',
         usageRecordId: 'u-1',
+        userEnvelope: {
+          messageId: 'user-1',
+          wrappedContentKey: new Uint8Array([1, 2, 3]),
+          contentItem: stubTextContentItem({
+            id: 'ci-user',
+            encryptedBlob: new Uint8Array([9, 9, 9]),
+          }),
+        },
         assistantResults: [],
       },
       writer,
@@ -717,5 +768,97 @@ describe('broadcastAndFinish', () => {
 
     const eventPayload = vi.mocked(createEvent).mock.calls[0]![1] as Record<string, unknown>;
     expect(eventPayload).not.toHaveProperty('modelName');
+  });
+
+  it('forwards user and per-model envelope data to writeDone', async () => {
+    // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
+    const writeDone = vi.fn().mockResolvedValue(undefined);
+    const writer = { writeDone } as unknown as ReturnType<
+      typeof import('./stream-handler.js').createSSEEventWriter
+    >;
+
+    const c = {
+      env: {} as BroadcastContext['env'],
+      executionCtx: { waitUntil: vi.fn() },
+    } as unknown as Parameters<typeof broadcastAndFinish>[0]['c'];
+
+    const userWrapped = new Uint8Array([1, 1, 1]);
+    const aiWrapped = new Uint8Array([2, 2, 2]);
+    const userBlob = new Uint8Array([3, 3, 3]);
+    const aiBlob = new Uint8Array([4, 4, 4]);
+
+    await broadcastAndFinish({
+      c,
+      conversationId: 'conv-1',
+      userMessageId: 'user-1',
+      assistantMessageId: 'asst-1',
+      billingResult: {
+        userSequence: 1,
+        aiSequence: 2,
+        epochNumber: 3,
+        cost: '0.005',
+        usageRecordId: 'u-1',
+        userEnvelope: {
+          messageId: 'user-1',
+          wrappedContentKey: userWrapped,
+          contentItem: stubTextContentItem({ id: 'ci-user', encryptedBlob: userBlob }),
+        },
+        assistantResults: [
+          {
+            assistantMessageId: 'asst-1',
+            model: 'openai/gpt-4o',
+            aiSequence: 2,
+            cost: '0.005',
+            usageRecordId: 'u-1',
+            envelope: {
+              messageId: 'asst-1',
+              wrappedContentKey: aiWrapped,
+              contentItem: stubTextContentItem({
+                id: 'ci-ai',
+                encryptedBlob: aiBlob,
+                modelName: 'openai/gpt-4o',
+                cost: '0.005',
+              }),
+            },
+          },
+        ],
+      },
+      writer,
+      modelName: 'openai/gpt-4o',
+    });
+
+    expect(writeDone).toHaveBeenCalledOnce();
+    const args = writeDone.mock.calls[0]![0] as Record<string, unknown>;
+    expect(args['userMessageId']).toBe('user-1');
+    expect(args['assistantMessageId']).toBe('asst-1');
+    expect(args['userSequence']).toBe(1);
+    expect(args['aiSequence']).toBe(2);
+    expect(args['epochNumber']).toBe(3);
+    expect(args['cost']).toBe('0.005');
+
+    const userEnvelope = args['userEnvelope'] as
+      | { wrappedContentKey: string; contentItems: Record<string, unknown>[] }
+      | undefined;
+    expect(userEnvelope).toBeDefined();
+    expect(userEnvelope!.wrappedContentKey).toBe(Buffer.from(userWrapped).toString('base64'));
+    expect(userEnvelope!.contentItems).toHaveLength(1);
+    expect(userEnvelope!.contentItems[0]!['id']).toBe('ci-user');
+    expect(userEnvelope!.contentItems[0]!['encryptedBlob']).toBe(
+      Buffer.from(userBlob).toString('base64')
+    );
+
+    const models = args['models'] as Record<string, unknown>[];
+    expect(models).toHaveLength(1);
+    const first = models[0]!;
+    expect(first['modelId']).toBe('openai/gpt-4o');
+    expect(first['assistantMessageId']).toBe('asst-1');
+    expect(first['aiSequence']).toBe(2);
+    expect(first['cost']).toBe('0.005');
+    expect(first['wrappedContentKey']).toBe(Buffer.from(aiWrapped).toString('base64'));
+    const items = first['contentItems'] as Record<string, unknown>[];
+    expect(items).toHaveLength(1);
+    expect(items[0]!['id']).toBe('ci-ai');
+    expect(items[0]!['encryptedBlob']).toBe(Buffer.from(aiBlob).toString('base64'));
+    expect(items[0]!['modelName']).toBe('openai/gpt-4o');
   });
 });

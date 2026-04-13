@@ -8,6 +8,7 @@ import {
   users,
   conversations,
   messages,
+  contentItems,
   projects,
   payments,
   wallets,
@@ -23,6 +24,7 @@ import {
   userFactory,
   conversationFactory,
   messageFactory,
+  contentItemFactory,
   projectFactory,
   paymentFactory,
   walletFactory,
@@ -50,6 +52,8 @@ import {
   createAccount,
   createFirstEpoch,
   encryptMessageForStorage,
+  beginMessageEnvelope,
+  encryptTextWithContentKey,
   OpaqueClientConfig,
   OpaqueRegistrationRequest,
   createOpaqueServer,
@@ -250,6 +254,7 @@ type ConversationMember = typeof conversationMembers.$inferInsert;
 type UsageRecord = typeof usageRecords.$inferInsert;
 type LlmCompletion = typeof llmCompletions.$inferInsert;
 type ConversationSpendingRow = typeof conversationSpending.$inferInsert;
+type ContentItem = typeof contentItems.$inferInsert;
 
 type UserWithId = User & { id: string };
 type ConversationWithId = Conversation & { id: string };
@@ -264,12 +269,14 @@ type ConversationMemberWithId = ConversationMember & { id: string };
 type UsageRecordWithId = UsageRecord & { id: string };
 type LlmCompletionWithId = LlmCompletion & { id: string };
 type ConversationSpendingWithId = ConversationSpendingRow & { id: string };
+type ContentItemWithId = ContentItem & { id: string };
 
 interface SeedData {
   users: UserWithId[];
   projects: ProjectWithId[];
   conversations: ConversationWithId[];
   messages: MessageWithId[];
+  contentItems: ContentItemWithId[];
   epochs: EpochWithId[];
   epochMembers: EpochMemberWithId[];
   conversationMembers: ConversationMemberWithId[];
@@ -280,6 +287,7 @@ interface PersonaData {
   projects: ProjectWithId[];
   conversations: ConversationWithId[];
   messages: MessageWithId[];
+  contentItems: ContentItemWithId[];
   payments: PaymentWithId[];
   wallets: WalletWithId[];
   ledgerEntries: LedgerEntryWithId[];
@@ -296,6 +304,7 @@ interface UserEntities {
   projects: ProjectWithId[];
   conversations: ConversationWithId[];
   messages: MessageWithId[];
+  contentItems: ContentItemWithId[];
   epochs: EpochWithId[];
   epochMembers: EpochMemberWithId[];
   conversationMembers: ConversationMemberWithId[];
@@ -342,6 +351,42 @@ function createConversationEpochData(
   return { epoch, epochMember, conversationMember, epochPublicKey: epochResult.epochPublicKey };
 }
 
+function buildSeedMessageAndContentItem(
+  epochPublicKey: Uint8Array,
+  text: string,
+  msgOverrides: {
+    id: string;
+    conversationId: string;
+    senderType: string;
+    epochNumber: number;
+    sequenceNumber: number;
+    senderId?: string | null;
+    parentMessageId?: string | null;
+    createdAt?: Date;
+  }
+): { message: MessageWithId; contentItem: ContentItemWithId } {
+  const { contentKey, wrappedContentKey } = beginMessageEnvelope(epochPublicKey);
+  const encryptedBlob = encryptTextWithContentKey(contentKey, text);
+
+  const message = messageFactory.build({
+    ...msgOverrides,
+    wrappedContentKey,
+  });
+
+  const contentItem = contentItemFactory.build({
+    id: seedUUID(`${msgOverrides.id}-ci`),
+    messageId: message.id,
+    contentType: 'text',
+    position: 0,
+    encryptedBlob,
+    modelName: msgOverrides.senderType === 'ai' ? 'anthropic/claude-3.5-sonnet' : null,
+    cost: null,
+    isSmartModel: false,
+  });
+
+  return { message, contentItem };
+}
+
 function generateUserEntities(userIndex: number): UserEntities {
   const userId = seedUUID(`seed-user-${String(userIndex + 1)}`);
   const user = userFactory.build({ id: userId });
@@ -349,6 +394,7 @@ function generateUserEntities(userIndex: number): UserEntities {
   const projects: ProjectWithId[] = [];
   const allConversations: ConversationWithId[] = [];
   const allMessages: MessageWithId[] = [];
+  const allContentItems: ContentItemWithId[] = [];
   const allEpochs: EpochWithId[] = [];
   const allEpochMembers: EpochMemberWithId[] = [];
   const allConversationMembers: ConversationMemberWithId[] = [];
@@ -395,21 +441,21 @@ function generateUserEntities(userIndex: number): UserEntities {
       const msgId = seedUUID(
         `seed-msg-${String(userIndex + 1)}-${String(convIndex + 1)}-${String(msgIndex + 1)}`
       );
-      allMessages.push(
-        messageFactory.build({
+      const { message, contentItem } = buildSeedMessageAndContentItem(
+        epochPublicKey,
+        `Sample message ${String(msgIndex + 1)}`,
+        {
           id: msgId,
           conversationId: convId,
-          encryptedBlob: encryptMessageForStorage(
-            epochPublicKey,
-            `Sample message ${String(msgIndex + 1)}`
-          ),
           senderType,
           senderId: senderType === 'user' ? userId : null,
           epochNumber: 1,
           sequenceNumber: msgIndex + 1,
           parentMessageId: previousMsgId,
-        })
+        }
       );
+      allMessages.push(message);
+      allContentItems.push(contentItem);
       previousMsgId = msgId;
     }
   }
@@ -419,6 +465,7 @@ function generateUserEntities(userIndex: number): UserEntities {
     projects,
     conversations: allConversations,
     messages: allMessages,
+    contentItems: allContentItems,
     epochs: allEpochs,
     epochMembers: allEpochMembers,
     conversationMembers: allConversationMembers,
@@ -430,6 +477,7 @@ export function generateSeedData(): SeedData {
   const seedProjects: ProjectWithId[] = [];
   const seedConversations: ConversationWithId[] = [];
   const seedMessages: MessageWithId[] = [];
+  const seedContentItems: ContentItemWithId[] = [];
   const seedEpochs: EpochWithId[] = [];
   const seedEpochMembers: EpochMemberWithId[] = [];
   const seedConversationMembers: ConversationMemberWithId[] = [];
@@ -440,6 +488,7 @@ export function generateSeedData(): SeedData {
     seedProjects.push(...entities.projects);
     seedConversations.push(...entities.conversations);
     seedMessages.push(...entities.messages);
+    seedContentItems.push(...entities.contentItems);
     seedEpochs.push(...entities.epochs);
     seedEpochMembers.push(...entities.epochMembers);
     seedConversationMembers.push(...entities.conversationMembers);
@@ -450,6 +499,7 @@ export function generateSeedData(): SeedData {
     projects: seedProjects,
     conversations: seedConversations,
     messages: seedMessages,
+    contentItems: seedContentItems,
     epochs: seedEpochs,
     epochMembers: seedEpochMembers,
     conversationMembers: seedConversationMembers,
@@ -520,34 +570,41 @@ interface ConversationMessageContext {
   now: Date;
 }
 
-function createSearchConversationMessages(ctx: ConversationMessageContext): MessageWithId[] {
-  const messages: MessageWithId[] = [];
+function createSearchConversationMessages(ctx: ConversationMessageContext): {
+  messages: MessageWithId[];
+  contentItems: ContentItemWithId[];
+} {
+  const msgs: MessageWithId[] = [];
+  const items: ContentItemWithId[] = [];
   let previousMsgId: string | null = null;
   for (const [msgIndex, msg] of SEARCH_MESSAGES.entries()) {
     const msgTime = new Date(ctx.now.getTime() + ctx.convIndex * 10_000 + msgIndex * 1000);
     const msgId = seedUUID(
       `${ctx.personaName}-msg-${String(ctx.convIndex + 1)}-${String(msgIndex + 1)}`
     );
-    messages.push(
-      messageFactory.build({
-        id: msgId,
-        conversationId: ctx.convId,
-        encryptedBlob: encryptMessageForStorage(ctx.epochPublicKey, msg.text),
-        senderType: msg.role,
-        senderId: msg.role === 'user' ? ctx.userId : null,
-        epochNumber: 1,
-        sequenceNumber: msgIndex + 1,
-        parentMessageId: previousMsgId,
-        createdAt: msgTime,
-      })
-    );
+    const { message, contentItem } = buildSeedMessageAndContentItem(ctx.epochPublicKey, msg.text, {
+      id: msgId,
+      conversationId: ctx.convId,
+      senderType: msg.role,
+      senderId: msg.role === 'user' ? ctx.userId : null,
+      epochNumber: 1,
+      sequenceNumber: msgIndex + 1,
+      parentMessageId: previousMsgId,
+      createdAt: msgTime,
+    });
+    msgs.push(message);
+    items.push(contentItem);
     previousMsgId = msgId;
   }
-  return messages;
+  return { messages: msgs, contentItems: items };
 }
 
-function createGenericConversationMessages(ctx: ConversationMessageContext): MessageWithId[] {
-  const messages: MessageWithId[] = [];
+function createGenericConversationMessages(ctx: ConversationMessageContext): {
+  messages: MessageWithId[];
+  contentItems: ContentItemWithId[];
+} {
+  const msgs: MessageWithId[] = [];
+  const items: ContentItemWithId[] = [];
   const messageCount = 3 + (ctx.convIndex % 3);
   let previousMsgId: string | null = null;
   for (let msgIndex = 0; msgIndex < messageCount; msgIndex++) {
@@ -556,25 +613,25 @@ function createGenericConversationMessages(ctx: ConversationMessageContext): Mes
     const msgId = seedUUID(
       `${ctx.personaName}-msg-${String(ctx.convIndex + 1)}-${String(msgIndex + 1)}`
     );
-    messages.push(
-      messageFactory.build({
+    const { message, contentItem } = buildSeedMessageAndContentItem(
+      ctx.epochPublicKey,
+      `${ctx.personaName} message ${String(ctx.convIndex + 1)}-${String(msgIndex + 1)}`,
+      {
         id: msgId,
         conversationId: ctx.convId,
-        encryptedBlob: encryptMessageForStorage(
-          ctx.epochPublicKey,
-          `${ctx.personaName} message ${String(ctx.convIndex + 1)}-${String(msgIndex + 1)}`
-        ),
         senderType,
         senderId: senderType === 'user' ? ctx.userId : null,
         epochNumber: 1,
         sequenceNumber: msgIndex + 1,
         parentMessageId: previousMsgId,
         createdAt: msgTime,
-      })
+      }
     );
+    msgs.push(message);
+    items.push(contentItem);
     previousMsgId = msgId;
   }
-  return messages;
+  return { messages: msgs, contentItems: items };
 }
 
 function createPersonaSampleData(
@@ -586,6 +643,7 @@ function createPersonaSampleData(
   projects: ProjectWithId[];
   conversations: ConversationWithId[];
   messages: MessageWithId[];
+  contentItems: ContentItemWithId[];
   epochs: EpochWithId[];
   epochMembers: EpochMemberWithId[];
   conversationMembers: ConversationMemberWithId[];
@@ -594,6 +652,7 @@ function createPersonaSampleData(
   const sampleProjects: ProjectWithId[] = [];
   const sampleConversations: ConversationWithId[] = [];
   const sampleMessages: MessageWithId[] = [];
+  const sampleContentItems: ContentItemWithId[] = [];
   const sampleEpochs: EpochWithId[] = [];
   const sampleEpochMembers: EpochMemberWithId[] = [];
   const sampleConversationMembers: ConversationMemberWithId[] = [];
@@ -644,16 +703,18 @@ function createPersonaSampleData(
       epochPublicKey,
       now,
     };
-    const convMessages = isSearchConversation
+    const convResult = isSearchConversation
       ? createSearchConversationMessages(msgCtx)
       : createGenericConversationMessages(msgCtx);
-    sampleMessages.push(...convMessages);
+    sampleMessages.push(...convResult.messages);
+    sampleContentItems.push(...convResult.contentItems);
   }
 
   return {
     projects: sampleProjects,
     conversations: sampleConversations,
     messages: sampleMessages,
+    contentItems: sampleContentItems,
     epochs: sampleEpochs,
     epochMembers: sampleEpochMembers,
     conversationMembers: sampleConversationMembers,
@@ -882,6 +943,7 @@ function createCharlieConversation(
 ): {
   conversation: ConversationWithId;
   messages: MessageWithId[];
+  contentItems: ContentItemWithId[];
   epoch: EpochWithId;
   epochMember: EpochMemberWithId;
   conversationMember: ConversationMemberWithId;
@@ -899,32 +961,40 @@ function createCharlieConversation(
     title: encryptMessageForStorage(epochPublicKey, 'Charlie Conversation'),
   });
   const charlieMessages: MessageWithId[] = [];
+  const charlieContentItems: ContentItemWithId[] = [];
 
   let charliePreviousMsgId: string | null = null;
   for (let index = 0; index < 4; index++) {
     const senderType = index % 2 === 0 ? 'user' : 'ai';
     const msgTime = new Date(now.getTime() + index * 1000);
     const msgId = seedUUID(`charlie-msg-1-${String(index + 1)}`);
-    charlieMessages.push(
-      messageFactory.build({
+    const { message, contentItem } = buildSeedMessageAndContentItem(
+      epochPublicKey,
+      `Charlie message ${String(index + 1)}`,
+      {
         id: msgId,
         conversationId: convId,
-        encryptedBlob: encryptMessageForStorage(
-          epochPublicKey,
-          `Charlie message ${String(index + 1)}`
-        ),
         senderType,
         senderId: senderType === 'user' ? userId : null,
         epochNumber: 1,
         sequenceNumber: index + 1,
         parentMessageId: charliePreviousMsgId,
         createdAt: msgTime,
-      })
+      }
     );
+    charlieMessages.push(message);
+    charlieContentItems.push(contentItem);
     charliePreviousMsgId = msgId;
   }
 
-  return { conversation, messages: charlieMessages, epoch, epochMember, conversationMember };
+  return {
+    conversation,
+    messages: charlieMessages,
+    contentItems: charlieContentItems,
+    epoch,
+    epochMember,
+    conversationMember,
+  };
 }
 
 function createPersonaWallets(
@@ -990,6 +1060,7 @@ interface ScreenshotConversationsParams {
 interface ScreenshotConversationsResult {
   conversations: ConversationWithId[];
   messages: MessageWithId[];
+  contentItems: ContentItemWithId[];
   epochs: EpochWithId[];
   epochMembers: EpochMemberWithId[];
   conversationMembers: ConversationMemberWithId[];
@@ -1000,6 +1071,7 @@ export function createScreenshotConversations(
 ): ScreenshotConversationsResult {
   const allConversations: ConversationWithId[] = [];
   const allMessages: MessageWithId[] = [];
+  const allContentItems: ContentItemWithId[] = [];
   const allEpochs: EpochWithId[] = [];
   const allEpochMembers: EpochMemberWithId[] = [];
   const allConversationMembers: ConversationMemberWithId[] = [];
@@ -1055,34 +1127,32 @@ export function createScreenshotConversations(
 
     const userMsgId = seedUUID(`screenshot-msg-${solo.name}-1`);
     const userMsgTime = new Date(params.now.getTime() + allMessages.length * 1000);
-    allMessages.push(
-      messageFactory.build({
-        id: userMsgId,
-        conversationId: convId,
-        encryptedBlob: encryptMessageForStorage(epochPublicKey, solo.userMessage),
-        senderType: 'user',
-        senderId: params.aliceUserId,
-        epochNumber: 1,
-        sequenceNumber: 1,
-        parentMessageId: null,
-        createdAt: userMsgTime,
-      })
-    );
+    const userResult = buildSeedMessageAndContentItem(epochPublicKey, solo.userMessage, {
+      id: userMsgId,
+      conversationId: convId,
+      senderType: 'user',
+      senderId: params.aliceUserId,
+      epochNumber: 1,
+      sequenceNumber: 1,
+      parentMessageId: null,
+      createdAt: userMsgTime,
+    });
+    allMessages.push(userResult.message);
+    allContentItems.push(userResult.contentItem);
 
     const aiMsgTime = new Date(params.now.getTime() + allMessages.length * 1000);
-    allMessages.push(
-      messageFactory.build({
-        id: seedUUID(`screenshot-msg-${solo.name}-2`),
-        conversationId: convId,
-        encryptedBlob: encryptMessageForStorage(epochPublicKey, solo.aiMessage),
-        senderType: 'ai',
-        senderId: null,
-        epochNumber: 1,
-        sequenceNumber: 2,
-        parentMessageId: userMsgId,
-        createdAt: aiMsgTime,
-      })
-    );
+    const aiResult = buildSeedMessageAndContentItem(epochPublicKey, solo.aiMessage, {
+      id: seedUUID(`screenshot-msg-${solo.name}-2`),
+      conversationId: convId,
+      senderType: 'ai',
+      senderId: null,
+      epochNumber: 1,
+      sequenceNumber: 2,
+      parentMessageId: userMsgId,
+      createdAt: aiMsgTime,
+    });
+    allMessages.push(aiResult.message);
+    allContentItems.push(aiResult.contentItem);
   }
 
   // --- Group chat conversation (alice, bob, charlie) ---
@@ -1169,25 +1239,29 @@ export function createScreenshotConversations(
     const msg = groupMessage;
     const msgTime = new Date(params.now.getTime() + (allMessages.length + index) * 1000);
     const groupMsgId = seedUUID(`screenshot-msg-group-chat-${String(index + 1)}`);
-    allMessages.push(
-      messageFactory.build({
+    const { message, contentItem } = buildSeedMessageAndContentItem(
+      groupEpochResult.epochPublicKey,
+      msg.content,
+      {
         id: groupMsgId,
         conversationId: groupConvId,
-        encryptedBlob: encryptMessageForStorage(groupEpochResult.epochPublicKey, msg.content),
         senderType: msg.senderType,
         senderId: msg.senderId,
         epochNumber: 1,
         sequenceNumber: index + 1,
         parentMessageId: groupPreviousMsgId,
         createdAt: msgTime,
-      })
+      }
     );
+    allMessages.push(message);
+    allContentItems.push(contentItem);
     groupPreviousMsgId = groupMsgId;
   }
 
   return {
     conversations: allConversations,
     messages: allMessages,
+    contentItems: allContentItems,
     epochs: allEpochs,
     epochMembers: allEpochMembers,
     conversationMembers: allConversationMembers,
@@ -1199,6 +1273,7 @@ export async function generatePersonaData(): Promise<PersonaData> {
   const personaProjects: ProjectWithId[] = [];
   const personaConversations: ConversationWithId[] = [];
   const personaMessages: MessageWithId[] = [];
+  const personaContentItems: ContentItemWithId[] = [];
   const personaPayments: PaymentWithId[] = [];
   const personaWallets: WalletWithId[] = [];
   const personaLedgerEntries: LedgerEntryWithId[] = [];
@@ -1229,6 +1304,7 @@ export async function generatePersonaData(): Promise<PersonaData> {
       personaProjects.push(...sampleData.projects);
       personaConversations.push(...sampleData.conversations);
       personaMessages.push(...sampleData.messages);
+      personaContentItems.push(...sampleData.contentItems);
       personaEpochs.push(...sampleData.epochs);
       personaEpochMembers.push(...sampleData.epochMembers);
       personaConversationMembers.push(...sampleData.conversationMembers);
@@ -1257,6 +1333,7 @@ export async function generatePersonaData(): Promise<PersonaData> {
       const charlieData = createCharlieConversation(user.id, publicKey, now);
       personaConversations.push(charlieData.conversation);
       personaMessages.push(...charlieData.messages);
+      personaContentItems.push(...charlieData.contentItems);
       personaEpochs.push(charlieData.epoch);
       personaEpochMembers.push(charlieData.epochMember);
       personaConversationMembers.push(charlieData.conversationMember);
@@ -1280,6 +1357,7 @@ export async function generatePersonaData(): Promise<PersonaData> {
     });
     personaConversations.push(...screenshotData.conversations);
     personaMessages.push(...screenshotData.messages);
+    personaContentItems.push(...screenshotData.contentItems);
     personaEpochs.push(...screenshotData.epochs);
     personaEpochMembers.push(...screenshotData.epochMembers);
     personaConversationMembers.push(...screenshotData.conversationMembers);
@@ -1290,6 +1368,7 @@ export async function generatePersonaData(): Promise<PersonaData> {
     projects: personaProjects,
     conversations: personaConversations,
     messages: personaMessages,
+    contentItems: personaContentItems,
     payments: personaPayments,
     wallets: personaWallets,
     ledgerEntries: personaLedgerEntries,
@@ -1348,6 +1427,7 @@ function createTestSampleData(
   projects: ProjectWithId[];
   conversations: ConversationWithId[];
   messages: MessageWithId[];
+  contentItems: ContentItemWithId[];
   epochs: EpochWithId[];
   epochMembers: EpochMemberWithId[];
   conversationMembers: ConversationMemberWithId[];
@@ -1355,6 +1435,7 @@ function createTestSampleData(
   const testProjects: ProjectWithId[] = [];
   const testConversations: ConversationWithId[] = [];
   const testMessages: MessageWithId[] = [];
+  const testContentItems: ContentItemWithId[] = [];
   const testEpochs: EpochWithId[] = [];
   const testEpochMembers: EpochMemberWithId[] = [];
   const testConversationMembers: ConversationMemberWithId[] = [];
@@ -1400,21 +1481,21 @@ function createTestSampleData(
     for (let msgIndex = 0; msgIndex < messageCount; msgIndex++) {
       const senderType = msgIndex % 2 === 0 ? 'user' : 'ai';
       const msgId = seedUUID(`${personaName}-msg-${String(index + 1)}-${String(msgIndex + 1)}`);
-      testMessages.push(
-        messageFactory.build({
+      const { message, contentItem } = buildSeedMessageAndContentItem(
+        epochPublicKey,
+        `${personaName} message ${String(index + 1)}-${String(msgIndex + 1)}`,
+        {
           id: msgId,
           conversationId: convId,
-          encryptedBlob: encryptMessageForStorage(
-            epochPublicKey,
-            `${personaName} message ${String(index + 1)}-${String(msgIndex + 1)}`
-          ),
           senderType,
           senderId: senderType === 'user' ? userId : null,
           epochNumber: 1,
           sequenceNumber: msgIndex + 1,
           parentMessageId: testPreviousMsgId,
-        })
+        }
       );
+      testMessages.push(message);
+      testContentItems.push(contentItem);
       testPreviousMsgId = msgId;
     }
   }
@@ -1423,6 +1504,7 @@ function createTestSampleData(
     projects: testProjects,
     conversations: testConversations,
     messages: testMessages,
+    contentItems: testContentItems,
     epochs: testEpochs,
     epochMembers: testEpochMembers,
     conversationMembers: testConversationMembers,
@@ -1469,6 +1551,7 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
   const testProjects: ProjectWithId[] = [];
   const testConversations: ConversationWithId[] = [];
   const testMessages: MessageWithId[] = [];
+  const testContentItems: ContentItemWithId[] = [];
   const testPayments: PaymentWithId[] = [];
   const testWallets: WalletWithId[] = [];
   const testLedgerEntries: LedgerEntryWithId[] = [];
@@ -1495,6 +1578,7 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
       testProjects.push(...sampleData.projects);
       testConversations.push(...sampleData.conversations);
       testMessages.push(...sampleData.messages);
+      testContentItems.push(...sampleData.contentItems);
       testEpochs.push(...sampleData.epochs);
       testEpochMembers.push(...sampleData.epochMembers);
       testConversationMembers.push(...sampleData.conversationMembers);
@@ -1525,6 +1609,7 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
     projects: testProjects,
     conversations: testConversations,
     messages: testMessages,
+    contentItems: testContentItems,
     payments: testPayments,
     wallets: testWallets,
     ledgerEntries: testLedgerEntries,
@@ -1542,6 +1627,7 @@ type Table =
   | typeof users
   | typeof conversations
   | typeof messages
+  | typeof contentItems
   | typeof projects
   | typeof payments
   | typeof wallets
@@ -1628,6 +1714,7 @@ export async function seed(): Promise<void> {
   console.log(`  Epochs: ${String(personaData.epochs.length)}`);
   console.log(`  EpochMembers: ${String(personaData.epochMembers.length)}`);
   console.log(`  Messages: ${String(personaData.messages.length)}`);
+  console.log(`  Content Items: ${String(personaData.contentItems.length)}`);
   console.log(`  Payments: ${String(personaData.payments.length)}`);
   console.log(`  Ledger Entries: ${String(personaData.ledgerEntries.length)}`);
   console.log(`  Usage Records: ${String(personaData.usageRecords.length)}`);
@@ -1643,6 +1730,7 @@ export async function seed(): Promise<void> {
   console.log(`  Epochs: ${String(testPersonaData.epochs.length)}`);
   console.log(`  EpochMembers: ${String(testPersonaData.epochMembers.length)}`);
   console.log(`  Messages: ${String(testPersonaData.messages.length)}`);
+  console.log(`  Content Items: ${String(testPersonaData.contentItems.length)}`);
   console.log(`  Payments: ${String(testPersonaData.payments.length)}`);
   console.log(`  Ledger Entries: ${String(testPersonaData.ledgerEntries.length)}`);
   console.log(`  Usage Records: ${String(testPersonaData.usageRecords.length)}`);
@@ -1655,6 +1743,7 @@ export async function seed(): Promise<void> {
   console.log(`  Conversations: ${String(data.conversations.length)}`);
   console.log(`  Epochs: ${String(data.epochs.length)}`);
   console.log(`  Messages: ${String(data.messages.length)}`);
+  console.log(`  Content Items: ${String(data.contentItems.length)}`);
   console.log('');
 
   // 1. Users
@@ -1721,6 +1810,14 @@ export async function seed(): Promise<void> {
     ...data.messages,
   ]);
   logUpsertResult('Messages', messageResult);
+
+  // 8b. Content Items (depends on messages)
+  const contentItemResult = await upsertEntities(db, contentItems, [
+    ...personaData.contentItems,
+    ...testPersonaData.contentItems,
+    ...data.contentItems,
+  ]);
+  logUpsertResult('Content Items', contentItemResult);
 
   // 9. UsageRecords (depends on users)
   const usageRecordResult = await upsertEntities(db, usageRecords, [
