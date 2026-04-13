@@ -13,6 +13,7 @@ import {
 } from '@hushbox/shared';
 import { createRedisClient } from '../lib/redis.js';
 import { createIronSessionMiddleware } from './iron-session.js';
+import { getAIClient } from '../services/ai/index.js';
 import { getHelcimClient } from '../services/helcim/index.js';
 import { getOpenRouterClient } from '../services/openrouter/index.js';
 import type { AppEnv } from '../types.js';
@@ -140,6 +141,14 @@ export function openRouterMiddleware(): MiddlewareHandler<AppEnv> {
     const db = c.get('db');
     const { isCI } = c.get('envUtils');
     c.set('openrouter', getOpenRouterClient(c.env, { db, isCI }));
+    await next();
+  };
+}
+
+export function aiClientMiddleware(): MiddlewareHandler<AppEnv> {
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
+  return async (c, next) => {
+    c.set('aiClient', getAIClient(c.env));
     await next();
   };
 }

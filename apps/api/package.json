@@ -15,10 +15,12 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^3.0.95",
     "@hono/zod-validator": "^0.7.6",
     "@hushbox/crypto": "workspace:*",
     "@hushbox/realtime": "workspace:*",
     "@upstash/redis": "^1.36.4",
+    "ai": "^6.0.158",
     "hono": "^4.12.6",
     "iron-session": "^8.0.4",
     "zod": "^4.3.6"

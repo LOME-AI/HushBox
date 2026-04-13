@@ -1,6 +1,7 @@
 import type { Redis } from '@upstash/redis';
 import type { Database } from '@hushbox/db';
 import type { EnvUtilities, Platform } from '@hushbox/shared';
+import type { AIClient } from './services/ai/index.js';
 import type { HelcimClient } from './services/helcim/index.js';
 import type { OpenRouterClient } from './services/openrouter/index.js';
 import type { SessionData } from './lib/session.js';
@@ -28,6 +29,7 @@ export interface Bindings {
   CI?: string;
   E2E?: string;
   RESEND_API_KEY?: string;
+  AI_GATEWAY_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
   HELCIM_API_TOKEN?: string;
   HELCIM_WEBHOOK_VERIFIER?: string;
@@ -47,6 +49,7 @@ export interface Variables {
   platform: Platform;
   db: Database;
   redis: Redis;
+  aiClient: AIClient;
   helcim: HelcimClient;
   openrouter: OpenRouterClient;
   envUtils: EnvUtilities;

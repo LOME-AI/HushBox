@@ -9,6 +9,7 @@ import {
   redisMiddleware,
   sessionMiddleware,
   openRouterMiddleware,
+  aiClientMiddleware,
   helcimMiddleware,
   ironSessionMiddleware,
   csrfProtection,
@@ -110,11 +111,13 @@ export function createApp() {
   base.use('/api/chat/*', ironSessionMiddleware());
   base.use('/api/chat/*', sessionMiddleware());
   base.use('/api/chat/*', openRouterMiddleware());
+  base.use('/api/chat/*', aiClientMiddleware());
 
   base.use('/api/trial/*', csrfProtection());
   base.use('/api/trial/*', dbMiddleware());
   base.use('/api/trial/*', redisMiddleware());
   base.use('/api/trial/*', openRouterMiddleware());
+  base.use('/api/trial/*', aiClientMiddleware());
 
   base.use('/api/models/*', csrfProtection());
 
