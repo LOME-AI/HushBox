@@ -358,10 +358,15 @@ export const test = base.extend<CustomFixtures>({
     const data = (await response.json()) as { conversationId: string };
     const id = data.conversationId;
 
-    // Navigate to the conversation so the page is ready for test interactions
+    // Navigate to the conversation so the page is ready for test interactions.
+    // Wait for both seeded messages to render — waitForConversationLoaded only
+    // waits for the first message-item, which can resolve on just the user
+    // message while the AI reply is still decrypting. Tests assuming "the
+    // conversation is ready" need both present.
     await authenticatedPage.goto(`/chat/${id}`, { waitUntil: 'domcontentloaded' });
     const chatPage = new ChatPage(authenticatedPage);
     await chatPage.waitForConversationLoaded();
+    await rawExpect(chatPage.messageList.locator('[data-testid="message-item"]')).toHaveCount(2);
 
     await use({ id, url: `/chat/${id}` });
   },
