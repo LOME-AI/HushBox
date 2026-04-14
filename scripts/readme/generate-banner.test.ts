@@ -14,7 +14,7 @@ describe('patchCryptoWithSeed', () => {
     const a2 = new Uint32Array(4);
     crypto.getRandomValues(a2);
 
-    expect(Array.from(a1)).toEqual(Array.from(a2));
+    expect([...a1]).toEqual([...a2]);
   });
 
   it('produces different sequences for different seeds', () => {
@@ -26,7 +26,7 @@ describe('patchCryptoWithSeed', () => {
     const b = new Uint32Array(4);
     crypto.getRandomValues(b);
 
-    expect(Array.from(a)).not.toEqual(Array.from(b));
+    expect([...a]).not.toEqual([...b]);
   });
 });
 
@@ -42,7 +42,7 @@ describe('generateBanners', () => {
   });
 
   it('creates both banner-dark.gif and banner-light.gif with non-trivial size', () => {
-    const repoRoot = path.resolve(import.meta.dirname ?? '.', '../..');
+    const repoRoot = path.resolve(import.meta.dirname, '../..');
     generateBanners(temporaryDir, repoRoot);
 
     const files = readdirSync(temporaryDir);

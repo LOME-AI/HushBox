@@ -13,8 +13,8 @@ const DARK_STROKE = '#e6edf3';
  */
 export function toKebabCase(name: string): string {
   return name
-    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replace(/([A-Z])([A-Z][a-z])/g, '$1-$2')
+    .replaceAll(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replaceAll(/([A-Z])([A-Z][a-z])/g, '$1-$2')
     .toLowerCase();
 }
 
@@ -27,8 +27,8 @@ export function makeThemeAware(svg: string): string {
 
   return svg
     .replace(/\s*class="[^"]*"/, '')
-    .replace(/stroke="currentColor"/g, '')
-    .replace(/fill="currentColor"/g, `fill="${LIGHT_STROKE}"`)
+    .replaceAll('stroke="currentColor"', '')
+    .replaceAll('fill="currentColor"', `fill="${LIGHT_STROKE}"`)
     .replace(/<svg([^>]*)>/, `<svg$1>${styleBlock}`);
 }
 
@@ -84,17 +84,14 @@ export function generateIcons(outputDir: string, repoRoot?: string): string[] {
         writeFileSync(filePath, themed);
       }
       console.log(`✓ Generated ${String(filenames.length)} icon SVGs in ${outputDir}`);
-    },
+    }
   );
 
   return filenames;
 }
 
 // CLI entry point
-const DEFAULT_OUTPUT = path.resolve(
-  import.meta.dirname ?? '.',
-  '../../packages/ui/src/assets/icons',
-);
+const DEFAULT_OUTPUT = path.resolve(import.meta.dirname, '../../packages/ui/src/assets/icons');
 
 /* v8 ignore next 2 */
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;

@@ -17,7 +17,7 @@ export function resolvePort(): number {
   const raw = process.env['HB_README_PREVIEW_PORT'];
   if (!raw) {
     throw new Error(
-      'HB_README_PREVIEW_PORT is not set. Run `pnpm generate:env` first, or invoke this script via `./scripts/with-env`.',
+      'HB_README_PREVIEW_PORT is not set. Run `pnpm generate:env` first, or invoke this script via `./scripts/with-env`.'
     );
   }
   const port = Number(raw);
@@ -49,7 +49,7 @@ const marked = new Marked(
       }
       return hljs.highlightAuto(code).value;
     },
-  }),
+  })
 );
 
 /**
@@ -63,7 +63,8 @@ export function isSafePath(urlPath: string): boolean {
  * Render a complete HTML document from a markdown string and GitHub CSS.
  */
 export function renderPage(markdown: string, css: string): string {
-  const body = marked.parse(markdown);
+  const parsed = marked.parse(markdown);
+  const body: string = typeof parsed === 'string' ? parsed : '';
 
   return `<!DOCTYPE html>
 <html>
@@ -81,7 +82,7 @@ export function renderPage(markdown: string, css: string): string {
     source.addEventListener('message', () => { location.reload(); });
   </script>
 </head>
-<body class="markdown-body">${String(body)}</body>
+<body class="markdown-body">${body}</body>
 </html>`;
 }
 
@@ -120,9 +121,9 @@ export function startServer(port: number): ReturnType<typeof createServer> {
       try {
         const filePath = path.join(ROOT, decodeURIComponent(url));
         const content = readFileSync(filePath);
-        const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+        const extension = filePath.split('.').pop()?.toLowerCase() ?? '';
         res.writeHead(200, {
-          'Content-Type': MIME_TYPES[ext] ?? 'application/octet-stream',
+          'Content-Type': MIME_TYPES[extension] ?? 'application/octet-stream',
         });
         res.end(content);
         return;

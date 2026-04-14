@@ -35,6 +35,19 @@ function crossMark(x: number, y: number, color: string): string {
   return `<path d="M${String(x - 5)} ${String(y - 5)} L${String(x + 5)} ${String(y + 5)} M${String(x + 5)} ${String(y - 5)} L${String(x - 5)} ${String(y + 5)}" stroke="${color}" stroke-width="2.5" stroke-linecap="round" fill="none"/>`;
 }
 
+interface SectionLabelParameters {
+  x: number;
+  y: number;
+  color: string;
+  label: string;
+  fontSize?: number;
+}
+
+function sectionLabel(parameters: SectionLabelParameters): string {
+  const { x, y, color, label, fontSize = 13 } = parameters;
+  return `<text x="${String(x)}" y="${String(y)}" font-family='${FONT_STACK}' font-size="${String(fontSize)}" font-weight="600" fill="${color}" letter-spacing="0.08em">${label}</text>`;
+}
+
 // --- Comparison Table ---
 
 export function generateComparisonSvg(options: TableOptions): string {
@@ -82,37 +95,56 @@ export function generateComparisonSvg(options: TableOptions): string {
 export function generatePricingSvg(options: TableOptions): string {
   const { width, theme } = options;
   const rows = [
-    { label: 'HushBox', rate: `${String(HUSHBOX_FEE_RATE * 100)}%`, desc: 'Development, servers, support' },
-    { label: 'Card processing', rate: `${String(CREDIT_CARD_FEE_RATE * 100)}%`, desc: 'Credit card fees' },
-    { label: 'Provider overhead', rate: `${String(PROVIDER_FEE_RATE * 100)}%`, desc: 'API infrastructure' },
-    { label: 'Total', rate: `${String(TOTAL_FEE_RATE * 100)}%`, desc: 'On AI model usage', isTotal: true },
+    {
+      label: 'HushBox',
+      rate: `${String(HUSHBOX_FEE_RATE * 100)}%`,
+      desc: 'Development, servers, support',
+    },
+    {
+      label: 'Card processing',
+      rate: `${String(CREDIT_CARD_FEE_RATE * 100)}%`,
+      desc: 'Credit card fees',
+    },
+    {
+      label: 'Provider overhead',
+      rate: `${String(PROVIDER_FEE_RATE * 100)}%`,
+      desc: 'API infrastructure',
+    },
+    {
+      label: 'Total',
+      rate: `${String(TOTAL_FEE_RATE * 100)}%`,
+      desc: 'On AI model usage',
+      isTotal: true,
+    },
   ];
   const height = HEADER_HEIGHT + rows.length * ROW_HEIGHT + 16;
 
   const rateX = width * 0.5;
   const descX = width * 0.58;
 
-  const body = rows.map((row, index) => {
-    const y = HEADER_HEIGHT + index * ROW_HEIGHT;
-    const midY = y + ROW_HEIGHT / 2;
-    const textY = midY + 5;
-    const isTotal = row.isTotal === true;
-    const stripe =
-      index % 2 === 0 && !isTotal
-        ? `<rect x="0" y="${String(y)}" width="${String(width)}" height="${String(ROW_HEIGHT)}" fill="${theme.backgroundPaper}"/>`
+  const body = rows
+    .map((row, index) => {
+      const y = HEADER_HEIGHT + index * ROW_HEIGHT;
+      const midY = y + ROW_HEIGHT / 2;
+      const textY = midY + 5;
+      const isTotal = row.isTotal === true;
+      const stripe =
+        index % 2 === 0 && !isTotal
+          ? `<rect x="0" y="${String(y)}" width="${String(width)}" height="${String(ROW_HEIGHT)}" fill="${theme.backgroundPaper}"/>`
+          : '';
+      const topBorder = isTotal
+        ? `<line x1="0" y1="${String(y)}" x2="${String(width)}" y2="${String(y)}" stroke="${theme.border}"/>`
         : '';
-    const topBorder = isTotal
-      ? `<line x1="0" y1="${String(y)}" x2="${String(width)}" y2="${String(y)}" stroke="${theme.border}"/>`
-      : '';
-    const weight = isTotal ? '700' : '500';
-    const rateColor = isTotal ? theme.brandRed : theme.foreground;
-    return `
+      const weight = isTotal ? '700' : '500';
+      const rateColor = isTotal ? theme.brandRed : theme.foreground;
+      return `
     ${stripe}
     ${topBorder}
     <text x="${String(PADDING_X)}" y="${String(textY)}" font-family='${FONT_STACK}' font-size="15" font-weight="${weight}" fill="${theme.foreground}">${escapeXml(row.label)}</text>
     <text x="${String(rateX)}" y="${String(textY)}" font-family='${FONT_STACK}' font-size="15" font-weight="${weight}" fill="${rateColor}" text-anchor="end">${escapeXml(row.rate)}</text>
     <text x="${String(descX)}" y="${String(textY)}" font-family='${FONT_STACK}' font-size="14" fill="${theme.foregroundMuted}">${escapeXml(row.desc)}</text>`;
-  }).join('');
+    })
+    .join('');
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${String(width)} ${String(height)}" width="100%">
   <rect x="0.5" y="0.5" width="${String(width - 1)}" height="${String(height - 1)}" rx="${String(RADIUS)}" fill="${theme.background}" stroke="${theme.border}"/>
@@ -133,7 +165,14 @@ export function generateTiersSvg(options: TableOptions): string {
   const rows = [
     { label: 'Account required', values: ['No', 'Yes', 'Yes'] },
     { label: 'Models', values: ['Basic', 'Basic', 'All'] },
-    { label: 'Daily limit', values: [`${String(TRIAL_MESSAGE_LIMIT)} messages`, `${freeAllowance} allowance`, 'Your balance'] },
+    {
+      label: 'Daily limit',
+      values: [
+        `${String(TRIAL_MESSAGE_LIMIT)} messages`,
+        `${freeAllowance} allowance`,
+        'Your balance',
+      ],
+    },
     { label: 'History', values: ['None', 'Encrypted', 'Encrypted'] },
     { label: 'Group chats', values: ['No', 'Yes', 'Yes'] },
   ];
@@ -144,32 +183,34 @@ export function generateTiersSvg(options: TableOptions): string {
   const tierColWidth = (width - col1Width) / 3;
 
   const headerRow = headers
-    .map((h, i) => {
-      const x = col1Width + tierColWidth * i + tierColWidth / 2;
-      const color = i === 2 ? theme.brandRed : theme.foregroundMuted;
+    .map((h, index) => {
+      const x = col1Width + tierColWidth * index + tierColWidth / 2;
+      const color = index === 2 ? theme.brandRed : theme.foregroundMuted;
       return `<text x="${String(x)}" y="35" font-family='${FONT_STACK}' font-size="13" font-weight="600" fill="${color}" text-anchor="middle" letter-spacing="0.08em">${escapeXml(h.toUpperCase())}</text>`;
     })
     .join('');
 
-  const body = rows.map((row, index) => {
-    const y = HEADER_HEIGHT + index * ROW_HEIGHT;
-    const midY = y + ROW_HEIGHT / 2;
-    const textY = midY + 5;
-    const stripe =
-      index % 2 === 0
-        ? `<rect x="0" y="${String(y)}" width="${String(width)}" height="${String(ROW_HEIGHT)}" fill="${theme.backgroundPaper}"/>`
-        : '';
-    const cells = row.values
-      .map((v, i) => {
-        const x = col1Width + tierColWidth * i + tierColWidth / 2;
-        return `<text x="${String(x)}" y="${String(textY)}" font-family='${FONT_STACK}' font-size="14" fill="${theme.foreground}" text-anchor="middle">${escapeXml(v)}</text>`;
-      })
-      .join('');
-    return `
+  const body = rows
+    .map((row, index) => {
+      const y = HEADER_HEIGHT + index * ROW_HEIGHT;
+      const midY = y + ROW_HEIGHT / 2;
+      const textY = midY + 5;
+      const stripe =
+        index % 2 === 0
+          ? `<rect x="0" y="${String(y)}" width="${String(width)}" height="${String(ROW_HEIGHT)}" fill="${theme.backgroundPaper}"/>`
+          : '';
+      const cells = row.values
+        .map((v, index_) => {
+          const x = col1Width + tierColWidth * index_ + tierColWidth / 2;
+          return `<text x="${String(x)}" y="${String(textY)}" font-family='${FONT_STACK}' font-size="14" fill="${theme.foreground}" text-anchor="middle">${escapeXml(v)}</text>`;
+        })
+        .join('');
+      return `
     ${stripe}
     <text x="${String(PADDING_X)}" y="${String(textY)}" font-family='${FONT_STACK}' font-size="15" font-weight="500" fill="${theme.foreground}">${escapeXml(row.label)}</text>
     ${cells}`;
-  }).join('');
+    })
+    .join('');
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${String(width)} ${String(height)}" width="100%">
   <rect x="0.5" y="0.5" width="${String(width - 1)}" height="${String(height - 1)}" rx="${String(RADIUS)}" fill="${theme.background}" stroke="${theme.border}"/>
@@ -189,19 +230,29 @@ function escapeXml(text: string): string {
 
 // --- Technical Details ---
 
-const TECH_DETAILS: ReadonlyArray<{ component: string; implementation: string }> = [
-  { component: 'Message encryption', implementation: 'XChaCha20-Poly1305 (AEAD) via @noble/ciphers' },
+const TECH_DETAILS: readonly { component: string; implementation: string }[] = [
+  {
+    component: 'Message encryption',
+    implementation: 'XChaCha20-Poly1305 (AEAD) via @noble/ciphers',
+  },
   { component: 'Key exchange', implementation: 'X25519 ECDH + HKDF-SHA256 via @noble/curves' },
   { component: 'Password auth', implementation: 'OPAQUE-P256 via @cloudflare/opaque-ts' },
-  { component: 'Key derivation', implementation: 'Argon2id (64 MB, 3 iters, 4 threads) via hash-wasm' },
-  { component: 'Recovery phrase', implementation: '12-word BIP39 mnemonic (128-bit entropy) via @scure/bip39' },
+  {
+    component: 'Key derivation',
+    implementation: 'Argon2id (64 MB, 3 iters, 4 threads) via hash-wasm',
+  },
+  {
+    component: 'Recovery phrase',
+    implementation: '12-word BIP39 mnemonic (128-bit entropy) via @scure/bip39',
+  },
   { component: '2FA', implementation: 'TOTP with encrypted secret storage via otplib' },
   { component: 'Sessions', implementation: 'Encrypted cookies via iron-session' },
   { component: 'Compression', implementation: 'Raw deflate before encryption via fflate' },
 ];
 
 const TECH_ROW_HEIGHT = 44;
-const MONO_FONT_STACK = '"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace';
+const MONO_FONT_STACK =
+  '"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace';
 
 export function generateTechnicalDetailsSvg(options: TableOptions): string {
   const { width, theme } = options;
@@ -226,8 +277,8 @@ export function generateTechnicalDetailsSvg(options: TableOptions): string {
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${String(width)} ${String(height)}" width="100%">
   <rect x="0.5" y="0.5" width="${String(width - 1)}" height="${String(height - 1)}" rx="${String(RADIUS)}" fill="${theme.background}" stroke="${theme.border}"/>
-  <text x="${String(componentX)}" y="35" font-family='${FONT_STACK}' font-size="13" font-weight="600" fill="${theme.foregroundMuted}" letter-spacing="0.08em">COMPONENT</text>
-  <text x="${String(implementationX)}" y="35" font-family='${FONT_STACK}' font-size="13" font-weight="600" fill="${theme.foregroundMuted}" letter-spacing="0.08em">IMPLEMENTATION</text>
+  ${sectionLabel({ x: componentX, y: 35, color: theme.foregroundMuted, label: 'COMPONENT' })}
+  ${sectionLabel({ x: implementationX, y: 35, color: theme.foregroundMuted, label: 'IMPLEMENTATION' })}
   <line x1="0" y1="${String(HEADER_HEIGHT - 1)}" x2="${String(width)}" y2="${String(HEADER_HEIGHT - 1)}" stroke="${theme.border}"/>
   ${rows}
 </svg>`;
@@ -246,7 +297,16 @@ function extractIconInner(lucideIconName: string): string {
     .trim();
 }
 
-function iconSvg(lucideIconName: string, x: number, y: number, size: number, color: string): string {
+interface IconSvgParameters {
+  lucideIconName: string;
+  x: number;
+  y: number;
+  size: number;
+  color: string;
+}
+
+function iconSvg(parameters: IconSvgParameters): string {
+  const { lucideIconName, x, y, size, color } = parameters;
   const inner = extractIconInner(lucideIconName);
   return `<svg x="${String(x)}" y="${String(y)}" width="${String(size)}" height="${String(size)}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
 }
@@ -268,7 +328,13 @@ export function generateFeatureCardsSvg(options: TableOptions): string {
     const cx = cardPadding + col * (cardW + cardSpacing);
     const cy = headerY + 20 + row * (cardH + cardSpacing);
 
-    const icon = iconSvg(f.lucideIcon, cx + 20, cy + 20, 24, theme.brandRed);
+    const icon = iconSvg({
+      lucideIconName: f.lucideIcon,
+      x: cx + 20,
+      y: cy + 20,
+      size: 24,
+      color: theme.brandRed,
+    });
 
     // Word-wrap description at ~40 chars
     const words = f.description.split(' ');
@@ -286,7 +352,10 @@ export function generateFeatureCardsSvg(options: TableOptions): string {
 
     const descLines = lines
       .slice(0, 3)
-      .map((line, i) => `<text x="${String(cx + 20)}" y="${String(cy + 84 + i * 17)}" font-family='${FONT_STACK}' font-size="12" fill="${theme.foregroundMuted}">${escapeXml(line)}</text>`)
+      .map(
+        (line, index_) =>
+          `<text x="${String(cx + 20)}" y="${String(cy + 84 + index_ * 17)}" font-family='${FONT_STACK}' font-size="12" fill="${theme.foregroundMuted}">${escapeXml(line)}</text>`
+      )
       .join('');
 
     return `
@@ -300,7 +369,7 @@ export function generateFeatureCardsSvg(options: TableOptions): string {
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${String(width)} ${String(height)}" width="100%">
   <rect x="0.5" y="0.5" width="${String(width - 1)}" height="${String(height - 1)}" rx="${String(RADIUS)}" fill="${theme.background}" stroke="${theme.border}"/>
-  <text x="${String(cardPadding)}" y="${String(headerY - 10)}" font-family='${FONT_STACK}' font-size="13" font-weight="600" fill="${theme.foregroundMuted}" letter-spacing="0.08em">SHIPPED FEATURES</text>
+  ${sectionLabel({ x: cardPadding, y: headerY - 10, color: theme.foregroundMuted, label: 'SHIPPED FEATURES' })}
   ${cards}
 </svg>`;
 }
@@ -321,7 +390,13 @@ export function generateComingSoonSvg(options: TableOptions): string {
     const row = Math.floor(index / cols);
     const cx = cardPadding + col * (cardW + cardSpacing);
     const cy = headerY + 20 + row * (cardH + cardSpacing);
-    const icon = iconSvg(f.lucideIcon, cx + 16, cy + 20, 20, theme.foregroundMuted);
+    const icon = iconSvg({
+      lucideIconName: f.lucideIcon,
+      x: cx + 16,
+      y: cy + 20,
+      size: 20,
+      color: theme.foregroundMuted,
+    });
     return `
     <g>
       <rect x="${String(cx)}" y="${String(cy)}" width="${String(cardW)}" height="${String(cardH)}" rx="10" fill="none" stroke="${theme.border}" stroke-width="1" stroke-dasharray="4 4"/>
@@ -332,7 +407,7 @@ export function generateComingSoonSvg(options: TableOptions): string {
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${String(width)} ${String(height)}" width="100%">
   <rect x="0.5" y="0.5" width="${String(width - 1)}" height="${String(height - 1)}" rx="${String(RADIUS)}" fill="${theme.background}" stroke="${theme.border}"/>
-  <text x="${String(cardPadding)}" y="${String(headerY - 10)}" font-family='${FONT_STACK}' font-size="13" font-weight="600" fill="${theme.foregroundMuted}" letter-spacing="0.08em">COMING SOON</text>
+  ${sectionLabel({ x: cardPadding, y: headerY - 10, color: theme.foregroundMuted, label: 'COMING SOON' })}
   ${cards}
 </svg>`;
 }
@@ -374,7 +449,7 @@ export function generateTables(outputDir: string, repoRoot?: string): void {
     ['dark', undefined as unknown as ThemeColors],
   ] as const;
   const outputs = themes.flatMap(([themeName]) =>
-    TABLE_BASENAMES.map((name) => path.join(outputDir, `${name}-${themeName}.svg`)),
+    TABLE_BASENAMES.map((name) => path.join(outputDir, `${name}-${themeName}.svg`))
   );
 
   withCache(
@@ -395,37 +470,37 @@ export function generateTables(outputDir: string, repoRoot?: string): void {
       ] as const) {
         writeFileSync(
           path.join(outputDir, `comparison-${themeName}.svg`),
-          generateComparisonSvg({ width, theme }),
+          generateComparisonSvg({ width, theme })
         );
         writeFileSync(
           path.join(outputDir, `pricing-${themeName}.svg`),
-          generatePricingSvg({ width, theme }),
+          generatePricingSvg({ width, theme })
         );
         writeFileSync(
           path.join(outputDir, `tiers-${themeName}.svg`),
-          generateTiersSvg({ width, theme }),
+          generateTiersSvg({ width, theme })
         );
         writeFileSync(
           path.join(outputDir, `features-${themeName}.svg`),
-          generateFeatureCardsSvg({ width, theme }),
+          generateFeatureCardsSvg({ width, theme })
         );
         writeFileSync(
           path.join(outputDir, `coming-soon-${themeName}.svg`),
-          generateComingSoonSvg({ width, theme }),
+          generateComingSoonSvg({ width, theme })
         );
         writeFileSync(
           path.join(outputDir, `technical-details-${themeName}.svg`),
-          generateTechnicalDetailsSvg({ width, theme }),
+          generateTechnicalDetailsSvg({ width, theme })
         );
       }
 
       console.log(`✓ Generated 12 table SVGs in ${outputDir}`);
-    },
+    }
   );
 }
 
 // CLI entry point
-const DEFAULT_OUTPUT = path.resolve(import.meta.dirname ?? '.', '../../.github/readme');
+const DEFAULT_OUTPUT = path.resolve(import.meta.dirname, '../../.github/readme');
 
 /* v8 ignore next 2 */
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;

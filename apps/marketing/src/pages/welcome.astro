@@ -1,10 +1,6 @@
 ---
 import { ROUTES } from '@hushbox/shared/routes';
-import {
-  SHIPPED_FEATURES,
-  COMING_SOON_FEATURES,
-  COMPARISON_ROWS,
-} from '@hushbox/shared';
+import { SHIPPED_FEATURES, COMING_SOON_FEATURES, COMPARISON_ROWS } from '@hushbox/shared';
 import {
   buttonVariants,
   CipherWall,
@@ -51,8 +47,8 @@ const comparisonRows = COMPARISON_ROWS.map((row) => ({
  */
 function toKebabCase(name: string): string {
   return name
-    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replace(/([A-Z])([A-Z][a-z])/g, '$1-$2')
+    .replaceAll(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replaceAll(/([A-Z])([A-Z][a-z])/g, '$1-$2')
     .toLowerCase();
 }
 

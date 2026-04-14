@@ -32,7 +32,7 @@ function extractProperty(cssBlock: string, name: string): string | undefined {
  * For ":root" or ".dark" style selectors.
  */
 function extractBlock(css: string, selector: string): string {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  const escaped = selector.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
   const pattern = new RegExp(String.raw`${escaped}\s*\{([\s\S]*?)\n\}`);
   const match = pattern.exec(css);
   if (!match?.[1]) {
@@ -59,16 +59,16 @@ function parseTheme(block: string, themeName: string): ThemeColors {
   const missing: string[] = [];
   for (const [key, cssName] of required) {
     const value = extractProperty(block, cssName);
-    if (!value) {
-      missing.push(`--${cssName}`);
-    } else {
+    if (value) {
       result[key] = value;
+    } else {
+      missing.push(`--${cssName}`);
     }
   }
 
   if (missing.length > 0) {
     throw new Error(
-      `Missing CSS properties in ${themeName} theme: ${missing.join(', ')}. Check ${CSS_PATH_FROM_REPO_ROOT}`,
+      `Missing CSS properties in ${themeName} theme: ${missing.join(', ')}. Check ${CSS_PATH_FROM_REPO_ROOT}`
     );
   }
 

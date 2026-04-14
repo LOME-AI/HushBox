@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getBrandColors } from './brand.js';
 import { generateProblemFlowSvg, generateProblemFlows } from './generate-problem-flow.js';
 
-const REPO_ROOT = path.resolve(import.meta.dirname ?? '.', '../..');
+const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
 describe('generateProblemFlowSvg', () => {
   it('produces a valid SVG document', () => {

@@ -108,11 +108,11 @@ export function generateProblemFlows(outputDir: string, repoRoot?: string): void
       writeFileSync(lightOut, generateProblemFlowSvg(brand.light));
       writeFileSync(darkOut, generateProblemFlowSvg(brand.dark));
       console.log(`✓ Generated 2 problem-flow SVGs in ${outputDir}`);
-    },
+    }
   );
 }
 
-const DEFAULT_OUTPUT = path.resolve(import.meta.dirname ?? '.', '../../.github/readme');
+const DEFAULT_OUTPUT = path.resolve(import.meta.dirname, '../../.github/readme');
 
 /* v8 ignore next 2 */
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;

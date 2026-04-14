@@ -11,7 +11,7 @@ import {
   generateTiersSvg,
 } from './generate-tables.js';
 
-const REPO_ROOT = path.resolve(import.meta.dirname ?? '.', '../..');
+const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
 describe('generateComparisonSvg', () => {
   it('renders every comparison row label', () => {

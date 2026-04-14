@@ -87,7 +87,7 @@ export function generateReadme(rootDir: string): void {
 
       writeFileSync(outputPath, content);
       console.log('✓ Generated README.md from template');
-    },
+    }
   );
 }
 

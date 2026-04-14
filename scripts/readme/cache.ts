@@ -30,11 +30,11 @@ export function hashInputs(filePaths: readonly string[]): string {
 export function isUpToDate(
   hashPath: string,
   inputs: readonly string[],
-  outputs?: readonly string[],
+  outputs?: readonly string[]
 ): boolean {
   if (process.env[FORCE_ENV]) return false;
   if (!existsSync(hashPath)) return false;
-  if (outputs && outputs.some((file) => !existsSync(file))) return false;
+  if (outputs?.some((file) => !existsSync(file))) return false;
   const stored = readFileSync(hashPath, 'utf8').trim();
   return stored === hashInputs(inputs);
 }
@@ -64,12 +64,12 @@ export interface CacheOptions {
  * skip cache persistence. This keeps the cache robust for unit tests that run
  * generators against temporary directories without the full source tree.
  */
-export function withCache(options: CacheOptions, fn: () => void): void {
+export function withCache(options: CacheOptions, function_: () => void): void {
   const { label, hashPath, inputs, outputs } = options;
 
   const allInputsExist = inputs.every((file) => existsSync(file));
   if (!allInputsExist) {
-    fn();
+    function_();
     return;
   }
 
@@ -77,6 +77,6 @@ export function withCache(options: CacheOptions, fn: () => void): void {
     console.log(`✓ ${label} up to date — skipping`);
     return;
   }
-  fn();
+  function_();
   writeHash(hashPath, inputs);
 }

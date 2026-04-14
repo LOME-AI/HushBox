@@ -42,7 +42,7 @@ describe('getBrandColors', () => {
   --foreground-muted: #9a9894;
   --border: #3d3a36;
 }
-`,
+`
     );
 
     const colors = getBrandColors(temporaryDir);
@@ -75,7 +75,7 @@ describe('getBrandColors', () => {
   --foreground-muted: #525252;
   --border: #e5e3de;
 }
-`,
+`
     );
 
     expect(() => getBrandColors(temporaryDir)).toThrow('.dark');
@@ -95,14 +95,14 @@ describe('getBrandColors', () => {
   --foreground-muted: #9a9894;
   --border: #3d3a36;
 }
-`,
+`
     );
 
     expect(() => getBrandColors(temporaryDir)).toThrow(/--background/);
   });
 
   it('reads from the real project CSS file', () => {
-    const repoRoot = path.resolve(import.meta.dirname ?? '.', '../..');
+    const repoRoot = path.resolve(import.meta.dirname, '../..');
     const colors = getBrandColors(repoRoot);
 
     expect(colors.light.brandRed).toMatch(/^#[0-9a-f]{6}$/i);
