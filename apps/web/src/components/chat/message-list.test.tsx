@@ -547,14 +547,35 @@ describe('MessageList', () => {
       const atBottomStateChange = capturedVirtuosoProps['atBottomStateChange'] as (
         atBottom: boolean
       ) => void;
+      const isScrolling = capturedVirtuosoProps['isScrolling'] as (scrolling: boolean) => void;
 
       // User scrolls away
       atBottomStateChange(false);
       expect(followOutput(true)).toBe(false);
 
-      // User scrolls back to bottom
+      // User actively scrolls back to bottom
+      isScrolling(true);
       atBottomStateChange(true);
+      isScrolling(false);
       expect(followOutput(true)).toBe(true);
+    });
+
+    it('followOutput stays disengaged when content growth moves user within threshold', () => {
+      render(<MessageList messages={messages} />);
+      const followOutput = capturedVirtuosoProps['followOutput'] as (
+        isAtBottom: boolean
+      ) => boolean;
+      const atBottomStateChange = capturedVirtuosoProps['atBottomStateChange'] as (
+        atBottom: boolean
+      ) => void;
+
+      // User scrolls away
+      atBottomStateChange(false);
+      expect(followOutput(true)).toBe(false);
+
+      // Content grows, user passively enters threshold (not actively scrolling)
+      atBottomStateChange(true);
+      expect(followOutput(true)).toBe(false);
     });
 
     it('exposes resetScrollBreakaway via ref', () => {

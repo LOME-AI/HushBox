@@ -112,11 +112,17 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
 ) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const userScrolledAwayRef = useRef(false);
+  const isScrollingRef = useRef(false);
   const [isVirtuosoScrolling, setIsVirtuosoScrolling] = useState(false);
 
   // Must exceed Footer height (10dvh) so scrollToIndex({ index: 'LAST' })
   // lands within the threshold and atBottomStateChange reports true.
   const [atBottomThreshold] = useState((): number => Math.ceil(window.innerHeight * 0.1) + 20);
+
+  const handleIsScrolling = useCallback((scrolling: boolean): void => {
+    isScrollingRef.current = scrolling;
+    setIsVirtuosoScrolling(scrolling);
+  }, []);
 
   useImperativeHandle(ref, () => {
     const virtuoso = virtuosoRef.current;
@@ -132,7 +138,13 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   });
 
   const handleAtBottomStateChange = useCallback((atBottom: boolean): void => {
-    userScrolledAwayRef.current = !atBottom;
+    if (!atBottom) {
+      userScrolledAwayRef.current = true;
+    } else if (isScrollingRef.current) {
+      // Only re-engage when the user is actively scrolling to bottom,
+      // not when content growth passively moves them within threshold.
+      userScrolledAwayRef.current = false;
+    }
   }, []);
 
   const followOutput = useCallback((): boolean => {
@@ -261,7 +273,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
         ref={virtuosoRef}
         data={rows}
         computeItemKey={computeItemKey}
-        isScrolling={setIsVirtuosoScrolling}
+        isScrolling={handleIsScrolling}
         followOutput={followOutput}
         atBottomStateChange={handleAtBottomStateChange}
         atBottomThreshold={atBottomThreshold}

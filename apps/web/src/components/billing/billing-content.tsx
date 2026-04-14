@@ -141,7 +141,7 @@ function BalanceCard({
         <CardDescription>Your available credits for AI model usage</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             {isStable ? (
               <p data-testid="balance-display" className="text-4xl font-bold">

@@ -41,6 +41,7 @@ export async function verifyEmailViaAPI(
   }
   const { token } = (await response.json()) as { token: string };
   await page.goto(`/verify?token=${token}`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Email verified' }).waitFor({ timeout: 15_000 });
   return token;
 }
 

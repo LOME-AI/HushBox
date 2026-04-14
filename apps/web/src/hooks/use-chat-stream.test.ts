@@ -319,7 +319,9 @@ describe('useChatStream', () => {
         await streamPromise;
       });
 
-      expect(result.current.isStreaming).toBe(false);
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(false);
+      });
     });
 
     it('throws error on non-SSE content type', async () => {
@@ -553,7 +555,9 @@ describe('useChatStream', () => {
         await streamPromise;
       });
 
-      expect(result.current.isStreaming).toBe(false);
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(false);
+      });
     });
   });
 
@@ -956,7 +960,9 @@ describe('useChatStream', () => {
         await streamPromise;
       });
 
-      expect(result.current.isStreaming).toBe(false);
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(false);
+      });
     });
   });
 

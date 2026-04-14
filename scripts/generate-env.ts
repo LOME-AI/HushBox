@@ -31,8 +31,8 @@ const BUILD_VARIANTS: Record<string, Record<string, string>> = {
     VITE_PLATFORM: 'android',
     VITE_APP_VERSION: '${{ needs.prepare.outputs.version }}',
   },
-  'build-env-android-direct': {
-    VITE_PLATFORM: 'android-direct',
+  'build-env-android-apk': {
+    VITE_PLATFORM: '${{ inputs.vite-platform }}',
     VITE_APP_VERSION: '${{ inputs.version }}',
   },
   'build-env-mobile-test': {

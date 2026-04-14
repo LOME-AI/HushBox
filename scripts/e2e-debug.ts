@@ -63,14 +63,19 @@ export interface PlaywrightSpec {
   tests?: PlaywrightTest[];
 }
 
-// Internal flattened type for categorization
+// Internal flattened type for categorization. `testStatus` mirrors Playwright's
+// per-test.outcome() and is the authoritative signal for flaky categorization;
+// `attempts` is the total number of results across retries. Both are optional
+// so existing test fixtures that construct this type directly stay valid.
 export interface FlattenedTestResult {
   title: string;
   file: string;
   line?: number | undefined;
   projectName: string;
+  testStatus?: 'expected' | 'unexpected' | 'flaky' | 'skipped';
   status: 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted';
   retry: number;
+  attempts?: number;
   duration: number;
   errors?: PlaywrightError[];
   steps?: PlaywrightStep[];
@@ -102,11 +107,13 @@ export interface PassedTest {
 export interface FlakyTest {
   title: string;
   file: string;
+  line?: number | undefined;
   project: string;
   attempts: number;
-  failureError?: string;
-  failureArtifacts?: FailedTestArtifacts;
-  steps?: PlaywrightStep[];
+  error: string;
+  duration: number;
+  steps: PlaywrightStep[];
+  artifacts: FailedTestArtifacts;
 }
 
 export interface FailedTestArtifacts {
@@ -218,6 +225,62 @@ export function formatDuration(ms: number): string {
   return `${String(seconds)}s`;
 }
 
+function joinErrorMessages(test: FlattenedTestResult): string {
+  return (test.errors ?? [])
+    .map((e) => e.message)
+    .filter((m): m is string => m !== undefined)
+    .join('\n');
+}
+
+function buildFlakyEntry(test: FlattenedTestResult): FlakyTest {
+  return {
+    title: test.title,
+    file: test.file,
+    line: test.line,
+    project: test.projectName,
+    attempts: test.attempts ?? test.retry + 1,
+    error: joinErrorMessages(test),
+    duration: test.duration,
+    steps: test.steps ?? [],
+    artifacts: extractArtifactPaths(test),
+  };
+}
+
+function buildFailedEntry(test: FlattenedTestResult): FailedTest {
+  return {
+    title: test.title,
+    file: test.file,
+    line: test.line,
+    project: test.projectName,
+    error: joinErrorMessages(test),
+    duration: test.duration,
+    steps: test.steps ?? [],
+    artifacts: extractArtifactPaths(test),
+  };
+}
+
+function buildPassedEntry(test: FlattenedTestResult): PassedTest {
+  return {
+    title: test.title,
+    file: test.file,
+    project: test.projectName,
+    duration: test.duration,
+  };
+}
+
+function isFlakyTest(test: FlattenedTestResult): boolean {
+  // Playwright-reported test-level status wins; fall back to the legacy
+  // "passed with retry > 0" heuristic so older callers still categorize.
+  // However, serial-mode collateral tests (testStatus 'flaky' but the chosen
+  // result passed with no errors) are not real flakes — their first attempt
+  // was interrupted when a later test in the serial block failed.
+  if (test.testStatus === 'flaky') {
+    const hasErrors = (test.errors ?? []).length > 0;
+    return !(test.status === 'passed' && !hasErrors);
+  }
+  return test.status === 'passed' && test.retry > 0;
+}
+
 export function categorizeTests(tests: FlattenedTestResult[]): CategorizedTests {
   const result: CategorizedTests = {
     passed: [],
@@ -226,42 +289,14 @@ export function categorizeTests(tests: FlattenedTestResult[]): CategorizedTests 
   };
 
   for (const test of tests) {
-    if (test.status === 'skipped') {
-      continue;
-    }
+    if (test.status === 'skipped' || test.testStatus === 'skipped') continue;
 
-    if (test.status === 'passed') {
-      if (test.retry > 0) {
-        result.flaky.push({
-          title: test.title,
-          file: test.file,
-          project: test.projectName,
-          attempts: test.retry + 1,
-        });
-      } else {
-        result.passed.push({
-          title: test.title,
-          file: test.file,
-          project: test.projectName,
-          duration: test.duration,
-        });
-      }
+    if (isFlakyTest(test)) {
+      result.flaky.push(buildFlakyEntry(test));
+    } else if (test.status === 'passed') {
+      result.passed.push(buildPassedEntry(test));
     } else {
-      const errors = (test.errors ?? [])
-        .map((e) => e.message)
-        .filter((m): m is string => m !== undefined);
-      const artifacts = extractArtifactPaths(test);
-
-      result.failed.push({
-        title: test.title,
-        file: test.file,
-        line: test.line,
-        project: test.projectName,
-        error: errors.join('\n'),
-        duration: test.duration,
-        steps: test.steps ?? [],
-        artifacts,
-      });
+      result.failed.push(buildFailedEntry(test));
     }
   }
 
@@ -318,8 +353,10 @@ function createFlattenedResult(
     file: spec.file,
     line: spec.line,
     projectName: test.projectName,
+    testStatus: test.status,
     status: result.status,
     retry: result.retry,
+    attempts: test.results.length,
     duration: result.duration,
     errors: result.errors ?? [],
     steps: result.steps ?? [],
@@ -332,9 +369,19 @@ function collectTestsFromSuite(suite: PlaywrightSuite): FlattenedTestResult[] {
 
   for (const spec of suite.specs ?? []) {
     for (const test of spec.tests ?? []) {
-      const lastResult = test.results.at(-1);
-      if (!lastResult) continue;
-      tests.push(createFlattenedResult(spec, test, lastResult));
+      // For flaky tests (final attempt passed after retries), surface the
+      // last failing attempt's data — that's the one with the trace, screenshot,
+      // error message, and steps worth debugging. Otherwise use the final result.
+      const chosen =
+        test.status === 'flaky'
+          ? (test.results
+              .toReversed()
+              .find(
+                (r) => r.status !== 'passed' && r.status !== 'skipped' && r.status !== 'interrupted'
+              ) ?? test.results.at(-1))
+          : test.results.at(-1);
+      if (!chosen) continue;
+      tests.push(createFlattenedResult(spec, test, chosen));
     }
   }
 
@@ -411,13 +458,30 @@ function truncateError(rawError: string): string {
   return error;
 }
 
-function renderSingleFailedTest(test: FailedTest): string[] {
+interface RenderableTest {
+  title: string;
+  file: string;
+  line?: number | undefined;
+  project: string;
+  duration: number;
+  error: string;
+  steps: PlaywrightStep[];
+  artifacts: FailedTestArtifacts;
+  attempts?: number;
+}
+
+function renderSingleTest(test: RenderableTest, artifactDir: 'failed' | 'flaky'): string[] {
   const slug = slugify(`${test.file}--${test.project}--${test.title}`);
   const location = test.line ? `${test.file}:${String(test.line)}` : test.file;
 
+  const header =
+    test.attempts === undefined
+      ? `#### ${test.title} [${test.project}]`
+      : `#### ${test.title} [${test.project}] (${String(test.attempts)} attempts)`;
+
   const lines: string[] = [
     '',
-    `#### ${test.title} [${test.project}]`,
+    header,
     '',
     `**File:** \`${location}\``,
     `**Duration:** ${formatDuration(test.duration)}`,
@@ -434,11 +498,11 @@ function renderSingleFailedTest(test: FailedTest): string[] {
   }
 
   if (test.artifacts.consoleErrors) {
-    lines.push('', `**Console Errors:** See \`failed/${slug}/console-errors.txt\``);
+    lines.push('', `**Console Errors:** See \`${artifactDir}/${slug}/console-errors.txt\``);
   }
 
   if (test.artifacts.pageSnapshot) {
-    lines.push(`**Page Snapshot:** See \`failed/${slug}/page-snapshot.txt\``);
+    lines.push(`**Page Snapshot:** See \`${artifactDir}/${slug}/page-snapshot.txt\``);
   }
 
   if (test.artifacts.trace) {
@@ -446,7 +510,7 @@ function renderSingleFailedTest(test: FailedTest): string[] {
   }
 
   if (test.artifacts.screenshot) {
-    lines.push(`**Screenshot:** \`failed/${slug}/screenshot.png\``);
+    lines.push(`**Screenshot:** \`${artifactDir}/${slug}/screenshot.png\``);
   } else {
     lines.push('**Screenshot:** none');
   }
@@ -469,7 +533,7 @@ function renderFailedTests(failed: FailedTest[]): string[] {
   for (const [file, tests] of byFile) {
     lines.push('', `### \`${file}\``);
     for (const test of tests) {
-      lines.push(...renderSingleFailedTest(test));
+      lines.push(...renderSingleTest(test, 'failed'));
     }
   }
 
@@ -479,18 +543,22 @@ function renderFailedTests(failed: FailedTest[]): string[] {
 function renderFlakyTests(flaky: FlakyTest[]): string[] {
   if (flaky.length === 0) return [];
 
-  const lines: string[] = [
-    '',
-    '---',
-    '',
-    '## Flaky Tests',
-    '',
-    '| Test | File | Project | Attempts |',
-    '|------|------|---------|----------|',
-  ];
+  const lines: string[] = ['', '---', '', '## Flaky Tests'];
+
+  const byFile = new Map<string, FlakyTest[]>();
   for (const test of flaky) {
-    lines.push(`| ${test.title} | \`${test.file}\` | ${test.project} | ${String(test.attempts)} |`);
+    const existing = byFile.get(test.file) ?? [];
+    existing.push(test);
+    byFile.set(test.file, existing);
   }
+
+  for (const [file, tests] of byFile) {
+    lines.push('', `### \`${file}\``);
+    for (const test of tests) {
+      lines.push(...renderSingleTest(test, 'flaky'));
+    }
+  }
+
   return lines;
 }
 
@@ -554,18 +622,19 @@ export function generateJsonReport(report: DebugReport): JsonReport {
     flaky: report.flaky.map((test) => ({
       title: test.title,
       file: test.file,
+      line: test.line,
       project: test.project,
-      duration: 0,
-      error: test.failureError ?? '',
+      duration: test.duration,
+      error: stripAnsi(test.error),
       rerunCommand: buildRerunCommand(test),
-      steps: test.steps ?? [],
+      steps: test.steps,
       artifacts: {
-        screenshot: test.failureArtifacts?.screenshot,
-        trace: test.failureArtifacts?.trace,
-        video: test.failureArtifacts?.video,
-        consoleErrors: test.failureArtifacts?.consoleErrors,
-        pageSnapshot: test.failureArtifacts?.pageSnapshot,
-        harFiles: test.failureArtifacts?.harFiles ?? [],
+        screenshot: test.artifacts.screenshot,
+        trace: test.artifacts.trace,
+        video: test.artifacts.video,
+        consoleErrors: test.artifacts.consoleErrors,
+        pageSnapshot: test.artifacts.pageSnapshot,
+        harFiles: test.artifacts.harFiles,
       },
     })),
     passed: report.passed.map((test) => ({
@@ -645,19 +714,21 @@ export function writeReport(report: DebugReport, baseDir: string): string {
   }
 
   for (const test of report.flaky) {
-    if (test.failureArtifacts) {
-      const slug = slugify(`${test.file}--${test.project}--${test.title}`);
-      const flakyAsFailedTest: FailedTest = {
+    const slug = slugify(`${test.file}--${test.project}--${test.title}`);
+    // FlakyTest shares FailedTest's artifact shape, so the same writer works.
+    writePerTestArtifacts(
+      {
         title: test.title,
         file: test.file,
+        line: test.line,
         project: test.project,
-        error: test.failureError ?? '',
-        duration: 0,
-        steps: test.steps ?? [],
-        artifacts: test.failureArtifacts,
-      };
-      writePerTestArtifacts(flakyAsFailedTest, path.join(reportDir, 'flaky', slug));
-    }
+        error: test.error,
+        duration: test.duration,
+        steps: test.steps,
+        artifacts: test.artifacts,
+      },
+      path.join(reportDir, 'flaky', slug)
+    );
   }
 
   const markdown = generateMarkdownReport(report);

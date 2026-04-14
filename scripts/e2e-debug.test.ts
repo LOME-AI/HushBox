@@ -147,15 +147,65 @@ describe('e2e-debug', () => {
       expect(result.failed).toHaveLength(0);
     });
 
-    it('categorizes flaky tests (passed on retry)', () => {
-      const tests = [createTestResult({ status: 'passed', retry: 1 })];
+    it('categorizes flaky tests (testStatus flaky, data from failing attempt)', () => {
+      // Collector surfaces the failing attempt's data but tags testStatus='flaky'
+      // and records the total attempt count on the flattened result.
+      const tests = [
+        createTestResult({
+          testStatus: 'flaky',
+          status: 'failed',
+          retry: 0,
+          attempts: 2,
+          errors: [{ message: 'race' }],
+          duration: 1500,
+        }),
+      ];
 
       const result = categorizeTests(tests);
 
       expect(result.passed).toHaveLength(0);
       expect(result.flaky).toHaveLength(1);
       expect(result.flaky[0]?.attempts).toBe(2);
+      expect(result.flaky[0]?.error).toBe('race');
+      expect(result.flaky[0]?.duration).toBe(1500);
       expect(result.failed).toHaveLength(0);
+    });
+
+    it('flaky tests carry full artifacts (trace, screenshot, console errors, har)', () => {
+      const tests = [
+        createTestResult({
+          testStatus: 'flaky',
+          status: 'failed',
+          retry: 1,
+          attempts: 3,
+          line: 42,
+          errors: [{ message: 'Timeout' }],
+          steps: [{ title: 'click send', duration: 100 }],
+          attachments: [
+            { name: 'trace', path: 'trace.zip' },
+            { name: 'screenshot', path: 'shot.png' },
+            { name: 'video', path: 'video.webm' },
+            {
+              name: 'console-errors-authenticatedPage',
+              body: 'TypeError: x',
+              contentType: 'text/plain',
+            },
+            { name: 'har-authenticatedPage', path: 'network.har' },
+          ],
+        }),
+      ];
+
+      const result = categorizeTests(tests);
+
+      expect(result.flaky).toHaveLength(1);
+      const flake = result.flaky[0];
+      expect(flake?.line).toBe(42);
+      expect(flake?.steps).toEqual([{ title: 'click send', duration: 100 }]);
+      expect(flake?.artifacts.trace).toBe('trace.zip');
+      expect(flake?.artifacts.screenshot).toBe('shot.png');
+      expect(flake?.artifacts.video).toBe('video.webm');
+      expect(flake?.artifacts.consoleErrors).toBe('TypeError: x');
+      expect(flake?.artifacts.harFiles).toEqual(['network.har']);
     });
 
     it('categorizes failed tests', () => {
@@ -184,6 +234,26 @@ describe('e2e-debug', () => {
       expect(result.failed).toHaveLength(1);
     });
 
+    it('serial-mode interrupted tests are not falsely marked flaky', () => {
+      // When a serial block fails, Playwright interrupts preceding tests that
+      // already passed. On retry they pass again, making testStatus 'flaky'.
+      // The interrupted result has no error — it should be skipped in favor of
+      // the passing result, categorizing the test as passed, not flaky.
+      const tests = [
+        createTestResult({
+          testStatus: 'flaky',
+          status: 'passed',
+          retry: 1,
+          attempts: 2,
+        }),
+      ];
+
+      const result = categorizeTests(tests);
+
+      expect(result.flaky).toHaveLength(0);
+      expect(result.passed).toHaveLength(1);
+    });
+
     it('skips skipped tests', () => {
       const tests = [createTestResult({ status: 'skipped' })];
 
@@ -197,7 +267,14 @@ describe('e2e-debug', () => {
     it('handles multiple tests of different statuses', () => {
       const tests = [
         createTestResult({ title: 'passed test', status: 'passed', retry: 0 }),
-        createTestResult({ title: 'flaky test', status: 'passed', retry: 2 }),
+        createTestResult({
+          title: 'flaky test',
+          testStatus: 'flaky',
+          status: 'failed',
+          retry: 1,
+          attempts: 3,
+          errors: [{ message: 'boom' }],
+        }),
         createTestResult({ title: 'failed test', status: 'failed' }),
         createTestResult({ title: 'skipped test', status: 'skipped' }),
       ];
@@ -545,11 +622,38 @@ describe('e2e-debug', () => {
       });
     });
 
-    it('includes flaky test details with attempt count', () => {
+    it('flaky tests surface the last failing attempt artifacts', () => {
       const report = createReport([
         createSuite([
           createSpec('flaky test', 'e2e/chat.spec.ts', [
-            createTest('firefox', [createResult({ status: 'passed', retry: 2 })]),
+            {
+              projectName: 'firefox',
+              status: 'flaky',
+              results: [
+                createResult({
+                  status: 'failed',
+                  retry: 0,
+                  duration: 2000,
+                  errors: [{ message: 'race condition' }],
+                  steps: [{ title: 'step1', duration: 100 }],
+                  attachments: [
+                    { name: 'trace', path: 'failing-trace.zip' },
+                    { name: 'screenshot', path: 'failing-shot.png' },
+                    {
+                      name: 'console-errors-authenticatedPage',
+                      body: 'TypeError: bang',
+                      contentType: 'text/plain',
+                    },
+                  ],
+                }),
+                createResult({
+                  status: 'passed',
+                  retry: 1,
+                  duration: 3000,
+                  attachments: [{ name: 'trace', path: 'passing-trace.zip' }],
+                }),
+              ],
+            },
           ]),
         ]),
       ]);
@@ -557,11 +661,19 @@ describe('e2e-debug', () => {
       const result = generateDebugReport(report);
 
       expect(result.flaky).toHaveLength(1);
-      expect(result.flaky[0]).toEqual({
+      expect(result.flaky[0]).toMatchObject({
         title: 'flaky test',
         file: 'e2e/chat.spec.ts',
         project: 'firefox',
-        attempts: 3,
+        attempts: 2,
+        error: 'race condition',
+        duration: 2000,
+        steps: [{ title: 'step1', duration: 100 }],
+        artifacts: {
+          trace: 'failing-trace.zip',
+          screenshot: 'failing-shot.png',
+          consoleErrors: 'TypeError: bang',
+        },
       });
     });
 
@@ -917,14 +1029,30 @@ describe('e2e-debug', () => {
       expect(md).toContain('### `e2e/billing/billing.spec.ts`');
     });
 
-    it('renders flaky tests as a table', () => {
+    it('renders flaky tests with full failure details and flaky/ artifact paths', () => {
       const report: DebugReport = {
         summary: { total: 2, passed: 1, flaky: 1, failed: 0, duration: 5000 },
         passed: [
           { title: 'stable', file: 'e2e/chat/chat.spec.ts', project: 'chromium', duration: 1000 },
         ],
         flaky: [
-          { title: 'flaky test', file: 'e2e/chat/chat.spec.ts', project: 'firefox', attempts: 3 },
+          {
+            title: 'flaky test',
+            file: 'e2e/chat/chat.spec.ts',
+            project: 'firefox',
+            attempts: 3,
+            error: 'race condition',
+            duration: 2000,
+            steps: [{ title: 'click', duration: 100 }],
+            artifacts: {
+              trace: 'trace.zip',
+              screenshot: 'shot.png',
+              video: undefined,
+              consoleErrors: 'TypeError',
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
         ],
         failed: [],
       };
@@ -932,8 +1060,11 @@ describe('e2e-debug', () => {
       const md = generateMarkdownReport(report);
 
       expect(md).toContain('## Flaky Tests');
-      expect(md).toContain('| flaky test |');
-      expect(md).toContain('| 3 |');
+      expect(md).toContain('flaky test');
+      expect(md).toContain('race condition');
+      // Per-test artifact links point at flaky/, not failed/.
+      expect(md).toContain('flaky/e2e-chat-chat-spec-ts-firefox-flaky-test');
+      expect(md).not.toContain('failed/e2e-chat-chat-spec-ts-firefox-flaky-test');
     });
 
     it('strips ANSI codes from error messages', () => {
@@ -1152,6 +1283,49 @@ describe('e2e-debug', () => {
       expect(existsSync(path.join(failedDir, 'screenshot.png'))).toBe(true);
       expect(existsSync(path.join(failedDir, 'console-errors.txt'))).toBe(true);
       expect(readFileSync(path.join(failedDir, 'error.txt'), 'utf8')).toBe('test error message');
+    });
+
+    it('writes per-test artifacts in flaky/ directory', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const baseDir = path.join(temporaryDir, 'report');
+      const sourceScreenshot = path.join(temporaryDir, 'flaky-source.png');
+      writeFileSync(sourceScreenshot, 'fake-png-data');
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 1, failed: 0, duration: 1000 },
+        passed: [],
+        flaky: [
+          {
+            title: 'intermittent test',
+            file: 'e2e/chat/flaky.spec.ts',
+            project: 'webkit',
+            attempts: 2,
+            error: 'race on first attempt',
+            duration: 500,
+            steps: [{ title: 'wait', duration: 50 }],
+            artifacts: {
+              trace: undefined,
+              screenshot: sourceScreenshot,
+              video: undefined,
+              consoleErrors: 'oops',
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
+        ],
+        failed: [],
+      };
+
+      const resultDir = writeReport(report, baseDir);
+
+      const slug = 'e2e-chat-flaky-spec-ts-webkit-intermittent-test';
+      const flakyDir = path.join(resultDir, 'flaky', slug);
+      expect(existsSync(flakyDir)).toBe(true);
+      expect(existsSync(path.join(flakyDir, 'error.txt'))).toBe(true);
+      expect(existsSync(path.join(flakyDir, 'steps.json'))).toBe(true);
+      expect(existsSync(path.join(flakyDir, 'screenshot.png'))).toBe(true);
+      expect(existsSync(path.join(flakyDir, 'console-errors.txt'))).toBe(true);
+      expect(readFileSync(path.join(flakyDir, 'error.txt'), 'utf8')).toBe('race on first attempt');
     });
 
     it('writes report.json alongside REPORT.md', () => {

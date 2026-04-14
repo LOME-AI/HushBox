@@ -863,29 +863,29 @@ describe('build-env variants', () => {
     return readFileSync(path.join(TEST_DIR_VARIANTS, '.github/workflows', filename), 'utf8');
   };
 
-  describe('build-env-android-direct', () => {
-    it('overrides VITE_PLATFORM to android-direct', () => {
+  describe('build-env-android-apk', () => {
+    it('overrides VITE_PLATFORM to inputs.vite-platform expression', () => {
       createWorkflow(
         'build-android-apk.yml',
         `name: APK
-        # BEGIN GENERATED: build-env-android-direct
+        # BEGIN GENERATED: build-env-android-apk
         old content
-        # END GENERATED: build-env-android-direct`
+        # END GENERATED: build-env-android-apk`
       );
 
       updateWorkflows(TEST_DIR_VARIANTS);
 
       const content = readWorkflow('build-android-apk.yml');
-      expect(content).toContain('VITE_PLATFORM: android-direct');
+      expect(content).toContain('VITE_PLATFORM: ${{ inputs.vite-platform }}');
     });
 
     it('overrides VITE_APP_VERSION to use inputs.version', () => {
       createWorkflow(
         'build-android-apk.yml',
         `name: APK
-        # BEGIN GENERATED: build-env-android-direct
+        # BEGIN GENERATED: build-env-android-apk
         old content
-        # END GENERATED: build-env-android-direct`
+        # END GENERATED: build-env-android-apk`
       );
 
       updateWorkflows(TEST_DIR_VARIANTS);
@@ -898,9 +898,9 @@ describe('build-env variants', () => {
       createWorkflow(
         'build-android-apk.yml',
         `name: APK
-        # BEGIN GENERATED: build-env-android-direct
+        # BEGIN GENERATED: build-env-android-apk
         old content
-        # END GENERATED: build-env-android-direct`
+        # END GENERATED: build-env-android-apk`
       );
 
       updateWorkflows(TEST_DIR_VARIANTS);
@@ -913,9 +913,9 @@ describe('build-env variants', () => {
       createWorkflow(
         'build-android-apk.yml',
         `name: APK
-        # BEGIN GENERATED: build-env-android-direct
+        # BEGIN GENERATED: build-env-android-apk
         old content
-        # END GENERATED: build-env-android-direct`
+        # END GENERATED: build-env-android-apk`
       );
 
       updateWorkflows(TEST_DIR_VARIANTS);
@@ -994,9 +994,9 @@ describe('build-env variants', () => {
       createWorkflow(
         'build-android-apk.yml',
         `name: APK
-        # BEGIN GENERATED: build-env-android-direct
+        # BEGIN GENERATED: build-env-android-apk
         old
-        # END GENERATED: build-env-android-direct`
+        # END GENERATED: build-env-android-apk`
       );
       createWorkflow(
         'release.yml',
@@ -1021,9 +1021,9 @@ describe('build-env variants', () => {
       createWorkflow(
         'build-android-apk.yml',
         `name: APK
-        # BEGIN GENERATED: build-env-android-direct
+        # BEGIN GENERATED: build-env-android-apk
         old
-        # END GENERATED: build-env-android-direct`
+        # END GENERATED: build-env-android-apk`
       );
       createWorkflow(
         'release.yml',
