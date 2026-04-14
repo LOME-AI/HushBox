@@ -164,4 +164,5 @@ jobs:
       version-code: ${{ needs.prepare.outputs.version_code }}
       version: ${{ needs.prepare.outputs.version }}
       prerelease: false
+      vite-platform: android-direct
     secrets: inherit

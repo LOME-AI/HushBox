@@ -1,7 +1,16 @@
-name: Experimental Release
+name: Prerelease APK
 
 on:
   workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Which prerelease flavor to build'
+        type: choice
+        required: true
+        default: experimental
+        options:
+          - experimental
+          - development
 
 permissions:
   contents: write
@@ -39,6 +48,9 @@ jobs:
           INPUT_VERSION: ${{ steps.tag.outputs.tag }}
 
   # ── Build APK + GitHub Pre-Release ────────────────────
+  # variant → vite-platform:
+  #   experimental → android-direct (Obtainium/direct-install configuration)
+  #   development  → android         (Play-Store configuration, installed as APK for faster QA)
   build-apk:
     needs: [prepare]
     uses: ./.github/workflows/build-android-apk.yml
@@ -47,5 +59,6 @@ jobs:
       version-code: ${{ needs.prepare.outputs.version_code }}
       version: ${{ needs.prepare.outputs.version }}
       prerelease: true
-      release-title-suffix: ' (Experimental)'
+      vite-platform: ${{ inputs.variant == 'development' && 'android' || 'android-direct' }}
+      release-title-suffix: ${{ inputs.variant == 'development' && ' (Development)' || ' (Experimental)' }}
     secrets: inherit

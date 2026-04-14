@@ -20,6 +20,10 @@ on:
         required: false
         type: string
         default: ''
+      vite-platform:
+        required: true
+        type: string
+        description: 'Vite build platform: "android" for Play-Store-configured APK, "android-direct" for Obtainium/direct-install APK.'
 
 permissions:
   contents: write
@@ -65,13 +69,13 @@ jobs:
 
       - name: Build web for APK
         run: pnpm --filter web build
-        # BEGIN GENERATED: build-env-android-direct
+        # BEGIN GENERATED: build-env-android-apk
         env:
           VITE_API_URL: https://api.hushbox.ai
           VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
-          VITE_PLATFORM: android-direct
+          VITE_PLATFORM: ${{ inputs.vite-platform }}
           VITE_APP_VERSION: ${{ inputs.version }}
-        # END GENERATED: build-env-android-direct
+        # END GENERATED: build-env-android-apk
 
       - name: Sync Android
         working-directory: apps/web
