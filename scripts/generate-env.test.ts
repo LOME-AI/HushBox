@@ -308,6 +308,7 @@ local_protocol = "http"
       expect(content).toContain('HB_ASTRO_PORT="4321"');
       expect(content).toContain('HB_EMULATOR_ADB_PORT="5555"');
       expect(content).toContain('HB_EMULATOR_VNC_PORT="6080"');
+      expect(content).toContain('HB_README_PREVIEW_PORT="6419"');
     });
 
     it('applies worktree detection like development mode', () => {
@@ -776,6 +777,7 @@ local_protocol = "http"
       expect(content).toContain('HB_ASTRO_PORT="4321"');
       expect(content).toContain('HB_EMULATOR_ADB_PORT="5555"');
       expect(content).toContain('HB_EMULATOR_VNC_PORT="6080"');
+      expect(content).toContain('HB_README_PREVIEW_PORT="6419"');
     });
   });
 

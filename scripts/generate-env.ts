@@ -105,7 +105,8 @@ function generatePortLines(
     `HB_REDIS_HTTP_PORT=${escapeEnvValue(String(ports.redisHttp))}`,
     `HB_ASTRO_PORT=${escapeEnvValue(String(ports.astro))}`,
     `HB_EMULATOR_ADB_PORT=${escapeEnvValue(String(ports.emulatorAdb))}`,
-    `HB_EMULATOR_VNC_PORT=${escapeEnvValue(String(ports.emulatorVnc))}`
+    `HB_EMULATOR_VNC_PORT=${escapeEnvValue(String(ports.emulatorVnc))}`,
+    `HB_README_PREVIEW_PORT=${escapeEnvValue(String(ports.readmePreview))}`
   );
   return lines;
 }

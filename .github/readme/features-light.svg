@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 652" width="100%">
+  <rect x="0.5" y="0.5" width="959" height="651" rx="12" fill="#faf9f6" stroke="#e5e3de"/>
+  <text x="20" y="34" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#525252" letter-spacing="0.08em">SHIPPED FEATURES</text>
+  
+    <g>
+      <rect x="20" y="64" width="296" height="130" rx="10" fill="#faf5ed" stroke="#e5e3de" stroke-width="1"/>
+      <svg x="40" y="84" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4755" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+  <path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1" /></svg>
+      <text x="40" y="126" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="600" fill="#1a1a1a">Multi-Model Chat</text>
+      <text x="40" y="148" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">Access GPT, Claude, Gemini, and dozens</text><text x="40" y="165" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">more from one place.</text>
+    </g>
+    <g>
+      <rect x="332" y="64" width="296" height="130" rx="10" fill="#faf5ed" stroke="#e5e3de" stroke-width="1"/>
+      <svg x="352" y="84" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4755" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4" />
+  <path d="M4 7h16" />
+  <path d="m16 21 4-4-4-4" />
+  <path d="M20 17H4" /></svg>
+      <text x="352" y="126" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="600" fill="#1a1a1a">Model Switching</text>
+      <text x="352" y="148" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">Change models mid-conversation.</text><text x="352" y="165" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">Compare outputs side by side.</text>
+    </g>
+    <g>
+      <rect x="644" y="64" width="296" height="130" rx="10" fill="#faf5ed" stroke="#e5e3de" stroke-width="1"/>
+      <svg x="664" y="84" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4755" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.15V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2h-3.35" />
+  <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+  <path d="m5 16-3 3 3 3" />
+  <path d="m9 22 3-3-3-3" /></svg>
+      <text x="664" y="126" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="600" fill="#1a1a1a">Document Panel</text>
+      <text x="664" y="148" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">Code editing, rendering, and word</text><text x="664" y="165" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">processing in one unified panel.</text>
+    </g>
+    <g>
+      <rect x="20" y="210" width="296" height="130" rx="10" fill="#faf5ed" stroke="#e5e3de" stroke-width="1"/>
+      <svg x="40" y="230" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4755" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+  <path d="M16 3.128a4 4 0 0 1 0 7.744" />
+  <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+  <circle cx="9" cy="7" r="4" /></svg>
+      <text x="40" y="272" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="600" fill="#1a1a1a">Group Chats</text>
+      <text x="40" y="294" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">Collaborate with others in real-time</text><text x="40" y="311" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">encrypted conversations.</text>
+    </g>
+    <g>
+      <rect x="332" y="210" width="296" height="130" rx="10" fill="#faf5ed" stroke="#e5e3de" stroke-width="1"/>
+      <svg x="352" y="230" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4755" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+  <path d="m9 12 2 2 4-4" /></svg>
+      <text x="352" y="272" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="600" fill="#1a1a1a">Two-Factor Auth</text>
+      <text x="352" y="294" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">TOTP-based 2FA for an extra layer of</text><text x="352" y="311" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">account security.</text>
+    </g>
+    <g>
+      <rect x="644" y="210" width="296" height="130" rx="10" fill="#faf5ed" stroke="#e5e3de" stroke-width="1"/>
+      <svg x="664" y="230" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4755" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" />
+  <circle cx="16.5" cy="7.5" r=".5" fill="currentColor" /></svg>
+      <text x="664" y="272" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="600" fill="#1a1a1a">Recovery Phrase</text>
+      <text x="664" y="294" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">12-word mnemonic backup so you never</text><text x="664" y="311" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">lose access to your encrypted data.</text>
+    </g>
+    <g>
+      <rect x="20" y="356" width="296" height="130" rx="10" fill="#faf5ed" stroke="#e5e3de" stroke-width="1"/>
+      <svg x="40" y="376" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4755" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
+  <path d="M20 2v4" />
+  <path d="M22 4h-4" />
+  <circle cx="4" cy="20" r="2" /></svg>
+      <text x="40" y="418" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="600" fill="#1a1a1a">Smart Model Select</text>
+      <text x="40" y="440" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">Auto-picks the best model for your</text><text x="40" y="457" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">task.</text>
+    </g>
+    <g>
+      <rect x="332" y="356" width="296" height="130" rx="10" fill="#faf5ed" stroke="#e5e3de" stroke-width="1"/>
+      <svg x="352" y="376" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4755" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" />
+  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+  <path d="M2 12h20" /></svg>
+      <text x="352" y="418" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="600" fill="#1a1a1a">Web Search</text>
+      <text x="352" y="440" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">Ground AI responses with real-time web</text><text x="352" y="457" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">results.</text>
+    </g>
+    <g>
+      <rect x="644" y="356" width="296" height="130" rx="10" fill="#faf5ed" stroke="#e5e3de" stroke-width="1"/>
+      <svg x="664" y="376" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4755" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
+  <circle cx="12" cy="12" r="3" /></svg>
+      <text x="664" y="418" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="600" fill="#1a1a1a">Custom Instructions</text>
+      <text x="664" y="440" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">Set persistent instructions that apply</text><text x="664" y="457" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">across all chats.</text>
+    </g>
+    <g>
+      <rect x="20" y="502" width="296" height="130" rx="10" fill="#faf5ed" stroke="#e5e3de" stroke-width="1"/>
+      <svg x="40" y="522" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4755" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3" />
+  <circle cx="6" cy="12" r="3" />
+  <circle cx="18" cy="19" r="3" />
+  <line x1="8.59" x2="15.42" y1="13.51" y2="17.49" />
+  <line x1="15.41" x2="8.59" y1="6.51" y2="10.49" /></svg>
+      <text x="40" y="564" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="600" fill="#1a1a1a">Chat Sharing + Sync</text>
+      <text x="40" y="586" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">Share conversations and sync across</text><text x="40" y="603" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">all your devices.</text>
+    </g>
+    <g>
+      <rect x="332" y="502" width="296" height="130" rx="10" fill="#faf5ed" stroke="#e5e3de" stroke-width="1"/>
+      <svg x="352" y="522" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4755" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6a9 9 0 0 0-9 9V3" />
+  <circle cx="18" cy="6" r="3" />
+  <circle cx="6" cy="18" r="3" /></svg>
+      <text x="352" y="564" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="600" fill="#1a1a1a">Conversation Forking</text>
+      <text x="352" y="586" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">Branch conversations to explore</text><text x="352" y="603" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">different directions.</text>
+    </g>
+    <g>
+      <rect x="644" y="502" width="296" height="130" rx="10" fill="#faf5ed" stroke="#e5e3de" stroke-width="1"/>
+      <svg x="664" y="522" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4755" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" />
+  <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" />
+  <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /></svg>
+      <text x="664" y="564" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="600" fill="#1a1a1a">Multi-Model Responses</text>
+      <text x="664" y="586" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">Get answers from multiple models at</text><text x="664" y="603" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="12" fill="#525252">once and compare.</text>
+    </g>
+</svg>
