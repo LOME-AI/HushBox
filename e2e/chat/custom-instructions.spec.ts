@@ -11,7 +11,7 @@ test.describe('Custom Instructions', () => {
       await navigateToSettings(authenticatedPage);
       const settingsPage = new SettingsPage(authenticatedPage);
 
-      await expect(settingsPage.changePasswordButton).toBeVisible();
+      await unsettledExpect(settingsPage.changePasswordButton).toBeVisible();
       await expect(settingsPage.twoFactorButton).toBeVisible();
       await expect(settingsPage.recoveryPhraseButton).toBeVisible();
       await expect(settingsPage.customInstructionsButton).toBeVisible();

@@ -480,7 +480,9 @@ test.describe('Group Chat Admin', () => {
       await saveButton.click();
 
       // Modal closes after save
-      await expect(authenticatedPage.getByTestId('budget-settings-modal')).not.toBeVisible();
+      await unsettledExpect(
+        authenticatedPage.getByTestId('budget-settings-modal')
+      ).not.toBeVisible();
     });
 
     await test.step('non-owner sees read-only budget modal', async () => {
@@ -519,7 +521,7 @@ test.describe('Group Chat Admin', () => {
 
       // Cancel
       await authenticatedPage.getByTestId('budget-cancel-button').click();
-      await expect(modal).not.toBeVisible();
+      await unsettledExpect(modal).not.toBeVisible();
 
       // Reopen — value should NOT be 999.00
       await sidebar.clickBudgetSettings();

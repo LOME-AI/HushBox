@@ -12,6 +12,7 @@ export const BASE_PORTS = {
   astro: 4321,
   emulatorAdb: 5555,
   emulatorVnc: 6080,
+  readmePreview: 6419,
 } as const;
 
 export type PortKey = keyof typeof BASE_PORTS;

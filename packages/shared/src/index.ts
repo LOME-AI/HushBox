@@ -24,3 +24,5 @@ export * from './error-messages.js';
 export * from './mobile.js';
 export * from './platform.js';
 export * from './models/index.js';
+export * from './features.js';
+export * from './comparison.js';

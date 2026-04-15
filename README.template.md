@@ -1,157 +1,196 @@
-# HushBox
+<div align="center">
 
-**One interface. Every AI model. Private.**
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/banner-dark.gif">
+  <img alt="HushBox. One interface. Every AI model. Private." src=".github/readme/banner-light.gif" width="100%">
+</picture>
 
-HushBox is a unified AI chat interface that lets you access GPT, Claude, Gemini, Grok, and dozens of other models from a single application. Switch models mid-conversation. Keep your history forever. Never manage another AI subscription.
+<br>
 
-🌐 [hushbox.ai](https://hushbox.ai)
+[![Website](https://img.shields.io/badge/hushbox.ai-ec4755?style=flat-square)](https://hushbox.ai)
+&nbsp;
+[![License](https://img.shields.io/badge/license-proprietary-ec4755?style=flat-square)](LICENSE)
+&nbsp;
+[![CI](https://github.com/LOME-AI/HushBox/actions/workflows/ci.yml/badge.svg)](https://github.com/LOME-AI/HushBox/actions/workflows/ci.yml)
+&nbsp;
+[![Android](https://img.shields.io/badge/Android-app-ec4755?style=flat-square&logo=android&logoColor=white)](https://github.com/LOME-AI/HushBox/releases)
+
+[![Try it](https://img.shields.io/badge/Try_HushBox-ec4755?style=for-the-badge&logoColor=white)](https://hushbox.ai)
+&nbsp;
+[![Blog](https://img.shields.io/badge/Blog-ec4755?style=for-the-badge)](https://hushbox.ai/blog)
+&nbsp;
+[![Contributing](https://img.shields.io/badge/Contributing-ec4755?style=for-the-badge)](docs/CONTRIBUTING.md)
+
+</div>
 
 ---
 
 ## The Problem
 
-Every few months, a new "best AI model" launches. The cycle is exhausting:
+Every few months, a new AI model takes the crown. You know the cycle.
 
-```
-1. New model releases, everyone says it's the best
-         ↓
-2. Sign up for new service, enter payment info
-         ↓
-3. Learn new interface, find the features
-         ↓
-4. Conversations stuck in old platform
-         ↓
-5. Managing multiple subscriptions
-         ↓
-6. Another new model releases...
-         ↓
-   (repeat forever)
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/problem-flow-dark.svg">
+  <img alt="The AI subscription cycle" src=".github/readme/problem-flow-light.svg" width="100%">
+</picture>
 
-Your AI history is fragmented across ChatGPT, Claude, Gemini, Perplexity, and whatever launched last week. Each has different features, different interfaces, different billing. You're locked into ecosystems that don't talk to each other.
+Your history is scattered across ChatGPT, Claude, Gemini, and whatever launched last Tuesday. Each has its own interface, its own billing, its own lock on your data.
 
----
+HushBox puts GPT-4o, Claude, Gemini, Llama, DeepSeek, and over a hundred other models behind a single interface. Switch models mid-conversation. Fork a thread to try a different model's take. When the next model launches, you don't migrate. You pick it from the dropdown.
 
-## The Solution
-
-HushBox ends the cycle. One interface, every model, forever.
-
-When a new model launches, you don't migrate—you just select it from the dropdown. Your conversations, your projects, your workflow stay exactly where they are. The AI industry moves fast. Your tools shouldn't force you to move with it.
+> **[Try HushBox](https://hushbox.ai).** No account needed for your first conversation.
 
 ---
 
 ## Encrypted By Default
 
-When you send a message, it's encrypted in transit to the AI model and stored with an encryption key only you hold. We never store plaintext. Our servers cannot read your conversations — even if we wanted to.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/comparison-dark.svg">
+  <img alt="Encryption comparison" src=".github/readme/comparison-light.svg" width="100%">
+</picture>
 
-**Your password never leaves your device.** We use OPAQUE, the state-of-the-art password protocol, so your password is never transmitted to our servers.
+Your messages are encrypted in your browser before they're stored. The encryption key comes from your password, which never leaves your device. We use OPAQUE, a protocol where the server participates in authentication without ever seeing the password (not even a hash). Our servers hold encrypted blobs. Without your password or your 12-word recovery phrase, that data is noise.
 
-**Your messages are encrypted with your password.** Every message is encrypted in your browser before it's stored. The encryption key is derived from your password — which only you know. Without your password or recovery phrase, your data is inaccessible to everyone, including us.
+Our servers can't read your stored conversations because they never hold the decryption key.
 
-|                                | ChatGPT | Claude | Gemini | HushBox |
-| ------------------------------ | :-----: | :----: | :----: | :-----: |
-| Stored messages encrypted      |   No    |   No   |   No   | **Yes** |
-| Provider can read stored chats |   Yes   |  Yes   |  Yes   | **No**  |
+> AI models need to read your message to answer it. We partner exclusively with zero-data-retention providers who pledge not to log your data. Providers see HushBox's API credentials, not yours. They can't link a message to your identity. We publish our source code to prove our own promises. Our AI partners make theirs contractually. There's no absolute proof that any third party honors its word, so if you're extremely cautious, avoid personal information in prompts.
 
----
+<details>
+<summary><strong>Technical details</strong></summary>
 
-## Our Principles
+<br>
 
-### Privacy First
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/technical-details-dark.svg">
+  <img alt="Technical implementation details" src=".github/readme/technical-details-light.svg" width="100%">
+</picture>
 
-We believe your conversations with AI are deeply personal. They contain your ideas, your questions, your work.
+**How it works:** Each conversation has cryptographic epochs with public/private keypairs. Messages are encrypted with the epoch's public key. Only members holding the epoch's private key can decrypt. When group membership changes, a new epoch starts with a fresh keypair distributed to current members.
 
-**What we control (and guarantee):**
+**Stored encrypted:** message content, conversation titles, TOTP secrets, custom instructions, private keys (wrapped with your password and recovery phrase).
 
-- We never sell your data
-- We never train on your conversations
-- We never share your information with data brokers
+**Stored in plaintext:** email, username, message metadata (sender type, model name, cost, timestamps), billing records.
 
-**Pseudo-anonymity:**
-When your messages reach AI providers, they see HushBox's credentials—not yours. Providers cannot link messages to your identity. However, avoid including personal information in messages (names, addresses, financial details) as message content is visible to model providers.
-
-**What we cannot control:**
-
-- Model providers (OpenAI, Anthropic, Google) have their own data policies
-- We cannot guarantee providers don't log or train on message content
-- Message content must be sent to AI providers for inference — this is inherent to how AI models work
-
-**For maximum privacy:**
-
-- Avoid including personal information in messages (names, addresses, financial details)
-- Review provider data policies for models you use
-
-### Radical Transparency
-
-We charge a **{{TOTAL_FEE_PERCENT}} fee** on AI model usage plus a **storage fee** of {{STORAGE_COST_PER_1K}} per 1,000 characters.
-
-**Fee breakdown ({{TOTAL_FEE_PERCENT}} total on model usage):**
-
-- **{{HUSHBOX_FEE_PERCENT}}** — HushBox profit margin
-- **{{CC_FEE_PERCENT}}** — Credit card processing
-- **{{PROVIDER_FEE_PERCENT}}** — AI provider overhead
-
-**Why a separate storage fee?**
-
-The {{TOTAL_FEE_PERCENT}} covers operations—servers, development, support. The storage fee covers storing your conversations.
-
-**The storage fee is tiny:**
-
-$1 in storage fees buys you over **{{MESSAGES_PER_DOLLAR}} messages** at 200 characters each. Most users will spend less than $1/year on storage while spending far more on AI model usage.
-
-No hidden fees. No premium tiers that unlock basic features. No "free" tier subsidized by selling your data.
-
-Other services bury additional charges in credit purchases and claim "no fees". We don't.
-
-You pay for what you use. We take a small cut to keep the lights on. The math is simple and public.
-
-### No Data Monetization
-
-We will never:
-
-- Sell your conversations to third parties
-- Use your data for advertising
-- Train AI models on your chats
-- Share your information with data brokers
-
-This isn't a marketing promise—it's our business model. We make money from the {{TOTAL_FEE_PERCENT}} fee. We have no incentive to monetize your data because we've built a sustainable business without it.
+</details>
 
 ---
 
 ## Features
 
-- **Multi-Model Chat** — GPT, Claude, Gemini, Grok, and more from one interface
-- **Model Switching** — Change models mid-conversation, compare outputs
-- **Unified Document Panel** — Code editing, rendering, and word processing in one place
-- **Code Execution** — Run Python and JavaScript in secure sandboxes
-- **Project Organization** — Group conversations, files, and context together
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/features-dark.svg">
+  <img alt="Shipped features" src=".github/readme/features-light.svg" width="100%">
+</picture>
 
-See [docs/FEATURES.md](./docs/FEATURES.md) for the complete feature list and development phases.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/coming-soon-dark.svg">
+  <img alt="Coming soon" src=".github/readme/coming-soon-light.svg" width="100%">
+</picture>
+
+---
+
+## Pricing
+
+We charge **{{TOTAL_FEE_PERCENT}}** on AI model usage and **{{STORAGE_COST_PER_1K}}** per 1,000 characters for storage.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/pricing-dark.svg">
+  <img alt="Pricing breakdown" src=".github/readme/pricing-light.svg" width="100%">
+</picture>
+
+Storage is cheap. $1 covers over {{MESSAGES_PER_DOLLAR}} average messages. Most users spend less than $1/year on storage.
+
+No subscriptions. No premium tier that locks features behind a paywall. No "free" plan subsidized by selling your data. You pay for the AI you use. We take a cut. The math is public.
+
+<details>
+<summary><strong>Tiers</strong></summary>
+
+<br>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/tiers-dark.svg">
+  <img alt="Tier comparison" src=".github/readme/tiers-light.svg" width="100%">
+</picture>
+
+**Trial:** Chat without signing up. Lower-cost models only, {{TRIAL_LIMIT}} messages/day, no persistence.
+
+**Free:** Create an account, get {{WELCOME_CREDIT}} welcome credit and a {{FREE_ALLOWANCE}}/day allowance for basic models. Conversations are encrypted and stored.
+
+**Paid:** Load credits via card ($5 minimum). Access every model.
+
+</details>
+
+## Principles
+
+<details>
+<summary><strong>Privacy First</strong></summary>
+
+<br>
+
+We believe privacy is a right, not a privilege handed out by a terms-of-service. The ability to think out loud, ask the wrong question, or doubt yourself in private is the precondition for honest thought. Every era's governments have found reasons to demand access to private conversations. Every era's corporations have found reasons to harvest them. We will resist both, and we'll keep building tools that let you resist with us.
+
+</details>
+
+<details>
+<summary><strong>Radical Transparency</strong></summary>
+
+<br>
+
+We believe you're owed the ability to verify, not reassurance. A company that hides its workings and issues promises instead has chosen to manage your trust rather than earn it. We'd rather earn it. The fee is published down to the basis point. Source code is visible. Cryptography is named and documented. If a claim doesn't hold up to scrutiny, the bug is ours.
+
+</details>
+
+<details>
+<summary><strong>No Data Monetization</strong></summary>
+
+<br>
+
+We believe your data belongs to you. Not the euphemistic ownership companies claim while selling you to ad networks. Actual ownership. What you write in HushBox is yours to keep, delete, or export. We won't sell it, train a model on it, or hand it to a government without a fight. If we ever found ourselves choosing between our revenue and your ownership, we'd rather shut the company down.
+
+</details>
+
+<details>
+<summary><h2>Architecture</h2></summary>
+
+<br>
+
+```mermaid
+flowchart LR
+    Browser["Browser\n(React + Vite)"]
+    API["API\n(Cloudflare Workers)"]
+    DB[("Neon\nPostgreSQL")]
+    Cache["Upstash\nRedis"]
+    OR["OpenRouter\n(100+ models)"]
+    DO["Durable Objects\n(WebSocket)"]
+    R2["Cloudflare R2"]
+
+    Browser --> API
+    API --> DB
+    API --> Cache
+    API --> OR
+    API --> DO
+    API --> R2
+    DO -.->|real-time| Browser
+```
+
+TypeScript everywhere. React 19 + Vite on the frontend, Hono on Cloudflare Workers for the API. Drizzle ORM and Zod schemas shared between frontend and backend for end-to-end type safety. Durable Objects handle WebSocket fan-out for group chats. Neon provides serverless PostgreSQL. Upstash Redis handles rate limiting and caching. Astro generates the marketing site. Capacitor wraps the web app for iOS and Android.
+
+**Testing:** Vitest with 95% coverage threshold. Playwright E2E across Chromium, Firefox, WebKit, iPhone 15, Pixel 7, and iPad Pro. Mutation testing via Stryker.
+
+**Local dev:** One command (`pnpm dev`) starts Vite, Wrangler, PostgreSQL, Neon proxy, Redis, and the Serverless Redis HTTP emulator via Docker Compose. All external APIs mocked. No production credentials needed.
+
+</details>
 
 ---
 
 ## Contributing
 
-See [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md) for development setup and contribution guidelines.
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for setup and guidelines. All contributors must agree to the [Contributor Assignment Agreement](https://gist.github.com/ctf05/24b91cac419a904919d1ad30eb14b9cd).
 
-All contributors must agree to our [Contributor Assignment Agreement](https://gist.github.com/ctf05/24b91cac419a904919d1ad30eb14b9cd).
+## License
 
----
-
-## License & Legal
-
-This software is proprietary. The source code is visible for transparency, but usage rights require explicit permission from LOME-AI LLC. See [LICENSE](./LICENSE) for details.
-
-All code in this repository, including all contributions, is the sole property of **LOME-AI LLC**.
+Proprietary. Source code is visible for transparency, but usage requires explicit permission from LOME-AI LLC. See [LICENSE](LICENSE).
 
 ---
 
-## Contact
-
-- **Website:** [hushbox.ai](https://hushbox.ai)
-- **Email:** hello@hushbox.ai
-- **Security Issues:** security@hushbox.ai
-
----
-
-_Built with privacy in mind by LOME-AI LLC._
+<p align="center"><sub>Built by LOME-AI LLC</sub></p>

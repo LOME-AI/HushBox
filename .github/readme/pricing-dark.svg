@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 264" width="100%">
+  <rect x="0.5" y="0.5" width="959" height="263" rx="12" fill="#1a1816" stroke="#3d3a36"/>
+  <text x="24" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#9a9894" letter-spacing="0.08em">SLICE</text>
+  <text x="480" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#9a9894" text-anchor="end" letter-spacing="0.08em">RATE</text>
+  <text x="556.8" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#9a9894" letter-spacing="0.08em">WHAT IT COVERS</text>
+  <line x1="0" y1="55" x2="960" y2="55" stroke="#3d3a36"/>
+  
+    <rect x="0" y="56" width="960" height="48" fill="#252320"/>
+    
+    <text x="24" y="85" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" font-weight="500" fill="#f2f1ef">HushBox</text>
+    <text x="480" y="85" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" font-weight="500" fill="#f2f1ef" text-anchor="end">5%</text>
+    <text x="556.8" y="85" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" fill="#9a9894">Development, servers, support</text>
+    
+    
+    <text x="24" y="133" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" font-weight="500" fill="#f2f1ef">Card processing</text>
+    <text x="480" y="133" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" font-weight="500" fill="#f2f1ef" text-anchor="end">4.5%</text>
+    <text x="556.8" y="133" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" fill="#9a9894">Credit card fees</text>
+    <rect x="0" y="152" width="960" height="48" fill="#252320"/>
+    
+    <text x="24" y="181" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" font-weight="500" fill="#f2f1ef">Provider overhead</text>
+    <text x="480" y="181" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" font-weight="500" fill="#f2f1ef" text-anchor="end">5.5%</text>
+    <text x="556.8" y="181" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" fill="#9a9894">API infrastructure</text>
+    
+    <line x1="0" y1="200" x2="960" y2="200" stroke="#3d3a36"/>
+    <text x="24" y="229" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" font-weight="700" fill="#f2f1ef">Total</text>
+    <text x="480" y="229" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" font-weight="700" fill="#ec4755" text-anchor="end">15%</text>
+    <text x="556.8" y="229" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" fill="#9a9894">On AI model usage</text>
+</svg>

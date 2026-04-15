@@ -129,7 +129,7 @@ describe('base64', () => {
       expect(encoded).toBe('QQ==');
     });
 
-    it('matches native btoa output', () => {
+    it('matches canonical base64 for ASCII input', () => {
       const text = 'test-webhook-secret';
       const bytes = new Uint8Array(text.length);
       for (let index = 0; index < text.length; index++) {
@@ -138,16 +138,19 @@ describe('base64', () => {
 
       const encoded = toStandardBase64(bytes);
 
-      expect(encoded).toBe(btoa(text));
+      expect(encoded).toBe('dGVzdC13ZWJob29rLXNlY3JldA==');
     });
 
-    it('fromStandardBase64 matches native atob behavior', () => {
+    it('fromStandardBase64 decodes canonical base64 to original bytes', () => {
       const text = 'test-webhook-secret';
-      const base64 = btoa(text);
+      const base64 = 'dGVzdC13ZWJob29rLXNlY3JldA==';
 
       const decoded = fromStandardBase64(base64);
 
-      const expected = Uint8Array.from(atob(base64), (c) => c.codePointAt(0) ?? 0);
+      const expected = new Uint8Array(text.length);
+      for (let index = 0; index < text.length; index++) {
+        expected[index] = text.codePointAt(index) ?? 0;
+      }
       expect(decoded).toEqual(expected);
     });
   });

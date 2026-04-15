@@ -1,6 +1,11 @@
 #!/bin/sh
 [ -f .husky/pre-commit.local ] && . .husky/pre-commit.local
 pnpm generate:readme
-git add README.md
+git add README.md \
+  .github/readme/banner-dark.gif \
+  .github/readme/banner-light.gif \
+  .github/readme/*.svg \
+  .github/readme/.cache \
+  packages/ui/src/assets/icons
 pnpm generate:env
 git add apps/api/wrangler.toml .github/workflows/ci.yml

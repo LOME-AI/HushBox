@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 408" width="100%">
+  <rect x="0.5" y="0.5" width="959" height="407" rx="12" fill="#1a1816" stroke="#3d3a36"/>
+  <text x="24" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#9a9894" letter-spacing="0.08em" text-transform="uppercase">FEATURE</text>
+  <text x="672" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#9a9894" text-anchor="middle" letter-spacing="0.08em">OTHERS</text>
+  <text x="864" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#ec4755" text-anchor="middle" letter-spacing="0.08em">HUSHBOX</text>
+  <line x1="0" y1="55" x2="960" y2="55" stroke="#3d3a36"/>
+  
+    <rect x="0" y="56" width="960" height="48" fill="#252320"/>
+    <text x="24" y="85" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" fill="#f2f1ef">You hold the encryption key</text>
+    <path d="M667 75 L677 85 M677 75 L667 85" stroke="#9a9894" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <path d="M857 80 L862 85 L871 76" stroke="#ec4755" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    
+    <text x="24" y="133" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" fill="#f2f1ef">Provider can't read stored chats</text>
+    <path d="M667 123 L677 133 M677 123 L667 133" stroke="#9a9894" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <path d="M857 128 L862 133 L871 124" stroke="#ec4755" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <rect x="0" y="152" width="960" height="48" fill="#252320"/>
+    <text x="24" y="181" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" fill="#f2f1ef">Password never sent to server</text>
+    <path d="M667 171 L677 181 M677 171 L667 181" stroke="#9a9894" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <path d="M857 176 L862 181 L871 172" stroke="#ec4755" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    
+    <text x="24" y="229" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" fill="#f2f1ef">Zero data retention</text>
+    <path d="M667 219 L677 229 M677 219 L667 229" stroke="#9a9894" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <path d="M857 224 L862 229 L871 220" stroke="#ec4755" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <rect x="0" y="248" width="960" height="48" fill="#252320"/>
+    <text x="24" y="277" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" fill="#f2f1ef">Anonymous requests</text>
+    <path d="M667 267 L677 277 M677 267 L667 277" stroke="#9a9894" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <path d="M857 272 L862 277 L871 268" stroke="#ec4755" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    
+    <text x="24" y="325" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" fill="#f2f1ef">Open source</text>
+    <path d="M667 315 L677 325 M677 315 L667 325" stroke="#9a9894" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <path d="M857 320 L862 325 L871 316" stroke="#ec4755" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <rect x="0" y="344" width="960" height="48" fill="#252320"/>
+    <text x="24" y="373" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" fill="#f2f1ef">Transparent pricing</text>
+    <path d="M667 363 L677 373 M677 363 L667 373" stroke="#9a9894" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <path d="M857 368 L862 373 L871 364" stroke="#ec4755" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

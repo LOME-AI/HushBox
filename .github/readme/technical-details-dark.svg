@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 424" width="100%">
+  <rect x="0.5" y="0.5" width="959" height="423" rx="12" fill="#1a1816" stroke="#3d3a36"/>
+  <text x="24" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#9a9894" letter-spacing="0.08em">COMPONENT</text>
+  <text x="307.2" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#9a9894" letter-spacing="0.08em">IMPLEMENTATION</text>
+  <line x1="0" y1="55" x2="960" y2="55" stroke="#3d3a36"/>
+  
+    <rect x="0" y="56" width="960" height="44" fill="#252320"/>
+    <text x="24" y="83" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="500" fill="#f2f1ef">Message encryption</text>
+    <text x="307.2" y="83" font-family='"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace' font-size="12" fill="#9a9894">XChaCha20-Poly1305 (AEAD) via @noble/ciphers</text>
+    
+    <text x="24" y="127" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="500" fill="#f2f1ef">Key exchange</text>
+    <text x="307.2" y="127" font-family='"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace' font-size="12" fill="#9a9894">X25519 ECDH + HKDF-SHA256 via @noble/curves</text>
+    <rect x="0" y="144" width="960" height="44" fill="#252320"/>
+    <text x="24" y="171" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="500" fill="#f2f1ef">Password auth</text>
+    <text x="307.2" y="171" font-family='"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace' font-size="12" fill="#9a9894">OPAQUE-P256 via @cloudflare/opaque-ts</text>
+    
+    <text x="24" y="215" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="500" fill="#f2f1ef">Key derivation</text>
+    <text x="307.2" y="215" font-family='"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace' font-size="12" fill="#9a9894">Argon2id (64 MB, 3 iters, 4 threads) via hash-wasm</text>
+    <rect x="0" y="232" width="960" height="44" fill="#252320"/>
+    <text x="24" y="259" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="500" fill="#f2f1ef">Recovery phrase</text>
+    <text x="307.2" y="259" font-family='"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace' font-size="12" fill="#9a9894">12-word BIP39 mnemonic (128-bit entropy) via @scure/bip39</text>
+    
+    <text x="24" y="303" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="500" fill="#f2f1ef">2FA</text>
+    <text x="307.2" y="303" font-family='"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace' font-size="12" fill="#9a9894">TOTP with encrypted secret storage via otplib</text>
+    <rect x="0" y="320" width="960" height="44" fill="#252320"/>
+    <text x="24" y="347" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="500" fill="#f2f1ef">Sessions</text>
+    <text x="307.2" y="347" font-family='"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace' font-size="12" fill="#9a9894">Encrypted cookies via iron-session</text>
+    
+    <text x="24" y="391" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="500" fill="#f2f1ef">Compression</text>
+    <text x="307.2" y="391" font-family='"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace' font-size="12" fill="#9a9894">Raw deflate before encryption via fflate</text>
+</svg>

@@ -39,6 +39,14 @@ function defined<T>(value: T | undefined | null, label = 'value'): T {
   return value;
 }
 
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (const [index, value] of a.entries()) {
+    if (value !== b[index]) return false;
+  }
+  return true;
+}
+
 const DATABASE_URL = process.env['DATABASE_URL'];
 if (!DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is required for tests');
@@ -117,14 +125,10 @@ describe('member rotation integration', () => {
     const rotation = performEpochRotation(epoch1PrivateKey, [owner.publicKey, memberB.publicKey]);
 
     const ownerWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, owner.publicKey))
     );
     const memberBWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, memberB.publicKey))
     );
 
     await db.insert(conversationMembers).values({
@@ -657,14 +661,10 @@ describe('member rotation integration', () => {
       linkKeyPair.publicKey,
     ]);
     const ownerWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, owner.publicKey))
     );
     const linkMemberWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(linkKeyPair.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, linkKeyPair.publicKey))
     );
 
     await db
@@ -703,10 +703,10 @@ describe('member rotation integration', () => {
     const newWraps = await db.select().from(epochMembers).where(eq(epochMembers.epochId, epoch2Id));
     expect(newWraps).toHaveLength(2);
 
-    const publicKeys = newWraps.map((w) => Buffer.from(w.memberPublicKey));
-    expect(publicKeys.some((k) => k.equals(Buffer.from(owner.publicKey)))).toBe(true);
-    expect(publicKeys.some((k) => k.equals(Buffer.from(linkKeyPair.publicKey)))).toBe(true);
-    expect(publicKeys.some((k) => k.equals(Buffer.from(userB.publicKey)))).toBe(false);
+    const publicKeys = newWraps.map((w) => w.memberPublicKey);
+    expect(publicKeys.some((k) => bytesEqual(k, owner.publicKey))).toBe(true);
+    expect(publicKeys.some((k) => bytesEqual(k, linkKeyPair.publicKey))).toBe(true);
+    expect(publicKeys.some((k) => bytesEqual(k, userB.publicKey))).toBe(false);
   });
 
   it('three sequential rotations with chain link traversal', async () => {
@@ -743,14 +743,10 @@ describe('member rotation integration', () => {
       memberB.publicKey,
     ]);
     const ownerWrap2 = defined(
-      rotation12.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
-      )
+      rotation12.memberWraps.find((w) => bytesEqual(w.memberPublicKey, owner.publicKey))
     );
     const memberBWrap2 = defined(
-      rotation12.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
-      )
+      rotation12.memberWraps.find((w) => bytesEqual(w.memberPublicKey, memberB.publicKey))
     );
 
     await db.insert(conversationMembers).values({
@@ -965,14 +961,10 @@ describe('member rotation integration', () => {
       memberB.publicKey,
     ]);
     const ownerWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, owner.publicKey))
     );
     const memberBWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, memberB.publicKey))
     );
 
     const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'My Title');
@@ -1155,14 +1147,10 @@ describe('member rotation integration', () => {
       linkKeyPair.publicKey,
     ]);
     const ownerWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, owner.publicKey))
     );
     const linkWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(linkKeyPair.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, linkKeyPair.publicKey))
     );
     const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
 
@@ -1247,14 +1235,10 @@ describe('member rotation integration', () => {
       memberB.publicKey,
     ]);
     const ownerWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, owner.publicKey))
     );
     const memberBWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, memberB.publicKey))
     );
     const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
 
@@ -1322,14 +1306,10 @@ describe('member rotation integration', () => {
       linkKeyPair.publicKey,
     ]);
     const ownerWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, owner.publicKey))
     );
     const linkWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(linkKeyPair.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, linkKeyPair.publicKey))
     );
     const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
 
@@ -1400,14 +1380,10 @@ describe('member rotation integration', () => {
       memberB.publicKey,
     ]);
     const ownerWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, owner.publicKey))
     );
     const memberBWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, memberB.publicKey))
     );
     const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
 
@@ -1502,14 +1478,10 @@ describe('member rotation integration', () => {
       linkKeyPair.publicKey,
     ]);
     const ownerWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, owner.publicKey))
     );
     const linkRotationWrap = defined(
-      rotation.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(linkKeyPair.publicKey))
-      )
+      rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, linkKeyPair.publicKey))
     );
     const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
 
@@ -1595,14 +1567,10 @@ describe('member rotation integration', () => {
     const epoch2Key = unwrapEpochKey(owner.accountKeyPair.privateKey, ownerWrap2.wrap);
     const rotation2to3 = performEpochRotation(epoch2Key, [owner.publicKey, memberB.publicKey]);
     const ownerWrap3 = defined(
-      rotation2to3.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
-      )
+      rotation2to3.memberWraps.find((w) => bytesEqual(w.memberPublicKey, owner.publicKey))
     );
     const memberBWrap3 = defined(
-      rotation2to3.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
-      )
+      rotation2to3.memberWraps.find((w) => bytesEqual(w.memberPublicKey, memberB.publicKey))
     );
     await submitRotation(db, {
       conversationId,
@@ -1642,14 +1610,10 @@ describe('member rotation integration', () => {
     const epoch3Key = unwrapEpochKey(owner.accountKeyPair.privateKey, ownerWrap3.wrap);
     const rotation3to4 = performEpochRotation(epoch3Key, [owner.publicKey, memberB.publicKey]);
     const ownerWrap4 = defined(
-      rotation3to4.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
-      )
+      rotation3to4.memberWraps.find((w) => bytesEqual(w.memberPublicKey, owner.publicKey))
     );
     const memberBWrap4 = defined(
-      rotation3to4.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
-      )
+      rotation3to4.memberWraps.find((w) => bytesEqual(w.memberPublicKey, memberB.publicKey))
     );
     await submitRotation(db, {
       conversationId,
@@ -1668,14 +1632,10 @@ describe('member rotation integration', () => {
     const epoch4Key = unwrapEpochKey(owner.accountKeyPair.privateKey, ownerWrap4.wrap);
     const rotation4to5 = performEpochRotation(epoch4Key, [owner.publicKey, memberB.publicKey]);
     const ownerWrap5 = defined(
-      rotation4to5.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(owner.publicKey))
-      )
+      rotation4to5.memberWraps.find((w) => bytesEqual(w.memberPublicKey, owner.publicKey))
     );
     const memberBWrap5 = defined(
-      rotation4to5.memberWraps.find((w) =>
-        Buffer.from(w.memberPublicKey).equals(Buffer.from(memberB.publicKey))
-      )
+      rotation4to5.memberWraps.find((w) => bytesEqual(w.memberPublicKey, memberB.publicKey))
     );
     await submitRotation(db, {
       conversationId,

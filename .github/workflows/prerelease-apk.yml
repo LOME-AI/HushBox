@@ -1,0 +1,64 @@
+name: Prerelease APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Which prerelease flavor to build'
+        type: choice
+        required: true
+        default: experimental
+        options:
+          - experimental
+          - development
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Prepare: extract version ──────────────────────────
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    outputs:
+      version_name: ${{ steps.version.outputs.version_name }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+
+      - name: Get latest version
+        id: tag
+        run: |
+          TAG=$(git tag --list 'v*' --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          if [ -z "$TAG" ]; then
+            echo "No version tags found — has ci.yml deployed at least once?"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Extract version
+        id: version
+        run: pnpm tsx scripts/extract-version.ts
+        env:
+          INPUT_VERSION: ${{ steps.tag.outputs.tag }}
+
+  # ── Build APK + GitHub Pre-Release ────────────────────
+  # variant → vite-platform:
+  #   experimental → android-direct (Obtainium/direct-install configuration)
+  #   development  → android         (Play-Store configuration, installed as APK for faster QA)
+  build-apk:
+    needs: [prepare]
+    uses: ./.github/workflows/build-android-apk.yml
+    with:
+      version-name: ${{ needs.prepare.outputs.version_name }}
+      version-code: ${{ needs.prepare.outputs.version_code }}
+      version: ${{ needs.prepare.outputs.version }}
+      prerelease: true
+      vite-platform: ${{ inputs.variant == 'development' && 'android' || 'android-direct' }}
+      release-title-suffix: ${{ inputs.variant == 'development' && ' (Development)' || ' (Experimental)' }}
+    secrets: inherit

@@ -78,6 +78,9 @@ apps/web/resources/generated/
 *.tmp
 *.temp
 .cache/
+# README generation hashes are deliberately committed so CI and fresh clones
+# skip expensive regeneration when inputs haven't changed.
+!.github/readme/.cache/
 
 # TanStack Router
 .tanstack/

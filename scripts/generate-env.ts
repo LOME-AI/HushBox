@@ -31,8 +31,8 @@ const BUILD_VARIANTS: Record<string, Record<string, string>> = {
     VITE_PLATFORM: 'android',
     VITE_APP_VERSION: '${{ needs.prepare.outputs.version }}',
   },
-  'build-env-android-direct': {
-    VITE_PLATFORM: 'android-direct',
+  'build-env-android-apk': {
+    VITE_PLATFORM: '${{ inputs.vite-platform }}',
     VITE_APP_VERSION: '${{ inputs.version }}',
   },
   'build-env-mobile-test': {
@@ -105,7 +105,8 @@ function generatePortLines(
     `HB_REDIS_HTTP_PORT=${escapeEnvValue(String(ports.redisHttp))}`,
     `HB_ASTRO_PORT=${escapeEnvValue(String(ports.astro))}`,
     `HB_EMULATOR_ADB_PORT=${escapeEnvValue(String(ports.emulatorAdb))}`,
-    `HB_EMULATOR_VNC_PORT=${escapeEnvValue(String(ports.emulatorVnc))}`
+    `HB_EMULATOR_VNC_PORT=${escapeEnvValue(String(ports.emulatorVnc))}`,
+    `HB_README_PREVIEW_PORT=${escapeEnvValue(String(ports.readmePreview))}`
   );
   return lines;
 }
