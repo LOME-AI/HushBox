@@ -25,10 +25,6 @@ vi.mock('../services/email/index.js', () => ({
   getEmailClient: vi.fn(() => ({ type: 'email' })),
 }));
 
-vi.mock('../services/openrouter/index.js', () => ({
-  getOpenRouterClient: vi.fn(() => ({ type: 'openrouter', isMock: false })),
-}));
-
 vi.mock('../services/helcim/index.js', () => ({
   getHelcimClient: vi.fn(() => ({ type: 'helcim', isMock: false })),
 }));
@@ -62,13 +58,11 @@ import {
   dbMiddleware,
   redisMiddleware,
   sessionMiddleware,
-  openRouterMiddleware,
   helcimMiddleware,
   envMiddleware,
   ironSessionMiddleware,
 } from './dependencies.js';
 import { createDb, LOCAL_NEON_DEV_CONFIG } from '@hushbox/db';
-import { getOpenRouterClient } from '../services/openrouter/index.js';
 import { getHelcimClient } from '../services/helcim/index.js';
 import { createRedisClient } from '../lib/redis.js';
 
@@ -644,67 +638,6 @@ describe('sessionMiddleware', () => {
     // Will proceed past billing check (no billingOnly flag)
     // Will fail at DB lookup, but NOT with 403
     expect(res.status).not.toBe(403);
-  });
-});
-
-describe('openRouterMiddleware', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  afterEach(() => {
-    vi.resetAllMocks();
-  });
-
-  it('sets openrouter on context', async () => {
-    const app = new Hono<AppEnv>();
-    // openRouterMiddleware requires envUtils and db from previous middleware
-    app.use('*', envMiddleware());
-    app.use('*', dbMiddleware());
-    app.use('*', openRouterMiddleware());
-    app.get('/', (c) => {
-      c.get('openrouter');
-      return c.json({ hasOpenRouter: true });
-    });
-
-    const res = await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toEqual({ hasOpenRouter: true });
-  });
-
-  it('passes env and evidence config to getOpenRouterClient factory', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', envMiddleware());
-    app.use('*', dbMiddleware());
-    app.use('*', openRouterMiddleware());
-    app.get('/', (c) => c.json({ ok: true }));
-
-    const env = {
-      OPENROUTER_API_KEY: 'test-key',
-      NODE_ENV: 'production',
-      DATABASE_URL: 'postgres://test',
-    };
-    await app.request('/', {}, env);
-
-    expect(getOpenRouterClient).toHaveBeenCalledWith(env, expect.any(Object));
-  });
-
-  it('calls next() to continue middleware chain', async () => {
-    const app = new Hono<AppEnv>();
-    const nextCalled = vi.fn();
-    app.use('*', envMiddleware());
-    app.use('*', dbMiddleware());
-    app.use('*', openRouterMiddleware());
-    app.use('*', async (_, next) => {
-      nextCalled();
-      await next();
-    });
-    app.get('/', (c) => c.json({ ok: true }));
-
-    await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
-
-    expect(nextCalled).toHaveBeenCalled();
   });
 });
 

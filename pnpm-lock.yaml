@@ -550,6 +550,9 @@ importers:
 
   packages/shared:
     dependencies:
+      '@ai-sdk/gateway':
+        specifier: ^3.0.95
+        version: 3.0.95(zod@4.3.6)
       zod:
         specifier: ^4.3.6
         version: 4.3.6

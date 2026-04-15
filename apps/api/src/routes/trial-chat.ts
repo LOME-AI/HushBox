@@ -17,8 +17,8 @@ import {
 import type { AppEnv } from '../types.js';
 import { buildPrompt } from '../services/prompt/builder.js';
 import { consumeTrialMessage } from '../services/billing/index.js';
-import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
-import { validateLastMessageIsFromUser, buildOpenRouterMessages } from '../services/chat/index.js';
+import { fetchModels, processModels } from '@hushbox/shared/models';
+import { validateLastMessageIsFromUser, buildAIMessages } from '../services/chat/index.js';
 import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { createSSEEventWriter } from '../lib/stream-handler.js';
@@ -166,8 +166,10 @@ async function validateTrialRequest(
     return { success: false, response: quotaResult.errorResponse };
   }
 
-  const [allModels, zdrModelIds] = await Promise.all([fetchModels(), fetchZdrModelIds()]);
-  const { premiumIds } = processModels(allModels, zdrModelIds);
+  const apiKey = c.env.AI_GATEWAY_API_KEY;
+  if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required for trial chat');
+  const allModels = await fetchModels(apiKey);
+  const { premiumIds } = processModels(allModels);
 
   const modelError = checkTrialModelAccess(c, model, premiumIds);
   if (modelError) {
@@ -203,7 +205,7 @@ export const trialChatRoute = new Hono<AppEnv>().post(
   zValidator('json', trialStreamRequestSchema),
   async (c) => {
     const { messages, model } = c.req.valid('json');
-    const openrouter = c.get('openrouter');
+    const aiClient = c.get('aiClient');
 
     const validation = await validateTrialRequest(c, messages, model);
     if (!validation.success) {
@@ -218,7 +220,7 @@ export const trialChatRoute = new Hono<AppEnv>().post(
       supportedCapabilities: [],
     });
 
-    const openRouterMessages = buildOpenRouterMessages(systemPrompt, messages);
+    const aiMessages = buildAIMessages(systemPrompt, messages);
 
     return streamSSE(c, async (stream) => {
       const writer = createSSEEventWriter(stream);
@@ -231,12 +233,17 @@ export const trialChatRoute = new Hono<AppEnv>().post(
       let streamError: Error | null = null;
 
       try {
-        for await (const token of openrouter.chatCompletionStreamWithMetadata({
+        const inferenceStream = aiClient.stream({
+          modality: 'text',
           model,
-          messages: openRouterMessages,
-          ...(safeMaxTokens !== undefined && { max_tokens: safeMaxTokens }),
-        })) {
-          await writer.writeToken(token.content);
+          messages: aiMessages,
+          ...(safeMaxTokens === undefined ? {} : { maxOutputTokens: safeMaxTokens }),
+        });
+
+        for await (const event of inferenceStream) {
+          if (event.kind === 'text-delta' && event.content.length > 0) {
+            await writer.writeToken(event.content);
+          }
         }
       } catch (error) {
         streamError = error instanceof Error ? error : new Error('Unknown error');

@@ -35,10 +35,14 @@ import type { AppEnv, Bindings } from '../types.js';
 import { buildPrompt } from '../services/prompt/builder.js';
 import type { BuildBillingResult, MemberContext } from '../services/billing/index.js';
 import { calculateMessageCost } from '../services/billing/index.js';
-import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
-import { ContextCapacityError } from '../services/openrouter/openrouter.js';
-import type { ChatMessage, ChatCompletionRequest } from '../services/openrouter/types.js';
-import { buildOpenRouterMessages, saveChatTurn } from '../services/chat/index.js';
+import { fetchModels, processModels } from '@hushbox/shared/models';
+import type {
+  AIClient,
+  InferenceEvent,
+  InferenceStream,
+  TextRequest,
+} from '../services/ai/index.js';
+import { buildAIMessages, saveChatTurn } from '../services/chat/index.js';
 import type { SaveChatTurnResult } from '../services/chat/index.js';
 import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createErrorResponse } from './error-response.js';
@@ -100,8 +104,8 @@ export interface BroadcastContext {
 
 export interface StreamResult {
   fullContent: string;
+  /** Generation ID from the gateway's finish event — used post-hoc to fetch exact cost. */
   generationId: string | undefined;
-  inlineCost: number | undefined;
   error: Error | null;
 }
 
@@ -185,53 +189,24 @@ export function resolveWebSearchCost(
   return parseTokenPrice(modelInfo.pricing.web_search);
 }
 
-export interface BuildOpenRouterRequestOptions {
-  model: string;
-  messages: ChatMessage[];
-  safeMaxTokens: number | undefined;
-  webSearchEnabled: boolean;
-  autoRouterAllowedModels?: string[] | undefined;
-}
-
-/** Build the ChatCompletionRequest for OpenRouter, conditionally adding max_tokens and plugins. */
-export function buildOpenRouterRequest(
-  options: BuildOpenRouterRequestOptions
-): ChatCompletionRequest {
-  const { model, messages, safeMaxTokens, webSearchEnabled, autoRouterAllowedModels } = options;
-  const plugins: { id: string; allowed_models?: string[] }[] = [];
-
-  if (autoRouterAllowedModels) {
-    plugins.push({ id: 'auto-router', allowed_models: autoRouterAllowedModels });
-  }
-  if (webSearchEnabled) {
-    plugins.push({ id: 'web' });
-  }
-
-  return {
-    model,
-    messages,
-    ...(safeMaxTokens !== undefined && { max_tokens: safeMaxTokens }),
-    ...(plugins.length > 0 && { plugins }),
-  };
-}
-
 /**
- * Wraps an async iterable to broadcast tokens to group chat members via WebSocket.
- * Passes tokens through unchanged — broadcast is fire-and-forget side effect.
+ * Wraps an InferenceStream to broadcast text tokens to group chat members via WebSocket.
+ * Passes events through unchanged — broadcast is a fire-and-forget side effect.
+ * Only text-delta events contribute to the broadcast buffer; other events pass through silently.
  */
 export function withBroadcast(
-  stream: AsyncIterable<{ content: string; generationId?: string }>,
+  stream: InferenceStream,
   broadcast: BroadcastContext
-): AsyncIterable<{ content: string; generationId?: string }> {
+): InferenceStream {
   return {
-    [Symbol.asyncIterator]() {
+    [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
       const iterator = stream[Symbol.asyncIterator]();
       let tokenBuffer = '';
       let lastBroadcastTime = Date.now();
-      let done = false;
+      let isDone = false;
 
       function flushTokenBuffer(): void {
-        if (tokenBuffer) {
+        if (tokenBuffer.length > 0) {
           broadcastFireAndForget(
             broadcast.env,
             broadcast.conversationId,
@@ -247,22 +222,23 @@ export function withBroadcast(
       }
 
       return {
-        async next() {
+        async next(): Promise<IteratorResult<InferenceEvent>> {
           const result = await iterator.next();
           if (result.done) {
-            // Flush remaining buffered tokens on completion
-            if (!done) flushTokenBuffer();
-            done = true;
-            return { done: true as const, value: undefined };
+            if (!isDone) flushTokenBuffer();
+            isDone = true;
+            return { done: true, value: undefined };
           }
 
-          tokenBuffer += result.value.content;
-          if (Date.now() - lastBroadcastTime >= BATCH_INTERVAL_MS) {
-            flushTokenBuffer();
-            lastBroadcastTime = Date.now();
+          if (result.value.kind === 'text-delta') {
+            tokenBuffer += result.value.content;
+            if (Date.now() - lastBroadcastTime >= BATCH_INTERVAL_MS) {
+              flushTokenBuffer();
+              lastBroadcastTime = Date.now();
+            }
           }
 
-          return { done: false as const, value: result.value };
+          return { done: false, value: result.value };
         },
       };
     },
@@ -423,7 +399,9 @@ export async function resolveAndReserveBilling(
   const redis = c.get('redis');
 
   // 1. Fetch models for pricing (in-memory cached with TTL)
-  const openrouterModels = await fetchModels();
+  const apiKey = c.env.AI_GATEWAY_API_KEY;
+  if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required for streaming');
+  const openrouterModels = await fetchModels(apiKey);
   const allPricing = models.map((m) => lookupModelPricing(openrouterModels, m));
 
   // 1b. Resolve web search cost — sum across all models that support it
@@ -505,8 +483,7 @@ export async function resolveAndReserveBilling(
   //    Runs after payer resolution so affordability uses the actual payer's balance.
   let autoRouterAllowedModels: string[] | undefined;
   if (models.length === 1 && models[0] === AUTO_ROUTER_MODEL_ID) {
-    const zdrModelIds = await fetchZdrModelIds();
-    const { models: poolModels, premiumIds } = processModels(openrouterModels, zdrModelIds);
+    const { models: poolModels, premiumIds } = processModels(openrouterModels);
     const premiumSet = new Set(premiumIds);
     const canAccessPremium = payerTier === 'paid';
 
@@ -692,10 +669,9 @@ async function writeFirstStreamError(
 ): Promise<void> {
   const firstError = [...multiResults.values()].find((r) => r.error !== null)?.error;
   if (firstError) {
-    const code =
-      firstError instanceof ContextCapacityError
-        ? ERROR_CODE_CONTEXT_LENGTH_EXCEEDED
-        : ERROR_CODE_STREAM_ERROR;
+    const code = firstError.message.includes('context length')
+      ? ERROR_CODE_CONTEXT_LENGTH_EXCEEDED
+      : ERROR_CODE_STREAM_ERROR;
     await writer.writeError({ message: firstError.message, code });
   } else {
     await writer.writeError({
@@ -708,47 +684,46 @@ async function writeFirstStreamError(
 interface BuildAssistantMessagesOptions {
   successfulModels: [string, StreamResult][];
   getAssistantId: (modelId: string) => string;
-  openrouterModels: Awaited<ReturnType<typeof fetchModels>>;
+  aiClient: AIClient;
   lastInferenceMessage: { content: string } | undefined;
-  webSearchEnabled: boolean;
 }
 
 /** Builds the assistant message array from successful model results for persistence. */
-function buildAssistantMessages(options: BuildAssistantMessagesOptions): {
-  id: string;
-  content: string;
-  model: string;
-  cost: number;
-  inputTokens: number;
-  outputTokens: number;
-}[] {
-  const {
-    successfulModels,
-    getAssistantId,
-    openrouterModels,
-    lastInferenceMessage,
-    webSearchEnabled,
-  } = options;
-  return successfulModels.map(([modelId, result]) => {
-    const assistantMessageId = getAssistantId(modelId);
-    const modelInfo = openrouterModels.find((m) => m.id === modelId);
-    const totalCost = calculateMessageCost({
-      inlineCost: result.inlineCost,
-      modelInfo,
-      inputContent: lastInferenceMessage?.content ?? '',
-      outputContent: result.fullContent,
-      webSearchCost: resolveWebSearchCost(webSearchEnabled, modelId, openrouterModels),
-    });
+async function buildAssistantMessages(options: BuildAssistantMessagesOptions): Promise<
+  {
+    id: string;
+    content: string;
+    model: string;
+    cost: number;
+    inputTokens: number;
+    outputTokens: number;
+  }[]
+> {
+  const { successfulModels, getAssistantId, aiClient, lastInferenceMessage } = options;
+  return Promise.all(
+    successfulModels.map(async ([modelId, result]) => {
+      const assistantMessageId = getAssistantId(modelId);
+      // generationId is required to compute exact cost — fall back to 0 if missing
+      // (this only happens for failed/incomplete streams that still produced content).
+      const totalCost = result.generationId
+        ? await calculateMessageCost({
+            aiClient,
+            generationId: result.generationId,
+            inputContent: lastInferenceMessage?.content ?? '',
+            outputContent: result.fullContent,
+          })
+        : 0;
 
-    return {
-      id: assistantMessageId,
-      content: result.fullContent,
-      model: modelId,
-      cost: totalCost,
-      inputTokens: estimateTokenCount(lastInferenceMessage?.content ?? ''),
-      outputTokens: estimateTokenCount(result.fullContent),
-    };
-  });
+      return {
+        id: assistantMessageId,
+        content: result.fullContent,
+        model: modelId,
+        cost: totalCost,
+        inputTokens: estimateTokenCount(lastInferenceMessage?.content ?? ''),
+        outputTokens: estimateTokenCount(result.fullContent),
+      };
+    })
+  );
 }
 
 /**
@@ -766,18 +741,17 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
     messagesForInference,
     billingValidation,
     memberContext,
-    webSearchEnabled,
     customInstructions,
     releaseReservation,
     senderId,
     forkId,
     parentMessageId,
   } = input;
-  const { safeMaxTokens, openrouterModels, billingUserId } = billingValidation;
+  const { safeMaxTokens, billingUserId } = billingValidation;
   const model = models[0];
   if (!model) throw new Error('invariant: models must have at least one entry');
   const db = c.get('db');
-  const openrouter = c.get('openrouter');
+  const aiClient = c.get('aiClient');
 
   // Generate one assistantMessageId per model
   const modelAssistantIds = new Map<string, string>();
@@ -797,7 +771,7 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
     ...(customInstructions !== undefined && { customInstructions }),
   });
 
-  const openRouterMessages = buildOpenRouterMessages(systemPrompt, messagesForInference);
+  const aiMessages = buildAIMessages(systemPrompt, messagesForInference);
   const lastInferenceMessage = messagesForInference.at(-1);
 
   // Early broadcast: notify other group members of user's message
@@ -815,17 +789,16 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
     safeExecutionCtx(c)
   );
 
-  // Build one stream entry per model, wrapping each with broadcast for group chat
+  // Build one stream entry per model via AIClient
   const streamEntries: ModelStreamEntry[] = models.map((modelId) => {
     const assistantMsgId = getAssistantId(modelId);
-    const openRouterRequest = buildOpenRouterRequest({
+    const textRequest: TextRequest = {
+      modality: 'text',
       model: modelId,
-      messages: openRouterMessages,
-      safeMaxTokens,
-      webSearchEnabled,
-      autoRouterAllowedModels: billingValidation.autoRouterAllowedModels,
-    });
-    const rawStream = openrouter.chatCompletionStreamWithMetadata(openRouterRequest);
+      messages: aiMessages,
+      ...(safeMaxTokens === undefined ? {} : { maxOutputTokens: safeMaxTokens }),
+    };
+    const rawStream = aiClient.stream(textRequest);
     return {
       modelId,
       assistantMessageId: assistantMsgId,
@@ -863,12 +836,11 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
       }
 
       // Build assistant messages array from successful models
-      const assistantMessages = buildAssistantMessages({
+      const assistantMessages = await buildAssistantMessages({
         successfulModels,
         getAssistantId,
-        openrouterModels,
+        aiClient,
         lastInferenceMessage,
-        webSearchEnabled,
       });
 
       const billingPromise = saveChatTurn(db, {

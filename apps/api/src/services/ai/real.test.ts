@@ -45,20 +45,34 @@ async function collectEvents(stream: AsyncIterable<InferenceEvent>): Promise<Inf
   return events;
 }
 
-/** Create a mock fullStream async iterable that yields the given parts. */
-function createMockFullStream(parts: { type: string; [key: string]: unknown }[]): {
-  fullStream: AsyncIterable<{ type: string; [key: string]: unknown }>;
+interface MockStreamPart {
+  type: string;
+  [key: string]: unknown;
+}
+
+interface MockStreamResult {
+  fullStream: AsyncIterable<MockStreamPart>;
   providerMetadata: Promise<Record<string, Record<string, unknown>> | undefined>;
-} {
+  totalUsage: Promise<{ inputTokens?: number; outputTokens?: number; totalTokens?: number }>;
+}
+
+/** Create a mock fullStream async iterable that yields the given parts. */
+function createMockFullStream(parts: MockStreamPart[]): MockStreamResult {
   return {
     fullStream: {
-      async *[Symbol.asyncIterator]() {
-        for (const part of parts) {
-          yield part;
-        }
+      [Symbol.asyncIterator](): AsyncIterator<MockStreamPart> {
+        let index = 0;
+        return {
+          next(): Promise<IteratorResult<MockStreamPart>> {
+            if (index >= parts.length) return Promise.resolve({ done: true, value: undefined });
+            const value = parts[index++]!;
+            return Promise.resolve({ done: false, value });
+          },
+        };
       },
     },
     providerMetadata: Promise.resolve({ gateway: { generationId: 'gen-123' } }),
+    totalUsage: Promise.resolve({}),
   };
 }
 
@@ -102,7 +116,7 @@ describe('createRealAIClient', () => {
       await collectEvents(client.stream(request));
 
       expect(mockStreamText).toHaveBeenCalledTimes(1);
-      const callArgs = mockStreamText.mock.calls[0][0];
+      const callArgs = mockStreamText.mock.calls[0]![0]!;
       expect(callArgs.providerOptions).toEqual({
         gateway: { zeroDataRetention: true },
       });
@@ -152,21 +166,20 @@ describe('createRealAIClient', () => {
     });
 
     it('yields a finish event with usage and generation info from providerMetadata', async () => {
-      mockStreamText.mockReturnValue({
-        fullStream: {
-          async *[Symbol.asyncIterator]() {
-            yield { type: 'text-delta', textDelta: 'Hi' };
-            yield {
-              type: 'finish',
-              finishReason: 'stop',
-              totalUsage: { inputTokens: 50, outputTokens: 25, totalTokens: 75 },
-            };
-          },
-        },
-        providerMetadata: Promise.resolve({
-          gateway: { generationId: 'gen-abc-123' },
-        }),
-      });
+      mockStreamText.mockReturnValue(
+        Object.assign(
+          createMockFullStream([
+            { type: 'text-delta', textDelta: 'Hi' },
+            { type: 'finish', finishReason: 'stop' },
+          ]),
+          {
+            providerMetadata: Promise.resolve({
+              gateway: { generationId: 'gen-abc-123' },
+            }),
+            totalUsage: Promise.resolve({ inputTokens: 50, outputTokens: 25, totalTokens: 75 }),
+          }
+        )
+      );
 
       const request: TextRequest = {
         modality: 'text',
@@ -175,15 +188,14 @@ describe('createRealAIClient', () => {
       };
 
       const events = await collectEvents(client.stream(request));
-      const finish = events.find((e) => e.kind === 'finish');
+      const finish = events.find(
+        (e): e is Extract<InferenceEvent, { kind: 'finish' }> => e.kind === 'finish'
+      );
 
       expect(finish).toBeDefined();
-      expect(finish!.kind).toBe('finish');
-      if (finish!.kind === 'finish') {
-        expect(finish!.providerMetadata?.generationId).toBe('gen-abc-123');
-        expect(finish!.providerMetadata?.usage?.inputTokens).toBe(50);
-        expect(finish!.providerMetadata?.usage?.outputTokens).toBe(25);
-      }
+      expect(finish!.providerMetadata?.generationId).toBe('gen-abc-123');
+      expect(finish!.providerMetadata?.usage?.inputTokens).toBe(50);
+      expect(finish!.providerMetadata?.usage?.outputTokens).toBe(25);
     });
 
     it('passes maxOutputTokens as maxTokens to streamText', async () => {
@@ -203,7 +215,7 @@ describe('createRealAIClient', () => {
 
       await collectEvents(client.stream(request));
 
-      const callArgs = mockStreamText.mock.calls[0][0];
+      const callArgs = mockStreamText.mock.calls[0]![0]!;
       expect(callArgs.maxTokens).toBe(500);
     });
 
@@ -227,7 +239,7 @@ describe('createRealAIClient', () => {
 
       await collectEvents(client.stream(request));
 
-      const callArgs = mockStreamText.mock.calls[0][0];
+      const callArgs = mockStreamText.mock.calls[0]![0]!;
       expect(callArgs.system).toBe('You are helpful.');
       // Non-system messages passed as messages array
       expect(callArgs.messages).toEqual([
@@ -260,7 +272,7 @@ describe('createRealAIClient', () => {
       expect(kinds).toEqual(['media-start', 'media-done', 'finish']);
       expect(mockGenerateImage).toHaveBeenCalledTimes(1);
 
-      const callArgs = mockGenerateImage.mock.calls[0][0];
+      const callArgs = mockGenerateImage.mock.calls[0]![0]!;
       expect(callArgs.providerOptions).toEqual({
         gateway: { zeroDataRetention: true },
       });
@@ -316,7 +328,7 @@ describe('createRealAIClient', () => {
       expect(kinds).toEqual(['media-start', 'media-done', 'finish']);
       expect(mockGenerateVideo).toHaveBeenCalledTimes(1);
 
-      const callArgs = mockGenerateVideo.mock.calls[0][0];
+      const callArgs = mockGenerateVideo.mock.calls[0]![0]!;
       expect(callArgs.providerOptions).toEqual({
         gateway: { zeroDataRetention: true },
       });
@@ -396,7 +408,7 @@ describe('createRealAIClient', () => {
       const stats = await client.getGenerationStats('gen-abc-123');
 
       expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledWith({
-        generationId: 'gen-abc-123',
+        id: 'gen-abc-123',
       });
       expect(stats.costUsd).toBe(0.0042);
     });

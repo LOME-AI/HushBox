@@ -15,7 +15,6 @@ import { createRedisClient } from '../lib/redis.js';
 import { createIronSessionMiddleware } from './iron-session.js';
 import { getAIClient } from '../services/ai/index.js';
 import { getHelcimClient } from '../services/helcim/index.js';
-import { getOpenRouterClient } from '../services/openrouter/index.js';
 import type { AppEnv } from '../types.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { LINK_PUBLIC_KEY_HEADER } from './constants.js';
@@ -132,16 +131,6 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
     c.set('user', user);
     c.set('session', sessionData);
     return next();
-  };
-}
-
-export function openRouterMiddleware(): MiddlewareHandler<AppEnv> {
-  // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
-  return async (c, next) => {
-    const db = c.get('db');
-    const { isCI } = c.get('envUtils');
-    c.set('openrouter', getOpenRouterClient(c.env, { db, isCI }));
-    await next();
   };
 }
 

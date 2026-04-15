@@ -115,18 +115,7 @@ describe('envConfig', () => {
     });
   });
 
-  describe('OPENROUTER_API_KEY', () => {
-    it('goes to Backend only', () => {
-      expect(envConfig.OPENROUTER_API_KEY.to).toEqual([Destination.Backend]);
-    });
-
-    it('is only in ciVitest and production (NOT e2e)', () => {
-      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.Development)).toBeUndefined();
-      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.CiVitest)).toBeDefined();
-      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.E2E)).toBeUndefined();
-      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.Production)).toBeDefined();
-    });
-  });
+  // OPENROUTER_API_KEY tests removed — replaced by AI_GATEWAY_API_KEY
 
   describe('HELCIM_API_TOKEN', () => {
     it('goes to Backend only', () => {
@@ -280,7 +269,6 @@ describe('backendEnvSchema', () => {
       FRONTEND_URL: 'https://hushbox.ai',
       APP_VERSION: 'abc1234',
       RESEND_API_KEY: 're_123456789',
-      OPENROUTER_API_KEY: 'sk-or-123',
       HELCIM_API_TOKEN: 'helcim-token',
       HELCIM_WEBHOOK_VERIFIER: 'webhook-verifier',
       UPSTASH_REDIS_REST_URL: 'https://upstash-redis.upstash.io',

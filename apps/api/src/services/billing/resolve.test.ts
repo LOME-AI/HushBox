@@ -17,7 +17,6 @@ vi.mock('../../lib/speculative-balance.js', () => ({
 
 vi.mock('@hushbox/shared/models', () => ({
   fetchModels: vi.fn(),
-  fetchZdrModelIds: vi.fn().mockResolvedValue(new Set()),
   processModels: vi.fn(),
 }));
 
@@ -88,6 +87,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ tier: 'paid', balanceCents: 1000, reservedCents: 200 });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -105,6 +105,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ tier: 'paid', balanceCents: 500, reservedCents: 300 });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -116,6 +117,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ premiumIds: ['expensive/model'] });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['expensive/model'],
       });
@@ -127,6 +129,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ premiumIds: ['expensive/model'] });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -138,6 +141,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ tier: 'free', balanceCents: 0, freeAllowanceCents: 50 });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -149,6 +153,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({});
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -160,6 +165,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({});
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -215,6 +221,7 @@ describe('buildBillingInput', () => {
       });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -272,6 +279,7 @@ describe('buildBillingInput', () => {
       });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -330,6 +338,7 @@ describe('buildBillingInput', () => {
       });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -377,6 +386,7 @@ describe('buildBillingInput', () => {
       });
 
       await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -437,6 +447,7 @@ describe('buildBillingInput', () => {
       });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -498,6 +509,7 @@ describe('buildBillingInput', () => {
       });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -513,6 +525,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ tier: 'paid', balanceCents: 1000 });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -524,6 +537,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ tier: 'paid', balanceCents: 1000, reservedCents: 300 });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -542,6 +556,7 @@ describe('buildBillingInput', () => {
       });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -587,6 +602,7 @@ describe('buildBillingInput', () => {
       });
 
       await buildBillingInput(mockDb, mockRedis, {
+        apiKey: 'test-key',
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -672,6 +688,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({});
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      apiKey: 'test-key',
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -687,6 +704,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({});
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      apiKey: 'test-key',
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -709,6 +727,7 @@ describe('buildGuestBillingInput', () => {
     });
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      apiKey: 'test-key',
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -732,6 +751,7 @@ describe('buildGuestBillingInput', () => {
     });
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      apiKey: 'test-key',
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -745,6 +765,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({ premiumIds: ['expensive/model'] });
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      apiKey: 'test-key',
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['expensive/model'],
@@ -758,6 +779,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({ premiumIds: ['expensive/model'] });
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      apiKey: 'test-key',
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -778,6 +800,7 @@ describe('buildGuestBillingInput', () => {
     });
 
     await buildGuestBillingInput(mockDb, mockRedis, {
+      apiKey: 'test-key',
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -803,6 +826,7 @@ describe('buildGuestBillingInput', () => {
     });
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      apiKey: 'test-key',
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -822,6 +846,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({});
 
     await buildGuestBillingInput(mockDb, mockRedis, {
+      apiKey: 'test-key',
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -835,6 +860,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({});
 
     await buildGuestBillingInput(mockDb, mockRedis, {
+      apiKey: 'test-key',
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -849,6 +875,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({});
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
+      apiKey: 'test-key',
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],

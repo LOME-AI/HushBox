@@ -1,6 +1,7 @@
 import { createEnvUtilities, type EnvContext } from '@hushbox/shared';
 import type { AIClient } from './types.js';
 import { createMockAIClient } from './mock.js';
+import { createRealAIClient } from './real.js';
 
 export type {
   AIClient,
@@ -18,6 +19,7 @@ export type {
   ModelPricing,
   ProviderMetadata,
   TextRequest,
+  ToolDefinition,
   VideoRequest,
 } from './types.js';
 
@@ -48,7 +50,5 @@ export function getAIClient(env: AIClientEnv): AIClient {
     throw new Error('AI_GATEWAY_API_KEY required in CI/production');
   }
 
-  // Step 3 will add: return createRealAIClient(env.AI_GATEWAY_API_KEY);
-  // For now, CI with a key still gets a mock (the real client doesn't exist yet).
-  return createMockAIClient();
+  return createRealAIClient(env.AI_GATEWAY_API_KEY);
 }

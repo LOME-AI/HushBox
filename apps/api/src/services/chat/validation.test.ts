@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateLastMessageIsFromUser, buildOpenRouterMessages } from './validation.js';
+import { validateLastMessageIsFromUser, buildAIMessages } from './validation.js';
 
 describe('validateLastMessageIsFromUser', () => {
   it('returns true when last message role is user', () => {
@@ -36,7 +36,7 @@ describe('validateLastMessageIsFromUser', () => {
   });
 });
 
-describe('buildOpenRouterMessages', () => {
+describe('buildAIMessages', () => {
   it('prepends system prompt to messages', () => {
     const messages = [
       { role: 'user', content: 'Hello' },
@@ -44,7 +44,7 @@ describe('buildOpenRouterMessages', () => {
     ];
     const systemPrompt = 'You are a helpful assistant';
 
-    const result = buildOpenRouterMessages(systemPrompt, messages);
+    const result = buildAIMessages(systemPrompt, messages);
 
     expect(result).toHaveLength(3);
     expect(result[0]).toEqual({ role: 'system', content: 'You are a helpful assistant' });
@@ -53,7 +53,7 @@ describe('buildOpenRouterMessages', () => {
   });
 
   it('handles empty messages array', () => {
-    const result = buildOpenRouterMessages('System prompt', []);
+    const result = buildAIMessages('System prompt', []);
 
     expect(result).toHaveLength(1);
     expect(result[0]).toEqual({ role: 'system', content: 'System prompt' });
@@ -66,7 +66,7 @@ describe('buildOpenRouterMessages', () => {
       { role: 'system', content: 'System message' },
     ];
 
-    const result = buildOpenRouterMessages('Prompt', messages);
+    const result = buildAIMessages('Prompt', messages);
 
     expect(result).toHaveLength(4);
     expect(result[1]?.role).toBe('user');
@@ -78,7 +78,7 @@ describe('buildOpenRouterMessages', () => {
     const content = 'Message with special chars: <>&"\'';
     const messages = [{ role: 'user', content }];
 
-    const result = buildOpenRouterMessages('Prompt', messages);
+    const result = buildAIMessages('Prompt', messages);
 
     expect(result[1]?.content).toBe(content);
   });
@@ -86,7 +86,7 @@ describe('buildOpenRouterMessages', () => {
   it('does not include extra properties from source messages', () => {
     const messages = [{ role: 'user', content: 'Hello', id: 'msg-1', createdAt: new Date() }];
 
-    const result = buildOpenRouterMessages('Prompt', messages);
+    const result = buildAIMessages('Prompt', messages);
 
     // Should only have role and content
     expect(Object.keys(result[1] as object)).toEqual(['role', 'content']);

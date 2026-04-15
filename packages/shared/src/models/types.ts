@@ -1,3 +1,6 @@
+/** Content modality — shared across AIClient and model discovery. */
+export type Modality = 'text' | 'image' | 'audio' | 'video';
+
 /** Raw model data from OpenRouter API */
 export interface OpenRouterModel {
   id: string;

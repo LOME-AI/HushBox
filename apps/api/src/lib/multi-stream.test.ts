@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { collectMultiModelStreams, type ModelStreamEntry } from './multi-stream.js';
 import type { SSEEventWriter } from './stream-handler.js';
+import type { InferenceEvent, InferenceStream } from '../services/ai/index.js';
 
 function createMockWriter(): SSEEventWriter & {
   events: { method: string; args: unknown[] }[];
@@ -26,87 +27,106 @@ function createMockWriter(): SSEEventWriter & {
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/require-await
-async function* createTokenStream(
-  tokens: string[],
-  generationId?: string,
-  inlineCost?: number
-): AsyncIterable<{ content: string; generationId?: string; inlineCost?: number }> {
-  for (const [index, token] of tokens.entries()) {
-    yield {
-      content: token,
-      ...(index === 0 && generationId !== undefined ? { generationId } : {}),
-    };
-  }
-  // Yield inline cost as final token (mirrors real OpenRouter behavior)
-  if (inlineCost !== undefined) {
-    yield { content: '', inlineCost };
-  }
+/** Create an InferenceStream that yields text-delta events then a finish event. */
+function createTextStream(tokens: string[], generationId?: string): InferenceStream {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+      let index = 0;
+      const events: InferenceEvent[] = [
+        ...tokens.map(
+          (content): InferenceEvent => ({
+            kind: 'text-delta',
+            content,
+          })
+        ),
+        {
+          kind: 'finish',
+          providerMetadata: {
+            ...(generationId === undefined ? {} : { generationId }),
+          },
+        },
+      ];
+      return {
+        next(): Promise<IteratorResult<InferenceEvent>> {
+          if (index >= events.length) return Promise.resolve({ done: true, value: undefined });
+          const value = events[index++]!;
+          return Promise.resolve({ done: false, value });
+        },
+      };
+    },
+  };
 }
 
-// eslint-disable-next-line @typescript-eslint/require-await
-async function* createFailingStream(
-  tokensBeforeError: string[],
-  error: Error
-): AsyncIterable<{ content: string; generationId?: string; inlineCost?: number }> {
-  for (const token of tokensBeforeError) {
-    yield { content: token };
-  }
-  throw error;
+/** Create an InferenceStream that yields some text-delta events then throws. */
+function createFailingStream(tokensBeforeError: string[], error: Error): InferenceStream {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+      let index = 0;
+      return {
+        next(): Promise<IteratorResult<InferenceEvent>> {
+          if (index < tokensBeforeError.length) {
+            const content = tokensBeforeError[index++]!;
+            return Promise.resolve({
+              done: false,
+              value: { kind: 'text-delta' as const, content },
+            });
+          }
+          return Promise.reject(error);
+        },
+      };
+    },
+  };
 }
 
 describe('collectMultiModelStreams', () => {
-  it('collects tokens from a single model', async () => {
+  it('collects text content from a single model', async () => {
     const writer = createMockWriter();
     const entries: ModelStreamEntry[] = [
       {
-        modelId: 'openai/gpt-4o',
+        modelId: 'anthropic/claude-sonnet-4.6',
         assistantMessageId: 'asst-1',
-        stream: createTokenStream(['Hello', ' world'], 'gen-1', 0.001),
+        stream: createTextStream(['Hello', ' world'], 'gen-1'),
       },
     ];
 
     const results = await collectMultiModelStreams(entries, writer);
 
     expect(results.size).toBe(1);
-    const result = results.get('openai/gpt-4o')!;
+    const result = results.get('anthropic/claude-sonnet-4.6')!;
     expect(result.fullContent).toBe('Hello world');
     expect(result.generationId).toBe('gen-1');
-    expect(result.inlineCost).toBe(0.001);
     expect(result.error).toBeNull();
   });
 
-  it('collects tokens from multiple models in parallel', async () => {
+  it('collects content from multiple models in parallel', async () => {
     const writer = createMockWriter();
     const entries: ModelStreamEntry[] = [
       {
-        modelId: 'openai/gpt-4o',
+        modelId: 'anthropic/claude-sonnet-4.6',
         assistantMessageId: 'asst-1',
-        stream: createTokenStream(['A1', 'A2'], 'gen-a', 0.002),
+        stream: createTextStream(['A1', 'A2'], 'gen-a'),
       },
       {
-        modelId: 'anthropic/claude-3.5-sonnet',
+        modelId: 'google/gemini-2.5-flash',
         assistantMessageId: 'asst-2',
-        stream: createTokenStream(['B1', 'B2'], 'gen-b', 0.003),
+        stream: createTextStream(['B1', 'B2'], 'gen-b'),
       },
     ];
 
     const results = await collectMultiModelStreams(entries, writer);
 
     expect(results.size).toBe(2);
-    expect(results.get('openai/gpt-4o')!.fullContent).toBe('A1A2');
-    expect(results.get('openai/gpt-4o')!.inlineCost).toBe(0.002);
-    expect(results.get('anthropic/claude-3.5-sonnet')!.fullContent).toBe('B1B2');
-    expect(results.get('anthropic/claude-3.5-sonnet')!.inlineCost).toBe(0.003);
+    expect(results.get('anthropic/claude-sonnet-4.6')!.fullContent).toBe('A1A2');
+    expect(results.get('google/gemini-2.5-flash')!.fullContent).toBe('B1B2');
   });
 
-  it('writes model-tagged tokens to SSE writer', async () => {
+  it('writes model-tagged tokens to SSE writer for text-delta events', async () => {
     const writer = createMockWriter();
     const entries: ModelStreamEntry[] = [
       {
-        modelId: 'openai/gpt-4o',
+        modelId: 'anthropic/claude-sonnet-4.6',
         assistantMessageId: 'asst-1',
-        stream: createTokenStream(['Hi']),
+        stream: createTextStream(['Hi']),
       },
     ];
 
@@ -114,39 +134,24 @@ describe('collectMultiModelStreams', () => {
 
     const tokenEvents = writer.events.filter((e) => e.method === 'writeModelToken');
     expect(tokenEvents).toHaveLength(1);
-    expect(tokenEvents[0]!.args[0]).toEqual({ modelId: 'openai/gpt-4o', content: 'Hi' });
-  });
-
-  it('does not write empty content tokens to SSE writer', async () => {
-    const writer = createMockWriter();
-    const entries: ModelStreamEntry[] = [
-      {
-        modelId: 'openai/gpt-4o',
-        assistantMessageId: 'asst-1',
-        stream: createTokenStream(['Hi'], undefined, 0.001),
-      },
-    ];
-
-    await collectMultiModelStreams(entries, writer);
-
-    // Only the content token should be written, not the empty inline cost token
-    const tokenEvents = writer.events.filter((e) => e.method === 'writeModelToken');
-    expect(tokenEvents).toHaveLength(1);
-    expect(tokenEvents[0]!.args[0]).toEqual({ modelId: 'openai/gpt-4o', content: 'Hi' });
+    expect(tokenEvents[0]!.args[0]).toEqual({
+      modelId: 'anthropic/claude-sonnet-4.6',
+      content: 'Hi',
+    });
   });
 
   it('writes model:done for each completed model', async () => {
     const writer = createMockWriter();
     const entries: ModelStreamEntry[] = [
       {
-        modelId: 'openai/gpt-4o',
+        modelId: 'anthropic/claude-sonnet-4.6',
         assistantMessageId: 'asst-1',
-        stream: createTokenStream(['Done']),
+        stream: createTextStream(['Done']),
       },
       {
-        modelId: 'anthropic/claude-3.5-sonnet',
+        modelId: 'google/gemini-2.5-flash',
         assistantMessageId: 'asst-2',
-        stream: createTokenStream(['Also done']),
+        stream: createTextStream(['Also done']),
       },
     ];
 
@@ -156,8 +161,8 @@ describe('collectMultiModelStreams', () => {
     expect(doneEvents).toHaveLength(2);
     const modelIds = doneEvents.map((e) => (e.args[0] as { modelId: string }).modelId);
     expect(modelIds.toSorted((a, b) => a.localeCompare(b))).toEqual([
-      'anthropic/claude-3.5-sonnet',
-      'openai/gpt-4o',
+      'anthropic/claude-sonnet-4.6',
+      'google/gemini-2.5-flash',
     ]);
   });
 
@@ -165,12 +170,12 @@ describe('collectMultiModelStreams', () => {
     const writer = createMockWriter();
     const entries: ModelStreamEntry[] = [
       {
-        modelId: 'openai/gpt-4o',
+        modelId: 'anthropic/claude-sonnet-4.6',
         assistantMessageId: 'asst-1',
-        stream: createTokenStream(['Good response'], undefined, 0.001),
+        stream: createTextStream(['Good response'], 'gen-good'),
       },
       {
-        modelId: 'anthropic/claude-3.5-sonnet',
+        modelId: 'google/gemini-2.5-flash',
         assistantMessageId: 'asst-2',
         stream: createFailingStream(['Partial'], new Error('Model unavailable')),
       },
@@ -178,21 +183,19 @@ describe('collectMultiModelStreams', () => {
 
     const results = await collectMultiModelStreams(entries, writer);
 
-    expect(results.get('openai/gpt-4o')!.error).toBeNull();
-    expect(results.get('openai/gpt-4o')!.fullContent).toBe('Good response');
-    expect(results.get('openai/gpt-4o')!.inlineCost).toBe(0.001);
+    expect(results.get('anthropic/claude-sonnet-4.6')!.error).toBeNull();
+    expect(results.get('anthropic/claude-sonnet-4.6')!.fullContent).toBe('Good response');
 
-    expect(results.get('anthropic/claude-3.5-sonnet')!.error).toBeInstanceOf(Error);
-    expect(results.get('anthropic/claude-3.5-sonnet')!.error!.message).toBe('Model unavailable');
-    expect(results.get('anthropic/claude-3.5-sonnet')!.fullContent).toBe('Partial');
-    expect(results.get('anthropic/claude-3.5-sonnet')!.inlineCost).toBeUndefined();
+    expect(results.get('google/gemini-2.5-flash')!.error).toBeInstanceOf(Error);
+    expect(results.get('google/gemini-2.5-flash')!.error!.message).toBe('Model unavailable');
+    expect(results.get('google/gemini-2.5-flash')!.fullContent).toBe('Partial');
   });
 
   it('writes model:error for failed models', async () => {
     const writer = createMockWriter();
     const entries: ModelStreamEntry[] = [
       {
-        modelId: 'openai/gpt-4o',
+        modelId: 'anthropic/claude-sonnet-4.6',
         assistantMessageId: 'asst-1',
         stream: createFailingStream([], new Error('Timeout')),
       },
@@ -203,7 +206,7 @@ describe('collectMultiModelStreams', () => {
     const errorEvents = writer.events.filter((e) => e.method === 'writeModelError');
     expect(errorEvents).toHaveLength(1);
     expect(errorEvents[0]!.args[0]).toEqual({
-      modelId: 'openai/gpt-4o',
+      modelId: 'anthropic/claude-sonnet-4.6',
       message: 'Timeout',
       code: 'STREAM_ERROR',
     });
@@ -215,27 +218,17 @@ describe('collectMultiModelStreams', () => {
     expect(results.size).toBe(0);
   });
 
-  it('captures inlineCost when stream has no content tokens', async () => {
+  it('captures generationId from finish event', async () => {
     const writer = createMockWriter();
-
-    // eslint-disable-next-line @typescript-eslint/require-await
-    async function* costOnlyStream(): AsyncIterable<{
-      content: string;
-      inlineCost?: number;
-    }> {
-      yield { content: 'Hello' };
-      yield { content: '', inlineCost: 0.005 };
-    }
-
     const entries: ModelStreamEntry[] = [
       {
-        modelId: 'openai/gpt-4o',
+        modelId: 'anthropic/claude-sonnet-4.6',
         assistantMessageId: 'asst-1',
-        stream: costOnlyStream(),
+        stream: createTextStream(['Hello'], 'gen-only'),
       },
     ];
 
     const results = await collectMultiModelStreams(entries, writer);
-    expect(results.get('openai/gpt-4o')!.inlineCost).toBe(0.005);
+    expect(results.get('anthropic/claude-sonnet-4.6')!.generationId).toBe('gen-only');
   });
 });

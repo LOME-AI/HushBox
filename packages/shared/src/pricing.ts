@@ -111,9 +111,9 @@ export function estimateMessageCostDevelopment(params: MessageCostParams): numbe
   return tokenCostWithFees + storageFee + applyFees(webSearchCost);
 }
 
-export interface MessageCostFromOpenRouterParams {
-  /** Exact cost from OpenRouter's /generation endpoint */
-  openRouterCost: number;
+export interface MessageCostFromActualParams {
+  /** Exact cost in USD from the AI gateway's getGenerationInfo endpoint */
+  gatewayCost: number;
   /** Characters in user message */
   inputCharacters: number;
   /** Characters in AI response */
@@ -121,27 +121,20 @@ export interface MessageCostFromOpenRouterParams {
 }
 
 /**
- * Calculate message cost using OpenRouter's exact cost.
+ * Calculate message cost using the AI gateway's exact cost.
  * SINGLE SOURCE OF TRUTH for billing based on actual usage.
  *
- * This function uses the exact cost reported by OpenRouter's /generation endpoint,
- * rather than estimating based on tokens and model pricing.
+ * The gateway's totalCost includes any web search tool calls, caching discounts,
+ * and tiered pricing. This function adds HushBox fees and storage cost on top.
  *
  * Components:
- * 1. Model cost with fees: openRouterCost × (1 + 15%)
+ * 1. Model cost with fees: gatewayCost × (1 + TOTAL_FEE_RATE)
  * 2. Storage fee: (inputCharacters + outputCharacters) × STORAGE_COST_PER_CHARACTER
- *
- * The 15% fee covers:
- * - 5% HushBox profit margin
- * - 4.5% credit card processing
- * - 5.5% AI provider overhead
  */
-export function calculateMessageCostFromOpenRouter(
-  params: MessageCostFromOpenRouterParams
-): number {
-  const { openRouterCost, inputCharacters, outputCharacters } = params;
+export function calculateMessageCostFromActual(params: MessageCostFromActualParams): number {
+  const { gatewayCost, inputCharacters, outputCharacters } = params;
 
-  const modelCostWithFees = applyFees(openRouterCost);
+  const modelCostWithFees = applyFees(gatewayCost);
 
   const storageFee = (inputCharacters + outputCharacters) * STORAGE_COST_PER_CHARACTER;
 

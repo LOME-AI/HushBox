@@ -11,7 +11,7 @@ import type { Database } from '@hushbox/db';
 import type { Redis } from '@upstash/redis';
 import { getUserTierInfo } from './balance.js';
 import { getReservedTotal, getGroupReservedTotals } from '../../lib/speculative-balance.js';
-import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
+import { fetchModels, processModels } from '@hushbox/shared/models';
 import { getConversationBudgets, computeGroupRemaining } from './budgets.js';
 
 export interface MemberContext {
@@ -48,6 +48,7 @@ export interface BuildBillingResult {
 export interface BuildBillingInputParams {
   userId: string;
   models: string[];
+  apiKey: string;
   memberContext?: MemberContext;
   conversationId?: string;
 }
@@ -56,6 +57,7 @@ export interface BuildGuestBillingInputParams {
   ownerId: string;
   memberId: string;
   models: string[];
+  apiKey: string;
   conversationId: string;
 }
 
@@ -105,16 +107,15 @@ export async function buildBillingInput(
   redis: Redis,
   params: BuildBillingInputParams
 ): Promise<BuildBillingResult> {
-  const { userId, models, memberContext, conversationId } = params;
+  const { userId, models, memberContext, conversationId, apiKey } = params;
   // 1. User tier info + Redis reservations + model premium check (in parallel)
-  const [userTierInfo, reservedCents, openrouterModels, zdrModelIds] = await Promise.all([
+  const [userTierInfo, reservedCents, openrouterModels] = await Promise.all([
     getUserTierInfo(db, userId),
     getReservedTotal(redis, userId),
-    fetchModels(),
-    fetchZdrModelIds(),
+    fetchModels(apiKey),
   ]);
 
-  const { premiumIds } = processModels(openrouterModels, zdrModelIds);
+  const { premiumIds } = processModels(openrouterModels);
   const isPremiumModel = models.some((m) => premiumIds.includes(m));
 
   const adjustedBalanceCents = userTierInfo.balanceCents - reservedCents;
@@ -182,17 +183,16 @@ export async function buildGuestBillingInput(
   redis: Redis,
   params: BuildGuestBillingInputParams
 ): Promise<BuildBillingResult> {
-  const { ownerId, memberId, models, conversationId } = params;
+  const { ownerId, memberId, models, conversationId, apiKey } = params;
 
-  const [ownerTierInfo, reserved, budgets, openrouterModels, zdrModelIds] = await Promise.all([
+  const [ownerTierInfo, reserved, budgets, openrouterModels] = await Promise.all([
     getUserTierInfo(db, ownerId),
     getGroupReservedTotals(redis, conversationId, memberId, ownerId),
     getConversationBudgets(db, conversationId),
-    fetchModels(),
-    fetchZdrModelIds(),
+    fetchModels(apiKey),
   ]);
 
-  const { premiumIds } = processModels(openrouterModels, zdrModelIds);
+  const { premiumIds } = processModels(openrouterModels);
   const isPremiumModel = models.some((m) => premiumIds.includes(m));
 
   const resolved = resolveGroupRemaining(budgets, memberId, ownerTierInfo.balanceCents, reserved);

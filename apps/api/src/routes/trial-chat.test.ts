@@ -1,9 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+
+vi.mock('@ai-sdk/gateway', () => ({
+  createGateway: () => ({
+    getAvailableModels: () =>
+      Promise.resolve({
+        models: (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ ?? [],
+      }),
+  }),
+}));
+
 import { Hono } from 'hono';
 import type { AppEnv } from '../types.js';
-import type { OpenRouterClient } from '../services/openrouter/types.js';
 import { trialChatRoute } from './trial-chat.js';
-import { createFastMockOpenRouterClient } from '../test-helpers/index.js';
+import { createMockAIClient } from '../services/ai/mock.js';
 import { clearModelCache } from '@hushbox/shared/models';
 
 interface MockFetchResponse {
@@ -14,33 +23,25 @@ interface MockFetchResponse {
 
 type FetchMock = Mock<(url: string, init?: RequestInit) => Promise<MockFetchResponse>>;
 
-/** Build a URL-aware fetch mock that handles both /models and /endpoints/zdr. */
+/** Build a URL-aware fetch mock and inject models into the @ai-sdk/gateway mock. */
 function buildFetchMock(fetchMock: FetchMock, models: typeof trialChatModels): void {
-  fetchMock.mockImplementation((url: string) => {
-    if (url.includes('/endpoints/zdr')) {
-      const zdrEndpoints = models.map((m) => ({
-        model_id: m.id,
-        model_name: m.name,
-        provider_name: 'Provider',
-        context_length: m.context_length,
-        pricing: m.pricing,
-      }));
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ data: zdrEndpoints }),
-      });
-    }
-    return Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({ data: models }),
-    });
-  });
+  // Inject models into the @ai-sdk/gateway mock (gateway response shape)
+  (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ = models.map((m) => ({
+    id: m.id,
+    name: m.name,
+    description: m.description,
+    modelType: 'language',
+    pricing: { input: m.pricing.prompt, output: m.pricing.completion },
+  }));
+  fetchMock.mockImplementation(() =>
+    Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) })
+  );
 }
 
 // Trial chat specific models for testing
 const trialChatModels = [
   {
-    id: 'meta-llama/llama-3.1-70b',
+    id: 'openai/gpt-4o-mini',
     name: 'Llama 3.1 70B',
     description: 'Basic model',
     context_length: 128_000,
@@ -50,7 +51,7 @@ const trialChatModels = [
     architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
   {
-    id: 'openai/gpt-4-turbo',
+    id: 'openai/gpt-5',
     name: 'GPT-4 Turbo',
     description: 'Premium model',
     context_length: 128_000,
@@ -79,7 +80,6 @@ function createMockRedis(nextIncrValue = 1) {
 function createTestApp(
   options: {
     trialMessageCount?: number;
-    openrouterClient?: OpenRouterClient;
   } = {}
 ) {
   const app = new Hono<AppEnv>();
@@ -90,12 +90,10 @@ function createTestApp(
   const nextIncrValue = (options.trialMessageCount ?? 0) + 1;
 
   app.use('*', async (c, next) => {
+    c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
     c.set('user', null); // Trial user
     c.set('session', null);
-    c.set(
-      'openrouter',
-      options.openrouterClient ?? createFastMockOpenRouterClient({ models: trialChatModels })
-    );
+    c.set('aiClient', createMockAIClient());
     c.set('redis', createMockRedis(nextIncrValue) as unknown as AppEnv['Variables']['redis']);
     c.set('db', {} as unknown as AppEnv['Variables']['db']);
     await next();
@@ -138,7 +136,7 @@ describe('trial chat routes', () => {
         },
         body: JSON.stringify({
           messages: [{ role: 'user', content: 'Hello' }],
-          model: 'meta-llama/llama-3.1-70b',
+          model: 'openai/gpt-4o-mini',
         }),
       });
 
@@ -155,7 +153,7 @@ describe('trial chat routes', () => {
           'Content-Type': 'application/json',
           'X-Trial-Token': 'test-trial-token',
         },
-        body: JSON.stringify({ model: 'meta-llama/llama-3.1-70b' }),
+        body: JSON.stringify({ model: 'openai/gpt-4o-mini' }),
       });
 
       expect(res.status).toBe(400);
@@ -187,7 +185,7 @@ describe('trial chat routes', () => {
         },
         body: JSON.stringify({
           messages: [{ role: 'assistant', content: 'Hello' }],
-          model: 'meta-llama/llama-3.1-70b',
+          model: 'openai/gpt-4o-mini',
         }),
       });
 
@@ -207,7 +205,7 @@ describe('trial chat routes', () => {
         },
         body: JSON.stringify({
           messages: [{ role: 'user', content: 'Hello' }],
-          model: 'openai/gpt-4-turbo', // Premium model
+          model: 'openai/gpt-5', // Premium model
         }),
       });
 
@@ -230,7 +228,7 @@ describe('trial chat routes', () => {
         },
         body: JSON.stringify({
           messages: [{ role: 'user', content: 'Hello' }],
-          model: 'meta-llama/llama-3.1-70b',
+          model: 'openai/gpt-4o-mini',
         }),
       });
 
@@ -254,7 +252,7 @@ describe('trial chat routes', () => {
         },
         body: JSON.stringify({
           messages: [{ role: 'user', content: 'Hello' }],
-          model: 'meta-llama/llama-3.1-70b',
+          model: 'openai/gpt-4o-mini',
         }),
       });
 
@@ -276,7 +274,7 @@ describe('trial chat routes', () => {
         },
         body: JSON.stringify({
           messages: [{ role: 'user', content: 'Hello' }],
-          model: 'meta-llama/llama-3.1-70b',
+          model: 'openai/gpt-4o-mini',
         }),
       });
 
@@ -297,7 +295,7 @@ describe('trial chat routes', () => {
         },
         body: JSON.stringify({
           messages: [{ role: 'user', content: 'Hello' }],
-          model: 'meta-llama/llama-3.1-70b',
+          model: 'openai/gpt-4o-mini',
         }),
       });
 
@@ -330,7 +328,7 @@ describe('trial chat routes', () => {
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
         });
-        c.set('openrouter', createFastMockOpenRouterClient({ models: trialChatModels }));
+        c.set('aiClient', createMockAIClient());
         c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
         c.set('db', {} as unknown as AppEnv['Variables']['db']);
         await next();
@@ -345,7 +343,7 @@ describe('trial chat routes', () => {
         },
         body: JSON.stringify({
           messages: [{ role: 'user', content: 'Hello' }],
-          model: 'meta-llama/llama-3.1-70b',
+          model: 'openai/gpt-4o-mini',
         }),
       });
 
@@ -406,9 +404,7 @@ describe('trial chat routes', () => {
       // Override default fetch mock
       buildFetchMock(fetchMock, budgetTestModels);
 
-      const app = createTestApp({
-        openrouterClient: createFastMockOpenRouterClient({ models: budgetTestModels }),
-      });
+      const app = createTestApp();
 
       // Very long message that would exceed $0.01 limit
       const longMessage = 'x'.repeat(50_000);
@@ -482,9 +478,7 @@ describe('trial chat routes', () => {
       // Override default fetch mock
       buildFetchMock(fetchMock, cheapTestModels);
 
-      const app = createTestApp({
-        openrouterClient: createFastMockOpenRouterClient({ models: cheapTestModels }),
-      });
+      const app = createTestApp();
 
       const res = await app.request('/stream', {
         method: 'POST',
@@ -515,7 +509,7 @@ describe('trial chat routes', () => {
         },
         body: JSON.stringify({
           messages: [{ role: 'user', content: 'Hello' }],
-          model: 'meta-llama/llama-3.1-70b',
+          model: 'openai/gpt-4o-mini',
         }),
       });
 

@@ -3,7 +3,6 @@ import type { Database } from '@hushbox/db';
 import type { EnvUtilities, Platform } from '@hushbox/shared';
 import type { AIClient } from './services/ai/index.js';
 import type { HelcimClient } from './services/helcim/index.js';
-import type { OpenRouterClient } from './services/openrouter/index.js';
 import type { SessionData } from './lib/session.js';
 
 /** Minimal Durable Object namespace binding (avoids leaking @cloudflare/workers-types globally) */
@@ -30,7 +29,6 @@ export interface Bindings {
   E2E?: string;
   RESEND_API_KEY?: string;
   AI_GATEWAY_API_KEY?: string;
-  OPENROUTER_API_KEY?: string;
   HELCIM_API_TOKEN?: string;
   HELCIM_WEBHOOK_VERIFIER?: string;
   FCM_PROJECT_ID?: string;
@@ -51,7 +49,6 @@ export interface Variables {
   redis: Redis;
   aiClient: AIClient;
   helcim: HelcimClient;
-  openrouter: OpenRouterClient;
   envUtils: EnvUtilities;
   user: {
     id: string;

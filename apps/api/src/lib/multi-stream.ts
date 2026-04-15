@@ -1,15 +1,16 @@
+import type { InferenceStream } from '../services/ai/index.js';
 import type { SSEEventWriter } from './stream-handler.js';
 
 export interface ModelStreamEntry {
   modelId: string;
   assistantMessageId: string;
-  stream: AsyncIterable<{ content: string; generationId?: string; inlineCost?: number }>;
+  stream: InferenceStream;
 }
 
 export interface MultiStreamResult {
   fullContent: string;
+  /** Generation ID from the gateway's finish event — used post-hoc to fetch exact cost. */
   generationId: string | undefined;
-  inlineCost: number | undefined;
   error: Error | null;
 }
 
@@ -19,20 +20,26 @@ async function collectSingleModel(
 ): Promise<MultiStreamResult> {
   let fullContent = '';
   let generationId: string | undefined;
-  let inlineCost: number | undefined;
   let error: Error | null = null;
 
   try {
-    for await (const token of entry.stream) {
-      if (token.generationId) {
-        generationId = token.generationId;
-      }
-      if (token.inlineCost !== undefined) {
-        inlineCost = token.inlineCost;
-      }
-      if (token.content) {
-        fullContent += token.content;
-        await writer.writeModelToken({ modelId: entry.modelId, content: token.content });
+    for await (const event of entry.stream) {
+      switch (event.kind) {
+        case 'text-delta': {
+          if (event.content.length > 0) {
+            fullContent += event.content;
+            await writer.writeModelToken({ modelId: entry.modelId, content: event.content });
+          }
+          break;
+        }
+        case 'finish': {
+          generationId = event.providerMetadata?.generationId;
+          break;
+        }
+        // media-start and media-done are handled by future modality strategies
+        default: {
+          break;
+        }
       }
     }
 
@@ -50,15 +57,15 @@ async function collectSingleModel(
     });
   }
 
-  return { fullContent, generationId, inlineCost, error };
+  return { fullContent, generationId, error };
 }
 
 /**
- * Collects tokens from N model streams in parallel, writing model-tagged
- * SSE events as tokens arrive.
+ * Collects inference events from N model streams in parallel, writing
+ * model-tagged SSE events as tokens arrive.
  *
  * Each model stream runs independently. If one fails, others continue.
- * Returns a Map of modelId → result (content, generationId, inlineCost, error).
+ * Returns a Map of modelId → result (content, generationId, error).
  */
 export async function collectMultiModelStreams(
   entries: ModelStreamEntry[],

@@ -14,7 +14,7 @@ import {
   createDevGroupChat,
   setWalletBalance,
 } from '../services/dev/index.js';
-import { addFailingModel, clearFailingModels } from '../services/openrouter/mock.js';
+import type { MockAIClient } from '../services/ai/index.js';
 import {
   verificationEmail,
   passwordChangedEmail,
@@ -220,10 +220,15 @@ export const devRoute = new Hono<AppEnv>()
   })
   .post('/fail-model', zValidator('json', z.object({ modelId: z.string().nullable() })), (c) => {
     const { modelId } = c.req.valid('json');
+    const aiClient = c.get('aiClient');
+    if (!aiClient.isMock) {
+      return c.json({ success: false, error: 'fail-model only works with mock client' }, 400);
+    }
+    const mockClient = aiClient as MockAIClient;
     if (modelId) {
-      addFailingModel(modelId);
+      mockClient.addFailingModel(modelId);
     } else {
-      clearFailingModels();
+      mockClient.clearFailingModels();
     }
     return c.json({ success: true });
   });

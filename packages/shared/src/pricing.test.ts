@@ -3,7 +3,7 @@ import {
   applyFees,
   calculateTokenCostWithFees,
   estimateMessageCostDevelopment,
-  calculateMessageCostFromOpenRouter,
+  calculateMessageCostFromActual,
   estimateTokenCount,
   getModelCostPer1k,
   isExpensiveModel,
@@ -361,16 +361,16 @@ describe('estimateMessageCostDevelopment', () => {
   });
 });
 
-describe('calculateMessageCostFromOpenRouter', () => {
+describe('calculateMessageCostFromActual', () => {
   const baseParams: MessageCostFromOpenRouterParams = {
-    openRouterCost: 0.001, // $0.001 from OpenRouter
+    gatewayCost: 0.001, // $0.001 from OpenRouter
     inputCharacters: 500,
     outputCharacters: 200,
   };
 
   describe('model cost with fees', () => {
     it('applies 15% fee to OpenRouter exact cost', () => {
-      const result = calculateMessageCostFromOpenRouter(baseParams);
+      const result = calculateMessageCostFromActual(baseParams);
       const expectedModelCostWithFees = applyFees(0.001);
       const expectedStorageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
 
@@ -379,22 +379,22 @@ describe('calculateMessageCostFromOpenRouter', () => {
 
     it('correctly calculates fee ratio as exactly 1.15x', () => {
       const paramsNoStorage: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.01,
+        gatewayCost: 0.01,
         inputCharacters: 0,
         outputCharacters: 0,
       };
-      const result = calculateMessageCostFromOpenRouter(paramsNoStorage);
+      const result = calculateMessageCostFromActual(paramsNoStorage);
 
       expect(result / 0.01).toBeCloseTo(1 + TOTAL_FEE_RATE, 10);
     });
 
     it('handles zero OpenRouter cost', () => {
       const zeroCostParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0,
+        gatewayCost: 0,
         inputCharacters: 500,
         outputCharacters: 200,
       };
-      const result = calculateMessageCostFromOpenRouter(zeroCostParams);
+      const result = calculateMessageCostFromActual(zeroCostParams);
       const expectedStorageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
 
       expect(result).toBeCloseTo(expectedStorageFee, 10);
@@ -402,11 +402,11 @@ describe('calculateMessageCostFromOpenRouter', () => {
 
     it('handles very small OpenRouter costs', () => {
       const smallCostParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.000_000_1,
+        gatewayCost: 0.000_000_1,
         inputCharacters: 10,
         outputCharacters: 10,
       };
-      const result = calculateMessageCostFromOpenRouter(smallCostParams);
+      const result = calculateMessageCostFromActual(smallCostParams);
 
       expect(result).toBeGreaterThan(0);
       expect(Number.isFinite(result)).toBe(true);
@@ -416,22 +416,22 @@ describe('calculateMessageCostFromOpenRouter', () => {
   describe('storage fee calculation', () => {
     it('charges storage fee per character', () => {
       const paramsNoModelCost: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0,
+        gatewayCost: 0,
         inputCharacters: 1000,
         outputCharacters: 1000,
       };
-      const result = calculateMessageCostFromOpenRouter(paramsNoModelCost);
+      const result = calculateMessageCostFromActual(paramsNoModelCost);
 
       expect(result).toBeCloseTo(2000 * STORAGE_COST_PER_CHARACTER, 10);
     });
 
     it('does not apply fees to storage cost', () => {
-      const modelOnlyResult = calculateMessageCostFromOpenRouter({
+      const modelOnlyResult = calculateMessageCostFromActual({
         ...baseParams,
         inputCharacters: 0,
         outputCharacters: 0,
       });
-      const fullResult = calculateMessageCostFromOpenRouter(baseParams);
+      const fullResult = calculateMessageCostFromActual(baseParams);
       const storageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
 
       // Full result should be model cost with fees + raw storage fee (no fees on storage)
@@ -440,11 +440,11 @@ describe('calculateMessageCostFromOpenRouter', () => {
 
     it('handles zero characters', () => {
       const noCharsParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.001,
+        gatewayCost: 0.001,
         inputCharacters: 0,
         outputCharacters: 0,
       };
-      const result = calculateMessageCostFromOpenRouter(noCharsParams);
+      const result = calculateMessageCostFromActual(noCharsParams);
 
       expect(result).toBeCloseTo(applyFees(0.001), 10);
     });
@@ -452,7 +452,7 @@ describe('calculateMessageCostFromOpenRouter', () => {
 
   describe('combined calculation', () => {
     it('sums model cost with fees and storage fee', () => {
-      const result = calculateMessageCostFromOpenRouter(baseParams);
+      const result = calculateMessageCostFromActual(baseParams);
 
       const modelCostWithFees = 0.001 * (1 + TOTAL_FEE_RATE);
       const storageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
@@ -463,11 +463,11 @@ describe('calculateMessageCostFromOpenRouter', () => {
     it('returns correct result with real-world OpenRouter cost', () => {
       // Typical GPT-4 response costing $0.05
       const realWorldParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.05,
+        gatewayCost: 0.05,
         inputCharacters: 4000,
         outputCharacters: 2000,
       };
-      const result = calculateMessageCostFromOpenRouter(realWorldParams);
+      const result = calculateMessageCostFromActual(realWorldParams);
 
       const modelCostWithFees = 0.05 * (1 + TOTAL_FEE_RATE); // 0.0575
       const storageFee = (4000 + 2000) * STORAGE_COST_PER_CHARACTER;
@@ -477,11 +477,11 @@ describe('calculateMessageCostFromOpenRouter', () => {
 
     it('handles large OpenRouter costs', () => {
       const largeCostParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 10, // $10 for expensive operation
+        gatewayCost: 10, // $10 for expensive operation
         inputCharacters: 100_000,
         outputCharacters: 100_000,
       };
-      const result = calculateMessageCostFromOpenRouter(largeCostParams);
+      const result = calculateMessageCostFromActual(largeCostParams);
 
       expect(result).toBeGreaterThan(10);
       expect(Number.isFinite(result)).toBe(true);
@@ -491,22 +491,22 @@ describe('calculateMessageCostFromOpenRouter', () => {
   describe('edge cases', () => {
     it('returns 0 when all inputs are 0', () => {
       const zeroParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0,
+        gatewayCost: 0,
         inputCharacters: 0,
         outputCharacters: 0,
       };
-      const result = calculateMessageCostFromOpenRouter(zeroParams);
+      const result = calculateMessageCostFromActual(zeroParams);
 
       expect(result).toBe(0);
     });
 
     it('handles input characters only', () => {
       const inputOnlyParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.001,
+        gatewayCost: 0.001,
         inputCharacters: 500,
         outputCharacters: 0,
       };
-      const result = calculateMessageCostFromOpenRouter(inputOnlyParams);
+      const result = calculateMessageCostFromActual(inputOnlyParams);
 
       const modelCostWithFees = applyFees(0.001);
       const storageFee = 500 * STORAGE_COST_PER_CHARACTER;
@@ -516,11 +516,11 @@ describe('calculateMessageCostFromOpenRouter', () => {
 
     it('handles output characters only', () => {
       const outputOnlyParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.001,
+        gatewayCost: 0.001,
         inputCharacters: 0,
         outputCharacters: 200,
       };
-      const result = calculateMessageCostFromOpenRouter(outputOnlyParams);
+      const result = calculateMessageCostFromActual(outputOnlyParams);
 
       const modelCostWithFees = applyFees(0.001);
       const storageFee = 200 * STORAGE_COST_PER_CHARACTER;

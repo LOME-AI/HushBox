@@ -1,66 +1,102 @@
-import type { OpenRouterModel, ZdrEndpoint } from './types.js';
-
-const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1';
+import { createGateway } from '@ai-sdk/gateway';
+import type { OpenRouterModel } from './types.js';
 
 // ============================================================================
-// In-memory TTL cache for model endpoints
+// Cache — 1-hour TTL. Key includes the API key to prevent cross-tenant leaks
+// if the cache instance ever serves multiple keys (defensive; in production
+// there's one key per Worker).
 // ============================================================================
 
-interface CacheEntry<T> {
-  data: T;
+interface CacheEntry {
+  apiKey: string;
+  data: OpenRouterModel[];
   expiresAt: number;
 }
 
-const MODEL_CACHE_TTL_MS = 3_600_000; // 1 hour
+const MODEL_CACHE_TTL_MS = 3_600_000;
 
-let modelsCache: CacheEntry<OpenRouterModel[]> | null = null;
-let zdrCache: CacheEntry<Set<string>> | null = null;
+let modelsCache: CacheEntry | null = null;
 
-/** @internal — test-only: clears the in-memory model/ZDR cache */
+/** Test-only: clears the in-memory model cache. */
 export function clearModelCache(): void {
   modelsCache = null;
-  zdrCache = null;
+}
+
+// ============================================================================
+// Defaults for fields the AI Gateway doesn't return
+// ============================================================================
+
+/** Default context length applied to all models — gateway doesn't report this. */
+const DEFAULT_CONTEXT_LENGTH = 128_000;
+
+// ============================================================================
+// Shape of the gateway's /config response. We mirror only the fields we consume.
+// ============================================================================
+
+interface GatewayModelEntry {
+  id: string;
+  name: string;
+  description?: string | null;
+  pricing?: {
+    input: string;
+    output: string;
+  } | null;
+  modelType?: 'language' | 'embedding' | 'image' | 'video' | null;
+  specification?: {
+    provider: string;
+    modelId: string;
+  };
 }
 
 /**
- * Fetch models from OpenRouter API without authentication.
- * The /models endpoint is public and does not require an API key.
- * Results are cached in memory for 1 hour.
+ * Map a gateway model entry to our internal OpenRouterModel shape.
+ *
+ * Fields the gateway doesn't return (context_length, created,
+ * supported_parameters, architecture) are defaulted. These fields are retained
+ * on the type for compatibility with downstream consumers; future cleanup can
+ * remove them as consumers are updated.
  */
-export async function fetchModels(): Promise<OpenRouterModel[]> {
-  if (modelsCache && Date.now() < modelsCache.expiresAt) {
+function toOpenRouterModel(entry: GatewayModelEntry): OpenRouterModel {
+  const modelType = entry.modelType ?? 'language';
+  const isTextModel = modelType === 'language';
+
+  return {
+    id: entry.id,
+    name: entry.name,
+    description: entry.description ?? '',
+    context_length: DEFAULT_CONTEXT_LENGTH,
+    pricing: {
+      prompt: entry.pricing?.input ?? '0',
+      completion: entry.pricing?.output ?? '0',
+    },
+    supported_parameters: [],
+    created: 0,
+    architecture: {
+      input_modalities: isTextModel ? ['text'] : [modelType],
+      output_modalities: isTextModel ? ['text'] : [modelType],
+    },
+  };
+}
+
+/**
+ * Fetch available models from the Vercel AI Gateway.
+ * Requires an API key — the gateway's /config endpoint is authenticated.
+ * Results are cached in memory for 1 hour per API key.
+ */
+export async function fetchModels(apiKey: string): Promise<OpenRouterModel[]> {
+  if (modelsCache?.apiKey === apiKey && Date.now() < modelsCache.expiresAt) {
     return modelsCache.data;
   }
 
-  const response = await fetch(`${OPENROUTER_API_URL}/models`);
+  const gateway = createGateway({ apiKey });
+  const response = await gateway.getAvailableModels();
+  const mapped = response.models.map((m) => toOpenRouterModel(m as GatewayModelEntry));
 
-  if (!response.ok) {
-    throw new Error('Failed to fetch models');
-  }
+  modelsCache = {
+    apiKey,
+    data: mapped,
+    expiresAt: Date.now() + MODEL_CACHE_TTL_MS,
+  };
 
-  const data = (await response.json()) as { data: OpenRouterModel[] };
-  modelsCache = { data: data.data, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };
-  return data.data;
-}
-
-/**
- * Fetch ZDR-compliant model IDs from OpenRouter.
- * The /endpoints/zdr endpoint is public — no API key required.
- * Results are cached in memory for 1 hour.
- */
-export async function fetchZdrModelIds(): Promise<Set<string>> {
-  if (zdrCache && Date.now() < zdrCache.expiresAt) {
-    return zdrCache.data;
-  }
-
-  const response = await fetch(`${OPENROUTER_API_URL}/endpoints/zdr`);
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch ZDR endpoints');
-  }
-
-  const data = (await response.json()) as { data: ZdrEndpoint[] };
-  const result = new Set(data.data.map((ep) => ep.model_id));
-  zdrCache = { data: result, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };
-  return result;
+  return mapped;
 }

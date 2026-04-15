@@ -209,7 +209,6 @@ local_protocol = "http"
       expect(content).toContain('OPAQUE_MASTER_SECRET');
       expect(content).toContain('IRON_SESSION_SECRET');
       expect(content).toContain('RESEND_API_KEY');
-      expect(content).toContain('OPENROUTER_API_KEY');
       expect(content).toContain('HELCIM_API_TOKEN');
       expect(content).toContain('HELCIM_WEBHOOK_VERIFIER');
     });
@@ -485,9 +484,7 @@ old content
       expect(content).toContain(
         'echo "${{ secrets.RESEND_API_KEY }}" | pnpm exec wrangler secret put RESEND_API_KEY'
       );
-      expect(content).toContain(
-        'echo "${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}" | pnpm exec wrangler secret put OPENROUTER_API_KEY'
-      );
+      expect(content).not.toContain('OPENROUTER_API_KEY');
     });
 
     it('uses version job output for APP_VERSION instead of secret', () => {
@@ -554,7 +551,7 @@ old content
 
       const content = readCiYml();
       expect(content).toContain(
-        'for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET APP_VERSION RESEND_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do'
+        'for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET APP_VERSION RESEND_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do'
       );
     });
   });

@@ -19,13 +19,12 @@ vi.mock('@hushbox/realtime/events', () => ({
 import { getModelPricing } from '@hushbox/shared';
 import { broadcastFireAndForget } from './broadcast.js';
 import { createEvent } from '@hushbox/realtime/events';
-import type { ModelInfo } from '../services/openrouter/types.js';
-import type { ChatMessage } from '../services/openrouter/types.js';
+import type { OpenRouterModel as ModelInfo } from '@hushbox/shared/models';
+import type { InferenceEvent, InferenceStream } from '../services/ai/index.js';
 import {
   BATCH_INTERVAL_MS,
   lookupModelPricing,
   computeWorstCaseCents,
-  buildOpenRouterRequest,
   resolveWebSearchCost,
   handleBillingResult,
   withBroadcast,
@@ -197,131 +196,7 @@ describe('computeWorstCaseCents', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// buildOpenRouterRequest
-// ---------------------------------------------------------------------------
-
-describe('buildOpenRouterRequest', () => {
-  const messages: ChatMessage[] = [
-    { role: 'system', content: 'You are helpful.' },
-    { role: 'user', content: 'Hello' },
-  ];
-
-  it('builds a basic request with model and messages', () => {
-    const result = buildOpenRouterRequest({
-      model: 'openai/gpt-4o',
-      messages,
-      safeMaxTokens: undefined,
-      webSearchEnabled: false,
-    });
-
-    expect(result).toEqual({
-      model: 'openai/gpt-4o',
-      messages,
-    });
-  });
-
-  it('includes max_tokens when safeMaxTokens is provided', () => {
-    const result = buildOpenRouterRequest({
-      model: 'openai/gpt-4o',
-      messages,
-      safeMaxTokens: 4096,
-      webSearchEnabled: false,
-    });
-
-    expect(result).toEqual({
-      model: 'openai/gpt-4o',
-      messages,
-      max_tokens: 4096,
-    });
-  });
-
-  it('omits max_tokens when safeMaxTokens is undefined', () => {
-    const result = buildOpenRouterRequest({
-      model: 'openai/gpt-4o',
-      messages,
-      safeMaxTokens: undefined,
-      webSearchEnabled: false,
-    });
-
-    expect(result).not.toHaveProperty('max_tokens');
-  });
-
-  it('includes web plugin when webSearchEnabled is true', () => {
-    const result = buildOpenRouterRequest({
-      model: 'openai/gpt-4o',
-      messages,
-      safeMaxTokens: undefined,
-      webSearchEnabled: true,
-    });
-
-    expect(result.plugins).toEqual([{ id: 'web' }]);
-  });
-
-  it('omits plugins when webSearchEnabled is false and no autoRouterAllowedModels', () => {
-    const result = buildOpenRouterRequest({
-      model: 'openai/gpt-4o',
-      messages,
-      safeMaxTokens: undefined,
-      webSearchEnabled: false,
-    });
-
-    expect(result).not.toHaveProperty('plugins');
-  });
-
-  it('includes auto-router plugin with allowed_models when autoRouterAllowedModels is provided', () => {
-    const allowed = ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet'];
-    const result = buildOpenRouterRequest({
-      model: 'openrouter/auto',
-      messages,
-      safeMaxTokens: undefined,
-      webSearchEnabled: false,
-      autoRouterAllowedModels: allowed,
-    });
-
-    expect(result.plugins).toEqual([{ id: 'auto-router', allowed_models: allowed }]);
-  });
-
-  it('includes both auto-router and web plugins when both are enabled', () => {
-    const allowed = ['openai/gpt-4o'];
-    const result = buildOpenRouterRequest({
-      model: 'openrouter/auto',
-      messages,
-      safeMaxTokens: 2048,
-      webSearchEnabled: true,
-      autoRouterAllowedModels: allowed,
-    });
-
-    expect(result.plugins).toEqual([{ id: 'auto-router', allowed_models: allowed }, { id: 'web' }]);
-    expect(result.max_tokens).toBe(2048);
-  });
-
-  it('preserves plugin order: auto-router before web', () => {
-    const allowed = ['model/a'];
-    const result = buildOpenRouterRequest({
-      model: 'model',
-      messages,
-      safeMaxTokens: undefined,
-      webSearchEnabled: true,
-      autoRouterAllowedModels: allowed,
-    });
-
-    expect(result.plugins![0]!.id).toBe('auto-router');
-    expect(result.plugins![1]!.id).toBe('web');
-  });
-
-  it('handles empty autoRouterAllowedModels array', () => {
-    const result = buildOpenRouterRequest({
-      model: 'model',
-      messages,
-      safeMaxTokens: undefined,
-      webSearchEnabled: false,
-      autoRouterAllowedModels: [],
-    });
-
-    expect(result.plugins).toEqual([{ id: 'auto-router', allowed_models: [] }]);
-  });
-});
+// buildOpenRouterRequest tests removed — function deleted in Step 3 (AIClient migration)
 
 // ---------------------------------------------------------------------------
 // resolveWebSearchCost
@@ -534,44 +409,51 @@ describe('withBroadcast', () => {
     modelName: 'openai/gpt-4o',
   };
 
-  async function collectAll(
-    iterable: AsyncIterable<{ content: string; generationId?: string }>
-  ): Promise<{ content: string; generationId?: string }[]> {
-    const items: { content: string; generationId?: string }[] = [];
-    for await (const item of iterable) {
+  async function collectAll(stream: InferenceStream): Promise<InferenceEvent[]> {
+    const items: InferenceEvent[] = [];
+    for await (const item of stream) {
       items.push(item);
     }
     return items;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
-  async function* tokenStream(
-    tokens: string[]
-  ): AsyncIterable<{ content: string; generationId?: string }> {
-    for (const t of tokens) {
-      yield { content: t };
-    }
+  function textDeltaStream(tokens: string[]): InferenceStream {
+    return {
+      [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+        let index = 0;
+        return {
+          next(): Promise<IteratorResult<InferenceEvent>> {
+            if (index >= tokens.length) return Promise.resolve({ done: true, value: undefined });
+            const content = tokens[index++]!;
+            return Promise.resolve({
+              done: false,
+              value: { kind: 'text-delta' as const, content },
+            });
+          },
+        };
+      },
+    };
   }
 
-  it('passes through all tokens unchanged', async () => {
-    const stream = tokenStream(['Hello', ' World']);
+  it('passes through all events unchanged', async () => {
+    const stream = textDeltaStream(['Hello', ' World']);
     const wrapped = withBroadcast(stream, broadcast);
 
     const items = await collectAll(wrapped);
 
-    expect(items).toEqual([{ content: 'Hello' }, { content: ' World' }]);
+    expect(items).toEqual([
+      { kind: 'text-delta', content: 'Hello' },
+      { kind: 'text-delta', content: ' World' },
+    ]);
   });
 
   it('flushes remaining buffer on stream completion', async () => {
-    // Use a single token that won't trigger interval-based flush
-    const stream = tokenStream(['token']);
+    const stream = textDeltaStream(['token']);
     const wrapped = withBroadcast(stream, broadcast);
 
     await collectAll(wrapped);
 
-    // The flush happens on done — broadcastFireAndForget should have been called at least once
     expect(broadcastFireAndForget).toHaveBeenCalled();
-    // Last call should include the token content
     const lastCallEvent = vi.mocked(createEvent).mock.calls.at(-1);
     expect(lastCallEvent).toBeDefined();
     expect(lastCallEvent![0]).toBe('message:stream');
@@ -583,7 +465,7 @@ describe('withBroadcast', () => {
   });
 
   it('includes modelName in broadcast events when provided', async () => {
-    const stream = tokenStream(['hi']);
+    const stream = textDeltaStream(['hi']);
     const wrapped = withBroadcast(stream, broadcast);
 
     await collectAll(wrapped);
@@ -598,7 +480,7 @@ describe('withBroadcast', () => {
       conversationId: 'conv-1',
       assistantMessageId: 'asst-1',
     };
-    const stream = tokenStream(['hi']);
+    const stream = textDeltaStream(['hi']);
     const wrapped = withBroadcast(stream, broadcastNoModel);
 
     await collectAll(wrapped);
@@ -615,7 +497,7 @@ describe('withBroadcast', () => {
       modelName: 'openai/gpt-4o',
       senderId: 'user-42',
     };
-    const stream = tokenStream(['hi']);
+    const stream = textDeltaStream(['hi']);
     const wrapped = withBroadcast(stream, broadcastWithSender);
 
     await collectAll(wrapped);
@@ -625,7 +507,7 @@ describe('withBroadcast', () => {
   });
 
   it('omits senderId from broadcast events when undefined', async () => {
-    const stream = tokenStream(['hi']);
+    const stream = textDeltaStream(['hi']);
     const wrapped = withBroadcast(stream, broadcast);
 
     await collectAll(wrapped);
@@ -635,16 +517,20 @@ describe('withBroadcast', () => {
   });
 
   it('handles empty stream without error', async () => {
-    async function* empty(): AsyncIterable<{ content: string; generationId?: string }> {
-      // yields nothing
-    }
+    const emptyStream: InferenceStream = {
+      [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+        return {
+          next(): Promise<IteratorResult<InferenceEvent>> {
+            return Promise.resolve({ done: true, value: undefined });
+          },
+        };
+      },
+    };
 
-    const wrapped = withBroadcast(empty(), broadcast);
+    const wrapped = withBroadcast(emptyStream, broadcast);
     const items = await collectAll(wrapped);
 
     expect(items).toEqual([]);
-    // No tokens to broadcast — should not call broadcastFireAndForget for streaming
-    // (the done handler only broadcasts if tokenBuffer is non-empty)
     expect(broadcastFireAndForget).not.toHaveBeenCalled();
   });
 });

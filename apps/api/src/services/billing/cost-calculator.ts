@@ -1,88 +1,36 @@
-import {
-  estimateTokenCount,
-  estimateMessageCostDevelopment,
-  calculateMessageCostFromOpenRouter,
-  parseTokenPrice,
-} from '@hushbox/shared';
+import { calculateMessageCostFromActual } from '@hushbox/shared';
+import type { AIClient } from '../ai/index.js';
 
 export interface CalculateMessageCostParams {
-  /** Inline cost from OpenRouter's final usage chunk (USD). Undefined if usage chunk was missing. */
-  inlineCost: number | undefined;
-  modelInfo:
-    | {
-        id: string;
-        pricing: { prompt: string; completion: string };
-      }
-    | undefined;
+  /** The AIClient — used to fetch exact cost from the gateway post-hoc. */
+  aiClient: AIClient;
+  /** Generation ID captured from the stream's finish event. */
+  generationId: string;
+  /** The user's input message. */
   inputContent: string;
+  /** The AI's response. */
   outputContent: string;
-  /** Per-search cost in USD (base price before fees). 0 when search disabled. Only used in estimation path. */
-  webSearchCost: number;
 }
 
 /**
- * Calculate message cost from inline OpenRouter data or estimate.
- * Production: uses exact inline cost from OpenRouter stream.
- * Development/fallback: estimates from character count.
+ * Calculate the final billable cost for a message.
+ *
+ * SINGLE PATH: queries the AI gateway's getGenerationStats for the exact USD cost,
+ * then applies HushBox fees and storage cost. The gateway's totalCost includes
+ * any web search calls, caching discounts, and tiered pricing.
+ *
+ * If getGenerationStats fails, this function throws — there is no silent
+ * estimation fallback. Pre-inference budget reservation uses estimation
+ * (a separate concern in @hushbox/shared/pricing).
  */
-export function calculateMessageCost(params: CalculateMessageCostParams): number {
-  const { inlineCost, modelInfo, inputContent, outputContent, webSearchCost } = params;
+export async function calculateMessageCost(params: CalculateMessageCostParams): Promise<number> {
+  const { aiClient, generationId, inputContent, outputContent } = params;
 
-  const inputCharacters = inputContent.length;
-  const outputCharacters = outputContent.length;
+  const { costUsd } = await aiClient.getGenerationStats(generationId);
 
-  // Production path: use exact inline cost from OpenRouter stream
-  if (inlineCost !== undefined) {
-    return calculateMessageCostFromOpenRouter({
-      openRouterCost: inlineCost,
-      inputCharacters,
-      outputCharacters,
-    });
-  }
-
-  // Fallback: estimate from character count
-  return estimateCost({
-    modelInfo,
-    inputContent,
-    outputContent,
-    inputCharacters,
-    outputCharacters,
-    webSearchCost,
-  });
-}
-
-interface EstimateCostParams {
-  modelInfo: CalculateMessageCostParams['modelInfo'];
-  inputContent: string;
-  outputContent: string;
-  inputCharacters: number;
-  outputCharacters: number;
-  webSearchCost: number;
-}
-
-function estimateCost(params: EstimateCostParams): number {
-  const {
-    modelInfo,
-    inputContent,
-    outputContent,
-    inputCharacters,
-    outputCharacters,
-    webSearchCost,
-  } = params;
-  if (!modelInfo) {
-    return 0;
-  }
-
-  const pricePerInputToken = parseTokenPrice(modelInfo.pricing.prompt);
-  const pricePerOutputToken = parseTokenPrice(modelInfo.pricing.completion);
-
-  return estimateMessageCostDevelopment({
-    inputTokens: estimateTokenCount(inputContent),
-    outputTokens: estimateTokenCount(outputContent),
-    pricePerInputToken,
-    pricePerOutputToken,
-    inputCharacters,
-    outputCharacters,
-    webSearchCost,
+  return calculateMessageCostFromActual({
+    gatewayCost: costUsd,
+    inputCharacters: inputContent.length,
+    outputCharacters: outputContent.length,
   });
 }

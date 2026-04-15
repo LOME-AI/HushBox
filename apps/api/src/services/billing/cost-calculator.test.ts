@@ -1,107 +1,76 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { calculateMessageCost } from './cost-calculator.js';
+import type { AIClient } from '../ai/index.js';
+
+function makeMockAIClient(costUsd: number): AIClient {
+  return {
+    isMock: true,
+    listModels: vi.fn(),
+    getModel: vi.fn(),
+    stream: vi.fn(),
+    getGenerationStats: vi.fn().mockResolvedValue({ costUsd }),
+  } as unknown as AIClient;
+}
 
 describe('calculateMessageCost', () => {
-  const mockModelInfo = {
-    id: 'test-model',
-    pricing: { prompt: '0.001', completion: '0.002' },
-  };
+  it('fetches cost from aiClient.getGenerationStats and returns gateway cost + storage fee', async () => {
+    const aiClient = makeMockAIClient(0.0025);
 
-  describe('inlineCost defined (production path)', () => {
-    it('uses calculateMessageCostFromOpenRouter when inlineCost is provided', () => {
-      const result = calculateMessageCost({
-        inlineCost: 0.0025,
-        modelInfo: mockModelInfo,
-        inputContent: 'Hello world',
-        outputContent: 'Hello! How can I help you today?',
-        webSearchCost: 0,
-      });
-
-      expect(result).toBeGreaterThan(0);
+    const result = await calculateMessageCost({
+      aiClient,
+      generationId: 'gen-123',
+      inputContent: 'Hello world',
+      outputContent: 'Hello! How can I help you today?',
     });
 
-    it('includes storage fee in total cost', () => {
-      const inlineCost = 0.001;
-
-      const result = calculateMessageCost({
-        inlineCost,
-        modelInfo: mockModelInfo,
-        inputContent: 'Short input',
-        outputContent: 'Short output',
-        webSearchCost: 0,
-      });
-
-      // Total should include OpenRouter cost + storage fee
-      expect(result).toBeGreaterThan(inlineCost);
-    });
+    // Cost = applyFees(0.0025) + storage fee from chars > 0
+    expect(result).toBeGreaterThan(0.0025);
+    expect(aiClient.getGenerationStats).toHaveBeenCalledWith('gen-123');
   });
 
-  describe('inlineCost undefined (estimation fallback)', () => {
-    it('falls back to estimation when inlineCost is undefined', () => {
-      const result = calculateMessageCost({
-        inlineCost: undefined,
-        modelInfo: mockModelInfo,
-        inputContent: 'Hello world',
-        outputContent: 'Hello! How can I help you today?',
-        webSearchCost: 0,
-      });
+  it('includes storage fee on top of gateway cost', async () => {
+    const aiClient = makeMockAIClient(0.001);
 
-      expect(result).toBeGreaterThan(0);
+    const result = await calculateMessageCost({
+      aiClient,
+      generationId: 'gen-1',
+      inputContent: 'Short input',
+      outputContent: 'Short output',
     });
 
-    it('returns 0 when inlineCost is undefined and modelInfo is missing', () => {
-      const result = calculateMessageCost({
-        inlineCost: undefined,
-        modelInfo: undefined,
-        inputContent: 'Hello',
-        outputContent: 'World',
-        webSearchCost: 0,
-      });
-
-      expect(result).toBe(0);
-    });
+    // Total = applyFees(0.001) + storage > 0.001
+    expect(result).toBeGreaterThan(0.001);
   });
 
-  describe('web search cost', () => {
-    it('does not add webSearchCost when inlineCost is present (OpenRouter total includes it)', () => {
-      const withSearch = calculateMessageCost({
-        inlineCost: 0.05,
-        modelInfo: mockModelInfo,
+  it('propagates errors from getGenerationStats (no silent estimation fallback)', async () => {
+    const aiClient = {
+      isMock: true,
+      listModels: vi.fn(),
+      getModel: vi.fn(),
+      stream: vi.fn(),
+      getGenerationStats: vi.fn().mockRejectedValue(new Error('Generation not found')),
+    } as unknown as AIClient;
+
+    await expect(
+      calculateMessageCost({
+        aiClient,
+        generationId: 'gen-missing',
         inputContent: 'Hello',
         outputContent: 'World',
-        webSearchCost: 0.03,
-      });
+      })
+    ).rejects.toThrow('Generation not found');
+  });
 
-      const withoutSearch = calculateMessageCost({
-        inlineCost: 0.05,
-        modelInfo: mockModelInfo,
-        inputContent: 'Hello',
-        outputContent: 'World',
-        webSearchCost: 0,
-      });
+  it('passes the provided generationId to the AIClient', async () => {
+    const aiClient = makeMockAIClient(0.001);
 
-      // inlineCost path ignores webSearchCost — OpenRouter's cost already includes it
-      expect(withSearch).toBe(withoutSearch);
+    await calculateMessageCost({
+      aiClient,
+      generationId: 'gen-abc-xyz',
+      inputContent: 'a',
+      outputContent: 'b',
     });
 
-    it('includes webSearchCost in estimation path', () => {
-      const withoutSearch = calculateMessageCost({
-        inlineCost: undefined,
-        modelInfo: mockModelInfo,
-        inputContent: 'Hello',
-        outputContent: 'World',
-        webSearchCost: 0,
-      });
-
-      const withSearch = calculateMessageCost({
-        inlineCost: undefined,
-        modelInfo: mockModelInfo,
-        inputContent: 'Hello',
-        outputContent: 'World',
-        webSearchCost: 0.03,
-      });
-
-      expect(withSearch).toBeGreaterThan(withoutSearch);
-    });
+    expect(aiClient.getGenerationStats).toHaveBeenCalledWith('gen-abc-xyz');
   });
 });

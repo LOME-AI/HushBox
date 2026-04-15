@@ -9,7 +9,7 @@ import {
   CostPieChart,
 } from '@hushbox/ui';
 import { EncryptionDemo } from '../components/encryption-demo';
-import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
+import type { Model } from '@hushbox/shared';
 import LandingLayout from '../layouts/LandingLayout.astro';
 import LandingHeader from '../components/LandingHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
@@ -20,12 +20,19 @@ import FeatureCard from '../components/FeatureCard.astro';
 import ModelProviderStrip from '../components/ModelProviderStrip.astro';
 import { calculateMonthlyCost } from '../lib/calculate-cost';
 import { extractProviders } from '../lib/extract-providers';
-let models: Awaited<ReturnType<typeof processModels>>['models'] = [];
 
+// Fetch models from the deployed API at build time. Staleness until next
+// marketing deploy is acceptable. If the API is unreachable, the page renders
+// with empty data via the existing fallback paths.
+const apiUrl: string =
+  (import.meta.env.PUBLIC_API_URL as string | undefined) ?? 'http://localhost:8818';
+let models: Model[] = [];
 try {
-  const [rawModels, zdrIds] = await Promise.all([fetchModels(), fetchZdrModelIds()]);
-  const processed = processModels(rawModels, zdrIds);
-  models = processed.models;
+  const response = await fetch(`${apiUrl}/api/models`);
+  if (response.ok) {
+    const data = (await response.json()) as { models: Model[] };
+    models = data.models;
+  }
 } catch {
   // Build continues with empty data — page renders with fallback values
 }

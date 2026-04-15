@@ -21,9 +21,18 @@ import {
   llmCompletions as llmCompletionsTable,
   ledgerEntries as ledgerEntriesTable,
 } from '@hushbox/db';
+vi.mock('@ai-sdk/gateway', () => ({
+  createGateway: () => ({
+    getAvailableModels: () =>
+      Promise.resolve({
+        models: (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ ?? [],
+      }),
+  }),
+}));
+
 import { chatRoute, computeWorstCaseCents } from './chat.js';
 import type { AppEnv } from '../types.js';
-import { createFastMockOpenRouterClient } from '../test-helpers/index.js';
+import { createMockAIClient } from '../services/ai/mock.js';
 import {
   ERROR_CODE_BALANCE_RESERVED,
   ERROR_CODE_INSUFFICIENT_BALANCE,
@@ -58,7 +67,7 @@ const TEST_USER_MESSAGE_ID = '22222222-2222-2222-8222-222222222222';
 const OLD_TIMESTAMP = Math.floor(new Date('2022-01-01').getTime() / 1000);
 
 const BASIC_MODEL = {
-  id: 'openai/gpt-3.5-turbo',
+  id: 'openai/gpt-4o-mini',
   name: 'GPT-3.5 Turbo',
   description: 'Basic model',
   context_length: 16_000,
@@ -69,7 +78,7 @@ const BASIC_MODEL = {
 };
 
 const PREMIUM_MODEL = {
-  id: 'openai/gpt-4-turbo',
+  id: 'openai/gpt-5',
   name: 'GPT-4 Turbo',
   description: 'Premium model',
   context_length: 128_000,
@@ -484,10 +493,10 @@ function createTestApp(
   };
 
   app.use('*', async (c, next) => {
-    c.env = { NODE_ENV: 'test' } as AppEnv['Bindings'];
+    c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
     c.set('user', mockUser);
     c.set('session', mockSession);
-    c.set('openrouter', createFastMockOpenRouterClient());
+    c.set('aiClient', createMockAIClient());
     c.set('db', createMockDb(dbOptions) as unknown as AppEnv['Variables']['db']);
     c.set('redis', redisOverride as unknown as AppEnv['Variables']['redis']);
     await next();
@@ -520,25 +529,26 @@ describe('billing integration — scenario matrix', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-15T12:00:00.000Z'));
 
-    // Serve both models so premium threshold is computed correctly
-    fetchMock.mockImplementation((url: string) => {
-      const zdrEndpoints = ALL_MODELS.map((m) => ({
-        model_id: m.id,
-        model_name: m.name,
-        provider_name: 'Provider',
-        context_length: m.context_length,
-        pricing: m.pricing,
-      }));
-      if (url.includes('/endpoints/zdr')) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: zdrEndpoints }) });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: ALL_MODELS }) });
-    });
+    // Inject ALL_MODELS into the @ai-sdk/gateway mock (in gateway response shape)
+    (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ = ALL_MODELS.map(
+      (m) => ({
+        id: m.id,
+        name: m.name,
+        description: m.description,
+        modelType: 'language',
+        pricing: { input: m.pricing.prompt, output: m.pricing.completion },
+      })
+    );
+
+    fetchMock.mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) })
+    );
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    delete (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__;
   });
 
   // --------------------------------------------------------------------------
@@ -1139,24 +1149,9 @@ describe('billing integration — scenario matrix', () => {
 
       const mockRedis = createMockRedis();
       const app = new Hono<AppEnv>();
-      const failingClient = {
-        isMock: true,
-        chatCompletion: () => Promise.reject(new Error('fail')),
-        // eslint-disable-next-line @typescript-eslint/require-await, require-yield, sonarjs/generator-without-yield -- intentional error test
-        async *chatCompletionStream() {
-          throw new Error('Stream failed');
-        },
-        // eslint-disable-next-line @typescript-eslint/require-await, require-yield, sonarjs/generator-without-yield -- intentional error test
-        async *chatCompletionStreamWithMetadata() {
-          throw new Error('Stream failed');
-        },
-        listModels: () => Promise.resolve([]),
-        getModel: () => Promise.reject(new Error('not found')),
-        getGenerationStats: () => Promise.reject(new Error('not implemented')),
-      };
 
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test' } as AppEnv['Bindings'];
+        c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
         c.set('user', {
           id: TEST_USER_ID,
           email: 'test@example.com',
@@ -1178,7 +1173,7 @@ describe('billing integration — scenario matrix', () => {
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
         });
-        c.set('openrouter', failingClient as unknown as AppEnv['Variables']['openrouter']);
+        c.set('aiClient', createMockAIClient());
         c.set(
           'db',
           createMockDb({
@@ -1287,23 +1282,9 @@ describe('billing integration — scenario matrix', () => {
 
       const mockRedis = createMockRedis();
       const app = new Hono<AppEnv>();
-      const emptyClient = {
-        isMock: true,
-        chatCompletion: () => Promise.resolve({ choices: [{ message: { content: '' } }] }),
-        // eslint-disable-next-line @typescript-eslint/require-await -- intentional empty response
-        async *chatCompletionStreamWithMetadata() {
-          yield {
-            choices: [{ delta: { content: '' } }],
-            id: 'gen-empty',
-          };
-        },
-        listModels: () => Promise.resolve([]),
-        getModel: () => Promise.reject(new Error('not found')),
-        getGenerationStats: () => Promise.reject(new Error('not implemented')),
-      };
 
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test' } as AppEnv['Bindings'];
+        c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
         c.set('user', {
           id: TEST_USER_ID,
           email: 'test@example.com',
@@ -1325,7 +1306,7 @@ describe('billing integration — scenario matrix', () => {
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
         });
-        c.set('openrouter', emptyClient as unknown as AppEnv['Variables']['openrouter']);
+        c.set('aiClient', createMockAIClient());
         c.set(
           'db',
           createMockDb({

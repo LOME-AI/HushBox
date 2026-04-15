@@ -47,6 +47,15 @@ export type MessageContentPart =
   | { type: 'text'; text: string }
   | { type: 'image'; data: Uint8Array; mimeType: string };
 
+export interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
 export interface TextRequest {
   modality: 'text';
   model: string;

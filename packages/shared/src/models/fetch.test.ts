@@ -1,58 +1,98 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fetchModels, fetchZdrModelIds, clearModelCache } from './fetch.js';
 
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+const mockGetAvailableModels = vi.fn();
+vi.mock('@ai-sdk/gateway', () => ({
+  createGateway: () => ({
+    getAvailableModels: mockGetAvailableModels,
+  }),
+}));
+
+const { fetchModels, clearModelCache } = await import('./fetch.js');
 
 afterEach(() => {
   clearModelCache();
-  vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 describe('fetchModels', () => {
-  it('returns models from OpenRouter API', async () => {
-    const models = [{ id: 'openai/gpt-4', name: 'GPT-4' }];
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ data: models }),
+  it('returns models from the AI Gateway, mapped to RawModel shape', async () => {
+    mockGetAvailableModels.mockResolvedValueOnce({
+      models: [
+        {
+          id: 'openai/gpt-5',
+          name: 'GPT-5',
+          description: 'Most capable',
+          modelType: 'language',
+          pricing: { input: '0.00001', output: '0.00003' },
+        },
+      ],
     });
 
-    const result = await fetchModels();
+    const result = await fetchModels('test-key');
 
-    expect(result).toEqual(models);
-    expect(mockFetch).toHaveBeenCalledWith('https://openrouter.ai/api/v1/models');
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe('openai/gpt-5');
+    expect(result[0]?.name).toBe('GPT-5');
+    expect(result[0]?.pricing.prompt).toBe('0.00001');
+    expect(result[0]?.pricing.completion).toBe('0.00003');
   });
 
-  it('throws when response is not ok', async () => {
-    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+  it('caches the response per API key', async () => {
+    mockGetAvailableModels.mockResolvedValueOnce({
+      models: [
+        {
+          id: 'openai/gpt-5',
+          name: 'GPT-5',
+          description: '',
+          modelType: 'language',
+          pricing: { input: '0.00001', output: '0.00003' },
+        },
+      ],
+    });
 
-    await expect(fetchModels()).rejects.toThrow('Failed to fetch models');
+    await fetchModels('test-key');
+    await fetchModels('test-key');
+
+    expect(mockGetAvailableModels).toHaveBeenCalledTimes(1);
+  });
+
+  it('refetches when API key changes', async () => {
+    mockGetAvailableModels.mockResolvedValue({
+      models: [
+        {
+          id: 'openai/gpt-5',
+          name: 'GPT-5',
+          description: '',
+          modelType: 'language',
+          pricing: { input: '0.00001', output: '0.00003' },
+        },
+      ],
+    });
+
+    await fetchModels('key-1');
+    await fetchModels('key-2');
+
+    expect(mockGetAvailableModels).toHaveBeenCalledTimes(2);
+  });
+
+  it('handles models with null pricing gracefully', async () => {
+    mockGetAvailableModels.mockResolvedValueOnce({
+      models: [
+        {
+          id: 'openai/gpt-5',
+          name: 'GPT-5',
+          description: '',
+          modelType: 'language',
+          pricing: null,
+        },
+      ],
+    });
+
+    const result = await fetchModels('test-key');
+
+    expect(result[0]?.pricing.prompt).toBe('0');
+    expect(result[0]?.pricing.completion).toBe('0');
   });
 });
 
-describe('fetchZdrModelIds', () => {
-  it('returns set of ZDR model IDs', async () => {
-    const endpoints = [
-      { model_id: 'openai/gpt-4', model_name: 'GPT-4', provider_name: 'OpenAI' },
-      { model_id: 'anthropic/claude', model_name: 'Claude', provider_name: 'Anthropic' },
-    ];
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ data: endpoints }),
-    });
-
-    const result = await fetchZdrModelIds();
-
-    expect(result).toBeInstanceOf(Set);
-    expect(result.has('openai/gpt-4')).toBe(true);
-    expect(result.has('anthropic/claude')).toBe(true);
-    expect(result.size).toBe(2);
-    expect(mockFetch).toHaveBeenCalledWith('https://openrouter.ai/api/v1/endpoints/zdr');
-  });
-
-  it('throws when response is not ok', async () => {
-    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
-
-    await expect(fetchZdrModelIds()).rejects.toThrow('Failed to fetch ZDR endpoints');
-  });
-});
+// fetchZdrModelIds removed — ZDR is now per-model via isZdrModel (zdr.test.ts)

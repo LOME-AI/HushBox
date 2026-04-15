@@ -162,13 +162,6 @@ export const envConfig = {
     [Mode.Production]: secret('GOOGLE_SERVICES_JSON_BASE64'),
   },
 
-  OPENROUTER_API_KEY: {
-    to: [Destination.Backend],
-    [Mode.CiVitest]: secret('OPENROUTER_API_KEY_RESTRICTED'),
-    [Mode.Production]: secret('OPENROUTER_API_KEY_PRODUCTION'),
-    // NOT in e2e - E2E tests don't need OpenRouter
-  },
-
   HELCIM_API_TOKEN: {
     to: [Destination.Backend],
     [Mode.CiE2E]: secret('HELCIM_API_TOKEN_SANDBOX'),
@@ -255,7 +248,6 @@ export const backendEnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
   APP_VERSION: z.string().min(1),
   RESEND_API_KEY: z.string().optional(),
-  OPENROUTER_API_KEY: z.string().optional(),
   HELCIM_API_TOKEN: z.string().optional(),
   HELCIM_WEBHOOK_VERIFIER: z.string().optional(),
   FCM_PROJECT_ID: z.string().optional(),

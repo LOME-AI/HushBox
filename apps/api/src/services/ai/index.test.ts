@@ -35,14 +35,12 @@ describe('getAIClient', () => {
     expect(client.isMock).toBe(true);
   });
 
-  it('returns a client in CI when API key is provided', () => {
+  it('returns a real client in CI when API key is provided', () => {
     const client = getAIClient({
       NODE_ENV: 'development',
       CI: 'true',
       AI_GATEWAY_API_KEY: 'test-key',
     });
-    // Step 3 will return a real client here; for now it returns a mock
-    expect(client).toBeDefined();
-    expect(typeof client.stream).toBe('function');
+    expect(client.isMock).toBe(false);
   });
 });

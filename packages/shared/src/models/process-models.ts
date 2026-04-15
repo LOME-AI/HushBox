@@ -15,6 +15,7 @@ import { parseTokenPrice } from '../pricing.js';
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 
 import { isPremiumModel, PREMIUM_PRICE_PERCENTILE, exceedsTrialBudget } from './premium-check.js';
+import { isZdrModel } from './zdr.js';
 
 import type { OpenRouterModel, ProcessedModels } from './types.js';
 
@@ -199,12 +200,10 @@ function buildAutoRouterModel(autoRouterRaw: OpenRouterModel, pool: OpenRouterMo
   };
 }
 
-export function processModels(
-  rawModels: OpenRouterModel[],
-  zdrModelIds: Set<string>
-): ProcessedModels {
-  // ZDR filter: only include models with ZDR-compliant providers
-  const zdrFiltered = rawModels.filter((m) => zdrModelIds.has(m.id));
+export function processModels(rawModels: OpenRouterModel[]): ProcessedModels {
+  // ZDR filter: only include models on the per-modality ZDR allow-list.
+  // For now, process-models handles text only; image/video use their own paths.
+  const zdrFiltered = rawModels.filter((m) => isZdrModel(m.id, 'text'));
 
   // Extract auto-router from full list (it enforces ZDR via provider config, so it
   // doesn't need to appear in the /endpoints/zdr response)

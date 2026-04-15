@@ -1,4 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+vi.mock('@ai-sdk/gateway', () => ({
+  createGateway: () => ({
+    getAvailableModels: () => Promise.resolve({ models: [] }),
+  }),
+}));
+
 import { createApp } from './app.js';
 
 // Mock the database module for dev routes testing
@@ -316,7 +323,7 @@ describe('createApp', () => {
       NODE_ENV: 'development',
       UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
       UPSTASH_REDIS_REST_TOKEN: 'test-token',
-      OPENROUTER_API_KEY: 'test-key',
+      AI_GATEWAY_API_KEY: 'test-key',
     };
 
     it('does not return 500 for POST /api/trial/stream with valid body', async () => {

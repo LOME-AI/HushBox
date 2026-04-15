@@ -24,10 +24,10 @@ import {
   calculateMessageCost,
 } from '../services/billing/index.js';
 import type { MemberContext } from '../services/billing/index.js';
-import { ContextCapacityError } from '../services/openrouter/openrouter.js';
+import type { InferenceEvent, InferenceStream, TextRequest } from '../services/ai/index.js';
 import {
   validateLastMessageIsFromUser,
-  buildOpenRouterMessages,
+  buildAIMessages,
   saveUserOnlyMessage,
 } from '../services/chat/index.js';
 import { canRegenerate } from '../services/chat/regeneration-guard.js';
@@ -49,7 +49,6 @@ import {
   resolveAndReserveBilling,
   executeStreamPipeline,
   resolveWebSearchCost,
-  buildOpenRouterRequest,
   BATCH_INTERVAL_MS,
 } from '../lib/stream-pipeline.js';
 import type { BroadcastContext, StreamResult } from '../lib/stream-pipeline.js';
@@ -164,59 +163,72 @@ function writeTokenAndBroadcast(
   return { ...state, buffer: newBuffer };
 }
 
-interface TokenCollectorState {
+interface InferenceCollectorState {
   fullContent: string;
   generationId: string | undefined;
-  inlineCost: number | undefined;
   broadcastState: BroadcastState;
 }
 
-function processStreamToken(
-  token: { content: string; generationId?: string; inlineCost?: number },
-  state: TokenCollectorState,
+function processInferenceEvent(
+  event: InferenceEvent,
+  state: InferenceCollectorState,
   broadcast: BroadcastContext | undefined
-): TokenCollectorState {
+): InferenceCollectorState {
   const updated = { ...state };
-  if (token.generationId) updated.generationId = token.generationId;
-  if (token.inlineCost !== undefined) updated.inlineCost = token.inlineCost;
-  if (token.content) {
-    updated.fullContent += token.content;
-    updated.broadcastState = writeTokenAndBroadcast(token.content, broadcast, state.broadcastState);
+  switch (event.kind) {
+    case 'text-delta': {
+      if (event.content.length > 0) {
+        updated.fullContent += event.content;
+        updated.broadcastState = writeTokenAndBroadcast(
+          event.content,
+          broadcast,
+          state.broadcastState
+        );
+      }
+      break;
+    }
+    case 'finish': {
+      if (event.providerMetadata?.generationId)
+        updated.generationId = event.providerMetadata.generationId;
+      break;
+    }
+    default: {
+      break;
+    }
   }
   return updated;
 }
 
-async function collectStreamTokens(
-  tokenStream: AsyncIterable<{ content: string; generationId?: string; inlineCost?: number }>,
+async function collectInferenceEvents(
+  inferenceStream: InferenceStream,
   writer: SSEEventWriter,
   modelContext: { modelId: string; assistantMessageId: string },
   broadcast?: BroadcastContext
 ): Promise<StreamResult> {
   const { modelId, assistantMessageId: modelAssistantMessageId } = modelContext;
-  let state: TokenCollectorState = {
+  let state: InferenceCollectorState = {
     fullContent: '',
     generationId: undefined,
-    inlineCost: undefined,
     broadcastState: { buffer: '', lastTime: Date.now() },
   };
   let error: Error | null = null;
 
   try {
-    for await (const token of tokenStream) {
-      state = processStreamToken(token, state, broadcast);
-      if (token.content) {
-        await writer.writeModelToken({ modelId, content: token.content });
+    for await (const event of inferenceStream) {
+      state = processInferenceEvent(event, state, broadcast);
+      if (event.kind === 'text-delta' && event.content.length > 0) {
+        await writer.writeModelToken({ modelId, content: event.content });
       }
     }
   } catch (error_) {
     error = error_ instanceof Error ? error_ : new Error('Unknown error');
   }
 
-  if (broadcast && state.broadcastState.buffer) {
+  if (broadcast && state.broadcastState.buffer.length > 0) {
     flushBroadcastBuffer(broadcast, state.broadcastState.buffer);
   }
 
-  if (!error) {
+  if (error === null) {
     await writer.writeModelDone({
       modelId,
       assistantMessageId: modelAssistantMessageId,
@@ -227,9 +239,15 @@ async function collectStreamTokens(
   return {
     fullContent: state.fullContent,
     generationId: state.generationId,
-    inlineCost: state.inlineCost,
     error,
   };
+}
+
+/** Read the AI gateway API key from env or throw a clear error. */
+function requireApiKey(c: Context<AppEnv>): string {
+  const apiKey = c.env.AI_GATEWAY_API_KEY;
+  if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required');
+  return apiKey;
 }
 
 interface BillingContext {
@@ -247,6 +265,7 @@ async function resolveGuestBillingContext(
     ownerId: string;
     models: string[];
     conversationId: string;
+    apiKey: string;
   }
 ): Promise<BillingContext> {
   const billingResult = await buildGuestBillingInput(db, redis, {
@@ -254,6 +273,7 @@ async function resolveGuestBillingContext(
     memberId: params.member.id,
     models: params.models,
     conversationId: params.conversationId,
+    apiKey: params.apiKey,
   });
   return {
     memberContext: { memberId: params.member.id, ownerId: params.ownerId },
@@ -273,6 +293,7 @@ async function resolveUserBillingContext(
     models: string[];
     conversationId: string;
     fundingSource: FundingSource;
+    apiKey: string;
   }
 ): Promise<BillingContext> {
   const isOwner = params.callerId === params.ownerId;
@@ -284,6 +305,7 @@ async function resolveUserBillingContext(
     models: params.models,
     ...(memberContext !== undefined && { memberContext }),
     conversationId: params.conversationId,
+    apiKey: params.apiKey,
   });
   return {
     memberContext,
@@ -301,8 +323,7 @@ interface PersistAndBroadcastRegenerationParams {
   model: string;
   assistantMessageId: string;
   result: StreamResult;
-  openrouterModels: Awaited<ReturnType<typeof import('@hushbox/shared/models').fetchModels>>;
-  webSearchCost: number;
+  aiClient: AppEnv['Variables']['aiClient'];
   lastInferenceMessage: { role: string; content: string } | undefined;
   memberContext: MemberContext | undefined;
   billingValidation: { groupBudget?: GroupBudgetReservation };
@@ -340,8 +361,7 @@ async function persistAndBroadcastRegeneration(
     model,
     assistantMessageId,
     result,
-    openrouterModels,
-    webSearchCost,
+    aiClient,
     lastInferenceMessage,
     memberContext,
     billingValidation,
@@ -354,14 +374,14 @@ async function persistAndBroadcastRegeneration(
     forkTipMessageId,
   } = params;
 
-  const modelInfo = openrouterModels.find((m) => m.id === model);
-  const totalCost = calculateMessageCost({
-    inlineCost: result.inlineCost,
-    modelInfo,
-    inputContent: lastInferenceMessage?.content ?? '',
-    outputContent: result.fullContent,
-    webSearchCost,
-  });
+  const totalCost = result.generationId
+    ? await calculateMessageCost({
+        aiClient,
+        generationId: result.generationId,
+        inputContent: lastInferenceMessage?.content ?? '',
+        outputContent: result.fullContent,
+      })
+    : 0;
 
   const inputTokens = estimateTokenCount(lastInferenceMessage?.content ?? '');
   const outputTokens = estimateTokenCount(result.fullContent);
@@ -452,9 +472,10 @@ async function resolveForkTipMessageId(
 
 /** Maps stream errors to the appropriate error code. */
 function resolveStreamErrorCode(error: unknown): string {
-  return error instanceof ContextCapacityError
-    ? ERROR_CODE_CONTEXT_LENGTH_EXCEEDED
-    : ERROR_CODE_STREAM_ERROR;
+  if (error instanceof Error && error.message.includes('context length')) {
+    return ERROR_CODE_CONTEXT_LENGTH_EXCEEDED;
+  }
+  return ERROR_CODE_STREAM_ERROR;
 }
 
 /** Checks stream result for errors or empty content, writes error to writer if found. Returns true if error was handled. */
@@ -553,9 +574,11 @@ async function validateRegenerationRequest(
     };
   }
 
+  const apiKey = requireApiKey(c);
   const billingInput = await buildBillingInput(db, redis, {
     userId,
     models: [model],
+    apiKey,
     ...(memberContext !== undefined && { memberContext }),
     conversationId,
   });
@@ -624,8 +647,15 @@ export const chatRoute = new Hono<AppEnv>()
       }
 
       // --- Resolve billing (focused branch) ---
+      const apiKey = requireApiKey(c);
       const billingContext = linkGuest
-        ? await resolveGuestBillingContext(db, redis, { member, ownerId, models, conversationId })
+        ? await resolveGuestBillingContext(db, redis, {
+            member,
+            ownerId,
+            models,
+            conversationId,
+            apiKey,
+          })
         : await resolveUserBillingContext(db, redis, {
             callerId,
             ownerId,
@@ -633,6 +663,7 @@ export const chatRoute = new Hono<AppEnv>()
             models,
             conversationId,
             fundingSource,
+            apiKey,
           });
       const { memberContext, billingUserId, clientFundingSource, billingResult } = billingContext;
 
@@ -767,7 +798,7 @@ export const chatRoute = new Hono<AppEnv>()
         customInstructions,
       } = c.req.valid('json');
       const db = c.get('db');
-      const openrouter = c.get('openrouter');
+      const aiClient = c.get('aiClient');
       const redis = c.get('redis');
 
       const validation = await validateRegenerationRequest(c, {
@@ -791,10 +822,8 @@ export const chatRoute = new Hono<AppEnv>()
         billingValidation,
         billingUserId,
         safeMaxTokens,
-        openrouterModels,
         worstCaseCents,
         groupBudget,
-        webSearchCost,
       } = validation;
 
       const releaseReservation = groupBudget
@@ -809,16 +838,15 @@ export const chatRoute = new Hono<AppEnv>()
         ...(customInstructions !== undefined && { customInstructions }),
       });
 
-      const openRouterMessages = buildOpenRouterMessages(systemPrompt, messagesForInference);
+      const aiMessages = buildAIMessages(systemPrompt, messagesForInference);
       const lastInferenceMessage = messagesForInference.at(-1);
 
-      const openRouterRequest = buildOpenRouterRequest({
+      const textRequest: TextRequest = {
+        modality: 'text',
         model,
-        messages: openRouterMessages,
-        safeMaxTokens,
-        webSearchEnabled,
-        autoRouterAllowedModels: billingValidation.autoRouterAllowedModels,
-      });
+        messages: aiMessages,
+        ...(safeMaxTokens === undefined ? {} : { maxOutputTokens: safeMaxTokens }),
+      };
 
       return streamSSE(c, async (stream) => {
         const writer = createSSEEventWriter(stream);
@@ -828,10 +856,10 @@ export const chatRoute = new Hono<AppEnv>()
             models: [{ modelId: model, assistantMessageId }],
           });
 
-          const tokenStream = openrouter.chatCompletionStreamWithMetadata(openRouterRequest);
+          const inferenceStream = aiClient.stream(textRequest);
 
-          const result = await collectStreamTokens(
-            tokenStream,
+          const result = await collectInferenceEvents(
+            inferenceStream,
             writer,
             { modelId: model, assistantMessageId },
             {
@@ -852,8 +880,7 @@ export const chatRoute = new Hono<AppEnv>()
             model,
             assistantMessageId,
             result,
-            openrouterModels,
-            webSearchCost,
+            aiClient,
             lastInferenceMessage,
             memberContext,
             billingValidation,

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { modelSchema } from '@hushbox/shared';
-import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
+import { fetchModels, processModels } from '@hushbox/shared/models';
 import type { AppEnv } from '../types.js';
 
 const modelsListResponseSchema = z.object({
@@ -10,8 +10,10 @@ const modelsListResponseSchema = z.object({
 });
 
 export const modelsRoute = new Hono<AppEnv>().get('/', async (c) => {
-  const [rawModels, zdrModelIds] = await Promise.all([fetchModels(), fetchZdrModelIds()]);
-  const { models, premiumIds } = processModels(rawModels, zdrModelIds);
+  const apiKey = c.env.AI_GATEWAY_API_KEY;
+  if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required for /models');
+  const rawModels = await fetchModels(apiKey);
+  const { models, premiumIds } = processModels(rawModels);
   const response = modelsListResponseSchema.parse({
     models,
     premiumModelIds: premiumIds,

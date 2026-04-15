@@ -12,7 +12,6 @@ export {
   dbMiddleware,
   redisMiddleware,
   sessionMiddleware,
-  openRouterMiddleware,
   aiClientMiddleware,
   helcimMiddleware,
   envMiddleware,
