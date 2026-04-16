@@ -10,6 +10,8 @@ import {
   effectiveOutputCostPerToken,
   getModelPricing,
   parseTokenPrice,
+  mediaStorageCost,
+  calculateMediaGenerationCost,
 } from './pricing.js';
 import type { MessageCostParams, MessageCostFromActualParams } from './pricing.js';
 import {
@@ -18,6 +20,7 @@ import {
   EXPENSIVE_MODEL_THRESHOLD_PER_1K,
   CHARS_PER_TOKEN_STANDARD,
   CHARS_PER_TOKEN_CONSERVATIVE,
+  MEDIA_STORAGE_COST_PER_BYTE,
 } from './constants.js';
 
 describe('parseTokenPrice', () => {
@@ -688,5 +691,126 @@ describe('getModelPricing', () => {
 
     expect(result.inputPricePerToken).toBe(applyFees(inputPrice));
     expect(result.outputPricePerToken).toBe(applyFees(outputPrice));
+  });
+});
+
+describe('mediaStorageCost', () => {
+  it('multiplies bytes by MEDIA_STORAGE_COST_PER_BYTE', () => {
+    const bytes = 1_000_000;
+    expect(mediaStorageCost(bytes)).toBe(bytes * MEDIA_STORAGE_COST_PER_BYTE);
+  });
+
+  it('returns 0 for 0 bytes', () => {
+    expect(mediaStorageCost(0)).toBe(0);
+  });
+
+  it('returns positive value for small file', () => {
+    expect(mediaStorageCost(100)).toBeGreaterThan(0);
+  });
+
+  it('scales linearly', () => {
+    const small = mediaStorageCost(1000);
+    const large = mediaStorageCost(2000);
+    expect(large).toBeCloseTo(small * 2, 15);
+  });
+});
+
+describe('calculateMediaGenerationCost', () => {
+  describe('image pricing', () => {
+    it('charges perImage × imageCount + fees + storage', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'image', perImage: 0.04 },
+        sizeBytes: 1_000_000,
+        imageCount: 1,
+      });
+      const expectedModelCost = applyFees(0.04 * 1);
+      const expectedStorage = mediaStorageCost(1_000_000);
+      expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
+    });
+
+    it('handles multiple images', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'image', perImage: 0.04 },
+        sizeBytes: 3_000_000,
+        imageCount: 3,
+      });
+      const expectedModelCost = applyFees(0.04 * 3);
+      const expectedStorage = mediaStorageCost(3_000_000);
+      expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
+    });
+
+    it('defaults imageCount to 1', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'image', perImage: 0.04 },
+        sizeBytes: 1_000_000,
+      });
+      const expectedModelCost = applyFees(0.04 * 1);
+      const expectedStorage = mediaStorageCost(1_000_000);
+      expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
+    });
+  });
+
+  describe('video pricing', () => {
+    it('charges perSecond × duration + fees + storage', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'video', perSecond: 0.1 },
+        sizeBytes: 5_000_000,
+        durationSeconds: 6,
+      });
+      const expectedModelCost = applyFees(0.1 * 6);
+      const expectedStorage = mediaStorageCost(5_000_000);
+      expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
+    });
+
+    it('requires durationSeconds for video', () => {
+      expect(() =>
+        calculateMediaGenerationCost({
+          pricing: { kind: 'video', perSecond: 0.1 },
+          sizeBytes: 5_000_000,
+        })
+      ).toThrow('durationSeconds required');
+    });
+  });
+
+  describe('audio pricing', () => {
+    it('charges perSecond × duration + fees + storage', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'audio', perSecond: 0.015 },
+        sizeBytes: 500_000,
+        durationSeconds: 10,
+      });
+      const expectedModelCost = applyFees(0.015 * 10);
+      const expectedStorage = mediaStorageCost(500_000);
+      expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
+    });
+
+    it('requires durationSeconds for audio', () => {
+      expect(() =>
+        calculateMediaGenerationCost({
+          pricing: { kind: 'audio', perSecond: 0.015 },
+          sizeBytes: 500_000,
+        })
+      ).toThrow('durationSeconds required');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('returns only storage cost when model cost is 0', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'image', perImage: 0 },
+        sizeBytes: 1_000_000,
+        imageCount: 1,
+      });
+      expect(result).toBe(mediaStorageCost(1_000_000));
+    });
+
+    it('returns only model cost when sizeBytes is 0', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'image', perImage: 0.04 },
+        sizeBytes: 0,
+        imageCount: 1,
+      });
+      expect(result).toBeCloseTo(applyFees(0.04), 10);
+    });
   });
 });

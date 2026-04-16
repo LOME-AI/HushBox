@@ -101,6 +101,16 @@ export const PAYMENT_EXPIRATION_MS = 30 * 60 * 1000;
 // Media Storage Constants
 // ============================================================================
 
+/** R2 actual ($0.015) + 3x markup for backup/ops/margin */
+export const MEDIA_MONTHLY_COST_PER_GB = 0.04;
+
+/**
+ * Storage cost per byte for media, derived with 50-year retention.
+ * ~$0.000000024/byte → ~$0.024 per 1MB, ~$0.096 per 4MB image
+ */
+export const MEDIA_STORAGE_COST_PER_BYTE =
+  (MEDIA_MONTHLY_COST_PER_GB * MONTHS_PER_YEAR * STORAGE_YEARS) / (1000 * 1_000_000);
+
 /**
  * Time-to-live for presigned R2 GET URLs, in seconds.
  * Short enough to prevent long-lived leaks, long enough for clients

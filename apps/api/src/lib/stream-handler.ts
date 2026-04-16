@@ -54,8 +54,8 @@ export interface DoneContentItem {
   position: number;
   /** Base64-encoded symmetric ciphertext under the message's content key. Text items only. */
   encryptedBlob?: string | null;
-  /** Set for media items only. */
-  storageKey?: string | null;
+  /** Presigned GET URL for media items. Populated by the strategy after R2 upload. */
+  downloadUrl?: string | null;
   mimeType?: string | null;
   sizeBytes?: number | null;
   width?: number | null;

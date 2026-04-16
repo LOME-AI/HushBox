@@ -16,6 +16,7 @@ import {
   usageRecords,
   ledgerEntries,
   llmCompletions,
+  mediaGenerations,
   conversationForks,
   type Database,
 } from '@hushbox/db';
@@ -1228,6 +1229,7 @@ describe('saveChatTurn', () => {
         userContent: 'Compare these models',
         assistantMessages: [
           {
+            modality: 'text' as const,
             id: assistantId1,
             content: 'Response from GPT-4o',
             model: 'openai/gpt-4o',
@@ -1236,6 +1238,7 @@ describe('saveChatTurn', () => {
             outputTokens: 80,
           },
           {
+            modality: 'text' as const,
             id: assistantId2,
             content: 'Response from Claude',
             model: 'anthropic/claude-3.5-sonnet',
@@ -1294,6 +1297,7 @@ describe('saveChatTurn', () => {
         userContent: 'Test multi-model billing',
         assistantMessages: [
           {
+            modality: 'text' as const,
             id: assistantId1,
             content: 'First model response',
             model: 'openai/gpt-4o',
@@ -1302,6 +1306,7 @@ describe('saveChatTurn', () => {
             outputTokens: 80,
           },
           {
+            modality: 'text' as const,
             id: assistantId2,
             content: 'Second model response',
             model: 'anthropic/claude-3.5-sonnet',
@@ -1352,6 +1357,7 @@ describe('saveChatTurn', () => {
         userContent: 'Single model via array',
         assistantMessages: [
           {
+            modality: 'text' as const,
             id: assistantId,
             content: 'AI response',
             model: 'openai/gpt-4o',
@@ -1433,6 +1439,7 @@ describe('saveChatTurn', () => {
         userContent: 'Multi-model on fork',
         assistantMessages: [
           {
+            modality: 'text' as const,
             id: assistantId1,
             content: 'GPT response',
             model: 'openai/gpt-4o',
@@ -1441,6 +1448,7 @@ describe('saveChatTurn', () => {
             outputTokens: 80,
           },
           {
+            modality: 'text' as const,
             id: assistantId2,
             content: 'Claude response',
             model: 'anthropic/claude-3.5-sonnet',
@@ -1790,5 +1798,148 @@ describe('saveUserOnlyMessage', () => {
     if (!msg) throw new Error('Message not found');
     expect(msg.senderId).toBe(sender.id);
     expect(msg.senderId).not.toBe(setup.user.id);
+  });
+
+  it('persists a media assistant message with content_items and media_generations billing', async () => {
+    const setup = await createTestSetup(db, '10.00000000');
+    createdUserIds.push(setup.user.id);
+
+    const userMsgId = crypto.randomUUID();
+    const assistantMsgId = crypto.randomUUID();
+    const contentItemId = crypto.randomUUID();
+    const storageKey = `media/${setup.conversation.id}/${assistantMsgId}/${contentItemId}.enc`;
+
+    const result = await saveChatTurn(db, {
+      userMessageId: userMsgId,
+      userContent: 'Generate an image of a cat',
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      senderId: setup.user.id,
+      parentMessageId: null,
+      assistantMessages: [
+        {
+          modality: 'image',
+          id: assistantMsgId,
+          contentItems: [
+            {
+              id: contentItemId,
+              contentType: 'image',
+              position: 0,
+              storageKey,
+              mimeType: 'image/png',
+              sizeBytes: 1_000_000,
+              width: 1024,
+              height: 1024,
+              modelName: 'google/imagen-4',
+              cost: '0.04600000',
+              isSmartModel: false,
+            },
+          ],
+          model: 'google/imagen-4',
+          cost: 0.046,
+          mediaType: 'image',
+          imageCount: 1,
+        },
+      ],
+    });
+
+    expect(result.assistantResults).toHaveLength(1);
+    expect(result.assistantResults[0]!.model).toBe('google/imagen-4');
+
+    // Verify content_items row exists with media fields
+    const items = await db
+      .select()
+      .from(contentItems)
+      .where(eq(contentItems.messageId, assistantMsgId));
+    expect(items).toHaveLength(1);
+    expect(items[0]!.contentType).toBe('image');
+    expect(items[0]!.storageKey).toBe(storageKey);
+    expect(items[0]!.mimeType).toBe('image/png');
+    expect(items[0]!.encryptedBlob).toBeNull();
+
+    // Verify media_generations billing detail row exists
+    const [usageRow] = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.id, result.assistantResults[0]!.usageRecordId));
+    expect(usageRow!.type).toBe('media_generation');
+
+    const [genRow] = await db
+      .select()
+      .from(mediaGenerations)
+      .where(eq(mediaGenerations.usageRecordId, result.assistantResults[0]!.usageRecordId));
+    expect(genRow).toBeDefined();
+    expect(genRow!.model).toBe('google/imagen-4');
+    expect(genRow!.mediaType).toBe('image');
+    expect(genRow!.imageCount).toBe(1);
+  });
+
+  it('persists a mix of text and media assistant messages in one saveChatTurn', async () => {
+    const setup = await createTestSetup(db, '10.00000000');
+    createdUserIds.push(setup.user.id);
+
+    const userMsgId = crypto.randomUUID();
+    const textMsgId = crypto.randomUUID();
+    const imageMsgId = crypto.randomUUID();
+    const imageItemId = crypto.randomUUID();
+
+    const result = await saveChatTurn(db, {
+      userMessageId: userMsgId,
+      userContent: 'Multi-model prompt',
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      senderId: setup.user.id,
+      parentMessageId: null,
+      assistantMessages: [
+        {
+          modality: 'text',
+          id: textMsgId,
+          content: 'Text response',
+          model: 'anthropic/claude-sonnet-4.6',
+          cost: 0.001,
+          inputTokens: 100,
+          outputTokens: 50,
+        },
+        {
+          modality: 'image',
+          id: imageMsgId,
+          contentItems: [
+            {
+              id: imageItemId,
+              contentType: 'image',
+              position: 0,
+              storageKey: `media/${setup.conversation.id}/${imageMsgId}/${imageItemId}.enc`,
+              mimeType: 'image/png',
+              sizeBytes: 2_000_000,
+              width: 512,
+              height: 512,
+              modelName: 'google/imagen-4',
+              cost: '0.04600000',
+              isSmartModel: false,
+            },
+          ],
+          model: 'google/imagen-4',
+          cost: 0.046,
+          mediaType: 'image',
+          imageCount: 1,
+        },
+      ],
+    });
+
+    expect(result.assistantResults).toHaveLength(2);
+
+    // First is text → llm_completions
+    const [textUsage] = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.id, result.assistantResults[0]!.usageRecordId));
+    expect(textUsage!.type).toBe('llm_completion');
+
+    // Second is media → media_generations
+    const [mediaUsage] = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.id, result.assistantResults[1]!.usageRecordId));
+    expect(mediaUsage!.type).toBe('media_generation');
   });
 });

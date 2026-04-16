@@ -3,8 +3,13 @@ import {
   assignSequenceNumbers,
   fetchEpochPublicKey,
   insertEnvelopeTextMessage,
+  insertEnvelopeMediaMessage,
   type InsertedTextContentItem,
+  type InsertedMediaContentItem,
+  type MediaContentItemInput,
+  type MediaContentType,
   chargeAndTrackUsage,
+  chargeAndTrackMediaUsage,
   updateForkTip,
   validateParentMessageId,
 } from './message-helpers.js';
@@ -19,11 +24,19 @@ export interface SaveUserOnlyMessageParams {
   forkId?: string;
 }
 
-export interface PersistedEnvelope {
+export interface PersistedTextEnvelope {
   messageId: string;
   wrappedContentKey: Uint8Array;
   contentItem: InsertedTextContentItem;
 }
+
+export interface PersistedMediaEnvelope {
+  messageId: string;
+  wrappedContentKey: Uint8Array;
+  contentItems: InsertedMediaContentItem[];
+}
+
+export type PersistedEnvelope = PersistedTextEnvelope | PersistedMediaEnvelope;
 
 export interface SaveUserOnlyMessageResult {
   sequenceNumber: number;
@@ -86,7 +99,8 @@ export async function saveUserOnlyMessage(
   });
 }
 
-export interface AssistantMessageInput {
+export interface TextAssistantMessageInput {
+  modality: 'text';
   id: string;
   content: string;
   model: string;
@@ -95,6 +109,20 @@ export interface AssistantMessageInput {
   outputTokens: number;
   cachedTokens?: number;
 }
+
+export interface MediaAssistantMessageInput {
+  modality: MediaContentType;
+  id: string;
+  contentItems: MediaContentItemInput[];
+  model: string;
+  cost: number;
+  mediaType: MediaContentType;
+  imageCount?: number;
+  durationMs?: number;
+  resolution?: string;
+}
+
+export type AssistantMessageInput = TextAssistantMessageInput | MediaAssistantMessageInput;
 
 interface SaveChatTurnBaseParams {
   conversationId: string;
@@ -151,6 +179,7 @@ function normalizeAssistantMessages(params: SaveChatTurnParams): AssistantMessag
   }
   return [
     {
+      modality: 'text' as const,
       id: params.assistantMessageId,
       content: params.assistantContent,
       model: params.model,
@@ -160,6 +189,156 @@ function normalizeAssistantMessages(params: SaveChatTurnParams): AssistantMessag
       ...(params.cachedTokens !== undefined && { cachedTokens: params.cachedTokens }),
     },
   ];
+}
+
+interface PersistAssistantContext {
+  conversationId: string;
+  epochPublicKey: Uint8Array;
+  epochNumber: number;
+  sequenceNumber: number;
+  userMessageId: string;
+  userId: string;
+  groupBillingContext?: { memberId: string };
+}
+
+async function persistTextAssistant(
+  tx: Database,
+  msg: TextAssistantMessageInput,
+  context: PersistAssistantContext
+): Promise<AssistantResult> {
+  const costAmount = msg.cost.toFixed(8);
+  const persisted = await insertEnvelopeTextMessage(tx, {
+    id: msg.id,
+    conversationId: context.conversationId,
+    textContent: msg.content,
+    epochPublicKey: context.epochPublicKey,
+    epochNumber: context.epochNumber,
+    sequenceNumber: context.sequenceNumber,
+    senderType: 'ai',
+    modelName: msg.model,
+    cost: costAmount,
+    parentMessageId: context.userMessageId,
+  });
+
+  const { usageRecordId } = await chargeAndTrackUsage(tx, {
+    userId: context.userId,
+    cost: costAmount,
+    model: msg.model,
+    assistantMessageId: msg.id,
+    conversationId: context.conversationId,
+    inputTokens: msg.inputTokens,
+    outputTokens: msg.outputTokens,
+    ...(msg.cachedTokens !== undefined && { cachedTokens: msg.cachedTokens }),
+    ...(context.groupBillingContext !== undefined && {
+      groupBillingContext: context.groupBillingContext,
+    }),
+  });
+
+  return {
+    assistantMessageId: msg.id,
+    model: msg.model,
+    aiSequence: context.sequenceNumber,
+    cost: costAmount,
+    usageRecordId,
+    envelope: {
+      messageId: msg.id,
+      wrappedContentKey: persisted.wrappedContentKey,
+      contentItem: persisted.contentItem,
+    },
+  };
+}
+
+async function persistMediaAssistant(
+  tx: Database,
+  msg: MediaAssistantMessageInput,
+  context: PersistAssistantContext
+): Promise<AssistantResult> {
+  const costAmount = msg.cost.toFixed(8);
+  const persisted = await insertEnvelopeMediaMessage(tx, {
+    id: msg.id,
+    conversationId: context.conversationId,
+    epochPublicKey: context.epochPublicKey,
+    epochNumber: context.epochNumber,
+    sequenceNumber: context.sequenceNumber,
+    senderType: 'ai',
+    parentMessageId: context.userMessageId,
+    mediaItems: msg.contentItems,
+  });
+
+  const { usageRecordId } = await chargeAndTrackMediaUsage(tx, {
+    userId: context.userId,
+    cost: costAmount,
+    model: msg.model,
+    assistantMessageId: msg.id,
+    conversationId: context.conversationId,
+    mediaType: msg.mediaType,
+    ...(msg.imageCount !== undefined && { imageCount: msg.imageCount }),
+    ...(msg.durationMs !== undefined && { durationMs: msg.durationMs }),
+    ...(msg.resolution !== undefined && { resolution: msg.resolution }),
+    ...(context.groupBillingContext !== undefined && {
+      groupBillingContext: context.groupBillingContext,
+    }),
+  });
+
+  return {
+    assistantMessageId: msg.id,
+    model: msg.model,
+    aiSequence: context.sequenceNumber,
+    cost: costAmount,
+    usageRecordId,
+    envelope: {
+      messageId: msg.id,
+      wrappedContentKey: persisted.wrappedContentKey,
+      contentItems: persisted.contentItems,
+    },
+  };
+}
+
+function logNegativeCosts(
+  msgs: AssistantMessageInput[],
+  conversationId: string,
+  userId: string
+): void {
+  for (const msg of msgs) {
+    if (msg.cost < 0) {
+      console.error(
+        JSON.stringify({
+          event: 'negative_cost_detected',
+          totalCost: msg.cost,
+          costAmount: msg.cost.toFixed(8),
+          conversationId,
+          model: msg.model,
+          userId,
+        })
+      );
+    }
+  }
+}
+
+async function persistAllAssistants(
+  tx: Database,
+  assistantMsgs: AssistantMessageInput[],
+  sequences: number[],
+  context: Omit<PersistAssistantContext, 'sequenceNumber'>
+): Promise<AssistantResult[]> {
+  const results: AssistantResult[] = [];
+
+  for (const [index, assistantMsg] of assistantMsgs.entries()) {
+    const aiSeq = sequences[1 + index];
+    if (aiSeq === undefined)
+      throw new Error(`invariant: expected sequence number at index ${String(1 + index)}`);
+
+    const persistContext = { ...context, sequenceNumber: aiSeq };
+
+    const result =
+      assistantMsg.modality === 'text'
+        ? await persistTextAssistant(tx, assistantMsg, persistContext)
+        : await persistMediaAssistant(tx, assistantMsg, persistContext);
+
+    results.push(result);
+  }
+
+  return results;
 }
 
 /**
@@ -185,21 +364,7 @@ export async function saveChatTurn(
   } = params;
 
   const assistantMsgs = normalizeAssistantMessages(params);
-
-  for (const msg of assistantMsgs) {
-    if (msg.cost < 0) {
-      console.error(
-        JSON.stringify({
-          event: 'negative_cost_detected',
-          totalCost: msg.cost,
-          costAmount: msg.cost.toFixed(8),
-          conversationId,
-          model: msg.model,
-          userId,
-        })
-      );
-    }
-  }
+  logNegativeCosts(assistantMsgs, conversationId, userId);
 
   return db.transaction(async (tx) => {
     await validateParentMessageId(tx as unknown as Database, conversationId, parentMessageId);
@@ -230,59 +395,24 @@ export async function saveChatTurn(
       parentMessageId,
     });
 
-    const assistantResults: AssistantResult[] = [];
-
-    for (const [index, assistantMsg] of assistantMsgs.entries()) {
-      const msg = assistantMsg;
-      const aiSeq = sequences[1 + index];
-      if (aiSeq === undefined)
-        throw new Error(`invariant: expected sequence number at index ${String(1 + index)}`);
-      const costAmount = msg.cost.toFixed(8);
-
-      const persisted = await insertEnvelopeTextMessage(tx as unknown as Database, {
-        id: msg.id,
+    const assistantResults = await persistAllAssistants(
+      tx as unknown as Database,
+      assistantMsgs,
+      sequences,
+      {
         conversationId,
-        textContent: msg.content,
         epochPublicKey,
         epochNumber,
-        sequenceNumber: aiSeq,
-        senderType: 'ai',
-        modelName: msg.model,
-        cost: costAmount,
-        parentMessageId: userMessageId,
-      });
-
-      const { usageRecordId } = await chargeAndTrackUsage(tx as unknown as Database, {
+        userMessageId,
         userId,
-        cost: costAmount,
-        model: msg.model,
-        assistantMessageId: msg.id,
-        conversationId,
-        inputTokens: msg.inputTokens,
-        outputTokens: msg.outputTokens,
-        ...(msg.cachedTokens !== undefined && { cachedTokens: msg.cachedTokens }),
         ...(groupBillingContext !== undefined && { groupBillingContext }),
-      });
-
-      assistantResults.push({
-        assistantMessageId: msg.id,
-        model: msg.model,
-        aiSequence: aiSeq,
-        cost: costAmount,
-        usageRecordId,
-        envelope: {
-          messageId: msg.id,
-          wrappedContentKey: persisted.wrappedContentKey,
-          contentItem: persisted.contentItem,
-        },
-      });
-    }
+      }
+    );
 
     if (forkId) {
       const lastAssistant = assistantMsgs.at(-1);
       if (!lastAssistant) throw new Error('invariant: assistantMsgs must not be empty');
-      const lastAssistantId = lastAssistant.id;
-      await updateForkTip(tx as unknown as Database, forkId, lastAssistantId);
+      await updateForkTip(tx as unknown as Database, forkId, lastAssistant.id);
     }
 
     const firstResult = assistantResults[0];

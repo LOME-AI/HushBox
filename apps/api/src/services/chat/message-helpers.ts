@@ -9,7 +9,7 @@ import {
 } from '@hushbox/db';
 import { beginMessageEnvelope, encryptTextWithContentKey } from '@hushbox/crypto';
 import { ERROR_CODE_INVALID_PARENT_MESSAGE } from '@hushbox/shared';
-import { chargeForUsage } from '../billing/transaction-writer.js';
+import { chargeForUsage, chargeForMediaGeneration } from '../billing/transaction-writer.js';
 import { updateGroupSpending } from '../billing/budgets.js';
 
 // ============================================================================
@@ -274,6 +274,163 @@ export async function chargeAndTrackUsage(
     inputTokens: params.inputTokens,
     outputTokens: params.outputTokens,
     cachedTokens: params.cachedTokens,
+    sourceType: 'message',
+    sourceId: params.assistantMessageId,
+  });
+
+  if (params.groupBillingContext !== undefined) {
+    await updateGroupSpending(tx, {
+      conversationId: params.conversationId,
+      memberId: params.groupBillingContext.memberId,
+      costDollars: params.cost,
+    });
+  }
+
+  return { usageRecordId: chargeResult.usageRecordId };
+}
+
+// ============================================================================
+// Envelope Media Message Insertion
+// ============================================================================
+
+export type MediaContentType = 'image' | 'audio' | 'video';
+
+export interface MediaContentItemInput {
+  id: string;
+  contentType: MediaContentType;
+  position: number;
+  storageKey: string;
+  mimeType: string;
+  sizeBytes: number;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+  modelName: string;
+  cost: string;
+  isSmartModel: boolean;
+}
+
+export interface InsertedMediaContentItem {
+  id: string;
+  contentType: MediaContentType;
+  position: number;
+  storageKey: string;
+  mimeType: string;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  modelName: string;
+  cost: string;
+  isSmartModel: boolean;
+}
+
+export interface InsertEnvelopeMediaMessageParams {
+  id: string;
+  conversationId: string;
+  epochPublicKey: Uint8Array;
+  epochNumber: number;
+  sequenceNumber: number;
+  senderType: 'ai';
+  parentMessageId: string | null;
+  mediaItems: MediaContentItemInput[];
+}
+
+export interface InsertEnvelopeMediaMessageResult {
+  wrappedContentKey: Uint8Array;
+  contentItems: InsertedMediaContentItem[];
+}
+
+/**
+ * Persists a media message under the wrap-once envelope model.
+ *
+ * Generates a fresh content key, wraps it under the epoch public key, and
+ * inserts one `messages` row plus N `content_items` rows for pre-encrypted
+ * media items. The content key is discarded — the caller uses it externally
+ * for R2 encryption before calling this function.
+ */
+export async function insertEnvelopeMediaMessage(
+  tx: Database,
+  params: InsertEnvelopeMediaMessageParams
+): Promise<InsertEnvelopeMediaMessageResult> {
+  const { wrappedContentKey } = beginMessageEnvelope(params.epochPublicKey);
+
+  await tx.insert(messages).values({
+    id: params.id,
+    conversationId: params.conversationId,
+    wrappedContentKey,
+    senderType: params.senderType,
+    epochNumber: params.epochNumber,
+    sequenceNumber: params.sequenceNumber,
+    parentMessageId: params.parentMessageId,
+  });
+
+  const insertedItems: InsertedMediaContentItem[] = [];
+
+  for (const item of params.mediaItems) {
+    const resolved: InsertedMediaContentItem = {
+      id: item.id,
+      contentType: item.contentType,
+      position: item.position,
+      storageKey: item.storageKey,
+      mimeType: item.mimeType,
+      sizeBytes: item.sizeBytes,
+      width: item.width ?? null,
+      height: item.height ?? null,
+      durationMs: item.durationMs ?? null,
+      modelName: item.modelName,
+      cost: item.cost,
+      isSmartModel: item.isSmartModel,
+    };
+
+    await tx.insert(contentItems).values({
+      ...resolved,
+      messageId: params.id,
+    });
+
+    insertedItems.push(resolved);
+  }
+
+  return { wrappedContentKey, contentItems: insertedItems };
+}
+
+// ============================================================================
+// Billing: Charge and Track Media Usage
+// ============================================================================
+
+export interface ChargeAndTrackMediaUsageParams {
+  userId: string;
+  cost: string;
+  model: string;
+  assistantMessageId: string;
+  conversationId: string;
+  mediaType: MediaContentType;
+  imageCount?: number;
+  durationMs?: number;
+  resolution?: string;
+  groupBillingContext?: { memberId: string };
+}
+
+export interface ChargeAndTrackMediaUsageResult {
+  usageRecordId: string;
+}
+
+/**
+ * Charges the user's wallet for media generation usage and optionally updates group spending.
+ */
+export async function chargeAndTrackMediaUsage(
+  tx: Database,
+  params: ChargeAndTrackMediaUsageParams
+): Promise<ChargeAndTrackMediaUsageResult> {
+  const chargeResult = await chargeForMediaGeneration(tx, {
+    userId: params.userId,
+    cost: params.cost,
+    model: params.model,
+    provider: 'ai-gateway',
+    mediaType: params.mediaType,
+    imageCount: params.imageCount,
+    durationMs: params.durationMs,
+    resolution: params.resolution,
     sourceType: 'message',
     sourceId: params.assistantMessageId,
   });

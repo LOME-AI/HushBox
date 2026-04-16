@@ -747,4 +747,95 @@ describe('broadcastAndFinish', () => {
     expect(items[0]!['encryptedBlob']).toBe(Buffer.from(aiBlob).toString('base64'));
     expect(items[0]!['modelName']).toBe('openai/gpt-4o');
   });
+
+  it('serializes media envelope with storageKey and media metadata', async () => {
+    // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
+    const writeDone = vi.fn().mockResolvedValue(undefined);
+    const writer = { writeDone } as unknown as ReturnType<
+      typeof import('./stream-handler.js').createSSEEventWriter
+    >;
+
+    const c = {
+      env: {} as BroadcastContext['env'],
+      executionCtx: { waitUntil: vi.fn() },
+    } as unknown as Parameters<typeof broadcastAndFinish>[0]['c'];
+
+    const userWrapped = new Uint8Array([1, 1, 1]);
+    const aiWrapped = new Uint8Array([5, 5, 5]);
+
+    await broadcastAndFinish({
+      c,
+      conversationId: 'conv-1',
+      userMessageId: 'user-1',
+      assistantMessageId: 'asst-media',
+      billingResult: {
+        userSequence: 1,
+        aiSequence: 2,
+        epochNumber: 3,
+        cost: '0.046',
+        usageRecordId: 'u-media',
+        userEnvelope: {
+          messageId: 'user-1',
+          wrappedContentKey: userWrapped,
+          contentItem: stubTextContentItem({
+            id: 'ci-user',
+            encryptedBlob: new Uint8Array([9]),
+          }),
+        },
+        assistantResults: [
+          {
+            assistantMessageId: 'asst-media',
+            model: 'google/imagen-4',
+            aiSequence: 2,
+            cost: '0.046',
+            usageRecordId: 'u-media',
+            envelope: {
+              messageId: 'asst-media',
+              wrappedContentKey: aiWrapped,
+              contentItems: [
+                {
+                  id: 'ci-img',
+                  contentType: 'image' as const,
+                  position: 0,
+                  storageKey: 'media/conv/msg/item.enc',
+                  mimeType: 'image/png',
+                  sizeBytes: 1_000_000,
+                  width: 1024,
+                  height: 1024,
+                  durationMs: null,
+                  modelName: 'google/imagen-4',
+                  cost: '0.046',
+                  isSmartModel: false,
+                },
+              ],
+            },
+          },
+        ],
+      },
+      writer,
+      modelName: 'google/imagen-4',
+    });
+
+    expect(writeDone).toHaveBeenCalledOnce();
+    const args = writeDone.mock.calls[0]![0] as Record<string, unknown>;
+    const models = args['models'] as Record<string, unknown>[];
+    expect(models).toHaveLength(1);
+
+    const mediaModel = models[0]!;
+    expect(mediaModel['wrappedContentKey']).toBe(Buffer.from(aiWrapped).toString('base64'));
+
+    const items = mediaModel['contentItems'] as Record<string, unknown>[];
+    expect(items).toHaveLength(1);
+    const item = items[0]!;
+    expect(item['id']).toBe('ci-img');
+    expect(item['contentType']).toBe('image');
+    expect(item['downloadUrl']).toBeNull();
+    expect(item['mimeType']).toBe('image/png');
+    expect(item['sizeBytes']).toBe(1_000_000);
+    expect(item['width']).toBe(1024);
+    expect(item['height']).toBe(1024);
+    expect(item['modelName']).toBe('google/imagen-4');
+    expect(item['encryptedBlob']).toBeUndefined();
+    expect(item['storageKey']).toBeUndefined();
+  });
 });

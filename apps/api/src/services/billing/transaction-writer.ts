@@ -5,6 +5,7 @@ import {
   payments,
   usageRecords,
   llmCompletions,
+  mediaGenerations,
   type Database,
   type DatabaseClient,
 } from '@hushbox/db';
@@ -206,6 +207,93 @@ export async function creditUserBalance(
   });
 }
 
+interface ChargeWalletParams {
+  tx: DatabaseClient;
+  usageRecordId: string;
+  userId: string;
+  cost: string;
+  numericCost: number;
+}
+
+/**
+ * Shared wallet-charging logic used by both chargeForUsage and chargeForMediaGeneration.
+ * Walks wallets in priority order and debits the first with sufficient balance.
+ * If no wallet has sufficient balance: marks usage_record as 'failed', throws error.
+ */
+async function chargeWalletForUsageRecord(
+  params: ChargeWalletParams
+): Promise<{ walletId: string; walletType: string; newBalance: string }> {
+  const { tx, usageRecordId, userId, cost, numericCost } = params;
+  const walletRows = await tx
+    .select({
+      id: wallets.id,
+      type: wallets.type,
+      balance: wallets.balance,
+      priority: wallets.priority,
+    })
+    .from(wallets)
+    .where(eq(wallets.userId, userId))
+    .orderBy(wallets.priority);
+
+  let chargedWallet: { id: string; type: string; balance: string } | null = null;
+
+  for (const wallet of walletRows) {
+    const [updated] = await tx
+      .update(wallets)
+      .set({
+        balance: sql`${wallets.balance} - ${cost}::numeric`,
+      })
+      .where(and(eq(wallets.id, wallet.id), sql`${wallets.balance} >= ${cost}::numeric`))
+      .returning({ id: wallets.id, balance: wallets.balance });
+
+    if (updated) {
+      chargedWallet = { id: updated.id, type: wallet.type, balance: updated.balance };
+      break;
+    }
+  }
+
+  if (!chargedWallet) {
+    await tx
+      .update(usageRecords)
+      .set({ status: 'failed' })
+      .where(eq(usageRecords.id, usageRecordId))
+      .returning({ id: usageRecords.id });
+
+    throw new Error('Insufficient balance');
+  }
+
+  await tx
+    .insert(ledgerEntries)
+    .values({
+      walletId: chargedWallet.id,
+      amount: (-numericCost).toFixed(8),
+      balanceAfter: chargedWallet.balance,
+      entryType: 'usage_charge',
+      usageRecordId,
+    })
+    .returning({ id: ledgerEntries.id });
+
+  await tx
+    .update(usageRecords)
+    .set({ status: 'completed', completedAt: new Date() })
+    .where(eq(usageRecords.id, usageRecordId))
+    .returning({ id: usageRecords.id });
+
+  return {
+    walletId: chargedWallet.id,
+    walletType: chargedWallet.type,
+    newBalance: chargedWallet.balance,
+  };
+}
+
+function validateCost(cost: string): number {
+  const numericCost = Number(cost);
+  if (Number.isNaN(numericCost) || numericCost < 0) {
+    throw new Error(`Invalid cost: "${cost}" — must be a non-negative numeric string`);
+  }
+  return numericCost;
+}
+
 /**
  * Charge a user for LLM usage. Walks wallets in priority order
  * and debits the first with sufficient balance.
@@ -213,10 +301,7 @@ export async function creditUserBalance(
  * Atomic transaction:
  * 1. INSERT usage_records (pending)
  * 2. INSERT llm_completions
- * 3. Query wallets by priority, find first with sufficient balance
- * 4. Atomic: UPDATE wallets SET balance = balance - cost WHERE balance >= cost
- * 5. INSERT ledger_entries
- * 6. UPDATE usage_records SET status='completed'
+ * 3-6. Shared wallet charging via chargeWalletForUsageRecord
  *
  * If no wallet has sufficient balance: marks usage_record as 'failed', throws error.
  */
@@ -236,13 +321,9 @@ export async function chargeForUsage(
     sourceId,
   } = params;
 
-  const numericCost = Number(cost);
-  if (Number.isNaN(numericCost) || numericCost < 0) {
-    throw new Error(`Invalid cost: "${cost}" — must be a non-negative numeric string`);
-  }
+  const numericCost = validateCost(cost);
 
   return await db.transaction(async (tx) => {
-    // Step 1: Insert usage record (pending)
     const [usageRecord] = await tx
       .insert(usageRecords)
       .values({
@@ -259,7 +340,6 @@ export async function chargeForUsage(
       throw new Error('Failed to create usage record');
     }
 
-    // Step 2: Insert LLM completion details
     await tx
       .insert(llmCompletions)
       .values({
@@ -272,73 +352,92 @@ export async function chargeForUsage(
       })
       .returning({ id: llmCompletions.id });
 
-    // Step 3: Query wallets ordered by priority
-    const walletRows = await tx
-      .select({
-        id: wallets.id,
-        type: wallets.type,
-        balance: wallets.balance,
-        priority: wallets.priority,
-      })
-      .from(wallets)
-      .where(eq(wallets.userId, userId))
-      .orderBy(wallets.priority);
+    const walletResult = await chargeWalletForUsageRecord({
+      tx,
+      usageRecordId: usageRecord.id,
+      userId,
+      cost,
+      numericCost,
+    });
 
-    // Step 4: Try each wallet in priority order
-    let chargedWallet: { id: string; type: string; balance: string } | null = null;
+    return { usageRecordId: usageRecord.id, ...walletResult };
+  });
+}
 
-    for (const wallet of walletRows) {
-      // Atomic debit: only succeeds if balance >= cost
-      const [updated] = await tx
-        .update(wallets)
-        .set({
-          balance: sql`${wallets.balance} - ${cost}::numeric`,
-        })
-        .where(and(eq(wallets.id, wallet.id), sql`${wallets.balance} >= ${cost}::numeric`))
-        .returning({ id: wallets.id, balance: wallets.balance });
+export interface ChargeForMediaGenerationParams {
+  userId: string;
+  cost: string;
+  model: string;
+  provider: string;
+  mediaType: 'image' | 'video' | 'audio';
+  imageCount?: number | undefined;
+  durationMs?: number | undefined;
+  resolution?: string | undefined;
+  sourceType: string;
+  sourceId: string;
+}
 
-      if (updated) {
-        chargedWallet = { id: updated.id, type: wallet.type, balance: updated.balance };
-        break;
-      }
-    }
+/**
+ * Charge a user for media generation usage. Same atomic wallet-walking
+ * pattern as chargeForUsage but inserts media_generations detail row.
+ */
+export async function chargeForMediaGeneration(
+  db: Database,
+  params: ChargeForMediaGenerationParams
+): Promise<ChargeResult> {
+  const {
+    userId,
+    cost,
+    model,
+    provider,
+    mediaType,
+    imageCount,
+    durationMs,
+    resolution,
+    sourceType,
+    sourceId,
+  } = params;
 
-    // No wallet had sufficient balance
-    if (!chargedWallet) {
-      // Mark usage record as failed
-      await tx
-        .update(usageRecords)
-        .set({ status: 'failed' })
-        .where(eq(usageRecords.id, usageRecord.id))
-        .returning({ id: usageRecords.id });
+  const numericCost = validateCost(cost);
 
-      throw new Error('Insufficient balance');
-    }
-
-    // Step 5: Insert ledger entry
-    await tx
-      .insert(ledgerEntries)
+  return await db.transaction(async (tx) => {
+    const [usageRecord] = await tx
+      .insert(usageRecords)
       .values({
-        walletId: chargedWallet.id,
-        amount: (-numericCost).toFixed(8),
-        balanceAfter: chargedWallet.balance,
-        entryType: 'usage_charge',
-        usageRecordId: usageRecord.id,
+        userId,
+        type: 'media_generation',
+        status: 'pending',
+        cost,
+        sourceType,
+        sourceId,
       })
-      .returning({ id: ledgerEntries.id });
-
-    // Step 6: Mark usage record as completed
-    await tx
-      .update(usageRecords)
-      .set({ status: 'completed', completedAt: new Date() })
-      .where(eq(usageRecords.id, usageRecord.id))
       .returning({ id: usageRecords.id });
 
-    return {
+    if (!usageRecord) {
+      throw new Error('Failed to create usage record');
+    }
+
+    await tx
+      .insert(mediaGenerations)
+      .values({
+        usageRecordId: usageRecord.id,
+        model,
+        provider,
+        mediaType,
+        ...(imageCount !== undefined && { imageCount }),
+        ...(durationMs !== undefined && { durationMs }),
+        ...(resolution !== undefined && { resolution }),
+      })
+      .returning({ id: mediaGenerations.id });
+
+    const walletResult = await chargeWalletForUsageRecord({
+      tx,
       usageRecordId: usageRecord.id,
-      walletId: chargedWallet.id,
-      walletType: chargedWallet.type,
-      newBalance: chargedWallet.balance,
-    };
+      userId,
+      cost,
+      numericCost,
+    });
+
+    return { usageRecordId: usageRecord.id, ...walletResult };
   });
 }

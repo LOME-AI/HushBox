@@ -13,6 +13,7 @@ import {
   epochs,
   wallets,
   usageRecords,
+  mediaGenerations,
   ledgerEntries,
   conversationForks,
   type Database,
@@ -34,7 +35,9 @@ import {
   assignSequenceNumbers,
   fetchEpochPublicKey,
   insertEnvelopeTextMessage,
+  insertEnvelopeMediaMessage,
   chargeAndTrackUsage,
+  chargeAndTrackMediaUsage,
   updateForkTip,
   resolveParentMessageId,
 } from './message-helpers.js';
@@ -600,6 +603,263 @@ describe('message-helpers', () => {
       const result = await resolveParentMessageId(db, setup.conversation.id, fork.id);
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe('insertEnvelopeMediaMessage', () => {
+    it('inserts a message row with wrappedContentKey', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const msgId = crypto.randomUUID();
+      const itemId = crypto.randomUUID();
+
+      const result = await insertEnvelopeMediaMessage(db, {
+        id: msgId,
+        conversationId: setup.conversation.id,
+        epochPublicKey: setup.epoch.epochPublicKey,
+        epochNumber: 1,
+        sequenceNumber: 1,
+        senderType: 'ai',
+        parentMessageId: null,
+        mediaItems: [
+          {
+            id: itemId,
+            contentType: 'image',
+            position: 0,
+            storageKey: `media/${setup.conversation.id}/${msgId}/${itemId}.enc`,
+            mimeType: 'image/png',
+            sizeBytes: 1_000_000,
+            width: 1024,
+            height: 1024,
+            modelName: 'google/imagen-4',
+            cost: '0.04600000',
+            isSmartModel: false,
+          },
+        ],
+      });
+
+      const [inserted] = await db.select().from(messages).where(eq(messages.id, msgId));
+      expect(inserted).toBeDefined();
+      expect(inserted!.wrappedContentKey).toBeInstanceOf(Uint8Array);
+      expect(inserted!.senderType).toBe('ai');
+      expect(result.wrappedContentKey).toBeInstanceOf(Uint8Array);
+    });
+
+    it('inserts media content_items with storageKey and metadata', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const msgId = crypto.randomUUID();
+      const itemId = crypto.randomUUID();
+      const storageKey = `media/${setup.conversation.id}/${msgId}/${itemId}.enc`;
+
+      await insertEnvelopeMediaMessage(db, {
+        id: msgId,
+        conversationId: setup.conversation.id,
+        epochPublicKey: setup.epoch.epochPublicKey,
+        epochNumber: 1,
+        sequenceNumber: 1,
+        senderType: 'ai',
+        parentMessageId: null,
+        mediaItems: [
+          {
+            id: itemId,
+            contentType: 'image',
+            position: 0,
+            storageKey,
+            mimeType: 'image/png',
+            sizeBytes: 2_000_000,
+            width: 512,
+            height: 512,
+            modelName: 'google/imagen-4',
+            cost: '0.04600000',
+            isSmartModel: false,
+          },
+        ],
+      });
+
+      const items = await db.select().from(contentItems).where(eq(contentItems.messageId, msgId));
+      expect(items).toHaveLength(1);
+      const item = items[0]!;
+      expect(item.contentType).toBe('image');
+      expect(item.storageKey).toBe(storageKey);
+      expect(item.mimeType).toBe('image/png');
+      expect(item.sizeBytes).toBe(2_000_000);
+      expect(item.width).toBe(512);
+      expect(item.height).toBe(512);
+      expect(item.encryptedBlob).toBeNull();
+      expect(item.modelName).toBe('google/imagen-4');
+      expect(item.cost).toBe('0.04600000');
+    });
+
+    it('inserts video content item with durationMs', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const msgId = crypto.randomUUID();
+      const itemId = crypto.randomUUID();
+
+      await insertEnvelopeMediaMessage(db, {
+        id: msgId,
+        conversationId: setup.conversation.id,
+        epochPublicKey: setup.epoch.epochPublicKey,
+        epochNumber: 1,
+        sequenceNumber: 1,
+        senderType: 'ai',
+        parentMessageId: null,
+        mediaItems: [
+          {
+            id: itemId,
+            contentType: 'video',
+            position: 0,
+            storageKey: `media/${setup.conversation.id}/${msgId}/${itemId}.enc`,
+            mimeType: 'video/mp4',
+            sizeBytes: 10_000_000,
+            width: 1920,
+            height: 1080,
+            durationMs: 6000,
+            modelName: 'google/veo-3.1',
+            cost: '0.69000000',
+            isSmartModel: false,
+          },
+        ],
+      });
+
+      const items = await db.select().from(contentItems).where(eq(contentItems.messageId, msgId));
+      expect(items[0]!.durationMs).toBe(6000);
+      expect(items[0]!.contentType).toBe('video');
+    });
+
+    it('returns content items metadata for SSE done event', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const msgId = crypto.randomUUID();
+      const itemId = crypto.randomUUID();
+
+      const result = await insertEnvelopeMediaMessage(db, {
+        id: msgId,
+        conversationId: setup.conversation.id,
+        epochPublicKey: setup.epoch.epochPublicKey,
+        epochNumber: 1,
+        sequenceNumber: 1,
+        senderType: 'ai',
+        parentMessageId: null,
+        mediaItems: [
+          {
+            id: itemId,
+            contentType: 'image',
+            position: 0,
+            storageKey: `media/${setup.conversation.id}/${msgId}/${itemId}.enc`,
+            mimeType: 'image/png',
+            sizeBytes: 500_000,
+            width: 256,
+            height: 256,
+            modelName: 'google/imagen-4',
+            cost: '0.04600000',
+            isSmartModel: false,
+          },
+        ],
+      });
+
+      expect(result.contentItems).toHaveLength(1);
+      expect(result.contentItems[0]!.contentType).toBe('image');
+      expect(result.contentItems[0]!.storageKey).toBe(
+        `media/${setup.conversation.id}/${msgId}/${itemId}.enc`
+      );
+    });
+  });
+
+  describe('chargeAndTrackMediaUsage', () => {
+    it('charges the user wallet for media generation and returns usage record ID', async () => {
+      const setup = await createTestSetup(db, '10.00000000');
+      createdUserIds.push(setup.user.id);
+
+      const msgId = crypto.randomUUID();
+      const result = await chargeAndTrackMediaUsage(db, {
+        userId: setup.user.id,
+        cost: '0.04600000',
+        model: 'google/imagen-4',
+        assistantMessageId: msgId,
+        conversationId: setup.conversation.id,
+        mediaType: 'image',
+        imageCount: 1,
+      });
+
+      expect(result.usageRecordId).toBeDefined();
+      expect(typeof result.usageRecordId).toBe('string');
+
+      const [wallet] = await db.select().from(wallets).where(eq(wallets.id, setup.wallet.id));
+      expect(Number(wallet!.balance)).toBeLessThan(10);
+    });
+
+    it('inserts a media_generations detail row', async () => {
+      const setup = await createTestSetup(db, '10.00000000');
+      createdUserIds.push(setup.user.id);
+
+      const msgId = crypto.randomUUID();
+      const result = await chargeAndTrackMediaUsage(db, {
+        userId: setup.user.id,
+        cost: '0.60000000',
+        model: 'google/veo-3.1',
+        assistantMessageId: msgId,
+        conversationId: setup.conversation.id,
+        mediaType: 'video',
+        durationMs: 6000,
+        resolution: '1080p',
+      });
+
+      const [genRow] = await db
+        .select()
+        .from(mediaGenerations)
+        .where(eq(mediaGenerations.usageRecordId, result.usageRecordId));
+      expect(genRow).toBeDefined();
+      expect(genRow!.model).toBe('google/veo-3.1');
+      expect(genRow!.mediaType).toBe('video');
+      expect(genRow!.durationMs).toBe(6000);
+      expect(genRow!.resolution).toBe('1080p');
+    });
+
+    it('updates group spending when groupBillingContext is provided', async () => {
+      const setup = await createTestSetup(db, '10.00000000');
+      createdUserIds.push(setup.user.id);
+
+      const memberData = conversationMemberFactory.build({
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        privilege: 'owner',
+      });
+      const [member] = await db.insert(conversationMembers).values(memberData).returning();
+      if (!member) throw new Error('Failed to create test member');
+      const memberId = member.id;
+
+      const msgId = crypto.randomUUID();
+      const result = await chargeAndTrackMediaUsage(db, {
+        userId: setup.user.id,
+        cost: '0.04600000',
+        model: 'google/imagen-4',
+        assistantMessageId: msgId,
+        conversationId: setup.conversation.id,
+        mediaType: 'image',
+        imageCount: 1,
+        groupBillingContext: { memberId },
+      });
+
+      expect(result.usageRecordId).toBeDefined();
+
+      const [spending] = await db
+        .select()
+        .from(conversationSpending)
+        .where(eq(conversationSpending.conversationId, setup.conversation.id));
+      expect(spending).toBeDefined();
+      expect(Number(spending!.totalSpent)).toBeGreaterThan(0);
+
+      await db
+        .delete(conversationSpending)
+        .where(eq(conversationSpending.conversationId, setup.conversation.id));
+      await db.delete(memberBudgets).where(eq(memberBudgets.memberId, memberId));
+      await db.delete(conversationMembers).where(eq(conversationMembers.id, memberId));
     });
   });
 });

@@ -24,6 +24,8 @@ import {
   BILLING_CONTACT_EMAIL,
   PRIVACY_CONTACT_EMAIL,
   MEDIA_DOWNLOAD_URL_TTL_SECONDS,
+  MEDIA_MONTHLY_COST_PER_GB,
+  MEDIA_STORAGE_COST_PER_BYTE,
 } from './constants.js';
 
 describe('MESSAGE_ROLES', () => {
@@ -250,6 +252,41 @@ describe('Legal Constants', () => {
 
     it('is different from BILLING_CONTACT_EMAIL', () => {
       expect(PRIVACY_CONTACT_EMAIL).not.toBe(BILLING_CONTACT_EMAIL);
+    });
+  });
+});
+
+describe('Media Storage Cost Constants', () => {
+  describe('MEDIA_MONTHLY_COST_PER_GB', () => {
+    it('is 0.04 ($0.04/GB/month)', () => {
+      expect(MEDIA_MONTHLY_COST_PER_GB).toBe(0.04);
+    });
+
+    it('is positive', () => {
+      expect(MEDIA_MONTHLY_COST_PER_GB).toBeGreaterThan(0);
+    });
+  });
+
+  describe('MEDIA_STORAGE_COST_PER_BYTE', () => {
+    it('derives from base constants', () => {
+      const expected =
+        (MEDIA_MONTHLY_COST_PER_GB * MONTHS_PER_YEAR * STORAGE_YEARS) / (1000 * 1_000_000);
+      expect(MEDIA_STORAGE_COST_PER_BYTE).toBe(expected);
+    });
+
+    it('is positive and very small', () => {
+      expect(MEDIA_STORAGE_COST_PER_BYTE).toBeGreaterThan(0);
+      expect(MEDIA_STORAGE_COST_PER_BYTE).toBeLessThan(0.000_001);
+    });
+
+    it('costs about $0.024 per MB', () => {
+      const costPerMB = MEDIA_STORAGE_COST_PER_BYTE * 1_000_000;
+      expect(costPerMB).toBeCloseTo(0.024, 3);
+    });
+
+    it('costs about $0.094 per 4MB image', () => {
+      const costPer4MB = MEDIA_STORAGE_COST_PER_BYTE * 4_000_000;
+      expect(costPer4MB).toBeCloseTo(0.096, 2);
     });
   });
 });

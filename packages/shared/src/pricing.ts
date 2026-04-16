@@ -1,6 +1,7 @@
 import {
   TOTAL_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
+  MEDIA_STORAGE_COST_PER_BYTE,
   EXPENSIVE_MODEL_THRESHOLD_PER_1K,
   CHARS_PER_TOKEN_CONSERVATIVE,
   CHARS_PER_TOKEN_STANDARD,
@@ -212,4 +213,51 @@ export function effectiveOutputCostPerToken(
     tier === 'paid' ? CHARS_PER_TOKEN_CONSERVATIVE : CHARS_PER_TOKEN_STANDARD;
   const storageCostPerToken = outputCharsPerToken * STORAGE_COST_PER_CHARACTER;
   return modelOutputPricePerToken + storageCostPerToken;
+}
+
+/**
+ * Storage cost for media bytes (R2 + backup, 50-year retention).
+ * Used by both pre-inference budget reservation and post-inference billing.
+ */
+export function mediaStorageCost(sizeBytes: number): number {
+  return sizeBytes * MEDIA_STORAGE_COST_PER_BYTE;
+}
+
+export type MediaPricing =
+  | { kind: 'image'; perImage: number }
+  | { kind: 'audio'; perSecond: number }
+  | { kind: 'video'; perSecond: number };
+
+export interface CalculateMediaGenerationCostParams {
+  pricing: MediaPricing;
+  sizeBytes: number;
+  imageCount?: number;
+  durationSeconds?: number;
+}
+
+/**
+ * Calculate the final billable cost for a media generation.
+ * Deterministic — no gateway call needed. Fees apply to model cost;
+ * storage cost is additive (no fee on storage).
+ */
+export function calculateMediaGenerationCost(params: CalculateMediaGenerationCostParams): number {
+  const { pricing, sizeBytes, imageCount, durationSeconds } = params;
+  const storage = mediaStorageCost(sizeBytes);
+
+  switch (pricing.kind) {
+    case 'image': {
+      const count = imageCount ?? 1;
+      return applyFees(pricing.perImage * count) + storage;
+    }
+    case 'video': {
+      if (durationSeconds === undefined)
+        throw new Error('durationSeconds required for video pricing');
+      return applyFees(pricing.perSecond * durationSeconds) + storage;
+    }
+    case 'audio': {
+      if (durationSeconds === undefined)
+        throw new Error('durationSeconds required for audio pricing');
+      return applyFees(pricing.perSecond * durationSeconds) + storage;
+    }
+  }
 }

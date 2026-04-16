@@ -53,7 +53,10 @@ import {
   type DoneModelEntry,
 } from './stream-handler.js';
 import { toBase64 } from '@hushbox/shared';
-import type { InsertedTextContentItem } from '../services/chat/message-helpers.js';
+import type {
+  InsertedTextContentItem,
+  InsertedMediaContentItem,
+} from '../services/chat/message-helpers.js';
 import type { PersistedEnvelope, AssistantResult } from '../services/chat/index.js';
 import { collectMultiModelStreams, type ModelStreamEntry } from './multi-stream.js';
 import { broadcastFireAndForget } from './broadcast.js';
@@ -297,11 +300,7 @@ interface BroadcastAndFinishOptions {
   modelName?: string;
 }
 
-/**
- * Serializes an inserted text content item into the transport shape used by
- * the SSE `done` event. Base64-encodes the binary `encryptedBlob`.
- */
-function serializeDoneContentItem(item: InsertedTextContentItem): DoneContentItem {
+function serializeTextContentItem(item: InsertedTextContentItem): DoneContentItem {
   return {
     id: item.id,
     contentType: item.contentType,
@@ -313,10 +312,33 @@ function serializeDoneContentItem(item: InsertedTextContentItem): DoneContentIte
   };
 }
 
+function serializeMediaContentItem(item: InsertedMediaContentItem): DoneContentItem {
+  return {
+    id: item.id,
+    contentType: item.contentType,
+    position: item.position,
+    downloadUrl: null,
+    mimeType: item.mimeType,
+    sizeBytes: item.sizeBytes,
+    width: item.width,
+    height: item.height,
+    durationMs: item.durationMs,
+    modelName: item.modelName,
+    cost: item.cost,
+    isSmartModel: item.isSmartModel,
+  };
+}
+
 function serializeEnvelope(envelope: PersistedEnvelope): DoneMessageEnvelope {
+  if ('contentItem' in envelope) {
+    return {
+      wrappedContentKey: toBase64(envelope.wrappedContentKey),
+      contentItems: [serializeTextContentItem(envelope.contentItem)],
+    };
+  }
   return {
     wrappedContentKey: toBase64(envelope.wrappedContentKey),
-    contentItems: [serializeDoneContentItem(envelope.contentItem)],
+    contentItems: envelope.contentItems.map((item) => serializeMediaContentItem(item)),
   };
 }
 
@@ -692,6 +714,7 @@ interface BuildAssistantMessagesOptions {
 /** Builds the assistant message array from successful model results for persistence. */
 async function buildAssistantMessages(options: BuildAssistantMessagesOptions): Promise<
   {
+    modality: 'text';
     id: string;
     content: string;
     model: string;
@@ -716,6 +739,7 @@ async function buildAssistantMessages(options: BuildAssistantMessagesOptions): P
         : 0;
 
       return {
+        modality: 'text' as const,
         id: assistantMessageId,
         content: result.fullContent,
         model: modelId,
