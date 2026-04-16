@@ -20,7 +20,7 @@ import {
   effectiveBudgetCents,
   resolveBilling,
   getCushionCents,
-  AUTO_ROUTER_MODEL_ID,
+  SMART_MODEL_ID,
   ERROR_CODE_INSUFFICIENT_BALANCE,
   ERROR_CODE_BILLING_MISMATCH,
   ERROR_CODE_PREMIUM_REQUIRES_BALANCE,
@@ -82,11 +82,11 @@ export interface BillingValidationSuccess {
   billingInput: ResolveBillingInput;
   budgetResult: ReturnType<typeof calculateBudget>;
   safeMaxTokens: number | undefined;
-  openrouterModels: Awaited<ReturnType<typeof fetchModels>>;
+  gatewayModels: Awaited<ReturnType<typeof fetchModels>>;
   worstCaseCents: number;
   groupBudget?: GroupBudgetReservation;
   billingUserId: string;
-  autoRouterAllowedModels?: string[];
+  smartModelAllowedModels?: string[];
 }
 
 export interface BillingValidationFailure {
@@ -181,10 +181,10 @@ function handleBillingDenial(
 export function resolveWebSearchCost(
   webSearchEnabled: boolean,
   model: string,
-  openrouterModels: Awaited<ReturnType<typeof fetchModels>>
+  gatewayModels: Awaited<ReturnType<typeof fetchModels>>
 ): number {
   if (!webSearchEnabled) return 0;
-  const modelInfo = openrouterModels.find((m) => m.id === model);
+  const modelInfo = gatewayModels.find((m) => m.id === model);
   if (!modelInfo?.pricing.web_search) return 0;
   return parseTokenPrice(modelInfo.pricing.web_search);
 }
@@ -401,14 +401,14 @@ export async function resolveAndReserveBilling(
   // 1. Fetch models for pricing (in-memory cached with TTL)
   const apiKey = c.env.AI_GATEWAY_API_KEY;
   if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required for streaming');
-  const openrouterModels = await fetchModels(apiKey);
-  const allPricing = models.map((m) => lookupModelPricing(openrouterModels, m));
+  const gatewayModels = await fetchModels(apiKey);
+  const allPricing = models.map((m) => lookupModelPricing(gatewayModels, m));
 
   // 1b. Resolve web search cost — sum across all models that support it
   let webSearchCostDollars = 0;
   if (input.webSearchEnabled) {
     for (const m of models) {
-      const info = openrouterModels.find((om) => om.id === m);
+      const info = gatewayModels.find((om) => om.id === m);
       if (info?.pricing.web_search) {
         webSearchCostDollars += parseTokenPrice(info.pricing.web_search);
       }
@@ -479,18 +479,19 @@ export async function resolveAndReserveBilling(
       : rawPayerBalanceCents;
   const payerFreeAllowanceCents = isGroupBilling ? 0 : billingResult.input.freeAllowanceCents;
 
-  // 7. Auto-router: build allowed models and override pricing with worst-case.
+  // 7. Smart Model: build allowed models and override pricing with worst-case.
   //    Runs after payer resolution so affordability uses the actual payer's balance.
-  let autoRouterAllowedModels: string[] | undefined;
-  if (models.length === 1 && models[0] === AUTO_ROUTER_MODEL_ID) {
-    const { models: poolModels, premiumIds } = processModels(openrouterModels);
+  //    Step 11 will replace this with a classifier-based router.
+  let smartModelAllowedModels: string[] | undefined;
+  if (models.length === 1 && models[0] === SMART_MODEL_ID) {
+    const { models: poolModels, premiumIds } = processModels(gatewayModels);
     const premiumSet = new Set(premiumIds);
     const canAccessPremium = payerTier === 'paid';
 
     const allowed: { id: string; inputPrice: number; outputPrice: number }[] = [];
 
     for (const pm of poolModels) {
-      if (pm.isAutoRouter) continue;
+      if (pm.isSmartModel) continue;
       const isPremium = premiumSet.has(pm.id);
       if (isPremium && !canAccessPremium) continue;
 
@@ -532,7 +533,7 @@ export async function resolveAndReserveBilling(
       outputPricePerToken: Math.max(...allowed.map((m) => m.outputPrice)),
       contextLength: existingPricing.contextLength,
     };
-    autoRouterAllowedModels = allowed.map((m) => m.id);
+    smartModelAllowedModels = allowed.map((m) => m.id);
   }
 
   // 8. Compute budget for maxOutputTokens based on payer
@@ -604,11 +605,11 @@ export async function resolveAndReserveBilling(
       billingInput: billingResult.input,
       budgetResult,
       safeMaxTokens,
-      openrouterModels,
+      gatewayModels,
       worstCaseCents,
       groupBudget: groupReservation,
       billingUserId: memberContext.ownerId,
-      ...(autoRouterAllowedModels !== undefined && { autoRouterAllowedModels }),
+      ...(smartModelAllowedModels !== undefined && { smartModelAllowedModels }),
     };
   }
 
@@ -635,10 +636,10 @@ export async function resolveAndReserveBilling(
     billingInput: billingResult.input,
     budgetResult,
     safeMaxTokens,
-    openrouterModels,
+    gatewayModels,
     worstCaseCents,
     billingUserId: userId,
-    ...(autoRouterAllowedModels !== undefined && { autoRouterAllowedModels }),
+    ...(smartModelAllowedModels !== undefined && { smartModelAllowedModels }),
   };
 }
 

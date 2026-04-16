@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement } from 'react';
 import type { Model } from '@hushbox/shared';
-import { STRONGEST_MODEL_ID, VALUE_MODEL_ID, AUTO_ROUTER_MODEL_ID } from '@hushbox/shared';
+import { STRONGEST_MODEL_ID, VALUE_MODEL_ID, SMART_MODEL_ID } from '@hushbox/shared';
 import { useModels, getAccessibleModelIds, modelKeys, modelsQueryOptions } from './models.js';
 
 // Mock the api-client module
@@ -261,29 +261,29 @@ describe('getAccessibleModelIds', () => {
     expect(result.valueId).not.toBe('premium-model');
   });
 
-  it('excludes auto-router from strongest/value calculation', () => {
-    const modelsWithAutoRouter: Model[] = [
+  it('excludes the Smart Model from strongest/value calculation', () => {
+    const modelsWithSmart: Model[] = [
       ...testModels,
       {
-        id: AUTO_ROUTER_MODEL_ID,
+        id: SMART_MODEL_ID,
         name: 'Smart Model',
-        description: 'Auto-router model',
-        provider: 'OpenRouter',
+        description: 'Classifier-based router',
+        provider: 'HushBox',
         contextLength: 2_000_000,
         pricePerInputToken: 0.000_000_039,
         pricePerOutputToken: 0.000_000_19,
         capabilities: [],
         supportedParameters: [],
-        isAutoRouter: true,
+        isSmartModel: true,
         created: Math.floor(Date.now() / 1000),
       },
     ];
 
-    // Auto-router has lowest price but should not be selected as "Best value"
-    const result = getAccessibleModelIds(modelsWithAutoRouter, premiumIds, false);
+    // Smart Model has lowest price but should not be selected as "Best value"
+    const result = getAccessibleModelIds(modelsWithSmart, premiumIds, false);
 
-    expect(result.strongestId).not.toBe(AUTO_ROUTER_MODEL_ID);
-    expect(result.valueId).not.toBe(AUTO_ROUTER_MODEL_ID);
+    expect(result.strongestId).not.toBe(SMART_MODEL_ID);
+    expect(result.valueId).not.toBe(SMART_MODEL_ID);
   });
 
   it('uses combined input+output price for sorting', () => {

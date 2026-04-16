@@ -7,7 +7,7 @@ const mockEncryptMessageForStorage = vi.fn();
 
 vi.mock('@hushbox/crypto', () => ({
   performEpochRotation: (...args: unknown[]) => mockPerformEpochRotation(...args),
-  encryptMessageForStorage: (...args: unknown[]) => mockEncryptMessageForStorage(...args),
+  encryptTextForEpoch: (...args: unknown[]) => mockEncryptMessageForStorage(...args),
 }));
 
 vi.mock('@hushbox/shared', async (importOriginal) => {

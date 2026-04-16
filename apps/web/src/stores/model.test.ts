@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { AUTO_ROUTER_MODEL_ID, MAX_SELECTED_MODELS } from '@hushbox/shared';
+import { SMART_MODEL_ID, MAX_SELECTED_MODELS } from '@hushbox/shared';
 import { useModelStore, DEFAULT_MODEL_ID, DEFAULT_MODEL_NAME } from './model';
 import type { SelectedModelEntry } from './model';
 
@@ -17,8 +17,8 @@ describe('useModelStore', () => {
   });
 
   describe('defaults', () => {
-    it('exports default model id as auto-router', () => {
-      expect(DEFAULT_MODEL_ID).toBe(AUTO_ROUTER_MODEL_ID);
+    it('exports default model id as the Smart Model', () => {
+      expect(DEFAULT_MODEL_ID).toBe(SMART_MODEL_ID);
     });
 
     it('exports default model name as Smart Model', () => {

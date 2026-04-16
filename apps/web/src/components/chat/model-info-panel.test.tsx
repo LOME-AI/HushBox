@@ -106,11 +106,11 @@ describe('ModelInfoPanel', () => {
     });
   });
 
-  describe('auto-router model', () => {
-    const autoRouter = buildModel({
-      id: 'openrouter/auto',
+  describe('Smart Model entry', () => {
+    const smartModel = buildModel({
+      id: 'smart-model',
       name: 'Auto (best for prompt)',
-      isAutoRouter: true,
+      isSmartModel: true,
       minPricePerInputToken: 0.000_001,
       maxPricePerInputToken: 0.000_06,
       minPricePerOutputToken: 0.000_002,
@@ -118,24 +118,24 @@ describe('ModelInfoPanel', () => {
     });
 
     it('renders how it works section', () => {
-      render(<ModelInfoPanel model={autoRouter} />);
+      render(<ModelInfoPanel model={smartModel} />);
       expect(screen.getByText('How It Works')).toBeInTheDocument();
       expect(screen.getByText(/Analyzes each message/)).toBeInTheDocument();
     });
 
     it('renders price ranges', () => {
-      render(<ModelInfoPanel model={autoRouter} />);
+      render(<ModelInfoPanel model={smartModel} />);
       expect(screen.getByText('Input Price Range')).toBeInTheDocument();
       expect(screen.getByText('Output Price Range')).toBeInTheDocument();
     });
 
     it('renders capacity', () => {
-      render(<ModelInfoPanel model={autoRouter} />);
+      render(<ModelInfoPanel model={smartModel} />);
       expect(screen.getByText(/128,000 tokens/)).toBeInTheDocument();
     });
 
-    it('compact auto-router omits how it works', () => {
-      render(<ModelInfoPanel model={autoRouter} compact />);
+    it('compact Smart Model omits how it works', () => {
+      render(<ModelInfoPanel model={smartModel} compact />);
       expect(screen.queryByText('How It Works')).not.toBeInTheDocument();
       expect(screen.getByText('Input Price Range')).toBeInTheDocument();
     });

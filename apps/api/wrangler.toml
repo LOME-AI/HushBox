@@ -22,10 +22,14 @@ new_classes = ["ConversationRoom"]
 [[r2_buckets]]
 binding = "APP_BUILDS"
 bucket_name = "hushbox-app-builds"
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "hushbox-media"
 [vars]
 NODE_ENV = "production"
 API_URL = "https://api.hushbox.ai"
 FRONTEND_URL = "https://hushbox.ai"
+R2_BUCKET_MEDIA = "hushbox-media"
 
 # Secrets deployed via CI (GitHub Secrets → wrangler secret put):
 # - DATABASE_URL
@@ -35,7 +39,11 @@ FRONTEND_URL = "https://hushbox.ai"
 # - IRON_SESSION_SECRET
 # - APP_VERSION
 # - RESEND_API_KEY
+# - AI_GATEWAY_API_KEY
 # - FCM_PROJECT_ID
 # - FCM_SERVICE_ACCOUNT_JSON
 # - HELCIM_API_TOKEN
 # - HELCIM_WEBHOOK_VERIFIER
+# - R2_S3_ENDPOINT
+# - R2_ACCESS_KEY_ID
+# - R2_SECRET_ACCESS_KEY

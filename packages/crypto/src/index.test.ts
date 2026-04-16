@@ -42,8 +42,8 @@ describe('index barrel exports', () => {
     expect(typeof module_.decryptBinaryWithContentKey).toBe('function');
 
     // Generic single-blob ECIES (for non-message bytea fields like titles, projects)
-    expect(typeof module_.encryptMessageForStorage).toBe('function');
-    expect(typeof module_.decryptMessage).toBe('function');
+    expect(typeof module_.encryptTextForEpoch).toBe('function');
+    expect(typeof module_.decryptTextFromEpoch).toBe('function');
 
     // Member management
     expect(typeof module_.wrapEpochKeyForNewMember).toBe('function');

@@ -326,6 +326,22 @@ export const ERROR_CODE_BILLING_SESSION_RESTRICTED = 'BILLING_SESSION_RESTRICTED
 export const ERROR_CODE_BUILD_NOT_FOUND = 'BUILD_NOT_FOUND';
 
 // ============================================================
+// Error Codes — Media Storage
+// ============================================================
+
+/** Media storage write failed — R2 PUT returned an error. */
+export const ERROR_CODE_STORAGE_WRITE_FAILED = 'STORAGE_WRITE_FAILED';
+
+/** Media storage read failed — presigned URL could not be minted or object fetch failed. */
+export const ERROR_CODE_STORAGE_READ_FAILED = 'STORAGE_READ_FAILED';
+
+/** Content item not found, or caller is not a member of its conversation. */
+export const ERROR_CODE_CONTENT_ITEM_NOT_FOUND = 'CONTENT_ITEM_NOT_FOUND';
+
+/** Content item exists but is a text item, which has no downloadable URL. */
+export const ERROR_CODE_CONTENT_ITEM_NOT_MEDIA = 'CONTENT_ITEM_NOT_MEDIA';
+
+// ============================================================
 // Error Response Schema
 // ============================================================
 

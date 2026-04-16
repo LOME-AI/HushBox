@@ -12,6 +12,7 @@ export { websocketRoute } from './websocket.js';
 export { membersRoute } from './members.js';
 export { linksRoute } from './links.js';
 export { messageSharesRoute, publicSharesRoute } from './message-shares.js';
+export { mediaRoute } from './media.js';
 export { budgetsRoute } from './budgets.js';
 export { usersRoute } from './users.js';
 export { forksRoute } from './forks.js';

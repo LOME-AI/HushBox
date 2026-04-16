@@ -42,7 +42,7 @@ const mockEncryptMessageForStorage = vi.fn();
 
 vi.mock('@hushbox/crypto', () => ({
   createFirstEpoch: (...args: unknown[]) => mockCreateFirstEpoch(...args),
-  encryptMessageForStorage: (...args: unknown[]) => mockEncryptMessageForStorage(...args),
+  encryptTextForEpoch: (...args: unknown[]) => mockEncryptMessageForStorage(...args),
 }));
 
 describe('dev service', () => {
@@ -478,7 +478,7 @@ describe('dev service', () => {
         ],
       });
 
-      // Title encryption still uses encryptMessageForStorage (1 call for the empty title)
+      // Title encryption still uses encryptTextForEpoch (1 call for the empty title)
       expect(mockEncryptMessageForStorage).toHaveBeenCalledTimes(1);
       expect(mockEncryptMessageForStorage).toHaveBeenCalledWith(EPOCH_PUBLIC_KEY, '');
 

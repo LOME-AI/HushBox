@@ -232,11 +232,11 @@ describe('mergeMessages', () => {
       decryptedApiMessages: [],
       optimisticMessages: [],
       chatError: { id: 'err-1', content: 'Something went wrong' },
-      primaryModelId: 'openrouter/auto',
+      primaryModelId: 'smart-model',
     });
     const errorMsg = result.find((m) => m.id === 'err-1');
     expect(errorMsg).toBeDefined();
-    expect(errorMsg?.modelName).toBe('openrouter/auto');
+    expect(errorMsg?.modelName).toBe('smart-model');
   });
 
   it('does not add error message when chatError is null', () => {
@@ -247,7 +247,7 @@ describe('mergeMessages', () => {
       decryptedApiMessages: [],
       optimisticMessages: [],
       chatError: null,
-      primaryModelId: 'openrouter/auto',
+      primaryModelId: 'smart-model',
     });
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe('u1');

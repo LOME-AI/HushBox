@@ -61,6 +61,7 @@ import {
   helcimMiddleware,
   envMiddleware,
   ironSessionMiddleware,
+  mediaStorageMiddleware,
 } from './dependencies.js';
 import { createDb, LOCAL_NEON_DEV_CONFIG } from '@hushbox/db';
 import { getHelcimClient } from '../services/helcim/index.js';
@@ -872,6 +873,47 @@ describe('redisMiddleware', () => {
       {},
       { UPSTASH_REDIS_REST_URL: 'http://localhost:8079', UPSTASH_REDIS_REST_TOKEN: 'test-token' }
     );
+
+    expect(nextCalled).toHaveBeenCalled();
+  });
+});
+
+describe('mediaStorageMiddleware', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('sets mediaStorage on context (mock in local dev)', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.use('*', mediaStorageMiddleware());
+    app.get('/', (c) => {
+      const storage = c.get('mediaStorage');
+      return c.json({ isMock: storage.isMock });
+    });
+
+    const res = await app.request('/', {}, { NODE_ENV: 'development' });
+    expect(res.status).toBe(200);
+    const body = await jsonBody<{ isMock: boolean }>(res);
+    expect(body.isMock).toBe(true);
+  });
+
+  it('calls next() to continue middleware chain', async () => {
+    const app = new Hono<AppEnv>();
+    const nextCalled = vi.fn();
+    app.use('*', envMiddleware());
+    app.use('*', mediaStorageMiddleware());
+    app.use('*', async (_, next) => {
+      nextCalled();
+      await next();
+    });
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request('/', {}, { NODE_ENV: 'development' });
 
     expect(nextCalled).toHaveBeenCalled();
   });

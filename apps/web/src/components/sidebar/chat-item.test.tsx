@@ -31,10 +31,10 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-// Mock crypto — encryptMessageForStorage returns a known Uint8Array
+// Mock crypto — encryptTextForEpoch returns a known Uint8Array
 const MOCK_ENCRYPTED_BYTES = new Uint8Array([1, 2, 3, 4]);
 vi.mock('@hushbox/crypto', () => ({
-  encryptMessageForStorage: vi.fn(() => MOCK_ENCRYPTED_BYTES),
+  encryptTextForEpoch: vi.fn(() => MOCK_ENCRYPTED_BYTES),
   getPublicKeyFromPrivate: vi.fn(() => new Uint8Array([10, 20, 30])),
 }));
 

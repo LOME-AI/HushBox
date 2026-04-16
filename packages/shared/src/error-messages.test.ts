@@ -524,6 +524,31 @@ describe('friendlyErrorMessage', () => {
   });
 
   // ------------------------------------------------------------------
+  // Media / storage codes
+  // ------------------------------------------------------------------
+  it('maps STORAGE_WRITE_FAILED to user-facing message', () => {
+    expect(friendlyErrorMessage('STORAGE_WRITE_FAILED')).toBe(
+      "We couldn't save the generated media. Please try again."
+    );
+  });
+
+  it('maps STORAGE_READ_FAILED to user-facing message', () => {
+    expect(friendlyErrorMessage('STORAGE_READ_FAILED')).toBe(
+      "We couldn't load this media. Please refresh the page."
+    );
+  });
+
+  it('maps CONTENT_ITEM_NOT_FOUND to user-facing message', () => {
+    expect(friendlyErrorMessage('CONTENT_ITEM_NOT_FOUND')).toBe('Content item not found.');
+  });
+
+  it('maps CONTENT_ITEM_NOT_MEDIA to user-facing message', () => {
+    expect(friendlyErrorMessage('CONTENT_ITEM_NOT_MEDIA')).toBe(
+      'This content item is not downloadable media.'
+    );
+  });
+
+  // ------------------------------------------------------------------
   // Unknown code fallback
   // ------------------------------------------------------------------
   it('returns generic fallback for unknown codes', () => {

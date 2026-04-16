@@ -327,7 +327,7 @@ describe('createApp', () => {
     };
 
     it('does not return 500 for POST /api/trial/stream with valid body', async () => {
-      // Mock fetch so OpenRouter model fetches return valid JSON each time
+      // Mock fetch so AI Gateway model fetches return valid JSON each time
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
         Promise.resolve(
           Response.json(

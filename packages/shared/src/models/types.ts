@@ -1,8 +1,8 @@
 /** Content modality — shared across AIClient and model discovery. */
 export type Modality = 'text' | 'image' | 'audio' | 'video';
 
-/** Raw model data from OpenRouter API */
-export interface OpenRouterModel {
+/** Raw model data mapped from the AI Gateway model metadata. */
+export interface RawModel {
   id: string;
   name: string;
   description: string;
@@ -14,18 +14,6 @@ export interface OpenRouterModel {
     input_modalities: string[];
     output_modalities: string[];
   };
-}
-
-/**
- * Entry from OpenRouter's /endpoints/zdr endpoint.
- * Represents a model/provider combo that supports Zero Data Retention.
- */
-export interface ZdrEndpoint {
-  model_id: string;
-  model_name: string;
-  provider_name: string;
-  context_length: number;
-  pricing: { prompt: string; completion: string };
 }
 
 /** Result of processing models */

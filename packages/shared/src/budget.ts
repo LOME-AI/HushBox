@@ -1,7 +1,7 @@
 /**
  * Budget calculation utilities for pre-send validation.
  *
- * Used by both frontend (real-time UI updates) and backend (validation before OpenRouter).
+ * Used by both frontend (real-time UI updates) and backend (validation before the AI Gateway call).
  * All cost calculations use prices with fees already applied.
  */
 
@@ -695,7 +695,7 @@ export interface ComputeMaxTokensParams {
 }
 
 /**
- * Compute safe max_tokens value for OpenRouter request.
+ * Compute safe max_tokens value for the AI Gateway request.
  *
  * No headroom reduction — `calculateBudget` uses `Math.floor` on the token
  * calculation which already guarantees `worstCaseCents ≤ availableCents`.

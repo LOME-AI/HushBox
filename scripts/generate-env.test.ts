@@ -308,6 +308,8 @@ local_protocol = "http"
       expect(content).toContain('HB_EMULATOR_ADB_PORT="5555"');
       expect(content).toContain('HB_EMULATOR_VNC_PORT="6080"');
       expect(content).toContain('HB_README_PREVIEW_PORT="6419"');
+      expect(content).toContain('HB_MINIO_API_PORT="9000"');
+      expect(content).toContain('HB_MINIO_CONSOLE_PORT="9001"');
     });
 
     it('applies worktree detection like development mode', () => {
@@ -330,7 +332,21 @@ local_protocol = "http"
   });
 
   describe('ciE2E mode', () => {
-    it('throws if required ciE2E secrets are missing', () => {
+    beforeEach(() => {
+      process.env['AI_GATEWAY_API_KEY'] = 'test-ai-gateway-key';
+      process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test-helcim-token';
+      process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test-helcim-verifier';
+      process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'] = 'test-vite-helcim-token';
+    });
+
+    afterEach(() => {
+      delete process.env['AI_GATEWAY_API_KEY'];
+      delete process.env['HELCIM_API_TOKEN_SANDBOX'];
+      delete process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'];
+      delete process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'];
+    });
+
+    it('throws if a required ciE2E secret is missing', () => {
       delete process.env['HELCIM_API_TOKEN_SANDBOX'];
 
       expect(() => {
@@ -347,6 +363,14 @@ local_protocol = "http"
       }).toThrow(
         'Missing required secrets in process.env: HELCIM_API_TOKEN_SANDBOX, HELCIM_WEBHOOK_VERIFIER_SANDBOX'
       );
+    });
+
+    it('throws when AI_GATEWAY_API_KEY is missing', () => {
+      delete process.env['AI_GATEWAY_API_KEY'];
+
+      expect(() => {
+        generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
+      }).toThrow('Missing required secrets in process.env: AI_GATEWAY_API_KEY');
     });
   });
 });
@@ -552,7 +576,7 @@ old content
 
       const content = readCiYml();
       expect(content).toContain(
-        'for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET APP_VERSION RESEND_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do'
+        'for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET APP_VERSION RESEND_API_KEY AI_GATEWAY_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER R2_S3_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do'
       );
     });
   });
@@ -775,6 +799,8 @@ local_protocol = "http"
       expect(content).toContain('HB_EMULATOR_ADB_PORT="5555"');
       expect(content).toContain('HB_EMULATOR_VNC_PORT="6080"');
       expect(content).toContain('HB_README_PREVIEW_PORT="6419"');
+      expect(content).toContain('HB_MINIO_API_PORT="9000"');
+      expect(content).toContain('HB_MINIO_CONSOLE_PORT="9001"');
     });
   });
 
@@ -823,6 +849,7 @@ local_protocol = "http"
 
     it('does not offset ports in CI modes', () => {
       // Set up required CI secrets
+      process.env['AI_GATEWAY_API_KEY'] = 'test';
       process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test';
       process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test';
       process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'] = 'test';
@@ -833,6 +860,7 @@ local_protocol = "http"
       expect(content).toContain('localhost:8787');
       expect(content).toContain('localhost:5173');
 
+      delete process.env['AI_GATEWAY_API_KEY'];
       delete process.env['HELCIM_API_TOKEN_SANDBOX'];
       delete process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'];
       delete process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'];

@@ -18,10 +18,10 @@ import {
   generateKeyPair,
   createFirstEpoch,
   performEpochRotation,
-  encryptMessageForStorage,
+  encryptTextForEpoch,
   unwrapEpochKey,
   traverseChainLink,
-  decryptMessage,
+  decryptTextFromEpoch,
   beginMessageEnvelope,
   openMessageEnvelope,
   encryptTextWithContentKey,
@@ -139,7 +139,7 @@ describe('member rotation integration', () => {
       acceptedAt: new Date(),
     });
 
-    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Test Title');
+    const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, 'Test Title');
 
     const result = await submitRotation(db, {
       conversationId,
@@ -229,7 +229,7 @@ describe('member rotation integration', () => {
         )
       );
 
-    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+    const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, 'Title');
 
     const result = await submitRotation(db, {
       conversationId,
@@ -310,7 +310,7 @@ describe('member rotation integration', () => {
         )
       );
 
-    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+    const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, 'Title');
 
     const result = await submitRotation(db, {
       conversationId,
@@ -399,7 +399,7 @@ describe('member rotation integration', () => {
 
     const rotation12 = performEpochRotation(epoch1Result.epochPrivateKey, [owner.publicKey]);
     const ownerWrap2 = defined(rotation12.memberWraps[0]);
-    const encryptedTitle2 = encryptMessageForStorage(rotation12.epochPublicKey, 'Title');
+    const encryptedTitle2 = encryptTextForEpoch(rotation12.epochPublicKey, 'Title');
 
     await submitRotation(db, {
       conversationId,
@@ -507,8 +507,8 @@ describe('member rotation integration', () => {
     const rotationA = performEpochRotation(epoch1Result.epochPrivateKey, [owner.publicKey]);
     const rotationB = performEpochRotation(epoch1Result.epochPrivateKey, [owner.publicKey]);
 
-    const encryptedTitleA = encryptMessageForStorage(rotationA.epochPublicKey, 'Title A');
-    const encryptedTitleB = encryptMessageForStorage(rotationB.epochPublicKey, 'Title B');
+    const encryptedTitleA = encryptTextForEpoch(rotationA.epochPublicKey, 'Title A');
+    const encryptedTitleB = encryptTextForEpoch(rotationB.epochPublicKey, 'Title B');
 
     const results = await Promise.allSettled([
       submitRotation(db, {
@@ -578,7 +578,7 @@ describe('member rotation integration', () => {
 
     const rotation = performEpochRotation(epoch1Result.epochPrivateKey, [owner.publicKey]);
     const ownerWrap = defined(rotation.memberWraps[0]);
-    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+    const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, 'Title');
 
     const revokeResult = await revokeLink(db, linkId, conversationId, {
       conversationId,
@@ -678,7 +678,7 @@ describe('member rotation integration', () => {
         )
       );
 
-    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+    const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, 'Title');
 
     await submitRotation(db, {
       conversationId,
@@ -773,7 +773,7 @@ describe('member rotation integration', () => {
           wrap: memberBWrap2.wrap,
         },
       ],
-      encryptedTitle: encryptMessageForStorage(rotation12.epochPublicKey, 'Title 2'),
+      encryptedTitle: encryptTextForEpoch(rotation12.epochPublicKey, 'Title 2'),
     });
 
     const envE2 = beginMessageEnvelope(rotation12.epochPublicKey);
@@ -822,7 +822,7 @@ describe('member rotation integration', () => {
           wrap: ownerWrap3.wrap,
         },
       ],
-      encryptedTitle: encryptMessageForStorage(rotation23.epochPublicKey, 'Title 3'),
+      encryptedTitle: encryptTextForEpoch(rotation23.epochPublicKey, 'Title 3'),
     });
 
     const envE3 = beginMessageEnvelope(rotation23.epochPublicKey);
@@ -903,7 +903,7 @@ describe('member rotation integration', () => {
 
     const rotation = performEpochRotation(epoch1Result.epochPrivateKey, [owner.publicKey]);
     const ownerWrap = defined(rotation.memberWraps[0]);
-    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+    const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, 'Title');
 
     const result = await submitRotation(db, {
       conversationId,
@@ -967,7 +967,7 @@ describe('member rotation integration', () => {
       rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, memberB.publicKey))
     );
 
-    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'My Title');
+    const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, 'My Title');
 
     await db.insert(conversationMembers).values({
       conversationId,
@@ -1001,7 +1001,7 @@ describe('member rotation integration', () => {
       .select()
       .from(conversations)
       .where(eq(conversations.id, conversationId));
-    const title = decryptMessage(epoch2PrivateKey, defined(conv).title);
+    const title = decryptTextFromEpoch(epoch2PrivateKey, defined(conv).title);
     expect(title).toBe('My Title');
   });
 
@@ -1076,7 +1076,7 @@ describe('member rotation integration', () => {
           wrap: ownerWrap2.wrap,
         },
       ],
-      encryptedTitle: encryptMessageForStorage(rotation12.epochPublicKey, 'Title'),
+      encryptedTitle: encryptTextForEpoch(rotation12.epochPublicKey, 'Title'),
     });
 
     await db.insert(conversationMembers).values({
@@ -1152,7 +1152,7 @@ describe('member rotation integration', () => {
     const linkWrap = defined(
       rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, linkKeyPair.publicKey))
     );
-    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+    const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, 'Title');
 
     // createLink with rotation — should NOT throw WrapSetMismatchError
     const result = await createLink(db, {
@@ -1240,7 +1240,7 @@ describe('member rotation integration', () => {
     const memberBWrap = defined(
       rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, memberB.publicKey))
     );
-    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+    const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, 'Title');
 
     await submitRotation(db, {
       conversationId,
@@ -1311,7 +1311,7 @@ describe('member rotation integration', () => {
     const linkWrap = defined(
       rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, linkKeyPair.publicKey))
     );
-    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+    const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, 'Title');
 
     await createLink(db, {
       conversationId,
@@ -1385,7 +1385,7 @@ describe('member rotation integration', () => {
     const memberBWrap = defined(
       rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, memberB.publicKey))
     );
-    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+    const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, 'Title');
 
     // Add member B with history (visibleFromEpoch = 1)
     await db.insert(conversationMembers).values({
@@ -1483,7 +1483,7 @@ describe('member rotation integration', () => {
     const linkRotationWrap = defined(
       rotation.memberWraps.find((w) => bytesEqual(w.memberPublicKey, linkKeyPair.publicKey))
     );
-    const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, 'Title');
+    const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, 'Title');
 
     await submitRotation(db, {
       conversationId,
@@ -1552,7 +1552,7 @@ describe('member rotation integration', () => {
       confirmationHash: rotation1to2.confirmationHash,
       chainLink: rotation1to2.chainLink,
       memberWraps: [{ memberPublicKey: owner.publicKey, wrap: ownerWrap2.wrap }],
-      encryptedTitle: encryptMessageForStorage(rotation1to2.epochPublicKey, 'T'),
+      encryptedTitle: encryptTextForEpoch(rotation1to2.epochPublicKey, 'T'),
     });
 
     // Add member B at epoch 3 (visibleFromEpoch = 3), rotation epoch 2 → 3
@@ -1582,7 +1582,7 @@ describe('member rotation integration', () => {
         { memberPublicKey: owner.publicKey, wrap: ownerWrap3.wrap },
         { memberPublicKey: memberB.publicKey, wrap: memberBWrap3.wrap },
       ],
-      encryptedTitle: encryptMessageForStorage(rotation2to3.epochPublicKey, 'T'),
+      encryptedTitle: encryptTextForEpoch(rotation2to3.epochPublicKey, 'T'),
     });
 
     // Message at epoch 3
@@ -1625,7 +1625,7 @@ describe('member rotation integration', () => {
         { memberPublicKey: owner.publicKey, wrap: ownerWrap4.wrap },
         { memberPublicKey: memberB.publicKey, wrap: memberBWrap4.wrap },
       ],
-      encryptedTitle: encryptMessageForStorage(rotation3to4.epochPublicKey, 'T'),
+      encryptedTitle: encryptTextForEpoch(rotation3to4.epochPublicKey, 'T'),
     });
 
     // Rotation epoch 4 → 5
@@ -1647,7 +1647,7 @@ describe('member rotation integration', () => {
         { memberPublicKey: owner.publicKey, wrap: ownerWrap5.wrap },
         { memberPublicKey: memberB.publicKey, wrap: memberBWrap5.wrap },
       ],
-      encryptedTitle: encryptMessageForStorage(rotation4to5.epochPublicKey, 'T'),
+      encryptedTitle: encryptTextForEpoch(rotation4to5.epochPublicKey, 'T'),
     });
 
     // Key chain for member B (visibleFromEpoch = 3):

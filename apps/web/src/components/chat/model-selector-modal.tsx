@@ -163,7 +163,7 @@ function ModelItemDetails({
   return (
     <div className="text-muted-foreground relative flex items-center justify-between text-xs">
       <span className="truncate">
-        {model.isAutoRouter ? (
+        {model.isSmartModel ? (
           'Auto-picks the best model'
         ) : (
           <>
@@ -401,10 +401,10 @@ function useFilteredModels({
   return React.useMemo(() => {
     const isDefault = sortField === null && !searchQuery.trim() && !webSearchFilter;
 
-    const autoRouter = models.find((m) => m.isAutoRouter === true);
-    const nonAutoModels = models.filter((m) => m.isAutoRouter !== true);
+    const smartModel = models.find((m) => m.isSmartModel === true);
+    const nonSmartModels = models.filter((m) => m.isSmartModel !== true);
 
-    let result = filterBySearch(nonAutoModels, searchQuery);
+    let result = filterBySearch(nonSmartModels, searchQuery);
     if (webSearchFilter) {
       result = result.filter((m) => modelSupportsCapability(m, 'web-search'));
     }
@@ -417,9 +417,9 @@ function useFilteredModels({
         .map((id) => interlaced.find((m) => m.id === id))
         .filter((m): m is Model => m !== undefined);
       const remaining = interlaced.filter((m) => !pinnedIds.includes(m.id));
-      return [...(autoRouter ? [autoRouter] : []), ...pinned, ...remaining];
+      return [...(smartModel ? [smartModel] : []), ...pinned, ...remaining];
     }
-    return [...(autoRouter ? [autoRouter] : []), ...interlaced];
+    return [...(smartModel ? [smartModel] : []), ...interlaced];
   }, [
     models,
     searchQuery,

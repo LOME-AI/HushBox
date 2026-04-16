@@ -6,7 +6,7 @@ import {
   isPremiumModel,
   exceedsTrialBudget,
 } from './premium-check.js';
-import type { OpenRouterModel } from './types.js';
+import type { RawModel } from './types.js';
 
 describe('PREMIUM_PRICE_PERCENTILE', () => {
   it('is 0.75 (75th percentile)', () => {
@@ -22,7 +22,7 @@ describe('PREMIUM_RECENCY_MS', () => {
 });
 
 describe('isPremiumModel', () => {
-  const createModel = (overrides: Partial<OpenRouterModel> = {}): OpenRouterModel => ({
+  const createModel = (overrides: Partial<RawModel> = {}): RawModel => ({
     id: 'test/model',
     name: 'Test Model',
     description: 'A test model',
@@ -79,7 +79,7 @@ describe('TRIAL_AFFORDABILITY_MULTIPLIER', () => {
 });
 
 describe('exceedsTrialBudget', () => {
-  const createModel = (overrides: Partial<OpenRouterModel> = {}): OpenRouterModel => ({
+  const createModel = (overrides: Partial<RawModel> = {}): RawModel => ({
     id: 'test/model',
     name: 'Test Model',
     description: 'A test model',

@@ -10,7 +10,7 @@ vi.mock('../lib/auth', () => ({
 
 // Mock crypto and epoch-key-cache (transitive deps of chat.js)
 vi.mock('@hushbox/crypto', () => ({
-  decryptMessage: vi.fn(),
+  decryptTextFromEpoch: vi.fn(),
   fromBase64: vi.fn(),
 }));
 

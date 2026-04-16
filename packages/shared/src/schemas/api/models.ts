@@ -5,7 +5,7 @@ export const modelCapabilitySchema = z.enum(['internet-search']);
 export type ModelCapability = z.infer<typeof modelCapabilitySchema>;
 
 /**
- * Schema for an AI model available through OpenRouter.
+ * Schema for an AI model available through the AI Gateway.
  */
 export const modelSchema = z.object({
   /** Unique model identifier (e.g., "openai/gpt-4-turbo") */
@@ -33,31 +33,31 @@ export const modelSchema = z.object({
   description: z.string().min(1),
 
   /**
-   * OpenRouter API parameters supported by this model.
+   * AI Gateway API parameters supported by this model.
    * Used to determine which capabilities can be enabled.
    * Example: ['tools', 'temperature', 'top_p', 'max_tokens']
    */
   supportedParameters: z.array(z.string()).default([]),
 
-  /** Per-search cost in USD from OpenRouter metadata */
+  /** Per-search cost in USD from AI Gateway model metadata */
   webSearchPrice: z.number().nonnegative().optional(),
 
   /** Unix timestamp when the model was created */
   created: z.number().optional(),
 
-  /** Whether this model is the auto-router (Smart Model) */
-  isAutoRouter: z.boolean().optional(),
+  /** Whether this model is the synthetic Smart Model router */
+  isSmartModel: z.boolean().optional(),
 
-  /** Minimum input price per token across the auto-router's model pool (for price range display) */
+  /** Minimum input price per token across the Smart Model's pool (for price range display) */
   minPricePerInputToken: z.number().nonnegative().optional(),
 
-  /** Minimum output price per token across the auto-router's model pool (for price range display) */
+  /** Minimum output price per token across the Smart Model's pool (for price range display) */
   minPricePerOutputToken: z.number().nonnegative().optional(),
 
-  /** Maximum input price per token across the auto-router's model pool (for price range display) */
+  /** Maximum input price per token across the Smart Model's pool (for price range display) */
   maxPricePerInputToken: z.number().nonnegative().optional(),
 
-  /** Maximum output price per token across the auto-router's model pool (for price range display) */
+  /** Maximum output price per token across the Smart Model's pool (for price range display) */
   maxPricePerOutputToken: z.number().nonnegative().optional(),
 });
 

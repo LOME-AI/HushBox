@@ -87,7 +87,7 @@ describe('createMockAIClient', () => {
       }
     });
 
-    it('ends with a finish event containing deterministic cost metadata', async () => {
+    it('ends with a finish event containing a generationId (no inline cost)', async () => {
       const request: TextRequest = {
         modality: 'text',
         model: 'anthropic/claude-sonnet-4.6',
@@ -101,7 +101,6 @@ describe('createMockAIClient', () => {
 
       expect(finish).toBeDefined();
       expect(finish!.providerMetadata).toBeDefined();
-      expect(finish!.providerMetadata!.costUsd).toBeGreaterThan(0);
       expect(typeof finish!.providerMetadata!.generationId).toBe('string');
     });
 
@@ -196,7 +195,7 @@ describe('createMockAIClient', () => {
       expect(done!.height).toBe(1);
     });
 
-    it('emits finish with deterministic cost', async () => {
+    it('emits finish with a generationId (no inline cost)', async () => {
       const request: ImageRequest = {
         modality: 'image',
         model: 'google/imagen-4',
@@ -210,7 +209,7 @@ describe('createMockAIClient', () => {
 
       expect(finish).toBeDefined();
       expect(finish!.providerMetadata).toBeDefined();
-      expect(finish!.providerMetadata!.costUsd).toBeGreaterThan(0);
+      expect(typeof finish!.providerMetadata!.generationId).toBe('string');
     });
   });
 

@@ -37,8 +37,8 @@ import { billingKeys } from '@/hooks/billing';
 import {
   createFirstEpoch,
   getPublicKeyFromPrivate,
-  encryptMessageForStorage,
-  decryptMessage,
+  encryptTextForEpoch,
+  decryptTextFromEpoch,
 } from '@hushbox/crypto';
 import {
   setEpochKey,
@@ -282,7 +282,7 @@ function computeDisplayTitle(
   const epochKey = getEpochKey(realConversationId, conversation.titleEpochNumber);
   if (!epochKey) return DECRYPTING_TITLE;
   try {
-    return decryptMessage(epochKey, fromBase64(conversation.title));
+    return decryptTextFromEpoch(epochKey, fromBase64(conversation.title));
   } catch {
     return 'Encrypted conversation';
   }
@@ -574,7 +574,7 @@ export function useAuthenticatedChat({
         if (!ownerWrap) throw new Error('createFirstEpoch returned no member wraps');
 
         const titleText = generateChatTitle(pendingMessage);
-        const encryptedTitleBytes = encryptMessageForStorage(epoch.epochPublicKey, titleText);
+        const encryptedTitleBytes = encryptTextForEpoch(epoch.epochPublicKey, titleText);
 
         const response = await createConversationRef.current({
           id: conversationId,

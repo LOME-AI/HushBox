@@ -18,9 +18,8 @@ import {
 // reshaped for the gateway response format.
 vi.mock('@ai-sdk/gateway', () => {
   // Return a mock createGateway whose getAvailableModels returns our mockModels
-  // mapped to GatewayModelEntry shape. The test's fetchMock for the deprecated
-  // OpenRouter URLs is no longer needed for fetchModels, but kept for any
-  // other code paths that still call fetch().
+  // mapped to GatewayModelEntry shape. The fetchMock below handles any other
+  // code paths that still call fetch() directly.
   return {
     createGateway: () => ({
       getAvailableModels: () =>
@@ -2247,15 +2246,15 @@ describe('chat routes', () => {
     // post-hoc and uses MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL pre-flight
     // (covered by pricing.test.ts in shared).
 
-    describe('auto-router', () => {
-      const AUTO_ROUTER_ID = 'openrouter/auto';
+    describe('smart model', () => {
+      const SMART_MODEL_TEST_ID = 'smart-model';
       // Must be within 2-year age window (from real date ~2026-03) but older than
       // 1 year (to avoid premium-by-recency classification for all models).
       const RECENT_CREATED = Math.floor(new Date('2025-01-15T00:00:00Z').getTime() / 1000);
 
-      const autoRouterModels = [
+      const smartModelTestModels = [
         {
-          id: AUTO_ROUTER_ID,
+          id: SMART_MODEL_TEST_ID,
           name: 'Auto Router',
           description: 'Automatically chooses the best model',
           context_length: 2_000_000,
@@ -2286,14 +2285,14 @@ describe('chat routes', () => {
         },
       ];
 
-      function stubAutoRouterModels(fetchMockFunction: FetchMock): void {
+      function stubSmartModelTestModels(fetchMockFunction: FetchMock): void {
         fetchMockFunction.mockImplementation((url: string) => {
           if (url.includes('/endpoints/zdr')) {
             return Promise.resolve({
               ok: true,
               json: () =>
                 Promise.resolve({
-                  data: autoRouterModels.map((m) => ({
+                  data: smartModelTestModels.map((m) => ({
                     model_id: m.id,
                     model_name: m.name,
                     provider_name: 'Provider',
@@ -2305,7 +2304,7 @@ describe('chat routes', () => {
           }
           return Promise.resolve({
             ok: true,
-            json: () => Promise.resolve({ data: autoRouterModels }),
+            json: () => Promise.resolve({ data: smartModelTestModels }),
           });
         });
       }
@@ -2313,7 +2312,7 @@ describe('chat routes', () => {
       // auto-router plugin tests removed — OpenRouter plugins replaced by AIClient
 
       it('denies request when no models are affordable', async () => {
-        stubAutoRouterModels(fetchMock);
+        stubSmartModelTestModels(fetchMock);
         const app = createTestApp({
           conversations: [
             {
@@ -2338,7 +2337,7 @@ describe('chat routes', () => {
         const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: streamBody({ models: [AUTO_ROUTER_ID], fundingSource: 'free_allowance' }),
+          body: streamBody({ models: [SMART_MODEL_TEST_ID], fundingSource: 'free_allowance' }),
         });
 
         expect(res.status).toBe(402);
@@ -2348,14 +2347,14 @@ describe('chat routes', () => {
 
       it('reserves budget based on worst-case allowed model pricing', async () => {
         vi.useRealTimers();
-        stubAutoRouterModels(fetchMock);
+        stubSmartModelTestModels(fetchMock);
         const mockRedis = createMockRedis();
         const app = createTestApp(undefined, mockRedis);
 
         const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: streamBody({ models: [AUTO_ROUTER_ID] }),
+          body: streamBody({ models: [SMART_MODEL_TEST_ID] }),
         });
 
         expect(res.status).toBe(200);
@@ -2364,7 +2363,7 @@ describe('chat routes', () => {
         // redis.eval is called with (script, [key], [incrementStr, ttlStr])
         const evalCalls = mockRedis.eval.mock.calls;
         expect(evalCalls.length).toBeGreaterThanOrEqual(1);
-        const autoRouterReservation = Number(evalCalls[0]?.[2]?.[0]);
+        const smartModelReservation = Number(evalCalls[0]?.[2]?.[0]);
 
         // Compare: send same request with the cheapest model directly
         const mockRedis2 = createMockRedis();
@@ -2383,9 +2382,9 @@ describe('chat routes', () => {
         expect(evalCalls2.length).toBeGreaterThanOrEqual(1);
         const cheapModelReservation = Number(evalCalls2[0]?.[2]?.[0]);
 
-        // Auto-router reserves at worst-case (most expensive allowed model)
+        // Smart Model reserves at worst-case (most expensive allowed model)
         // so the reservation should be higher than the cheapest model
-        expect(autoRouterReservation).toBeGreaterThan(cheapModelReservation);
+        expect(smartModelReservation).toBeGreaterThan(cheapModelReservation);
       });
     });
 

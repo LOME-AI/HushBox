@@ -23,6 +23,7 @@ import {
   TERMS_OF_SERVICE_EFFECTIVE_DATE,
   BILLING_CONTACT_EMAIL,
   PRIVACY_CONTACT_EMAIL,
+  MEDIA_DOWNLOAD_URL_TTL_SECONDS,
 } from './constants.js';
 
 describe('MESSAGE_ROLES', () => {
@@ -250,5 +251,16 @@ describe('Legal Constants', () => {
     it('is different from BILLING_CONTACT_EMAIL', () => {
       expect(PRIVACY_CONTACT_EMAIL).not.toBe(BILLING_CONTACT_EMAIL);
     });
+  });
+});
+
+describe('MEDIA_DOWNLOAD_URL_TTL_SECONDS', () => {
+  it('is 300 seconds (5 minutes)', () => {
+    expect(MEDIA_DOWNLOAD_URL_TTL_SECONDS).toBe(300);
+  });
+
+  it('is a positive integer', () => {
+    expect(Number.isInteger(MEDIA_DOWNLOAD_URL_TTL_SECONDS)).toBe(true);
+    expect(MEDIA_DOWNLOAD_URL_TTL_SECONDS).toBeGreaterThan(0);
   });
 });

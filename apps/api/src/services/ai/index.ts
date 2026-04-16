@@ -1,4 +1,5 @@
 import { createEnvUtilities, type EnvContext } from '@hushbox/shared';
+import type { Database } from '@hushbox/db';
 import type { AIClient } from './types.js';
 import { createMockAIClient } from './mock.js';
 import { createRealAIClient } from './real.js';
@@ -30,16 +31,25 @@ interface AIClientEnv extends EnvContext {
 }
 
 /**
+ * Optional evidence-recording dependencies. When both are provided, the real
+ * AI client records `SERVICE_NAMES.AI_GATEWAY` evidence after each successful
+ * gateway call so CI integration tests can verify the integration ran.
+ */
+export interface AIClientOptions {
+  db?: Database;
+  isCI?: boolean;
+}
+
+/**
  * Get the appropriate AIClient based on environment.
  *
  * - Local dev / test: Returns mock client
  * - E2E: Returns mock client (E2E tests UI flows, not AI gateway integration)
- * - CI integration / production: Requires real credentials, fails fast if missing
- *
- * Note: The real AIClient implementation (real.ts) will be added in Step 3
- * when we migrate from OpenRouter to the Vercel AI SDK.
+ * - CI integration / production: Requires real credentials, fails fast if missing.
+ *   If `options.db` and `options.isCI === true` are supplied, the real client
+ *   records evidence after each successful call.
  */
-export function getAIClient(env: AIClientEnv): AIClient {
+export function getAIClient(env: AIClientEnv, options: AIClientOptions = {}): AIClient {
   const { isLocalDev, isE2E } = createEnvUtilities(env);
 
   if (isLocalDev || isE2E) {
@@ -50,5 +60,8 @@ export function getAIClient(env: AIClientEnv): AIClient {
     throw new Error('AI_GATEWAY_API_KEY required in CI/production');
   }
 
-  return createRealAIClient(env.AI_GATEWAY_API_KEY);
+  const evidence =
+    options.db && options.isCI !== undefined ? { db: options.db, isCI: options.isCI } : undefined;
+
+  return createRealAIClient(env.AI_GATEWAY_API_KEY, evidence);
 }

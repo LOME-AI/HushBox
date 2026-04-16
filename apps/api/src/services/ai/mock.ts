@@ -16,21 +16,6 @@ import type {
 /** Characters per token approximation for deterministic cost. */
 const CHARS_PER_TOKEN = 4;
 
-/** Deterministic mock cost per input token (USD). */
-const MOCK_INPUT_PRICE_PER_TOKEN = 0.000_003;
-
-/** Deterministic mock cost per output token (USD). */
-const MOCK_OUTPUT_PRICE_PER_TOKEN = 0.000_015;
-
-/** Deterministic mock cost for image generation (USD). */
-const MOCK_IMAGE_COST = 0.04;
-
-/** Deterministic mock cost for video generation (USD). */
-const MOCK_VIDEO_COST = 0.1;
-
-/** Deterministic mock cost for audio generation (USD). */
-const MOCK_AUDIO_COST = 0.02;
-
 /** Deterministic mock cost returned by getGenerationStats (USD). */
 const MOCK_GENERATION_STATS_COST = 0.001;
 
@@ -277,12 +262,6 @@ function extractLastUserContent(messages: AIMessage[]): string {
         .join('');
 }
 
-function calculateMockTextCost(promptCharacters: number, completionCharacters: number): number {
-  const inputTokens = Math.ceil(promptCharacters / CHARS_PER_TOKEN);
-  const outputTokens = Math.ceil(completionCharacters / CHARS_PER_TOKEN);
-  return inputTokens * MOCK_INPUT_PRICE_PER_TOKEN + outputTokens * MOCK_OUTPUT_PRICE_PER_TOKEN;
-}
-
 // ---------------------------------------------------------------------------
 // Stream generators
 // ---------------------------------------------------------------------------
@@ -332,7 +311,6 @@ function createTextStream(request: TextRequest): InferenceStream {
       kind: 'finish',
       providerMetadata: {
         generationId: `mock-gen-${String(Date.now())}`,
-        costUsd: calculateMockTextCost(promptCharacters, echoContent.length),
         usage: {
           inputTokens: Math.ceil(promptCharacters / CHARS_PER_TOKEN),
           outputTokens: Math.ceil(echoContent.length / CHARS_PER_TOKEN),
@@ -356,7 +334,6 @@ function createImageStream(): InferenceStream {
       kind: 'finish',
       providerMetadata: {
         generationId: `mock-gen-${String(Date.now())}`,
-        costUsd: MOCK_IMAGE_COST,
       },
     };
   });
@@ -377,7 +354,6 @@ function createVideoStream(): InferenceStream {
       kind: 'finish',
       providerMetadata: {
         generationId: `mock-gen-${String(Date.now())}`,
-        costUsd: MOCK_VIDEO_COST,
       },
     };
   });
@@ -396,7 +372,6 @@ function createAudioStream(): InferenceStream {
       kind: 'finish',
       providerMetadata: {
         generationId: `mock-gen-${String(Date.now())}`,
-        costUsd: MOCK_AUDIO_COST,
       },
     };
   });

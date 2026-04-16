@@ -150,6 +150,8 @@ describe('getWorktreeConfig', () => {
       expect(config.ports.emulatorAdb).toBe(BASE_PORTS.emulatorAdb + slot);
       expect(config.ports.emulatorVnc).toBe(BASE_PORTS.emulatorVnc + slot);
       expect(config.ports.readmePreview).toBe(BASE_PORTS.readmePreview + slot);
+      expect(config.ports.minioApi).toBe(BASE_PORTS.minioApi + slot);
+      expect(config.ports.minioConsole).toBe(BASE_PORTS.minioConsole + slot);
     });
 
     it('produces different slots for different worktree names', () => {

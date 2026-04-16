@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useState, useCallback } from 'react';
 import { Alert, Overlay, OverlayContent, OverlayHeader, ModalActions, Textarea } from '@hushbox/ui';
 import { toBase64 } from '@hushbox/shared';
-import { encryptMessageForStorage, getPublicKeyFromPrivate } from '@hushbox/crypto';
+import { encryptTextForEpoch, getPublicKeyFromPrivate } from '@hushbox/crypto';
 import { useAuthStore } from '@/lib/auth';
 import { client, fetchJson } from '@/lib/api-client';
 
@@ -47,7 +47,7 @@ export function CustomInstructionsModal({
           return;
         }
         const publicKey = getPublicKeyFromPrivate(privateKey);
-        const encrypted = encryptMessageForStorage(publicKey, trimmed);
+        const encrypted = encryptTextForEpoch(publicKey, trimmed);
         encryptedBase64 = toBase64(encrypted);
       }
 

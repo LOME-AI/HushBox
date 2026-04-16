@@ -11,7 +11,7 @@ import {
   unwrapAccountKeyWithPassword,
   rewrapAccountKeyForPasswordChange,
   recoverAccountFromMnemonic,
-  decryptMessage,
+  decryptTextFromEpoch,
   OPAQUE_SERVER_IDENTIFIER,
 } from '@hushbox/crypto';
 import {
@@ -759,7 +759,7 @@ function decryptCustomInstructions(
   if (!encryptedBase64) return null;
   try {
     const blob = fromBase64(encryptedBase64);
-    return decryptMessage(privateKey, blob);
+    return decryptTextFromEpoch(privateKey, blob);
   } catch {
     return null;
   }

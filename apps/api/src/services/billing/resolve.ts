@@ -109,13 +109,13 @@ export async function buildBillingInput(
 ): Promise<BuildBillingResult> {
   const { userId, models, memberContext, conversationId, apiKey } = params;
   // 1. User tier info + Redis reservations + model premium check (in parallel)
-  const [userTierInfo, reservedCents, openrouterModels] = await Promise.all([
+  const [userTierInfo, reservedCents, gatewayModels] = await Promise.all([
     getUserTierInfo(db, userId),
     getReservedTotal(redis, userId),
     fetchModels(apiKey),
   ]);
 
-  const { premiumIds } = processModels(openrouterModels);
+  const { premiumIds } = processModels(gatewayModels);
   const isPremiumModel = models.some((m) => premiumIds.includes(m));
 
   const adjustedBalanceCents = userTierInfo.balanceCents - reservedCents;
@@ -185,14 +185,14 @@ export async function buildGuestBillingInput(
 ): Promise<BuildBillingResult> {
   const { ownerId, memberId, models, conversationId, apiKey } = params;
 
-  const [ownerTierInfo, reserved, budgets, openrouterModels] = await Promise.all([
+  const [ownerTierInfo, reserved, budgets, gatewayModels] = await Promise.all([
     getUserTierInfo(db, ownerId),
     getGroupReservedTotals(redis, conversationId, memberId, ownerId),
     getConversationBudgets(db, conversationId),
     fetchModels(apiKey),
   ]);
 
-  const { premiumIds } = processModels(openrouterModels);
+  const { premiumIds } = processModels(gatewayModels);
   const isPremiumModel = models.some((m) => premiumIds.includes(m));
 
   const resolved = resolveGroupRemaining(budgets, memberId, ownerTierInfo.balanceCents, reserved);

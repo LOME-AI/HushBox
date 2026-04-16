@@ -36,7 +36,7 @@ vi.mock('@hushbox/crypto', () => ({
       wrap: mockCryptoBytes(48),
     })),
   })),
-  encryptMessageForStorage: vi.fn(() => mockCryptoBytes(64)),
+  encryptTextForEpoch: vi.fn(() => mockCryptoBytes(64)),
   beginMessageEnvelope: vi.fn(() => ({
     contentKey: mockCryptoBytes(32),
     wrappedContentKey: mockCryptoBytes(81),

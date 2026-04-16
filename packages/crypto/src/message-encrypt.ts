@@ -21,15 +21,12 @@ import {
  * etc. Messages use the wrap-once envelope helpers below.             *
  * ------------------------------------------------------------------ */
 
-export function encryptMessageForStorage(
-  epochPublicKey: Uint8Array,
-  plaintext: string
-): Uint8Array {
+export function encryptTextForEpoch(epochPublicKey: Uint8Array, plaintext: string): Uint8Array {
   const payload = encodeForEncryption(plaintext);
   return eciesEncrypt(epochPublicKey, payload);
 }
 
-export function decryptMessage(epochPrivateKey: Uint8Array, blob: Uint8Array): string {
+export function decryptTextFromEpoch(epochPrivateKey: Uint8Array, blob: Uint8Array): string {
   const payload = eciesDecrypt(epochPrivateKey, blob);
   return decodeFromDecryption(payload);
 }

@@ -6,7 +6,7 @@ export interface Capability {
   description: string;
 
   /**
-   * OpenRouter parameters required for this capability.
+   * AI Gateway model parameters required for this capability.
    * Capability is only available if all parameters are in the model's supported_parameters.
    */
   requiredParameters: string[];

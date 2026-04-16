@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { decryptMessage } from '@hushbox/crypto';
+import { decryptTextFromEpoch } from '@hushbox/crypto';
 import { fromBase64, type MemberPrivilege } from '@hushbox/shared';
 import { useAuthStore } from '../lib/auth';
 import { client, fetchJson } from '../lib/api-client';
@@ -147,7 +147,7 @@ export function useDecryptedConversations(): {
       const epochKey = getEpochKey(conv.id, conv.titleEpochNumber);
       if (!epochKey || !conv.title) return { ...conv, title: DECRYPTING_TITLE };
       try {
-        return { ...conv, title: decryptMessage(epochKey, fromBase64(conv.title)) };
+        return { ...conv, title: decryptTextFromEpoch(epochKey, fromBase64(conv.title)) };
       } catch {
         return { ...conv, title: 'Encrypted conversation' };
       }

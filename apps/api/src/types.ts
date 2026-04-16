@@ -3,6 +3,7 @@ import type { Database } from '@hushbox/db';
 import type { EnvUtilities, Platform } from '@hushbox/shared';
 import type { AIClient } from './services/ai/index.js';
 import type { HelcimClient } from './services/helcim/index.js';
+import type { MediaStorage } from './services/storage/index.js';
 import type { SessionData } from './lib/session.js';
 
 /** Minimal Durable Object namespace binding (avoids leaking @cloudflare/workers-types globally) */
@@ -11,14 +12,22 @@ interface DONamespaceBinding {
   get(id: { toString(): string }): { fetch(request: Request): Promise<Response> };
 }
 
-/** Minimal R2 bucket binding (avoids leaking @cloudflare/workers-types globally) */
-interface R2BucketBinding {
+/**
+ * Minimal R2 bucket binding (avoids leaking @cloudflare/workers-types globally).
+ * Matches the shape of Cloudflare's Workers R2 binding for put/get/delete.
+ */
+export interface R2BucketBinding {
   get(key: string): Promise<{
     body: ReadableStream;
     httpMetadata?: { contentType?: string };
     size: number;
   } | null>;
-  put(key: string, value: ReadableStream | ArrayBuffer | string): Promise<unknown>;
+  put(
+    key: string,
+    value: ReadableStream | ArrayBuffer | ArrayBufferView | string,
+    options?: { httpMetadata?: { contentType?: string } }
+  ): Promise<unknown>;
+  delete(key: string): Promise<void>;
 }
 
 export interface Bindings {
@@ -39,8 +48,18 @@ export interface Bindings {
   UPSTASH_REDIS_REST_TOKEN?: string;
   OPAQUE_MASTER_SECRET?: string;
   IRON_SESSION_SECRET?: string;
+  /** R2 S3 API endpoint for presigned GET URL minting (reads only). */
+  R2_S3_ENDPOINT?: string;
+  /** R2 S3 API access key id (reads only). */
+  R2_ACCESS_KEY_ID?: string;
+  /** R2 S3 API secret access key (reads only). */
+  R2_SECRET_ACCESS_KEY?: string;
+  /** R2 bucket name for media. Matches the bucket the MEDIA_BUCKET binding points at. */
+  R2_BUCKET_MEDIA?: string;
   CONVERSATION_ROOM?: DONamespaceBinding;
   APP_BUILDS?: R2BucketBinding;
+  /** Encrypted-media R2 bucket. Writes go through this binding; reads via presigned URLs. */
+  MEDIA_BUCKET?: R2BucketBinding;
 }
 
 export interface Variables {
@@ -48,6 +67,7 @@ export interface Variables {
   db: Database;
   redis: Redis;
   aiClient: AIClient;
+  mediaStorage: MediaStorage;
   helcim: HelcimClient;
   envUtils: EnvUtilities;
   user: {

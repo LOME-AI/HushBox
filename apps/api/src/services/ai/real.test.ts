@@ -413,4 +413,87 @@ describe('createRealAIClient', () => {
       expect(stats.costUsd).toBe(0.0042);
     });
   });
+
+  describe('evidence recording', () => {
+    interface FakeDb {
+      insert: ReturnType<typeof vi.fn>;
+    }
+
+    function createFakeDb(): FakeDb {
+      const values = vi.fn(() => Promise.resolve([]));
+      return {
+        insert: vi.fn(() => ({ values })),
+      };
+    }
+
+    it('records evidence after a successful listModels call when isCI=true', async () => {
+      const db = createFakeDb();
+      const evidenceClient = createRealAIClient('test-api-key', {
+        db: db as never,
+        isCI: true,
+      });
+      mockGatewayInstance.getAvailableModels.mockResolvedValue({ models: [] });
+
+      await evidenceClient.listModels();
+
+      expect(db.insert).toHaveBeenCalledTimes(1);
+    });
+
+    it('records evidence after a successful stream when isCI=true', async () => {
+      const db = createFakeDb();
+      const evidenceClient = createRealAIClient('test-api-key', {
+        db: db as never,
+        isCI: true,
+      });
+      mockStreamText.mockReturnValue(
+        createMockFullStream([
+          { type: 'text-delta', textDelta: 'Hi' },
+          { type: 'finish', finishReason: 'stop', totalUsage: {} },
+        ])
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+      await collectEvents(evidenceClient.stream(request));
+
+      expect(db.insert).toHaveBeenCalledTimes(1);
+    });
+
+    it('records evidence after a successful getGenerationStats call when isCI=true', async () => {
+      const db = createFakeDb();
+      const evidenceClient = createRealAIClient('test-api-key', {
+        db: db as never,
+        isCI: true,
+      });
+      mockGatewayInstance.getGenerationInfo.mockResolvedValue({ totalCost: 0.01 });
+
+      await evidenceClient.getGenerationStats('gen-xyz');
+
+      expect(db.insert).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not record evidence when isCI=false', async () => {
+      const db = createFakeDb();
+      const evidenceClient = createRealAIClient('test-api-key', {
+        db: db as never,
+        isCI: false,
+      });
+      mockGatewayInstance.getAvailableModels.mockResolvedValue({ models: [] });
+
+      await evidenceClient.listModels();
+
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('does not record evidence when evidence config is omitted', async () => {
+      const plainClient = createRealAIClient('test-api-key');
+      mockGatewayInstance.getAvailableModels.mockResolvedValue({ models: [] });
+
+      // Should not throw (no db to record with) and should return models normally.
+      await expect(plainClient.listModels()).resolves.toEqual([]);
+    });
+  });
 });

@@ -8,7 +8,7 @@ import { calculateBudget } from '../budget.js';
 import { MAX_TRIAL_MESSAGE_COST_CENTS, MINIMUM_OUTPUT_TOKENS } from '../constants.js';
 import { applyFees } from '../pricing.js';
 
-import type { OpenRouterModel } from './types.js';
+import type { RawModel } from './types.js';
 
 /** Percentile threshold for premium pricing (0.75 = 75th percentile) */
 export const PREMIUM_PRICE_PERCENTILE = 0.75;
@@ -26,11 +26,11 @@ export const TRIAL_AFFORDABILITY_MULTIPLIER = 2;
  * - Its combined price (prompt + completion) >= price threshold, OR
  * - It was released within the last year
  *
- * @param model - The OpenRouter model to check
+ * @param model - The raw gateway model to check
  * @param priceThreshold - The price threshold (combined prompt + completion per token)
  * @returns true if the model is premium
  */
-export function isPremiumModel(model: OpenRouterModel, priceThreshold: number): boolean {
+export function isPremiumModel(model: RawModel, priceThreshold: number): boolean {
   const price =
     Number.parseFloat(model.pricing.prompt) + Number.parseFloat(model.pricing.completion);
   const recencyThreshold = Date.now() - PREMIUM_RECENCY_MS;
@@ -45,11 +45,11 @@ export function isPremiumModel(model: OpenRouterModel, priceThreshold: number): 
  * A model exceeds the trial budget when:
  *   estimatedInputCost + (2 × MINIMUM_OUTPUT_TOKENS × outputCostPerToken) > trialBudget
  *
- * @param model - The OpenRouter model to check
+ * @param model - The raw gateway model to check
  * @param systemPromptChars - Precomputed system prompt length (e.g. buildSystemPrompt([]).length)
  * @returns true if the model exceeds the trial budget
  */
-export function exceedsTrialBudget(model: OpenRouterModel, systemPromptChars: number): boolean {
+export function exceedsTrialBudget(model: RawModel, systemPromptChars: number): boolean {
   const result = calculateBudget({
     tier: 'trial',
     balanceCents: 0,

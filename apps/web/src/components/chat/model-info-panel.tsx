@@ -146,7 +146,7 @@ export function ModelInfoPanel({
   model,
   compact = false,
 }: Readonly<ModelInfoPanelProps>): React.JSX.Element {
-  if (model.isAutoRouter === true) {
+  if (model.isSmartModel === true) {
     return <AutoRouterPanel model={model} compact={compact} />;
   }
   return <StandardPanel model={model} compact={compact} />;

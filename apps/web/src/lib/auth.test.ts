@@ -105,7 +105,7 @@ vi.mock('@hushbox/crypto', () => ({
   unwrapAccountKeyWithPassword: vi.fn(() => new Uint8Array([60, 61, 62])),
   rewrapAccountKeyForPasswordChange: vi.fn(() => new Uint8Array([70, 71, 72])),
   recoverAccountFromMnemonic: vi.fn(() => Promise.resolve(new Uint8Array([80, 81, 82]))),
-  decryptMessage: vi.fn(() => 'decrypted instructions'),
+  decryptTextFromEpoch: vi.fn(() => 'decrypted instructions'),
   getPublicKeyFromPrivate: vi.fn(() => new Uint8Array([90, 91, 92])),
 }));
 
@@ -130,7 +130,7 @@ import {
   unwrapAccountKeyWithPassword,
   rewrapAccountKeyForPasswordChange,
   recoverAccountFromMnemonic,
-  decryptMessage,
+  decryptTextFromEpoch,
 } from '@hushbox/crypto';
 import { toBase64 } from '@hushbox/shared';
 import { getLinkGuestAuth } from './link-guest-auth.js';
@@ -1696,11 +1696,11 @@ describe('auth', () => {
         user: testUser,
         customInstructionsEncrypted: 'encrypted-blob-base64',
       });
-      vi.mocked(decryptMessage).mockReturnValue('Be concise and direct');
+      vi.mocked(decryptTextFromEpoch).mockReturnValue('Be concise and direct');
 
       await initAuth();
 
-      expect(decryptMessage).toHaveBeenCalled();
+      expect(decryptTextFromEpoch).toHaveBeenCalled();
       expect(useAuthStore.getState().customInstructions).toBe('Be concise and direct');
     });
 
@@ -1718,7 +1718,7 @@ describe('auth', () => {
 
       await initAuth();
 
-      expect(decryptMessage).not.toHaveBeenCalled();
+      expect(decryptTextFromEpoch).not.toHaveBeenCalled();
       expect(useAuthStore.getState().customInstructions).toBeNull();
     });
 
@@ -1733,7 +1733,7 @@ describe('auth', () => {
         user: testUser,
         customInstructionsEncrypted: 'corrupted-data',
       });
-      vi.mocked(decryptMessage).mockImplementation(() => {
+      vi.mocked(decryptTextFromEpoch).mockImplementation(() => {
         throw new Error('Decryption failed');
       });
 

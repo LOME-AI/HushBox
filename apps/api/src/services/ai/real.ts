@@ -1,6 +1,7 @@
 import { streamText, generateImage, experimental_generateVideo } from 'ai';
 import { createGateway } from '@ai-sdk/gateway';
 import { isZdrModel } from '@hushbox/shared/models';
+import { recordServiceEvidence, SERVICE_NAMES, type Database } from '@hushbox/db';
 import type {
   AIClient,
   InferenceEvent,
@@ -16,6 +17,16 @@ import type {
   VideoRequest,
   AudioRequest,
 } from './types.js';
+
+/**
+ * Optional evidence-recording config.
+ * When supplied, the real client calls `recordServiceEvidence` after each
+ * successful AI Gateway call so CI can verify the integration was exercised.
+ */
+export interface EvidenceConfig {
+  db: Database;
+  isCI: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Gateway model type → Modality mapping
@@ -336,8 +347,30 @@ function streamAudioRequest(_request: AudioRequest): InferenceStream {
 // Factory
 // ---------------------------------------------------------------------------
 
-export function createRealAIClient(apiKey: string): AIClient {
+export function createRealAIClient(apiKey: string, evidence?: EvidenceConfig): AIClient {
   const gateway = createGateway({ apiKey });
+
+  const recordEvidence = async (): Promise<void> => {
+    if (!evidence) return;
+    await recordServiceEvidence(evidence.db, evidence.isCI, SERVICE_NAMES.AI_GATEWAY);
+  };
+
+  /** Wrap an upstream InferenceStream so evidence is recorded after the first successful event. */
+  const withEvidenceOnStream = (upstream: InferenceStream): InferenceStream => {
+    if (!evidence) return upstream;
+    return {
+      async *[Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+        let recorded = false;
+        for await (const event of upstream) {
+          if (!recorded) {
+            recorded = true;
+            await recordEvidence();
+          }
+          yield event;
+        }
+      },
+    };
+  };
 
   return {
     isMock: false,
@@ -345,7 +378,9 @@ export function createRealAIClient(apiKey: string): AIClient {
     async listModels(): Promise<ModelInfo[]> {
       const response = await gateway.getAvailableModels();
       const rawModels = (response as { models: RawGatewayModel[] }).models;
-      return rawModels.map((m) => toModelInfo(m));
+      const models = rawModels.map((m) => toModelInfo(m));
+      await recordEvidence();
+      return models;
     },
 
     async getModel(id: string): Promise<ModelInfo> {
@@ -358,23 +393,25 @@ export function createRealAIClient(apiKey: string): AIClient {
     stream(request: InferenceRequest): InferenceStream {
       switch (request.modality) {
         case 'text': {
-          return streamTextRequest(gateway, request);
+          return withEvidenceOnStream(streamTextRequest(gateway, request));
         }
         case 'image': {
-          return streamImageRequest(gateway, request);
+          return withEvidenceOnStream(streamImageRequest(gateway, request));
         }
         case 'video': {
-          return streamVideoRequest(gateway, request);
+          return withEvidenceOnStream(streamVideoRequest(gateway, request));
         }
         case 'audio': {
-          return streamAudioRequest(request);
+          return withEvidenceOnStream(streamAudioRequest(request));
         }
       }
     },
 
     async getGenerationStats(generationId: string): Promise<{ costUsd: number }> {
       const info = await gateway.getGenerationInfo({ id: generationId });
-      return { costUsd: (info as { totalCost: number }).totalCost };
+      const result = { costUsd: (info as { totalCost: number }).totalCost };
+      await recordEvidence();
+      return result;
     },
   };
 }

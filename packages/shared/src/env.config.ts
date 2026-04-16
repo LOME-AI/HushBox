@@ -140,6 +140,14 @@ export const envConfig = {
     // NOT in CI - email service uses console client when CI=true
   },
 
+  // Vercel AI Gateway API key. Only production and ciE2E need it — local dev,
+  // unit tests, and local E2E all use the mock AIClient.
+  AI_GATEWAY_API_KEY: {
+    to: [Destination.Backend],
+    [Mode.CiE2E]: secret('AI_GATEWAY_API_KEY'),
+    [Mode.Production]: secret('AI_GATEWAY_API_KEY'),
+  },
+
   FCM_PROJECT_ID: {
     to: [Destination.Backend],
     [Mode.Production]: secret('FCM_PROJECT_ID'),
@@ -175,6 +183,44 @@ export const envConfig = {
     [Mode.E2E]: ref(Mode.Development),
     [Mode.CiE2E]: secret('HELCIM_WEBHOOK_VERIFIER_SANDBOX'),
     [Mode.Production]: secret('HELCIM_WEBHOOK_VERIFIER_PRODUCTION'),
+  },
+
+  // R2 media storage — credentials used only for minting presigned GET URLs.
+  // Writes go through the MEDIA_BUCKET Workers binding and need no credentials.
+  R2_S3_ENDPOINT: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'http://localhost:9000',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: secret('R2_S3_ENDPOINT'),
+  },
+
+  R2_ACCESS_KEY_ID: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'minioadmin',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: secret('R2_ACCESS_KEY_ID'),
+  },
+
+  R2_SECRET_ACCESS_KEY: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'minioadmin',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: secret('R2_SECRET_ACCESS_KEY'),
+  },
+
+  R2_BUCKET_MEDIA: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'hushbox-media-dev',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: 'hushbox-media',
   },
 
   // Frontend only
@@ -258,6 +304,11 @@ export const backendEnvSchema = z.object({
   // Auth secrets
   OPAQUE_MASTER_SECRET: z.string().min(32),
   IRON_SESSION_SECRET: z.string().min(32),
+  // R2 media storage (presigned URL credentials)
+  R2_S3_ENDPOINT: z.string().url().optional(),
+  R2_ACCESS_KEY_ID: z.string().min(1).optional(),
+  R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  R2_BUCKET_MEDIA: z.string().min(1).optional(),
 });
 
 export type BackendEnv = z.infer<typeof backendEnvSchema>;

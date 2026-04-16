@@ -9,7 +9,7 @@ vi.mock('@hushbox/crypto', () => {
       publicKey: new Uint8Array(32).fill(0xaa),
       privateKey: new Uint8Array(32).fill(0xbb),
     })),
-    encryptMessageForStorage: vi.fn((_, plaintext: string) => {
+    encryptTextForEpoch: vi.fn((_, plaintext: string) => {
       const bytes = encoder.encode(plaintext);
       const result = new Uint8Array(bytes.length + 49);
       result[0] = 0x01;
@@ -118,16 +118,13 @@ describe('EncryptionDemo', () => {
     expect(screen.getByTestId('demo')).toHaveClass('custom-class');
   });
 
-  it('calls encryptMessageForStorage with generated key', async () => {
-    const { encryptMessageForStorage } = await import('@hushbox/crypto');
+  it('calls encryptTextForEpoch with generated key', async () => {
+    const { encryptTextForEpoch } = await import('@hushbox/crypto');
     const user = userEvent.setup();
     render(<EncryptionDemo />);
 
     await user.click(screen.getByRole('button', { name: /show what's stored/i }));
 
-    expect(encryptMessageForStorage).toHaveBeenCalledWith(
-      expect.any(Uint8Array),
-      'This is private.'
-    );
+    expect(encryptTextForEpoch).toHaveBeenCalledWith(expect.any(Uint8Array), 'This is private.');
   });
 });

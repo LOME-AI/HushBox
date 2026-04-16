@@ -2,7 +2,7 @@ import type { Database } from './client';
 import { serviceEvidence } from './schema/service-evidence';
 
 export const SERVICE_NAMES = {
-  OPENROUTER: 'openrouter',
+  AI_GATEWAY: 'ai-gateway',
   HOOKDECK: 'hookdeck',
 } as const;
 

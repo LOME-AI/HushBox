@@ -386,8 +386,8 @@ vi.mock('@hushbox/crypto', () => ({
     ],
   }),
   getPublicKeyFromPrivate: () => new Uint8Array(32).fill(13),
-  encryptMessageForStorage: () => new Uint8Array(64).fill(20),
-  decryptMessage: (_key: Uint8Array, _blob: Uint8Array) => 'Decrypted Title',
+  encryptTextForEpoch: () => new Uint8Array(64).fill(20),
+  decryptTextFromEpoch: (_key: Uint8Array, _blob: Uint8Array) => 'Decrypted Title',
 }));
 
 let mockAuthPrivateKey: Uint8Array | null = mockPrivateKey;

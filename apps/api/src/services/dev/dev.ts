@@ -12,7 +12,7 @@ import {
   type Database,
 } from '@hushbox/db';
 import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN, type DevPersona } from '@hushbox/shared';
-import { createFirstEpoch, encryptMessageForStorage } from '@hushbox/crypto';
+import { createFirstEpoch, encryptTextForEpoch } from '@hushbox/crypto';
 import { checkUserBalance } from '../billing/index.js';
 import { createOrGetConversation } from '../conversations/index.js';
 import { saveUserOnlyMessage } from '../chat/index.js';
@@ -416,7 +416,7 @@ export async function createDevGroupChat(
     await tx.insert(conversations).values({
       id: conversationId,
       userId: owner.id,
-      title: encryptMessageForStorage(epochResult.epochPublicKey, ''),
+      title: encryptTextForEpoch(epochResult.epochPublicKey, ''),
     });
 
     // Insert epoch

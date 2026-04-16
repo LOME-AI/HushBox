@@ -14,6 +14,7 @@ import {
 import { createRedisClient } from '../lib/redis.js';
 import { createIronSessionMiddleware } from './iron-session.js';
 import { getAIClient } from '../services/ai/index.js';
+import { getMediaStorage } from '../services/storage/index.js';
 import { getHelcimClient } from '../services/helcim/index.js';
 import type { AppEnv } from '../types.js';
 import { createErrorResponse } from '../lib/error-response.js';
@@ -137,7 +138,19 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
 export function aiClientMiddleware(): MiddlewareHandler<AppEnv> {
   // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
-    c.set('aiClient', getAIClient(c.env));
+    // dbMiddleware + envMiddleware run before this on every route prefix
+    // that uses aiClientMiddleware — so `db` and `envUtils` are always set.
+    const db = c.get('db');
+    const { isCI } = c.get('envUtils');
+    c.set('aiClient', getAIClient(c.env, { db, isCI }));
+    await next();
+  };
+}
+
+export function mediaStorageMiddleware(): MiddlewareHandler<AppEnv> {
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
+  return async (c, next) => {
+    c.set('mediaStorage', getMediaStorage(c.env));
     await next();
   };
 }

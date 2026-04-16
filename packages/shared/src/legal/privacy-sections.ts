@@ -38,7 +38,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     points: [
       'We route your messages through third-party AI providers to generate responses. Your messages are sent using HushBox\u2019s credentials, not yours \u2014 providers cannot identify you personally.',
       'Message content is visible to AI providers during processing. This is inherent to how AI models work. Avoid including sensitive personal information (names, addresses, financial details) in your messages.',
-      'We use OpenRouter as our AI gateway service. You can review their privacy practices at openrouter.ai/privacy.',
+      'We route all AI model requests through a single AI gateway service that enforces zero-data-retention across providers. We never grant model providers access to your account, billing information, or long-term conversation history.',
       'Our payment processor handles all payment transactions. We never receive or store your credit card number or bank details.',
     ],
   },

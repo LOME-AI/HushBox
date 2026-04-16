@@ -8,7 +8,7 @@ import {
 import type { UserTier } from './tiers.js';
 
 /**
- * Parse a token price string from the OpenRouter API.
+ * Parse a token price string from the AI Gateway model metadata.
  * Returns 0 for negative sentinel values (e.g. "-1" = "variable pricing")
  * and for NaN/missing values.
  */
@@ -59,9 +59,9 @@ export function calculateTokenCostWithFees(
 }
 
 export interface MessageCostParams {
-  /** Tokens used for input (from OpenRouter) */
+  /** Tokens used for input (from the AI Gateway) */
   inputTokens: number;
-  /** Tokens used for output (from OpenRouter) */
+  /** Tokens used for output (from the AI Gateway) */
   outputTokens: number;
   /** Characters in user message */
   inputCharacters: number;
@@ -78,8 +78,8 @@ export interface MessageCostParams {
 /**
  * Estimate message cost for development environment using token counts.
  *
- * Use this when exact OpenRouter stats are not available (local development).
- * For production, use calculateMessageCostFromOpenRouter with exact costs.
+ * Use this when exact AI Gateway generation stats are not available (local development).
+ * For production, use calculateMessageCostFromActual with exact costs.
  *
  * Components:
  * 1. Token cost with fees: uses calculateTokenCostWithFees (includes 15% markup)

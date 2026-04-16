@@ -20,22 +20,26 @@ export const STRONGEST_MODEL_ID = 'anthropic/claude-opus-4.6';
 /** Model ID for the "Value" quick-select button */
 export const VALUE_MODEL_ID = 'deepseek/deepseek-r1';
 
-/** Model ID for OpenRouter's auto-router */
-export const AUTO_ROUTER_MODEL_ID = 'openrouter/auto';
+/**
+ * Synthetic ID for HushBox's Smart Model — the classifier-based router
+ * that picks the best underlying model per message.
+ * Step 11 implements the full classifier pipeline; for now this is a
+ * stable identifier the frontend can persist and the backend can special-case.
+ */
+export const SMART_MODEL_ID = 'smart-model';
 
 /**
- * Client-only input price estimation for auto-router (per token, USD).
- * Based on cheapest model the auto-router supports ($0.000039/1k tokens).
- * Backend computes its own pricing from the allowed models list.
+ * Client-only input price estimation for the Smart Model display.
+ * Used only as a headline price on the model selector; backend computes
+ * actual pricing dynamically from the allowed models list.
  */
-export const AUTO_ROUTER_INPUT_PRICE_PER_TOKEN = 0.000_000_039;
+export const SMART_MODEL_INPUT_PRICE_PER_TOKEN = 0.000_000_039;
 
 /**
- * Client-only output price estimation for auto-router (per token, USD).
- * Based on cheapest model the auto-router supports ($0.00019/1k tokens).
- * Backend computes its own pricing from the allowed models list.
+ * Client-only output price estimation for the Smart Model display.
+ * See SMART_MODEL_INPUT_PRICE_PER_TOKEN.
  */
-export const AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN = 0.000_000_19;
+export const SMART_MODEL_OUTPUT_PRICE_PER_TOKEN = 0.000_000_19;
 
 /** HushBox's profit margin on AI model usage (5%) */
 export const HUSHBOX_FEE_RATE = 0.05;
@@ -92,6 +96,17 @@ export const STORAGE_COST_PER_1K_CHARS = STORAGE_COST_PER_CHARACTER * 1000;
 
 /** Payment expiration time in milliseconds (30 minutes) */
 export const PAYMENT_EXPIRATION_MS = 30 * 60 * 1000;
+
+// ============================================================================
+// Media Storage Constants
+// ============================================================================
+
+/**
+ * Time-to-live for presigned R2 GET URLs, in seconds.
+ * Short enough to prevent long-lived leaks, long enough for clients
+ * to fetch and decrypt media after unwrapping the content key.
+ */
+export const MEDIA_DOWNLOAD_URL_TTL_SECONDS = 300;
 
 // ============================================================================
 // Budget Protection Constants

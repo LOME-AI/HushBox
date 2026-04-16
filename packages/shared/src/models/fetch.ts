@@ -1,5 +1,5 @@
 import { createGateway } from '@ai-sdk/gateway';
-import type { OpenRouterModel } from './types.js';
+import type { RawModel } from './types.js';
 
 // ============================================================================
 // Cache — 1-hour TTL. Key includes the API key to prevent cross-tenant leaks
@@ -9,7 +9,7 @@ import type { OpenRouterModel } from './types.js';
 
 interface CacheEntry {
   apiKey: string;
-  data: OpenRouterModel[];
+  data: RawModel[];
   expiresAt: number;
 }
 
@@ -49,14 +49,14 @@ interface GatewayModelEntry {
 }
 
 /**
- * Map a gateway model entry to our internal OpenRouterModel shape.
+ * Map a gateway model entry to our internal RawModel shape.
  *
  * Fields the gateway doesn't return (context_length, created,
  * supported_parameters, architecture) are defaulted. These fields are retained
  * on the type for compatibility with downstream consumers; future cleanup can
  * remove them as consumers are updated.
  */
-function toOpenRouterModel(entry: GatewayModelEntry): OpenRouterModel {
+function toRawModel(entry: GatewayModelEntry): RawModel {
   const modelType = entry.modelType ?? 'language';
   const isTextModel = modelType === 'language';
 
@@ -83,14 +83,14 @@ function toOpenRouterModel(entry: GatewayModelEntry): OpenRouterModel {
  * Requires an API key — the gateway's /config endpoint is authenticated.
  * Results are cached in memory for 1 hour per API key.
  */
-export async function fetchModels(apiKey: string): Promise<OpenRouterModel[]> {
+export async function fetchModels(apiKey: string): Promise<RawModel[]> {
   if (modelsCache?.apiKey === apiKey && Date.now() < modelsCache.expiresAt) {
     return modelsCache.data;
   }
 
   const gateway = createGateway({ apiKey });
   const response = await gateway.getAvailableModels();
-  const mapped = response.models.map((m) => toOpenRouterModel(m as GatewayModelEntry));
+  const mapped = response.models.map((m) => toRawModel(m as GatewayModelEntry));
 
   modelsCache = {
     apiKey,

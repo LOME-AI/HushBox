@@ -22,7 +22,7 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 vi.mock('@hushbox/crypto', () => ({
-  encryptMessageForStorage: (...args: unknown[]) =>
+  encryptTextForEpoch: (...args: unknown[]) =>
     (mockEncryptMessageForStorage as (...a: unknown[]) => unknown)(...args),
   getPublicKeyFromPrivate: (...args: unknown[]) =>
     (mockGetPublicKeyFromPrivate as (...a: unknown[]) => unknown)(...args),

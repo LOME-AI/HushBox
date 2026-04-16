@@ -143,6 +143,12 @@ const ERROR_MESSAGES = {
   BILLING_SESSION_RESTRICTED:
     'This session can only access billing. Please log in normally for full access.',
   BUILD_NOT_FOUND: 'The requested app version was not found.',
+
+  // Media storage codes
+  STORAGE_WRITE_FAILED: "We couldn't save the generated media. Please try again.",
+  STORAGE_READ_FAILED: "We couldn't load this media. Please refresh the page.",
+  CONTENT_ITEM_NOT_FOUND: 'Content item not found.',
+  CONTENT_ITEM_NOT_MEDIA: 'This content item is not downloadable media.',
 } as const satisfies Record<string, string>;
 
 /** Known error code — union of all keys in the error message map. */

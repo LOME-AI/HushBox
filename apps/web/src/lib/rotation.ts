@@ -4,7 +4,7 @@
  * NOT deferred to message send. The send path has zero rotation logic.
  */
 
-import { performEpochRotation, encryptMessageForStorage } from '@hushbox/crypto';
+import { performEpochRotation, encryptTextForEpoch } from '@hushbox/crypto';
 import { toBase64 } from '@hushbox/shared';
 import type { StreamChatRotation } from '@hushbox/shared';
 import { client, fetchJson } from './api-client.js';
@@ -55,7 +55,7 @@ export function buildRotation(input: BuildRotationInput): RotationResult {
     input.currentEpochPrivateKey,
     input.members.map((m) => m.publicKey)
   );
-  const encryptedTitle = encryptMessageForStorage(rotation.epochPublicKey, input.plaintextTitle);
+  const encryptedTitle = encryptTextForEpoch(rotation.epochPublicKey, input.plaintextTitle);
 
   const params: StreamChatRotation = {
     expectedEpoch: input.currentEpochNumber,

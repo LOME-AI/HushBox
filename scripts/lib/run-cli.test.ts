@@ -38,7 +38,7 @@ describe('parseOrExit', () => {
       require: args,
     });
 
-    const result = parseOrExit(parser, ['openrouter', 'helcim']);
-    expect(result).toEqual({ require: ['openrouter', 'helcim'] });
+    const result = parseOrExit(parser, ['ai-gateway', 'helcim']);
+    expect(result).toEqual({ require: ['ai-gateway', 'helcim'] });
   });
 });

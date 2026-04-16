@@ -270,7 +270,7 @@ export async function chargeAndTrackUsage(
     userId: params.userId,
     cost: params.cost,
     model: params.model,
-    provider: 'openrouter',
+    provider: 'ai-gateway',
     inputTokens: params.inputTokens,
     outputTokens: params.outputTokens,
     cachedTokens: params.cachedTokens,

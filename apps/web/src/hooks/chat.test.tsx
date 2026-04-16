@@ -25,7 +25,7 @@ vi.mock('../lib/auth', () => ({
 // Mock crypto and epoch-key-cache (used by useDecryptedConversations)
 const mockDecryptMessage = vi.fn();
 vi.mock('@hushbox/crypto', () => ({
-  decryptMessage: (...args: unknown[]) => mockDecryptMessage(...args),
+  decryptTextFromEpoch: (...args: unknown[]) => mockDecryptMessage(...args),
 }));
 
 vi.mock('@hushbox/shared', async (importOriginal) => {

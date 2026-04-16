@@ -183,27 +183,27 @@ describe('ModelSelectorButton', () => {
     expect(screen.getByTestId('model-selector-button')).toHaveClass('justify-center');
   });
 
-  it('displays "Smart Model" when auto-router is selected', () => {
-    const modelsWithAutoRouter: Model[] = [
+  it('displays "Smart Model" when the Smart Model is selected', () => {
+    const modelsWithSmartModel: Model[] = [
       ...mockModels,
       {
-        id: 'openrouter/auto',
+        id: 'smart-model',
         name: 'Smart Model',
-        provider: 'OpenRouter',
+        provider: 'HushBox',
         contextLength: 2_000_000,
         pricePerInputToken: 0.000_000_039,
         pricePerOutputToken: 0.000_000_19,
         capabilities: [],
         description: 'Uses the best model for your task',
         supportedParameters: [],
-        isAutoRouter: true,
+        isSmartModel: true,
       },
     ];
 
     render(
       <ModelSelectorButton
-        models={modelsWithAutoRouter}
-        selectedModels={[{ id: 'openrouter/auto', name: 'Smart Model' }]}
+        models={modelsWithSmartModel}
+        selectedModels={[{ id: 'smart-model', name: 'Smart Model' }]}
         onSelect={vi.fn()}
       />
     );
@@ -211,11 +211,11 @@ describe('ModelSelectorButton', () => {
     expect(screen.getByRole('button')).toHaveTextContent('Smart Model');
   });
 
-  it('displays fallback name for auto-router before models load', () => {
+  it('displays fallback name for Smart Model before models load', () => {
     render(
       <ModelSelectorButton
         models={[]}
-        selectedModels={[{ id: 'openrouter/auto', name: 'Smart Model' }]}
+        selectedModels={[{ id: 'smart-model', name: 'Smart Model' }]}
         onSelect={vi.fn()}
       />
     );

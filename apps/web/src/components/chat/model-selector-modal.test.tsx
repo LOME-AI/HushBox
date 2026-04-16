@@ -1317,32 +1317,32 @@ describe('ModelSelectorModal', () => {
     });
   });
 
-  describe('auto-router (Smart Model)', () => {
-    const autoRouterModel: Model = {
-      id: 'openrouter/auto',
+  describe('Smart Model pin + details', () => {
+    const smartModelEntry: Model = {
+      id: 'smart-model',
       name: 'Smart Model',
-      provider: 'OpenRouter',
+      provider: 'HushBox',
       contextLength: 2_000_000,
       pricePerInputToken: 0.000_000_039,
       pricePerOutputToken: 0.000_000_19,
       capabilities: [],
       description: 'Uses the best model for your task',
       supportedParameters: [],
-      isAutoRouter: true,
+      isSmartModel: true,
       minPricePerInputToken: 0.000_000_039,
       minPricePerOutputToken: 0.000_000_19,
       maxPricePerInputToken: 0.000_06,
       maxPricePerOutputToken: 0.000_18,
     };
 
-    const modelsWithAutoRouter: Model[] = [autoRouterModel, ...mockModels];
+    const modelsWithSmart: Model[] = [smartModelEntry, ...mockModels];
 
-    it('pins auto-router at the very top in default view', () => {
+    it('pins Smart Model at the very top in default view', () => {
       render(
         <ModelSelectorModal
           open={true}
           onOpenChange={vi.fn()}
-          models={modelsWithAutoRouter}
+          models={modelsWithSmart}
           selectedIds={new Set(['openai/gpt-4-turbo'])}
           onSelect={vi.fn()}
         />
@@ -1352,13 +1352,13 @@ describe('ModelSelectorModal', () => {
       expect(modelItems[0]).toHaveTextContent('Smart Model');
     });
 
-    it('pins auto-router to top when sort is active', async () => {
+    it('pins Smart Model to top when sort is active', async () => {
       const user = userEvent.setup();
       render(
         <ModelSelectorModal
           open={true}
           onOpenChange={vi.fn()}
-          models={modelsWithAutoRouter}
+          models={modelsWithSmart}
           selectedIds={new Set(['openai/gpt-4-turbo'])}
           onSelect={vi.fn()}
         />
@@ -1370,13 +1370,13 @@ describe('ModelSelectorModal', () => {
       expect(modelItems[0]).toHaveTextContent('Smart Model');
     });
 
-    it('pins auto-router to top when search is active', async () => {
+    it('pins Smart Model to top when search is active', async () => {
       const user = userEvent.setup();
       render(
         <ModelSelectorModal
           open={true}
           onOpenChange={vi.fn()}
-          models={modelsWithAutoRouter}
+          models={modelsWithSmart}
           selectedIds={new Set(['openai/gpt-4-turbo'])}
           onSelect={vi.fn()}
         />
@@ -1395,8 +1395,8 @@ describe('ModelSelectorModal', () => {
         <ModelSelectorModal
           open={true}
           onOpenChange={vi.fn()}
-          models={modelsWithAutoRouter}
-          selectedIds={new Set(['openrouter/auto'])}
+          models={modelsWithSmart}
+          selectedIds={new Set(['smart-model'])}
           onSelect={vi.fn()}
         />
       );
@@ -1413,8 +1413,8 @@ describe('ModelSelectorModal', () => {
         <ModelSelectorModal
           open={true}
           onOpenChange={vi.fn()}
-          models={modelsWithAutoRouter}
-          selectedIds={new Set(['openrouter/auto'])}
+          models={modelsWithSmart}
+          selectedIds={new Set(['smart-model'])}
           onSelect={vi.fn()}
         />
       );
@@ -1424,13 +1424,13 @@ describe('ModelSelectorModal', () => {
       expect(screen.getByText('How It Works')).toBeInTheDocument();
     });
 
-    it('does not show expensive model warning for auto-router', () => {
+    it('does not show expensive model warning for the Smart Model', () => {
       render(
         <ModelSelectorModal
           open={true}
           onOpenChange={vi.fn()}
-          models={modelsWithAutoRouter}
-          selectedIds={new Set(['openrouter/auto'])}
+          models={modelsWithSmart}
+          selectedIds={new Set(['smart-model'])}
           onSelect={vi.fn()}
         />
       );
@@ -1443,14 +1443,14 @@ describe('ModelSelectorModal', () => {
         <ModelSelectorModal
           open={true}
           onOpenChange={vi.fn()}
-          models={modelsWithAutoRouter}
-          selectedIds={new Set(['openrouter/auto'])}
+          models={modelsWithSmart}
+          selectedIds={new Set(['smart-model'])}
           onSelect={vi.fn()}
         />
       );
 
-      const autoRouterItem = screen.getByTestId('model-item-openrouter/auto');
-      expect(autoRouterItem).toHaveTextContent('Auto-picks the best model');
+      const smartModelItem = screen.getByTestId('model-item-smart-model');
+      expect(smartModelItem).toHaveTextContent('Auto-picks the best model');
     });
   });
 

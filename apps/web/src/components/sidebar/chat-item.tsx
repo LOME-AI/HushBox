@@ -13,7 +13,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { ItemRow } from '@/components/shared/item-row';
-import { encryptMessageForStorage, getPublicKeyFromPrivate } from '@hushbox/crypto';
+import { encryptTextForEpoch, getPublicKeyFromPrivate } from '@hushbox/crypto';
 import { toBase64, ROUTES } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { useDeleteConversation, useUpdateConversation, DECRYPTING_TITLE } from '@/hooks/chat';
@@ -67,7 +67,7 @@ function encryptTitle(
   const epochPrivateKey = getEpochKey(conversationId, currentEpoch);
   if (!epochPrivateKey) return undefined;
   const epochPublicKey = getPublicKeyFromPrivate(epochPrivateKey);
-  return toBase64(encryptMessageForStorage(epochPublicKey, trimmed));
+  return toBase64(encryptTextForEpoch(epochPublicKey, trimmed));
 }
 
 function ChatItemMenuContent({

@@ -54,7 +54,7 @@ export interface EnvUtilities {
   isProduction: boolean;
   /** Running in CI */
   isCI: boolean;
-  /** Running E2E tests (in CI) - uses mocks for some services like OpenRouter */
+  /** Running E2E tests (in CI) - uses mocks for some services like the AI Gateway */
   isE2E: boolean;
   /** CI or production - require real credentials */
   requiresRealServices: boolean;

@@ -51,7 +51,7 @@ import {
   finishRegistration,
   createAccount,
   createFirstEpoch,
-  encryptMessageForStorage,
+  encryptTextForEpoch,
   beginMessageEnvelope,
   encryptTextWithContentKey,
   OpaqueClientConfig,
@@ -404,10 +404,7 @@ function generateUserEntities(userIndex: number): UserEntities {
       projectFactory.build({
         id: seedUUID(`seed-project-${String(userIndex + 1)}-${String(projectIndex + 1)}`),
         userId,
-        encryptedName: encryptMessageForStorage(
-          userPublicKey,
-          `Project ${String(projectIndex + 1)}`
-        ),
+        encryptedName: encryptTextForEpoch(userPublicKey, `Project ${String(projectIndex + 1)}`),
         encryptedDescription: null,
       })
     );
@@ -425,10 +422,7 @@ function generateUserEntities(userIndex: number): UserEntities {
       conversationFactory.build({
         id: convId,
         userId,
-        title: encryptMessageForStorage(
-          epochPublicKey,
-          `Seed Conversation ${String(convIndex + 1)}`
-        ),
+        title: encryptTextForEpoch(epochPublicKey, `Seed Conversation ${String(convIndex + 1)}`),
       })
     );
     allEpochs.push(epoch);
@@ -662,7 +656,7 @@ function createPersonaSampleData(
       projectFactory.build({
         id: seedUUID(`${personaName}-project-${String(projectIndex + 1)}`),
         userId,
-        encryptedName: encryptMessageForStorage(
+        encryptedName: encryptTextForEpoch(
           userPublicKey,
           `${personaName} Project ${String(projectIndex + 1)}`
         ),
@@ -688,7 +682,7 @@ function createPersonaSampleData(
       conversationFactory.build({
         id: convId,
         userId,
-        title: encryptMessageForStorage(epochPublicKey, convTitle),
+        title: encryptTextForEpoch(epochPublicKey, convTitle),
       })
     );
     sampleEpochs.push(epoch);
@@ -958,7 +952,7 @@ function createCharlieConversation(
   const conversation = conversationFactory.build({
     id: convId,
     userId,
-    title: encryptMessageForStorage(epochPublicKey, 'Charlie Conversation'),
+    title: encryptTextForEpoch(epochPublicKey, 'Charlie Conversation'),
   });
   const charlieMessages: MessageWithId[] = [];
   const charlieContentItems: ContentItemWithId[] = [];
@@ -1118,7 +1112,7 @@ export function createScreenshotConversations(
       conversationFactory.build({
         id: convId,
         userId: params.aliceUserId,
-        title: encryptMessageForStorage(epochPublicKey, `Screenshot: ${solo.name}`),
+        title: encryptTextForEpoch(epochPublicKey, `Screenshot: ${solo.name}`),
       })
     );
     allEpochs.push(epoch);
@@ -1206,7 +1200,7 @@ export function createScreenshotConversations(
     conversationFactory.build({
       id: groupConvId,
       userId: params.aliceUserId,
-      title: encryptMessageForStorage(groupEpochResult.epochPublicKey, 'Screenshot: group-chat'),
+      title: encryptTextForEpoch(groupEpochResult.epochPublicKey, 'Screenshot: group-chat'),
     })
   );
 
@@ -1445,7 +1439,7 @@ function createTestSampleData(
       projectFactory.build({
         id: seedUUID(`${personaName}-project-${String(index + 1)}`),
         userId,
-        encryptedName: encryptMessageForStorage(
+        encryptedName: encryptTextForEpoch(
           userPublicKey,
           `${personaName} Project ${String(index + 1)}`
         ),
@@ -1466,7 +1460,7 @@ function createTestSampleData(
       conversationFactory.build({
         id: convId,
         userId,
-        title: encryptMessageForStorage(
+        title: encryptTextForEpoch(
           epochPublicKey,
           `${personaName} Conversation ${String(index + 1)}`
         ),

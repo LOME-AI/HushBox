@@ -234,27 +234,27 @@ describe('Model type', () => {
     expect(result.success).toBe(false);
   });
 
-  it('accepts optional isAutoRouter flag', () => {
+  it('accepts optional isSmartModel flag', () => {
     const model = {
-      id: 'openrouter/auto',
+      id: 'smart-model',
       name: 'Smart Model',
-      provider: 'OpenRouter',
+      provider: 'HushBox',
       contextLength: 2_000_000,
       pricePerInputToken: 0.000_000_039,
       pricePerOutputToken: 0.000_000_19,
       capabilities: [],
       description: 'Uses the best model for your task',
-      isAutoRouter: true,
+      isSmartModel: true,
     };
 
     const result = modelSchema.safeParse(model);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.isAutoRouter).toBe(true);
+      expect(result.data.isSmartModel).toBe(true);
     }
   });
 
-  it('defaults isAutoRouter to undefined when omitted', () => {
+  it('defaults isSmartModel to undefined when omitted', () => {
     const model = {
       id: 'test',
       name: 'Test',
@@ -269,21 +269,21 @@ describe('Model type', () => {
     const result = modelSchema.safeParse(model);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.isAutoRouter).toBeUndefined();
+      expect(result.data.isSmartModel).toBeUndefined();
     }
   });
 
-  it('accepts auto-router price range fields', () => {
+  it('accepts Smart Model price range fields', () => {
     const model = {
-      id: 'openrouter/auto',
+      id: 'smart-model',
       name: 'Smart Model',
-      provider: 'OpenRouter',
+      provider: 'HushBox',
       contextLength: 2_000_000,
       pricePerInputToken: 0.000_000_039,
       pricePerOutputToken: 0.000_000_19,
       capabilities: [],
       description: 'Uses the best model for your task',
-      isAutoRouter: true,
+      isSmartModel: true,
       minPricePerInputToken: 0.000_000_039,
       minPricePerOutputToken: 0.000_000_19,
       maxPricePerInputToken: 0.000_06,

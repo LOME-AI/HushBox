@@ -507,7 +507,7 @@ describe('useDecryptedMessages', () => {
     });
   });
 
-  it('shows fallback when decryptMessage throws', async () => {
+  it('shows fallback when decryptTextFromEpoch throws', async () => {
     mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
     mockDecryptTextWithContentKey.mockImplementation(() => {
       throw new Error('corrupted blob');

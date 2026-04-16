@@ -104,6 +104,14 @@ describe('Privacy Policy', () => {
       expect(allText.toLowerCase()).not.toContain('posthog');
     });
 
+    it('does not mention the AI gateway provider by name', () => {
+      const allText = PRIVACY_SECTIONS.flatMap((s) => [s.title, s.simplyPut, ...s.points]).join(
+        ' '
+      );
+      expect(allText.toLowerCase()).not.toContain('openrouter');
+      expect(allText.toLowerCase()).not.toContain('vercel');
+    });
+
     it('does not promise data export', () => {
       const allText = PRIVACY_SECTIONS.flatMap((s) => [s.title, s.simplyPut, ...s.points]).join(
         ' '

@@ -15,7 +15,7 @@ vi.mock('../lib/auth', () => ({
 
 // Mock crypto (transitive dep of chat.js)
 vi.mock('@hushbox/crypto', () => ({
-  decryptMessage: vi.fn(),
+  decryptTextFromEpoch: vi.fn(),
 }));
 
 // Mock shared base64 (transitive dep of chat.js)

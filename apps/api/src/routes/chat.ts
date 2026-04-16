@@ -523,7 +523,7 @@ type RegenerateValidationResult =
       billingValidation: Awaited<ReturnType<typeof resolveAndReserveBilling>> & { success: true };
       billingUserId: string;
       safeMaxTokens: number | undefined;
-      openrouterModels: Awaited<ReturnType<typeof import('@hushbox/shared/models').fetchModels>>;
+      gatewayModels: Awaited<ReturnType<typeof import('@hushbox/shared/models').fetchModels>>;
       worstCaseCents: number;
       groupBudget: GroupBudgetReservation | undefined;
       webSearchCost: number;
@@ -604,14 +604,10 @@ async function validateRegenerationRequest(
     billingValidation,
     billingUserId: billingValidation.billingUserId,
     safeMaxTokens: billingValidation.safeMaxTokens,
-    openrouterModels: billingValidation.openrouterModels,
+    gatewayModels: billingValidation.gatewayModels,
     worstCaseCents: billingValidation.worstCaseCents,
     groupBudget: billingValidation.groupBudget,
-    webSearchCost: resolveWebSearchCost(
-      webSearchEnabled,
-      model,
-      billingValidation.openrouterModels
-    ),
+    webSearchCost: resolveWebSearchCost(webSearchEnabled, model, billingValidation.gatewayModels),
   };
 }
 

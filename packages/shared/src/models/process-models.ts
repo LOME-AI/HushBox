@@ -1,14 +1,14 @@
 /**
  * Model processing service.
  *
- * Handles filtering, classification, and transformation of OpenRouter models.
+ * Handles filtering, classification, and transformation of AI Gateway models.
  */
 
 import type { Model, ModelCapability } from '../schemas/api/models.js';
 import {
-  AUTO_ROUTER_MODEL_ID,
-  AUTO_ROUTER_INPUT_PRICE_PER_TOKEN,
-  AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN,
+  SMART_MODEL_ID,
+  SMART_MODEL_INPUT_PRICE_PER_TOKEN,
+  SMART_MODEL_OUTPUT_PRICE_PER_TOKEN,
 } from '../constants.js';
 import { parseTokenPrice } from '../pricing.js';
 
@@ -17,7 +17,7 @@ import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 import { isPremiumModel, PREMIUM_PRICE_PERCENTILE, exceedsTrialBudget } from './premium-check.js';
 import { isZdrModel } from './zdr.js';
 
-import type { OpenRouterModel, ProcessedModels } from './types.js';
+import type { RawModel, ProcessedModels } from './types.js';
 
 // ============================================================
 // Constants
@@ -54,7 +54,7 @@ export const PROVIDER_MAP: Record<string, string> = {
 /**
  * Get the combined price of a model (prompt + completion per token).
  */
-function getCombinedPrice(model: OpenRouterModel): number {
+function getCombinedPrice(model: RawModel): number {
   return parseTokenPrice(model.pricing.prompt) + parseTokenPrice(model.pricing.completion);
 }
 
@@ -77,7 +77,7 @@ function calculatePercentileThreshold(values: number[], percentile: number): num
  * - Utility models by name pattern
  * - Models that don't include text in input or output modalities
  */
-function isExcludedAlways(model: OpenRouterModel): boolean {
+function isExcludedAlways(model: RawModel): boolean {
   if (getCombinedPrice(model) === 0) {
     return true;
   }
@@ -95,7 +95,7 @@ function isExcludedAlways(model: OpenRouterModel): boolean {
  * - Age: older than 2 years
  * - Minimum price: cheaper than $0.0002 per 1K tokens
  */
-function isExcludedByStandardCriteria(model: OpenRouterModel): boolean {
+function isExcludedByStandardCriteria(model: RawModel): boolean {
   const cutoffMs = Date.now() - MAX_AGE_MS;
   if (model.created * 1000 < cutoffMs) {
     return true;
@@ -109,7 +109,7 @@ function isExcludedByStandardCriteria(model: OpenRouterModel): boolean {
  * Extract provider and clean name from model.
  * Tries "Provider: Model Name" format first, falls back to ID prefix.
  */
-function extractProvider(model: OpenRouterModel): { provider: string; displayName: string } {
+function extractProvider(model: RawModel): { provider: string; displayName: string } {
   const colonIndex = model.name.indexOf(':');
   if (colonIndex > 0) {
     const provider = model.name.slice(0, colonIndex).trim();
@@ -138,9 +138,9 @@ function deriveCapabilities(params: string[]): ModelCapability[] {
 }
 
 /**
- * Transform OpenRouter model to shared Model type.
+ * Transform a raw gateway model to the shared Model type.
  */
-function transform(model: OpenRouterModel): Model {
+function transform(model: RawModel): Model {
   const { provider, displayName } = extractProvider(model);
   return {
     id: model.id,
@@ -164,7 +164,7 @@ function transform(model: OpenRouterModel): Model {
 // ============================================================
 
 /**
- * Process raw OpenRouter models: filter, classify, and transform.
+ * Process raw gateway models: filter, classify, and transform.
  *
  * Filtering rules:
  * - Always excluded: free models, utility models (body builder, auto router, image)
@@ -176,23 +176,27 @@ function transform(model: OpenRouterModel): Model {
  * - Output cost exceeds trial budget for 2× minimum output tokens
  */
 /**
- * Build auto-router Model entry with price ranges derived from the model pool.
+ * Build the synthetic Smart Model entry with price ranges derived from
+ * the eligible model pool. The Smart Model is not a gateway model — it's
+ * a virtual entry the UI can select; the backend resolves the actual model
+ * per-message (Step 11's classifier-based router).
  */
-function buildAutoRouterModel(autoRouterRaw: OpenRouterModel, pool: OpenRouterModel[]): Model {
+function buildSmartModelEntry(pool: RawModel[]): Model {
   const inputPrices = pool.map((m) => parseTokenPrice(m.pricing.prompt));
   const outputPrices = pool.map((m) => parseTokenPrice(m.pricing.completion));
+  const contexts = pool.map((m) => m.context_length);
 
   return {
-    id: AUTO_ROUTER_MODEL_ID,
+    id: SMART_MODEL_ID,
     name: 'Smart Model',
-    description: autoRouterRaw.description,
-    provider: 'OpenRouter',
-    contextLength: autoRouterRaw.context_length,
-    pricePerInputToken: AUTO_ROUTER_INPUT_PRICE_PER_TOKEN,
-    pricePerOutputToken: AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN,
-    capabilities: deriveCapabilities(autoRouterRaw.supported_parameters),
-    supportedParameters: autoRouterRaw.supported_parameters,
-    isAutoRouter: true,
+    description: 'Automatically picks the best model for each message.',
+    provider: 'HushBox',
+    contextLength: Math.max(...contexts),
+    pricePerInputToken: SMART_MODEL_INPUT_PRICE_PER_TOKEN,
+    pricePerOutputToken: SMART_MODEL_OUTPUT_PRICE_PER_TOKEN,
+    capabilities: [],
+    supportedParameters: [],
+    isSmartModel: true,
     minPricePerInputToken: Math.min(...inputPrices),
     minPricePerOutputToken: Math.min(...outputPrices),
     maxPricePerInputToken: Math.max(...inputPrices),
@@ -200,22 +204,17 @@ function buildAutoRouterModel(autoRouterRaw: OpenRouterModel, pool: OpenRouterMo
   };
 }
 
-export function processModels(rawModels: OpenRouterModel[]): ProcessedModels {
+export function processModels(rawModels: RawModel[]): ProcessedModels {
   // ZDR filter: only include models on the per-modality ZDR allow-list.
   // For now, process-models handles text only; image/video use their own paths.
   const zdrFiltered = rawModels.filter((m) => isZdrModel(m.id, 'text'));
 
-  // Extract auto-router from full list (it enforces ZDR via provider config, so it
-  // doesn't need to appear in the /endpoints/zdr response)
-  const autoRouterRaw = rawModels.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
-  const modelsForFiltering = zdrFiltered.filter((m) => m.id !== AUTO_ROUTER_MODEL_ID);
-
-  // Calculate context threshold from non-auto-router models
-  const contexts = modelsForFiltering.map((m) => m.context_length);
+  // Calculate context threshold from ZDR-filtered pool
+  const contexts = zdrFiltered.map((m) => m.context_length);
   const contextThreshold = calculatePercentileThreshold(contexts, TOP_CONTEXT_PERCENTILE);
 
   // Filter
-  const filtered = modelsForFiltering.filter((model) => {
+  const filtered = zdrFiltered.filter((model) => {
     if (isExcludedAlways(model)) {
       return false;
     }
@@ -241,9 +240,9 @@ export function processModels(rawModels: OpenRouterModel[]): ProcessedModels {
     }
   }
 
-  // Inject auto-router if present in ZDR list and pool has models
-  if (autoRouterRaw && filtered.length > 0) {
-    models.push(buildAutoRouterModel(autoRouterRaw, filtered));
+  // Inject the synthetic Smart Model entry if the pool has any eligible models.
+  if (filtered.length > 0) {
+    models.push(buildSmartModelEntry(filtered));
   }
 
   return { models, premiumIds };

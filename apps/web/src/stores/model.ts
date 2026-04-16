@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { AUTO_ROUTER_MODEL_ID, MAX_SELECTED_MODELS } from '@hushbox/shared';
+import { SMART_MODEL_ID, MAX_SELECTED_MODELS } from '@hushbox/shared';
 
-export const DEFAULT_MODEL_ID = AUTO_ROUTER_MODEL_ID;
+export const DEFAULT_MODEL_ID = SMART_MODEL_ID;
 export const DEFAULT_MODEL_NAME = 'Smart Model';
 
 export interface SelectedModelEntry {

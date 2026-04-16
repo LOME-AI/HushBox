@@ -9,6 +9,7 @@ import {
   redisMiddleware,
   sessionMiddleware,
   aiClientMiddleware,
+  mediaStorageMiddleware,
   helcimMiddleware,
   ironSessionMiddleware,
   csrfProtection,
@@ -25,6 +26,7 @@ import {
   linksRoute,
   messageSharesRoute,
   publicSharesRoute,
+  mediaRoute,
   trialChatRoute,
   modelsRoute,
   billingRoute,
@@ -91,6 +93,13 @@ export function createApp() {
   base.use('/api/messages/*', redisMiddleware());
   base.use('/api/messages/*', ironSessionMiddleware());
   base.use('/api/messages/*', sessionMiddleware());
+
+  base.use('/api/media/*', csrfProtection());
+  base.use('/api/media/*', dbMiddleware());
+  base.use('/api/media/*', redisMiddleware());
+  base.use('/api/media/*', ironSessionMiddleware());
+  base.use('/api/media/*', sessionMiddleware());
+  base.use('/api/media/*', mediaStorageMiddleware());
 
   base.use('/api/forks/*', csrfProtection());
   base.use('/api/forks/*', dbMiddleware());
@@ -164,6 +173,7 @@ export function createApp() {
     .route('/api/links', linksRoute)
     .route('/api/messages', messageSharesRoute)
     .route('/api/shares', publicSharesRoute)
+    .route('/api/media', mediaRoute)
     .route('/api/keys', keysRoute)
     .route('/api/chat', chatRoute)
     .route('/api/forks', forksRoute)

@@ -19,7 +19,7 @@ vi.mock('@hushbox/realtime/events', () => ({
 import { getModelPricing } from '@hushbox/shared';
 import { broadcastFireAndForget } from './broadcast.js';
 import { createEvent } from '@hushbox/realtime/events';
-import type { OpenRouterModel as ModelInfo } from '@hushbox/shared/models';
+import type { RawModel as ModelInfo } from '@hushbox/shared/models';
 import type { InferenceEvent, InferenceStream } from '../services/ai/index.js';
 import {
   BATCH_INTERVAL_MS,

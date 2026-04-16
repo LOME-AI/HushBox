@@ -13,6 +13,7 @@ export {
   redisMiddleware,
   sessionMiddleware,
   aiClientMiddleware,
+  mediaStorageMiddleware,
   helcimMiddleware,
   envMiddleware,
   ironSessionMiddleware,

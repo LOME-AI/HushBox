@@ -6,8 +6,8 @@
  * Works with recordServiceEvidence() from @hushbox/db.
  *
  * Usage:
- *   pnpm verify:evidence --require=openrouter
- *   pnpm verify:evidence --require=openrouter,hookdeck
+ *   pnpm verify:evidence --require=ai-gateway
+ *   pnpm verify:evidence --require=ai-gateway,hookdeck
  */
 import {
   createDb,
@@ -31,7 +31,7 @@ export function parseCliArgs(args: string[]): ParsedArgs | { error: string } {
   const requireArgument = args.find((argument) => argument.startsWith('--require='));
 
   if (!requireArgument) {
-    return { error: 'Usage: pnpm verify:evidence --require=openrouter,hookdeck' };
+    return { error: 'Usage: pnpm verify:evidence --require=ai-gateway,hookdeck' };
   }
 
   const servicesRaw = requireArgument.replace('--require=', '');

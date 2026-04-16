@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { cn, buttonVariants } from '@hushbox/ui';
-import { generateKeyPair, encryptMessageForStorage } from '@hushbox/crypto';
+import { generateKeyPair, encryptTextForEpoch } from '@hushbox/crypto';
 
 type EncryptionDemoProps = React.ComponentProps<'div'>;
 
@@ -16,7 +16,7 @@ function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>):
 
   const cipherHex = React.useMemo(() => {
     try {
-      const blob = encryptMessageForStorage(demoPublicKey, text || 'demo');
+      const blob = encryptTextForEpoch(demoPublicKey, text || 'demo');
       return toHex(blob);
     } catch {
       return '(encryption unavailable)';

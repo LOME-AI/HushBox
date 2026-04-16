@@ -910,7 +910,7 @@ describe('saveChatTurn', () => {
     expect(decryptedAi).toBe('');
   });
 
-  it('stores provider as openrouter in LLM completion', async () => {
+  it('stores provider as ai-gateway in LLM completion', async () => {
     const setup = await createTestSetup(db);
     createdUserIds.push(setup.user.id);
 
@@ -934,7 +934,7 @@ describe('saveChatTurn', () => {
       .from(llmCompletions)
       .where(eq(llmCompletions.usageRecordId, result.usageRecordId));
     if (!completion) throw new Error('LLM completion not found');
-    expect(completion.provider).toBe('openrouter');
+    expect(completion.provider).toBe('ai-gateway');
     expect(completion.model).toBe('google/gemini-2.0-flash');
   });
 

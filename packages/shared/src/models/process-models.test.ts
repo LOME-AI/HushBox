@@ -9,10 +9,18 @@ vi.mock('./zdr.js', () => ({
 
 import { processModels } from './process-models.js';
 import {
-  AUTO_ROUTER_MODEL_ID,
-  AUTO_ROUTER_INPUT_PRICE_PER_TOKEN,
-  AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN,
+  SMART_MODEL_ID,
+  SMART_MODEL_INPUT_PRICE_PER_TOKEN,
+  SMART_MODEL_OUTPUT_PRICE_PER_TOKEN,
 } from '../constants.js';
+
+/**
+ * Strip the synthetic Smart Model entry so tests can assert against only
+ * the real gateway models. Smart Model injection is covered in its own describe.
+ */
+function realModelIds(result: ReturnType<typeof processModels>): string[] {
+  return result.models.filter((m) => m.id !== SMART_MODEL_ID).map((m) => m.id);
+}
 
 // ============================================================
 // Test Fixtures
@@ -61,7 +69,7 @@ describe('processModels', () => {
 
       const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['paid/model']);
+      expect(realModelIds(result)).toEqual(['paid/model']);
     });
 
     it('excludes Body Builder models', () => {
@@ -72,7 +80,7 @@ describe('processModels', () => {
 
       const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
+      expect(realModelIds(result)).toEqual(['normal/model']);
     });
 
     it('excludes Auto Router models', () => {
@@ -83,7 +91,7 @@ describe('processModels', () => {
 
       const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
+      expect(realModelIds(result)).toEqual(['normal/model']);
     });
 
     it('excludes models with audio in name', () => {
@@ -95,7 +103,7 @@ describe('processModels', () => {
 
       const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
+      expect(realModelIds(result)).toEqual(['normal/model']);
     });
 
     it('excludes models with image in name', () => {
@@ -107,7 +115,7 @@ describe('processModels', () => {
 
       const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
+      expect(realModelIds(result)).toEqual(['normal/model']);
     });
 
     it('excludes models without text in input_modalities', () => {
@@ -121,7 +129,7 @@ describe('processModels', () => {
 
       const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['text/model']);
+      expect(realModelIds(result)).toEqual(['text/model']);
     });
 
     it('excludes models without text in output_modalities', () => {
@@ -135,7 +143,7 @@ describe('processModels', () => {
 
       const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['text/model']);
+      expect(realModelIds(result)).toEqual(['text/model']);
     });
 
     it('includes multimodal models with text input and output', () => {
@@ -148,7 +156,7 @@ describe('processModels', () => {
 
       const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['vision/model']);
+      expect(realModelIds(result)).toEqual(['vision/model']);
     });
 
     it('applies name pattern matching case-insensitively', () => {
@@ -160,7 +168,7 @@ describe('processModels', () => {
 
       const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
+      expect(realModelIds(result)).toEqual(['normal/model']);
     });
   });
 
@@ -194,7 +202,7 @@ describe('processModels', () => {
 
       const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['boundary/model']);
+      expect(realModelIds(result)).toEqual(['boundary/model']);
     });
 
     it('excludes models cheaper than $0.0002 per 1K tokens combined', () => {
@@ -363,12 +371,13 @@ describe('processModels', () => {
       const result = processModels(models);
 
       expect(result.models.map((m) => m.id)).not.toContain('old-expensive/model');
-      expect(result.models).toHaveLength(20);
+      // 20 real models + 1 Smart Model entry
+      expect(realModelIds(result)).toHaveLength(20);
     });
   });
 
   describe('transformation', () => {
-    it('transforms OpenRouter model to Model type', () => {
+    it('transforms raw gateway model to Model type', () => {
       const models = [
         createModel({
           id: 'openai/gpt-4-turbo',
@@ -512,49 +521,42 @@ describe('processModels', () => {
     });
   });
 
-  describe('auto-router', () => {
-    const autoRouterRaw = createModel({
-      id: AUTO_ROUTER_MODEL_ID,
-      name: 'Auto Router',
-      description: 'Automatically selects the best model for your task',
-      context_length: 2_000_000,
-      pricing: { prompt: '0', completion: '0' },
-    });
-
-    it('includes auto-router when present in ZDR list', () => {
-      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+  describe('smart model injection', () => {
+    it('injects a synthetic Smart Model entry when the pool has at least one real model', () => {
+      const models = [createModel({ id: 'normal/model' })];
 
       const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toContain(AUTO_ROUTER_MODEL_ID);
+      expect(result.models.map((m) => m.id)).toContain(SMART_MODEL_ID);
     });
 
-    it('includes auto-router even when not in ZDR set', () => {
-      const normal = createModel({ id: 'normal/model' });
-      const models = [normal, autoRouterRaw];
+    it('sets isSmartModel flag on the injected entry', () => {
+      const models = [createModel({ id: 'normal/model' })];
 
       const result = processModels(models);
+      const smart = result.models.find((m) => m.id === SMART_MODEL_ID);
 
-      expect(result.models.map((m) => m.id)).toContain(AUTO_ROUTER_MODEL_ID);
+      expect(smart?.isSmartModel).toBe(true);
     });
 
-    it('sets isAutoRouter flag on the auto-router model', () => {
-      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+    it('uses Smart Model display name and HushBox provider', () => {
+      const models = [createModel({ id: 'normal/model' })];
 
       const result = processModels(models);
-      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
+      const smart = result.models.find((m) => m.id === SMART_MODEL_ID);
 
-      expect(autoModel?.isAutoRouter).toBe(true);
+      expect(smart?.name).toBe('Smart Model');
+      expect(smart?.provider).toBe('HushBox');
     });
 
-    it('uses hardcoded client estimation prices', () => {
-      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+    it('uses the client-estimation pricing constants for headline prices', () => {
+      const models = [createModel({ id: 'normal/model' })];
 
       const result = processModels(models);
-      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
+      const smart = result.models.find((m) => m.id === SMART_MODEL_ID);
 
-      expect(autoModel?.pricePerInputToken).toBe(AUTO_ROUTER_INPUT_PRICE_PER_TOKEN);
-      expect(autoModel?.pricePerOutputToken).toBe(AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN);
+      expect(smart?.pricePerInputToken).toBe(SMART_MODEL_INPUT_PRICE_PER_TOKEN);
+      expect(smart?.pricePerOutputToken).toBe(SMART_MODEL_OUTPUT_PRICE_PER_TOKEN);
     });
 
     it('computes price ranges from the model pool', () => {
@@ -566,49 +568,44 @@ describe('processModels', () => {
         id: 'expensive/model',
         pricing: { prompt: '0.01', completion: '0.02' },
       });
-      const models = [cheapModel, expensiveModel, autoRouterRaw];
+      const models = [cheapModel, expensiveModel];
 
       const result = processModels(models);
-      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
+      const smart = result.models.find((m) => m.id === SMART_MODEL_ID);
 
-      expect(autoModel?.minPricePerInputToken).toBe(0.0001);
-      expect(autoModel?.minPricePerOutputToken).toBe(0.0002);
-      expect(autoModel?.maxPricePerInputToken).toBe(0.01);
-      expect(autoModel?.maxPricePerOutputToken).toBe(0.02);
+      expect(smart?.minPricePerInputToken).toBe(0.0001);
+      expect(smart?.minPricePerOutputToken).toBe(0.0002);
+      expect(smart?.maxPricePerInputToken).toBe(0.01);
+      expect(smart?.maxPricePerOutputToken).toBe(0.02);
     });
 
-    it('does not classify auto-router as premium', () => {
-      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+    it('does not classify the Smart Model entry as premium', () => {
+      const models = [createModel({ id: 'normal/model' })];
 
       const result = processModels(models);
 
-      expect(result.premiumIds).not.toContain(AUTO_ROUTER_MODEL_ID);
+      expect(result.premiumIds).not.toContain(SMART_MODEL_ID);
     });
 
-    it('uses "Smart Model" as display name', () => {
-      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+    it('is omitted entirely when every real model is filtered out', () => {
+      // Only a free model — filtered out by isExcludedAlways → pool empty.
+      const models = [createModel({ id: 'free/model', pricing: { prompt: '0', completion: '0' } })];
 
       const result = processModels(models);
-      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
 
-      expect(autoModel?.name).toBe('Smart Model');
+      expect(result.models.map((m) => m.id)).not.toContain(SMART_MODEL_ID);
     });
 
-    it('does not include auto-router when pool is empty after filtering', () => {
-      const models = [autoRouterRaw]; // Only auto-router, no other models
+    it('uses the max context length from the pool', () => {
+      const models = [
+        createModel({ id: 'a/model', context_length: 100_000 }),
+        createModel({ id: 'b/model', context_length: 1_000_000 }),
+      ];
 
       const result = processModels(models);
+      const smart = result.models.find((m) => m.id === SMART_MODEL_ID);
 
-      expect(result.models.map((m) => m.id)).not.toContain(AUTO_ROUTER_MODEL_ID);
-    });
-
-    it('preserves context length from OpenRouter', () => {
-      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
-
-      const result = processModels(models);
-      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
-
-      expect(autoModel?.contextLength).toBe(2_000_000);
+      expect(smart?.contextLength).toBe(1_000_000);
     });
   });
 
@@ -665,8 +662,8 @@ describe('processModels', () => {
 
       const result = processModels(models);
 
-      expect(result.models).toHaveLength(1);
-      expect(result.models[0]?.id).toBe('only/model');
+      // 1 real model + 1 Smart Model entry
+      expect(realModelIds(result)).toEqual(['only/model']);
     });
   });
 });

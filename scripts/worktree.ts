@@ -13,6 +13,8 @@ export const BASE_PORTS = {
   emulatorAdb: 5555,
   emulatorVnc: 6080,
   readmePreview: 6419,
+  minioApi: 9000,
+  minioConsole: 9001,
 } as const;
 
 export type PortKey = keyof typeof BASE_PORTS;

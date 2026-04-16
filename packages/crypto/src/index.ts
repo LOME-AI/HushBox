@@ -41,8 +41,8 @@ export {
   decryptTextWithContentKey,
   encryptBinaryWithContentKey,
   decryptBinaryWithContentKey,
-  encryptMessageForStorage,
-  decryptMessage,
+  encryptTextForEpoch,
+  decryptTextFromEpoch,
 } from './message-encrypt.js';
 export type { MessageEnvelope } from './message-encrypt.js';
 

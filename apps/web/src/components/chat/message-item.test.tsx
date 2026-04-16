@@ -40,16 +40,16 @@ const mockModelsData = {
         supportedParameters: [],
       },
       {
-        id: 'openrouter/auto',
+        id: 'smart-model',
         name: 'Smart Model',
-        provider: 'OpenRouter',
+        provider: 'HushBox',
         contextLength: 200_000,
         pricePerInputToken: 0.000_003,
         pricePerOutputToken: 0.000_015,
         capabilities: [],
         description: 'Auto-router model',
         supportedParameters: [],
-        isAutoRouter: true,
+        isSmartModel: true,
       },
     ],
     premiumIds: new Set<string>(),
@@ -454,13 +454,13 @@ describe('MessageItem', () => {
       const autoMessage = {
         ...emptyAssistantMessage,
         id: 'auto-thinking',
-        modelName: 'openrouter/auto',
+        modelName: 'smart-model',
       };
       render(
         <MessageItem
           message={autoMessage}
           isStreaming
-          modelName="openrouter/auto"
+          modelName="smart-model"
           allowedActions={NO_ACTIONS}
         />
       );
@@ -472,7 +472,7 @@ describe('MessageItem', () => {
         <MessageItem
           message={emptyAssistantMessage}
           isStreaming
-          modelName="openrouter/auto"
+          modelName="smart-model"
           allowedActions={NO_ACTIONS}
         />
       );

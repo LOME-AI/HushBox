@@ -109,9 +109,13 @@ export type InferenceEvent =
     }
   | { kind: 'finish'; providerMetadata?: ProviderMetadata };
 
+/**
+ * Metadata emitted with a finish event. The real AI SDK does NOT return cost
+ * inline; `generationId` is the breadcrumb used with `getGenerationStats` to
+ * fetch actual cost post-hoc.
+ */
 export interface ProviderMetadata {
   generationId?: string;
-  costUsd?: number;
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 

@@ -425,7 +425,7 @@ describe('selectPaymentSchema', () => {
 describe('insertServiceEvidenceSchema', () => {
   it('accepts valid service evidence data', () => {
     const result = insertServiceEvidenceSchema.safeParse({
-      service: 'openrouter',
+      service: 'ai-gateway',
     });
     expect(result.success).toBe(true);
   });
@@ -440,7 +440,7 @@ describe('selectServiceEvidenceSchema', () => {
   it('accepts complete service evidence data', () => {
     const result = selectServiceEvidenceSchema.safeParse({
       id: '550e8400-e29b-41d4-a716-446655440000',
-      service: 'openrouter',
+      service: 'ai-gateway',
       details: { key: 'value' },
       createdAt: new Date(),
     });
