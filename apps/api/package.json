@@ -18,16 +18,16 @@
     "@hono/zod-validator": "^0.7.6",
     "@hushbox/crypto": "workspace:*",
     "@hushbox/realtime": "workspace:*",
-    "@upstash/redis": "^1.36.4",
-    "hono": "^4.12.6",
+    "@upstash/redis": "^1.37.0",
+    "hono": "^4.12.14",
     "iron-session": "^8.0.4",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260310.1",
+    "@cloudflare/workers-types": "^4.20260416.2",
     "@hushbox/config": "workspace:*",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.18",
-    "wrangler": "^4.71.0"
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4",
+    "wrangler": "^4.83.0"
   }
 }
