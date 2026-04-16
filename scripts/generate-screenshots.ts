@@ -89,7 +89,16 @@ export function getScreenshotOutputPath(
   resolution: string,
   filename: string
 ): string {
-  return path.join(rootDir, 'apps', 'web', 'resources', 'assets', 'screenshots', resolution, filename);
+  return path.join(
+    rootDir,
+    'apps',
+    'web',
+    'resources',
+    'assets',
+    'screenshots',
+    resolution,
+    filename
+  );
 }
 
 const DEV_SERVER_URL = 'http://localhost:5173';

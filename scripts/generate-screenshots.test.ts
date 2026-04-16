@@ -128,8 +128,6 @@ describe('getScreenshotOutputPath', () => {
 
   it('handles different resolutions and filenames', () => {
     const result = getScreenshotOutputPath('/project', 'google-tablet', 'privacy.png');
-    expect(result).toBe(
-      '/project/apps/web/resources/assets/screenshots/google-tablet/privacy.png'
-    );
+    expect(result).toBe('/project/apps/web/resources/assets/screenshots/google-tablet/privacy.png');
   });
 });
