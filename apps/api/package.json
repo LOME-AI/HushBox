@@ -19,7 +19,7 @@
     "@hushbox/crypto": "workspace:*",
     "@hushbox/realtime": "workspace:*",
     "@upstash/redis": "^1.36.4",
-    "hono": "^4.12.6",
+    "hono": "^4.12.14",
     "iron-session": "^8.0.4",
     "zod": "^4.3.6"
   },
