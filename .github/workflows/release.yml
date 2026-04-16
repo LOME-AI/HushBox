@@ -80,6 +80,10 @@ jobs:
           bundler-cache: true
           working-directory: apps/web/ios
 
+      - name: Generate platform assets
+        working-directory: apps/web
+        run: npx @capacitor/assets generate --assetPath resources/assets --ios
+
       - name: Sync iOS
         working-directory: apps/web
         run: npx cap sync ios
@@ -131,6 +135,10 @@ jobs:
           VITE_PLATFORM: android
           VITE_APP_VERSION: ${{ needs.prepare.outputs.version }}
         # END GENERATED: build-env-android-play
+
+      - name: Generate platform assets
+        working-directory: apps/web
+        run: npx @capacitor/assets generate --assetPath resources/assets --android
 
       - name: Sync Android
         working-directory: apps/web

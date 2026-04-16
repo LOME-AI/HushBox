@@ -77,6 +77,10 @@ jobs:
           VITE_APP_VERSION: ${{ inputs.version }}
         # END GENERATED: build-env-android-apk
 
+      - name: Generate platform assets
+        working-directory: apps/web
+        run: npx @capacitor/assets generate --assetPath resources/assets --android
+
       - name: Sync Android
         working-directory: apps/web
         run: npx cap sync android

@@ -72,6 +72,34 @@ function inlineStreamdownLazyImports(): Plugin {
   };
 }
 
+function devAssetsPlugin(): Plugin {
+  const assetsDir = resolve(__dirname, 'resources/assets');
+  return {
+    name: 'dev-assets',
+    configureServer(server) {
+      server.middlewares.use('/dev-assets', (req, res, next) => {
+        const relativePath = (req.url ?? '').split('?')[0];
+        if (!relativePath) return next();
+
+        const filePath = resolve(assetsDir, `.${relativePath}`);
+        if (!filePath.startsWith(assetsDir)) {
+          res.statusCode = 403;
+          res.end();
+          return;
+        }
+
+        res.setHeader('Content-Type', 'image/png');
+        createReadStream(filePath)
+          .on('error', () => {
+            res.statusCode = 404;
+            res.end();
+          })
+          .pipe(res);
+      });
+    },
+  };
+}
+
 function sharedFaviconPlugin(): Plugin {
   const faviconPath = resolve(__dirname, '../../packages/ui/src/assets/favicon.ico');
   return {
@@ -107,6 +135,7 @@ export default defineConfig(({ mode }) => {
       apiPreconnectPlugin(env['VITE_API_URL']),
       inlineStreamdownLazyImports(),
       sharedFaviconPlugin(),
+      devAssetsPlugin(),
       marketingRedirectPlugin(),
     ],
     build: {

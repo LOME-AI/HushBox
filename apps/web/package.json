@@ -12,7 +12,7 @@
     "test": "../../scripts/with-env vitest run",
     "test:watch": "../../scripts/with-env vitest",
     "test:coverage": "../../scripts/with-env vitest run --coverage",
-    "asset:sync": "npx @capacitor/assets generate --assetPath resources/generated --ios --android",
+    "asset:sync": "npx @capacitor/assets generate --assetPath resources/assets --ios --android",
     "cap:sync": "cap sync",
     "cap:build:ios": "vite build && cap sync ios",
     "cap:build:android": "vite build && cap sync android",
