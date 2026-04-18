@@ -1,0 +1,213 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook } from '@testing-library/react';
+import type { Model, Modality } from '@hushbox/shared';
+import type { SelectedModelEntry } from '@/stores/model';
+import {
+  createModelStoreStub,
+  selectorFromState,
+  type ModelStoreStub,
+} from '@/test-utils/model-store-mock';
+import { useResolveDefaultModel } from './use-resolve-default-model';
+
+vi.mock('@/lib/auth', () => ({
+  useSession: vi.fn(),
+}));
+
+vi.mock('./billing.js', () => ({
+  useBalance: vi.fn(),
+}));
+
+vi.mock('./models.js', () => ({
+  useModels: vi.fn(),
+}));
+
+vi.mock('@/stores/model', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/model')>();
+  return {
+    ...actual,
+    useModelStore: vi.fn(),
+  };
+});
+
+import { useSession } from '@/lib/auth';
+import { useBalance } from './billing.js';
+import { useModels } from './models.js';
+import { useModelStore } from '@/stores/model';
+
+const mockedUseSession = vi.mocked(useSession);
+const mockedUseBalance = vi.mocked(useBalance);
+const mockedUseModels = vi.mocked(useModels);
+const mockedUseModelStore = vi.mocked(useModelStore);
+
+const modelList: Model[] = [
+  {
+    id: 'imagen-cheap',
+    name: 'Imagen Cheap',
+    description: 'Cheap image model',
+    provider: 'Google',
+    modality: 'image',
+    contextLength: 0,
+    pricePerInputToken: 0,
+    pricePerOutputToken: 0,
+    pricePerImage: 0.02,
+    capabilities: [],
+    supportedParameters: [],
+    created: Math.floor(Date.now() / 1000),
+  },
+  {
+    id: 'imagen-premium',
+    name: 'Imagen Premium',
+    description: 'Premium image model',
+    provider: 'Google',
+    modality: 'image',
+    contextLength: 0,
+    pricePerInputToken: 0,
+    pricePerOutputToken: 0,
+    pricePerImage: 0.12,
+    capabilities: [],
+    supportedParameters: [],
+    created: Math.floor(Date.now() / 1000),
+  },
+  {
+    id: 'claude',
+    name: 'Claude',
+    description: 'Text model',
+    provider: 'Anthropic',
+    modality: 'text',
+    contextLength: 200_000,
+    pricePerInputToken: 0.000_003,
+    pricePerOutputToken: 0.000_015,
+    pricePerImage: 0,
+    capabilities: [],
+    supportedParameters: [],
+    created: Math.floor(Date.now() / 1000),
+  },
+];
+
+const mockSetSelectedModels = vi.fn();
+
+function buildState(
+  overrides: Partial<Record<Modality, SelectedModelEntry[]>> = {}
+): ModelStoreStub {
+  return createModelStoreStub({
+    selections: {
+      text: overrides.text ?? [{ id: 'smart-model', name: 'Smart Model' }],
+      image: overrides.image ?? [],
+      audio: overrides.audio ?? [],
+      video: overrides.video ?? [],
+    },
+    setSelectedModels: mockSetSelectedModels,
+  });
+}
+
+function stubStore(state: ModelStoreStub): void {
+  mockedUseModelStore.mockImplementation(selectorFromState(state) as typeof useModelStore);
+}
+
+describe('useResolveDefaultModel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedUseSession.mockReturnValue({
+      data: { user: { id: 'u1' } },
+      isPending: false,
+    } as ReturnType<typeof useSession>);
+    mockedUseBalance.mockReturnValue({
+      data: { balance: '10.00', freeAllowanceCents: 0 },
+    } as ReturnType<typeof useBalance>);
+    mockedUseModels.mockReturnValue({
+      data: { models: modelList, premiumIds: new Set(['imagen-premium']) },
+    } as ReturnType<typeof useModels>);
+    stubStore(buildState());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('does nothing for text modality (text is always seeded with Smart Model)', () => {
+    renderHook(() => {
+      useResolveDefaultModel('text');
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when selections[modality] already has entries', () => {
+    stubStore(buildState({ image: [{ id: 'imagen-cheap', name: 'Imagen Cheap' }] }));
+    renderHook(() => {
+      useResolveDefaultModel('image');
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('does nothing while models data has not loaded', () => {
+    mockedUseModels.mockReturnValue({ data: undefined } as ReturnType<typeof useModels>);
+    renderHook(() => {
+      useResolveDefaultModel('image');
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('auto-picks first available image model for a paid user', () => {
+    renderHook(() => {
+      useResolveDefaultModel('image');
+    });
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('image', [
+      { id: 'imagen-cheap', name: 'Imagen Cheap' },
+    ]);
+  });
+
+  it('filters out premium models when user has no balance', () => {
+    mockedUseBalance.mockReturnValue({
+      data: { balance: '0.00', freeAllowanceCents: 0 },
+    } as ReturnType<typeof useBalance>);
+    stubStore(buildState());
+    // Only non-premium model should be available
+    renderHook(() => {
+      useResolveDefaultModel('image');
+    });
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('image', [
+      { id: 'imagen-cheap', name: 'Imagen Cheap' },
+    ]);
+  });
+
+  it('does nothing when only premium models exist and user cannot access premium', () => {
+    mockedUseBalance.mockReturnValue({
+      data: { balance: '0.00', freeAllowanceCents: 0 },
+    } as ReturnType<typeof useBalance>);
+    mockedUseModels.mockReturnValue({
+      data: {
+        models: modelList.filter((m) => m.id === 'imagen-premium' || m.modality === 'text'),
+        premiumIds: new Set(['imagen-premium']),
+      },
+    } as ReturnType<typeof useModels>);
+    renderHook(() => {
+      useResolveDefaultModel('image');
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('does nothing for modalities without any matching models (e.g., audio)', () => {
+    renderHook(() => {
+      useResolveDefaultModel('audio');
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('does nothing while session is still pending', () => {
+    mockedUseSession.mockReturnValue({ data: undefined, isPending: true } as unknown as ReturnType<
+      typeof useSession
+    >);
+    renderHook(() => {
+      useResolveDefaultModel('image');
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when authenticated user is waiting for balance', () => {
+    mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
+    renderHook(() => {
+      useResolveDefaultModel('image');
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+});

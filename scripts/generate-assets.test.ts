@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getAssetConfigs, getOutputPath, getDevAssetPath } from './generate-assets.js';
+import { getAssetConfigs, getOutputPath } from './generate-assets.js';
 
 describe('getAssetConfigs', () => {
   it('returns exactly 5 asset configurations', () => {
@@ -97,25 +97,13 @@ describe('getAssetConfigs', () => {
 });
 
 describe('getOutputPath', () => {
-  it('returns path under resources/generated', () => {
+  it('returns path under resources/assets', () => {
     const result = getOutputPath('/root', 'app-icon.png');
-    expect(result).toBe('/root/apps/web/resources/generated/app-icon.png');
+    expect(result).toBe('/root/apps/web/resources/assets/app-icon.png');
   });
 
   it('handles different filenames', () => {
     const result = getOutputPath('/project', 'splash-dark.png');
-    expect(result).toBe('/project/apps/web/resources/generated/splash-dark.png');
-  });
-});
-
-describe('getDevAssetPath', () => {
-  it('returns path under public/dev-assets', () => {
-    const result = getDevAssetPath('/root', 'app-icon.png');
-    expect(result).toBe('/root/apps/web/public/dev-assets/app-icon.png');
-  });
-
-  it('handles different filenames', () => {
-    const result = getDevAssetPath('/project', 'splash-light.png');
-    expect(result).toBe('/project/apps/web/public/dev-assets/splash-light.png');
+    expect(result).toBe('/project/apps/web/resources/assets/splash-dark.png');
   });
 });

@@ -51,16 +51,32 @@ vi.mock('@/hooks/models', () => ({
   }),
 }));
 
+vi.mock('@/hooks/use-resolve-default-model', () => ({
+  useResolveDefaultModel: () => {
+    /* no-op in tests */
+  },
+}));
+
 vi.mock('@/hooks/billing', () => ({
   billingKeys: { balance: () => ['balance'] },
 }));
 
 vi.mock('@/stores/model', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/model')>();
-  const store = () => ({
-    selectedModels: [{ id: 'gpt-4', name: 'GPT-4' }],
+  const { createModelStoreStub, selectorFromState, attachStaticMethods } =
+    await import('@/test-utils/model-store-mock');
+  const state = createModelStoreStub({
+    selections: {
+      text: [{ id: 'gpt-4', name: 'GPT-4' }],
+      image: [],
+      audio: [],
+      video: [],
+    },
   });
-  store.setState = vi.fn();
+  const store = attachStaticMethods(
+    selectorFromState(state),
+    state
+  ) as unknown as typeof actual.useModelStore;
   return { ...actual, useModelStore: store };
 });
 
@@ -149,71 +165,68 @@ vi.mock('@/components/chat/message-list', () => ({
 
 let capturedOnTypingChange: ((isTyping: boolean) => void) | undefined;
 
+interface MockPromptInputProps {
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
+  disabled: boolean;
+  autoFocus?: boolean;
+  onTypingChange?: (isTyping: boolean) => void;
+  searchProps?: {
+    webSearchEnabled: boolean;
+    modelSupportsSearch: boolean;
+    onToggleWebSearch: () => void;
+  };
+  isAuthenticated?: boolean;
+  conversationId?: string | null;
+  currentUserPrivilege?: string;
+}
+
+function buildPromptInputDataAttributes(props: MockPromptInputProps): Record<string, string> {
+  const attributes: Record<string, string> = {};
+  if (props.searchProps?.webSearchEnabled !== undefined) {
+    attributes['data-web-search-enabled'] = String(props.searchProps.webSearchEnabled);
+  }
+  if (props.searchProps?.modelSupportsSearch !== undefined) {
+    attributes['data-model-supports-search'] = String(props.searchProps.modelSupportsSearch);
+  }
+  if (props.searchProps?.onToggleWebSearch !== undefined) {
+    attributes['data-has-toggle-web-search'] = 'true';
+  }
+  if (props.isAuthenticated !== undefined) {
+    attributes['data-is-authenticated'] = String(props.isAuthenticated);
+  }
+  if (props.conversationId !== undefined) {
+    attributes['data-conversation-id'] = String(props.conversationId);
+  }
+  if (props.currentUserPrivilege !== undefined) {
+    attributes['data-current-user-privilege'] = props.currentUserPrivilege;
+  }
+  return attributes;
+}
+
 vi.mock('@/components/chat/prompt-input', () => ({
   PromptInput: React.forwardRef(function MockPromptInput(
-    {
-      value,
-      onChange,
-      onSubmit,
-      disabled,
-      autoFocus,
-      onTypingChange,
-      webSearchEnabled,
-      modelSupportsSearch,
-      isAuthenticated,
-      onToggleWebSearch,
-      conversationId,
-      currentUserPrivilege,
-    }: {
-      value: string;
-      onChange: (v: string) => void;
-      onSubmit: () => void;
-      disabled: boolean;
-      autoFocus?: boolean;
-      onTypingChange?: (isTyping: boolean) => void;
-      webSearchEnabled?: boolean;
-      modelSupportsSearch?: boolean;
-      isAuthenticated?: boolean;
-      onToggleWebSearch?: () => void;
-      conversationId?: string | null;
-      currentUserPrivilege?: string;
-    },
+    props: MockPromptInputProps,
     ref: React.ForwardedRef<{ focus: () => void }>
   ) {
     // eslint-disable-next-line react-hooks/globals -- test mock captures prop for later assertion
-    capturedOnTypingChange = onTypingChange;
+    capturedOnTypingChange = props.onTypingChange;
     React.useImperativeHandle(ref, () => ({ focus: vi.fn() }), []);
     return (
       <input
         data-testid="prompt-input"
-        data-autofocus={autoFocus ? 'true' : 'false'}
-        data-has-typing-change={onTypingChange ? 'true' : 'false'}
-        {...(webSearchEnabled !== undefined && {
-          'data-web-search-enabled': String(webSearchEnabled),
-        })}
-        {...(modelSupportsSearch !== undefined && {
-          'data-model-supports-search': String(modelSupportsSearch),
-        })}
-        {...(isAuthenticated !== undefined && {
-          'data-is-authenticated': String(isAuthenticated),
-        })}
-        {...(onToggleWebSearch !== undefined && {
-          'data-has-toggle-web-search': 'true',
-        })}
-        {...(conversationId !== undefined && {
-          'data-conversation-id': String(conversationId),
-        })}
-        {...(currentUserPrivilege !== undefined && {
-          'data-current-user-privilege': currentUserPrivilege,
-        })}
-        value={value}
+        data-autofocus={props.autoFocus ? 'true' : 'false'}
+        data-has-typing-change={props.onTypingChange ? 'true' : 'false'}
+        {...buildPromptInputDataAttributes(props)}
+        value={props.value}
         onChange={(e) => {
-          onChange(e.target.value);
+          props.onChange(e.target.value);
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') onSubmit();
+          if (e.key === 'Enter') props.onSubmit();
         }}
-        disabled={disabled}
+        disabled={props.disabled}
       />
     );
   }),

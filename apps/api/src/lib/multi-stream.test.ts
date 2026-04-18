@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { collectMultiModelStreams, type ModelStreamEntry } from './multi-stream.js';
+import {
+  collectMultiModelStreams,
+  collectMultiMediaModelStreams,
+  type ModelStreamEntry,
+  type MediaModelStreamEntry,
+} from './multi-stream.js';
 import type { SSEEventWriter } from './stream-handler.js';
 import type { InferenceEvent, InferenceStream } from '../services/ai/index.js';
 
@@ -230,5 +235,145 @@ describe('collectMultiModelStreams', () => {
 
     const results = await collectMultiModelStreams(entries, writer);
     expect(results.get('anthropic/claude-sonnet-4.6')!.generationId).toBe('gen-only');
+  });
+});
+
+// ============================================================================
+// Media stream helpers
+// ============================================================================
+
+function createMediaStream(
+  mediaBytes: Uint8Array,
+  mimeType: string,
+  dimensions?: { width: number; height: number },
+  generationId?: string
+): InferenceStream {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+      let index = 0;
+      const events: InferenceEvent[] = [
+        { kind: 'media-start', mediaType: 'image', mimeType },
+        {
+          kind: 'media-done',
+          bytes: mediaBytes,
+          mimeType,
+          ...(dimensions !== undefined && dimensions),
+        },
+        {
+          kind: 'finish',
+          providerMetadata: {
+            ...(generationId === undefined ? {} : { generationId }),
+          },
+        },
+      ];
+      return {
+        next(): Promise<IteratorResult<InferenceEvent>> {
+          if (index >= events.length) return Promise.resolve({ done: true, value: undefined });
+          const value = events[index++]!;
+          return Promise.resolve({ done: false, value });
+        },
+      };
+    },
+  };
+}
+
+function createFailingMediaStream(error: Error): InferenceStream {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+      return {
+        next(): Promise<IteratorResult<InferenceEvent>> {
+          return Promise.reject(error);
+        },
+      };
+    },
+  };
+}
+
+describe('collectMultiMediaModelStreams', () => {
+  it('collects media bytes and metadata from a single model', async () => {
+    const writer = createMockWriter();
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    const entries: MediaModelStreamEntry[] = [
+      {
+        modelId: 'google/imagen-4',
+        assistantMessageId: 'asst-1',
+        stream: createMediaStream(bytes, 'image/png', { width: 1024, height: 1024 }, 'gen-1'),
+      },
+    ];
+
+    const results = await collectMultiMediaModelStreams(entries, writer);
+    const result = results.get('google/imagen-4');
+    expect(result).toBeDefined();
+    expect(result!.mediaBytes).toEqual(bytes);
+    expect(result!.mimeType).toBe('image/png');
+    expect(result!.width).toBe(1024);
+    expect(result!.height).toBe(1024);
+    expect(result!.generationId).toBe('gen-1');
+    expect(result!.error).toBeNull();
+  });
+
+  it('collects from multiple models in parallel', async () => {
+    const writer = createMockWriter();
+    const bytes1 = new Uint8Array([1, 2]);
+    const bytes2 = new Uint8Array([3, 4]);
+    const entries: MediaModelStreamEntry[] = [
+      {
+        modelId: 'google/imagen-4',
+        assistantMessageId: 'asst-1',
+        stream: createMediaStream(bytes1, 'image/png', { width: 512, height: 512 }),
+      },
+      {
+        modelId: 'other/model',
+        assistantMessageId: 'asst-2',
+        stream: createMediaStream(bytes2, 'image/jpeg', { width: 256, height: 256 }),
+      },
+    ];
+
+    const results = await collectMultiMediaModelStreams(entries, writer);
+    expect(results.size).toBe(2);
+    expect(results.get('google/imagen-4')!.mimeType).toBe('image/png');
+    expect(results.get('other/model')!.mimeType).toBe('image/jpeg');
+  });
+
+  it('captures errors from failing streams', async () => {
+    const writer = createMockWriter();
+    const entries: MediaModelStreamEntry[] = [
+      {
+        modelId: 'bad/model',
+        assistantMessageId: 'asst-1',
+        stream: createFailingMediaStream(new Error('Provider error')),
+      },
+    ];
+
+    const results = await collectMultiMediaModelStreams(entries, writer);
+    const result = results.get('bad/model');
+    expect(result!.error).toBeInstanceOf(Error);
+    expect(result!.error!.message).toBe('Provider error');
+    expect(result!.mediaBytes).toBeUndefined();
+  });
+
+  it('writes model:done for successful models and model:error for failed ones', async () => {
+    const writer = createMockWriter();
+    const entries: MediaModelStreamEntry[] = [
+      {
+        modelId: 'good/model',
+        assistantMessageId: 'asst-1',
+        stream: createMediaStream(new Uint8Array([1]), 'image/png'),
+      },
+      {
+        modelId: 'bad/model',
+        assistantMessageId: 'asst-2',
+        stream: createFailingMediaStream(new Error('fail')),
+      },
+    ];
+
+    const results = await collectMultiMediaModelStreams(entries, writer);
+    expect(results.get('good/model')!.error).toBeNull();
+    expect(results.get('bad/model')!.error).not.toBeNull();
+
+    const doneEvents = writer.events.filter((e) => e.method === 'writeModelDone');
+    const errorEvents = writer.events.filter((e) => e.method === 'writeModelError');
+    expect(doneEvents).toHaveLength(1);
+    expect(errorEvents).toHaveLength(1);
   });
 });

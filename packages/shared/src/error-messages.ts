@@ -149,6 +149,12 @@ const ERROR_MESSAGES = {
   STORAGE_READ_FAILED: "We couldn't load this media. Please refresh the page.",
   CONTENT_ITEM_NOT_FOUND: 'Content item not found.',
   CONTENT_ITEM_NOT_MEDIA: 'This content item is not downloadable media.',
+  INFERENCE_FAILED: "The AI provider couldn't complete your request. Please try again in a moment.",
+  EMPTY_MEDIA_RESULT:
+    "The AI didn't produce any output for your request. Try rephrasing your prompt.",
+  MEDIA_TRIAL_BLOCKED:
+    'Image generation is only available for signed-in users. Create an account to unlock.',
+  MODALITY_MISMATCH: "One or more selected models don't match the requested content type.",
 } as const satisfies Record<string, string>;
 
 /** Known error code — union of all keys in the error message map. */

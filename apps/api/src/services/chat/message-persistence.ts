@@ -113,6 +113,8 @@ export interface TextAssistantMessageInput {
 export interface MediaAssistantMessageInput {
   modality: MediaContentType;
   id: string;
+  /** Pre-created wrappedContentKey from the pipeline (used when bytes were encrypted externally before persistence). */
+  wrappedContentKey?: Uint8Array;
   contentItems: MediaContentItemInput[];
   model: string;
   cost: number;
@@ -257,7 +259,9 @@ async function persistMediaAssistant(
   const persisted = await insertEnvelopeMediaMessage(tx, {
     id: msg.id,
     conversationId: context.conversationId,
-    epochPublicKey: context.epochPublicKey,
+    ...(msg.wrappedContentKey === undefined
+      ? { epochPublicKey: context.epochPublicKey }
+      : { wrappedContentKey: msg.wrappedContentKey }),
     epochNumber: context.epochNumber,
     sequenceNumber: context.sequenceNumber,
     senderType: 'ai',

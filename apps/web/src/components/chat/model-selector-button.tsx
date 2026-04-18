@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Button } from '@hushbox/ui';
-import type { Model } from '@hushbox/shared';
+import type { Model, Modality } from '@hushbox/shared';
 import { shortenModelName } from '@hushbox/shared';
 import { DEFAULT_MODEL_NAME } from '@/stores/model';
 import { ModelSelectorModal } from './model-selector-modal';
@@ -23,6 +23,7 @@ export interface ModelSelectorButtonProps extends ModelSelectorGatingProps {
   selectedModels: { id: string; name: string }[];
   onSelect: (models: { id: string; name: string }[]) => void;
   disabled?: boolean | undefined;
+  activeModality?: Modality;
 }
 
 /**
@@ -39,6 +40,7 @@ export function ModelSelectorButton({
   isAuthenticated = true,
   isLinkGuest = false,
   onPremiumClick,
+  activeModality = 'text',
 }: Readonly<ModelSelectorButtonProps>): React.JSX.Element {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -82,6 +84,7 @@ export function ModelSelectorButton({
         isAuthenticated={isAuthenticated}
         isLinkGuest={isLinkGuest}
         onPremiumClick={onPremiumClick}
+        activeModality={activeModality}
       />
     </>
   );

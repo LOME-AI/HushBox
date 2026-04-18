@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { ERROR_CODE_CONTEXT_LENGTH_EXCEEDED } from '@hushbox/shared';
+import type { Modality } from '@hushbox/shared';
 import { getApiUrl } from '../lib/api';
 import { getTrialToken } from '../lib/trial-token';
 import { getLinkGuestAuth } from '../lib/link-guest-auth';
@@ -20,6 +21,7 @@ export type StreamMode = 'authenticated' | 'trial';
 
 interface AuthenticatedStreamRequest {
   conversationId: string;
+  modality?: Modality;
   models: string[];
   userMessage: {
     id: string;
@@ -30,6 +32,7 @@ interface AuthenticatedStreamRequest {
   webSearchEnabled?: boolean;
   customInstructions?: string;
   forkId?: string;
+  imageConfig?: { aspectRatio?: '1:1' | '3:2' | '16:9' | '9:16' | '4:3' };
 }
 
 interface TrialStreamMessage {
@@ -70,6 +73,12 @@ export interface ModelResult {
 interface StreamResult {
   userMessageId: string;
   models: ModelResult[];
+  /**
+   * The final SSE done event payload, including the full envelope + content
+   * items with download URLs for media. Consumers can use this to populate
+   * local state immediately instead of waiting for a query refetch.
+   */
+  doneData: DoneEventData | undefined;
 }
 
 interface StreamOptions {
@@ -300,6 +309,7 @@ async function consumeSSEStream(
     return {
       userMessageId: parser.getUserMessageId(),
       models,
+      doneData: state.doneData ?? undefined,
     };
   } finally {
     void (async () => {

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PromptInput } from './prompt-input';
-import type { PromptInputRef } from './prompt-input';
+import type { ChatSearchProps, PromptInputRef } from './prompt-input';
 import type { PromptBudgetResult } from '@/hooks/use-prompt-budget';
 
 // Mock usePromptBudget directly — PromptInput's only budget dependency
@@ -59,6 +59,19 @@ function createTestQueryClient(): QueryClient {
 function renderWithProviders(ui: React.ReactElement): ReturnType<typeof render> {
   const queryClient = createTestQueryClient();
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
+/**
+ * Build a `searchProps` fixture for PromptInput tests. Defaults: modelSupportsSearch=true,
+ * webSearchEnabled=false, onToggleWebSearch=vi.fn(). Override any field as needed.
+ */
+function makeSearchProps(overrides: Partial<ChatSearchProps> = {}): ChatSearchProps {
+  return {
+    modelSupportsSearch: true,
+    webSearchEnabled: false,
+    onToggleWebSearch: vi.fn(),
+    ...overrides,
+  };
 }
 
 describe('PromptInput', () => {
@@ -711,10 +724,8 @@ describe('PromptInput', () => {
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          modelSupportsSearch
           isAuthenticated
-          webSearchEnabled={false}
-          onToggleWebSearch={vi.fn()}
+          searchProps={makeSearchProps()}
         />
       );
       expect(screen.getByRole('button', { name: /internet search off/i })).toBeInTheDocument();
@@ -726,10 +737,8 @@ describe('PromptInput', () => {
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          modelSupportsSearch
           isAuthenticated
-          webSearchEnabled
-          onToggleWebSearch={vi.fn()}
+          searchProps={makeSearchProps({ webSearchEnabled: true })}
         />
       );
       expect(screen.getByRole('button', { name: /internet search on/i })).toBeInTheDocument();
@@ -744,10 +753,8 @@ describe('PromptInput', () => {
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          modelSupportsSearch
           isAuthenticated
-          webSearchEnabled={false}
-          onToggleWebSearch={mockToggle}
+          searchProps={makeSearchProps({ onToggleWebSearch: mockToggle })}
         />
       );
       await user.click(screen.getByRole('button', { name: /internet search off/i }));
@@ -760,10 +767,8 @@ describe('PromptInput', () => {
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          modelSupportsSearch={false}
           isAuthenticated
-          webSearchEnabled={false}
-          onToggleWebSearch={vi.fn()}
+          searchProps={makeSearchProps({ modelSupportsSearch: false })}
         />
       );
       const button = screen.getByRole('button', { name: /internet search unavailable/i });
@@ -776,10 +781,8 @@ describe('PromptInput', () => {
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          modelSupportsSearch
           isAuthenticated={false}
-          webSearchEnabled={false}
-          onToggleWebSearch={vi.fn()}
+          searchProps={makeSearchProps()}
         />
       );
       const button = screen.getByRole('button', { name: /internet search unavailable/i });
@@ -794,10 +797,8 @@ describe('PromptInput', () => {
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          modelSupportsSearch={false}
           isAuthenticated={false}
-          webSearchEnabled={false}
-          onToggleWebSearch={vi.fn()}
+          searchProps={makeSearchProps({ modelSupportsSearch: false })}
         />
       );
 
@@ -812,10 +813,8 @@ describe('PromptInput', () => {
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          modelSupportsSearch
           isAuthenticated
-          webSearchEnabled
-          onToggleWebSearch={vi.fn()}
+          searchProps={makeSearchProps({ webSearchEnabled: true })}
         />
       );
 
@@ -842,10 +841,8 @@ describe('PromptInput', () => {
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          modelSupportsSearch
           isAuthenticated
-          webSearchEnabled
-          onToggleWebSearch={vi.fn()}
+          searchProps={makeSearchProps({ webSearchEnabled: true })}
         />
       );
 
@@ -881,12 +878,13 @@ describe('PromptInput', () => {
             value="Hello"
             onChange={mockOnChange}
             onSubmit={mockOnSubmit}
-            modelSupportsSearch
             isAuthenticated
-            webSearchEnabled={searchOn}
-            onToggleWebSearch={() => {
-              setSearchOn((previous) => !previous);
-            }}
+            searchProps={makeSearchProps({
+              webSearchEnabled: searchOn,
+              onToggleWebSearch: () => {
+                setSearchOn((previous) => !previous);
+              },
+            })}
           />
         );
       }
@@ -1164,6 +1162,87 @@ describe('PromptInput', () => {
       const textarea = screen.getByRole('textbox');
       fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
       expect(mockOnSubmit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('modality toggle', () => {
+    it('does not render the modality toggle when isAuthenticated is undefined', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          activeModality="text"
+          onToggleModality={vi.fn()}
+        />
+      );
+      expect(
+        screen.queryByRole('button', { name: /switch to (image generation|text)/i })
+      ).not.toBeInTheDocument();
+    });
+
+    it('does not render the modality toggle for unauthenticated users', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated={false}
+          activeModality="text"
+          onToggleModality={vi.fn()}
+        />
+      );
+      expect(
+        screen.queryByRole('button', { name: /switch to (image generation|text)/i })
+      ).not.toBeInTheDocument();
+    });
+
+    it('renders the image-generation toggle for authenticated users in text mode', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="text"
+          onToggleModality={vi.fn()}
+        />
+      );
+      expect(
+        screen.getByRole('button', { name: /switch to image generation/i })
+      ).toBeInTheDocument();
+    });
+
+    it('renders the text-switch toggle for authenticated users in image mode', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="image"
+          onToggleModality={vi.fn()}
+        />
+      );
+      expect(screen.getByRole('button', { name: /switch to text/i })).toBeInTheDocument();
+    });
+
+    it('invokes onToggleModality when clicked', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const handleToggle = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="text"
+          onToggleModality={handleToggle}
+        />
+      );
+      await user.click(screen.getByRole('button', { name: /switch to image generation/i }));
+      expect(handleToggle).toHaveBeenCalled();
     });
   });
 });

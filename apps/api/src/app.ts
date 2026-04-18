@@ -119,11 +119,13 @@ export function createApp() {
   base.use('/api/chat/*', ironSessionMiddleware());
   base.use('/api/chat/*', sessionMiddleware());
   base.use('/api/chat/*', aiClientMiddleware());
+  base.use('/api/chat/*', mediaStorageMiddleware());
 
   base.use('/api/trial/*', csrfProtection());
   base.use('/api/trial/*', dbMiddleware());
   base.use('/api/trial/*', redisMiddleware());
   base.use('/api/trial/*', aiClientMiddleware());
+  base.use('/api/trial/*', mediaStorageMiddleware());
 
   base.use('/api/models/*', csrfProtection());
 

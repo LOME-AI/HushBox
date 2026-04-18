@@ -69,13 +69,9 @@ vi.mock('@/stores/chat-error', () => ({
 // Mock hooks used by PromptInput
 vi.mock('@/stores/model', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/model')>();
-  return {
-    ...actual,
-    useModelStore: vi.fn(() => ({
-      selectedModels: [{ id: 'test-model', name: 'Test Model' }],
-      setSelectedModel: vi.fn(),
-    })),
-  };
+  const { createModelStoreStub, selectorFromState } = await import('@/test-utils/model-store-mock');
+  const state = createModelStoreStub();
+  return { ...actual, useModelStore: vi.fn(selectorFromState(state)) };
 });
 
 vi.mock('@/hooks/models', async (importOriginal) => {

@@ -18,7 +18,7 @@ import {
   type RegenerateStreamRequest,
   type ModelResult,
 } from '@/hooks/use-chat-stream';
-import type { StartEventData } from '@/lib/sse-client';
+import type { DoneEventData, StartEventData } from '@/lib/sse-client';
 import { useOptimisticMessages } from '@/hooks/use-optimistic-messages';
 import {
   useConversation,
@@ -56,7 +56,7 @@ import {
   type FundingSource,
   type MemberPrivilege,
 } from '@hushbox/shared';
-import type { Message } from '@/lib/api';
+import type { Message, MessageMediaItem } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useDecryptedMessages } from '@/hooks/use-decrypted-messages';
@@ -272,6 +272,79 @@ function attachCostsToMessages(
   }
 }
 
+type DoneContentItemShape = NonNullable<DoneEventData['models']>[number]['contentItems'][number];
+
+function toMessageMediaItem(item: DoneContentItemShape): MessageMediaItem | null {
+  if (item.contentType === 'text') return null;
+  if (item.mimeType == null || item.sizeBytes == null) return null;
+  return {
+    id: item.id,
+    contentType: item.contentType,
+    position: item.position,
+    mimeType: item.mimeType,
+    sizeBytes: item.sizeBytes,
+    ...(item.width !== undefined && { width: item.width }),
+    ...(item.height !== undefined && { height: item.height }),
+    ...(item.durationMs !== undefined && { durationMs: item.durationMs }),
+  };
+}
+
+function extractDoneMediaItems(contentItems: DoneContentItemShape[]): MessageMediaItem[] {
+  const result: MessageMediaItem[] = [];
+  for (const item of contentItems) {
+    const media = toMessageMediaItem(item);
+    if (media) result.push(media);
+  }
+  return result;
+}
+
+interface PatchMessageWithMediaParams {
+  setter: React.Dispatch<React.SetStateAction<Message[]>>;
+  assistantMessageId: string;
+  mediaItems: MessageMediaItem[];
+  wrappedContentKey: string;
+  epochNumber: number;
+}
+
+function patchMessageWithMedia({
+  setter,
+  assistantMessageId,
+  mediaItems,
+  wrappedContentKey,
+  epochNumber,
+}: PatchMessageWithMediaParams): void {
+  setter((previous) =>
+    previous.map(
+      (m): Message =>
+        m.id === assistantMessageId ? { ...m, mediaItems, wrappedContentKey, epochNumber } : m
+    )
+  );
+}
+
+/**
+ * Patches media content items + wrappedContentKey onto local assistant
+ * messages using the SSE `done` event payload, so image/video/audio appear
+ * immediately without waiting for a query refetch.
+ */
+function attachMediaItemsFromDoneEvent(
+  doneData: DoneEventData | undefined,
+  epochNumber: number,
+  setter: React.Dispatch<React.SetStateAction<Message[]>>
+): void {
+  if (!doneData?.models) return;
+  for (const modelEntry of doneData.models) {
+    const mediaItems = extractDoneMediaItems(modelEntry.contentItems);
+    if (mediaItems.length === 0) continue;
+    patchMessageWithMedia({
+      setter,
+      assistantMessageId: modelEntry.assistantMessageId,
+      mediaItems,
+      wrappedContentKey: modelEntry.wrappedContentKey,
+      epochNumber,
+    });
+  }
+}
+
 function computeDisplayTitle(
   localTitle: string | null,
   conversation: { title: string; titleEpochNumber: number } | undefined,
@@ -390,7 +463,8 @@ export function useAuthenticatedChat({
     resetOptimisticMessages,
   } = useOptimisticMessages();
 
-  const { selectedModels } = useModelStore();
+  const activeModality = useModelStore((state) => state.activeModality);
+  const selectedModels = useModelStore((state) => state.selections[state.activeModality]);
   const { webSearchEnabled } = useSearchStore();
   const { isStreaming, startStream, startRegenerateStream } = useChatStream('authenticated');
   const chatError = useChatErrorStore((s) => s.error);
@@ -523,9 +597,10 @@ export function useAuthenticatedChat({
     async (params: ExecuteStreamParams): Promise<{ models: ModelResult[] }> => {
       const { convId, userMessageData, messagesForInference, fundingSource, forkId } = params;
       const callbacks = createOptimisticStreamCallbacks(convId);
-      const { models } = await startStream(
+      const { models, doneData } = await startStream(
         {
           conversationId: convId,
+          modality: activeModality,
           models: selectedModels.map((m) => m.id),
           userMessage: userMessageData,
           messagesForInference,
@@ -536,6 +611,9 @@ export function useAuthenticatedChat({
         },
         callbacks
       );
+      if (doneData?.epochNumber !== undefined) {
+        attachMediaItemsFromDoneEvent(doneData, doneData.epochNumber, setLocalMessages);
+      }
       state.stopStreaming();
       await queryClient.invalidateQueries({ queryKey: chatKeys.conversation(convId) });
       void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
@@ -628,6 +706,7 @@ export function useAuthenticatedChat({
         const streamResult = await startStream(
           {
             conversationId: realId,
+            modality: activeModality,
             models: selectedModels.map((m) => m.id),
             userMessage: { id: userMsgId, content: message },
             messagesForInference: [{ role: 'user', content: message }],
@@ -643,6 +722,13 @@ export function useAuthenticatedChat({
         );
 
         attachCostsToMessages(streamResult.models, setLocalMessages);
+        if (streamResult.doneData?.epochNumber !== undefined) {
+          attachMediaItemsFromDoneEvent(
+            streamResult.doneData,
+            streamResult.doneData.epochNumber,
+            setLocalMessages
+          );
+        }
 
         // Preserve errored model messages as optimistic so they survive the
         // localMessages → API messages mode transition after navigation.

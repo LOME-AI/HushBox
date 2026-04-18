@@ -61,6 +61,14 @@ vi.mock('@/hooks/models', () => ({
   useModels: () => mockModelsData,
 }));
 
+// Mock MediaContentItem to avoid the full fetch + decrypt chain in tests.
+// Tests assert that MessageMediaItems renders one <MediaContentItem> per media item.
+vi.mock('./media-content-item', () => ({
+  MediaContentItem: ({ item }: { item: { id: string; contentType: string } }) => (
+    <div data-testid={`mock-media-item-${item.id}`} data-content-type={item.contentType} />
+  ),
+}));
+
 const ALL_USER_ACTIONS = new Set<MessageAction>(['copy', 'retry', 'edit', 'fork']);
 const ALL_AI_ACTIONS = new Set<MessageAction>(['copy', 'regenerate', 'fork', 'share']);
 const NO_ACTIONS = new Set<MessageAction>();
@@ -1087,6 +1095,82 @@ describe('MessageItem', () => {
         <MessageItem message={assistantMessage} onEdit={onEdit} allowedActions={ALL_AI_ACTIONS} />
       );
       expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('media content items', () => {
+    const messageWithMedia: Message = {
+      ...assistantMessage,
+      id: 'msg-with-media',
+      content: '',
+      wrappedContentKey: 'base64-wrapped-key',
+      epochNumber: 1,
+      mediaItems: [
+        {
+          id: 'ci-image-1',
+          contentType: 'image',
+          position: 0,
+          mimeType: 'image/png',
+          sizeBytes: 1_000_000,
+          width: 1024,
+          height: 1024,
+        },
+      ],
+    };
+
+    it('renders MediaContentItem for each media item', () => {
+      render(<MessageItem message={messageWithMedia} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getByTestId('mock-media-item-ci-image-1')).toBeInTheDocument();
+      expect(screen.getByTestId('mock-media-item-ci-image-1')).toHaveAttribute(
+        'data-content-type',
+        'image'
+      );
+    });
+
+    it('renders media items in position order', () => {
+      const msg: Message = {
+        ...messageWithMedia,
+        mediaItems: [
+          {
+            id: 'ci-b',
+            contentType: 'image',
+            position: 1,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+          {
+            id: 'ci-a',
+            contentType: 'image',
+            position: 0,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+        ],
+      };
+      render(<MessageItem message={msg} allowedActions={ALL_AI_ACTIONS} />);
+      const rendered = screen.getAllByTestId(/^mock-media-item-/);
+      expect(rendered[0]).toHaveAttribute('data-testid', 'mock-media-item-ci-a');
+      expect(rendered[1]).toHaveAttribute('data-testid', 'mock-media-item-ci-b');
+    });
+
+    it('renders nothing when mediaItems is empty', () => {
+      const msg: Message = { ...messageWithMedia, mediaItems: [] };
+      render(<MessageItem message={msg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByTestId(/^mock-media-item-/)).not.toBeInTheDocument();
+    });
+
+    it('renders nothing when wrappedContentKey is missing', () => {
+      // eslint-disable-next-line sonarjs/no-unused-vars -- omitting the key from the copy
+      const { wrappedContentKey: _omitKey, ...rest } = messageWithMedia;
+      render(<MessageItem message={rest} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByTestId(/^mock-media-item-/)).not.toBeInTheDocument();
+    });
+
+    it('renders nothing when epochNumber is missing', () => {
+      // eslint-disable-next-line sonarjs/no-unused-vars -- omitting the field from the copy
+      const { epochNumber: _omitEpoch, ...rest } = messageWithMedia;
+      render(<MessageItem message={rest} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByTestId(/^mock-media-item-/)).not.toBeInTheDocument();
     });
   });
 });

@@ -113,7 +113,7 @@ function computePromptBudgetDisplay(inputs: PromptBudgetDisplayInputs): PromptBu
 }
 
 export function usePromptBudget(input: PromptBudgetInput): PromptBudgetResult {
-  const { selectedModels } = useModelStore();
+  const selectedModels = useModelStore((state) => state.selections[state.activeModality]);
   const { webSearchEnabled } = useSearchStore();
   const { data: modelsData } = useModels();
   const { data: session, isPending: isSessionPending } = useSession();

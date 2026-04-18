@@ -112,6 +112,13 @@ export const MEDIA_STORAGE_COST_PER_BYTE =
   (MEDIA_MONTHLY_COST_PER_GB * MONTHS_PER_YEAR * STORAGE_YEARS) / (1000 * 1_000_000);
 
 /**
+ * Conservative byte estimate for a generated image (encrypted).
+ * Used for pre-flight budget reservation — overestimates so the user is
+ * never charged more than reserved. Actual cost uses real sizeBytes.
+ */
+export const ESTIMATED_IMAGE_BYTES = 8_000_000;
+
+/**
  * Time-to-live for presigned R2 GET URLs, in seconds.
  * Short enough to prevent long-lived leaks, long enough for clients
  * to fetch and decrypt media after unwrapping the content key.

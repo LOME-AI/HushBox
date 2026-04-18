@@ -341,6 +341,18 @@ export const ERROR_CODE_CONTENT_ITEM_NOT_FOUND = 'CONTENT_ITEM_NOT_FOUND';
 /** Content item exists but is a text item, which has no downloadable URL. */
 export const ERROR_CODE_CONTENT_ITEM_NOT_MEDIA = 'CONTENT_ITEM_NOT_MEDIA';
 
+/** AI gateway or provider returned an error during inference. */
+export const ERROR_CODE_INFERENCE_FAILED = 'INFERENCE_FAILED';
+
+/** Media generation produced no output bytes (empty result from gateway). */
+export const ERROR_CODE_EMPTY_MEDIA_RESULT = 'EMPTY_MEDIA_RESULT';
+
+/** Image/video/audio modality is not available for trial users. */
+export const ERROR_CODE_MEDIA_TRIAL_BLOCKED = 'MEDIA_TRIAL_BLOCKED';
+
+/** One or more selected models don't match the requested modality. */
+export const ERROR_CODE_MODALITY_MISMATCH = 'MODALITY_MISMATCH';
+
 // ============================================================
 // Error Response Schema
 // ============================================================

@@ -1,4 +1,4 @@
-import { mkdirSync, copyFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { seedUUID } from './seed.js';
 
@@ -83,7 +83,7 @@ export function getResolutionConfigs(): ResolutionConfig[] {
   ];
 }
 
-/** Path where generated screenshot PNGs are saved (gitignored). */
+/** Path where generated screenshot PNGs are saved (committed to git). */
 export function getScreenshotOutputPath(
   rootDir: string,
   resolution: string,
@@ -94,25 +94,7 @@ export function getScreenshotOutputPath(
     'apps',
     'web',
     'resources',
-    'generated',
-    'screenshots',
-    resolution,
-    filename
-  );
-}
-
-/** Path where screenshot PNGs are copied for Vite static serving during dev (gitignored). */
-export function getScreenshotDevAssetPath(
-  rootDir: string,
-  resolution: string,
-  filename: string
-): string {
-  return path.join(
-    rootDir,
-    'apps',
-    'web',
-    'public',
-    'dev-assets',
+    'assets',
     'screenshots',
     resolution,
     filename
@@ -122,15 +104,11 @@ export function getScreenshotDevAssetPath(
 const DEV_SERVER_URL = 'http://localhost:5173';
 const MESSAGE_LIST_TIMEOUT = 15_000;
 
-/** Ensure output + dev-asset directories exist for all resolutions. */
+/** Ensure output directories exist for all resolutions. */
 function ensureScreenshotDirectories(rootDir: string, resolutionConfigs: ResolutionConfig[]): void {
   for (const resolution of resolutionConfigs) {
     mkdirSync(
-      path.join(rootDir, 'apps', 'web', 'resources', 'generated', 'screenshots', resolution.name),
-      { recursive: true }
-    );
-    mkdirSync(
-      path.join(rootDir, 'apps', 'web', 'public', 'dev-assets', 'screenshots', resolution.name),
+      path.join(rootDir, 'apps', 'web', 'resources', 'assets', 'screenshots', resolution.name),
       { recursive: true }
     );
   }
@@ -165,9 +143,6 @@ async function captureScreenshot(
 
   const outputPath = getScreenshotOutputPath(rootDir, resolution.name, screenshot.filename);
   await page.screenshot({ path: outputPath, fullPage: false });
-
-  const devPath = getScreenshotDevAssetPath(rootDir, resolution.name, screenshot.filename);
-  copyFileSync(outputPath, devPath);
 
   await context.close();
   console.log(`  -> ${resolution.name}/${screenshot.filename}`);

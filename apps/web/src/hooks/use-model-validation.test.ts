@@ -1,9 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import type { Model } from '@hushbox/shared';
+import type { Model, Modality } from '@hushbox/shared';
+import type { SelectedModelEntry } from '@/stores/model';
+import {
+  createModelStoreStub,
+  selectorFromState,
+  type ModelStoreStub,
+} from '@/test-utils/model-store-mock';
 import { useModelValidation } from './use-model-validation.js';
 
-// Mock dependencies
 vi.mock('@/lib/auth', () => ({
   useSession: vi.fn(),
 }));
@@ -17,9 +22,13 @@ vi.mock('./models.js', () => ({
   getAccessibleModelIds: vi.fn(),
 }));
 
-vi.mock('@/stores/model', () => ({
-  useModelStore: vi.fn(),
-}));
+vi.mock('@/stores/model', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/model')>();
+  return {
+    ...actual,
+    useModelStore: vi.fn(),
+  };
+});
 
 import { useSession } from '@/lib/auth';
 import { useBalance } from './billing.js';
@@ -32,16 +41,17 @@ const mockedUseModels = vi.mocked(useModels);
 const mockedGetAccessibleModelIds = vi.mocked(getAccessibleModelIds);
 const mockedUseModelStore = vi.mocked(useModelStore);
 
-// Test models
 const testModels: Model[] = [
   {
     id: 'basic-model',
     name: 'Basic Model',
     description: 'A basic model',
     provider: 'TestProvider',
+    modality: 'text' as const,
     contextLength: 100_000,
     pricePerInputToken: 0.000_01,
     pricePerOutputToken: 0.000_03,
+    pricePerImage: 0,
     capabilities: [],
     supportedParameters: [],
     created: Math.floor(Date.now() / 1000),
@@ -51,33 +61,59 @@ const testModels: Model[] = [
     name: 'Premium Model',
     description: 'A premium model',
     provider: 'TestProvider',
+    modality: 'text' as const,
     contextLength: 200_000,
     pricePerInputToken: 0.0001,
     pricePerOutputToken: 0.0003,
+    pricePerImage: 0,
+    capabilities: [],
+    supportedParameters: [],
+    created: Math.floor(Date.now() / 1000),
+  },
+  {
+    id: 'imagen',
+    name: 'Imagen',
+    description: 'Imagen',
+    provider: 'Google',
+    modality: 'image' as const,
+    contextLength: 0,
+    pricePerInputToken: 0,
+    pricePerOutputToken: 0,
+    pricePerImage: 0.04,
     capabilities: [],
     supportedParameters: [],
     created: Math.floor(Date.now() / 1000),
   },
 ];
 
-describe('useModelValidation', () => {
-  const mockSetSelectedModel = vi.fn();
+const mockSetSelectedModels = vi.fn();
 
+function buildState(
+  overrides: Partial<Record<Modality, SelectedModelEntry[]>> = {}
+): ModelStoreStub {
+  return createModelStoreStub({
+    selections: {
+      text: overrides.text ?? [{ id: 'basic-model', name: 'Basic Model' }],
+      image: overrides.image ?? [],
+      audio: overrides.audio ?? [],
+      video: overrides.video ?? [],
+    },
+    setSelectedModels: mockSetSelectedModels,
+  });
+}
+
+function stubStore(state: ModelStoreStub): void {
+  mockedUseModelStore.mockImplementation(selectorFromState(state) as typeof useModelStore);
+}
+
+describe('useModelValidation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-
-    // Default mock setup: trial user (session loaded with no user, no balance)
-    mockedUseSession.mockReturnValue({
-      data: null,
-      isPending: false,
-    } as ReturnType<typeof useSession>);
+    mockedUseSession.mockReturnValue({ data: null, isPending: false } as ReturnType<
+      typeof useSession
+    >);
     mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
-
-    mockedUseModelStore.mockReturnValue({
-      selectedModels: [{ id: 'basic-model', name: 'Basic Model' }],
-      setSelectedModel: mockSetSelectedModel,
-    });
-
+    stubStore(buildState());
     mockedGetAccessibleModelIds.mockReturnValue({
       strongestId: 'basic-model',
       valueId: 'basic-model',
@@ -89,54 +125,33 @@ describe('useModelValidation', () => {
   });
 
   it('does nothing when models data is not loaded', () => {
-    // Trial user (session loaded with no user)
-    mockedUseSession.mockReturnValue({
-      data: null,
-      isPending: false,
-    } as ReturnType<typeof useSession>);
-    mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
     mockedUseModels.mockReturnValue({ data: undefined } as ReturnType<typeof useModels>);
 
     renderHook(() => {
       useModelValidation();
     });
 
-    expect(mockSetSelectedModel).not.toHaveBeenCalled();
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
   });
 
-  it('does not reset model while session is loading', () => {
-    // Session still loading - we don't know if user is authenticated yet
-    // This is the key bug fix: without isPending check, we'd treat loading user as trial
+  it('does not run while session is loading', () => {
     mockedUseSession.mockReturnValue({
       data: undefined,
       isPending: true,
     } as unknown as ReturnType<typeof useSession>);
-    mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
     mockedUseModels.mockReturnValue({
-      data: {
-        models: testModels,
-        premiumIds: new Set(['premium-model']),
-      },
+      data: { models: testModels, premiumIds: new Set(['premium-model']) },
     } as ReturnType<typeof useModels>);
-    mockedUseModelStore.mockReturnValue({
-      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }],
-      setSelectedModel: mockSetSelectedModel,
-    });
-    mockedGetAccessibleModelIds.mockReturnValue({
-      strongestId: 'basic-model',
-      valueId: 'basic-model',
-    });
+    stubStore(buildState({ text: [{ id: 'premium-model', name: 'Premium Model' }] }));
 
     renderHook(() => {
       useModelValidation();
     });
 
-    // Should NOT reset - we don't know if user is authenticated yet
-    expect(mockSetSelectedModel).not.toHaveBeenCalled();
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
   });
 
-  it('does nothing when user can access premium', () => {
-    // Paid user with positive balance
+  it('does not reset when premium user has premium model selected', () => {
     mockedUseSession.mockReturnValue({
       data: { user: { id: 'user-123' } },
       isPending: false,
@@ -145,25 +160,18 @@ describe('useModelValidation', () => {
       data: { balance: '10.00', freeAllowanceCents: 0 },
     } as ReturnType<typeof useBalance>);
     mockedUseModels.mockReturnValue({
-      data: {
-        models: testModels,
-        premiumIds: new Set(['premium-model']),
-      },
+      data: { models: testModels, premiumIds: new Set(['premium-model']) },
     } as ReturnType<typeof useModels>);
-    mockedUseModelStore.mockReturnValue({
-      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }], // Premium model selected
-      setSelectedModel: mockSetSelectedModel,
-    });
+    stubStore(buildState({ text: [{ id: 'premium-model', name: 'Premium Model' }] }));
 
     renderHook(() => {
       useModelValidation();
     });
 
-    expect(mockSetSelectedModel).not.toHaveBeenCalled();
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
   });
 
-  it('does nothing when selected model is already accessible', () => {
-    // Free user (authenticated but zero balance)
+  it('does nothing when selected text model is already accessible', () => {
     mockedUseSession.mockReturnValue({
       data: { user: { id: 'user-123' } },
       isPending: false,
@@ -172,25 +180,18 @@ describe('useModelValidation', () => {
       data: { balance: '0.00', freeAllowanceCents: 100 },
     } as ReturnType<typeof useBalance>);
     mockedUseModels.mockReturnValue({
-      data: {
-        models: testModels,
-        premiumIds: new Set(['premium-model']),
-      },
+      data: { models: testModels, premiumIds: new Set(['premium-model']) },
     } as ReturnType<typeof useModels>);
-    mockedUseModelStore.mockReturnValue({
-      selectedModels: [{ id: 'basic-model', name: 'Basic Model' }], // Basic model (accessible)
-      setSelectedModel: mockSetSelectedModel,
-    });
+    stubStore(buildState({ text: [{ id: 'basic-model', name: 'Basic Model' }] }));
 
     renderHook(() => {
       useModelValidation();
     });
 
-    expect(mockSetSelectedModel).not.toHaveBeenCalled();
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
   });
 
-  it('resets model when free user has premium model selected', () => {
-    // Free user (authenticated but zero balance)
+  it('falls text back to strongest when free user has a premium text model selected', () => {
     mockedUseSession.mockReturnValue({
       data: { user: { id: 'user-123' } },
       isPending: false,
@@ -199,57 +200,39 @@ describe('useModelValidation', () => {
       data: { balance: '0.00', freeAllowanceCents: 100 },
     } as ReturnType<typeof useBalance>);
     mockedUseModels.mockReturnValue({
-      data: {
-        models: testModels,
-        premiumIds: new Set(['premium-model']),
-      },
+      data: { models: testModels, premiumIds: new Set(['premium-model']) },
     } as ReturnType<typeof useModels>);
-    mockedUseModelStore.mockReturnValue({
-      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }], // Premium model selected (not accessible)
-      setSelectedModel: mockSetSelectedModel,
-    });
-    mockedGetAccessibleModelIds.mockReturnValue({
-      strongestId: 'basic-model',
-      valueId: 'basic-model',
-    });
+    stubStore(buildState({ text: [{ id: 'premium-model', name: 'Premium Model' }] }));
 
     renderHook(() => {
       useModelValidation();
     });
 
-    expect(mockSetSelectedModel).toHaveBeenCalledWith('basic-model', 'Basic Model');
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('text', [
+      { id: 'basic-model', name: 'Basic Model' },
+    ]);
   });
 
-  it('resets model when trial user has premium model selected', () => {
-    // Trial user (session loaded with no user)
-    mockedUseSession.mockReturnValue({
-      data: null,
-      isPending: false,
-    } as ReturnType<typeof useSession>);
+  it('falls text back to strongest when trial user has a premium text model selected', () => {
+    mockedUseSession.mockReturnValue({ data: null, isPending: false } as ReturnType<
+      typeof useSession
+    >);
     mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
     mockedUseModels.mockReturnValue({
-      data: {
-        models: testModels,
-        premiumIds: new Set(['premium-model']),
-      },
+      data: { models: testModels, premiumIds: new Set(['premium-model']) },
     } as ReturnType<typeof useModels>);
-    mockedUseModelStore.mockReturnValue({
-      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }], // Premium model selected (not accessible)
-      setSelectedModel: mockSetSelectedModel,
-    });
-    mockedGetAccessibleModelIds.mockReturnValue({
-      strongestId: 'basic-model',
-      valueId: 'basic-model',
-    });
+    stubStore(buildState({ text: [{ id: 'premium-model', name: 'Premium Model' }] }));
 
     renderHook(() => {
       useModelValidation();
     });
 
-    expect(mockSetSelectedModel).toHaveBeenCalledWith('basic-model', 'Basic Model');
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('text', [
+      { id: 'basic-model', name: 'Basic Model' },
+    ]);
   });
 
-  it('uses correct strongest model for reset', () => {
+  it('uses the mocked strongest model for the text fallback', () => {
     const modelsWithMultipleBasic: Model[] = [
       ...testModels,
       {
@@ -257,33 +240,26 @@ describe('useModelValidation', () => {
         name: 'Expensive Basic',
         description: 'An expensive basic model',
         provider: 'TestProvider',
+        modality: 'text' as const,
         contextLength: 150_000,
         pricePerInputToken: 0.000_05,
         pricePerOutputToken: 0.000_15,
+        pricePerImage: 0,
         capabilities: [],
         supportedParameters: [],
         created: Math.floor(Date.now() / 1000),
       },
     ];
 
-    // Trial user (session loaded with no user)
-    mockedUseSession.mockReturnValue({
-      data: null,
-      isPending: false,
-    } as ReturnType<typeof useSession>);
-    mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
+    mockedUseSession.mockReturnValue({ data: null, isPending: false } as ReturnType<
+      typeof useSession
+    >);
     mockedUseModels.mockReturnValue({
-      data: {
-        models: modelsWithMultipleBasic,
-        premiumIds: new Set(['premium-model']),
-      },
+      data: { models: modelsWithMultipleBasic, premiumIds: new Set(['premium-model']) },
     } as ReturnType<typeof useModels>);
-    mockedUseModelStore.mockReturnValue({
-      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }],
-      setSelectedModel: mockSetSelectedModel,
-    });
+    stubStore(buildState({ text: [{ id: 'premium-model', name: 'Premium Model' }] }));
     mockedGetAccessibleModelIds.mockReturnValue({
-      strongestId: 'expensive-basic', // The strongest basic model
+      strongestId: 'expensive-basic',
       valueId: 'basic-model',
     });
 
@@ -291,69 +267,68 @@ describe('useModelValidation', () => {
       useModelValidation();
     });
 
-    expect(mockSetSelectedModel).toHaveBeenCalledWith('expensive-basic', 'Expensive Basic');
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('text', [
+      { id: 'expensive-basic', name: 'Expensive Basic' },
+    ]);
   });
 
-  it('does not reset if strongest model is not found in models list', () => {
-    // Trial user (session loaded with no user)
-    mockedUseSession.mockReturnValue({
-      data: null,
-      isPending: false,
-    } as ReturnType<typeof useSession>);
-    mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
+  it('does not reset if strongest model is not in the models list', () => {
+    mockedUseSession.mockReturnValue({ data: null, isPending: false } as ReturnType<
+      typeof useSession
+    >);
     mockedUseModels.mockReturnValue({
-      data: {
-        models: testModels,
-        premiumIds: new Set(['premium-model']),
-      },
+      data: { models: testModels, premiumIds: new Set(['premium-model']) },
     } as ReturnType<typeof useModels>);
-    mockedUseModelStore.mockReturnValue({
-      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }],
-      setSelectedModel: mockSetSelectedModel,
-    });
+    stubStore(buildState({ text: [{ id: 'premium-model', name: 'Premium Model' }] }));
     mockedGetAccessibleModelIds.mockReturnValue({
-      strongestId: 'non-existent-model', // Model not in list
-      valueId: 'non-existent-model',
+      strongestId: 'non-existent',
+      valueId: 'non-existent',
     });
 
     renderHook(() => {
       useModelValidation();
     });
 
-    expect(mockSetSelectedModel).not.toHaveBeenCalled();
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
   });
 
-  it('resets model when selected model does not exist in available models (trial user)', () => {
-    // Trial user with a model that doesn't exist in the models list
-    mockedUseSession.mockReturnValue({
-      data: null,
-      isPending: false,
-    } as ReturnType<typeof useSession>);
-    mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
+  it('resets text when selected model no longer exists', () => {
+    mockedUseSession.mockReturnValue({ data: null, isPending: false } as ReturnType<
+      typeof useSession
+    >);
     mockedUseModels.mockReturnValue({
-      data: {
-        models: testModels,
-        premiumIds: new Set(['premium-model']),
-      },
+      data: { models: testModels, premiumIds: new Set(['premium-model']) },
     } as ReturnType<typeof useModels>);
-    mockedUseModelStore.mockReturnValue({
-      selectedModels: [{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }],
-      setSelectedModel: mockSetSelectedModel,
-    });
-    mockedGetAccessibleModelIds.mockReturnValue({
-      strongestId: 'basic-model',
-      valueId: 'basic-model',
-    });
+    stubStore(buildState({ text: [{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }] }));
 
     renderHook(() => {
       useModelValidation();
     });
 
-    expect(mockSetSelectedModel).toHaveBeenCalledWith('basic-model', 'Basic Model');
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('text', [
+      { id: 'basic-model', name: 'Basic Model' },
+    ]);
   });
 
-  it('resets model when selected model does not exist in available models (premium user)', () => {
-    // Paid user with positive balance, but selected model doesn't exist
+  it('does not run while balance is loading for an authenticated user', () => {
+    mockedUseSession.mockReturnValue({
+      data: { user: { id: 'user-123' } },
+      isPending: false,
+    } as ReturnType<typeof useSession>);
+    mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
+    mockedUseModels.mockReturnValue({
+      data: { models: testModels, premiumIds: new Set(['premium-model']) },
+    } as ReturnType<typeof useModels>);
+    stubStore(buildState({ text: [{ id: 'premium-model', name: 'Premium Model' }] }));
+
+    renderHook(() => {
+      useModelValidation();
+    });
+
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('removes an invalid image model without touching text', () => {
     mockedUseSession.mockReturnValue({
       data: { user: { id: 'user-123' } },
       isPending: false,
@@ -362,57 +337,47 @@ describe('useModelValidation', () => {
       data: { balance: '10.00', freeAllowanceCents: 0 },
     } as ReturnType<typeof useBalance>);
     mockedUseModels.mockReturnValue({
-      data: {
-        models: testModels,
-        premiumIds: new Set(['premium-model']),
-      },
+      data: { models: testModels, premiumIds: new Set(['premium-model']) },
     } as ReturnType<typeof useModels>);
-    mockedUseModelStore.mockReturnValue({
-      selectedModels: [{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }],
-      setSelectedModel: mockSetSelectedModel,
-    });
-    mockedGetAccessibleModelIds.mockReturnValue({
-      strongestId: 'premium-model',
-      valueId: 'basic-model',
-    });
+    stubStore(
+      buildState({
+        text: [{ id: 'basic-model', name: 'Basic Model' }],
+        image: [{ id: 'stale-image-model', name: 'Stale' }],
+      })
+    );
 
     renderHook(() => {
       useModelValidation();
     });
 
-    expect(mockSetSelectedModel).toHaveBeenCalledWith('premium-model', 'Premium Model');
+    expect(mockSetSelectedModels).toHaveBeenCalledTimes(1);
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('image', []);
   });
 
-  it('does not reset model while balance is loading for authenticated user', () => {
-    // Authenticated user with balance still loading (undefined)
-    // Session is loaded (user is authenticated), but balance still loading
+  it('preserves valid image models and only removes invalid ones', () => {
     mockedUseSession.mockReturnValue({
       data: { user: { id: 'user-123' } },
       isPending: false,
     } as ReturnType<typeof useSession>);
     mockedUseBalance.mockReturnValue({
-      data: undefined, // Balance still loading
+      data: { balance: '10.00', freeAllowanceCents: 0 },
     } as ReturnType<typeof useBalance>);
     mockedUseModels.mockReturnValue({
-      data: {
-        models: testModels,
-        premiumIds: new Set(['premium-model']),
-      },
+      data: { models: testModels, premiumIds: new Set(['premium-model']) },
     } as ReturnType<typeof useModels>);
-    mockedUseModelStore.mockReturnValue({
-      selectedModels: [{ id: 'premium-model', name: 'Premium Model' }], // Premium model from cache
-      setSelectedModel: mockSetSelectedModel,
-    });
-    mockedGetAccessibleModelIds.mockReturnValue({
-      strongestId: 'basic-model',
-      valueId: 'basic-model',
-    });
+    stubStore(
+      buildState({
+        image: [
+          { id: 'imagen', name: 'Imagen' },
+          { id: 'stale', name: 'Stale' },
+        ],
+      })
+    );
 
     renderHook(() => {
       useModelValidation();
     });
 
-    // Should NOT reset - wait for balance to load first
-    expect(mockSetSelectedModel).not.toHaveBeenCalled();
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('image', [{ id: 'imagen', name: 'Imagen' }]);
   });
 });

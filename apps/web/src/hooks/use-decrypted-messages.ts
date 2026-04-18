@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { openMessageEnvelope, decryptTextWithContentKey } from '@hushbox/crypto';
 import { useAuthStore } from '@/lib/auth';
-import type { Message } from '@/lib/api';
+import type { Message, MessageMediaItem } from '@/lib/api';
 import { fromBase64 } from '@hushbox/shared';
 import type { MessageResponse, ContentItemResponse } from '@hushbox/shared';
 import { getEpochKey, processKeyChain } from '@/lib/epoch-key-cache';
@@ -32,9 +32,35 @@ function pickModelName(contentItems: ContentItemResponse[]): string | null {
   return null;
 }
 
+function extractMediaItems(contentItems: ContentItemResponse[]): MessageMediaItem[] {
+  const media: MessageMediaItem[] = [];
+  for (const item of contentItems) {
+    if (item.contentType === 'text') continue;
+    if (item.mimeType == null || item.sizeBytes == null) {
+      // Server CHECK constraint should prevent this; log to catch regressions.
+      console.warn(
+        `Skipping malformed media content item ${item.id}: missing mimeType or sizeBytes`
+      );
+      continue;
+    }
+    media.push({
+      id: item.id,
+      contentType: item.contentType,
+      position: item.position,
+      mimeType: item.mimeType,
+      sizeBytes: item.sizeBytes,
+      width: item.width,
+      height: item.height,
+      durationMs: item.durationMs,
+    });
+  }
+  return media;
+}
+
 function buildDecryptedMessage(msg: MessageResponse, content: string): Message {
   const cost = sumCost(msg.contentItems);
   const modelName = pickModelName(msg.contentItems);
+  const mediaItems = extractMediaItems(msg.contentItems);
   return {
     id: msg.id,
     conversationId: msg.conversationId,
@@ -47,6 +73,7 @@ function buildDecryptedMessage(msg: MessageResponse, content: string): Message {
     parentMessageId: msg.parentMessageId,
     wrappedContentKey: msg.wrappedContentKey,
     epochNumber: msg.epochNumber,
+    ...(mediaItems.length > 0 && { mediaItems }),
   };
 }
 

@@ -557,6 +557,77 @@ describe('streamChatRequestSchema', () => {
     expect('contentEncrypted' in result.userMessage).toBe(false);
     expect('iv' in result.userMessage).toBe(false);
   });
+
+  it('defaults modality to text when omitted', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['gpt-4'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+    });
+    expect(result.modality).toBe('text');
+  });
+
+  it('accepts modality text explicitly', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['gpt-4'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+      modality: 'text',
+    });
+    expect(result.modality).toBe('text');
+  });
+
+  it('accepts modality image with imageConfig', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['google/imagen-4'],
+      userMessage: { id: validMsgId, content: 'A cat wearing a hat' },
+      messagesForInference: [{ role: 'user', content: 'A cat wearing a hat' }],
+      fundingSource: 'personal_balance',
+      modality: 'image',
+      imageConfig: { aspectRatio: '16:9' },
+    });
+    expect(result.modality).toBe('image');
+    expect(result.imageConfig?.aspectRatio).toBe('16:9');
+  });
+
+  it('defaults imageConfig aspectRatio to 1:1', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['google/imagen-4'],
+      userMessage: { id: validMsgId, content: 'A sunset' },
+      messagesForInference: [{ role: 'user', content: 'A sunset' }],
+      fundingSource: 'personal_balance',
+      modality: 'image',
+      imageConfig: {},
+    });
+    expect(result.imageConfig?.aspectRatio).toBe('1:1');
+  });
+
+  it('rejects invalid modality', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['gpt-4'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+      })
+    ).toThrow();
+  });
+
+  it('rejects invalid aspectRatio in imageConfig', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/imagen-4'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'image',
+        imageConfig: { aspectRatio: '2:1' },
+      })
+    ).toThrow();
+  });
 });
 
 // ============================================================

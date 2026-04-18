@@ -4,7 +4,6 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { ChatWelcome } from './chat-welcome';
-import { useModelStore } from '@/stores/model';
 import type { PromptBudgetResult } from '@/hooks/use-prompt-budget';
 
 // Mock the api module — `api` object was removed; module now exports getApiUrl + ApiError
@@ -23,14 +22,29 @@ vi.mock('@/lib/api', () => ({
 }));
 
 // Mock hooks used by PromptInput (which is rendered inside ChatWelcome)
+import { createModelStoreStub, type ModelStoreStub } from '@/test-utils/model-store-mock';
+
+const modelStoreStubRef: { current: ModelStoreStub } = { current: createModelStoreStub() };
+
+function resetModelStoreStub(): void {
+  modelStoreStubRef.current = createModelStoreStub();
+}
+
 vi.mock('@/stores/model', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/model')>();
-  const store = vi.fn(() => ({
-    selectedModels: [{ id: 'test-model', name: 'Test Model' }],
-  }));
+  const store = vi.fn((selector?: (s: ModelStoreStub) => unknown) =>
+    selector ? selector(modelStoreStubRef.current) : modelStoreStubRef.current
+  );
   (store as unknown as Record<string, unknown>)['setState'] = vi.fn();
+  (store as unknown as Record<string, unknown>)['getState'] = () => modelStoreStubRef.current;
   return { ...actual, useModelStore: store };
 });
+
+vi.mock('@/hooks/use-resolve-default-model', () => ({
+  useResolveDefaultModel: () => {
+    /* no-op in tests */
+  },
+}));
 
 vi.mock('@/hooks/models', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/models')>();
@@ -141,6 +155,7 @@ describe('ChatWelcome', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetModelStoreStub();
   });
 
   it('renders the chat welcome container', () => {
@@ -295,12 +310,10 @@ describe('ChatWelcome', () => {
   });
 
   it('renders ComparisonBar when multiple models are selected', () => {
-    vi.mocked(useModelStore).mockReturnValueOnce({
-      selectedModels: [
-        { id: 'model-1', name: 'Model One' },
-        { id: 'model-2', name: 'Model Two' },
-      ],
-    });
+    modelStoreStubRef.current.selections.text = [
+      { id: 'model-1', name: 'Model One' },
+      { id: 'model-2', name: 'Model Two' },
+    ];
 
     render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),

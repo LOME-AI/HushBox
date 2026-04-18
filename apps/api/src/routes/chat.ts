@@ -13,6 +13,9 @@ import {
   ERROR_CODE_FORK_NOT_FOUND,
   ERROR_CODE_CONTEXT_LENGTH_EXCEEDED,
   ERROR_CODE_STREAM_ERROR,
+  ERROR_CODE_MEDIA_TRIAL_BLOCKED,
+  ERROR_CODE_MODEL_NOT_FOUND,
+  ERROR_CODE_MODALITY_MISMATCH,
   estimateTokenCount,
 } from '@hushbox/shared';
 import type { FundingSource, RegenerateRequest } from '@hushbox/shared';
@@ -47,7 +50,9 @@ import {
 } from '../lib/speculative-balance.js';
 import {
   resolveAndReserveBilling,
+  resolveAndReserveImageBilling,
   executeStreamPipeline,
+  executeImagePipeline,
   resolveWebSearchCost,
   BATCH_INTERVAL_MS,
 } from '../lib/stream-pipeline.js';
@@ -248,6 +253,196 @@ function requireApiKey(c: Context<AppEnv>): string {
   const apiKey = c.env.AI_GATEWAY_API_KEY;
   if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required');
   return apiKey;
+}
+
+interface ImageModelLookup {
+  /** Max per-image price across the selected image models. */
+  maxPerImage: number;
+  /** Model IDs that are NOT image models (should be rejected). */
+  mismatches: string[];
+  /** Model IDs that were requested but not found in the gateway. */
+  notFound: string[];
+}
+
+/**
+ * Validate selected models against the image modality.
+ *
+ * Returns mismatches (selected models that aren't image models) so the caller
+ * can reject with MODALITY_MISMATCH. Returns notFound for models the gateway
+ * doesn't know about. Only returns a valid `maxPerImage` when every selected
+ * model is an image model with pricing.
+ */
+async function lookupImageModels(
+  aiClient: AppEnv['Variables']['aiClient'],
+  models: string[]
+): Promise<ImageModelLookup> {
+  const allModels = await aiClient.listModels();
+  const mismatches: string[] = [];
+  const notFound: string[] = [];
+  let maxPerImage = 0;
+
+  for (const modelId of models) {
+    const info = allModels.find((m) => m.id === modelId);
+    if (!info) {
+      notFound.push(modelId);
+      continue;
+    }
+    if (info.pricing.kind !== 'image') {
+      mismatches.push(modelId);
+      continue;
+    }
+    if (info.pricing.perImage > maxPerImage) {
+      maxPerImage = info.pricing.perImage;
+    }
+  }
+
+  return { maxPerImage, mismatches, notFound };
+}
+
+interface ImageBranchInput {
+  c: Context<AppEnv>;
+  conversationId: string;
+  callerId: string;
+  user: AppEnv['Variables']['user'];
+  billingContext: BillingContext;
+  models: string[];
+  userMessage: { id: string; content: string };
+  parentMessageId: string | null;
+  forkId: string | undefined;
+  imageConfig: { aspectRatio?: string } | undefined;
+}
+
+async function handleImageStreamRequest(input: ImageBranchInput): Promise<Response> {
+  const {
+    c,
+    conversationId,
+    callerId,
+    user,
+    billingContext,
+    models,
+    userMessage,
+    parentMessageId,
+    forkId,
+    imageConfig,
+  } = input;
+  const { memberContext, billingUserId, clientFundingSource, billingResult } = billingContext;
+  const aiClient = c.get('aiClient');
+  const redis = c.get('redis');
+
+  const { maxPerImage, mismatches, notFound } = await lookupImageModels(aiClient, models);
+
+  if (notFound.length > 0) {
+    return c.json(createErrorResponse(ERROR_CODE_MODEL_NOT_FOUND, { models: notFound }), 400);
+  }
+  if (mismatches.length > 0) {
+    return c.json(
+      createErrorResponse(ERROR_CODE_MODALITY_MISMATCH, { invalidModels: mismatches }),
+      400
+    );
+  }
+
+  const imageBilling = await resolveAndReserveImageBilling(c, {
+    billingResult,
+    userId: billingUserId,
+    models,
+    perImagePrice: maxPerImage,
+    clientFundingSource,
+    ...(memberContext !== undefined && { memberContext }),
+    conversationId,
+  });
+  if (!imageBilling.success) {
+    return imageBilling.response;
+  }
+
+  const releaseImageReservation = resolveReleaseReservation(
+    redis,
+    imageBilling.groupBudget,
+    user,
+    imageBilling.worstCaseCents
+  );
+
+  return executeImagePipeline({
+    c,
+    conversationId,
+    models,
+    userMessage,
+    prompt: userMessage.content,
+    imageBilling,
+    ...(memberContext !== undefined && { memberContext }),
+    releaseReservation: releaseImageReservation,
+    senderId: callerId,
+    ...(forkId !== undefined && { forkId }),
+    parentMessageId,
+    ...(imageConfig?.aspectRatio !== undefined && { aspectRatio: imageConfig.aspectRatio }),
+  });
+}
+
+interface TextBranchInput {
+  c: Context<AppEnv>;
+  conversationId: string;
+  callerId: string;
+  user: AppEnv['Variables']['user'];
+  billingContext: BillingContext;
+  models: string[];
+  userMessage: { id: string; content: string };
+  messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[];
+  parentMessageId: string | null;
+  forkId: string | undefined;
+  webSearchEnabled: boolean;
+  customInstructions: string | undefined;
+}
+
+async function handleTextStreamRequest(input: TextBranchInput): Promise<Response> {
+  const {
+    c,
+    conversationId,
+    callerId,
+    user,
+    billingContext,
+    models,
+    userMessage,
+    messagesForInference,
+    parentMessageId,
+    forkId,
+    webSearchEnabled,
+    customInstructions,
+  } = input;
+  const { memberContext, billingUserId, clientFundingSource, billingResult } = billingContext;
+  const redis = c.get('redis');
+
+  const billingValidation = await resolveAndReserveBilling(c, {
+    billingResult,
+    userId: billingUserId,
+    models,
+    messagesForInference,
+    clientFundingSource,
+    ...(memberContext !== undefined && { memberContext }),
+    conversationId,
+    webSearchEnabled,
+    ...(customInstructions !== undefined && { customInstructions }),
+  });
+  if (!billingValidation.success) {
+    return billingValidation.response;
+  }
+
+  const { worstCaseCents, groupBudget } = billingValidation;
+  const releaseReservation = resolveReleaseReservation(redis, groupBudget, user, worstCaseCents);
+
+  return executeStreamPipeline({
+    c,
+    conversationId,
+    models,
+    userMessage,
+    messagesForInference,
+    billingValidation,
+    ...(memberContext !== undefined && { memberContext }),
+    webSearchEnabled,
+    ...(customInstructions !== undefined && { customInstructions }),
+    releaseReservation,
+    senderId: callerId,
+    ...(forkId !== undefined && { forkId }),
+    parentMessageId,
+  });
 }
 
 interface BillingContext {
@@ -628,6 +823,7 @@ export const chatRoute = new Hono<AppEnv>()
       const redis = c.get('redis');
 
       const {
+        modality,
         models,
         userMessage,
         messagesForInference,
@@ -635,11 +831,17 @@ export const chatRoute = new Hono<AppEnv>()
         webSearchEnabled = false,
         customInstructions,
         forkId,
+        imageConfig,
       } = c.req.valid('json');
 
       // Validate last message
       if (!validateLastMessageIsFromUser(messagesForInference)) {
         return c.json(createErrorResponse(ERROR_CODE_LAST_MESSAGE_NOT_USER), 400);
+      }
+
+      // Block link guests from image generation
+      if (modality === 'image' && linkGuest) {
+        return c.json(createErrorResponse(ERROR_CODE_MEDIA_TRIAL_BLOCKED), 403);
       }
 
       // --- Resolve billing (focused branch) ---
@@ -661,50 +863,39 @@ export const chatRoute = new Hono<AppEnv>()
             fundingSource,
             apiKey,
           });
-      const { memberContext, billingUserId, clientFundingSource, billingResult } = billingContext;
-
-      // --- Unified billing validation + stream ---
-      const billingValidation = await resolveAndReserveBilling(c, {
-        billingResult,
-        userId: billingUserId,
-        models,
-        messagesForInference,
-        clientFundingSource,
-        ...(memberContext !== undefined && { memberContext }),
-        conversationId,
-        webSearchEnabled,
-        ...(customInstructions !== undefined && { customInstructions }),
-      });
-      if (!billingValidation.success) {
-        return billingValidation.response;
-      }
-
-      const { worstCaseCents, groupBudget } = billingValidation;
       const user = c.get('user');
-      const releaseReservation = resolveReleaseReservation(
-        redis,
-        groupBudget,
-        user,
-        worstCaseCents
-      );
 
       // Resolve parentMessageId: fork tip when in a fork, latest message otherwise
       const parentMessageId = await resolveParentMessageId(db, conversationId, forkId);
 
-      return executeStreamPipeline({
+      if (modality === 'image') {
+        return handleImageStreamRequest({
+          c,
+          conversationId,
+          callerId,
+          user,
+          billingContext,
+          models,
+          userMessage,
+          parentMessageId,
+          forkId,
+          imageConfig,
+        });
+      }
+
+      return handleTextStreamRequest({
         c,
         conversationId,
+        callerId,
+        user,
+        billingContext,
         models,
         userMessage,
         messagesForInference,
-        billingValidation,
-        ...(memberContext !== undefined && { memberContext }),
-        webSearchEnabled,
-        ...(customInstructions !== undefined && { customInstructions }),
-        releaseReservation,
-        senderId: callerId,
-        ...(forkId !== undefined && { forkId }),
         parentMessageId,
+        forkId,
+        webSearchEnabled,
+        customInstructions,
       });
     }
   )

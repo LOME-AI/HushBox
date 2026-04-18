@@ -68,12 +68,24 @@ const fundingSourceSchema = z.enum([
   'trial_fixed',
 ]);
 
+export const imageConfigSchema = z.object({
+  aspectRatio: z.enum(['1:1', '3:2', '16:9', '9:16', '4:3']).default('1:1'),
+});
+
+export type ImageConfig = z.infer<typeof imageConfigSchema>;
+
 export const streamChatRequestSchema = z.object({
+  modality: z.enum(['text', 'image']).default('text'),
   models: z.array(z.string()).min(1).max(MAX_SELECTED_MODELS),
   userMessage: z.object({
     id: z.uuid(),
     content: z.string().min(1), // plaintext — server encrypts with epoch key
   }),
+  /**
+   * Full conversation history used as the model's prompt.
+   * When `modality === 'image'`, this is ignored by the image pipeline —
+   * only `userMessage.content` is used as the image prompt.
+   */
   messagesForInference: z
     .array(
       z.object({
@@ -86,6 +98,7 @@ export const streamChatRequestSchema = z.object({
   webSearchEnabled: z.boolean().optional(),
   customInstructions: z.string().max(5000).optional(),
   forkId: z.uuid().optional(),
+  imageConfig: imageConfigSchema.optional(),
 });
 
 export type StreamChatRequest = z.infer<typeof streamChatRequestSchema>;

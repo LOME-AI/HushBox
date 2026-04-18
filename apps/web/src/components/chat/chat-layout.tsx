@@ -5,7 +5,7 @@ import { ComparisonBar } from '@/components/chat/comparison-bar';
 import { ForkTabs } from '@/components/chat/fork-tabs';
 import { MessageList, type MessageListHandle } from '@/components/chat/message-list';
 import { PromptInput } from '@/components/chat/prompt-input';
-import type { PromptInputRef } from '@/components/chat/prompt-input';
+import type { ChatSearchProps, PromptInputRef } from '@/components/chat/prompt-input';
 import { DocumentPanel } from '@/components/document-panel/document-panel';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
@@ -23,11 +23,12 @@ import { useModelStore, getPrimaryModel, type SelectedModelEntry } from '@/store
 import { useSearchStore } from '@/stores/search';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useSelectedModelCapabilities } from '@/hooks/use-selected-model-capabilities';
+import { useResolveDefaultModel } from '@/hooks/use-resolve-default-model';
 import { billingKeys } from '@/hooks/billing';
 import { TypingIndicator } from '@/components/chat/typing-indicator';
 import { Lock } from 'lucide-react';
 import { createEvent } from '@hushbox/realtime/events';
-import type { FundingSource, MemberPrivilege } from '@hushbox/shared';
+import type { FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
 import { useDocumentStore } from '@/stores/document';
 import type { Message } from '@/lib/api';
 import type { PhantomMessage } from '@/hooks/use-remote-streaming';
@@ -315,12 +316,12 @@ interface ChatPromptInputProps {
   readonly callerPrivilege: MemberPrivilege | undefined;
   readonly handleSubmitUserOnly: () => void;
   readonly handleTypingChange: (isTyping: boolean) => void;
-  readonly webSearchEnabled: boolean;
-  readonly modelSupportsSearch: boolean;
+  readonly searchProps: ChatSearchProps | undefined;
   readonly isAuthenticated: boolean;
-  readonly onToggleWebSearch: () => void;
   readonly isEditing?: boolean | undefined;
   readonly onCancelEdit?: (() => void) | undefined;
+  readonly activeModality: Modality;
+  readonly onToggleModality: () => void;
 }
 
 interface ChatHeaderGroupProps {
@@ -410,12 +411,12 @@ function ChatPromptInput({
   callerPrivilege,
   handleSubmitUserOnly,
   handleTypingChange,
-  webSearchEnabled,
-  modelSupportsSearch,
+  searchProps,
   isAuthenticated,
-  onToggleWebSearch,
   isEditing,
   onCancelEdit,
+  activeModality,
+  onToggleModality,
 }: Readonly<ChatPromptInputProps>): React.JSX.Element {
   const spreadProps = buildPromptInputProps({
     groupChat,
@@ -427,13 +428,16 @@ function ChatPromptInput({
     handleTypingChange,
   });
 
+  const placeholder =
+    activeModality === 'image' ? 'Describe the image you want...' : 'Type a message...';
+
   return (
     <PromptInput
       ref={promptInputRef}
       value={inputValue}
       onChange={onInputChange}
       onSubmit={handleSubmit}
-      placeholder="Type a message..."
+      placeholder={placeholder}
       historyCharacters={historyCharacters}
       rows={2}
       minHeight="56px"
@@ -441,10 +445,10 @@ function ChatPromptInput({
       disabled={inputDisabled}
       isProcessing={isProcessing}
       autoFocus={!isMobile}
-      webSearchEnabled={webSearchEnabled}
-      modelSupportsSearch={modelSupportsSearch}
       isAuthenticated={isAuthenticated}
-      onToggleWebSearch={onToggleWebSearch}
+      activeModality={activeModality}
+      onToggleModality={onToggleModality}
+      {...(searchProps !== undefined && { searchProps })}
       {...spreadProps}
     />
   );
@@ -795,14 +799,32 @@ export function ChatLayout({
   const viewportHeight = useVisualViewportHeight();
   const isMobile = useIsMobile();
   const { bottom: keyboardOffset, isKeyboardVisible } = useKeyboardOffset();
-  const { selectedModels } = useModelStore();
+  const activeModality = useModelStore((state) => state.activeModality);
+  const selectedModels = useModelStore((state) => state.selections[state.activeModality]);
+  const setActiveModality = useModelStore((state) => state.setActiveModality);
+  useResolveDefaultModel(activeModality);
   const { webSearchEnabled, toggleWebSearch } = useSearchStore();
+  const toggleModality = React.useCallback((): void => {
+    setActiveModality(activeModality === 'text' ? 'image' : 'text');
+  }, [activeModality, setActiveModality]);
   const { models, premiumIds: modelPremiumIds, supportsSearch } = useSelectedModelCapabilities();
+  // Search is a text-mode feature. Omit searchProps entirely in image mode
+  // so the toggle disappears at the structural level, not a render-time check.
+  const searchProps: ChatSearchProps | undefined =
+    activeModality === 'text'
+      ? {
+          webSearchEnabled,
+          modelSupportsSearch: supportsSearch,
+          onToggleWebSearch: toggleWebSearch,
+        }
+      : undefined;
   const handleModelSelect = React.useCallback((entries: SelectedModelEntry[]): void => {
-    useModelStore.setState({ selectedModels: entries });
+    const { activeModality: current, setSelectedModels } = useModelStore.getState();
+    setSelectedModels(current, entries);
   }, []);
   const handleRemoveModel = React.useCallback((modelId: string): void => {
-    useModelStore.getState().removeModel(modelId);
+    const { activeModality: current, removeModel } = useModelStore.getState();
+    removeModel(current, modelId);
   }, []);
   const tierInfo = useTierInfo();
   const tierInfoOrUndefined = tierInfo ?? undefined;
@@ -898,6 +920,7 @@ export function ChatLayout({
           isAuthenticated={isAuthenticated}
           isLinkGuest={isLinkGuest ?? false}
           onPremiumClick={handlePremiumClick}
+          activeModality={activeModality}
           {...buildChatHeaderGroupProps(groupChat, handleFacepileClick)}
         />
       </div>
@@ -963,12 +986,12 @@ export function ChatLayout({
             callerPrivilege={callerPrivilege}
             handleSubmitUserOnly={handleSubmitUserOnly}
             handleTypingChange={handleTypingChange}
-            webSearchEnabled={webSearchEnabled}
-            modelSupportsSearch={supportsSearch}
+            searchProps={searchProps}
             isAuthenticated={isAuthenticated}
-            onToggleWebSearch={toggleWebSearch}
             isEditing={isEditing}
             onCancelEdit={onCancelEdit}
+            activeModality={activeModality}
+            onToggleModality={toggleModality}
           />
         </div>
       </div>

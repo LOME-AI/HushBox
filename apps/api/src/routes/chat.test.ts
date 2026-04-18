@@ -33,6 +33,7 @@ vi.mock('@ai-sdk/gateway', () => {
 import { chatRoute } from './chat.js';
 import type { AppEnv } from '../types.js';
 import { createMockAIClient } from '../services/ai/mock.js';
+import { createMockMediaStorage } from '../services/storage/index.js';
 import {
   ERROR_CODE_BALANCE_RESERVED,
   ERROR_CODE_BILLING_MISMATCH,
@@ -431,6 +432,7 @@ function createTestApp(
     c.set('user', mockUser);
     c.set('session', mockSession);
     c.set('aiClient', aiClientOverride ?? createMockAIClient());
+    c.set('mediaStorage', createMockMediaStorage());
     c.set(
       'db',
       createMockDb(dbOptions ?? defaultDbOptions) as unknown as AppEnv['Variables']['db']
@@ -2522,6 +2524,107 @@ describe('chat routes', () => {
           expect(data).toHaveProperty('modelId');
         }
       });
+    });
+
+    describe('image modality', () => {
+      const IMAGE_MODEL_ID = 'google/imagen-4';
+      const TEXT_MODEL_ID = 'anthropic/claude-sonnet-4.6';
+
+      it('returns 400 MODEL_NOT_FOUND when selected model is unknown', async () => {
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'image',
+            models: ['google/non-existent-model'],
+            imageConfig: { aspectRatio: '1:1' },
+          }),
+        });
+
+        expect(res.status).toBe(400);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('MODEL_NOT_FOUND');
+      });
+
+      it('returns 400 MODALITY_MISMATCH when image modality includes non-image model', async () => {
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'image',
+            models: [IMAGE_MODEL_ID, TEXT_MODEL_ID],
+            imageConfig: { aspectRatio: '1:1' },
+          }),
+        });
+
+        expect(res.status).toBe(400);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('MODALITY_MISMATCH');
+        const invalidModels = body.details?.['invalidModels'] as string[] | undefined;
+        expect(invalidModels).toContain(TEXT_MODEL_ID);
+      });
+
+      it('happy path: returns SSE stream with image content items', async () => {
+        vi.useRealTimers();
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'image',
+            models: [IMAGE_MODEL_ID],
+            imageConfig: { aspectRatio: '1:1' },
+          }),
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toBe('text/event-stream');
+
+        const text = await res.text();
+        expect(text).toContain('event: start');
+        expect(text).toContain('event: model:done');
+        expect(text).toContain('event: done');
+        // Verify the done event payload includes image content items
+        expect(text).toContain('"contentType":"image"');
+      });
+
+      it('defaults to text modality when modality omitted', async () => {
+        vi.useRealTimers();
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // Intentionally omit `modality` to verify default behavior
+          body: streamBody(),
+        });
+
+        expect(res.status).toBe(200);
+        const text = await res.text();
+        // text modality emits token events; image modality does not
+        expect(text).toContain('event: token');
+      });
+
+      // NOTE: Link-guest 403 MEDIA_TRIAL_BLOCKED test is not covered here.
+      // Simulating a link guest requires extending the mock DB in createTestApp
+      // to return a sharedLinks row + conversationMembers row so the real
+      // `requirePrivilege({ allowLinkGuest: true })` middleware sets `linkGuest`
+      // on context. The existing createMockDb resolves an empty array for
+      // sharedLinks, so `resolveLinkGuest` returns null and the middleware
+      // falls through to 401. Covering this case requires either a dedicated
+      // mock DB that supports the link-guest resolution chain (sharedLinks
+      // lookup → conversationMembers by linkId) or a route-level override
+      // that pre-seeds `linkGuest` on context before requirePrivilege runs.
+      // Both are non-trivial for an isolated route test. The behavior is
+      // implicitly exercised via the chat.ts image-branch path check
+      // (`modality === 'image' && linkGuest`) once the middleware has set
+      // linkGuest — see middleware/require-privilege.test.ts for the
+      // middleware-side coverage.
     });
   });
 

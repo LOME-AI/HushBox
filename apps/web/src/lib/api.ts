@@ -43,6 +43,23 @@ export interface Message {
    */
   wrappedContentKey?: string;
   epochNumber?: number;
+  /**
+   * Media content items attached to this message (image/audio/video). Bytes
+   * are not fetched here — the `MediaContentItem` component lazily fetches
+   * and decrypts on mount using the message's wrappedContentKey.
+   */
+  mediaItems?: MessageMediaItem[];
+}
+
+export interface MessageMediaItem {
+  id: string;
+  contentType: 'image' | 'audio' | 'video';
+  position: number;
+  mimeType: string;
+  sizeBytes: number;
+  width?: number | null;
+  height?: number | null;
+  durationMs?: number | null;
 }
 
 export {

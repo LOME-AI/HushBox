@@ -3,7 +3,6 @@ import {
   getScreenshotConfigs,
   getResolutionConfigs,
   getScreenshotOutputPath,
-  getScreenshotDevAssetPath,
 } from './generate-screenshots.js';
 
 describe('getScreenshotConfigs', () => {
@@ -122,29 +121,13 @@ describe('getResolutionConfigs', () => {
 });
 
 describe('getScreenshotOutputPath', () => {
-  it('returns path under resources/generated/screenshots', () => {
+  it('returns path under resources/assets/screenshots', () => {
     const result = getScreenshotOutputPath('/root', 'apple-phone', 'chat.png');
-    expect(result).toBe('/root/apps/web/resources/generated/screenshots/apple-phone/chat.png');
+    expect(result).toBe('/root/apps/web/resources/assets/screenshots/apple-phone/chat.png');
   });
 
   it('handles different resolutions and filenames', () => {
     const result = getScreenshotOutputPath('/project', 'google-tablet', 'privacy.png');
-    expect(result).toBe(
-      '/project/apps/web/resources/generated/screenshots/google-tablet/privacy.png'
-    );
-  });
-});
-
-describe('getScreenshotDevAssetPath', () => {
-  it('returns path under public/dev-assets/screenshots', () => {
-    const result = getScreenshotDevAssetPath('/root', 'apple-phone', 'chat.png');
-    expect(result).toBe('/root/apps/web/public/dev-assets/screenshots/apple-phone/chat.png');
-  });
-
-  it('handles different resolutions and filenames', () => {
-    const result = getScreenshotDevAssetPath('/project', 'google-phone', 'model-picker.png');
-    expect(result).toBe(
-      '/project/apps/web/public/dev-assets/screenshots/google-phone/model-picker.png'
-    );
+    expect(result).toBe('/project/apps/web/resources/assets/screenshots/google-tablet/privacy.png');
   });
 });

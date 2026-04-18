@@ -21,6 +21,8 @@ import {
   resolveBilling,
   getCushionCents,
   SMART_MODEL_ID,
+  ESTIMATED_IMAGE_BYTES,
+  MEDIA_DOWNLOAD_URL_TTL_SECONDS,
   ERROR_CODE_INSUFFICIENT_BALANCE,
   ERROR_CODE_BILLING_MISMATCH,
   ERROR_CODE_PREMIUM_REQUIRES_BALANCE,
@@ -29,8 +31,9 @@ import {
   ERROR_CODE_STREAM_ERROR,
   ERROR_CODE_BILLING_ERROR,
   parseTokenPrice,
+  mediaStorageCost,
 } from '@hushbox/shared';
-import type { FundingSource, DenialReason, ResolveBillingInput } from '@hushbox/shared';
+import type { FundingSource, DenialReason, ResolveBillingInput, UserTier } from '@hushbox/shared';
 import type { AppEnv, Bindings } from '../types.js';
 import { buildPrompt } from '../services/prompt/builder.js';
 import type { BuildBillingResult, MemberContext } from '../services/billing/index.js';
@@ -41,7 +44,10 @@ import type {
   InferenceEvent,
   InferenceStream,
   TextRequest,
+  ImageRequest,
 } from '../services/ai/index.js';
+import { eq } from 'drizzle-orm';
+import { conversations } from '@hushbox/db';
 import { buildAIMessages, saveChatTurn } from '../services/chat/index.js';
 import type { SaveChatTurnResult } from '../services/chat/index.js';
 import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
@@ -52,13 +58,23 @@ import {
   type DoneMessageEnvelope,
   type DoneModelEntry,
 } from './stream-handler.js';
-import { toBase64 } from '@hushbox/shared';
+import { toBase64, calculateMediaGenerationCost } from '@hushbox/shared';
+import { beginMessageEnvelope, encryptBinaryWithContentKey } from '@hushbox/crypto';
 import type {
   InsertedTextContentItem,
   InsertedMediaContentItem,
 } from '../services/chat/message-helpers.js';
+import { fetchEpochPublicKey } from '../services/chat/message-helpers.js';
 import type { PersistedEnvelope, AssistantResult } from '../services/chat/index.js';
-import { collectMultiModelStreams, type ModelStreamEntry } from './multi-stream.js';
+import type { MediaAssistantMessageInput } from '../services/chat/message-persistence.js';
+import type { MediaStorage } from '../services/storage/index.js';
+import {
+  collectMultiModelStreams,
+  collectMultiMediaModelStreams,
+  type ModelStreamEntry,
+  type MediaModelStreamEntry,
+  type MediaStreamResult,
+} from './multi-stream.js';
 import { broadcastFireAndForget } from './broadcast.js';
 import { createEvent } from '@hushbox/realtime/events';
 import {
@@ -69,7 +85,24 @@ import {
   type GroupBudgetReservation,
 } from './speculative-balance.js';
 import type { Context } from 'hono';
+import type { Redis } from '@upstash/redis';
 import { safeExecutionCtx } from './safe-execution-ctx.js';
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function createAssistantIdLookup(models: string[]): (modelId: string) => string {
+  const idMap = new Map<string, string>();
+  for (const m of models) {
+    idMap.set(m, crypto.randomUUID());
+  }
+  return (modelId: string): string => {
+    const id = idMap.get(modelId);
+    if (!id) throw new Error(`invariant: no assistantMessageId for model ${modelId}`);
+    return id;
+  };
+}
 
 // ============================================================================
 // Types
@@ -141,6 +174,15 @@ export function computeWorstCaseCents(
   outputCostPerToken: number
 ): number {
   return (estimatedInputCost + effectiveMaxOutputTokens * outputCostPerToken) * 100;
+}
+
+/**
+ * Worst-case cents for an image generation reservation.
+ * Flat cost: perImage × (1 + fee) + estimated storage per model.
+ */
+export function computeImageWorstCaseCents(perImage: number, modelCount: number): number {
+  const perModel = applyFees(perImage) + mediaStorageCost(ESTIMATED_IMAGE_BYTES);
+  return perModel * modelCount * 100;
 }
 
 function handleBillingDenial(
@@ -317,7 +359,7 @@ function serializeMediaContentItem(item: InsertedMediaContentItem): DoneContentI
     id: item.id,
     contentType: item.contentType,
     position: item.position,
-    downloadUrl: null,
+    downloadUrl: item.downloadUrl ?? null,
     mimeType: item.mimeType,
     sizeBytes: item.sizeBytes,
     width: item.width,
@@ -666,6 +708,182 @@ export async function resolveAndReserveBilling(
 }
 
 // ============================================================================
+// resolveAndReserveImageBilling
+// ============================================================================
+
+export interface ImageBillingValidationSuccess {
+  success: true;
+  worstCaseCents: number;
+  groupBudget?: GroupBudgetReservation;
+  billingUserId: string;
+  perImagePrice: number;
+}
+
+export interface ResolveAndReserveImageBillingInput {
+  billingResult: BuildBillingResult;
+  userId: string;
+  models: string[];
+  /** Most expensive per-image price among the selected models (pre-fee, USD). */
+  perImagePrice: number;
+  clientFundingSource: FundingSource;
+  memberContext?: MemberContext;
+  conversationId?: string;
+}
+
+interface ImageBillingReservationContext {
+  redis: Redis;
+  c: Context<AppEnv>;
+  billingResult: BuildBillingResult;
+  worstCaseCents: number;
+  payerTier: UserTier;
+  maxPerImage: number;
+}
+
+async function reserveImageGroupBudget(
+  ctx: ImageBillingReservationContext,
+  memberContext: MemberContext,
+  conversationId: string
+): Promise<ImageBillingValidationSuccess | BillingValidationFailure> {
+  const { redis, c, billingResult, worstCaseCents, payerTier, maxPerImage } = ctx;
+  const groupReservation: GroupBudgetReservation = {
+    conversationId,
+    memberId: memberContext.memberId,
+    payerId: memberContext.ownerId,
+    costCents: worstCaseCents,
+  };
+  const reservedTotals = await reserveGroupBudget(redis, groupReservation);
+  const budgetCtx = billingResult.groupBudgetContext;
+  if (!budgetCtx) throw new Error('invariant: groupBudgetContext required for group billing');
+  const postReservationEffective = effectiveBudgetCents({
+    conversationRemainingCents:
+      Number.parseFloat(budgetCtx.conversationBudget) * 100 -
+      Number.parseFloat(budgetCtx.conversationSpent) * 100 -
+      reservedTotals.conversationTotal,
+    memberRemainingCents:
+      Number.parseFloat(budgetCtx.memberBudget) * 100 -
+      Number.parseFloat(budgetCtx.memberSpent) * 100 -
+      reservedTotals.memberTotal,
+    ownerRemainingCents: budgetCtx.ownerBalanceCents - reservedTotals.payerTotal,
+  });
+  const cushionCents = getCushionCents(payerTier);
+  if (postReservationEffective < -cushionCents) {
+    await releaseGroupBudget(redis, groupReservation);
+    return {
+      success: false,
+      response: c.json(createErrorResponse(ERROR_CODE_BALANCE_RESERVED), 402),
+    };
+  }
+  return {
+    success: true,
+    worstCaseCents,
+    groupBudget: groupReservation,
+    billingUserId: memberContext.ownerId,
+    perImagePrice: maxPerImage,
+  };
+}
+
+async function reserveImagePersonalBudget(
+  ctx: ImageBillingReservationContext,
+  userId: string,
+  fundingSource: FundingSource
+): Promise<ImageBillingValidationSuccess | BillingValidationFailure> {
+  const { redis, c, billingResult, worstCaseCents, payerTier, maxPerImage } = ctx;
+  const newTotalReserved = await reserveBudget(redis, userId, worstCaseCents);
+  const availableCents =
+    fundingSource === 'free_allowance'
+      ? billingResult.rawFreeAllowanceCents
+      : billingResult.rawUserBalanceCents;
+  const finalEffective = availableCents - newTotalReserved;
+  const cushionCents = getCushionCents(payerTier);
+  if (finalEffective < -cushionCents) {
+    await releaseBudget(redis, userId, worstCaseCents);
+    return {
+      success: false,
+      response: c.json(createErrorResponse(ERROR_CODE_BALANCE_RESERVED), 402),
+    };
+  }
+  return {
+    success: true,
+    worstCaseCents,
+    billingUserId: userId,
+    perImagePrice: maxPerImage,
+  };
+}
+
+/**
+ * Resolve billing for image generation. Flat cost — no token math.
+ * Computes worst-case as N × (perImage + storage) per model, reserves budget.
+ */
+export async function resolveAndReserveImageBilling(
+  c: Context<AppEnv>,
+  input: ResolveAndReserveImageBillingInput
+): Promise<ImageBillingValidationSuccess | BillingValidationFailure> {
+  const {
+    billingResult,
+    userId,
+    models,
+    perImagePrice: maxPerImage,
+    clientFundingSource,
+    memberContext,
+    conversationId,
+  } = input;
+  const redis = c.get('redis');
+
+  // 1. Compute estimated minimum cost for billing denial check
+  const estimatedMinimumCostCents = computeImageWorstCaseCents(maxPerImage, 1);
+  billingResult.input.estimatedMinimumCostCents = estimatedMinimumCostCents;
+  const billingDecision = resolveBilling(billingResult.input);
+
+  // 2. Handle denial
+  if (billingDecision.fundingSource === 'denied') {
+    return {
+      success: false,
+      response: handleBillingDenial(c, billingDecision.reason, billingResult.input),
+    };
+  }
+
+  // 3. Handle mismatch
+  if (clientFundingSource !== billingDecision.fundingSource) {
+    return {
+      success: false,
+      response: c.json(
+        createErrorResponse(ERROR_CODE_BILLING_MISMATCH, {
+          serverFundingSource: billingDecision.fundingSource,
+        }),
+        409
+      ),
+    };
+  }
+
+  // 4. Compute worst-case cost for all selected models
+  const worstCaseCents = computeImageWorstCaseCents(maxPerImage, models.length);
+
+  // 5. Resolve payer for group billing
+  const isGroupBilling =
+    billingDecision.fundingSource === 'owner_balance' && billingResult.input.group !== undefined;
+  const payerTier =
+    isGroupBilling && billingResult.input.group
+      ? billingResult.input.group.ownerTier
+      : billingResult.input.tier;
+
+  const reservationCtx: ImageBillingReservationContext = {
+    redis,
+    c,
+    billingResult,
+    worstCaseCents,
+    payerTier,
+    maxPerImage,
+  };
+
+  // 6. Reserve budget (group or personal)
+  if (isGroupBilling && memberContext && conversationId) {
+    return reserveImageGroupBudget(reservationCtx, memberContext, conversationId);
+  }
+
+  return reserveImagePersonalBudget(reservationCtx, userId, billingDecision.fundingSource);
+}
+
+// ============================================================================
 // executeStreamPipeline
 // ============================================================================
 
@@ -778,17 +996,7 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
   const db = c.get('db');
   const aiClient = c.get('aiClient');
 
-  // Generate one assistantMessageId per model
-  const modelAssistantIds = new Map<string, string>();
-  for (const m of models) {
-    modelAssistantIds.set(m, crypto.randomUUID());
-  }
-
-  function getAssistantId(modelId: string): string {
-    const id = modelAssistantIds.get(modelId);
-    if (!id) throw new Error(`invariant: no assistantMessageId for model ${modelId}`);
-    return id;
-  }
+  const getAssistantId = createAssistantIdLookup(models);
 
   const { systemPrompt } = buildPrompt({
     modelId: model,
@@ -920,6 +1128,338 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
             })
           );
         }
+      } else {
+        await writer.writeError({
+          message: 'Failed to save message',
+          code: ERROR_CODE_BILLING_ERROR,
+        });
+      }
+    } finally {
+      await releaseReservation();
+    }
+  });
+}
+
+// ============================================================================
+// executeImagePipeline
+// ============================================================================
+
+export interface ImagePipelineInput {
+  c: Context<AppEnv>;
+  conversationId: string;
+  models: string[];
+  userMessage: { id: string; content: string };
+  prompt: string;
+  imageBilling: ImageBillingValidationSuccess;
+  memberContext?: MemberContext;
+  releaseReservation: () => Promise<void>;
+  senderId: string;
+  forkId?: string;
+  parentMessageId: string | null;
+  aspectRatio?: string;
+}
+
+interface EncryptAndStoreImageResult {
+  assistantMessage: MediaAssistantMessageInput;
+  contentItemId: string;
+  downloadUrl: string;
+}
+
+interface EncryptAndStoreImageInput {
+  mediaStorage: MediaStorage;
+  epochPublicKey: Uint8Array;
+  conversationId: string;
+  modelId: string;
+  assistantMsgId: string;
+  mediaBytes: Uint8Array;
+  mimeType: string | undefined;
+  width: number | undefined;
+  height: number | undefined;
+  perImagePrice: number;
+}
+
+/** Encrypts a single image, stores it in R2, and returns the assistant message input. */
+async function encryptAndStoreImage(
+  input: EncryptAndStoreImageInput
+): Promise<EncryptAndStoreImageResult> {
+  const {
+    mediaStorage,
+    epochPublicKey,
+    conversationId,
+    modelId,
+    assistantMsgId,
+    mediaBytes,
+    mimeType,
+    width,
+    height,
+    perImagePrice,
+  } = input;
+  const contentItemId = crypto.randomUUID();
+  const storageKey = `media/${conversationId}/${assistantMsgId}/${contentItemId}.enc`;
+
+  const { contentKey, wrappedContentKey } = beginMessageEnvelope(epochPublicKey);
+  const ciphertext = encryptBinaryWithContentKey(contentKey, mediaBytes);
+
+  await mediaStorage.put(storageKey, ciphertext, 'application/octet-stream');
+
+  const { url: downloadUrl } = await mediaStorage.mintDownloadUrl({
+    key: storageKey,
+    expiresInSec: MEDIA_DOWNLOAD_URL_TTL_SECONDS,
+  });
+
+  const totalCost = calculateMediaGenerationCost({
+    pricing: { kind: 'image', perImage: perImagePrice },
+    sizeBytes: ciphertext.byteLength,
+    imageCount: 1,
+  });
+
+  return {
+    contentItemId,
+    downloadUrl,
+    assistantMessage: {
+      modality: 'image',
+      id: assistantMsgId,
+      wrappedContentKey,
+      contentItems: [
+        {
+          id: contentItemId,
+          contentType: 'image',
+          position: 0,
+          storageKey,
+          mimeType: mimeType ?? 'image/png',
+          sizeBytes: ciphertext.byteLength,
+          ...(width !== undefined && { width }),
+          ...(height !== undefined && { height }),
+          modelName: modelId,
+          cost: totalCost.toFixed(8),
+          isSmartModel: false,
+        },
+      ],
+      model: modelId,
+      cost: totalCost,
+      mediaType: 'image',
+      imageCount: 1,
+    },
+  };
+}
+
+/** Attaches download URLs to media content items on a billing result for SSE serialization. */
+function attachDownloadUrls(
+  billingResult: SaveChatTurnResult,
+  downloadUrls: Map<string, string>
+): void {
+  for (const assistantResult of billingResult.assistantResults) {
+    if (!('contentItems' in assistantResult.envelope)) continue;
+    for (const item of assistantResult.envelope.contentItems) {
+      const url = downloadUrls.get(item.id);
+      if (url !== undefined) item.downloadUrl = url;
+    }
+  }
+}
+
+/** Filters media results to only those with successful bytes. */
+function filterSuccessfulMediaModels(
+  mediaResults: Map<string, MediaStreamResult>
+): [string, MediaStreamResult][] {
+  return [...mediaResults.entries()].filter(
+    ([, r]) => r.error === null && r.mediaBytes !== undefined && r.mediaBytes.length > 0
+  );
+}
+
+/** Writes the first media error to the SSE writer when all models fail. */
+async function writeFirstMediaError(
+  mediaResults: Map<string, MediaStreamResult>,
+  writer: SSEEventWriter
+): Promise<void> {
+  const firstError = [...mediaResults.values()].find((r) => r.error !== null)?.error;
+  await writer.writeError({
+    message: firstError?.message ?? 'No image generated',
+    code: ERROR_CODE_STREAM_ERROR,
+  });
+}
+
+interface ProcessImageResultsInput {
+  mediaStorage: MediaStorage;
+  epochPublicKey: Uint8Array;
+  conversationId: string;
+  perImagePrice: number;
+  getAssistantId: (modelId: string) => string;
+  successfulModels: [string, MediaStreamResult][];
+}
+
+interface ProcessImageResultsOutput {
+  assistantMessages: MediaAssistantMessageInput[];
+  downloadUrls: Map<string, string>;
+}
+
+/** Encrypts and stores images for all successful models, returning assistant messages and download URLs. */
+async function processImageResults(
+  input: ProcessImageResultsInput
+): Promise<ProcessImageResultsOutput> {
+  const {
+    mediaStorage,
+    epochPublicKey,
+    conversationId,
+    perImagePrice,
+    getAssistantId,
+    successfulModels,
+  } = input;
+
+  const assistantMessages: MediaAssistantMessageInput[] = [];
+  const downloadUrls = new Map<string, string>();
+
+  for (const [modelId, result] of successfulModels) {
+    if (result.mediaBytes === undefined) continue;
+    const stored = await encryptAndStoreImage({
+      mediaStorage,
+      epochPublicKey,
+      conversationId,
+      modelId,
+      assistantMsgId: getAssistantId(modelId),
+      mediaBytes: result.mediaBytes,
+      mimeType: result.mimeType,
+      width: result.width,
+      height: result.height,
+      perImagePrice,
+    });
+    assistantMessages.push(stored.assistantMessage);
+    downloadUrls.set(stored.contentItemId, stored.downloadUrl);
+  }
+
+  return { assistantMessages, downloadUrls };
+}
+
+/**
+ * Execute the full image generation pipeline: generate images from N models in parallel,
+ * encrypt, store in R2, compute costs, persist, and emit SSE done events.
+ */
+export function executeImagePipeline(input: ImagePipelineInput): Response {
+  const {
+    c,
+    conversationId,
+    models,
+    userMessage,
+    prompt,
+    imageBilling,
+    memberContext,
+    releaseReservation,
+    senderId,
+    forkId,
+    parentMessageId,
+    aspectRatio,
+  } = input;
+  const db = c.get('db');
+  const aiClient = c.get('aiClient');
+  const mediaStorage: MediaStorage = c.get('mediaStorage');
+
+  const getAssistantId = createAssistantIdLookup(models);
+
+  const primaryModel = models[0];
+  if (!primaryModel) throw new Error('invariant: models must have at least one entry');
+
+  // Early broadcast
+  broadcastFireAndForget(
+    c.env,
+    conversationId,
+    createEvent('message:new', {
+      messageId: userMessage.id,
+      conversationId,
+      senderType: 'user',
+      senderId,
+      content: prompt,
+    }),
+    safeExecutionCtx(c)
+  );
+
+  // Build one image stream entry per model
+  const streamEntries: MediaModelStreamEntry[] = models.map((modelId) => {
+    const imageRequest: ImageRequest = {
+      modality: 'image',
+      model: modelId,
+      prompt,
+      ...(aspectRatio !== undefined && { aspectRatio }),
+    };
+    return {
+      modelId,
+      assistantMessageId: getAssistantId(modelId),
+      stream: aiClient.stream(imageRequest),
+    };
+  });
+
+  return streamSSE(c, async (stream) => {
+    const writer = createSSEEventWriter(stream);
+    try {
+      await writer.writeStart({
+        userMessageId: userMessage.id,
+        models: models.map((modelId) => ({
+          modelId,
+          assistantMessageId: getAssistantId(modelId),
+        })),
+      });
+
+      const mediaResults = await collectMultiMediaModelStreams(streamEntries, writer);
+
+      const successfulModels = filterSuccessfulMediaModels(mediaResults);
+
+      if (successfulModels.length === 0) {
+        await writeFirstMediaError(mediaResults, writer);
+        return;
+      }
+
+      // Fetch epoch key for envelope creation
+      const [conv] = await db
+        .select({ currentEpoch: conversations.currentEpoch })
+        .from(conversations)
+        .where(eq(conversations.id, conversationId));
+      const currentEpoch = conv?.currentEpoch ?? 1;
+      const { epochPublicKey } = await fetchEpochPublicKey(db, conversationId, currentEpoch);
+
+      const { assistantMessages, downloadUrls } = await processImageResults({
+        mediaStorage,
+        epochPublicKey,
+        conversationId,
+        perImagePrice: imageBilling.perImagePrice,
+        getAssistantId,
+        successfulModels,
+      });
+
+      const billingPromise = saveChatTurn(db, {
+        userMessageId: userMessage.id,
+        userContent: userMessage.content,
+        conversationId,
+        userId: imageBilling.billingUserId,
+        senderId,
+        assistantMessages,
+        ...(memberContext !== undefined &&
+          imageBilling.groupBudget !== undefined && {
+            groupBillingContext: { memberId: memberContext.memberId },
+          }),
+        parentMessageId,
+        ...(forkId !== undefined && { forkId }),
+      });
+
+      const billingResult = await handleBillingResult({
+        c,
+        billingPromise,
+        assistantMessageId: getAssistantId(primaryModel),
+        userId: imageBilling.billingUserId,
+        senderId,
+        model: primaryModel,
+        generationId: mediaResults.get(primaryModel)?.generationId,
+      });
+
+      if (billingResult) {
+        attachDownloadUrls(billingResult, downloadUrls);
+
+        await broadcastAndFinish({
+          c,
+          conversationId,
+          userMessageId: userMessage.id,
+          assistantMessageId: getAssistantId(primaryModel),
+          billingResult,
+          writer,
+          modelName: primaryModel,
+        });
       } else {
         await writer.writeError({
           message: 'Failed to save message',

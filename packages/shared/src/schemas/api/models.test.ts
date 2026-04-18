@@ -42,7 +42,12 @@ describe('modelSchema', () => {
     const result = modelSchema.safeParse(validModel);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data).toEqual({ ...validModel, supportedParameters: [] });
+      expect(result.data).toEqual({
+        ...validModel,
+        supportedParameters: [],
+        modality: 'text',
+        pricePerImage: 0,
+      });
     }
   });
 
@@ -165,9 +170,11 @@ describe('Model type', () => {
       id: 'test-model',
       name: 'Test Model',
       provider: 'Test Provider',
+      modality: 'text' as const,
       contextLength: 8192,
       pricePerInputToken: 0.0001,
       pricePerOutputToken: 0.0002,
+      pricePerImage: 0,
       capabilities: ['internet-search'],
       description: 'A test model for type inference.',
       supportedParameters: ['temperature', 'web_search_options'],

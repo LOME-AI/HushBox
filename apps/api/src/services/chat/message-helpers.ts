@@ -323,12 +323,16 @@ export interface InsertedMediaContentItem {
   modelName: string;
   cost: string;
   isSmartModel: boolean;
+  /** Presigned download URL, populated by the pipeline after R2 upload. Not persisted in DB. */
+  downloadUrl?: string;
 }
 
 export interface InsertEnvelopeMediaMessageParams {
   id: string;
   conversationId: string;
-  epochPublicKey: Uint8Array;
+  /** Supply epochPublicKey to generate a fresh envelope, OR supply wrappedContentKey to use a pre-created one. */
+  epochPublicKey?: Uint8Array;
+  wrappedContentKey?: Uint8Array;
   epochNumber: number;
   sequenceNumber: number;
   senderType: 'ai';
@@ -341,19 +345,28 @@ export interface InsertEnvelopeMediaMessageResult {
   contentItems: InsertedMediaContentItem[];
 }
 
+function resolveWrappedContentKey(
+  params: Pick<InsertEnvelopeMediaMessageParams, 'wrappedContentKey' | 'epochPublicKey'>
+): Uint8Array {
+  if (params.wrappedContentKey !== undefined) return params.wrappedContentKey;
+  if (params.epochPublicKey !== undefined) {
+    return beginMessageEnvelope(params.epochPublicKey).wrappedContentKey;
+  }
+  throw new Error('Either wrappedContentKey or epochPublicKey must be provided');
+}
+
 /**
  * Persists a media message under the wrap-once envelope model.
  *
- * Generates a fresh content key, wraps it under the epoch public key, and
- * inserts one `messages` row plus N `content_items` rows for pre-encrypted
- * media items. The content key is discarded — the caller uses it externally
- * for R2 encryption before calling this function.
+ * If `wrappedContentKey` is provided, uses it directly (caller already
+ * created the envelope for R2 encryption). Otherwise generates a fresh one
+ * from `epochPublicKey`.
  */
 export async function insertEnvelopeMediaMessage(
   tx: Database,
   params: InsertEnvelopeMediaMessageParams
 ): Promise<InsertEnvelopeMediaMessageResult> {
-  const { wrappedContentKey } = beginMessageEnvelope(params.epochPublicKey);
+  const wrappedContentKey = resolveWrappedContentKey(params);
 
   await tx.insert(messages).values({
     id: params.id,

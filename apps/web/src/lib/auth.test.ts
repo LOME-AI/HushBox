@@ -1513,25 +1513,31 @@ describe('auth', () => {
       await expect(signOutAndClearCache()).rejects.toThrow('Network error');
     });
 
-    it('should reset model selection to single model', async () => {
+    it('should reset model selections on sign out', async () => {
       const { useModelStore } = await import('@/stores/model');
 
-      // Set up multiple selected models
       useModelStore.setState({
-        selectedModels: [
-          { id: 'model-a', name: 'Model A' },
-          { id: 'model-b', name: 'Model B' },
-          { id: 'model-c', name: 'Model C' },
-        ],
+        selections: {
+          text: [
+            { id: 'model-a', name: 'Model A' },
+            { id: 'model-b', name: 'Model B' },
+            { id: 'model-c', name: 'Model C' },
+          ],
+          image: [{ id: 'imagen', name: 'Imagen' }],
+          audio: [],
+          video: [{ id: 'veo', name: 'Veo' }],
+        },
       });
 
       vi.mocked(fetch).mockResolvedValue({ ok: true } as Response);
 
       await signOutAndClearCache();
 
-      const { selectedModels } = useModelStore.getState();
-      expect(selectedModels).toHaveLength(1);
-      expect(selectedModels[0]?.id).toBe('model-a');
+      const { selections } = useModelStore.getState();
+      expect(selections.text).toHaveLength(1);
+      expect(selections.text[0]?.id).toBe('model-a');
+      expect(selections.image).toEqual([]);
+      expect(selections.video).toEqual([]);
     });
   });
 

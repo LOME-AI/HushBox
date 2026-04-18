@@ -347,10 +347,8 @@ vi.mock('@/stores/pending-chat', () => ({
 
 vi.mock('@/stores/model', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/model')>();
-  return {
-    ...actual,
-    useModelStore: () => ({ selectedModels: [{ id: 'test-model', name: 'Test Model' }] }),
-  };
+  const { createModelStoreStub, selectorFromState } = await import('@/test-utils/model-store-mock');
+  return { ...actual, useModelStore: selectorFromState(createModelStoreStub()) };
 });
 
 const mockScrollToBottom = vi.fn();

@@ -1,9 +1,20 @@
 import * as React from 'react';
 import { cn } from '@hushbox/ui';
-import { Bot, MessageSquare, Pencil, Search, SearchX, Send, Square, X } from 'lucide-react';
+import {
+  Bot,
+  Image as ImageIcon,
+  MessageSquare,
+  Pencil,
+  Search,
+  SearchX,
+  Send,
+  Square,
+  Type,
+  X,
+} from 'lucide-react';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@hushbox/ui';
 import { Textarea } from '@hushbox/ui';
-import type { CapabilityId, FundingSource, MemberPrivilege } from '@hushbox/shared';
+import type { CapabilityId, FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
 import { CapacityBar } from './capacity-bar';
 import { BudgetMessages } from './budget-messages';
 import { usePromptBudget } from '@/hooks/use-prompt-budget';
@@ -110,6 +121,20 @@ function SubmitButtonIcon({ isProcessing }: Readonly<SubmitButtonIconProps>): Re
   return <Send className="h-4 w-4" aria-hidden="true" />;
 }
 
+/**
+ * Props controlling the web-search toggle. Grouped into one object because
+ * the three fields are only meaningful together — absent means "this prompt
+ * has no search feature" (e.g. image modality).
+ */
+export interface ChatSearchProps {
+  /** Whether web search is currently enabled. */
+  webSearchEnabled: boolean;
+  /** Whether the selected model supports native web search. */
+  modelSupportsSearch: boolean;
+  /** Called when the user toggles web search. */
+  onToggleWebSearch: () => void;
+}
+
 interface PromptInputProps {
   value: string;
   onChange: (value: string) => void;
@@ -140,18 +165,21 @@ interface PromptInputProps {
   onSubmitUserOnly?: () => void;
   /** Called when typing state changes (for WebSocket typing indicators). Throttled internally. */
   onTypingChange?: ((isTyping: boolean) => void) | undefined;
-  /** Whether web search is enabled */
-  webSearchEnabled?: boolean;
-  /** Whether the selected model supports native web search */
-  modelSupportsSearch?: boolean;
-  /** Whether the user is authenticated (trial users can't search) */
+  /**
+   * Search feature props. Omit to disable the search toggle entirely
+   * (e.g. image modality has no search).
+   */
+  searchProps?: ChatSearchProps | undefined;
+  /** Whether the user is authenticated (trial users can't search or switch modality). */
   isAuthenticated?: boolean;
-  /** Called when user toggles web search */
-  onToggleWebSearch?: (() => void) | undefined;
   /** Whether the prompt input is in edit mode (editing a previous message) */
   isEditing?: boolean;
   /** Called when the user cancels editing */
   onCancelEdit?: (() => void) | undefined;
+  /** Current active modality */
+  activeModality?: Modality;
+  /** Called when the user toggles the modality */
+  onToggleModality?: (() => void) | undefined;
 }
 
 const PROMPT_INPUT_DEFAULTS: Pick<
@@ -220,6 +248,29 @@ function getSearchTooltipText(
   return webSearchEnabled ? 'Internet search on' : 'Internet search off';
 }
 
+interface ModalityToggleButtonProps {
+  activeModality: Modality;
+  onToggle?: (() => void) | undefined;
+}
+
+function ModalityToggleButton({
+  activeModality,
+  onToggle,
+}: Readonly<ModalityToggleButtonProps>): React.JSX.Element {
+  const isTextMode = activeModality === 'text';
+  const tooltipText = isTextMode ? 'Switch to image generation' : 'Switch to text';
+
+  return (
+    <ToggleButtonWithTooltip tooltipText={tooltipText} onClick={onToggle} ariaLabel={tooltipText}>
+      {isTextMode ? (
+        <ImageIcon className="h-4 w-4" aria-hidden="true" />
+      ) : (
+        <Type className="h-4 w-4" aria-hidden="true" />
+      )}
+    </ToggleButtonWithTooltip>
+  );
+}
+
 function SearchToggleButton({
   webSearchEnabled,
   modelSupportsSearch,
@@ -247,6 +298,47 @@ function SearchToggleButton({
   );
 }
 
+interface PromptToolbarProps {
+  readonly activeModality: Modality | undefined;
+  readonly isAuthenticated: boolean | undefined;
+  readonly onToggleModality: (() => void) | undefined;
+  readonly searchProps: ChatSearchProps | undefined;
+  readonly isGroupChat: boolean;
+  readonly aiEnabled: boolean;
+  readonly onToggleAi: () => void;
+}
+
+function PromptToolbar({
+  activeModality,
+  isAuthenticated,
+  onToggleModality,
+  searchProps,
+  isGroupChat,
+  aiEnabled,
+  onToggleAi,
+}: Readonly<PromptToolbarProps>): React.JSX.Element {
+  // Modality icon is paid/free only. Trial users (isAuthenticated === false) never see it.
+  const showModality = activeModality !== undefined && isAuthenticated === true;
+  const showSearch = searchProps !== undefined && isAuthenticated !== undefined;
+
+  return (
+    <>
+      {showModality && (
+        <ModalityToggleButton activeModality={activeModality} onToggle={onToggleModality} />
+      )}
+      {showSearch && (
+        <SearchToggleButton
+          webSearchEnabled={searchProps.webSearchEnabled}
+          modelSupportsSearch={searchProps.modelSupportsSearch}
+          isAuthenticated={isAuthenticated}
+          onToggle={searchProps.onToggleWebSearch}
+        />
+      )}
+      {isGroupChat && <AIToggleButton aiEnabled={aiEnabled} onToggle={onToggleAi} />}
+    </>
+  );
+}
+
 export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
   function PromptInput(rawProps, ref) {
     const {
@@ -268,12 +360,12 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
       isGroupChat,
       onSubmitUserOnly,
       onTypingChange,
-      webSearchEnabled,
-      modelSupportsSearch,
+      searchProps,
       isAuthenticated,
-      onToggleWebSearch,
       isEditing,
       onCancelEdit,
+      activeModality,
+      onToggleModality,
     } = { ...PROMPT_INPUT_DEFAULTS, ...rawProps };
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const [aiEnabled, setAiEnabled] = React.useState(true);
@@ -391,23 +483,17 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
             />
 
             <div className="flex items-center gap-1">
-              {modelSupportsSearch !== undefined && isAuthenticated !== undefined && (
-                <SearchToggleButton
-                  webSearchEnabled={webSearchEnabled ?? false}
-                  modelSupportsSearch={modelSupportsSearch}
-                  isAuthenticated={isAuthenticated}
-                  onToggle={onToggleWebSearch}
-                />
-              )}
-
-              {isGroupChat && (
-                <AIToggleButton
-                  aiEnabled={aiEnabled}
-                  onToggle={() => {
-                    setAiEnabled((previous) => !previous);
-                  }}
-                />
-              )}
+              <PromptToolbar
+                activeModality={activeModality}
+                isAuthenticated={isAuthenticated}
+                onToggleModality={onToggleModality}
+                searchProps={searchProps}
+                isGroupChat={isGroupChat}
+                aiEnabled={aiEnabled}
+                onToggleAi={() => {
+                  setAiEnabled((previous) => !previous);
+                }}
+              />
 
               <Button
                 id="send-button"

@@ -93,16 +93,18 @@ vi.mock('@/lib/auth', () => ({
   useSession: (): SessionMock => mockUseSession(),
 }));
 
-interface ModelStoreMock {
-  selectedModels: { id: string; name: string }[];
-}
+import type { ModelStoreStub } from '@/test-utils/model-store-mock';
+import { createModelStoreStub } from '@/test-utils/model-store-mock';
 
-const mockUseModelStore = vi.fn<() => ModelStoreMock>();
+const mockUseModelStore = vi.fn<() => ModelStoreStub>();
 vi.mock('@/stores/model', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/model')>();
   return {
     ...actual,
-    useModelStore: (): ModelStoreMock => mockUseModelStore(),
+    useModelStore: (selector?: (state: ModelStoreStub) => unknown) => {
+      const state = mockUseModelStore();
+      return selector ? selector(state) : state;
+    },
   };
 });
 
@@ -238,9 +240,7 @@ describe('TrialChatPage', () => {
       isPending: config.isPending,
     });
 
-    mockUseModelStore.mockReturnValue({
-      selectedModels: [{ id: 'test-model', name: 'Test Model' }],
-    });
+    mockUseModelStore.mockReturnValue(createModelStoreStub());
 
     mockUseChatStream.mockReturnValue({
       isStreaming: config.isStreaming,

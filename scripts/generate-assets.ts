@@ -1,4 +1,4 @@
-import { mkdirSync, copyFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
 interface AssetConfig {
@@ -68,22 +68,16 @@ export function getAssetConfigs(): AssetConfig[] {
   ];
 }
 
-/** Path where generated PNGs are saved (gitignored). */
+/** Path where generated PNGs are saved (committed to git). */
 export function getOutputPath(rootDir: string, filename: string): string {
-  return path.join(rootDir, 'apps', 'web', 'resources', 'generated', filename);
-}
-
-/** Path where PNGs are copied for Vite static serving during dev (gitignored). */
-export function getDevAssetPath(rootDir: string, filename: string): string {
-  return path.join(rootDir, 'apps', 'web', 'public', 'dev-assets', filename);
+  return path.join(rootDir, 'apps', 'web', 'resources', 'assets', filename);
 }
 
 const DEV_SERVER_URL = 'http://localhost:5173';
 
 /** Ensure output directories exist. */
 function ensureAssetDirectories(rootDir: string): void {
-  mkdirSync(path.join(rootDir, 'apps', 'web', 'resources', 'generated'), { recursive: true });
-  mkdirSync(path.join(rootDir, 'apps', 'web', 'public', 'dev-assets'), { recursive: true });
+  mkdirSync(path.join(rootDir, 'apps', 'web', 'resources', 'assets'), { recursive: true });
 }
 
 /** Render a single asset: open page, screenshot, copy to dev-assets, close. */
@@ -104,9 +98,6 @@ async function captureAsset(
 
   const outputPath = getOutputPath(rootDir, config.filename);
   await page.screenshot({ path: outputPath, fullPage: false });
-
-  const devPath = getDevAssetPath(rootDir, config.filename);
-  copyFileSync(outputPath, devPath);
 
   await context.close();
 }

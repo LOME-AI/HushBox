@@ -201,10 +201,12 @@ describe('useChatStream', () => {
         });
       });
 
-      expect(streamResult).toEqual({
-        userMessageId: 'user-456',
-        models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-456', cost: '0.00150000' }],
-      });
+      expect(streamResult).toEqual(
+        expect.objectContaining({
+          userMessageId: 'user-456',
+          models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-456', cost: '0.00150000' }],
+        })
+      );
     });
 
     it('calls onToken callback for each token with modelId', async () => {
@@ -482,10 +484,12 @@ describe('useChatStream', () => {
         });
       });
 
-      expect(streamResult).toEqual({
-        userMessageId: '',
-        models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-456', cost: '0.00100000' }],
-      });
+      expect(streamResult).toEqual(
+        expect.objectContaining({
+          userMessageId: '',
+          models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-456', cost: '0.00100000' }],
+        })
+      );
     });
 
     it('calls onToken callback for each token with modelId', async () => {
@@ -916,10 +920,12 @@ describe('useChatStream', () => {
         })
       );
 
-      expect(streamResult).toEqual({
-        userMessageId: 'user-123',
-        models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-regen', cost: '0.00100000' }],
-      });
+      expect(streamResult).toEqual(
+        expect.objectContaining({
+          userMessageId: 'user-123',
+          models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-regen', cost: '0.00100000' }],
+        })
+      );
     });
 
     it('sets isStreaming during regeneration', async () => {
@@ -1077,13 +1083,15 @@ describe('useChatStream', () => {
         });
       });
 
-      expect(streamResult).toEqual({
-        userMessageId: 'user-1',
-        models: [
-          { modelId: 'gpt-4', assistantMessageId: 'asst-1', cost: '0.00200000' },
-          { modelId: 'claude-3', assistantMessageId: 'asst-2', cost: '0.00300000' },
-        ],
-      });
+      expect(streamResult).toEqual(
+        expect.objectContaining({
+          userMessageId: 'user-1',
+          models: [
+            { modelId: 'gpt-4', assistantMessageId: 'asst-1', cost: '0.00200000' },
+            { modelId: 'claude-3', assistantMessageId: 'asst-2', cost: '0.00300000' },
+          ],
+        })
+      );
     });
 
     it('calls onToken with correct modelId for interleaved tokens', async () => {
@@ -1247,10 +1255,12 @@ describe('useChatStream', () => {
         });
       });
 
-      expect(streamResult).toEqual({
-        userMessageId: 'user-1',
-        models: [{ modelId: 'gpt-4', assistantMessageId: 'asst-1', cost: '0' }],
-      });
+      expect(streamResult).toEqual(
+        expect.objectContaining({
+          userMessageId: 'user-1',
+          models: [{ modelId: 'gpt-4', assistantMessageId: 'asst-1', cost: '0' }],
+        })
+      );
     });
   });
 

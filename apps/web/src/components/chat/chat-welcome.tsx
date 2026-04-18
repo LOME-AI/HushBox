@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { cn } from '@hushbox/ui';
 import { TypingAnimation } from './typing-animation';
 import { PromptInput } from './prompt-input';
-import type { PromptInputRef } from './prompt-input';
+import type { ChatSearchProps, PromptInputRef } from './prompt-input';
 import { SuggestionChips } from './suggestion-chips';
 import { ChatHeader } from './chat-header';
 import { ComparisonBar } from './comparison-bar';
@@ -11,6 +11,7 @@ import { getGreeting } from '@/lib/greetings';
 import { useModelStore, type SelectedModelEntry } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
 import { useSelectedModelCapabilities } from '@/hooks/use-selected-model-capabilities';
+import { useResolveDefaultModel } from '@/hooks/use-resolve-default-model';
 import { useStableBalance } from '@/hooks/use-stable-balance';
 import { useVisualViewportHeight } from '@hushbox/ui';
 import type { FundingSource } from '@hushbox/shared';
@@ -80,17 +81,33 @@ export function ChatWelcome({
   const viewportHeight = useVisualViewportHeight();
   const isMobile = useIsMobile();
 
-  const { selectedModels } = useModelStore();
+  const activeModality = useModelStore((state) => state.activeModality);
+  const selectedModels = useModelStore((state) => state.selections[state.activeModality]);
+  const setActiveModality = useModelStore((state) => state.setActiveModality);
+  useResolveDefaultModel(activeModality);
   const { webSearchEnabled, toggleWebSearch } = useSearchStore();
+  const toggleModality = React.useCallback((): void => {
+    setActiveModality(activeModality === 'text' ? 'image' : 'text');
+  }, [activeModality, setActiveModality]);
 
   const { models, premiumIds, supportsSearch } = useSelectedModelCapabilities();
+  const searchProps: ChatSearchProps | undefined =
+    activeModality === 'text'
+      ? {
+          webSearchEnabled,
+          modelSupportsSearch: supportsSearch,
+          onToggleWebSearch: toggleWebSearch,
+        }
+      : undefined;
 
   const handleModelSelect = React.useCallback((entries: SelectedModelEntry[]): void => {
-    useModelStore.setState({ selectedModels: entries });
+    const { activeModality: current, setSelectedModels } = useModelStore.getState();
+    setSelectedModels(current, entries);
   }, []);
 
   const handleRemoveModel = React.useCallback((modelId: string): void => {
-    useModelStore.getState().removeModel(modelId);
+    const { activeModality: current, removeModel } = useModelStore.getState();
+    removeModel(current, modelId);
   }, []);
 
   // Premium access requires authentication AND positive balance
@@ -146,6 +163,7 @@ export function ChatWelcome({
         canAccessPremium={canAccessPremium}
         isAuthenticated={isAuthenticated}
         onPremiumClick={onPremiumClick}
+        activeModality={activeModality}
       />
       <ComparisonBar
         models={models}
@@ -167,13 +185,15 @@ export function ChatWelcome({
               value={inputValue}
               onChange={setInputValue}
               onSubmit={handleSubmit}
-              placeholder="Ask me anything..."
+              placeholder={
+                activeModality === 'image' ? 'Describe the image you want...' : 'Ask me anything...'
+              }
               rows={6}
               disabled={isLoading}
-              webSearchEnabled={webSearchEnabled}
-              modelSupportsSearch={supportsSearch}
               isAuthenticated={isAuthenticated}
-              onToggleWebSearch={toggleWebSearch}
+              activeModality={activeModality}
+              onToggleModality={toggleModality}
+              {...(searchProps !== undefined && { searchProps })}
             />
           </div>
 

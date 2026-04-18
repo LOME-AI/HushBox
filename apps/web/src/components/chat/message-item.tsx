@@ -9,6 +9,7 @@ import type { MessageAction } from '@/lib/message-actions';
 import type { MessageGroup, LinkInfo } from '@/lib/chat-sender';
 import { getSenderLabel, isOwnMessage } from '@/lib/chat-sender';
 import { MarkdownRenderer } from './markdown-renderer';
+import { MediaContentItem } from './media-content-item';
 import { MessageCost } from './message-cost';
 import { ThinkingIndicator } from './thinking-indicator';
 
@@ -368,6 +369,36 @@ function computeMessageDisplayState(input: MessageDisplayInput): MessageDisplayS
   };
 }
 
+function MessageMediaItems({
+  message,
+}: Readonly<{
+  message: Message;
+}>): React.JSX.Element | null {
+  const { wrappedContentKey, epochNumber, mediaItems, conversationId } = message;
+
+  const ordered = React.useMemo(
+    () => (mediaItems ? mediaItems.toSorted((a, b) => a.position - b.position) : []),
+    [mediaItems]
+  );
+
+  if (!mediaItems || mediaItems.length === 0) return null;
+  if (!wrappedContentKey || epochNumber === undefined) return null;
+
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {ordered.map((item) => (
+        <MediaContentItem
+          key={item.id}
+          item={item}
+          conversationId={conversationId}
+          epochNumber={epochNumber}
+          wrappedContentKey={wrappedContentKey}
+        />
+      ))}
+    </div>
+  );
+}
+
 function AIMessageContent({
   primaryMessage,
   isStreaming,
@@ -612,11 +643,14 @@ export function MessageItem({
         <div className="group relative">
           <div className={bubbleClasses}>
             {isUser ? (
-              <UserMessageContent
-                messagesToRender={messagesToRender}
-                isGroupedUser={isGroupedUser}
-                message={message}
-              />
+              <>
+                <UserMessageContent
+                  messagesToRender={messagesToRender}
+                  isGroupedUser={isGroupedUser}
+                  message={message}
+                />
+                <MessageMediaItems message={message} />
+              </>
             ) : (
               <>
                 {(primaryMessage.content !== '' || isStreaming === true) && (
@@ -630,6 +664,7 @@ export function MessageItem({
                     isError={isError}
                   />
                 </div>
+                <MessageMediaItems message={primaryMessage} />
               </>
             )}
           </div>

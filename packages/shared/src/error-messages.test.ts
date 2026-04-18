@@ -548,6 +548,30 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('maps INFERENCE_FAILED to user-facing message', () => {
+    expect(friendlyErrorMessage('INFERENCE_FAILED')).toBe(
+      "The AI provider couldn't complete your request. Please try again in a moment."
+    );
+  });
+
+  it('maps EMPTY_MEDIA_RESULT to user-facing message', () => {
+    expect(friendlyErrorMessage('EMPTY_MEDIA_RESULT')).toBe(
+      "The AI didn't produce any output for your request. Try rephrasing your prompt."
+    );
+  });
+
+  it('maps MEDIA_TRIAL_BLOCKED to user-facing message', () => {
+    expect(friendlyErrorMessage('MEDIA_TRIAL_BLOCKED')).toBe(
+      'Image generation is only available for signed-in users. Create an account to unlock.'
+    );
+  });
+
+  it('maps MODALITY_MISMATCH to user-facing message', () => {
+    expect(friendlyErrorMessage('MODALITY_MISMATCH')).toBe(
+      "One or more selected models don't match the requested content type."
+    );
+  });
+
   // ------------------------------------------------------------------
   // Unknown code fallback
   // ------------------------------------------------------------------

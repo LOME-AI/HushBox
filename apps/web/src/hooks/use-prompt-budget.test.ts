@@ -44,9 +44,20 @@ vi.mock('./use-resolve-billing', () => ({
 
 vi.mock('@/stores/model', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/model')>();
+  const { createModelStoreStub, selectorFromState } = await import('@/test-utils/model-store-mock');
   return {
     ...actual,
-    useModelStore: () => ({ selectedModels: mockSelectedModels.current }),
+    useModelStore: (selector?: (state: unknown) => unknown) => {
+      const state = createModelStoreStub({
+        selections: {
+          text: mockSelectedModels.current,
+          image: [],
+          audio: [],
+          video: [],
+        },
+      });
+      return selectorFromState(state)(selector as (s: unknown) => unknown);
+    },
   };
 });
 

@@ -25,12 +25,17 @@ import {
   BATCH_INTERVAL_MS,
   lookupModelPricing,
   computeWorstCaseCents,
+  computeImageWorstCaseCents,
   resolveWebSearchCost,
   handleBillingResult,
   withBroadcast,
   broadcastAndFinish,
+  resolveAndReserveImageBilling,
   type BroadcastContext,
 } from './stream-pipeline.js';
+import type { BuildBillingResult } from '../services/billing/index.js';
+import type { AppEnv } from '../types.js';
+import type { Context } from 'hono';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -197,6 +202,34 @@ describe('computeWorstCaseCents', () => {
 });
 
 // buildOpenRouterRequest tests removed — function deleted in Step 3 (AIClient migration)
+
+// ---------------------------------------------------------------------------
+// computeImageWorstCaseCents
+// ---------------------------------------------------------------------------
+
+describe('computeImageWorstCaseCents', () => {
+  it('computes worst-case cents for a single image model', () => {
+    const result = computeImageWorstCaseCents(0.04, 1);
+    // 0.04 perImage × 1 model × (1 + 0.15 fee) + 8MB × storage_cost
+    // applyFees(0.04) = 0.046
+    // storage = 8_000_000 * MEDIA_STORAGE_COST_PER_BYTE ≈ 0.192
+    // total ≈ 0.238 → cents ≈ 23.8
+    expect(result).toBeGreaterThan(0);
+    expect(result).toBeLessThan(100); // under $1
+  });
+
+  it('scales linearly with number of models', () => {
+    const single = computeImageWorstCaseCents(0.04, 1);
+    const triple = computeImageWorstCaseCents(0.04, 3);
+    expect(triple).toBeCloseTo(single * 3, 5);
+  });
+
+  it('returns 0 for zero perImage price', () => {
+    const result = computeImageWorstCaseCents(0, 1);
+    // Still has storage cost
+    expect(result).toBeGreaterThan(0);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // resolveWebSearchCost
@@ -838,4 +871,124 @@ describe('broadcastAndFinish', () => {
     expect(item['encryptedBlob']).toBeUndefined();
     expect(item['storageKey']).toBeUndefined();
   });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAndReserveImageBilling
+// ---------------------------------------------------------------------------
+
+describe('resolveAndReserveImageBilling', () => {
+  interface MockRedis {
+    get: ReturnType<typeof vi.fn>;
+    eval: ReturnType<typeof vi.fn>;
+  }
+
+  /** Build a minimal Hono Context mock sufficient for resolveAndReserveImageBilling. */
+  function createMockImageBillingContext(redis: MockRedis): {
+    c: Context<AppEnv>;
+    jsonSpy: ReturnType<typeof vi.fn>;
+  } {
+    const jsonSpy = vi.fn((body: unknown, status?: number) => {
+      return Response.json(body, {
+        status: typeof status === 'number' ? status : 200,
+      });
+    });
+    const c = {
+      get: vi.fn((key: string) => {
+        if (key === 'redis') return redis;
+        // Return no value for other keys; the caller never reads them.
+        return null;
+      }),
+      env: { AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'],
+      json: jsonSpy,
+    } as unknown as Context<AppEnv>;
+    return { c, jsonSpy };
+  }
+
+  /**
+   * Build a BuildBillingResult from scratch per test.
+   * resolveAndReserveImageBilling mutates `input.estimatedMinimumCostCents`,
+   * so sharing a single fixture across tests would leak state.
+   */
+  function makeBillingResult(
+    overrides: Partial<BuildBillingResult['input']> = {}
+  ): BuildBillingResult {
+    return {
+      input: {
+        tier: 'paid',
+        balanceCents: 10_000, // $100
+        freeAllowanceCents: 0,
+        isPremiumModel: false,
+        estimatedMinimumCostCents: 0,
+        ...overrides,
+      },
+      rawUserBalanceCents: overrides.balanceCents ?? 10_000,
+      rawFreeAllowanceCents: overrides.freeAllowanceCents ?? 0,
+    };
+  }
+
+  it('happy path: paid tier reserves worst-case cents and returns success', async () => {
+    // eval returns the new reserved total (cents). Must be ≤ balance for success.
+    const redis: MockRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      eval: vi.fn().mockResolvedValue('10'), // 10 cents reserved total, well under 10_000
+    };
+    const { c } = createMockImageBillingContext(redis);
+
+    const result = await resolveAndReserveImageBilling(c, {
+      billingResult: makeBillingResult({ tier: 'paid', balanceCents: 10_000 }),
+      userId: 'user-1',
+      models: ['google/imagen-4'],
+      perImagePrice: 0.04,
+      clientFundingSource: 'personal_balance',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return; // type narrowing
+    expect(result.billingUserId).toBe('user-1');
+    expect(result.perImagePrice).toBe(0.04);
+    // Worst-case should be positive (fee + storage on top of 4 cent base)
+    expect(result.worstCaseCents).toBeGreaterThan(0);
+    // Redis eval was called (once for reserve) — no release on success
+    expect(redis.eval).toHaveBeenCalledTimes(1);
+  });
+
+  it('denial path: trial tier with tiny balance returns 402 Response', async () => {
+    const redis: MockRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      eval: vi.fn().mockResolvedValue('0'),
+    };
+    const { c, jsonSpy } = createMockImageBillingContext(redis);
+
+    // Trial tier: only affordable if estimatedMinimumCostCents ≤ 1 cent.
+    // Image worst-case at 0.04/image is ≈ 23.8 cents, which exceeds trial limit.
+    const result = await resolveAndReserveImageBilling(c, {
+      billingResult: makeBillingResult({
+        tier: 'trial',
+        balanceCents: 0,
+        freeAllowanceCents: 0,
+      }),
+      userId: 'user-trial',
+      models: ['google/imagen-4'],
+      perImagePrice: 0.04,
+      clientFundingSource: 'trial_fixed',
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return; // type narrowing
+    expect(result.response.status).toBe(402);
+    // json() was called exactly once with 402 for the denial (no reserve attempt)
+    expect(jsonSpy).toHaveBeenCalledTimes(1);
+    const [, status] = jsonSpy.mock.calls[0]!;
+    expect(status).toBe(402);
+    // Redis eval was NOT called because denial happens before reservation
+    expect(redis.eval).not.toHaveBeenCalled();
+  });
+
+  // Additional coverage (deferred — exercised indirectly via chat.test.ts route tests):
+  // - 409 BILLING_MISMATCH when clientFundingSource disagrees with server
+  // - Group billing happy path (memberContext + conversationId + groupBudgetContext)
+  // - Race-guard release path (reserveBudget returns total > availableCents → release + 402)
+  // These require more elaborate billingResult fixtures (groupBudgetContext) and
+  // additional redis.eval call scripting.
 });

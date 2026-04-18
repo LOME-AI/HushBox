@@ -4,7 +4,7 @@ import { EncryptionBadge } from '@/components/shared/encryption-badge';
 import { PageHeader } from '@/components/shared/page-header';
 import { ModelSelectorButton } from './model-selector-button';
 import { MemberFacepile } from './member-facepile';
-import type { Model } from '@hushbox/shared';
+import type { Model, Modality } from '@hushbox/shared';
 import type { SelectedModelEntry } from '@/stores/model';
 import type { ModelSelectorGatingProps } from './model-selector-types';
 
@@ -19,6 +19,7 @@ interface ChatHeaderProps extends ModelSelectorGatingProps {
   onlineMemberIds?: Set<string> | undefined;
   /** Called when facepile is clicked (opens member list) */
   onFacepileClick?: (() => void) | undefined;
+  activeModality?: Modality;
 }
 
 export function ChatHeader({
@@ -34,6 +35,7 @@ export function ChatHeader({
   members,
   onlineMemberIds,
   onFacepileClick,
+  activeModality = 'text',
 }: Readonly<ChatHeaderProps>): React.JSX.Element {
   const showGroupFeatures = members !== undefined && members.length > 0;
 
@@ -53,6 +55,7 @@ export function ChatHeader({
           isAuthenticated={isAuthenticated}
           isLinkGuest={isLinkGuest}
           onPremiumClick={onPremiumClick}
+          activeModality={activeModality}
         />
       }
       right={

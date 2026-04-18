@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { Search, ChevronUp, ChevronDown, Lock, Square, CheckSquare } from 'lucide-react';
 import { Overlay, Input, Button, ModalActions, ScrollArea, cn } from '@hushbox/ui';
-import type { Model } from '@hushbox/shared';
+import type { Model, Modality } from '@hushbox/shared';
 import type { ModelSelectorGatingProps } from './model-selector-types';
 import {
   ROUTES,
@@ -385,6 +385,33 @@ interface UseFilteredModelsOptions {
   webSearchFilter: boolean;
   strongestId: string;
   valueId: string;
+  /** Only show models matching this modality. Defaults to 'text'. */
+  activeModality?: Modality | undefined;
+}
+
+/**
+ * Assembles the final model list: Smart Model first (when present), then
+ * pinned quick-select models (in default view only), then the remaining
+ * interlaced list. Keeps `useFilteredModels` focused on filtering/sorting.
+ */
+function buildModelResultList(params: {
+  interlaced: Model[];
+  smartModel: Model | undefined;
+  strongestId: string;
+  valueId: string;
+  isDefault: boolean;
+}): Model[] {
+  const { interlaced, smartModel, strongestId, valueId, isDefault } = params;
+  const smartPrefix = smartModel ? [smartModel] : [];
+  if (!isDefault) {
+    return [...smartPrefix, ...interlaced];
+  }
+  const pinnedIds = [...new Set([strongestId, valueId])];
+  const pinned = pinnedIds
+    .map((id) => interlaced.find((m) => m.id === id))
+    .filter((m): m is Model => m !== undefined);
+  const remaining = interlaced.filter((m) => !pinnedIds.includes(m.id));
+  return [...smartPrefix, ...pinned, ...remaining];
 }
 
 function useFilteredModels({
@@ -397,12 +424,16 @@ function useFilteredModels({
   webSearchFilter,
   strongestId,
   valueId,
+  activeModality = 'text',
 }: UseFilteredModelsOptions): Model[] {
   return React.useMemo(() => {
     const isDefault = sortField === null && !searchQuery.trim() && !webSearchFilter;
 
-    const smartModel = models.find((m) => m.isSmartModel === true);
-    const nonSmartModels = models.filter((m) => m.isSmartModel !== true);
+    // Filter to models matching the active modality. Smart Model is text-only.
+    const modalityFiltered = models.filter((m) => m.modality === activeModality);
+    const smartModel =
+      activeModality === 'text' ? modalityFiltered.find((m) => m.isSmartModel === true) : undefined;
+    const nonSmartModels = modalityFiltered.filter((m) => m.isSmartModel !== true);
 
     let result = filterBySearch(nonSmartModels, searchQuery);
     if (webSearchFilter) {
@@ -411,15 +442,7 @@ function useFilteredModels({
     const sorted = sortModels(result, sortField, sortDirection);
     const interlaced = interlaceModels(sorted, premiumIds, canAccessPremium);
 
-    if (isDefault) {
-      const pinnedIds = [...new Set([strongestId, valueId])];
-      const pinned = pinnedIds
-        .map((id) => interlaced.find((m) => m.id === id))
-        .filter((m): m is Model => m !== undefined);
-      const remaining = interlaced.filter((m) => !pinnedIds.includes(m.id));
-      return [...(smartModel ? [smartModel] : []), ...pinned, ...remaining];
-    }
-    return [...(smartModel ? [smartModel] : []), ...interlaced];
+    return buildModelResultList({ interlaced, smartModel, strongestId, valueId, isDefault });
   }, [
     models,
     searchQuery,
@@ -430,6 +453,7 @@ function useFilteredModels({
     webSearchFilter,
     strongestId,
     valueId,
+    activeModality,
   ]);
 }
 
@@ -515,6 +539,8 @@ interface ModelSelectorModalProps extends ModelSelectorGatingProps {
   models: Model[];
   selectedIds: Set<string>;
   onSelect: (models: { id: string; name: string }[]) => void;
+  /** Filter models to match this modality. Defaults to 'text' for back-compat. */
+  activeModality?: Modality;
 }
 
 /**
@@ -531,6 +557,7 @@ export function ModelSelectorModal({
   isAuthenticated = true,
   isLinkGuest,
   onPremiumClick,
+  activeModality,
 }: Readonly<ModelSelectorModalProps>): React.JSX.Element {
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -571,6 +598,7 @@ export function ModelSelectorModal({
     webSearchFilter,
     strongestId,
     valueId,
+    activeModality,
   });
 
   const handleSortClick = React.useCallback(

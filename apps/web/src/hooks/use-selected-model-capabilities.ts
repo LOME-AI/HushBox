@@ -11,7 +11,7 @@ export interface SelectedModelCapabilities {
 }
 
 export function useSelectedModelCapabilities(): SelectedModelCapabilities {
-  const { selectedModels } = useModelStore();
+  const selectedModels = useModelStore((state) => state.selections[state.activeModality]);
   const { data: modelsData } = useModels();
   const models = useMemo(() => modelsData?.models ?? [], [modelsData?.models]);
   const premiumIds = modelsData?.premiumIds ?? new Set<string>();

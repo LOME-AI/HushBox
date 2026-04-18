@@ -26,6 +26,7 @@ import {
   MEDIA_DOWNLOAD_URL_TTL_SECONDS,
   MEDIA_MONTHLY_COST_PER_GB,
   MEDIA_STORAGE_COST_PER_BYTE,
+  ESTIMATED_IMAGE_BYTES,
 } from './constants.js';
 
 describe('MESSAGE_ROLES', () => {
@@ -288,6 +289,17 @@ describe('Media Storage Cost Constants', () => {
       const costPer4MB = MEDIA_STORAGE_COST_PER_BYTE * 4_000_000;
       expect(costPer4MB).toBeCloseTo(0.096, 2);
     });
+  });
+});
+
+describe('ESTIMATED_IMAGE_BYTES', () => {
+  it('is 8 MB', () => {
+    expect(ESTIMATED_IMAGE_BYTES).toBe(8_000_000);
+  });
+
+  it('is a positive integer', () => {
+    expect(Number.isInteger(ESTIMATED_IMAGE_BYTES)).toBe(true);
+    expect(ESTIMATED_IMAGE_BYTES).toBeGreaterThan(0);
   });
 });
 

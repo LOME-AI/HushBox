@@ -47,7 +47,7 @@ export function TrialChatPage(): React.JSX.Element {
   const { data: session, isPending: isSessionPending } = useSession();
   const isAuthenticated = !isSessionPending && Boolean(session?.user);
 
-  const { selectedModels } = useModelStore();
+  const selectedModels = useModelStore((state) => state.selections[state.activeModality]);
   const { isStreaming, startStream } = useChatStream('trial');
   const { editingMessageId, startEditing, clearEditing } = useChatEditStore();
 
