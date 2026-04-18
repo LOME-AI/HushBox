@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android
 
 on:
   workflow_call:
@@ -12,24 +12,35 @@ on:
       version:
         required: true
         type: string
-      prerelease:
-        required: false
-        type: boolean
-        default: false
-      release-title-suffix:
-        required: false
-        type: string
-        default: ''
       vite-platform:
         required: true
         type: string
-        description: 'Vite build platform: "android" for Play-Store-configured APK, "android-direct" for Obtainium/direct-install APK.'
+        description: 'Vite build platform: "android" for Play-Store-configured build, "android-direct" for Obtainium/direct-install build.'
+      output:
+        required: true
+        type: string
+        description: '"apk-github-release" | "aab-play-upload" | "aab-artifact"'
+      play-track:
+        required: false
+        type: string
+        default: production
+        description: 'Play Store track when output=aab-play-upload. Ignored otherwise.'
+      github-release-prerelease:
+        required: false
+        type: boolean
+        default: false
+        description: 'Mark the GitHub Release as a pre-release when output=apk-github-release.'
+      github-release-title-suffix:
+        required: false
+        type: string
+        default: ''
+        description: 'Suffix appended to the GitHub Release title when output=apk-github-release.'
 
 permissions:
   contents: write
 
 jobs:
-  build-apk:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
@@ -67,15 +78,15 @@ jobs:
           GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
         # END GENERATED: decode-google-services
 
-      - name: Build web for APK
+      - name: Build web for Android
         run: pnpm --filter web build
-        # BEGIN GENERATED: build-env-android-apk
+        # BEGIN GENERATED: build-env-android
         env:
           VITE_API_URL: https://api.hushbox.ai
           VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
           VITE_PLATFORM: ${{ inputs.vite-platform }}
           VITE_APP_VERSION: ${{ inputs.version }}
-        # END GENERATED: build-env-android-apk
+        # END GENERATED: build-env-android
 
       - name: Generate platform assets
         working-directory: apps/web
@@ -92,9 +103,11 @@ jobs:
           bundler-cache: true
           working-directory: apps/web/android
 
+      # ── output=apk-github-release ─────────────────────────
       - name: Build APK
+        if: inputs.output == 'apk-github-release'
         working-directory: apps/web/android
-        run: bundle exec fastlane github_release
+        run: bundle exec fastlane build_apk
         env:
           ANDROID_KEYSTORE_PATH: /tmp/hushbox-release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -104,11 +117,42 @@ jobs:
           VERSION_NAME: ${{ inputs.version-name }}
 
       - name: Create GitHub Release
+        if: inputs.output == 'apk-github-release'
         run: |
           gh release create "v${{ inputs.version-name }}" \
             apps/web/android/app/build/outputs/apk/release/app-release.apk \
-            --title "v${{ inputs.version-name }}${{ inputs.release-title-suffix }}" \
+            --title "v${{ inputs.version-name }}${{ inputs.github-release-title-suffix }}" \
             --generate-notes \
-            ${{ inputs.prerelease && '--prerelease' || '' }}
+            ${{ inputs.github-release-prerelease && '--prerelease' || '' }}
         env:
           GH_TOKEN: ${{ github.token }}
+
+      # ── output=aab-* (shared build) ───────────────────────
+      - name: Build AAB
+        if: inputs.output == 'aab-play-upload' || inputs.output == 'aab-artifact'
+        working-directory: apps/web/android
+        run: bundle exec fastlane build_aab
+        env:
+          ANDROID_KEYSTORE_PATH: /tmp/hushbox-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_CODE: ${{ inputs.version-code }}
+          VERSION_NAME: ${{ inputs.version-name }}
+
+      # ── output=aab-play-upload ────────────────────────────
+      - name: Upload AAB to Play Store
+        if: inputs.output == 'aab-play-upload'
+        working-directory: apps/web/android
+        run: bundle exec fastlane upload_aab track:"${{ inputs.play-track }}"
+        env:
+          PLAY_STORE_JSON_KEY: ${{ secrets.PLAY_STORE_JSON_KEY }}
+
+      # ── output=aab-artifact ───────────────────────────────
+      - name: Upload AAB as workflow artifact
+        if: inputs.output == 'aab-artifact'
+        uses: actions/upload-artifact@v6
+        with:
+          name: app-release-aab-v${{ inputs.version-name }}
+          path: apps/web/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error

@@ -1,0 +1,88 @@
+name: Build iOS
+
+on:
+  workflow_call:
+    inputs:
+      version-name:
+        required: true
+        type: string
+      version-code:
+        required: true
+        type: string
+      output:
+        required: true
+        type: string
+        description: '"testflight" | "app-store-submit" | "ipa-artifact"'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - name: Download web build artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: web-dist
+          path: apps/web/dist
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: apps/web/ios
+
+      - name: Generate platform assets
+        working-directory: apps/web
+        run: npx @capacitor/assets generate --assetPath resources/assets --ios
+
+      - name: Sync iOS
+        working-directory: apps/web
+        run: npx cap sync ios
+
+      - name: Set iOS version
+        working-directory: apps/web/ios/App
+        run: |
+          agvtool new-marketing-version ${{ inputs.version-name }}
+          agvtool new-version -all ${{ inputs.version-code }}
+
+      # ── output=ipa-artifact ───────────────────────────────
+      - name: Build IPA only
+        if: inputs.output == 'ipa-artifact'
+        working-directory: apps/web/ios
+        run: bundle exec fastlane build
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+
+      - name: Upload IPA as workflow artifact
+        if: inputs.output == 'ipa-artifact'
+        uses: actions/upload-artifact@v6
+        with:
+          name: HushBox-ipa-v${{ inputs.version-name }}
+          path: apps/web/ios/build/HushBox.ipa
+          if-no-files-found: error
+
+      # ── output=testflight | app-store-submit ──────────────
+      - name: Build and upload to App Store Connect
+        if: inputs.output == 'testflight' || inputs.output == 'app-store-submit'
+        working-directory: apps/web/ios
+        run: bundle exec fastlane release submit_for_review:${{ inputs.output == 'app-store-submit' }}
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
