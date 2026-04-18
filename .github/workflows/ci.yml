@@ -199,7 +199,7 @@ jobs:
         run: cp -r apps/marketing/dist/* apps/web/dist/
 
       - name: Upload web build artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: web-dist
           path: apps/web/dist
@@ -223,7 +223,7 @@ jobs:
 
       - name: Upload mobile build artifacts
         if: needs.version.result == 'success'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: mobile-dist
           path: |
@@ -356,7 +356,7 @@ jobs:
         run: pnpm verify:evidence --require=hookdeck
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report-${{ matrix.project }}
@@ -434,7 +434,7 @@ jobs:
         # END GENERATED: e2e-env
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -464,7 +464,7 @@ jobs:
           fi
 
       - name: Upload results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: maestro-results
@@ -503,7 +503,7 @@ jobs:
           echo "Deploying version: $VERSION"
 
       - name: Download web build artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: web-dist
           path: apps/web/dist
@@ -571,7 +571,7 @@ jobs:
           curl -f https://hushbox-api.${{ vars.WORKERS_SUBDOMAIN }}.workers.dev/api/health || exit 1
 
       - name: Download mobile build artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: mobile-dist
           path: apps/web
