@@ -2,19 +2,20 @@
 name: audit
 description: Audit completed work for plan adherence, code quality, duplication, lint, typecheck, and project standards. Invoke after completing a task to get a fix plan.
 disable-model-invocation: true
-argument-hint: [plan-file-path]
+argument-hint: [additional-instructions]
 ---
 
 # Post-Completion Audit
 
 Comprehensive audit of just-completed work. Runs automated checks AND manual analysis, then presents all findings as an actionable fix plan.
 
+$ARGUMENTS
+
 ## Step 1 — Gather Context
 
 1. **Identify what was just completed** from the conversation context — summarize the task, files changed, and scope
 2. **Locate the plan file:**
-   - If `$ARGUMENTS` is provided, use that as the plan file path
-   - Otherwise, check conversation context for a referenced plan file
+   - Check conversation context for a referenced plan file
    - If no plan found, skip plan adherence checks and note it in the report
 3. **Get the git diff** to understand exactly what changed:
    - Run `git diff --stat` for an overview of changed files
