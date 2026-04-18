@@ -154,16 +154,18 @@ Present findings in this exact format:
 [Architecture problems, missing error handling, test gaps, DRY violations]
 1. **[Issue title]** — `file:line` — [Why it matters] — [How to fix]
 
-#### Minor (Nice to Have)
+#### Minor
 [Code style, naming, optimization opportunities]
 1. **[Issue title]** — `file:line` — [Why it matters] — [How to fix]
 
 ### Fix Plan
-[Ordered list of concrete actions to resolve all Critical and Important issues]
+[Ordered list of concrete actions to resolve all Critical, Important, and Minor issues]
 1. [Action] in `file.ts:line`
 2. [Action] in `file.ts:line`
 3. ...
 ```
+
+**Do not make any file changes until the audit report has been presented and the user has addressed it.** The audit's job is to surface findings, not to fix them in the same pass.
 
 ## Rules
 
