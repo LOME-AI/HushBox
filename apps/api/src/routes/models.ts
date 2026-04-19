@@ -12,7 +12,9 @@ const modelsListResponseSchema = z.object({
 export const modelsRoute = new Hono<AppEnv>().get('/', async (c) => {
   const apiKey = c.env.AI_GATEWAY_API_KEY;
   if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required for /models');
-  const rawModels = await fetchModels(apiKey);
+  const publicModelsUrl = c.env.PUBLIC_MODELS_URL;
+  if (!publicModelsUrl) throw new Error('PUBLIC_MODELS_URL required for /models');
+  const rawModels = await fetchModels({ apiKey, publicModelsUrl });
   const { models, premiumIds } = processModels(rawModels);
   const response = modelsListResponseSchema.parse({
     models,

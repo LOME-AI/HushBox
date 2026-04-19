@@ -90,7 +90,11 @@ function createTestApp(
   const nextIncrValue = (options.trialMessageCount ?? 0) + 1;
 
   app.use('*', async (c, next) => {
-    c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+    c.env = {
+      NODE_ENV: 'test',
+      AI_GATEWAY_API_KEY: 'test-key',
+      PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+    } as AppEnv['Bindings'];
     c.set('user', null); // Trial user
     c.set('session', null);
     c.set('aiClient', createMockAIClient());

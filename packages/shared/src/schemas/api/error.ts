@@ -353,6 +353,19 @@ export const ERROR_CODE_MEDIA_TRIAL_BLOCKED = 'MEDIA_TRIAL_BLOCKED';
 /** One or more selected models don't match the requested modality. */
 export const ERROR_CODE_MODALITY_MISMATCH = 'MODALITY_MISMATCH';
 
+/**
+ * Request modality requires its config block (imageConfig for 'image',
+ * videoConfig for 'video') and it was missing or invalid.
+ */
+export const ERROR_CODE_MISSING_MODALITY_CONFIG = 'MISSING_MODALITY_CONFIG';
+
+/**
+ * The requested resolution is not priced by one or more selected video models.
+ * Emitted by the video route when `videoConfig.resolution` isn't a key in the
+ * model's `pricePerSecondByResolution` map.
+ */
+export const ERROR_CODE_UNSUPPORTED_RESOLUTION = 'UNSUPPORTED_RESOLUTION';
+
 // ============================================================
 // Error Response Schema
 // ============================================================

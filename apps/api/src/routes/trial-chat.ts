@@ -168,7 +168,9 @@ async function validateTrialRequest(
 
   const apiKey = c.env.AI_GATEWAY_API_KEY;
   if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required for trial chat');
-  const allModels = await fetchModels(apiKey);
+  const publicModelsUrl = c.env.PUBLIC_MODELS_URL;
+  if (!publicModelsUrl) throw new Error('PUBLIC_MODELS_URL required for trial chat');
+  const allModels = await fetchModels({ apiKey, publicModelsUrl });
   const { premiumIds } = processModels(allModels);
 
   const modelError = checkTrialModelAccess(c, model, premiumIds);

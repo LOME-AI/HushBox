@@ -28,6 +28,7 @@ export { createMockAIClient } from './mock.js';
 
 interface AIClientEnv extends EnvContext {
   AI_GATEWAY_API_KEY?: string;
+  PUBLIC_MODELS_URL?: string;
 }
 
 /**
@@ -59,9 +60,16 @@ export function getAIClient(env: AIClientEnv, options: AIClientOptions = {}): AI
   if (!env.AI_GATEWAY_API_KEY) {
     throw new Error('AI_GATEWAY_API_KEY required in CI/production');
   }
+  if (!env.PUBLIC_MODELS_URL) {
+    throw new Error('PUBLIC_MODELS_URL required in CI/production');
+  }
 
   const evidence =
     options.db && options.isCI !== undefined ? { db: options.db, isCI: options.isCI } : undefined;
 
-  return createRealAIClient(env.AI_GATEWAY_API_KEY, evidence);
+  return createRealAIClient({
+    apiKey: env.AI_GATEWAY_API_KEY,
+    publicModelsUrl: env.PUBLIC_MODELS_URL,
+    ...(evidence !== undefined && { evidence }),
+  });
 }

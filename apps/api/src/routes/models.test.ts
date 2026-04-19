@@ -48,7 +48,10 @@ function setMockModels(models: MockGatewayModel[]): void {
 function createTestApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use('*', async (c, next) => {
-    c.env = { AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+    c.env = {
+      AI_GATEWAY_API_KEY: 'test-key',
+      PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+    } as AppEnv['Bindings'];
     await next();
   });
   app.route('/models', modelsRoute);

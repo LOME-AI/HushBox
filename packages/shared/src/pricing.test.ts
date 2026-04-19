@@ -12,6 +12,10 @@ import {
   parseTokenPrice,
   mediaStorageCost,
   calculateMediaGenerationCost,
+  computeImageWorstCaseCents,
+  estimateVideoWorstCaseCents,
+  computeImageExactCents,
+  computeVideoExactCents,
 } from './pricing.js';
 import type { MessageCostParams, MessageCostFromActualParams } from './pricing.js';
 import {
@@ -21,6 +25,8 @@ import {
   CHARS_PER_TOKEN_STANDARD,
   CHARS_PER_TOKEN_CONSERVATIVE,
   MEDIA_STORAGE_COST_PER_BYTE,
+  ESTIMATED_IMAGE_BYTES,
+  ESTIMATED_VIDEO_BYTES_PER_SECOND,
 } from './constants.js';
 
 describe('parseTokenPrice', () => {
@@ -812,5 +818,152 @@ describe('calculateMediaGenerationCost', () => {
       });
       expect(result).toBeCloseTo(applyFees(0.04), 10);
     });
+  });
+});
+
+describe('computeImageWorstCaseCents', () => {
+  it('returns cents, fees applied to model cost, storage added', () => {
+    const result = computeImageWorstCaseCents(0.04, 1);
+    const expectedDollars = applyFees(0.04) + mediaStorageCost(ESTIMATED_IMAGE_BYTES);
+    expect(result).toBeCloseTo(expectedDollars * 100, 5);
+  });
+
+  it('scales linearly with number of models', () => {
+    const single = computeImageWorstCaseCents(0.04, 1);
+    const triple = computeImageWorstCaseCents(0.04, 3);
+    expect(triple).toBeCloseTo(single * 3, 5);
+  });
+
+  it('returns only storage when perImage is 0', () => {
+    const result = computeImageWorstCaseCents(0, 1);
+    expect(result).toBeCloseTo(mediaStorageCost(ESTIMATED_IMAGE_BYTES) * 100, 5);
+  });
+
+  it('returns 0 cents when both perImage and modelCount are 0', () => {
+    expect(computeImageWorstCaseCents(0, 0)).toBe(0);
+  });
+});
+
+describe('estimateVideoWorstCaseCents', () => {
+  it('applies fees to perSecond × duration and adds storage for duration × bytes/sec', () => {
+    const perSecond = 0.1;
+    const durationSeconds = 4;
+    const modelCount = 1;
+    const expectedDollars =
+      applyFees(perSecond * durationSeconds) +
+      mediaStorageCost(durationSeconds * ESTIMATED_VIDEO_BYTES_PER_SECOND);
+    const result = estimateVideoWorstCaseCents({ perSecond, durationSeconds, modelCount });
+    expect(result).toBeCloseTo(expectedDollars * 100, 5);
+  });
+
+  it('scales linearly with model count', () => {
+    const single = estimateVideoWorstCaseCents({
+      perSecond: 0.1,
+      durationSeconds: 4,
+      modelCount: 1,
+    });
+    const quad = estimateVideoWorstCaseCents({
+      perSecond: 0.1,
+      durationSeconds: 4,
+      modelCount: 4,
+    });
+    expect(quad).toBeCloseTo(single * 4, 5);
+  });
+
+  it('scales linearly with duration', () => {
+    const short = estimateVideoWorstCaseCents({
+      perSecond: 0.1,
+      durationSeconds: 2,
+      modelCount: 1,
+    });
+    const long = estimateVideoWorstCaseCents({
+      perSecond: 0.1,
+      durationSeconds: 8,
+      modelCount: 1,
+    });
+    expect(long).toBeCloseTo(short * 4, 5);
+  });
+
+  it('returns only storage when perSecond is 0', () => {
+    const result = estimateVideoWorstCaseCents({
+      perSecond: 0,
+      durationSeconds: 4,
+      modelCount: 1,
+    });
+    expect(result).toBeCloseTo(mediaStorageCost(4 * ESTIMATED_VIDEO_BYTES_PER_SECOND) * 100, 5);
+  });
+
+  it('returns 0 cents when duration is 0', () => {
+    expect(estimateVideoWorstCaseCents({ perSecond: 0.1, durationSeconds: 0, modelCount: 1 })).toBe(
+      0
+    );
+  });
+});
+
+describe('computeImageExactCents', () => {
+  it('returns 0 when the price list is empty', () => {
+    expect(computeImageExactCents([])).toBe(0);
+  });
+
+  it('sums per-model prices with fees and per-model storage', () => {
+    const prices = [0.02, 0.06];
+    const expectedDollars = applyFees(0.02 + 0.06) + mediaStorageCost(ESTIMATED_IMAGE_BYTES) * 2;
+    expect(computeImageExactCents(prices)).toBeCloseTo(expectedDollars * 100, 5);
+  });
+
+  it('does not use the max — a mixed pool costs less than count × max', () => {
+    const mixed = computeImageExactCents([0.02, 0.06]);
+    const maxOnly = computeImageExactCents([0.06, 0.06]);
+    expect(mixed).toBeLessThan(maxOnly);
+  });
+
+  it('single-model case equals worst-case for the same price', () => {
+    expect(computeImageExactCents([0.04])).toBeCloseTo(computeImageWorstCaseCents(0.04, 1), 5);
+  });
+
+  it('treats a zero-price entry as only its storage cost', () => {
+    const result = computeImageExactCents([0]);
+    expect(result).toBeCloseTo(mediaStorageCost(ESTIMATED_IMAGE_BYTES) * 100, 5);
+  });
+});
+
+describe('computeVideoExactCents', () => {
+  it('returns 0 when the price list is empty', () => {
+    expect(computeVideoExactCents([], 4)).toBe(0);
+  });
+
+  it('returns 0 when duration is 0', () => {
+    expect(computeVideoExactCents([0.1, 0.4], 0)).toBe(0);
+  });
+
+  it('sums per-model (perSecond × duration) with fees and per-model storage', () => {
+    const prices = [0.1, 0.4];
+    const duration = 4;
+    const expectedDollars =
+      applyFees((0.1 + 0.4) * duration) +
+      mediaStorageCost(duration * ESTIMATED_VIDEO_BYTES_PER_SECOND) * 2;
+    expect(computeVideoExactCents(prices, duration)).toBeCloseTo(expectedDollars * 100, 5);
+  });
+
+  it('does not use the max — a mixed pool costs less than count × max', () => {
+    const mixed = computeVideoExactCents([0.1, 0.4], 4);
+    const maxOnly = computeVideoExactCents([0.4, 0.4], 4);
+    expect(mixed).toBeLessThan(maxOnly);
+  });
+
+  it('single-model case equals worst-case for the same price', () => {
+    const single = computeVideoExactCents([0.1], 4);
+    const worst = estimateVideoWorstCaseCents({
+      perSecond: 0.1,
+      durationSeconds: 4,
+      modelCount: 1,
+    });
+    expect(single).toBeCloseTo(worst, 5);
+  });
+
+  it('scales linearly with duration', () => {
+    const short = computeVideoExactCents([0.1], 2);
+    const long = computeVideoExactCents([0.1], 8);
+    expect(long).toBeCloseTo(short * 4, 5);
   });
 });

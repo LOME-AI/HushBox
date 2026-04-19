@@ -1,6 +1,8 @@
 // MESSAGE_ROLES moved to enums.ts - re-export for backwards compatibility
 export { MESSAGE_ROLES, type MessageRole } from './enums.js';
 
+import type { ZdrTextModelId, ZdrImageModelId, ZdrVideoModelId } from './models/zdr.js';
+
 /** CSS media query for detecting coarse pointer (touch) devices */
 export const TOUCH_QUERY = '(pointer: coarse)';
 
@@ -14,11 +16,22 @@ export const DEV_EMAIL_DOMAIN = 'dev.hushbox.ai';
 /** Email domain for test personas (used by E2E tests) */
 export const TEST_EMAIL_DOMAIN = 'test.hushbox.ai';
 
-/** Model ID for the "Strongest" quick-select button */
-export const STRONGEST_MODEL_ID = 'anthropic/claude-opus-4.6';
+/**
+ * Per-modality "Strongest" (highest-quality) and "Value" (cheapest) quick-select
+ * pins for the model selector. The `satisfies` clauses enforce at compile time
+ * that each ID is a member of its ZDR allow-list — change ZDR_TEXT_MODEL_IDS
+ * (or the image/video lists) in an incompatible way and the build fails here.
+ * Runtime mirror of this invariant lives in `constants.test.ts`.
+ */
+export const STRONGEST_TEXT_MODEL_ID = 'anthropic/claude-opus-4.6' satisfies ZdrTextModelId;
+export const VALUE_TEXT_MODEL_ID = 'openai/gpt-5-nano' satisfies ZdrTextModelId;
 
-/** Model ID for the "Value" quick-select button */
-export const VALUE_MODEL_ID = 'deepseek/deepseek-r1';
+export const STRONGEST_IMAGE_MODEL_ID =
+  'google/imagen-4.0-ultra-generate-001' satisfies ZdrImageModelId;
+export const VALUE_IMAGE_MODEL_ID = 'google/imagen-4.0-fast-generate-001' satisfies ZdrImageModelId;
+
+export const STRONGEST_VIDEO_MODEL_ID = 'google/veo-3.1-generate-001' satisfies ZdrVideoModelId;
+export const VALUE_VIDEO_MODEL_ID = 'google/veo-3.1-fast-generate-001' satisfies ZdrVideoModelId;
 
 /**
  * Synthetic ID for HushBox's Smart Model — the classifier-based router
@@ -126,6 +139,32 @@ export const ESTIMATED_IMAGE_BYTES = 8_000_000;
 export const MEDIA_DOWNLOAD_URL_TTL_SECONDS = 300;
 
 // ============================================================================
+// Video Generation Constants
+// ============================================================================
+
+/** Minimum video duration users can request, in seconds. */
+export const MIN_VIDEO_DURATION_SECONDS = 1;
+
+/** Maximum video duration users can request, in seconds. */
+export const MAX_VIDEO_DURATION_SECONDS = 8;
+
+/**
+ * Conservative byte estimate per second of generated video (encrypted).
+ * Used only for pre-flight reservation. Worst-case 1080p; actual cost
+ * uses real `sizeBytes` from the R2 upload.
+ */
+export const ESTIMATED_VIDEO_BYTES_PER_SECOND = 5_000_000;
+
+/** Aspect ratios offered in the video config picker. Single source of truth — request schema derives from this. */
+export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:3'] as const;
+
+/** Resolutions offered in the video config picker. Single source of truth — request schema derives from this. */
+export const VIDEO_RESOLUTIONS = ['720p', '1080p'] as const;
+
+/** Aspect ratios offered in the image config picker. Single source of truth — request schema derives from this. */
+export const IMAGE_ASPECT_RATIOS = ['1:1', '3:2', '16:9', '9:16', '4:3'] as const;
+
+// ============================================================================
 // Budget Protection Constants
 // ============================================================================
 
@@ -195,11 +234,14 @@ interface FeatureFlags {
   PROJECTS_ENABLED: boolean;
   /** Enable settings feature in user menu. Currently disabled pending feature completion */
   SETTINGS_ENABLED: boolean;
+  /** Enable audio generation UI. Flip to true when the AI Gateway ships audio output support. */
+  AUDIO_ENABLED: boolean;
 }
 
 export const FEATURE_FLAGS: FeatureFlags = {
   PROJECTS_ENABLED: false,
   SETTINGS_ENABLED: true,
+  AUDIO_ENABLED: false,
 };
 
 /** Maximum number of members (users + link guests) allowed in a single conversation */

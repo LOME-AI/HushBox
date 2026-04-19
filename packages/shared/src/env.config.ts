@@ -148,6 +148,20 @@ export const envConfig = {
     [Mode.Production]: secret('AI_GATEWAY_API_KEY'),
   },
 
+  // Unauthenticated public endpoint exposing per-modality pricing (per-image
+  // for image models, per-second-by-resolution for video models). The SDK's
+  // authenticated `/config` endpoint doesn't carry media pricing, so we merge
+  // both sources. URL is stable; exposed in envConfig for per-environment
+  // override (e.g., pointing at a fixture in E2E) rather than a runtime secret.
+  PUBLIC_MODELS_URL: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'https://ai-gateway.vercel.sh/v1/models',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: ref(Mode.Development),
+  },
+
   FCM_PROJECT_ID: {
     to: [Destination.Backend],
     [Mode.Production]: secret('FCM_PROJECT_ID'),

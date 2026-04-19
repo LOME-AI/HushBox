@@ -62,6 +62,7 @@ const mockModels: Model[] = [
     pricePerInputToken: 0.000_01,
     pricePerOutputToken: 0.000_03,
     pricePerImage: 0,
+    pricePerSecondByResolution: {},
     capabilities: ['internet-search'],
     description: 'A powerful language model from OpenAI.',
     supportedParameters: ['web_search_options'],
@@ -75,6 +76,7 @@ const mockModels: Model[] = [
     pricePerInputToken: 0.000_003,
     pricePerOutputToken: 0.000_015,
     pricePerImage: 0,
+    pricePerSecondByResolution: {},
     capabilities: ['internet-search'],
     description: 'Anthropic most intelligent model.',
     supportedParameters: ['web_search_options'],
@@ -88,6 +90,7 @@ const mockModels: Model[] = [
     pricePerInputToken: 0.000_000_59,
     pricePerOutputToken: 0.000_000_79,
     pricePerImage: 0,
+    pricePerSecondByResolution: {},
     capabilities: [],
     description: 'Open-weight model offering excellent performance.',
     supportedParameters: [],
@@ -272,21 +275,23 @@ describe('ModelSelectorModal', () => {
         pricePerInputToken: 0.000_015,
         pricePerOutputToken: 0.000_075,
         pricePerImage: 0,
+        pricePerSecondByResolution: {},
         capabilities: ['internet-search'],
         description: 'Most capable model.',
         supportedParameters: ['web_search_options'],
       },
       {
-        id: 'deepseek/deepseek-r1',
-        name: 'DeepSeek R1',
-        provider: 'DeepSeek',
+        id: 'openai/gpt-5-nano',
+        name: 'GPT-5 Nano',
+        provider: 'OpenAI',
         modality: 'text' as const,
-        contextLength: 64_000,
-        pricePerInputToken: 0.000_000_55,
-        pricePerOutputToken: 0.000_002_19,
+        contextLength: 128_000,
+        pricePerInputToken: 0.000_000_1,
+        pricePerOutputToken: 0.000_000_4,
         pricePerImage: 0,
+        pricePerSecondByResolution: {},
         capabilities: [],
-        description: 'Best value reasoning model.',
+        description: 'Cheapest tier-1 text model.',
         supportedParameters: [],
       },
       {
@@ -298,6 +303,7 @@ describe('ModelSelectorModal', () => {
         pricePerInputToken: 0.000_005,
         pricePerOutputToken: 0.000_015,
         pricePerImage: 0,
+        pricePerSecondByResolution: {},
         capabilities: ['internet-search'],
         description: 'Fast and capable model.',
         supportedParameters: ['web_search_options'],
@@ -334,7 +340,7 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      const valueItem = screen.getByTestId('model-item-deepseek/deepseek-r1');
+      const valueItem = screen.getByTestId('model-item-openai/gpt-5-nano');
       expect(valueItem).toHaveTextContent('Best value');
     });
 
@@ -353,7 +359,7 @@ describe('ModelSelectorModal', () => {
 
       const modelItems = screen.getAllByRole('option');
       expect(modelItems[0]).toHaveTextContent('Claude Opus 4.6');
-      expect(modelItems[1]).toHaveTextContent('DeepSeek R1');
+      expect(modelItems[1]).toHaveTextContent('GPT-5 Nano');
       expect(modelItems[2]).toHaveTextContent('GPT-4o');
     });
 
@@ -375,7 +381,7 @@ describe('ModelSelectorModal', () => {
 
       const modelItems = screen.getAllByRole('option');
       // Sorted by price ascending — DeepSeek R1 is cheapest
-      expect(modelItems[0]).toHaveTextContent('DeepSeek R1');
+      expect(modelItems[0]).toHaveTextContent('GPT-5 Nano');
     });
 
     it('shows labels regardless of sort state', async () => {
@@ -397,7 +403,7 @@ describe('ModelSelectorModal', () => {
       const strongestItem = screen.getByTestId('model-item-anthropic/claude-opus-4.6');
       expect(strongestItem).toHaveTextContent('Strongest');
 
-      const valueItem = screen.getByTestId('model-item-deepseek/deepseek-r1');
+      const valueItem = screen.getByTestId('model-item-openai/gpt-5-nano');
       expect(valueItem).toHaveTextContent('Best value');
     });
   });
@@ -1054,6 +1060,7 @@ describe('ModelSelectorModal', () => {
           pricePerInputToken: 0.000_01,
           pricePerOutputToken: 0.000_02,
           pricePerImage: 0,
+          pricePerSecondByResolution: {},
           capabilities: [],
           description: 'Basic model 1',
           supportedParameters: [],
@@ -1067,6 +1074,7 @@ describe('ModelSelectorModal', () => {
           pricePerInputToken: 0.000_03,
           pricePerOutputToken: 0.000_04,
           pricePerImage: 0,
+          pricePerSecondByResolution: {},
           capabilities: [],
           description: 'Basic model 2',
           supportedParameters: [],
@@ -1080,6 +1088,7 @@ describe('ModelSelectorModal', () => {
           pricePerInputToken: 0.000_05,
           pricePerOutputToken: 0.000_06,
           pricePerImage: 0,
+          pricePerSecondByResolution: {},
           capabilities: [],
           description: 'Premium model 1',
           supportedParameters: [],
@@ -1093,6 +1102,7 @@ describe('ModelSelectorModal', () => {
           pricePerInputToken: 0.000_07,
           pricePerOutputToken: 0.000_08,
           pricePerImage: 0,
+          pricePerSecondByResolution: {},
           capabilities: [],
           description: 'Premium model 2',
           supportedParameters: [],
@@ -1185,6 +1195,7 @@ describe('ModelSelectorModal', () => {
           pricePerInputToken: 0.000_01,
           pricePerOutputToken: 0.000_02,
           pricePerImage: 0,
+          pricePerSecondByResolution: {},
           capabilities: [],
           description: 'Cheap basic model',
           supportedParameters: [],
@@ -1198,6 +1209,7 @@ describe('ModelSelectorModal', () => {
           pricePerInputToken: 0.000_05,
           pricePerOutputToken: 0.000_06,
           pricePerImage: 0,
+          pricePerSecondByResolution: {},
           capabilities: [],
           description: 'Expensive basic model',
           supportedParameters: [],
@@ -1211,6 +1223,7 @@ describe('ModelSelectorModal', () => {
           pricePerInputToken: 0.0001,
           pricePerOutputToken: 0.000_12,
           pricePerImage: 0,
+          pricePerSecondByResolution: {},
           capabilities: [],
           description: 'Premium model',
           supportedParameters: [],
@@ -1353,6 +1366,7 @@ describe('ModelSelectorModal', () => {
       pricePerInputToken: 0.000_000_039,
       pricePerOutputToken: 0.000_000_19,
       pricePerImage: 0,
+      pricePerSecondByResolution: {},
       capabilities: [],
       description: 'Uses the best model for your task',
       supportedParameters: [],
@@ -1464,6 +1478,60 @@ describe('ModelSelectorModal', () => {
       );
 
       expect(screen.queryByTestId('expensive-model-warning')).not.toBeInTheDocument();
+    });
+
+    it('hides Smart Model when activeModality is image', () => {
+      const imageModel: Model = {
+        ...smartModelEntry,
+        id: 'google/imagen-4',
+        name: 'Imagen 4',
+        modality: 'image',
+        provider: 'Google',
+        isSmartModel: false,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0.04,
+        pricePerSecondByResolution: {},
+        contextLength: 0,
+      };
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={[smartModelEntry, imageModel]}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="image"
+        />
+      );
+      expect(screen.queryByText('Smart Model')).not.toBeInTheDocument();
+    });
+
+    it('hides Smart Model when activeModality is video', () => {
+      const videoModel: Model = {
+        ...smartModelEntry,
+        id: 'google/veo-3.1',
+        name: 'Veo 3.1',
+        modality: 'video',
+        provider: 'Google',
+        isSmartModel: false,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0,
+        pricePerSecondByResolution: {},
+        contextLength: 0,
+      };
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={[smartModelEntry, videoModel]}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="video"
+        />
+      );
+      expect(screen.queryByText('Smart Model')).not.toBeInTheDocument();
     });
 
     it('shows subtitle in list item', () => {
@@ -1658,6 +1726,7 @@ describe('ModelSelectorModal', () => {
         pricePerInputToken: 0.000_01,
         pricePerOutputToken: 0.000_03,
         pricePerImage: 0,
+        pricePerSecondByResolution: {},
         capabilities: [],
         description: 'A cheap model',
         supportedParameters: [],
@@ -1672,6 +1741,7 @@ describe('ModelSelectorModal', () => {
         pricePerInputToken: 0.000_05,
         pricePerOutputToken: 0.000_05,
         pricePerImage: 0,
+        pricePerSecondByResolution: {},
         capabilities: [],
         description: 'An expensive model',
         supportedParameters: [],

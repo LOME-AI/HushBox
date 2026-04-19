@@ -1,6 +1,8 @@
 import { streamText, generateImage, experimental_generateVideo } from 'ai';
 import { createGateway } from '@ai-sdk/gateway';
-import { isZdrModel } from '@hushbox/shared/models';
+import { fetchModels, isZdrModel } from '@hushbox/shared/models';
+import type { RawModel } from '@hushbox/shared/models';
+import { parseTokenPrice } from '@hushbox/shared';
 import { recordServiceEvidence, SERVICE_NAMES, type Database } from '@hushbox/db';
 import type {
   AIClient,
@@ -9,7 +11,6 @@ import type {
   InferenceStream,
   MessageContentPart,
   ModelInfo,
-  Modality,
   ModelPricing,
   ProviderMetadata,
   TextRequest,
@@ -29,110 +30,60 @@ export interface EvidenceConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Gateway model type → Modality mapping
+// Map merged RawModel → AIClient ModelInfo
 // ---------------------------------------------------------------------------
 
-function classifyModality(type: string): Modality {
-  switch (type) {
-    case 'image': {
-      return 'image';
-    }
-    case 'video': {
-      return 'video';
-    }
-    case 'audio':
-    case 'tts': {
-      return 'audio';
-    }
-    default: {
-      return 'text';
-    }
-  }
+/**
+ * Map a fully-merged RawModel (output of shared `fetchModels`, which merges
+ * the SDK `/config` endpoint with the public `/v1/models` endpoint for media
+ * pricing) to the AIClient-layer ModelInfo shape.
+ */
+function rawModelToModelInfo(raw: RawModel): ModelInfo {
+  const provider = raw.id.split('/')[0] ?? 'unknown';
+  const pricing = pricingFromRawModel(raw);
+  return {
+    id: raw.id,
+    name: raw.name,
+    provider,
+    modality: raw.modality,
+    description: raw.description,
+    contextLength: raw.context_length,
+    pricing,
+    capabilities: [],
+    isZdr: isZdrModel(raw.id, raw.modality),
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Map raw gateway model response to ModelInfo
-// ---------------------------------------------------------------------------
-
-interface RawGatewayModel {
-  id: string;
-  name?: string;
-  description?: string;
-  type?: string;
-  provider?: string;
-  contextLength?: number;
-  pricing?: Record<string, string>;
-  capabilities?: string[];
-}
-
-function extractProvider(modelId: string, rawProvider?: string): string {
-  if (rawProvider) return rawProvider;
-  const slash = modelId.indexOf('/');
-  return slash > 0 ? modelId.slice(0, slash) : 'unknown';
-}
-
-function defaultPricing(modality: Modality): ModelPricing {
-  switch (modality) {
+function pricingFromRawModel(raw: RawModel): ModelPricing {
+  switch (raw.modality) {
     case 'text': {
-      return { kind: 'token', inputPerToken: 0, outputPerToken: 0 };
+      const ws = raw.pricing.web_search;
+      const webSearchPerCall = ws === undefined ? undefined : parseTokenPrice(ws);
+      return {
+        kind: 'token',
+        inputPerToken: parseTokenPrice(raw.pricing.prompt),
+        outputPerToken: parseTokenPrice(raw.pricing.completion),
+        ...(webSearchPerCall === undefined ? {} : { webSearchPerCall }),
+      };
     }
     case 'image': {
-      return { kind: 'image', perImage: 0 };
+      const rawPerImage = raw.pricing.per_image;
+      return {
+        kind: 'image',
+        perImage: rawPerImage === undefined ? 0 : parseTokenPrice(rawPerImage),
+      };
     }
     case 'video': {
-      return { kind: 'video', perSecond: 0 };
+      const rawMap = raw.pricing.per_second_by_resolution ?? {};
+      const perSecondByResolution = Object.fromEntries(
+        Object.entries(rawMap).map(([res, price]) => [res, parseTokenPrice(price)])
+      );
+      return { kind: 'video', perSecondByResolution };
     }
     case 'audio': {
       return { kind: 'audio', perSecond: 0 };
     }
   }
-}
-
-function parsePrice(raw: string | undefined): number {
-  return Number.parseFloat(raw ?? '0') || 0;
-}
-
-function parsePricing(modality: Modality, rawPricing?: Record<string, string>): ModelPricing {
-  if (!rawPricing) return defaultPricing(modality);
-
-  switch (modality) {
-    case 'text': {
-      const webSearch = rawPricing['webSearchPerCall'];
-      const webSearchPerCall = webSearch ? parsePrice(webSearch) : undefined;
-      return {
-        kind: 'token',
-        inputPerToken: parsePrice(rawPricing['inputPerToken']),
-        outputPerToken: parsePrice(rawPricing['outputPerToken']),
-        ...(webSearchPerCall === undefined ? {} : { webSearchPerCall }),
-      };
-    }
-    case 'image': {
-      return { kind: 'image', perImage: parsePrice(rawPricing['perImage']) };
-    }
-    case 'video': {
-      return { kind: 'video', perSecond: parsePrice(rawPricing['perSecond']) };
-    }
-    case 'audio': {
-      return { kind: 'audio', perSecond: parsePrice(rawPricing['perSecond']) };
-    }
-  }
-}
-
-function toModelInfo(raw: RawGatewayModel): ModelInfo {
-  const modality = classifyModality(raw.type ?? 'chat');
-  const provider = extractProvider(raw.id, raw.provider);
-
-  return {
-    id: raw.id,
-    name: raw.name ?? raw.id,
-    provider,
-    modality,
-    description: raw.description ?? '',
-    ...(raw.contextLength === undefined ? {} : { contextLength: raw.contextLength }),
-    pricing: parsePricing(modality, raw.pricing),
-    capabilities: [],
-    isZdr: isZdrModel(raw.id, modality),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -347,7 +298,15 @@ function streamAudioRequest(_request: AudioRequest): InferenceStream {
 // Factory
 // ---------------------------------------------------------------------------
 
-export function createRealAIClient(apiKey: string, evidence?: EvidenceConfig): AIClient {
+export interface CreateRealAIClientOptions {
+  apiKey: string;
+  /** URL of the unauthenticated `/v1/models` endpoint for media pricing. */
+  publicModelsUrl: string;
+  evidence?: EvidenceConfig;
+}
+
+export function createRealAIClient(options: CreateRealAIClientOptions): AIClient {
+  const { apiKey, publicModelsUrl, evidence } = options;
   const gateway = createGateway({ apiKey });
 
   const recordEvidence = async (): Promise<void> => {
@@ -376,9 +335,11 @@ export function createRealAIClient(apiKey: string, evidence?: EvidenceConfig): A
     isMock: false,
 
     async listModels(): Promise<ModelInfo[]> {
-      const response = await gateway.getAvailableModels();
-      const rawModels = (response as { models: RawGatewayModel[] }).models;
-      const models = rawModels.map((m) => toModelInfo(m));
+      // Delegate to the shared fetcher which merges SDK /config + public /v1/models
+      // for media pricing. Keeping one fetcher keeps pricing consistent across the
+      // /api/models catalog and the AIClient's pricing lookups.
+      const rawModels = await fetchModels({ apiKey, publicModelsUrl });
+      const models = rawModels.map((m) => rawModelToModelInfo(m));
       await recordEvidence();
       return models;
     },

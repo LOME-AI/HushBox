@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { SMART_MODEL_ID, MAX_SELECTED_MODELS } from '@hushbox/shared';
-import type { Modality } from '@hushbox/shared';
+import type { Modality, ImageConfig, VideoConfig } from '@hushbox/shared';
 
 export const DEFAULT_MODEL_ID = SMART_MODEL_ID;
 export const DEFAULT_MODEL_NAME = 'Smart Model';
@@ -9,16 +9,6 @@ export const DEFAULT_MODEL_NAME = 'Smart Model';
 export interface SelectedModelEntry {
   id: string;
   name: string;
-}
-
-export interface ImageConfig {
-  aspectRatio: string;
-}
-
-export interface VideoConfig {
-  aspectRatio: string;
-  durationSeconds: number;
-  resolution: string;
 }
 
 export interface ModelStoreState {
@@ -204,3 +194,5 @@ useModelStore.subscribe((state) => {
     useModelStore.setState({ selections: next });
   }
 });
+
+export { type ImageConfig, type VideoConfig } from '@hushbox/shared';

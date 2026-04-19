@@ -12,6 +12,7 @@ function makeModel(overrides: Partial<Model> = {}): Model {
     pricePerInputToken: 0.000_001,
     pricePerOutputToken: 0.000_002,
     pricePerImage: 0,
+    pricePerSecondByResolution: {},
     capabilities: [],
     description: 'A test model',
     supportedParameters: ['temperature'],

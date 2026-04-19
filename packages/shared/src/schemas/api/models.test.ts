@@ -47,8 +47,66 @@ describe('modelSchema', () => {
         supportedParameters: [],
         modality: 'text',
         pricePerImage: 0,
+        pricePerSecondByResolution: {},
       });
     }
+  });
+
+  it('parses a video model with pricePerSecondByResolution', () => {
+    const videoModel = {
+      id: 'google/veo-3.1-generate-001',
+      name: 'Veo 3.1',
+      provider: 'Google',
+      modality: 'video',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: { '720p': 0.4, '1080p': 0.4 },
+      capabilities: [],
+      description: 'Video generation with audio',
+    };
+    const result = modelSchema.safeParse(videoModel);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.pricePerSecondByResolution).toEqual({ '720p': 0.4, '1080p': 0.4 });
+    }
+  });
+
+  it('defaults pricePerSecondByResolution to empty object when absent', () => {
+    const imageModel = {
+      id: 'google/imagen-4.0-generate-001',
+      name: 'Imagen 4',
+      provider: 'Google',
+      modality: 'image',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0.04,
+      pricePerSecondByResolution: {},
+      capabilities: [],
+      description: 'High-quality image generation',
+    };
+    const result = modelSchema.safeParse(imageModel);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.pricePerSecondByResolution).toEqual({});
+  });
+
+  it('rejects pricePerSecondByResolution with negative prices', () => {
+    const result = modelSchema.safeParse({
+      id: 'x',
+      name: 'X',
+      provider: 'X',
+      modality: 'video',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: { '720p': -0.1 },
+      capabilities: [],
+      description: 'x',
+    });
+    expect(result.success).toBe(false);
   });
 
   it('requires description field', () => {
@@ -175,6 +233,7 @@ describe('Model type', () => {
       pricePerInputToken: 0.0001,
       pricePerOutputToken: 0.0002,
       pricePerImage: 0,
+      pricePerSecondByResolution: {},
       capabilities: ['internet-search'],
       description: 'A test model for type inference.',
       supportedParameters: ['temperature', 'web_search_options'],

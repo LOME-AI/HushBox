@@ -465,6 +465,8 @@ export function useAuthenticatedChat({
 
   const activeModality = useModelStore((state) => state.activeModality);
   const selectedModels = useModelStore((state) => state.selections[state.activeModality]);
+  const imageConfig = useModelStore((state) => state.imageConfig);
+  const videoConfig = useModelStore((state) => state.videoConfig);
   const { webSearchEnabled } = useSearchStore();
   const { isStreaming, startStream, startRegenerateStream } = useChatStream('authenticated');
   const chatError = useChatErrorStore((s) => s.error);
@@ -608,6 +610,8 @@ export function useAuthenticatedChat({
           webSearchEnabled,
           ...(customInstructions != null && { customInstructions }),
           ...(forkId != null && { forkId }),
+          ...(activeModality === 'image' && { imageConfig }),
+          ...(activeModality === 'video' && { videoConfig }),
         },
         callbacks
       );
@@ -629,6 +633,9 @@ export function useAuthenticatedChat({
       customInstructions,
       state,
       queryClient,
+      activeModality,
+      imageConfig,
+      videoConfig,
     ]
   );
 
@@ -713,6 +720,8 @@ export function useAuthenticatedChat({
             fundingSource,
             webSearchEnabled,
             ...(customInstructions != null && { customInstructions }),
+            ...(activeModality === 'image' && { imageConfig }),
+            ...(activeModality === 'video' && { videoConfig }),
           },
           {
             onStart: handleStreamStart,

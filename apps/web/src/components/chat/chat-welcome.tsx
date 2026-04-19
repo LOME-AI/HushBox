@@ -4,6 +4,7 @@ import { cn } from '@hushbox/ui';
 import { TypingAnimation } from './typing-animation';
 import { PromptInput } from './prompt-input';
 import type { ChatSearchProps, PromptInputRef } from './prompt-input';
+import { getPromptPlaceholder } from './prompt-placeholder';
 import { SuggestionChips } from './suggestion-chips';
 import { ChatHeader } from './chat-header';
 import { ComparisonBar } from './comparison-bar';
@@ -14,7 +15,7 @@ import { useSelectedModelCapabilities } from '@/hooks/use-selected-model-capabil
 import { useResolveDefaultModel } from '@/hooks/use-resolve-default-model';
 import { useStableBalance } from '@/hooks/use-stable-balance';
 import { useVisualViewportHeight } from '@hushbox/ui';
-import type { FundingSource } from '@hushbox/shared';
+import type { FundingSource, Modality } from '@hushbox/shared';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 
 interface WelcomeGreetingProps {
@@ -86,9 +87,12 @@ export function ChatWelcome({
   const setActiveModality = useModelStore((state) => state.setActiveModality);
   useResolveDefaultModel(activeModality);
   const { webSearchEnabled, toggleWebSearch } = useSearchStore();
-  const toggleModality = React.useCallback((): void => {
-    setActiveModality(activeModality === 'text' ? 'image' : 'text');
-  }, [activeModality, setActiveModality]);
+  const selectModality = React.useCallback(
+    (modality: Modality): void => {
+      setActiveModality(modality);
+    },
+    [setActiveModality]
+  );
 
   const { models, premiumIds, supportsSearch } = useSelectedModelCapabilities();
   const searchProps: ChatSearchProps | undefined =
@@ -185,14 +189,12 @@ export function ChatWelcome({
               value={inputValue}
               onChange={setInputValue}
               onSubmit={handleSubmit}
-              placeholder={
-                activeModality === 'image' ? 'Describe the image you want...' : 'Ask me anything...'
-              }
+              placeholder={getPromptPlaceholder(activeModality, 'Ask me anything...')}
               rows={6}
               disabled={isLoading}
               isAuthenticated={isAuthenticated}
               activeModality={activeModality}
-              onToggleModality={toggleModality}
+              onSelectModality={selectModality}
               {...(searchProps !== undefined && { searchProps })}
             />
           </div>

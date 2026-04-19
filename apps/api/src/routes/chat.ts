@@ -16,6 +16,7 @@ import {
   ERROR_CODE_MEDIA_TRIAL_BLOCKED,
   ERROR_CODE_MODEL_NOT_FOUND,
   ERROR_CODE_MODALITY_MISMATCH,
+  ERROR_CODE_UNSUPPORTED_RESOLUTION,
   estimateTokenCount,
 } from '@hushbox/shared';
 import type { FundingSource, RegenerateRequest } from '@hushbox/shared';
@@ -51,8 +52,10 @@ import {
 import {
   resolveAndReserveBilling,
   resolveAndReserveImageBilling,
+  resolveAndReserveVideoBilling,
   executeStreamPipeline,
   executeImagePipeline,
+  executeVideoPipeline,
   resolveWebSearchCost,
   BATCH_INTERVAL_MS,
 } from '../lib/stream-pipeline.js';
@@ -255,9 +258,20 @@ function requireApiKey(c: Context<AppEnv>): string {
   return apiKey;
 }
 
+/** Read the public models URL from env or throw a clear error. */
+function requirePublicModelsUrl(c: Context<AppEnv>): string {
+  const url = c.env.PUBLIC_MODELS_URL;
+  if (!url) throw new Error('PUBLIC_MODELS_URL required');
+  return url;
+}
+
 interface ImageModelLookup {
-  /** Max per-image price across the selected image models. */
-  maxPerImage: number;
+  /**
+   * Per-image price for each selected model, keyed by model ID. Image pricing
+   * is deterministic at reservation time, so we don't need a worst-case max —
+   * the caller sums these for both reservation and per-model billing.
+   */
+  perImageByModel: Map<string, number>;
   /** Model IDs that are NOT image models (should be rejected). */
   mismatches: string[];
   /** Model IDs that were requested but not found in the gateway. */
@@ -265,12 +279,10 @@ interface ImageModelLookup {
 }
 
 /**
- * Validate selected models against the image modality.
- *
- * Returns mismatches (selected models that aren't image models) so the caller
- * can reject with MODALITY_MISMATCH. Returns notFound for models the gateway
- * doesn't know about. Only returns a valid `maxPerImage` when every selected
- * model is an image model with pricing.
+ * Validate selected models against the image modality and collect each model's
+ * actual per-image price. Returns mismatches/notFound lists for reject-path
+ * error responses. `perImageByModel` has one entry per selected model (only
+ * models that passed the image-modality check — mismatches are excluded).
  */
 async function lookupImageModels(
   aiClient: AppEnv['Variables']['aiClient'],
@@ -279,7 +291,7 @@ async function lookupImageModels(
   const allModels = await aiClient.listModels();
   const mismatches: string[] = [];
   const notFound: string[] = [];
-  let maxPerImage = 0;
+  const perImageByModel = new Map<string, number>();
 
   for (const modelId of models) {
     const info = allModels.find((m) => m.id === modelId);
@@ -291,12 +303,62 @@ async function lookupImageModels(
       mismatches.push(modelId);
       continue;
     }
-    if (info.pricing.perImage > maxPerImage) {
-      maxPerImage = info.pricing.perImage;
-    }
+    perImageByModel.set(modelId, info.pricing.perImage);
   }
 
-  return { maxPerImage, mismatches, notFound };
+  return { perImageByModel, mismatches, notFound };
+}
+
+interface VideoModelLookup {
+  /**
+   * Per-second price at the requested resolution for each selected video model,
+   * keyed by model ID. Deterministic at reservation time — summing yields the
+   * exact reservation cost; per-model lookup yields exact billing cost.
+   */
+  perSecondByModel: Map<string, number>;
+  /** Model IDs that are NOT video models. */
+  mismatches: string[];
+  /** Model IDs that were requested but not found in the gateway. */
+  notFound: string[];
+  /** Model IDs that are video models but don't price the requested resolution. */
+  unsupportedResolutions: string[];
+}
+
+/**
+ * Validate selected models against the video modality at a specific resolution
+ * and collect each model's actual per-second price for that resolution.
+ * Video pricing is per-resolution, so the resolution must be known up front.
+ */
+async function lookupVideoModels(
+  aiClient: AppEnv['Variables']['aiClient'],
+  models: string[],
+  resolution: string
+): Promise<VideoModelLookup> {
+  const allModels = await aiClient.listModels();
+  const mismatches: string[] = [];
+  const notFound: string[] = [];
+  const unsupportedResolutions: string[] = [];
+  const perSecondByModel = new Map<string, number>();
+
+  for (const modelId of models) {
+    const info = allModels.find((m) => m.id === modelId);
+    if (!info) {
+      notFound.push(modelId);
+      continue;
+    }
+    if (info.pricing.kind !== 'video') {
+      mismatches.push(modelId);
+      continue;
+    }
+    const price = info.pricing.perSecondByResolution[resolution];
+    if (price === undefined) {
+      unsupportedResolutions.push(modelId);
+      continue;
+    }
+    perSecondByModel.set(modelId, price);
+  }
+
+  return { perSecondByModel, mismatches, notFound, unsupportedResolutions };
 }
 
 interface ImageBranchInput {
@@ -329,7 +391,7 @@ async function handleImageStreamRequest(input: ImageBranchInput): Promise<Respon
   const aiClient = c.get('aiClient');
   const redis = c.get('redis');
 
-  const { maxPerImage, mismatches, notFound } = await lookupImageModels(aiClient, models);
+  const { perImageByModel, mismatches, notFound } = await lookupImageModels(aiClient, models);
 
   if (notFound.length > 0) {
     return c.json(createErrorResponse(ERROR_CODE_MODEL_NOT_FOUND, { models: notFound }), 400);
@@ -345,7 +407,7 @@ async function handleImageStreamRequest(input: ImageBranchInput): Promise<Respon
     billingResult,
     userId: billingUserId,
     models,
-    perImagePrice: maxPerImage,
+    perImageByModel,
     clientFundingSource,
     ...(memberContext !== undefined && { memberContext }),
     conversationId,
@@ -374,6 +436,96 @@ async function handleImageStreamRequest(input: ImageBranchInput): Promise<Respon
     ...(forkId !== undefined && { forkId }),
     parentMessageId,
     ...(imageConfig?.aspectRatio !== undefined && { aspectRatio: imageConfig.aspectRatio }),
+  });
+}
+
+interface VideoBranchInput {
+  c: Context<AppEnv>;
+  conversationId: string;
+  callerId: string;
+  user: AppEnv['Variables']['user'];
+  billingContext: BillingContext;
+  models: string[];
+  userMessage: { id: string; content: string };
+  parentMessageId: string | null;
+  forkId: string | undefined;
+  videoConfig: { aspectRatio: string; durationSeconds: number; resolution: string };
+}
+
+async function handleVideoStreamRequest(input: VideoBranchInput): Promise<Response> {
+  const {
+    c,
+    conversationId,
+    callerId,
+    user,
+    billingContext,
+    models,
+    userMessage,
+    parentMessageId,
+    forkId,
+    videoConfig,
+  } = input;
+  const { memberContext, billingUserId, clientFundingSource, billingResult } = billingContext;
+  const aiClient = c.get('aiClient');
+  const redis = c.get('redis');
+
+  const { perSecondByModel, mismatches, notFound, unsupportedResolutions } =
+    await lookupVideoModels(aiClient, models, videoConfig.resolution);
+
+  if (notFound.length > 0) {
+    return c.json(createErrorResponse(ERROR_CODE_MODEL_NOT_FOUND, { models: notFound }), 400);
+  }
+  if (mismatches.length > 0) {
+    return c.json(
+      createErrorResponse(ERROR_CODE_MODALITY_MISMATCH, { invalidModels: mismatches }),
+      400
+    );
+  }
+  if (unsupportedResolutions.length > 0) {
+    return c.json(
+      createErrorResponse(ERROR_CODE_UNSUPPORTED_RESOLUTION, {
+        invalidModels: unsupportedResolutions,
+        resolution: videoConfig.resolution,
+      }),
+      400
+    );
+  }
+
+  const videoBilling = await resolveAndReserveVideoBilling(c, {
+    billingResult,
+    userId: billingUserId,
+    models,
+    perSecondByModel,
+    durationSeconds: videoConfig.durationSeconds,
+    resolution: videoConfig.resolution,
+    clientFundingSource,
+    ...(memberContext !== undefined && { memberContext }),
+    conversationId,
+  });
+  if (!videoBilling.success) {
+    return videoBilling.response;
+  }
+
+  const releaseVideoReservation = resolveReleaseReservation(
+    redis,
+    videoBilling.groupBudget,
+    user,
+    videoBilling.worstCaseCents
+  );
+
+  return executeVideoPipeline({
+    c,
+    conversationId,
+    models,
+    userMessage,
+    prompt: userMessage.content,
+    videoBilling,
+    ...(memberContext !== undefined && { memberContext }),
+    releaseReservation: releaseVideoReservation,
+    senderId: callerId,
+    ...(forkId !== undefined && { forkId }),
+    parentMessageId,
+    aspectRatio: videoConfig.aspectRatio,
   });
 }
 
@@ -461,6 +613,7 @@ async function resolveGuestBillingContext(
     models: string[];
     conversationId: string;
     apiKey: string;
+    publicModelsUrl: string;
   }
 ): Promise<BillingContext> {
   const billingResult = await buildGuestBillingInput(db, redis, {
@@ -469,6 +622,7 @@ async function resolveGuestBillingContext(
     models: params.models,
     conversationId: params.conversationId,
     apiKey: params.apiKey,
+    publicModelsUrl: params.publicModelsUrl,
   });
   return {
     memberContext: { memberId: params.member.id, ownerId: params.ownerId },
@@ -489,6 +643,7 @@ async function resolveUserBillingContext(
     conversationId: string;
     fundingSource: FundingSource;
     apiKey: string;
+    publicModelsUrl: string;
   }
 ): Promise<BillingContext> {
   const isOwner = params.callerId === params.ownerId;
@@ -501,6 +656,7 @@ async function resolveUserBillingContext(
     ...(memberContext !== undefined && { memberContext }),
     conversationId: params.conversationId,
     apiKey: params.apiKey,
+    publicModelsUrl: params.publicModelsUrl,
   });
   return {
     memberContext,
@@ -770,10 +926,12 @@ async function validateRegenerationRequest(
   }
 
   const apiKey = requireApiKey(c);
+  const publicModelsUrl = requirePublicModelsUrl(c);
   const billingInput = await buildBillingInput(db, redis, {
     userId,
     models: [model],
     apiKey,
+    publicModelsUrl,
     ...(memberContext !== undefined && { memberContext }),
     conversationId,
   });
@@ -832,6 +990,7 @@ export const chatRoute = new Hono<AppEnv>()
         customInstructions,
         forkId,
         imageConfig,
+        videoConfig,
       } = c.req.valid('json');
 
       // Validate last message
@@ -839,13 +998,14 @@ export const chatRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_LAST_MESSAGE_NOT_USER), 400);
       }
 
-      // Block link guests from image generation
-      if (modality === 'image' && linkGuest) {
+      // Block link guests from media generation (image/video)
+      if ((modality === 'image' || modality === 'video') && linkGuest) {
         return c.json(createErrorResponse(ERROR_CODE_MEDIA_TRIAL_BLOCKED), 403);
       }
 
       // --- Resolve billing (focused branch) ---
       const apiKey = requireApiKey(c);
+      const publicModelsUrl = requirePublicModelsUrl(c);
       const billingContext = linkGuest
         ? await resolveGuestBillingContext(db, redis, {
             member,
@@ -853,6 +1013,7 @@ export const chatRoute = new Hono<AppEnv>()
             models,
             conversationId,
             apiKey,
+            publicModelsUrl,
           })
         : await resolveUserBillingContext(db, redis, {
             callerId,
@@ -862,6 +1023,7 @@ export const chatRoute = new Hono<AppEnv>()
             conversationId,
             fundingSource,
             apiKey,
+            publicModelsUrl,
           });
       const user = c.get('user');
 
@@ -880,6 +1042,23 @@ export const chatRoute = new Hono<AppEnv>()
           parentMessageId,
           forkId,
           imageConfig,
+        });
+      }
+
+      if (modality === 'video') {
+        // videoConfig is guaranteed present by the schema refine when modality === 'video'.
+        if (!videoConfig) throw new Error('invariant: videoConfig required for video modality');
+        return handleVideoStreamRequest({
+          c,
+          conversationId,
+          callerId,
+          user,
+          billingContext,
+          models,
+          userMessage,
+          parentMessageId,
+          forkId,
+          videoConfig,
         });
       }
 

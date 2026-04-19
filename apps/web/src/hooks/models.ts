@@ -1,8 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import type { Model, ModelsListResponse } from '@hushbox/shared';
+import type { Model, ModelsListResponse, Modality } from '@hushbox/shared';
 import {
-  STRONGEST_MODEL_ID,
-  VALUE_MODEL_ID,
+  STRONGEST_TEXT_MODEL_ID,
+  VALUE_TEXT_MODEL_ID,
+  STRONGEST_IMAGE_MODEL_ID,
+  VALUE_IMAGE_MODEL_ID,
+  STRONGEST_VIDEO_MODEL_ID,
+  VALUE_VIDEO_MODEL_ID,
   SMART_MODEL_ID,
   getModelCostPer1k,
 } from '@hushbox/shared';
@@ -42,13 +46,19 @@ export function useModels(): ReturnType<typeof useQuery<ModelsData, Error>> {
   return useQuery(modelsQueryOptions());
 }
 
-function findStrongestAndValueBasicModels(
+/**
+ * Fallback for non-premium text users: derive strongest (most expensive basic)
+ * and value (cheapest basic) from the actual models list.
+ */
+function findStrongestAndValueBasicTextModels(
   models: Model[],
   premiumIds: Set<string>
 ): { strongestId: string; valueId: string } {
-  const basicModels = models.filter((m) => !premiumIds.has(m.id) && m.id !== SMART_MODEL_ID);
+  const basicModels = models.filter(
+    (m) => m.modality === 'text' && !premiumIds.has(m.id) && m.id !== SMART_MODEL_ID
+  );
   if (basicModels.length === 0) {
-    const fallback = models[0]?.id ?? '';
+    const fallback = models.find((m) => m.modality === 'text')?.id ?? '';
     return { strongestId: fallback, valueId: fallback };
   }
 
@@ -64,13 +74,28 @@ function findStrongestAndValueBasicModels(
   };
 }
 
+const PREMIUM_PINS: Record<Modality, { strongestId: string; valueId: string }> = {
+  text: { strongestId: STRONGEST_TEXT_MODEL_ID, valueId: VALUE_TEXT_MODEL_ID },
+  image: { strongestId: STRONGEST_IMAGE_MODEL_ID, valueId: VALUE_IMAGE_MODEL_ID },
+  video: { strongestId: STRONGEST_VIDEO_MODEL_ID, valueId: VALUE_VIDEO_MODEL_ID },
+  audio: { strongestId: '', valueId: '' },
+};
+
+/**
+ * Per-modality strongest/value quick-select pins.
+ *
+ * Premium (paid) users get the hard-coded per-modality pins. Non-premium users
+ * can't access media modalities at all (all media models are classified as
+ * premium in `processModels`), so only the text fallback matters — it derives
+ * strongest/value from the user's accessible basic-tier text models.
+ */
 export function getAccessibleModelIds(
   models: Model[],
   premiumIds: Set<string>,
-  canAccessPremium: boolean
+  canAccessPremium: boolean,
+  modality: Modality = 'text'
 ): { strongestId: string; valueId: string } {
-  if (canAccessPremium) {
-    return { strongestId: STRONGEST_MODEL_ID, valueId: VALUE_MODEL_ID };
-  }
-  return findStrongestAndValueBasicModels(models, premiumIds);
+  if (canAccessPremium) return PREMIUM_PINS[modality];
+  if (modality === 'text') return findStrongestAndValueBasicTextModels(models, premiumIds);
+  return { strongestId: '', valueId: '' };
 }

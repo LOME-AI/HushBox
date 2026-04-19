@@ -153,8 +153,12 @@ const ERROR_MESSAGES = {
   EMPTY_MEDIA_RESULT:
     "The AI didn't produce any output for your request. Try rephrasing your prompt.",
   MEDIA_TRIAL_BLOCKED:
-    'Image generation is only available for signed-in users. Create an account to unlock.',
+    'Media generation is only available for signed-in users. Create an account to unlock.',
   MODALITY_MISMATCH: "One or more selected models don't match the requested content type.",
+  MISSING_MODALITY_CONFIG:
+    'The selected content type needs configuration (aspect ratio, duration, or resolution).',
+  UNSUPPORTED_RESOLUTION:
+    "One or more selected video models don't support the requested resolution. Pick a different resolution.",
 } as const satisfies Record<string, string>;
 
 /** Known error code — union of all keys in the error message map. */

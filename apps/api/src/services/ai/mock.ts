@@ -231,7 +231,7 @@ const MOCK_MODELS: ModelInfo[] = [
     provider: 'Google',
     modality: 'video',
     description: 'Video generation with audio',
-    pricing: { kind: 'video', perSecond: 0.1 },
+    pricing: { kind: 'video', perSecondByResolution: { '720p': 0.1, '1080p': 0.15 } },
     capabilities: ['aspect-ratio', 'duration'],
     isZdr: true,
   },

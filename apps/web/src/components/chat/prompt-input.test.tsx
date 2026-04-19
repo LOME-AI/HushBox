@@ -1165,23 +1165,23 @@ describe('PromptInput', () => {
     });
   });
 
-  describe('modality toggle', () => {
-    it('does not render the modality toggle when isAuthenticated is undefined', () => {
+  describe('modality icons', () => {
+    it('does not render any modality icons when isAuthenticated is undefined', () => {
       renderWithProviders(
         <PromptInput
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
           activeModality="text"
-          onToggleModality={vi.fn()}
+          onSelectModality={vi.fn()}
         />
       );
       expect(
-        screen.queryByRole('button', { name: /switch to (image generation|text)/i })
+        screen.queryByRole('button', { name: /switch to (image|video|audio|text)/i })
       ).not.toBeInTheDocument();
     });
 
-    it('does not render the modality toggle for unauthenticated users', () => {
+    it('does not render modality icons for unauthenticated users', () => {
       renderWithProviders(
         <PromptInput
           value="Hello"
@@ -1189,15 +1189,15 @@ describe('PromptInput', () => {
           onSubmit={mockOnSubmit}
           isAuthenticated={false}
           activeModality="text"
-          onToggleModality={vi.fn()}
+          onSelectModality={vi.fn()}
         />
       );
       expect(
-        screen.queryByRole('button', { name: /switch to (image generation|text)/i })
+        screen.queryByRole('button', { name: /switch to (image|video|audio|text)/i })
       ).not.toBeInTheDocument();
     });
 
-    it('renders the image-generation toggle for authenticated users in text mode', () => {
+    it('renders image and video icons for authenticated users in text mode', () => {
       renderWithProviders(
         <PromptInput
           value="Hello"
@@ -1205,15 +1205,16 @@ describe('PromptInput', () => {
           onSubmit={mockOnSubmit}
           isAuthenticated
           activeModality="text"
-          onToggleModality={vi.fn()}
+          onSelectModality={vi.fn()}
         />
       );
-      expect(
-        screen.getByRole('button', { name: /switch to image generation/i })
-      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /switch to image/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /switch to video/i })).toBeInTheDocument();
+      // Active modality (text) has no icon
+      expect(screen.queryByRole('button', { name: /switch to text/i })).not.toBeInTheDocument();
     });
 
-    it('renders the text-switch toggle for authenticated users in image mode', () => {
+    it('renders text and video icons for authenticated users in image mode', () => {
       renderWithProviders(
         <PromptInput
           value="Hello"
@@ -1221,16 +1222,33 @@ describe('PromptInput', () => {
           onSubmit={mockOnSubmit}
           isAuthenticated
           activeModality="image"
-          onToggleModality={vi.fn()}
+          onSelectModality={vi.fn()}
         />
       );
       expect(screen.getByRole('button', { name: /switch to text/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /switch to video/i })).toBeInTheDocument();
+      // Active modality (image) has no icon
+      expect(screen.queryByRole('button', { name: /switch to image/i })).not.toBeInTheDocument();
     });
 
-    it('invokes onToggleModality when clicked', async () => {
-      vi.useRealTimers();
-      const user = userEvent.setup();
-      const handleToggle = vi.fn();
+    it('renders text and image icons for authenticated users in video mode', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="video"
+          onSelectModality={vi.fn()}
+        />
+      );
+      expect(screen.getByRole('button', { name: /switch to text/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /switch to image/i })).toBeInTheDocument();
+      // Active modality (video) has no icon
+      expect(screen.queryByRole('button', { name: /switch to video/i })).not.toBeInTheDocument();
+    });
+
+    it('does not render an audio icon while the feature flag is off', () => {
       renderWithProviders(
         <PromptInput
           value="Hello"
@@ -1238,11 +1256,28 @@ describe('PromptInput', () => {
           onSubmit={mockOnSubmit}
           isAuthenticated
           activeModality="text"
-          onToggleModality={handleToggle}
+          onSelectModality={vi.fn()}
         />
       );
-      await user.click(screen.getByRole('button', { name: /switch to image generation/i }));
-      expect(handleToggle).toHaveBeenCalled();
+      expect(screen.queryByRole('button', { name: /switch to audio/i })).not.toBeInTheDocument();
+    });
+
+    it('invokes onSelectModality with the target modality when an icon is clicked', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const handleSelect = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="text"
+          onSelectModality={handleSelect}
+        />
+      );
+      await user.click(screen.getByRole('button', { name: /switch to video/i }));
+      expect(handleSelect).toHaveBeenCalledWith('video');
     });
   });
 });

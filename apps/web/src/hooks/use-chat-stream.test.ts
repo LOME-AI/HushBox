@@ -137,6 +137,78 @@ describe('useChatStream', () => {
       );
     });
 
+    it('includes videoConfig in request body when modality is video', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"google/veo-3.1","assistantMessageId":"msg-123"}]}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-123',
+          modality: 'video',
+          models: ['google/veo-3.1'],
+          userMessage: { id: 'msg-1', content: 'A cat surfing' },
+          messagesForInference: [{ role: 'user', content: 'A cat surfing' }],
+          fundingSource: 'personal_balance',
+          videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+        });
+      });
+
+      const callArgs = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(callArgs[1].body as string) as Record<string, unknown>;
+      expect(body['modality']).toBe('video');
+      expect(body['videoConfig']).toEqual({
+        aspectRatio: '16:9',
+        durationSeconds: 4,
+        resolution: '720p',
+      });
+    });
+
+    it('includes imageConfig in request body when modality is image', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"google/imagen-4","assistantMessageId":"msg-123"}]}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-123',
+          modality: 'image',
+          models: ['google/imagen-4'],
+          userMessage: { id: 'msg-1', content: 'A sunset' },
+          messagesForInference: [{ role: 'user', content: 'A sunset' }],
+          fundingSource: 'personal_balance',
+          imageConfig: { aspectRatio: '16:9' },
+        });
+      });
+
+      const callArgs = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(callArgs[1].body as string) as Record<string, unknown>;
+      expect(body['modality']).toBe('image');
+      expect(body['imageConfig']).toEqual({ aspectRatio: '16:9' });
+    });
+
     it('does not include X-Trial-Token header in authenticated mode', async () => {
       const sseEvents = [
         'event: start',

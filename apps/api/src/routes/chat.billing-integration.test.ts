@@ -493,7 +493,11 @@ function createTestApp(
   };
 
   app.use('*', async (c, next) => {
-    c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+    c.env = {
+      NODE_ENV: 'test',
+      AI_GATEWAY_API_KEY: 'test-key',
+      PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+    } as AppEnv['Bindings'];
     c.set('user', mockUser);
     c.set('session', mockSession);
     c.set('aiClient', createMockAIClient());
@@ -1151,7 +1155,11 @@ describe('billing integration — scenario matrix', () => {
       const app = new Hono<AppEnv>();
 
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+        c.env = {
+          NODE_ENV: 'test',
+          AI_GATEWAY_API_KEY: 'test-key',
+          PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+        } as AppEnv['Bindings'];
         c.set('user', {
           id: TEST_USER_ID,
           email: 'test@example.com',
@@ -1284,7 +1292,11 @@ describe('billing integration — scenario matrix', () => {
       const app = new Hono<AppEnv>();
 
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+        c.env = {
+          NODE_ENV: 'test',
+          AI_GATEWAY_API_KEY: 'test-key',
+          PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+        } as AppEnv['Bindings'];
         c.set('user', {
           id: TEST_USER_ID,
           email: 'test@example.com',

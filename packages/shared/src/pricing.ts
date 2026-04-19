@@ -5,12 +5,15 @@ import {
   EXPENSIVE_MODEL_THRESHOLD_PER_1K,
   CHARS_PER_TOKEN_CONSERVATIVE,
   CHARS_PER_TOKEN_STANDARD,
+  ESTIMATED_IMAGE_BYTES,
+  ESTIMATED_VIDEO_BYTES_PER_SECOND,
 } from './constants.js';
 import type { UserTier } from './tiers.js';
 
 /**
- * Parse a token price string from the AI Gateway model metadata.
- * Returns 0 for negative sentinel values (e.g. "-1" = "variable pricing")
+ * Parse a price string from the AI Gateway model metadata. Works for any
+ * price field — per-token, per-image, or per-second — despite the historical
+ * name. Returns 0 for negative sentinel values (e.g. "-1" = "variable pricing")
  * and for NaN/missing values.
  */
 export function parseTokenPrice(raw: string): number {
@@ -260,4 +263,64 @@ export function calculateMediaGenerationCost(params: CalculateMediaGenerationCos
       return applyFees(pricing.perSecond * durationSeconds) + storage;
     }
   }
+}
+
+/**
+ * Pre-inference worst-case cost for image generation in cents.
+ * Uses ESTIMATED_IMAGE_BYTES as the storage estimate; actual cost is
+ * recomputed post-inference with the real R2 object size.
+ */
+export function computeImageWorstCaseCents(perImage: number, modelCount: number): number {
+  if (modelCount === 0) return 0;
+  const perModel = applyFees(perImage) + mediaStorageCost(ESTIMATED_IMAGE_BYTES);
+  return perModel * modelCount * 100;
+}
+
+export interface EstimateVideoWorstCaseCentsInput {
+  perSecond: number;
+  durationSeconds: number;
+  modelCount: number;
+}
+
+/**
+ * Pre-inference worst-case cost for video generation in cents.
+ * Uses `durationSeconds × ESTIMATED_VIDEO_BYTES_PER_SECOND` as the storage
+ * estimate; actual cost is recomputed post-inference with the real R2 size.
+ */
+export function estimateVideoWorstCaseCents(input: EstimateVideoWorstCaseCentsInput): number {
+  const { perSecond, durationSeconds, modelCount } = input;
+  if (durationSeconds === 0 || modelCount === 0) return 0;
+  const estimatedBytes = durationSeconds * ESTIMATED_VIDEO_BYTES_PER_SECOND;
+  const perModel = applyFees(perSecond * durationSeconds) + mediaStorageCost(estimatedBytes);
+  return perModel * modelCount * 100;
+}
+
+/**
+ * Exact pre-inference cost for image generation in cents, given the actual
+ * per-image price of each selected model. Image pricing is deterministic at
+ * reservation time, so there's no need for a worst-case estimate — we sum
+ * the real prices, apply fees once to the sum, and add per-model storage.
+ */
+export function computeImageExactCents(pricesPerImage: readonly number[]): number {
+  if (pricesPerImage.length === 0) return 0;
+  const sumModelCost = pricesPerImage.reduce((s, p) => s + p, 0);
+  const storage = mediaStorageCost(ESTIMATED_IMAGE_BYTES) * pricesPerImage.length;
+  return (applyFees(sumModelCost) + storage) * 100;
+}
+
+/**
+ * Exact pre-inference cost for video generation in cents, given each selected
+ * model's `perSecond` price at the requested resolution and the user's chosen
+ * duration. Like image, video pricing is deterministic at reservation time,
+ * so this replaces the worst-case formula for multi-model billing.
+ */
+export function computeVideoExactCents(
+  pricesPerSecond: readonly number[],
+  durationSeconds: number
+): number {
+  if (pricesPerSecond.length === 0 || durationSeconds === 0) return 0;
+  const sumModelCost = pricesPerSecond.reduce((s, p) => s + p * durationSeconds, 0);
+  const estimatedBytes = durationSeconds * ESTIMATED_VIDEO_BYTES_PER_SECOND;
+  const storage = mediaStorageCost(estimatedBytes) * pricesPerSecond.length;
+  return (applyFees(sumModelCost) + storage) * 100;
 }

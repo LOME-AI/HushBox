@@ -19,7 +19,7 @@ export type ModelPricing =
   | { kind: 'token'; inputPerToken: number; outputPerToken: number; webSearchPerCall?: number }
   | { kind: 'image'; perImage: number }
   | { kind: 'audio'; perSecond: number }
-  | { kind: 'video'; perSecond: number };
+  | { kind: 'video'; perSecondByResolution: Record<string, number> };
 
 export interface ModelInfo {
   id: string;

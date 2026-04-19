@@ -4,8 +4,12 @@ import {
   DEV_PASSWORD,
   DEV_EMAIL_DOMAIN,
   TEST_EMAIL_DOMAIN,
-  STRONGEST_MODEL_ID,
-  VALUE_MODEL_ID,
+  STRONGEST_TEXT_MODEL_ID,
+  VALUE_TEXT_MODEL_ID,
+  STRONGEST_IMAGE_MODEL_ID,
+  VALUE_IMAGE_MODEL_ID,
+  STRONGEST_VIDEO_MODEL_ID,
+  VALUE_VIDEO_MODEL_ID,
   HUSHBOX_FEE_RATE,
   CREDIT_CARD_FEE_RATE,
   PROVIDER_FEE_RATE,
@@ -27,6 +31,12 @@ import {
   MEDIA_MONTHLY_COST_PER_GB,
   MEDIA_STORAGE_COST_PER_BYTE,
   ESTIMATED_IMAGE_BYTES,
+  MIN_VIDEO_DURATION_SECONDS,
+  MAX_VIDEO_DURATION_SECONDS,
+  ESTIMATED_VIDEO_BYTES_PER_SECOND,
+  VIDEO_ASPECT_RATIOS,
+  VIDEO_RESOLUTIONS,
+  IMAGE_ASPECT_RATIOS,
 } from './constants.js';
 
 describe('MESSAGE_ROLES', () => {
@@ -62,27 +72,41 @@ describe('TEST_EMAIL_DOMAIN', () => {
   });
 });
 
-describe('STRONGEST_MODEL_ID', () => {
-  it('is anthropic/claude-opus-4.6', () => {
-    expect(STRONGEST_MODEL_ID).toBe('anthropic/claude-opus-4.6');
+describe('Per-modality quick-select pins', () => {
+  it('STRONGEST_TEXT_MODEL_ID is a member of ZDR_TEXT_MODELS', async () => {
+    const { ZDR_TEXT_MODELS } = await import('./models/zdr.js');
+    expect(ZDR_TEXT_MODELS.has(STRONGEST_TEXT_MODEL_ID)).toBe(true);
   });
 
-  it('follows provider/model format', () => {
-    expect(STRONGEST_MODEL_ID).toMatch(/^[a-z-]+\/[a-z0-9.-]+$/);
-  });
-});
-
-describe('VALUE_MODEL_ID', () => {
-  it('is deepseek/deepseek-r1', () => {
-    expect(VALUE_MODEL_ID).toBe('deepseek/deepseek-r1');
+  it('VALUE_TEXT_MODEL_ID is a member of ZDR_TEXT_MODELS', async () => {
+    const { ZDR_TEXT_MODELS } = await import('./models/zdr.js');
+    expect(ZDR_TEXT_MODELS.has(VALUE_TEXT_MODEL_ID)).toBe(true);
   });
 
-  it('follows provider/model format', () => {
-    expect(VALUE_MODEL_ID).toMatch(/^[a-z-]+\/[a-z0-9.-]+$/);
+  it('STRONGEST_IMAGE_MODEL_ID is a member of ZDR_IMAGE_MODELS', async () => {
+    const { ZDR_IMAGE_MODELS } = await import('./models/zdr.js');
+    expect(ZDR_IMAGE_MODELS.has(STRONGEST_IMAGE_MODEL_ID)).toBe(true);
   });
 
-  it('is different from STRONGEST_MODEL_ID', () => {
-    expect(VALUE_MODEL_ID).not.toBe(STRONGEST_MODEL_ID);
+  it('VALUE_IMAGE_MODEL_ID is a member of ZDR_IMAGE_MODELS', async () => {
+    const { ZDR_IMAGE_MODELS } = await import('./models/zdr.js');
+    expect(ZDR_IMAGE_MODELS.has(VALUE_IMAGE_MODEL_ID)).toBe(true);
+  });
+
+  it('STRONGEST_VIDEO_MODEL_ID is a member of ZDR_VIDEO_MODELS', async () => {
+    const { ZDR_VIDEO_MODELS } = await import('./models/zdr.js');
+    expect(ZDR_VIDEO_MODELS.has(STRONGEST_VIDEO_MODEL_ID)).toBe(true);
+  });
+
+  it('VALUE_VIDEO_MODEL_ID is a member of ZDR_VIDEO_MODELS', async () => {
+    const { ZDR_VIDEO_MODELS } = await import('./models/zdr.js');
+    expect(ZDR_VIDEO_MODELS.has(VALUE_VIDEO_MODEL_ID)).toBe(true);
+  });
+
+  it('strongest and value differ per modality', () => {
+    expect(STRONGEST_TEXT_MODEL_ID).not.toBe(VALUE_TEXT_MODEL_ID);
+    expect(STRONGEST_IMAGE_MODEL_ID).not.toBe(VALUE_IMAGE_MODEL_ID);
+    expect(STRONGEST_VIDEO_MODEL_ID).not.toBe(VALUE_VIDEO_MODEL_ID);
   });
 });
 
@@ -311,5 +335,80 @@ describe('MEDIA_DOWNLOAD_URL_TTL_SECONDS', () => {
   it('is a positive integer', () => {
     expect(Number.isInteger(MEDIA_DOWNLOAD_URL_TTL_SECONDS)).toBe(true);
     expect(MEDIA_DOWNLOAD_URL_TTL_SECONDS).toBeGreaterThan(0);
+  });
+});
+
+describe('Video Duration Constants', () => {
+  it('MIN_VIDEO_DURATION_SECONDS is 1', () => {
+    expect(MIN_VIDEO_DURATION_SECONDS).toBe(1);
+  });
+
+  it('MAX_VIDEO_DURATION_SECONDS is 8', () => {
+    expect(MAX_VIDEO_DURATION_SECONDS).toBe(8);
+  });
+
+  it('MIN is less than MAX', () => {
+    expect(MIN_VIDEO_DURATION_SECONDS).toBeLessThan(MAX_VIDEO_DURATION_SECONDS);
+  });
+
+  it('both are positive integers', () => {
+    expect(Number.isInteger(MIN_VIDEO_DURATION_SECONDS)).toBe(true);
+    expect(Number.isInteger(MAX_VIDEO_DURATION_SECONDS)).toBe(true);
+    expect(MIN_VIDEO_DURATION_SECONDS).toBeGreaterThan(0);
+  });
+});
+
+describe('ESTIMATED_VIDEO_BYTES_PER_SECOND', () => {
+  it('is 5_000_000 (~5 MB/s worst-case 1080p)', () => {
+    expect(ESTIMATED_VIDEO_BYTES_PER_SECOND).toBe(5_000_000);
+  });
+
+  it('is a positive integer', () => {
+    expect(Number.isInteger(ESTIMATED_VIDEO_BYTES_PER_SECOND)).toBe(true);
+    expect(ESTIMATED_VIDEO_BYTES_PER_SECOND).toBeGreaterThan(0);
+  });
+
+  it('produces worst-case 40MB for 8-second clip', () => {
+    expect(ESTIMATED_VIDEO_BYTES_PER_SECOND * MAX_VIDEO_DURATION_SECONDS).toBe(40_000_000);
+  });
+});
+
+describe('VIDEO_ASPECT_RATIOS', () => {
+  it('includes the four supported aspects', () => {
+    expect(VIDEO_ASPECT_RATIOS).toEqual(['16:9', '9:16', '1:1', '4:3']);
+  });
+
+  it('is a non-empty readonly tuple', () => {
+    expect(VIDEO_ASPECT_RATIOS.length).toBeGreaterThan(0);
+  });
+
+  it('every entry matches the W:H pattern', () => {
+    for (const ratio of VIDEO_ASPECT_RATIOS) {
+      expect(ratio).toMatch(/^\d+:\d+$/);
+    }
+  });
+});
+
+describe('VIDEO_RESOLUTIONS', () => {
+  it('includes 720p and 1080p', () => {
+    expect(VIDEO_RESOLUTIONS).toEqual(['720p', '1080p']);
+  });
+
+  it('every entry ends with p', () => {
+    for (const res of VIDEO_RESOLUTIONS) {
+      expect(res).toMatch(/^\d+p$/);
+    }
+  });
+});
+
+describe('IMAGE_ASPECT_RATIOS', () => {
+  it('includes the five supported image aspects', () => {
+    expect(IMAGE_ASPECT_RATIOS).toEqual(['1:1', '3:2', '16:9', '9:16', '4:3']);
+  });
+
+  it('every entry matches the W:H pattern', () => {
+    for (const ratio of IMAGE_ASPECT_RATIOS) {
+      expect(ratio).toMatch(/^\d+:\d+$/);
+    }
   });
 });

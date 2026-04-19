@@ -30,6 +30,7 @@ describe('isPremiumModel', () => {
     pricing: { prompt: '0.001', completion: '0.002' },
     supported_parameters: [],
     created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60, // 400 days ago
+    modality: 'text' as const,
     architecture: { input_modalities: ['text'], output_modalities: ['text'] },
     ...overrides,
   });
@@ -87,6 +88,7 @@ describe('exceedsTrialBudget', () => {
     pricing: { prompt: '0.000001', completion: '0.000001' },
     supported_parameters: [],
     created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60,
+    modality: 'text' as const,
     architecture: { input_modalities: ['text'], output_modalities: ['text'] },
     ...overrides,
   });

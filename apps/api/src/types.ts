@@ -38,6 +38,7 @@ export interface Bindings {
   E2E?: string;
   RESEND_API_KEY?: string;
   AI_GATEWAY_API_KEY?: string;
+  PUBLIC_MODELS_URL?: string;
   HELCIM_API_TOKEN?: string;
   HELCIM_WEBHOOK_VERIFIER?: string;
   FCM_PROJECT_ID?: string;

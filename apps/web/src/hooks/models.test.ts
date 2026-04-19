@@ -3,7 +3,15 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement } from 'react';
 import type { Model } from '@hushbox/shared';
-import { STRONGEST_MODEL_ID, VALUE_MODEL_ID, SMART_MODEL_ID } from '@hushbox/shared';
+import {
+  STRONGEST_TEXT_MODEL_ID,
+  VALUE_TEXT_MODEL_ID,
+  STRONGEST_IMAGE_MODEL_ID,
+  VALUE_IMAGE_MODEL_ID,
+  STRONGEST_VIDEO_MODEL_ID,
+  VALUE_VIDEO_MODEL_ID,
+  SMART_MODEL_ID,
+} from '@hushbox/shared';
 import { useModels, getAccessibleModelIds, modelKeys, modelsQueryOptions } from './models.js';
 
 // Mock the api-client module
@@ -34,6 +42,7 @@ const MOCK_MODELS: Model[] = [
     pricePerInputToken: 0.000_01,
     pricePerOutputToken: 0.000_03,
     pricePerImage: 0,
+    pricePerSecondByResolution: {},
     capabilities: ['internet-search'],
     supportedParameters: ['temperature', 'tools', 'tool_choice', 'web_search_options'],
     created: Math.floor(Date.now() / 1000),
@@ -48,6 +57,7 @@ const MOCK_MODELS: Model[] = [
     pricePerInputToken: 0.000_003,
     pricePerOutputToken: 0.000_015,
     pricePerImage: 0,
+    pricePerSecondByResolution: {},
     capabilities: [],
     supportedParameters: ['temperature', 'max_tokens'],
     created: Math.floor(Date.now() / 1000),
@@ -178,6 +188,7 @@ describe('getAccessibleModelIds', () => {
       pricePerInputToken: 0.000_05, // Highest price
       pricePerOutputToken: 0.000_15,
       pricePerImage: 0,
+      pricePerSecondByResolution: {},
       capabilities: [],
       supportedParameters: [],
       created: Math.floor(Date.now() / 1000),
@@ -192,6 +203,7 @@ describe('getAccessibleModelIds', () => {
       pricePerInputToken: 0.000_001, // Lowest price
       pricePerOutputToken: 0.000_003,
       pricePerImage: 0,
+      pricePerSecondByResolution: {},
       capabilities: [],
       supportedParameters: [],
       created: Math.floor(Date.now() / 1000),
@@ -206,6 +218,7 @@ describe('getAccessibleModelIds', () => {
       pricePerInputToken: 0.000_01, // Mid price
       pricePerOutputToken: 0.000_03,
       pricePerImage: 0,
+      pricePerSecondByResolution: {},
       capabilities: [],
       supportedParameters: [],
       created: Math.floor(Date.now() / 1000),
@@ -220,6 +233,7 @@ describe('getAccessibleModelIds', () => {
       pricePerInputToken: 0.0001,
       pricePerOutputToken: 0.0003,
       pricePerImage: 0,
+      pricePerSecondByResolution: {},
       capabilities: [],
       supportedParameters: [],
       created: Math.floor(Date.now() / 1000),
@@ -228,11 +242,32 @@ describe('getAccessibleModelIds', () => {
 
   const premiumIds = new Set(['premium-model']);
 
-  it('returns hardcoded premium IDs when canAccessPremium is true', () => {
+  it('returns hardcoded text pins when canAccessPremium is true and modality defaults to text', () => {
     const result = getAccessibleModelIds(testModels, premiumIds, true);
 
-    expect(result.strongestId).toBe(STRONGEST_MODEL_ID);
-    expect(result.valueId).toBe(VALUE_MODEL_ID);
+    expect(result.strongestId).toBe(STRONGEST_TEXT_MODEL_ID);
+    expect(result.valueId).toBe(VALUE_TEXT_MODEL_ID);
+  });
+
+  it('returns hardcoded image pins when canAccessPremium and modality is image', () => {
+    const result = getAccessibleModelIds(testModels, premiumIds, true, 'image');
+    expect(result.strongestId).toBe(STRONGEST_IMAGE_MODEL_ID);
+    expect(result.valueId).toBe(VALUE_IMAGE_MODEL_ID);
+  });
+
+  it('returns hardcoded video pins when canAccessPremium and modality is video', () => {
+    const result = getAccessibleModelIds(testModels, premiumIds, true, 'video');
+    expect(result.strongestId).toBe(STRONGEST_VIDEO_MODEL_ID);
+    expect(result.valueId).toBe(VALUE_VIDEO_MODEL_ID);
+  });
+
+  it('returns empty pins for non-premium users on media modalities', () => {
+    const resultImg = getAccessibleModelIds(testModels, premiumIds, false, 'image');
+    const resultVid = getAccessibleModelIds(testModels, premiumIds, false, 'video');
+    expect(resultImg.strongestId).toBe('');
+    expect(resultImg.valueId).toBe('');
+    expect(resultVid.strongestId).toBe('');
+    expect(resultVid.valueId).toBe('');
   });
 
   it('returns highest-price basic model as strongest when canAccessPremium is false', () => {
@@ -286,6 +321,7 @@ describe('getAccessibleModelIds', () => {
         pricePerInputToken: 0.000_000_039,
         pricePerOutputToken: 0.000_000_19,
         pricePerImage: 0,
+        pricePerSecondByResolution: {},
         capabilities: [],
         supportedParameters: [],
         isSmartModel: true,
@@ -313,6 +349,7 @@ describe('getAccessibleModelIds', () => {
         pricePerInputToken: 0.0001, // High input
         pricePerOutputToken: 0.000_01, // Low output
         pricePerImage: 0,
+        pricePerSecondByResolution: {},
         capabilities: [],
         supportedParameters: [],
         created: Math.floor(Date.now() / 1000),
@@ -327,6 +364,7 @@ describe('getAccessibleModelIds', () => {
         pricePerInputToken: 0.000_01, // Low input
         pricePerOutputToken: 0.0001, // High output
         pricePerImage: 0,
+        pricePerSecondByResolution: {},
         capabilities: [],
         supportedParameters: [],
         created: Math.floor(Date.now() / 1000),

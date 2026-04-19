@@ -33,6 +33,7 @@ vi.mock('@ai-sdk/gateway', () => {
 import { chatRoute } from './chat.js';
 import type { AppEnv } from '../types.js';
 import { createMockAIClient } from '../services/ai/mock.js';
+import type { InferenceEvent } from '../services/ai/types.js';
 import { createMockMediaStorage } from '../services/storage/index.js';
 import {
   ERROR_CODE_BALANCE_RESERVED,
@@ -428,7 +429,11 @@ function createTestApp(
   // Mock dependencies middleware
   app.use('*', async (c, next) => {
     // Set env bindings for tests
-    c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+    c.env = {
+      NODE_ENV: 'test',
+      AI_GATEWAY_API_KEY: 'test-key',
+      PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+    } as AppEnv['Bindings'];
     c.set('user', mockUser);
     c.set('session', mockSession);
     c.set('aiClient', aiClientOverride ?? createMockAIClient());
@@ -451,7 +456,11 @@ function createUnauthenticatedTestApp() {
   // Mock dependencies middleware without user
   app.use('*', async (c, next) => {
     // Set env bindings for tests
-    c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+    c.env = {
+      NODE_ENV: 'test',
+      AI_GATEWAY_API_KEY: 'test-key',
+      PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+    } as AppEnv['Bindings'];
     c.set('user', null);
     c.set('session', null);
     c.set('aiClient', createMockAIClient());
@@ -624,7 +633,11 @@ describe('chat routes', () => {
       });
 
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+        c.env = {
+          NODE_ENV: 'test',
+          AI_GATEWAY_API_KEY: 'test-key',
+          PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+        } as AppEnv['Bindings'];
         c.set('user', {
           id: TEST_USER_ID,
           email: 'test@example.com',
@@ -897,7 +910,11 @@ describe('chat routes', () => {
         });
 
         app.use('*', async (c, next) => {
-          c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+          c.env = {
+            NODE_ENV: 'test',
+            AI_GATEWAY_API_KEY: 'test-key',
+            PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+          } as AppEnv['Bindings'];
           c.set('user', {
             id: TEST_USER_ID,
             email: 'test@example.com',
@@ -971,7 +988,11 @@ describe('chat routes', () => {
         });
 
         app.use('*', async (c, next) => {
-          c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+          c.env = {
+            NODE_ENV: 'test',
+            AI_GATEWAY_API_KEY: 'test-key',
+            PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+          } as AppEnv['Bindings'];
           c.set('user', {
             id: TEST_USER_ID,
             email: 'test@example.com',
@@ -1053,7 +1074,11 @@ describe('chat routes', () => {
         });
 
         app.use('*', async (c, next) => {
-          c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+          c.env = {
+            NODE_ENV: 'test',
+            AI_GATEWAY_API_KEY: 'test-key',
+            PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+          } as AppEnv['Bindings'];
           c.set('user', {
             id: TEST_USER_ID,
             email: 'test@example.com',
@@ -1319,7 +1344,11 @@ describe('chat routes', () => {
         });
 
         app.use('*', async (c, next) => {
-          c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+          c.env = {
+            NODE_ENV: 'test',
+            AI_GATEWAY_API_KEY: 'test-key',
+            PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+          } as AppEnv['Bindings'];
           c.set('user', {
             id: TEST_USER_ID,
             email: 'test@example.com',
@@ -1387,7 +1416,11 @@ describe('chat routes', () => {
         });
 
         app.use('*', async (c, next) => {
-          c.env = { NODE_ENV: 'test', AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'];
+          c.env = {
+            NODE_ENV: 'test',
+            AI_GATEWAY_API_KEY: 'test-key',
+            PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+          } as AppEnv['Bindings'];
           c.set('user', {
             id: TEST_USER_ID,
             email: 'test@example.com',
@@ -1483,6 +1516,7 @@ describe('chat routes', () => {
           c.env = {
             NODE_ENV: 'test',
             AI_GATEWAY_API_KEY: 'test-key',
+            PUBLIC_MODELS_URL: 'https://test.example/v1/models',
             CONVERSATION_ROOM: mockNamespace,
           } as unknown as AppEnv['Bindings'];
           c.set('user', {
@@ -1691,6 +1725,7 @@ describe('chat routes', () => {
           c.env = {
             NODE_ENV: 'test',
             AI_GATEWAY_API_KEY: 'test-key',
+            PUBLIC_MODELS_URL: 'https://test.example/v1/models',
             CONVERSATION_ROOM: mockNamespace,
           } as unknown as AppEnv['Bindings'];
           c.set('user', {
@@ -2610,6 +2645,75 @@ describe('chat routes', () => {
         expect(text).toContain('event: token');
       });
 
+      it('bills each image model at its own price (not the max) in a multi-model request', async () => {
+        vi.useRealTimers();
+        const IMAGEN_FAST = 'google/imagen-4-fast';
+        const IMAGEN_ULTRA = 'google/imagen-4-ultra';
+        const baseClient = createMockAIClient();
+        const mixedPriceClient: AppEnv['Variables']['aiClient'] = {
+          ...baseClient,
+          listModels: async () => {
+            const models = await baseClient.listModels();
+            // Inject two image models at different prices. The base mock has a
+            // single image model; we synthesize two so the per-model billing path
+            // is exercised without requiring real gateway data.
+            return [
+              ...models.filter((m) => m.modality !== 'image'),
+              {
+                ...models.find((m) => m.modality === 'image')!,
+                id: IMAGEN_FAST,
+                pricing: { kind: 'image' as const, perImage: 0.02 },
+              },
+              {
+                ...models.find((m) => m.modality === 'image')!,
+                id: IMAGEN_ULTRA,
+                pricing: { kind: 'image' as const, perImage: 0.06 },
+              },
+            ];
+          },
+          stream: (request) => {
+            if (request.modality !== 'image') return baseClient.stream(request);
+            // Both synthesized model IDs should use the image generation path —
+            // route the canned image bytes from the underlying image model.
+            return baseClient.stream({ ...request, model: 'google/imagen-4' });
+          },
+        };
+        const app = createTestApp(undefined, undefined, undefined, mixedPriceClient);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'image',
+            models: [IMAGEN_FAST, IMAGEN_ULTRA],
+            imageConfig: { aspectRatio: '1:1' },
+          }),
+        });
+
+        expect(res.status).toBe(200);
+        const text = await res.text();
+        // Extract content item costs from the SSE done event
+        const doneMatch = /event: done\ndata: (.+)/.exec(text);
+        expect(doneMatch).not.toBeNull();
+        const doneData = JSON.parse(doneMatch![1]!) as {
+          models: { modelId: string; contentItems: { cost: string }[] }[];
+        };
+        const fastEntry = doneData.models.find((m) => m.modelId === IMAGEN_FAST);
+        const ultraEntry = doneData.models.find((m) => m.modelId === IMAGEN_ULTRA);
+        expect(fastEntry).toBeDefined();
+        expect(ultraEntry).toBeDefined();
+        const fastCost = Number.parseFloat(fastEntry!.contentItems[0]!.cost);
+        const ultraCost = Number.parseFloat(ultraEntry!.contentItems[0]!.cost);
+        // Model cost with fees: $0.02 × 1.15 = $0.023 vs $0.06 × 1.15 = $0.069.
+        // Storage cost depends on the canned bytes; the ultra cost should still
+        // be strictly greater than the fast cost by the model-price delta.
+        expect(ultraCost).toBeGreaterThan(fastCost);
+        // The delta between ultra and fast must be at least the fee-adjusted
+        // model-price delta: (0.06 - 0.02) × 1.15 = 0.046 — no over-charge to max
+        // would yield equal costs.
+        expect(ultraCost - fastCost).toBeGreaterThan(0.04);
+      });
+
       // NOTE: Link-guest 403 MEDIA_TRIAL_BLOCKED test is not covered here.
       // Simulating a link guest requires extending the mock DB in createTestApp
       // to return a sharedLinks row + conversationMembers row so the real
@@ -2625,6 +2729,269 @@ describe('chat routes', () => {
       // (`modality === 'image' && linkGuest`) once the middleware has set
       // linkGuest — see middleware/require-privilege.test.ts for the
       // middleware-side coverage.
+    });
+
+    describe('video modality', () => {
+      const VIDEO_MODEL_ID = 'google/veo-3.1';
+      const TEXT_MODEL_ID = 'anthropic/claude-sonnet-4.6';
+      const IMAGE_MODEL_ID = 'google/imagen-4';
+      const DEFAULT_VIDEO_CONFIG = {
+        aspectRatio: '16:9',
+        durationSeconds: 4,
+        resolution: '720p',
+      };
+
+      it('rejects video request missing videoConfig with 400', async () => {
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'video',
+            models: [VIDEO_MODEL_ID],
+          }),
+        });
+
+        expect(res.status).toBe(400);
+      });
+
+      it('returns 400 MODEL_NOT_FOUND when selected video model is unknown', async () => {
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'video',
+            models: ['google/non-existent-video-model'],
+            videoConfig: DEFAULT_VIDEO_CONFIG,
+          }),
+        });
+
+        expect(res.status).toBe(400);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('MODEL_NOT_FOUND');
+      });
+
+      it('returns 400 MODALITY_MISMATCH when video modality includes a non-video model', async () => {
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'video',
+            models: [VIDEO_MODEL_ID, TEXT_MODEL_ID],
+            videoConfig: DEFAULT_VIDEO_CONFIG,
+          }),
+        });
+
+        expect(res.status).toBe(400);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('MODALITY_MISMATCH');
+        const invalidModels = body.details?.['invalidModels'] as string[] | undefined;
+        expect(invalidModels).toContain(TEXT_MODEL_ID);
+      });
+
+      it('returns 400 UNSUPPORTED_RESOLUTION when the selected model does not price the requested resolution', async () => {
+        vi.useRealTimers();
+        const baseClient = createMockAIClient();
+        // Wrap the mock so veo-3.1 only prices 1080p
+        const clientWithout720p: AppEnv['Variables']['aiClient'] = {
+          ...baseClient,
+          listModels: async () => {
+            const models = await baseClient.listModels();
+            return models.map((m) =>
+              m.id === VIDEO_MODEL_ID && m.pricing.kind === 'video'
+                ? {
+                    ...m,
+                    pricing: { kind: 'video' as const, perSecondByResolution: { '1080p': 0.15 } },
+                  }
+                : m
+            );
+          },
+        };
+        const app = createTestApp(undefined, undefined, undefined, clientWithout720p);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'video',
+            models: [VIDEO_MODEL_ID],
+            videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+          }),
+        });
+
+        expect(res.status).toBe(400);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('UNSUPPORTED_RESOLUTION');
+        expect(body.details?.['resolution']).toBe('720p');
+      });
+
+      it('returns 400 MODALITY_MISMATCH when video modality includes an image model', async () => {
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'video',
+            models: [VIDEO_MODEL_ID, IMAGE_MODEL_ID],
+            videoConfig: DEFAULT_VIDEO_CONFIG,
+          }),
+        });
+
+        expect(res.status).toBe(400);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('MODALITY_MISMATCH');
+      });
+
+      it('happy path: returns SSE stream with video content items', async () => {
+        vi.useRealTimers();
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'video',
+            models: [VIDEO_MODEL_ID],
+            videoConfig: DEFAULT_VIDEO_CONFIG,
+          }),
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toBe('text/event-stream');
+
+        const text = await res.text();
+        expect(text).toContain('event: start');
+        expect(text).toContain('event: model:done');
+        expect(text).toContain('event: done');
+        expect(text).toContain('"contentType":"video"');
+        // Mock video yields durationMs: 2000 — the content item payload should carry it
+        expect(text).toContain('"durationMs":2000');
+      });
+
+      it('bills each video model at its own price (not the max) in a multi-model request', async () => {
+        vi.useRealTimers();
+        const VEO_FAST = 'google/veo-3.1-fast';
+        const VEO_ULTRA = 'google/veo-3.1-ultra';
+        const baseClient = createMockAIClient();
+        const mixedPriceClient: AppEnv['Variables']['aiClient'] = {
+          ...baseClient,
+          listModels: async () => {
+            const models = await baseClient.listModels();
+            return [
+              ...models.filter((m) => m.modality !== 'video'),
+              {
+                ...models.find((m) => m.modality === 'video')!,
+                id: VEO_FAST,
+                pricing: {
+                  kind: 'video' as const,
+                  perSecondByResolution: { '720p': 0.1, '1080p': 0.15 },
+                },
+              },
+              {
+                ...models.find((m) => m.modality === 'video')!,
+                id: VEO_ULTRA,
+                pricing: {
+                  kind: 'video' as const,
+                  perSecondByResolution: { '720p': 0.4, '1080p': 0.6 },
+                },
+              },
+            ];
+          },
+          stream: (request) => {
+            if (request.modality !== 'video') return baseClient.stream(request);
+            return baseClient.stream({ ...request, model: 'google/veo-3.1' });
+          },
+        };
+        const app = createTestApp(undefined, undefined, undefined, mixedPriceClient);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'video',
+            models: [VEO_FAST, VEO_ULTRA],
+            videoConfig: DEFAULT_VIDEO_CONFIG,
+          }),
+        });
+
+        expect(res.status).toBe(200);
+        const text = await res.text();
+        const doneMatch = /event: done\ndata: (.+)/.exec(text);
+        expect(doneMatch).not.toBeNull();
+        const doneData = JSON.parse(doneMatch![1]!) as {
+          models: { modelId: string; contentItems: { cost: string }[] }[];
+        };
+        const fastEntry = doneData.models.find((m) => m.modelId === VEO_FAST);
+        const ultraEntry = doneData.models.find((m) => m.modelId === VEO_ULTRA);
+        expect(fastEntry).toBeDefined();
+        expect(ultraEntry).toBeDefined();
+        const fastCost = Number.parseFloat(fastEntry!.contentItems[0]!.cost);
+        const ultraCost = Number.parseFloat(ultraEntry!.contentItems[0]!.cost);
+        // Fee-adjusted delta: (0.4 - 0.1) × 4s × 1.15 = $1.38 minimum difference
+        expect(ultraCost - fastCost).toBeGreaterThan(1);
+      });
+
+      it('awaits long-running video generation without introducing a pipeline-side timeout', async () => {
+        vi.useRealTimers();
+        const realClient = createMockAIClient();
+        // Wrap the real mock so `stream` on a video request awaits a real delay
+        // before yielding media-done. If the pipeline had its own AbortController
+        // or deadline, it would cut the stream off before the delay elapsed.
+        // 500ms is enough to prove the pipeline waits; the 15-min case is the
+        // same code path — the platform `fetch` has no default timeout.
+        const SIMULATED_GENERATION_DELAY_MS = 500;
+        const delayedClient: AppEnv['Variables']['aiClient'] = {
+          ...realClient,
+          stream: (request) => {
+            if (request.modality !== 'video') return realClient.stream(request);
+            const inner = realClient.stream(request);
+            return {
+              [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+                const iterator = inner[Symbol.asyncIterator]();
+                let delayInjected = false;
+                return {
+                  async next(): Promise<IteratorResult<InferenceEvent>> {
+                    if (!delayInjected) {
+                      delayInjected = true;
+                      await new Promise((resolve) =>
+                        setTimeout(resolve, SIMULATED_GENERATION_DELAY_MS)
+                      );
+                    }
+                    return iterator.next();
+                  },
+                };
+              },
+            };
+          },
+        };
+        const app = createTestApp(undefined, undefined, undefined, delayedClient);
+
+        const start = Date.now();
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'video',
+            models: [VIDEO_MODEL_ID],
+            videoConfig: DEFAULT_VIDEO_CONFIG,
+          }),
+        });
+        const text = await res.text();
+        const elapsed = Date.now() - start;
+
+        // The delay was awaited, not short-circuited.
+        expect(elapsed).toBeGreaterThanOrEqual(SIMULATED_GENERATION_DELAY_MS);
+        // And the pipeline completed successfully despite the long wait.
+        expect(res.status).toBe(200);
+        expect(text).toContain('event: done');
+        expect(text).toContain('"contentType":"video"');
+      });
     });
   });
 

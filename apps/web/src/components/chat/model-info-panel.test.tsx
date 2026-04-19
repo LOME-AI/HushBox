@@ -13,6 +13,7 @@ function buildModel(overrides: Partial<Model> = {}): Model {
     pricePerInputToken: 0.000_002_5,
     pricePerOutputToken: 0.000_01,
     pricePerImage: 0,
+    pricePerSecondByResolution: {},
     capabilities: [],
     description: 'Fast and capable model from OpenAI.',
     supportedParameters: [],

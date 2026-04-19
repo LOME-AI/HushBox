@@ -562,13 +562,25 @@ describe('friendlyErrorMessage', () => {
 
   it('maps MEDIA_TRIAL_BLOCKED to user-facing message', () => {
     expect(friendlyErrorMessage('MEDIA_TRIAL_BLOCKED')).toBe(
-      'Image generation is only available for signed-in users. Create an account to unlock.'
+      'Media generation is only available for signed-in users. Create an account to unlock.'
     );
   });
 
   it('maps MODALITY_MISMATCH to user-facing message', () => {
     expect(friendlyErrorMessage('MODALITY_MISMATCH')).toBe(
       "One or more selected models don't match the requested content type."
+    );
+  });
+
+  it('maps MISSING_MODALITY_CONFIG to user-facing message', () => {
+    expect(friendlyErrorMessage('MISSING_MODALITY_CONFIG')).toBe(
+      'The selected content type needs configuration (aspect ratio, duration, or resolution).'
+    );
+  });
+
+  it('maps UNSUPPORTED_RESOLUTION to user-facing message', () => {
+    expect(friendlyErrorMessage('UNSUPPORTED_RESOLUTION')).toBe(
+      "One or more selected video models don't support the requested resolution. Pick a different resolution."
     );
   });
 

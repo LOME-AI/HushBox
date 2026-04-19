@@ -604,14 +604,26 @@ describe('streamChatRequestSchema', () => {
     expect(result.imageConfig?.aspectRatio).toBe('1:1');
   });
 
-  it('rejects invalid modality', () => {
+  it('rejects modality audio (gated behind feature flag)', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'audio',
+      })
+    ).toThrow();
+  });
+
+  it('rejects an unknown modality', () => {
     expect(() =>
       streamChatRequestSchema.parse({
         models: ['gpt-4'],
         userMessage: { id: validMsgId, content: 'Hello' },
         messagesForInference: [{ role: 'user', content: 'Hello' }],
         fundingSource: 'personal_balance',
-        modality: 'video',
+        modality: 'holographic',
       })
     ).toThrow();
   });
@@ -627,6 +639,122 @@ describe('streamChatRequestSchema', () => {
         imageConfig: { aspectRatio: '2:1' },
       })
     ).toThrow();
+  });
+
+  it('accepts modality video with full videoConfig', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['google/veo-3.1'],
+      userMessage: { id: validMsgId, content: 'A flock of cranes taking flight' },
+      messagesForInference: [{ role: 'user', content: 'A flock of cranes taking flight' }],
+      fundingSource: 'personal_balance',
+      modality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+    });
+    expect(result.modality).toBe('video');
+    expect(result.videoConfig?.aspectRatio).toBe('16:9');
+    expect(result.videoConfig?.durationSeconds).toBe(4);
+    expect(result.videoConfig?.resolution).toBe('720p');
+  });
+
+  it('rejects modality video without videoConfig', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+      })
+    ).toThrow();
+  });
+
+  it('rejects videoConfig with invalid aspectRatio', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+        videoConfig: { aspectRatio: '3:2', durationSeconds: 4, resolution: '720p' },
+      })
+    ).toThrow();
+  });
+
+  it('rejects videoConfig with out-of-range durationSeconds (0)', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 0, resolution: '720p' },
+      })
+    ).toThrow();
+  });
+
+  it('rejects videoConfig with out-of-range durationSeconds (9)', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 9, resolution: '720p' },
+      })
+    ).toThrow();
+  });
+
+  it('rejects videoConfig with invalid resolution', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '480p' },
+      })
+    ).toThrow();
+  });
+
+  it('rejects modality video with a non-integer durationSeconds', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 4.5, resolution: '720p' },
+      })
+    ).toThrow();
+  });
+
+  it('accepts modality video at min duration boundary', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['google/veo-3.1'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+      modality: 'video',
+      videoConfig: { aspectRatio: '9:16', durationSeconds: 1, resolution: '1080p' },
+    });
+    expect(result.videoConfig?.durationSeconds).toBe(1);
+  });
+
+  it('accepts modality video at max duration boundary', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['google/veo-3.1'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+      modality: 'video',
+      videoConfig: { aspectRatio: '1:1', durationSeconds: 8, resolution: '1080p' },
+    });
+    expect(result.videoConfig?.durationSeconds).toBe(8);
   });
 });
 

@@ -25,14 +25,15 @@ import {
   BATCH_INTERVAL_MS,
   lookupModelPricing,
   computeWorstCaseCents,
-  computeImageWorstCaseCents,
   resolveWebSearchCost,
   handleBillingResult,
   withBroadcast,
   broadcastAndFinish,
   resolveAndReserveImageBilling,
+  resolveAndReserveVideoBilling,
   type BroadcastContext,
 } from './stream-pipeline.js';
+import { computeImageWorstCaseCents } from '@hushbox/shared';
 import type { BuildBillingResult } from '../services/billing/index.js';
 import type { AppEnv } from '../types.js';
 import type { Context } from 'hono';
@@ -63,6 +64,7 @@ function makeModelInfo(overrides: Partial<ModelInfo> = {}): ModelInfo {
     id: 'openai/gpt-4o',
     name: 'GPT-4o',
     description: 'A model',
+    modality: 'text',
     context_length: 128_000,
     pricing: { prompt: '0.000005', completion: '0.000015' },
     supported_parameters: [],
@@ -877,33 +879,38 @@ describe('broadcastAndFinish', () => {
 // resolveAndReserveImageBilling
 // ---------------------------------------------------------------------------
 
-describe('resolveAndReserveImageBilling', () => {
-  interface MockRedis {
-    get: ReturnType<typeof vi.fn>;
-    eval: ReturnType<typeof vi.fn>;
-  }
+interface MockRedisForBilling {
+  get: ReturnType<typeof vi.fn>;
+  eval: ReturnType<typeof vi.fn>;
+}
 
-  /** Build a minimal Hono Context mock sufficient for resolveAndReserveImageBilling. */
-  function createMockImageBillingContext(redis: MockRedis): {
-    c: Context<AppEnv>;
-    jsonSpy: ReturnType<typeof vi.fn>;
-  } {
-    const jsonSpy = vi.fn((body: unknown, status?: number) => {
-      return Response.json(body, {
-        status: typeof status === 'number' ? status : 200,
-      });
+/** Build a minimal Hono Context mock sufficient for the media-billing resolvers. */
+function createMockBillingContext(redis: MockRedisForBilling): {
+  c: Context<AppEnv>;
+  jsonSpy: ReturnType<typeof vi.fn>;
+} {
+  const jsonSpy = vi.fn((body: unknown, status?: number) => {
+    return Response.json(body, {
+      status: typeof status === 'number' ? status : 200,
     });
-    const c = {
-      get: vi.fn((key: string) => {
-        if (key === 'redis') return redis;
-        // Return no value for other keys; the caller never reads them.
-        return null;
-      }),
-      env: { AI_GATEWAY_API_KEY: 'test-key' } as AppEnv['Bindings'],
-      json: jsonSpy,
-    } as unknown as Context<AppEnv>;
-    return { c, jsonSpy };
-  }
+  });
+  const c = {
+    get: vi.fn((key: string) => {
+      if (key === 'redis') return redis;
+      return null;
+    }),
+    env: {
+      AI_GATEWAY_API_KEY: 'test-key',
+      PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+    } as AppEnv['Bindings'],
+    json: jsonSpy,
+  } as unknown as Context<AppEnv>;
+  return { c, jsonSpy };
+}
+
+describe('resolveAndReserveImageBilling', () => {
+  type MockRedis = MockRedisForBilling;
+  const createMockImageBillingContext = createMockBillingContext;
 
   /**
    * Build a BuildBillingResult from scratch per test.
@@ -939,17 +946,15 @@ describe('resolveAndReserveImageBilling', () => {
       billingResult: makeBillingResult({ tier: 'paid', balanceCents: 10_000 }),
       userId: 'user-1',
       models: ['google/imagen-4'],
-      perImagePrice: 0.04,
+      perImageByModel: new Map([['google/imagen-4', 0.04]]),
       clientFundingSource: 'personal_balance',
     });
 
     expect(result.success).toBe(true);
     if (!result.success) return; // type narrowing
     expect(result.billingUserId).toBe('user-1');
-    expect(result.perImagePrice).toBe(0.04);
-    // Worst-case should be positive (fee + storage on top of 4 cent base)
+    expect(result.perImageByModel.get('google/imagen-4')).toBe(0.04);
     expect(result.worstCaseCents).toBeGreaterThan(0);
-    // Redis eval was called (once for reserve) — no release on success
     expect(redis.eval).toHaveBeenCalledTimes(1);
   });
 
@@ -970,7 +975,7 @@ describe('resolveAndReserveImageBilling', () => {
       }),
       userId: 'user-trial',
       models: ['google/imagen-4'],
-      perImagePrice: 0.04,
+      perImageByModel: new Map([['google/imagen-4', 0.04]]),
       clientFundingSource: 'trial_fixed',
     });
 
@@ -991,4 +996,170 @@ describe('resolveAndReserveImageBilling', () => {
   // - Race-guard release path (reserveBudget returns total > availableCents → release + 402)
   // These require more elaborate billingResult fixtures (groupBudgetContext) and
   // additional redis.eval call scripting.
+});
+
+// ---------------------------------------------------------------------------
+// resolveAndReserveVideoBilling
+// ---------------------------------------------------------------------------
+
+describe('resolveAndReserveVideoBilling', () => {
+  type MockRedis = MockRedisForBilling;
+  const createMockVideoBillingContext = createMockBillingContext;
+
+  function makeBillingResult(
+    overrides: Partial<BuildBillingResult['input']> = {}
+  ): BuildBillingResult {
+    return {
+      input: {
+        tier: 'paid',
+        balanceCents: 100_000, // $1000 — video is expensive
+        freeAllowanceCents: 0,
+        isPremiumModel: false,
+        estimatedMinimumCostCents: 0,
+        ...overrides,
+      },
+      rawUserBalanceCents: overrides.balanceCents ?? 100_000,
+      rawFreeAllowanceCents: overrides.freeAllowanceCents ?? 0,
+    };
+  }
+
+  it('happy path: paid tier reserves worst-case cents and returns success', async () => {
+    const redis: MockRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      eval: vi.fn().mockResolvedValue('10'),
+    };
+    const { c } = createMockVideoBillingContext(redis);
+
+    const result = await resolveAndReserveVideoBilling(c, {
+      billingResult: makeBillingResult({ tier: 'paid', balanceCents: 100_000 }),
+      userId: 'user-1',
+      models: ['google/veo-3.1'],
+      perSecondByModel: new Map([['google/veo-3.1', 0.1]]),
+      durationSeconds: 4,
+      resolution: '720p',
+      clientFundingSource: 'personal_balance',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.billingUserId).toBe('user-1');
+    expect(result.perSecondByModel.get('google/veo-3.1')).toBe(0.1);
+    expect(result.durationSeconds).toBe(4);
+    expect(result.resolution).toBe('720p');
+    expect(result.worstCaseCents).toBeGreaterThan(0);
+    expect(redis.eval).toHaveBeenCalledTimes(1);
+  });
+
+  it('scales worst-case cents with duration', async () => {
+    const redis: MockRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      eval: vi.fn().mockResolvedValue('10'),
+    };
+    const { c } = createMockVideoBillingContext(redis);
+
+    const short = await resolveAndReserveVideoBilling(c, {
+      billingResult: makeBillingResult(),
+      userId: 'u',
+      models: ['google/veo-3.1'],
+      perSecondByModel: new Map([['google/veo-3.1', 0.1]]),
+      durationSeconds: 2,
+      resolution: '720p',
+      clientFundingSource: 'personal_balance',
+    });
+    const long = await resolveAndReserveVideoBilling(c, {
+      billingResult: makeBillingResult(),
+      userId: 'u',
+      models: ['google/veo-3.1'],
+      perSecondByModel: new Map([['google/veo-3.1', 0.1]]),
+      durationSeconds: 8,
+      resolution: '720p',
+      clientFundingSource: 'personal_balance',
+    });
+    if (!short.success || !long.success) throw new Error('expected success');
+    expect(long.worstCaseCents).toBeCloseTo(short.worstCaseCents * 4, 5);
+  });
+
+  it('denial path: trial tier returns 402 without reservation', async () => {
+    const redis: MockRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      eval: vi.fn().mockResolvedValue('0'),
+    };
+    const { c, jsonSpy } = createMockVideoBillingContext(redis);
+
+    const result = await resolveAndReserveVideoBilling(c, {
+      billingResult: makeBillingResult({
+        tier: 'trial',
+        balanceCents: 0,
+        freeAllowanceCents: 0,
+      }),
+      userId: 'user-trial',
+      models: ['google/veo-3.1'],
+      perSecondByModel: new Map([['google/veo-3.1', 0.1]]),
+      durationSeconds: 4,
+      resolution: '720p',
+      clientFundingSource: 'trial_fixed',
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.response.status).toBe(402);
+    expect(jsonSpy).toHaveBeenCalledTimes(1);
+    expect(redis.eval).not.toHaveBeenCalled();
+  });
+
+  it('mismatch path: returns 409 when client funding source disagrees', async () => {
+    const redis: MockRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      eval: vi.fn().mockResolvedValue('0'),
+    };
+    const { c, jsonSpy } = createMockVideoBillingContext(redis);
+
+    const result = await resolveAndReserveVideoBilling(c, {
+      billingResult: makeBillingResult({ tier: 'paid', balanceCents: 100_000 }),
+      userId: 'user-1',
+      models: ['google/veo-3.1'],
+      perSecondByModel: new Map([['google/veo-3.1', 0.1]]),
+      durationSeconds: 4,
+      resolution: '720p',
+      clientFundingSource: 'free_allowance', // server says 'personal_balance'
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.response.status).toBe(409);
+    const [, status] = jsonSpy.mock.calls[0]!;
+    expect(status).toBe(409);
+  });
+
+  it('scales worst-case cents with model count', async () => {
+    const redis: MockRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      eval: vi.fn().mockResolvedValue('10'),
+    };
+    const { c } = createMockVideoBillingContext(redis);
+
+    const one = await resolveAndReserveVideoBilling(c, {
+      billingResult: makeBillingResult(),
+      userId: 'u',
+      models: ['google/veo-3.1'],
+      perSecondByModel: new Map([['google/veo-3.1', 0.1]]),
+      durationSeconds: 4,
+      resolution: '720p',
+      clientFundingSource: 'personal_balance',
+    });
+    const two = await resolveAndReserveVideoBilling(c, {
+      billingResult: makeBillingResult(),
+      userId: 'u',
+      models: ['google/veo-3.1', 'google/veo-3.0'],
+      perSecondByModel: new Map([
+        ['google/veo-3.1', 0.1],
+        ['google/veo-3.0', 0.1],
+      ]),
+      durationSeconds: 4,
+      resolution: '720p',
+      clientFundingSource: 'personal_balance',
+    });
+    if (!one.success || !two.success) throw new Error('expected success');
+    expect(two.worstCaseCents).toBeCloseTo(one.worstCaseCents * 2, 5);
+  });
 });

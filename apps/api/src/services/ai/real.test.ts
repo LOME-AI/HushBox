@@ -30,6 +30,17 @@ vi.mock('@ai-sdk/gateway', () => ({
   createGateway: vi.fn(() => mockGateway),
 }));
 
+// Mock shared fetchModels so listModels tests don't need the two-endpoint merge.
+// real.ts delegates to fetchModels; we mock at that seam.
+const mockFetchModels = vi.fn();
+vi.mock('@hushbox/shared/models', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/shared/models')>();
+  return {
+    ...actual,
+    fetchModels: mockFetchModels,
+  };
+});
+
 // Import after mocks are defined
 const { createRealAIClient } = await import('./real.js');
 
@@ -85,7 +96,10 @@ describe('createRealAIClient', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    client = createRealAIClient('test-api-key');
+    client = createRealAIClient({
+      apiKey: 'test-api-key',
+      publicModelsUrl: 'https://test.example/v1/models',
+    });
   });
 
   describe('factory', () => {
@@ -336,64 +350,88 @@ describe('createRealAIClient', () => {
   });
 
   describe('listModels', () => {
-    it('calls gateway.getAvailableModels and maps results', async () => {
-      mockGatewayInstance.getAvailableModels.mockResolvedValue({
-        models: [
-          {
-            id: 'anthropic/claude-sonnet-4.6',
-            name: 'Claude Sonnet 4.6',
-            description: 'Fast model',
-            type: 'chat',
-            provider: 'anthropic',
-            contextLength: 200_000,
-            pricing: { inputPerToken: '0.000003', outputPerToken: '0.000015' },
-            capabilities: [],
+    it('delegates to fetchModels and maps RawModel to ModelInfo per modality', async () => {
+      mockFetchModels.mockResolvedValue([
+        {
+          id: 'anthropic/claude-sonnet-4.6',
+          name: 'Claude Sonnet 4.6',
+          description: 'Fast model',
+          modality: 'text',
+          context_length: 200_000,
+          pricing: { prompt: '0.000003', completion: '0.000015' },
+          supported_parameters: [],
+          created: 0,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+        {
+          id: 'google/imagen-4.0-generate-001',
+          name: 'Imagen 4',
+          description: 'Image generation',
+          modality: 'image',
+          context_length: 0,
+          pricing: { prompt: '0', completion: '0', per_image: '0.04' },
+          supported_parameters: [],
+          created: 0,
+          architecture: { input_modalities: ['image'], output_modalities: ['image'] },
+        },
+        {
+          id: 'google/veo-3.1-generate-001',
+          name: 'Veo 3.1',
+          description: 'Video generation',
+          modality: 'video',
+          context_length: 0,
+          pricing: {
+            prompt: '0',
+            completion: '0',
+            per_second_by_resolution: { '720p': '0.4', '1080p': '0.4' },
           },
-          {
-            id: 'google/imagen-4',
-            name: 'Imagen 4',
-            description: 'Image generation',
-            type: 'image',
-            provider: 'google-vertex',
-            pricing: { perImage: '0.04' },
-            capabilities: [],
-          },
-        ],
-      });
+          supported_parameters: [],
+          created: 0,
+          architecture: { input_modalities: ['video'], output_modalities: ['video'] },
+        },
+      ]);
 
       const models = await client.listModels();
 
-      expect(models.length).toBe(2);
+      expect(models.length).toBe(3);
       expect(models[0]!.id).toBe('anthropic/claude-sonnet-4.6');
       expect(models[0]!.modality).toBe('text');
-      expect(models[1]!.id).toBe('google/imagen-4');
+      if (models[0]!.pricing.kind === 'token') {
+        expect(models[0]!.pricing.inputPerToken).toBeCloseTo(0.000_003, 9);
+      }
       expect(models[1]!.modality).toBe('image');
+      if (models[1]!.pricing.kind === 'image') {
+        expect(models[1]!.pricing.perImage).toBeCloseTo(0.04, 6);
+      }
+      expect(models[2]!.modality).toBe('video');
+      if (models[2]!.pricing.kind === 'video') {
+        expect(models[2]!.pricing.perSecondByResolution).toEqual({ '720p': 0.4, '1080p': 0.4 });
+      }
     });
   });
 
   describe('getModel', () => {
     it('returns the model matching the given id', async () => {
-      mockGatewayInstance.getAvailableModels.mockResolvedValue({
-        models: [
-          {
-            id: 'anthropic/claude-sonnet-4.6',
-            name: 'Claude Sonnet 4.6',
-            description: 'Fast model',
-            type: 'chat',
-            provider: 'anthropic',
-            contextLength: 200_000,
-            pricing: { inputPerToken: '0.000003', outputPerToken: '0.000015' },
-            capabilities: [],
-          },
-        ],
-      });
+      mockFetchModels.mockResolvedValue([
+        {
+          id: 'anthropic/claude-sonnet-4.6',
+          name: 'Claude Sonnet 4.6',
+          description: 'Fast model',
+          modality: 'text',
+          context_length: 200_000,
+          pricing: { prompt: '0.000003', completion: '0.000015' },
+          supported_parameters: [],
+          created: 0,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+      ]);
 
       const model = await client.getModel('anthropic/claude-sonnet-4.6');
       expect(model.id).toBe('anthropic/claude-sonnet-4.6');
     });
 
     it('throws for an unknown model id', async () => {
-      mockGatewayInstance.getAvailableModels.mockResolvedValue({ models: [] });
+      mockFetchModels.mockResolvedValue([]);
 
       await expect(client.getModel('nonexistent/model')).rejects.toThrow('Model not found');
     });
@@ -428,11 +466,12 @@ describe('createRealAIClient', () => {
 
     it('records evidence after a successful listModels call when isCI=true', async () => {
       const db = createFakeDb();
-      const evidenceClient = createRealAIClient('test-api-key', {
-        db: db as never,
-        isCI: true,
+      const evidenceClient = createRealAIClient({
+        apiKey: 'test-api-key',
+        publicModelsUrl: 'https://test.example/v1/models',
+        evidence: { db: db as never, isCI: true },
       });
-      mockGatewayInstance.getAvailableModels.mockResolvedValue({ models: [] });
+      mockFetchModels.mockResolvedValue([]);
 
       await evidenceClient.listModels();
 
@@ -441,9 +480,10 @@ describe('createRealAIClient', () => {
 
     it('records evidence after a successful stream when isCI=true', async () => {
       const db = createFakeDb();
-      const evidenceClient = createRealAIClient('test-api-key', {
-        db: db as never,
-        isCI: true,
+      const evidenceClient = createRealAIClient({
+        apiKey: 'test-api-key',
+        publicModelsUrl: 'https://test.example/v1/models',
+        evidence: { db: db as never, isCI: true },
       });
       mockStreamText.mockReturnValue(
         createMockFullStream([
@@ -464,9 +504,10 @@ describe('createRealAIClient', () => {
 
     it('records evidence after a successful getGenerationStats call when isCI=true', async () => {
       const db = createFakeDb();
-      const evidenceClient = createRealAIClient('test-api-key', {
-        db: db as never,
-        isCI: true,
+      const evidenceClient = createRealAIClient({
+        apiKey: 'test-api-key',
+        publicModelsUrl: 'https://test.example/v1/models',
+        evidence: { db: db as never, isCI: true },
       });
       mockGatewayInstance.getGenerationInfo.mockResolvedValue({ totalCost: 0.01 });
 
@@ -477,11 +518,12 @@ describe('createRealAIClient', () => {
 
     it('does not record evidence when isCI=false', async () => {
       const db = createFakeDb();
-      const evidenceClient = createRealAIClient('test-api-key', {
-        db: db as never,
-        isCI: false,
+      const evidenceClient = createRealAIClient({
+        apiKey: 'test-api-key',
+        publicModelsUrl: 'https://test.example/v1/models',
+        evidence: { db: db as never, isCI: false },
       });
-      mockGatewayInstance.getAvailableModels.mockResolvedValue({ models: [] });
+      mockFetchModels.mockResolvedValue([]);
 
       await evidenceClient.listModels();
 
@@ -489,8 +531,11 @@ describe('createRealAIClient', () => {
     });
 
     it('does not record evidence when evidence config is omitted', async () => {
-      const plainClient = createRealAIClient('test-api-key');
-      mockGatewayInstance.getAvailableModels.mockResolvedValue({ models: [] });
+      const plainClient = createRealAIClient({
+        apiKey: 'test-api-key',
+        publicModelsUrl: 'https://test.example/v1/models',
+      });
+      mockFetchModels.mockResolvedValue([]);
 
       // Should not throw (no db to record with) and should return models normally.
       await expect(plainClient.listModels()).resolves.toEqual([]);

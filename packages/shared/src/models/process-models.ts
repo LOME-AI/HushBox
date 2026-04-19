@@ -17,7 +17,7 @@ import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 import { isPremiumModel, PREMIUM_PRICE_PERCENTILE, exceedsTrialBudget } from './premium-check.js';
 import { isZdrModel } from './zdr.js';
 
-import type { RawModel, ProcessedModels } from './types.js';
+import type { Modality, RawModel, ProcessedModels } from './types.js';
 
 // ============================================================
 // Constants
@@ -32,8 +32,8 @@ const MAX_AGE_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 /** Minimum combined price per 1K tokens ($0.0002) */
 const MIN_PRICE_PER_1K_TOKENS = 0.0002;
 
-/** Name patterns for utility models that should always be excluded */
-const EXCLUDED_NAME_PATTERNS = [/body builder/i, /auto router/i, /audio/i, /image/i];
+/** Name patterns for text-utility models that should always be excluded. */
+const EXCLUDED_TEXT_NAME_PATTERNS = [/body builder/i, /auto router/i, /audio/i, /image/i];
 
 /** Provider name mapping from model ID prefix */
 export const PROVIDER_MAP: Record<string, string> = {
@@ -48,99 +48,57 @@ export const PROVIDER_MAP: Record<string, string> = {
 };
 
 // ============================================================
-// Internal helpers
+// Shared helpers
 // ============================================================
 
-/**
- * Get the combined price of a model (prompt + completion per token).
- */
 function getCombinedPrice(model: RawModel): number {
   return parseTokenPrice(model.pricing.prompt) + parseTokenPrice(model.pricing.completion);
 }
 
-/**
- * Calculate the threshold at the given percentile.
- */
 function calculatePercentileThreshold(values: number[], percentile: number): number {
-  if (values.length === 0) {
-    return 0;
-  }
-
+  if (values.length === 0) return 0;
   const sorted = [...values].toSorted((a, b) => a - b);
   const index = Math.floor(sorted.length * percentile);
   return sorted[Math.min(index, sorted.length - 1)] ?? 0;
 }
 
-/**
- * Check if model should always be excluded (never bypassed by top context).
- * - Free models (both prices = 0)
- * - Utility models by name pattern
- * - Models that don't include text in input or output modalities
- */
-function isExcludedAlways(model: RawModel): boolean {
-  if (getCombinedPrice(model) === 0) {
-    return true;
-  }
-  if (EXCLUDED_NAME_PATTERNS.some((p) => p.test(model.name))) {
-    return true;
-  }
-  const hasTextInput = model.architecture.input_modalities.includes('text');
-  const hasTextOutput = model.architecture.output_modalities.includes('text');
-  return !hasTextInput || !hasTextOutput;
-}
-
-/**
- * Check if model should be excluded by standard criteria.
- * These can be bypassed by top context models.
- * - Age: older than 2 years
- * - Minimum price: cheaper than $0.0002 per 1K tokens
- */
-function isExcludedByStandardCriteria(model: RawModel): boolean {
-  const cutoffMs = Date.now() - MAX_AGE_MS;
-  if (model.created * 1000 < cutoffMs) {
-    return true;
-  }
-
-  const pricePer1K = getCombinedPrice(model) * 1000;
-  return pricePer1K < MIN_PRICE_PER_1K_TOKENS;
-}
-
-/**
- * Extract provider and clean name from model.
- * Tries "Provider: Model Name" format first, falls back to ID prefix.
- */
 function extractProvider(model: RawModel): { provider: string; displayName: string } {
   const colonIndex = model.name.indexOf(':');
   if (colonIndex > 0) {
     const provider = model.name.slice(0, colonIndex).trim();
     const displayName = model.name.slice(colonIndex + 1).trim();
-    if (provider && displayName) {
-      return { provider, displayName };
-    }
+    if (provider && displayName) return { provider, displayName };
   }
-
   const prefix = model.id.split('/')[0] ?? '';
   return { provider: PROVIDER_MAP[prefix] ?? 'Unknown', displayName: model.name };
 }
 
-/**
- * Derive capabilities from supported_parameters.
- * Only 'internet-search' is currently tracked — detected via 'web_search_options'.
- */
 function deriveCapabilities(params: string[]): ModelCapability[] {
   const caps: ModelCapability[] = [];
-
-  if (params.includes('web_search_options')) {
-    caps.push('internet-search');
-  }
-
+  if (params.includes('web_search_options')) caps.push('internet-search');
   return caps;
 }
 
-/**
- * Transform a raw gateway model to the shared Model type.
- */
-function transform(model: RawModel): Model {
+// ============================================================
+// Text processing (existing logic preserved)
+// ============================================================
+
+function isExcludedAlways(model: RawModel): boolean {
+  if (getCombinedPrice(model) === 0) return true;
+  if (EXCLUDED_TEXT_NAME_PATTERNS.some((p) => p.test(model.name))) return true;
+  const hasTextInput = model.architecture.input_modalities.includes('text');
+  const hasTextOutput = model.architecture.output_modalities.includes('text');
+  return !hasTextInput || !hasTextOutput;
+}
+
+function isExcludedByStandardCriteria(model: RawModel): boolean {
+  const cutoffMs = Date.now() - MAX_AGE_MS;
+  if (model.created * 1000 < cutoffMs) return true;
+  const pricePer1K = getCombinedPrice(model) * 1000;
+  return pricePer1K < MIN_PRICE_PER_1K_TOKENS;
+}
+
+function transformText(model: RawModel): Model {
   const { provider, displayName } = extractProvider(model);
   return {
     id: model.id,
@@ -152,6 +110,7 @@ function transform(model: RawModel): Model {
     pricePerInputToken: parseTokenPrice(model.pricing.prompt),
     pricePerOutputToken: parseTokenPrice(model.pricing.completion),
     pricePerImage: 0,
+    pricePerSecondByResolution: {},
     capabilities: deriveCapabilities(model.supported_parameters),
     supportedParameters: model.supported_parameters,
     webSearchPrice: model.pricing.web_search
@@ -161,27 +120,46 @@ function transform(model: RawModel): Model {
   };
 }
 
-// ============================================================
-// Main exports
-// ============================================================
+interface TextProcessingResult {
+  models: Model[];
+  premiumIds: string[];
+  /** The filtered RawModel pool — used to build the Smart Model entry's price range. */
+  filteredPool: RawModel[];
+}
+
+function processTextModels(raws: RawModel[]): TextProcessingResult {
+  const zdrFiltered = raws.filter((m) => isZdrModel(m.id, 'text'));
+
+  const contexts = zdrFiltered.map((m) => m.context_length);
+  const contextThreshold = calculatePercentileThreshold(contexts, TOP_CONTEXT_PERCENTILE);
+
+  const filtered = zdrFiltered.filter((model) => {
+    if (isExcludedAlways(model)) return false;
+    if (model.context_length >= contextThreshold) return true;
+    return !isExcludedByStandardCriteria(model);
+  });
+
+  const prices = filtered.map((m) => getCombinedPrice(m));
+  const priceThreshold = calculatePercentileThreshold(prices, PREMIUM_PRICE_PERCENTILE);
+
+  const systemPromptChars = buildSystemPrompt([]).length;
+  const models: Model[] = [];
+  const premiumIds: string[] = [];
+
+  for (const model of filtered) {
+    models.push(transformText(model));
+    if (isPremiumModel(model, priceThreshold) || exceedsTrialBudget(model, systemPromptChars)) {
+      premiumIds.push(model.id);
+    }
+  }
+
+  return { models, premiumIds, filteredPool: filtered };
+}
 
 /**
- * Process raw gateway models: filter, classify, and transform.
- *
- * Filtering rules:
- * - Always excluded: free models, utility models (body builder, auto router, image)
- * - Standard exclusion (bypassed by top 5% context): age > 2 years, price < $0.0002/1K tokens
- *
- * Premium classification:
- * - Price >= 75th percentile of filtered models, OR
- * - Released within the last year, OR
- * - Output cost exceeds trial budget for 2× minimum output tokens
- */
-/**
- * Build the synthetic Smart Model entry with price ranges derived from
- * the eligible model pool. The Smart Model is not a gateway model — it's
- * a virtual entry the UI can select; the backend resolves the actual model
- * per-message (Step 11's classifier-based router).
+ * Synthetic Smart Model entry with price ranges derived from the text pool.
+ * The Smart Model is not a gateway model — it's a virtual entry the UI can
+ * select; the backend resolves the actual model per-message.
  */
 function buildSmartModelEntry(pool: RawModel[]): Model {
   const inputPrices = pool.map((m) => parseTokenPrice(m.pricing.prompt));
@@ -198,6 +176,7 @@ function buildSmartModelEntry(pool: RawModel[]): Model {
     pricePerInputToken: SMART_MODEL_INPUT_PRICE_PER_TOKEN,
     pricePerOutputToken: SMART_MODEL_OUTPUT_PRICE_PER_TOKEN,
     pricePerImage: 0,
+    pricePerSecondByResolution: {},
     capabilities: [],
     supportedParameters: [],
     isSmartModel: true,
@@ -208,46 +187,111 @@ function buildSmartModelEntry(pool: RawModel[]): Model {
   };
 }
 
+// ============================================================
+// Image processing
+// ============================================================
+
+function transformImage(model: RawModel): Model {
+  const { provider, displayName } = extractProvider(model);
+  const perImageRaw = model.pricing.per_image;
+  return {
+    id: model.id,
+    name: displayName,
+    description: model.description,
+    provider,
+    modality: 'image',
+    contextLength: 0,
+    pricePerInputToken: 0,
+    pricePerOutputToken: 0,
+    pricePerImage: perImageRaw === undefined ? 0 : parseTokenPrice(perImageRaw),
+    pricePerSecondByResolution: {},
+    capabilities: [],
+    supportedParameters: model.supported_parameters,
+    created: model.created,
+  };
+}
+
+function hasFlatImagePricing(model: RawModel): boolean {
+  const raw = model.pricing.per_image;
+  if (raw === undefined) return false;
+  return parseTokenPrice(raw) > 0;
+}
+
+interface MediaProcessingResult {
+  models: Model[];
+  premiumIds: string[];
+}
+
+function processImageModels(raws: RawModel[]): MediaProcessingResult {
+  const zdrFiltered = raws.filter((m) => isZdrModel(m.id, 'image'));
+  const priced = zdrFiltered.filter((m) => hasFlatImagePricing(m));
+  const models = priced.map((m) => transformImage(m));
+  return { models, premiumIds: models.map((m) => m.id) };
+}
+
+// ============================================================
+// Video processing
+// ============================================================
+
+function transformVideo(model: RawModel): Model {
+  const { provider, displayName } = extractProvider(model);
+  const rawByResolution = model.pricing.per_second_by_resolution ?? {};
+  const pricePerSecondByResolution = Object.fromEntries(
+    Object.entries(rawByResolution).map(([res, price]) => [res, parseTokenPrice(price)])
+  );
+  return {
+    id: model.id,
+    name: displayName,
+    description: model.description,
+    provider,
+    modality: 'video',
+    contextLength: 0,
+    pricePerInputToken: 0,
+    pricePerOutputToken: 0,
+    pricePerImage: 0,
+    pricePerSecondByResolution,
+    capabilities: [],
+    supportedParameters: model.supported_parameters,
+    created: model.created,
+  };
+}
+
+function hasPerResolutionPricing(model: RawModel): boolean {
+  const raw = model.pricing.per_second_by_resolution;
+  if (raw === undefined) return false;
+  return Object.values(raw).some((p) => parseTokenPrice(p) > 0);
+}
+
+function processVideoModels(raws: RawModel[]): MediaProcessingResult {
+  const zdrFiltered = raws.filter((m) => isZdrModel(m.id, 'video'));
+  const priced = zdrFiltered.filter((m) => hasPerResolutionPricing(m));
+  const models = priced.map((m) => transformVideo(m));
+  return { models, premiumIds: models.map((m) => m.id) };
+}
+
+// ============================================================
+// Entry point
+// ============================================================
+
+function groupByModality(rawModels: RawModel[]): Record<Modality, RawModel[]> {
+  const groups: Record<Modality, RawModel[]> = { text: [], image: [], audio: [], video: [] };
+  for (const m of rawModels) groups[m.modality].push(m);
+  return groups;
+}
+
 export function processModels(rawModels: RawModel[]): ProcessedModels {
-  // ZDR filter: only include models on the per-modality ZDR allow-list.
-  // For now, process-models handles text only; image/video use their own paths.
-  const zdrFiltered = rawModels.filter((m) => isZdrModel(m.id, 'text'));
+  const byModality = groupByModality(rawModels);
 
-  // Calculate context threshold from ZDR-filtered pool
-  const contexts = zdrFiltered.map((m) => m.context_length);
-  const contextThreshold = calculatePercentileThreshold(contexts, TOP_CONTEXT_PERCENTILE);
+  const text = processTextModels(byModality.text);
+  const image = processImageModels(byModality.image);
+  const video = processVideoModels(byModality.video);
+  // Audio flag-gated — `ZDR_AUDIO_MODELS` is empty and `FEATURE_FLAGS.AUDIO_ENABLED`
+  // stays off until the AI Gateway ships audio output. Nothing to process.
 
-  // Filter
-  const filtered = zdrFiltered.filter((model) => {
-    if (isExcludedAlways(model)) {
-      return false;
-    }
-    if (model.context_length >= contextThreshold) {
-      return true; // Top context bypasses standard criteria
-    }
-    return !isExcludedByStandardCriteria(model);
-  });
+  const smartPrefix = text.filteredPool.length > 0 ? [buildSmartModelEntry(text.filteredPool)] : [];
 
-  // Calculate price threshold from filtered list (reflects available models)
-  const prices = filtered.map((model) => getCombinedPrice(model));
-  const priceThreshold = calculatePercentileThreshold(prices, PREMIUM_PRICE_PERCENTILE);
-
-  // Classify and transform
-  const systemPromptChars = buildSystemPrompt([]).length;
-  const models: Model[] = [];
-  const premiumIds: string[] = [];
-
-  for (const model of filtered) {
-    models.push(transform(model));
-    if (isPremiumModel(model, priceThreshold) || exceedsTrialBudget(model, systemPromptChars)) {
-      premiumIds.push(model.id);
-    }
-  }
-
-  // Inject the synthetic Smart Model entry if the pool has any eligible models.
-  if (filtered.length > 0) {
-    models.push(buildSmartModelEntry(filtered));
-  }
-
-  return { models, premiumIds };
+  return {
+    models: [...text.models, ...smartPrefix, ...image.models, ...video.models],
+    premiumIds: [...text.premiumIds, ...image.premiumIds, ...video.premiumIds],
+  };
 }

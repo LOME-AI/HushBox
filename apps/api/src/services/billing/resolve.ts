@@ -49,6 +49,7 @@ export interface BuildBillingInputParams {
   userId: string;
   models: string[];
   apiKey: string;
+  publicModelsUrl: string;
   memberContext?: MemberContext;
   conversationId?: string;
 }
@@ -58,6 +59,7 @@ export interface BuildGuestBillingInputParams {
   memberId: string;
   models: string[];
   apiKey: string;
+  publicModelsUrl: string;
   conversationId: string;
 }
 
@@ -107,12 +109,12 @@ export async function buildBillingInput(
   redis: Redis,
   params: BuildBillingInputParams
 ): Promise<BuildBillingResult> {
-  const { userId, models, memberContext, conversationId, apiKey } = params;
+  const { userId, models, memberContext, conversationId, apiKey, publicModelsUrl } = params;
   // 1. User tier info + Redis reservations + model premium check (in parallel)
   const [userTierInfo, reservedCents, gatewayModels] = await Promise.all([
     getUserTierInfo(db, userId),
     getReservedTotal(redis, userId),
-    fetchModels(apiKey),
+    fetchModels({ apiKey, publicModelsUrl }),
   ]);
 
   const { premiumIds } = processModels(gatewayModels);
@@ -183,13 +185,13 @@ export async function buildGuestBillingInput(
   redis: Redis,
   params: BuildGuestBillingInputParams
 ): Promise<BuildBillingResult> {
-  const { ownerId, memberId, models, conversationId, apiKey } = params;
+  const { ownerId, memberId, models, conversationId, apiKey, publicModelsUrl } = params;
 
   const [ownerTierInfo, reserved, budgets, gatewayModels] = await Promise.all([
     getUserTierInfo(db, ownerId),
     getGroupReservedTotals(redis, conversationId, memberId, ownerId),
     getConversationBudgets(db, conversationId),
-    fetchModels(apiKey),
+    fetchModels({ apiKey, publicModelsUrl }),
   ]);
 
   const { premiumIds } = processModels(gatewayModels);

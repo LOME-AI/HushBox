@@ -4,7 +4,7 @@ export const modelCapabilitySchema = z.enum(['internet-search']);
 
 export type ModelCapability = z.infer<typeof modelCapabilitySchema>;
 
-export const modelModalitySchema = z.enum(['text', 'image']);
+export const modelModalitySchema = z.enum(['text', 'image', 'audio', 'video']);
 
 export type ModelModality = z.infer<typeof modelModalitySchema>;
 
@@ -36,6 +36,14 @@ export const modelSchema = z
 
     /** Cost per image in USD (image models); 0 for text models */
     pricePerImage: z.number().nonnegative().default(0),
+
+    /**
+     * Cost per second of output in USD, keyed by resolution (video models).
+     * Empty for non-video models. Populated from the gateway's
+     * `video_duration_pricing` array, preferring the `audio: true` entry
+     * per resolution since HushBox always requests audio when supported.
+     */
+    pricePerSecondByResolution: z.record(z.string(), z.number().nonnegative()).default({}),
 
     /** Model capabilities */
     capabilities: z.array(modelCapabilitySchema),

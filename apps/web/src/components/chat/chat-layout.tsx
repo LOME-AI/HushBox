@@ -6,6 +6,7 @@ import { ForkTabs } from '@/components/chat/fork-tabs';
 import { MessageList, type MessageListHandle } from '@/components/chat/message-list';
 import { PromptInput } from '@/components/chat/prompt-input';
 import type { ChatSearchProps, PromptInputRef } from '@/components/chat/prompt-input';
+import { getPromptPlaceholder } from '@/components/chat/prompt-placeholder';
 import { DocumentPanel } from '@/components/document-panel/document-panel';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
@@ -321,7 +322,7 @@ interface ChatPromptInputProps {
   readonly isEditing?: boolean | undefined;
   readonly onCancelEdit?: (() => void) | undefined;
   readonly activeModality: Modality;
-  readonly onToggleModality: () => void;
+  readonly onSelectModality: (modality: Modality) => void;
 }
 
 interface ChatHeaderGroupProps {
@@ -416,7 +417,7 @@ function ChatPromptInput({
   isEditing,
   onCancelEdit,
   activeModality,
-  onToggleModality,
+  onSelectModality,
 }: Readonly<ChatPromptInputProps>): React.JSX.Element {
   const spreadProps = buildPromptInputProps({
     groupChat,
@@ -428,8 +429,7 @@ function ChatPromptInput({
     handleTypingChange,
   });
 
-  const placeholder =
-    activeModality === 'image' ? 'Describe the image you want...' : 'Type a message...';
+  const placeholder = getPromptPlaceholder(activeModality, 'Type a message...');
 
   return (
     <PromptInput
@@ -447,7 +447,7 @@ function ChatPromptInput({
       autoFocus={!isMobile}
       isAuthenticated={isAuthenticated}
       activeModality={activeModality}
-      onToggleModality={onToggleModality}
+      onSelectModality={onSelectModality}
       {...(searchProps !== undefined && { searchProps })}
       {...spreadProps}
     />
@@ -804,9 +804,12 @@ export function ChatLayout({
   const setActiveModality = useModelStore((state) => state.setActiveModality);
   useResolveDefaultModel(activeModality);
   const { webSearchEnabled, toggleWebSearch } = useSearchStore();
-  const toggleModality = React.useCallback((): void => {
-    setActiveModality(activeModality === 'text' ? 'image' : 'text');
-  }, [activeModality, setActiveModality]);
+  const selectModality = React.useCallback(
+    (modality: Modality): void => {
+      setActiveModality(modality);
+    },
+    [setActiveModality]
+  );
   const { models, premiumIds: modelPremiumIds, supportsSearch } = useSelectedModelCapabilities();
   // Search is a text-mode feature. Omit searchProps entirely in image mode
   // so the toggle disappears at the structural level, not a render-time check.
@@ -991,7 +994,7 @@ export function ChatLayout({
             isEditing={isEditing}
             onCancelEdit={onCancelEdit}
             activeModality={activeModality}
-            onToggleModality={toggleModality}
+            onSelectModality={selectModality}
           />
         </div>
       </div>

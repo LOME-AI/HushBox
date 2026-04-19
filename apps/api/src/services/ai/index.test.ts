@@ -40,7 +40,14 @@ describe('getAIClient', () => {
       NODE_ENV: 'development',
       CI: 'true',
       AI_GATEWAY_API_KEY: 'test-key',
+      PUBLIC_MODELS_URL: 'https://test.example/v1/models',
     });
     expect(client.isMock).toBe(false);
+  });
+
+  it('throws if PUBLIC_MODELS_URL is missing in production', () => {
+    expect(() => getAIClient({ NODE_ENV: 'production', AI_GATEWAY_API_KEY: 'test-key' })).toThrow(
+      'PUBLIC_MODELS_URL required'
+    );
   });
 });

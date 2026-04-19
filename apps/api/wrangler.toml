@@ -29,6 +29,7 @@ bucket_name = "hushbox-media"
 NODE_ENV = "production"
 API_URL = "https://api.hushbox.ai"
 FRONTEND_URL = "https://hushbox.ai"
+PUBLIC_MODELS_URL = "https://ai-gateway.vercel.sh/v1/models"
 R2_BUCKET_MEDIA = "hushbox-media"
 
 # Secrets deployed via CI (GitHub Secrets → wrangler secret put):

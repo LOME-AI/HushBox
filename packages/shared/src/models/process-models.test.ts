@@ -35,6 +35,7 @@ function createModel(overrides: Partial<Parameters<typeof processModels>[0][0]> 
     id: 'test/model',
     name: 'Test Model',
     description: 'A test model',
+    modality: 'text' as const,
     context_length: 100_000,
     pricing: { prompt: '0.001', completion: '0.002' },
     supported_parameters: ['temperature'],
@@ -45,6 +46,34 @@ function createModel(overrides: Partial<Parameters<typeof processModels>[0][0]> 
     },
     ...overrides,
   };
+}
+
+function createImageModel(overrides: Partial<Parameters<typeof processModels>[0][0]> = {}) {
+  return createModel({
+    id: 'google/imagen-4.0-generate-001',
+    name: 'Imagen 4',
+    modality: 'image',
+    context_length: 0,
+    pricing: { prompt: '0', completion: '0', per_image: '0.04' },
+    architecture: { input_modalities: ['image'], output_modalities: ['image'] },
+    ...overrides,
+  });
+}
+
+function createVideoModel(overrides: Partial<Parameters<typeof processModels>[0][0]> = {}) {
+  return createModel({
+    id: 'google/veo-3.1-generate-001',
+    name: 'Veo 3.1',
+    modality: 'video',
+    context_length: 0,
+    pricing: {
+      prompt: '0',
+      completion: '0',
+      per_second_by_resolution: { '720p': '0.4', '1080p': '0.4' },
+    },
+    architecture: { input_modalities: ['video'], output_modalities: ['video'] },
+    ...overrides,
+  });
 }
 
 describe('processModels', () => {
@@ -664,6 +693,163 @@ describe('processModels', () => {
 
       // 1 real model + 1 Smart Model entry
       expect(realModelIds(result)).toEqual(['only/model']);
+    });
+  });
+
+  describe('image modality', () => {
+    it('includes image models with flat per_image pricing', () => {
+      const models = [
+        createModel({ id: 'text/model' }),
+        createImageModel({ id: 'google/imagen-4.0-generate-001' }),
+      ];
+
+      const result = processModels(models);
+
+      const imagen = result.models.find((m) => m.id === 'google/imagen-4.0-generate-001');
+      expect(imagen).toBeDefined();
+      expect(imagen?.modality).toBe('image');
+      expect(imagen?.pricePerImage).toBeCloseTo(0.04, 6);
+      expect(imagen?.pricePerInputToken).toBe(0);
+      expect(imagen?.pricePerOutputToken).toBe(0);
+    });
+
+    it('excludes image models without per_image pricing', () => {
+      const models = [
+        createImageModel({
+          id: 'gemini/variable',
+          pricing: { prompt: '0', completion: '0' },
+        }),
+      ];
+
+      const result = processModels(models);
+
+      expect(result.models.find((m) => m.id === 'gemini/variable')).toBeUndefined();
+    });
+
+    it('excludes image models with per_image price of zero', () => {
+      const models = [
+        createImageModel({
+          id: 'free/image',
+          pricing: { prompt: '0', completion: '0', per_image: '0' },
+        }),
+      ];
+      expect(processModels(models).models.find((m) => m.id === 'free/image')).toBeUndefined();
+    });
+
+    it('marks every image model as premium', () => {
+      const models = [createImageModel({ id: 'google/imagen-4.0-generate-001' })];
+
+      const result = processModels(models);
+
+      expect(result.premiumIds).toContain('google/imagen-4.0-generate-001');
+    });
+
+    it('does not inject Smart Model for image modality', () => {
+      const models = [createImageModel({ id: 'google/imagen-4.0-generate-001' })];
+
+      const result = processModels(models);
+
+      // Smart Model only appears when the text pool is non-empty
+      expect(result.models.find((m) => m.id === SMART_MODEL_ID)).toBeUndefined();
+    });
+  });
+
+  describe('video modality', () => {
+    it('includes video models with per-resolution pricing', () => {
+      const models = [createVideoModel({ id: 'google/veo-3.1-generate-001' })];
+
+      const result = processModels(models);
+
+      const veo = result.models.find((m) => m.id === 'google/veo-3.1-generate-001');
+      expect(veo).toBeDefined();
+      expect(veo?.modality).toBe('video');
+      expect(veo?.pricePerSecondByResolution).toEqual({ '720p': 0.4, '1080p': 0.4 });
+      expect(veo?.pricePerInputToken).toBe(0);
+      expect(veo?.pricePerOutputToken).toBe(0);
+      expect(veo?.pricePerImage).toBe(0);
+    });
+
+    it('excludes video models without per_second_by_resolution', () => {
+      const models = [
+        createVideoModel({
+          id: 'bytedance/seedance',
+          pricing: { prompt: '0', completion: '0' },
+        }),
+      ];
+
+      const result = processModels(models);
+
+      expect(result.models.find((m) => m.id === 'bytedance/seedance')).toBeUndefined();
+    });
+
+    it('excludes video models with empty per_second_by_resolution', () => {
+      const models = [
+        createVideoModel({
+          id: 'empty/video',
+          pricing: { prompt: '0', completion: '0', per_second_by_resolution: {} },
+        }),
+      ];
+      expect(processModels(models).models.find((m) => m.id === 'empty/video')).toBeUndefined();
+    });
+
+    it('marks every video model as premium', () => {
+      const models = [createVideoModel({ id: 'google/veo-3.1-generate-001' })];
+
+      const result = processModels(models);
+
+      expect(result.premiumIds).toContain('google/veo-3.1-generate-001');
+    });
+
+    it('parses per-resolution prices as numbers', () => {
+      const models = [
+        createVideoModel({
+          id: 'vendor/v',
+          pricing: {
+            prompt: '0',
+            completion: '0',
+            per_second_by_resolution: { '720p': '0.15', '1080p': '0.30' },
+          },
+        }),
+      ];
+
+      const result = processModels(models);
+      const v = result.models.find((m) => m.id === 'vendor/v');
+      expect(v?.pricePerSecondByResolution).toEqual({ '720p': 0.15, '1080p': 0.3 });
+    });
+  });
+
+  describe('multi-modality combinations', () => {
+    it('returns text, image, and video models in a single array', () => {
+      const models = [
+        createModel({ id: 'text/one' }),
+        createImageModel({ id: 'image/one' }),
+        createVideoModel({ id: 'video/one' }),
+      ];
+
+      const result = processModels(models);
+      const ids = result.models.map((m) => m.id);
+
+      expect(ids).toContain('text/one');
+      expect(ids).toContain('image/one');
+      expect(ids).toContain('video/one');
+      expect(ids).toContain(SMART_MODEL_ID);
+    });
+
+    it('text and media models each classify under their own modality', () => {
+      const models = [
+        createModel({ id: 'text/one' }),
+        createImageModel({ id: 'image/one' }),
+        createVideoModel({ id: 'video/one' }),
+      ];
+
+      const result = processModels(models);
+      const text = result.models.find((m) => m.id === 'text/one');
+      const image = result.models.find((m) => m.id === 'image/one');
+      const video = result.models.find((m) => m.id === 'video/one');
+
+      expect(text?.modality).toBe('text');
+      expect(image?.modality).toBe('image');
+      expect(video?.modality).toBe('video');
     });
   });
 });

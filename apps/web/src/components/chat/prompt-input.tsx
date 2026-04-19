@@ -4,19 +4,23 @@ import {
   Bot,
   Image as ImageIcon,
   MessageSquare,
+  Mic,
   Pencil,
   Search,
   SearchX,
   Send,
   Square,
   Type,
+  Video,
   X,
 } from 'lucide-react';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@hushbox/ui';
 import { Textarea } from '@hushbox/ui';
 import type { CapabilityId, FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
+import { FEATURE_FLAGS } from '@hushbox/shared';
 import { CapacityBar } from './capacity-bar';
 import { BudgetMessages } from './budget-messages';
+import { ModalityConfigPanel } from './modality-config-panel';
 import { usePromptBudget } from '@/hooks/use-prompt-budget';
 import { useStability } from '@/providers/stability-provider';
 import { StableContent } from '@/components/shared/stable-content';
@@ -178,8 +182,8 @@ interface PromptInputProps {
   onCancelEdit?: (() => void) | undefined;
   /** Current active modality */
   activeModality?: Modality;
-  /** Called when the user toggles the modality */
-  onToggleModality?: (() => void) | undefined;
+  /** Called when the user picks a modality (via the per-modality icon buttons). */
+  onSelectModality?: ((modality: Modality) => void) | undefined;
 }
 
 const PROMPT_INPUT_DEFAULTS: Pick<
@@ -248,26 +252,54 @@ function getSearchTooltipText(
   return webSearchEnabled ? 'Internet search on' : 'Internet search off';
 }
 
-interface ModalityToggleButtonProps {
+interface ModalityIconsProps {
   activeModality: Modality;
-  onToggle?: (() => void) | undefined;
+  onSelect: (modality: Modality) => void;
 }
 
-function ModalityToggleButton({
-  activeModality,
-  onToggle,
-}: Readonly<ModalityToggleButtonProps>): React.JSX.Element {
-  const isTextMode = activeModality === 'text';
-  const tooltipText = isTextMode ? 'Switch to image generation' : 'Switch to text';
+interface ModalityIconEntry {
+  modality: Modality;
+  label: string;
+  Icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
+}
 
+const MODALITY_ICONS: readonly ModalityIconEntry[] = [
+  { modality: 'text', label: 'Switch to text', Icon: Type },
+  { modality: 'image', label: 'Switch to image generation', Icon: ImageIcon },
+  { modality: 'video', label: 'Switch to video generation', Icon: Video },
+  { modality: 'audio', label: 'Switch to audio generation', Icon: Mic },
+] as const;
+
+function isModalityAvailable(modality: Modality): boolean {
+  if (modality === 'audio') return FEATURE_FLAGS.AUDIO_ENABLED;
+  return true;
+}
+
+/**
+ * Renders one icon per non-active modality (see §9.1 of the plan).
+ * The active modality's icon is omitted. Audio is gated behind FEATURE_FLAGS.
+ */
+function ModalityIcons({
+  activeModality,
+  onSelect,
+}: Readonly<ModalityIconsProps>): React.JSX.Element {
   return (
-    <ToggleButtonWithTooltip tooltipText={tooltipText} onClick={onToggle} ariaLabel={tooltipText}>
-      {isTextMode ? (
-        <ImageIcon className="h-4 w-4" aria-hidden="true" />
-      ) : (
-        <Type className="h-4 w-4" aria-hidden="true" />
-      )}
-    </ToggleButtonWithTooltip>
+    <>
+      {MODALITY_ICONS.filter(
+        (entry) => entry.modality !== activeModality && isModalityAvailable(entry.modality)
+      ).map((entry) => (
+        <ToggleButtonWithTooltip
+          key={entry.modality}
+          tooltipText={entry.label}
+          onClick={() => {
+            onSelect(entry.modality);
+          }}
+          ariaLabel={entry.label}
+        >
+          <entry.Icon className="h-4 w-4" aria-hidden />
+        </ToggleButtonWithTooltip>
+      ))}
+    </>
   );
 }
 
@@ -301,7 +333,7 @@ function SearchToggleButton({
 interface PromptToolbarProps {
   readonly activeModality: Modality | undefined;
   readonly isAuthenticated: boolean | undefined;
-  readonly onToggleModality: (() => void) | undefined;
+  readonly onSelectModality: ((modality: Modality) => void) | undefined;
   readonly searchProps: ChatSearchProps | undefined;
   readonly isGroupChat: boolean;
   readonly aiEnabled: boolean;
@@ -311,20 +343,21 @@ interface PromptToolbarProps {
 function PromptToolbar({
   activeModality,
   isAuthenticated,
-  onToggleModality,
+  onSelectModality,
   searchProps,
   isGroupChat,
   aiEnabled,
   onToggleAi,
 }: Readonly<PromptToolbarProps>): React.JSX.Element {
-  // Modality icon is paid/free only. Trial users (isAuthenticated === false) never see it.
-  const showModality = activeModality !== undefined && isAuthenticated === true;
+  // Modality icons are paid/free only. Trial users (isAuthenticated === false) never see them.
+  const showModality =
+    activeModality !== undefined && onSelectModality !== undefined && isAuthenticated === true;
   const showSearch = searchProps !== undefined && isAuthenticated !== undefined;
 
   return (
     <>
       {showModality && (
-        <ModalityToggleButton activeModality={activeModality} onToggle={onToggleModality} />
+        <ModalityIcons activeModality={activeModality} onSelect={onSelectModality} />
       )}
       {showSearch && (
         <SearchToggleButton
@@ -365,7 +398,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
       isEditing,
       onCancelEdit,
       activeModality,
-      onToggleModality,
+      onSelectModality,
     } = { ...PROMPT_INPUT_DEFAULTS, ...rawProps };
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const [aiEnabled, setAiEnabled] = React.useState(true);
@@ -460,6 +493,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
               </Button>
             </div>
           )}
+          {activeModality !== undefined && activeModality !== 'text' && <ModalityConfigPanel />}
           <Textarea
             ref={textareaRef}
             id="prompt-input"
@@ -475,18 +509,22 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
           />
 
           <div className="border-border flex items-center justify-between gap-4 border-t px-3 py-2">
-            <CapacityBar
-              currentUsage={budget.capacityCurrentUsage}
-              maxCapacity={budget.capacityMaxCapacity}
-              className="flex-1"
-              data-testid="capacity-bar"
-            />
+            {activeModality === undefined || activeModality === 'text' ? (
+              <CapacityBar
+                currentUsage={budget.capacityCurrentUsage}
+                maxCapacity={budget.capacityMaxCapacity}
+                className="flex-1"
+                data-testid="capacity-bar"
+              />
+            ) : (
+              <div className="flex-1" />
+            )}
 
             <div className="flex items-center gap-1">
               <PromptToolbar
                 activeModality={activeModality}
                 isAuthenticated={isAuthenticated}
-                onToggleModality={onToggleModality}
+                onSelectModality={onSelectModality}
                 searchProps={searchProps}
                 isGroupChat={isGroupChat}
                 aiEnabled={aiEnabled}

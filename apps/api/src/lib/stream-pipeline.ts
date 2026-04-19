@@ -21,7 +21,6 @@ import {
   resolveBilling,
   getCushionCents,
   SMART_MODEL_ID,
-  ESTIMATED_IMAGE_BYTES,
   MEDIA_DOWNLOAD_URL_TTL_SECONDS,
   ERROR_CODE_INSUFFICIENT_BALANCE,
   ERROR_CODE_BILLING_MISMATCH,
@@ -31,7 +30,8 @@ import {
   ERROR_CODE_STREAM_ERROR,
   ERROR_CODE_BILLING_ERROR,
   parseTokenPrice,
-  mediaStorageCost,
+  computeImageExactCents,
+  computeVideoExactCents,
 } from '@hushbox/shared';
 import type { FundingSource, DenialReason, ResolveBillingInput, UserTier } from '@hushbox/shared';
 import type { AppEnv, Bindings } from '../types.js';
@@ -42,9 +42,11 @@ import { fetchModels, processModels } from '@hushbox/shared/models';
 import type {
   AIClient,
   InferenceEvent,
+  InferenceRequest,
   InferenceStream,
   TextRequest,
   ImageRequest,
+  VideoRequest,
 } from '../services/ai/index.js';
 import { eq } from 'drizzle-orm';
 import { conversations } from '@hushbox/db';
@@ -174,15 +176,6 @@ export function computeWorstCaseCents(
   outputCostPerToken: number
 ): number {
   return (estimatedInputCost + effectiveMaxOutputTokens * outputCostPerToken) * 100;
-}
-
-/**
- * Worst-case cents for an image generation reservation.
- * Flat cost: perImage × (1 + fee) + estimated storage per model.
- */
-export function computeImageWorstCaseCents(perImage: number, modelCount: number): number {
-  const perModel = applyFees(perImage) + mediaStorageCost(ESTIMATED_IMAGE_BYTES);
-  return perModel * modelCount * 100;
 }
 
 function handleBillingDenial(
@@ -465,7 +458,9 @@ export async function resolveAndReserveBilling(
   // 1. Fetch models for pricing (in-memory cached with TTL)
   const apiKey = c.env.AI_GATEWAY_API_KEY;
   if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required for streaming');
-  const gatewayModels = await fetchModels(apiKey);
+  const publicModelsUrl = c.env.PUBLIC_MODELS_URL;
+  if (!publicModelsUrl) throw new Error('PUBLIC_MODELS_URL required for streaming');
+  const gatewayModels = await fetchModels({ apiKey, publicModelsUrl });
   const allPricing = models.map((m) => lookupModelPricing(gatewayModels, m));
 
   // 1b. Resolve web search cost — sum across all models that support it
@@ -716,35 +711,46 @@ export interface ImageBillingValidationSuccess {
   worstCaseCents: number;
   groupBudget?: GroupBudgetReservation;
   billingUserId: string;
-  perImagePrice: number;
+  /**
+   * Per-image price for each selected model, keyed by model ID. The pipeline
+   * uses this map to bill each model at its own price (not the max) after
+   * generation completes.
+   */
+  perImageByModel: Map<string, number>;
 }
 
 export interface ResolveAndReserveImageBillingInput {
   billingResult: BuildBillingResult;
   userId: string;
   models: string[];
-  /** Most expensive per-image price among the selected models (pre-fee, USD). */
-  perImagePrice: number;
+  /** Actual per-image price for each selected model (pre-fee, USD). */
+  perImageByModel: Map<string, number>;
   clientFundingSource: FundingSource;
   memberContext?: MemberContext;
   conversationId?: string;
 }
 
-interface ImageBillingReservationContext {
+interface MediaBillingReservationContext {
   redis: Redis;
   c: Context<AppEnv>;
   billingResult: BuildBillingResult;
   worstCaseCents: number;
   payerTier: UserTier;
-  maxPerImage: number;
 }
 
-async function reserveImageGroupBudget(
-  ctx: ImageBillingReservationContext,
+/** Shared reservation result used by every media-modality billing resolver. */
+interface MediaReservationBase {
+  worstCaseCents: number;
+  groupBudget?: GroupBudgetReservation;
+  billingUserId: string;
+}
+
+async function reserveMediaGroupBudget(
+  ctx: MediaBillingReservationContext,
   memberContext: MemberContext,
   conversationId: string
-): Promise<ImageBillingValidationSuccess | BillingValidationFailure> {
-  const { redis, c, billingResult, worstCaseCents, payerTier, maxPerImage } = ctx;
+): Promise<MediaReservationBase | BillingValidationFailure> {
+  const { redis, c, billingResult, worstCaseCents, payerTier } = ctx;
   const groupReservation: GroupBudgetReservation = {
     conversationId,
     memberId: memberContext.memberId,
@@ -774,20 +780,18 @@ async function reserveImageGroupBudget(
     };
   }
   return {
-    success: true,
     worstCaseCents,
     groupBudget: groupReservation,
     billingUserId: memberContext.ownerId,
-    perImagePrice: maxPerImage,
   };
 }
 
-async function reserveImagePersonalBudget(
-  ctx: ImageBillingReservationContext,
+async function reserveMediaPersonalBudget(
+  ctx: MediaBillingReservationContext,
   userId: string,
   fundingSource: FundingSource
-): Promise<ImageBillingValidationSuccess | BillingValidationFailure> {
-  const { redis, c, billingResult, worstCaseCents, payerTier, maxPerImage } = ctx;
+): Promise<MediaReservationBase | BillingValidationFailure> {
+  const { redis, c, billingResult, worstCaseCents, payerTier } = ctx;
   const newTotalReserved = await reserveBudget(redis, userId, worstCaseCents);
   const availableCents =
     fundingSource === 'free_allowance'
@@ -803,38 +807,40 @@ async function reserveImagePersonalBudget(
     };
   }
   return {
-    success: true,
     worstCaseCents,
     billingUserId: userId,
-    perImagePrice: maxPerImage,
   };
 }
 
 /**
- * Resolve billing for image generation. Flat cost — no token math.
- * Computes worst-case as N × (perImage + storage) per model, reserves budget.
+ * Common pre-reservation checks shared by image/video/audio billing resolvers.
+ * Returns a validated reservation OR a failure response, letting each
+ * modality-specific caller append its own result shape.
  */
-export async function resolveAndReserveImageBilling(
+async function resolveAndReserveMediaBilling(
   c: Context<AppEnv>,
-  input: ResolveAndReserveImageBillingInput
-): Promise<ImageBillingValidationSuccess | BillingValidationFailure> {
+  input: {
+    billingResult: BuildBillingResult;
+    userId: string;
+    worstCaseCents: number;
+    clientFundingSource: FundingSource;
+    memberContext?: MemberContext;
+    conversationId?: string;
+  }
+): Promise<MediaReservationBase | BillingValidationFailure> {
   const {
     billingResult,
     userId,
-    models,
-    perImagePrice: maxPerImage,
+    worstCaseCents,
     clientFundingSource,
     memberContext,
     conversationId,
   } = input;
   const redis = c.get('redis');
 
-  // 1. Compute estimated minimum cost for billing denial check
-  const estimatedMinimumCostCents = computeImageWorstCaseCents(maxPerImage, 1);
-  billingResult.input.estimatedMinimumCostCents = estimatedMinimumCostCents;
+  billingResult.input.estimatedMinimumCostCents = worstCaseCents;
   const billingDecision = resolveBilling(billingResult.input);
 
-  // 2. Handle denial
   if (billingDecision.fundingSource === 'denied') {
     return {
       success: false,
@@ -842,7 +848,6 @@ export async function resolveAndReserveImageBilling(
     };
   }
 
-  // 3. Handle mismatch
   if (clientFundingSource !== billingDecision.fundingSource) {
     return {
       success: false,
@@ -855,10 +860,6 @@ export async function resolveAndReserveImageBilling(
     };
   }
 
-  // 4. Compute worst-case cost for all selected models
-  const worstCaseCents = computeImageWorstCaseCents(maxPerImage, models.length);
-
-  // 5. Resolve payer for group billing
   const isGroupBilling =
     billingDecision.fundingSource === 'owner_balance' && billingResult.input.group !== undefined;
   const payerTier =
@@ -866,21 +867,126 @@ export async function resolveAndReserveImageBilling(
       ? billingResult.input.group.ownerTier
       : billingResult.input.tier;
 
-  const reservationCtx: ImageBillingReservationContext = {
+  const reservationCtx: MediaBillingReservationContext = {
     redis,
     c,
     billingResult,
     worstCaseCents,
     payerTier,
-    maxPerImage,
   };
 
-  // 6. Reserve budget (group or personal)
   if (isGroupBilling && memberContext && conversationId) {
-    return reserveImageGroupBudget(reservationCtx, memberContext, conversationId);
+    return reserveMediaGroupBudget(reservationCtx, memberContext, conversationId);
   }
+  return reserveMediaPersonalBudget(reservationCtx, userId, billingDecision.fundingSource);
+}
 
-  return reserveImagePersonalBudget(reservationCtx, userId, billingDecision.fundingSource);
+/**
+ * Resolve billing for image generation. Flat cost — no token math.
+ * Reserves the exact sum of per-model prices plus per-model storage; the
+ * pipeline bills each model at its own price after generation.
+ */
+export async function resolveAndReserveImageBilling(
+  c: Context<AppEnv>,
+  input: ResolveAndReserveImageBillingInput
+): Promise<ImageBillingValidationSuccess | BillingValidationFailure> {
+  const {
+    billingResult,
+    userId,
+    perImageByModel,
+    clientFundingSource,
+    memberContext,
+    conversationId,
+  } = input;
+
+  const exactCents = computeImageExactCents([...perImageByModel.values()]);
+
+  const base = await resolveAndReserveMediaBilling(c, {
+    billingResult,
+    userId,
+    worstCaseCents: exactCents,
+    clientFundingSource,
+    ...(memberContext !== undefined && { memberContext }),
+    ...(conversationId !== undefined && { conversationId }),
+  });
+  if ('success' in base) return base;
+
+  return {
+    success: true,
+    ...base,
+    perImageByModel,
+  };
+}
+
+// ============================================================================
+// resolveAndReserveVideoBilling
+// ============================================================================
+
+export interface VideoBillingValidationSuccess {
+  success: true;
+  worstCaseCents: number;
+  groupBudget?: GroupBudgetReservation;
+  billingUserId: string;
+  /**
+   * Per-second price at the chosen resolution for each selected video model,
+   * keyed by model ID. The pipeline uses this map for per-model billing.
+   */
+  perSecondByModel: Map<string, number>;
+  durationSeconds: number;
+  resolution: string;
+}
+
+export interface ResolveAndReserveVideoBillingInput {
+  billingResult: BuildBillingResult;
+  userId: string;
+  models: string[];
+  /** Actual per-second price at the chosen resolution for each selected video model. */
+  perSecondByModel: Map<string, number>;
+  durationSeconds: number;
+  resolution: string;
+  clientFundingSource: FundingSource;
+  memberContext?: MemberContext;
+  conversationId?: string;
+}
+
+/**
+ * Resolve billing for video generation. Flat cost — no token math.
+ * Computes worst-case as N × (perSecond × duration + storage) per model, reserves budget.
+ */
+export async function resolveAndReserveVideoBilling(
+  c: Context<AppEnv>,
+  input: ResolveAndReserveVideoBillingInput
+): Promise<VideoBillingValidationSuccess | BillingValidationFailure> {
+  const {
+    billingResult,
+    userId,
+    perSecondByModel,
+    durationSeconds,
+    resolution,
+    clientFundingSource,
+    memberContext,
+    conversationId,
+  } = input;
+
+  const exactCents = computeVideoExactCents([...perSecondByModel.values()], durationSeconds);
+
+  const base = await resolveAndReserveMediaBilling(c, {
+    billingResult,
+    userId,
+    worstCaseCents: exactCents,
+    clientFundingSource,
+    ...(memberContext !== undefined && { memberContext }),
+    ...(conversationId !== undefined && { conversationId }),
+  });
+  if ('success' in base) return base;
+
+  return {
+    success: true,
+    ...base,
+    perSecondByModel,
+    durationSeconds,
+    resolution,
+  };
 }
 
 // ============================================================================
@@ -1159,13 +1265,23 @@ export interface ImagePipelineInput {
   aspectRatio?: string;
 }
 
-interface EncryptAndStoreImageResult {
+/**
+ * Per-kind pricing and output metadata for the shared media persistence helper.
+ * Discriminates the fields that vary by media kind (per-image vs per-second,
+ * dimensions vs duration) so one code path handles all media modalities.
+ */
+export type MediaPersistPricing =
+  | { kind: 'image'; perImage: number }
+  | { kind: 'video'; perSecond: number; durationSeconds: number; resolution: string }
+  | { kind: 'audio'; perSecond: number; durationSeconds: number };
+
+interface EncryptAndStoreMediaResult {
   assistantMessage: MediaAssistantMessageInput;
   contentItemId: string;
   downloadUrl: string;
 }
 
-interface EncryptAndStoreImageInput {
+interface EncryptAndStoreMediaInput {
   mediaStorage: MediaStorage;
   epochPublicKey: Uint8Array;
   conversationId: string;
@@ -1175,13 +1291,120 @@ interface EncryptAndStoreImageInput {
   mimeType: string | undefined;
   width: number | undefined;
   height: number | undefined;
-  perImagePrice: number;
+  durationMs: number | undefined;
+  pricing: MediaPersistPricing;
 }
 
-/** Encrypts a single image, stores it in R2, and returns the assistant message input. */
-async function encryptAndStoreImage(
-  input: EncryptAndStoreImageInput
-): Promise<EncryptAndStoreImageResult> {
+function defaultMimeType(kind: MediaPersistPricing['kind']): string {
+  switch (kind) {
+    case 'image': {
+      return 'image/png';
+    }
+    case 'video': {
+      return 'video/mp4';
+    }
+    case 'audio': {
+      return 'audio/mpeg';
+    }
+  }
+}
+
+function computeMediaCost(pricing: MediaPersistPricing, sizeBytes: number): number {
+  switch (pricing.kind) {
+    case 'image': {
+      return calculateMediaGenerationCost({
+        pricing: { kind: 'image', perImage: pricing.perImage },
+        sizeBytes,
+        imageCount: 1,
+      });
+    }
+    case 'video': {
+      return calculateMediaGenerationCost({
+        pricing: { kind: 'video', perSecond: pricing.perSecond },
+        sizeBytes,
+        durationSeconds: pricing.durationSeconds,
+      });
+    }
+    case 'audio': {
+      return calculateMediaGenerationCost({
+        pricing: { kind: 'audio', perSecond: pricing.perSecond },
+        sizeBytes,
+        durationSeconds: pricing.durationSeconds,
+      });
+    }
+  }
+}
+
+interface MediaStorageRef {
+  storageKey: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+interface MediaDimensions {
+  width: number | undefined;
+  height: number | undefined;
+  durationMs: number | undefined;
+}
+
+interface BuildMediaAssistantMessageInput {
+  assistantMsgId: string;
+  contentItemId: string;
+  wrappedContentKey: Uint8Array;
+  pricing: MediaPersistPricing;
+  storage: MediaStorageRef;
+  metadata: MediaDimensions;
+  modelId: string;
+  totalCost: number;
+}
+
+function buildMediaAssistantMessage(
+  input: BuildMediaAssistantMessageInput
+): MediaAssistantMessageInput {
+  const {
+    assistantMsgId,
+    contentItemId,
+    wrappedContentKey,
+    pricing,
+    storage,
+    metadata,
+    modelId,
+    totalCost,
+  } = input;
+  const kind = pricing.kind;
+  return {
+    modality: kind,
+    id: assistantMsgId,
+    wrappedContentKey,
+    contentItems: [
+      {
+        id: contentItemId,
+        contentType: kind,
+        position: 0,
+        storageKey: storage.storageKey,
+        mimeType: storage.mimeType,
+        sizeBytes: storage.sizeBytes,
+        ...(metadata.width !== undefined && { width: metadata.width }),
+        ...(metadata.height !== undefined && { height: metadata.height }),
+        ...(metadata.durationMs !== undefined && { durationMs: metadata.durationMs }),
+        modelName: modelId,
+        cost: totalCost.toFixed(8),
+        isSmartModel: false,
+      },
+    ],
+    model: modelId,
+    cost: totalCost,
+    mediaType: kind,
+    ...(kind === 'image' && { imageCount: 1 }),
+    ...(metadata.durationMs !== undefined && { durationMs: metadata.durationMs }),
+    ...(kind === 'video' && { resolution: pricing.resolution }),
+  };
+}
+
+/** Encrypts a single media item (image/video/audio), stores it in R2, and returns the assistant message input. */
+async function encryptAndStoreMedia(
+  input: EncryptAndStoreMediaInput
+): Promise<EncryptAndStoreMediaResult> {
   const {
     mediaStorage,
     epochPublicKey,
@@ -1192,7 +1415,8 @@ async function encryptAndStoreImage(
     mimeType,
     width,
     height,
-    perImagePrice,
+    durationMs,
+    pricing,
   } = input;
   const contentItemId = crypto.randomUUID();
   const storageKey = `media/${conversationId}/${assistantMsgId}/${contentItemId}.enc`;
@@ -1207,39 +1431,25 @@ async function encryptAndStoreImage(
     expiresInSec: MEDIA_DOWNLOAD_URL_TTL_SECONDS,
   });
 
-  const totalCost = calculateMediaGenerationCost({
-    pricing: { kind: 'image', perImage: perImagePrice },
-    sizeBytes: ciphertext.byteLength,
-    imageCount: 1,
-  });
+  const totalCost = computeMediaCost(pricing, ciphertext.byteLength);
 
   return {
     contentItemId,
     downloadUrl,
-    assistantMessage: {
-      modality: 'image',
-      id: assistantMsgId,
+    assistantMessage: buildMediaAssistantMessage({
+      assistantMsgId,
+      contentItemId,
       wrappedContentKey,
-      contentItems: [
-        {
-          id: contentItemId,
-          contentType: 'image',
-          position: 0,
-          storageKey,
-          mimeType: mimeType ?? 'image/png',
-          sizeBytes: ciphertext.byteLength,
-          ...(width !== undefined && { width }),
-          ...(height !== undefined && { height }),
-          modelName: modelId,
-          cost: totalCost.toFixed(8),
-          isSmartModel: false,
-        },
-      ],
-      model: modelId,
-      cost: totalCost,
-      mediaType: 'image',
-      imageCount: 1,
-    },
+      pricing,
+      storage: {
+        storageKey,
+        mimeType: mimeType ?? defaultMimeType(pricing.kind),
+        sizeBytes: ciphertext.byteLength,
+      },
+      metadata: { width, height, durationMs },
+      modelId,
+      totalCost,
+    }),
   };
 }
 
@@ -1269,38 +1479,40 @@ function filterSuccessfulMediaModels(
 /** Writes the first media error to the SSE writer when all models fail. */
 async function writeFirstMediaError(
   mediaResults: Map<string, MediaStreamResult>,
-  writer: SSEEventWriter
+  writer: SSEEventWriter,
+  noContentMessage: string
 ): Promise<void> {
   const firstError = [...mediaResults.values()].find((r) => r.error !== null)?.error;
   await writer.writeError({
-    message: firstError?.message ?? 'No image generated',
+    message: firstError?.message ?? noContentMessage,
     code: ERROR_CODE_STREAM_ERROR,
   });
 }
 
-interface ProcessImageResultsInput {
+interface ProcessMediaResultsInput {
   mediaStorage: MediaStorage;
   epochPublicKey: Uint8Array;
   conversationId: string;
-  perImagePrice: number;
+  /** Per-result pricing factory — called once per successful model result. */
+  pricingFor: (modelId: string) => MediaPersistPricing;
   getAssistantId: (modelId: string) => string;
   successfulModels: [string, MediaStreamResult][];
 }
 
-interface ProcessImageResultsOutput {
+interface ProcessMediaResultsOutput {
   assistantMessages: MediaAssistantMessageInput[];
   downloadUrls: Map<string, string>;
 }
 
-/** Encrypts and stores images for all successful models, returning assistant messages and download URLs. */
-async function processImageResults(
-  input: ProcessImageResultsInput
-): Promise<ProcessImageResultsOutput> {
+/** Encrypts and stores media for all successful models, returning assistant messages and download URLs. */
+async function processMediaResults(
+  input: ProcessMediaResultsInput
+): Promise<ProcessMediaResultsOutput> {
   const {
     mediaStorage,
     epochPublicKey,
     conversationId,
-    perImagePrice,
+    pricingFor,
     getAssistantId,
     successfulModels,
   } = input;
@@ -1310,7 +1522,7 @@ async function processImageResults(
 
   for (const [modelId, result] of successfulModels) {
     if (result.mediaBytes === undefined) continue;
-    const stored = await encryptAndStoreImage({
+    const stored = await encryptAndStoreMedia({
       mediaStorage,
       epochPublicKey,
       conversationId,
@@ -1320,13 +1532,167 @@ async function processImageResults(
       mimeType: result.mimeType,
       width: result.width,
       height: result.height,
-      perImagePrice,
+      durationMs: result.durationMs,
+      pricing: pricingFor(modelId),
     });
     assistantMessages.push(stored.assistantMessage);
     downloadUrls.set(stored.contentItemId, stored.downloadUrl);
   }
 
   return { assistantMessages, downloadUrls };
+}
+
+interface MediaPipelineInput {
+  c: Context<AppEnv>;
+  conversationId: string;
+  models: string[];
+  userMessage: { id: string; content: string };
+  prompt: string;
+  billingUserId: string;
+  groupBudget: GroupBudgetReservation | undefined;
+  memberContext: MemberContext | undefined;
+  releaseReservation: () => Promise<void>;
+  senderId: string;
+  forkId: string | undefined;
+  parentMessageId: string | null;
+  pricingFor: (modelId: string) => MediaPersistPricing;
+  buildRequest: (modelId: string) => InferenceRequest;
+  /** Message written to SSE when every model in the batch fails. */
+  noContentErrorMessage: string;
+}
+
+/**
+ * Shared pipeline for image/video/audio generation.
+ * Fans out per-model inference, encrypts results, stores in R2, persists,
+ * attaches presigned download URLs to the SSE done event.
+ */
+function executeMediaPipeline(input: MediaPipelineInput): Response {
+  const {
+    c,
+    conversationId,
+    models,
+    userMessage,
+    prompt,
+    billingUserId,
+    groupBudget,
+    memberContext,
+    releaseReservation,
+    senderId,
+    forkId,
+    parentMessageId,
+    pricingFor,
+    buildRequest,
+    noContentErrorMessage,
+  } = input;
+  const db = c.get('db');
+  const aiClient = c.get('aiClient');
+  const mediaStorage: MediaStorage = c.get('mediaStorage');
+
+  const getAssistantId = createAssistantIdLookup(models);
+
+  const primaryModel = models[0];
+  if (!primaryModel) throw new Error('invariant: models must have at least one entry');
+
+  broadcastFireAndForget(
+    c.env,
+    conversationId,
+    createEvent('message:new', {
+      messageId: userMessage.id,
+      conversationId,
+      senderType: 'user',
+      senderId,
+      content: prompt,
+    }),
+    safeExecutionCtx(c)
+  );
+
+  const streamEntries: MediaModelStreamEntry[] = models.map((modelId) => ({
+    modelId,
+    assistantMessageId: getAssistantId(modelId),
+    stream: aiClient.stream(buildRequest(modelId)),
+  }));
+
+  return streamSSE(c, async (stream) => {
+    const writer = createSSEEventWriter(stream);
+    try {
+      await writer.writeStart({
+        userMessageId: userMessage.id,
+        models: models.map((modelId) => ({
+          modelId,
+          assistantMessageId: getAssistantId(modelId),
+        })),
+      });
+
+      const mediaResults = await collectMultiMediaModelStreams(streamEntries, writer);
+      const successfulModels = filterSuccessfulMediaModels(mediaResults);
+
+      if (successfulModels.length === 0) {
+        await writeFirstMediaError(mediaResults, writer, noContentErrorMessage);
+        return;
+      }
+
+      const [conv] = await db
+        .select({ currentEpoch: conversations.currentEpoch })
+        .from(conversations)
+        .where(eq(conversations.id, conversationId));
+      const currentEpoch = conv?.currentEpoch ?? 1;
+      const { epochPublicKey } = await fetchEpochPublicKey(db, conversationId, currentEpoch);
+
+      const { assistantMessages, downloadUrls } = await processMediaResults({
+        mediaStorage,
+        epochPublicKey,
+        conversationId,
+        pricingFor,
+        getAssistantId,
+        successfulModels,
+      });
+
+      const billingPromise = saveChatTurn(db, {
+        userMessageId: userMessage.id,
+        userContent: userMessage.content,
+        conversationId,
+        userId: billingUserId,
+        senderId,
+        assistantMessages,
+        ...(memberContext !== undefined &&
+          groupBudget !== undefined && {
+            groupBillingContext: { memberId: memberContext.memberId },
+          }),
+        parentMessageId,
+        ...(forkId !== undefined && { forkId }),
+      });
+
+      const billingResult = await handleBillingResult({
+        c,
+        billingPromise,
+        assistantMessageId: getAssistantId(primaryModel),
+        userId: billingUserId,
+        senderId,
+        model: primaryModel,
+        generationId: mediaResults.get(primaryModel)?.generationId,
+      });
+
+      if (billingResult) {
+        attachDownloadUrls(billingResult, downloadUrls);
+        await broadcastAndFinish({
+          c,
+          conversationId,
+          userMessageId: userMessage.id,
+          assistantMessageId: getAssistantId(primaryModel),
+          billingResult,
+          writer,
+          modelName: primaryModel,
+        });
+      } else {
+        await writer.writeError({
+          message: 'Failed to save message',
+          code: ERROR_CODE_BILLING_ERROR,
+        });
+      }
+    } finally {
+      await releaseReservation();
+    }
+  });
 }
 
 /**
@@ -1348,126 +1714,109 @@ export function executeImagePipeline(input: ImagePipelineInput): Response {
     parentMessageId,
     aspectRatio,
   } = input;
-  const db = c.get('db');
-  const aiClient = c.get('aiClient');
-  const mediaStorage: MediaStorage = c.get('mediaStorage');
 
-  const getAssistantId = createAssistantIdLookup(models);
-
-  const primaryModel = models[0];
-  if (!primaryModel) throw new Error('invariant: models must have at least one entry');
-
-  // Early broadcast
-  broadcastFireAndForget(
-    c.env,
+  return executeMediaPipeline({
+    c,
     conversationId,
-    createEvent('message:new', {
-      messageId: userMessage.id,
-      conversationId,
-      senderType: 'user',
-      senderId,
-      content: prompt,
-    }),
-    safeExecutionCtx(c)
-  );
-
-  // Build one image stream entry per model
-  const streamEntries: MediaModelStreamEntry[] = models.map((modelId) => {
-    const imageRequest: ImageRequest = {
+    models,
+    userMessage,
+    prompt,
+    billingUserId: imageBilling.billingUserId,
+    groupBudget: imageBilling.groupBudget,
+    memberContext,
+    releaseReservation,
+    senderId,
+    forkId,
+    parentMessageId,
+    pricingFor: (modelId): MediaPersistPricing => {
+      const perImage = imageBilling.perImageByModel.get(modelId);
+      if (perImage === undefined) {
+        throw new Error(`invariant: perImageByModel missing entry for ${modelId}`);
+      }
+      return { kind: 'image', perImage };
+    },
+    buildRequest: (modelId): ImageRequest => ({
       modality: 'image',
       model: modelId,
       prompt,
       ...(aspectRatio !== undefined && { aspectRatio }),
-    };
-    return {
-      modelId,
-      assistantMessageId: getAssistantId(modelId),
-      stream: aiClient.stream(imageRequest),
-    };
+    }),
+    noContentErrorMessage: 'No image generated',
   });
+}
 
-  return streamSSE(c, async (stream) => {
-    const writer = createSSEEventWriter(stream);
-    try {
-      await writer.writeStart({
-        userMessageId: userMessage.id,
-        models: models.map((modelId) => ({
-          modelId,
-          assistantMessageId: getAssistantId(modelId),
-        })),
-      });
+// ============================================================================
+// executeVideoPipeline
+// ============================================================================
 
-      const mediaResults = await collectMultiMediaModelStreams(streamEntries, writer);
+export interface VideoPipelineInput {
+  c: Context<AppEnv>;
+  conversationId: string;
+  models: string[];
+  userMessage: { id: string; content: string };
+  prompt: string;
+  videoBilling: VideoBillingValidationSuccess;
+  memberContext?: MemberContext;
+  releaseReservation: () => Promise<void>;
+  senderId: string;
+  forkId?: string;
+  parentMessageId: string | null;
+  aspectRatio: string;
+}
 
-      const successfulModels = filterSuccessfulMediaModels(mediaResults);
+/**
+ * Execute the full video generation pipeline: generate videos from N models in parallel,
+ * encrypt, store in R2, compute costs (duration × perSecond), persist, and emit SSE done events.
+ */
+export function executeVideoPipeline(input: VideoPipelineInput): Response {
+  const {
+    c,
+    conversationId,
+    models,
+    userMessage,
+    prompt,
+    videoBilling,
+    memberContext,
+    releaseReservation,
+    senderId,
+    forkId,
+    parentMessageId,
+    aspectRatio,
+  } = input;
 
-      if (successfulModels.length === 0) {
-        await writeFirstMediaError(mediaResults, writer);
-        return;
+  return executeMediaPipeline({
+    c,
+    conversationId,
+    models,
+    userMessage,
+    prompt,
+    billingUserId: videoBilling.billingUserId,
+    groupBudget: videoBilling.groupBudget,
+    memberContext,
+    releaseReservation,
+    senderId,
+    forkId,
+    parentMessageId,
+    pricingFor: (modelId): MediaPersistPricing => {
+      const perSecond = videoBilling.perSecondByModel.get(modelId);
+      if (perSecond === undefined) {
+        throw new Error(`invariant: perSecondByModel missing entry for ${modelId}`);
       }
-
-      // Fetch epoch key for envelope creation
-      const [conv] = await db
-        .select({ currentEpoch: conversations.currentEpoch })
-        .from(conversations)
-        .where(eq(conversations.id, conversationId));
-      const currentEpoch = conv?.currentEpoch ?? 1;
-      const { epochPublicKey } = await fetchEpochPublicKey(db, conversationId, currentEpoch);
-
-      const { assistantMessages, downloadUrls } = await processImageResults({
-        mediaStorage,
-        epochPublicKey,
-        conversationId,
-        perImagePrice: imageBilling.perImagePrice,
-        getAssistantId,
-        successfulModels,
-      });
-
-      const billingPromise = saveChatTurn(db, {
-        userMessageId: userMessage.id,
-        userContent: userMessage.content,
-        conversationId,
-        userId: imageBilling.billingUserId,
-        senderId,
-        assistantMessages,
-        ...(memberContext !== undefined &&
-          imageBilling.groupBudget !== undefined && {
-            groupBillingContext: { memberId: memberContext.memberId },
-          }),
-        parentMessageId,
-        ...(forkId !== undefined && { forkId }),
-      });
-
-      const billingResult = await handleBillingResult({
-        c,
-        billingPromise,
-        assistantMessageId: getAssistantId(primaryModel),
-        userId: imageBilling.billingUserId,
-        senderId,
-        model: primaryModel,
-        generationId: mediaResults.get(primaryModel)?.generationId,
-      });
-
-      if (billingResult) {
-        attachDownloadUrls(billingResult, downloadUrls);
-
-        await broadcastAndFinish({
-          c,
-          conversationId,
-          userMessageId: userMessage.id,
-          assistantMessageId: getAssistantId(primaryModel),
-          billingResult,
-          writer,
-          modelName: primaryModel,
-        });
-      } else {
-        await writer.writeError({
-          message: 'Failed to save message',
-          code: ERROR_CODE_BILLING_ERROR,
-        });
-      }
-    } finally {
-      await releaseReservation();
-    }
+      return {
+        kind: 'video',
+        perSecond,
+        durationSeconds: videoBilling.durationSeconds,
+        resolution: videoBilling.resolution,
+      };
+    },
+    buildRequest: (modelId): VideoRequest => ({
+      modality: 'video',
+      model: modelId,
+      prompt,
+      aspectRatio,
+      durationSeconds: videoBilling.durationSeconds,
+      resolution: videoBilling.resolution,
+    }),
+    noContentErrorMessage: 'No video generated',
   });
 }

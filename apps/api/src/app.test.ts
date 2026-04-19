@@ -324,6 +324,7 @@ describe('createApp', () => {
       UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
       UPSTASH_REDIS_REST_TOKEN: 'test-token',
       AI_GATEWAY_API_KEY: 'test-key',
+      PUBLIC_MODELS_URL: 'https://test.example/v1/models',
     };
 
     it('does not return 500 for POST /api/trial/stream with valid body', async () => {

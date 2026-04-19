@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { memberPrivilegeSchema } from '../../enums.js';
-import { MAX_SELECTED_MODELS } from '../../constants.js';
+import {
+  MAX_SELECTED_MODELS,
+  IMAGE_ASPECT_RATIOS,
+  VIDEO_ASPECT_RATIOS,
+  VIDEO_RESOLUTIONS,
+  MIN_VIDEO_DURATION_SECONDS,
+  MAX_VIDEO_DURATION_SECONDS,
+} from '../../constants.js';
 
 /**
  * Request schema for creating a conversation.
@@ -69,37 +76,50 @@ const fundingSourceSchema = z.enum([
 ]);
 
 export const imageConfigSchema = z.object({
-  aspectRatio: z.enum(['1:1', '3:2', '16:9', '9:16', '4:3']).default('1:1'),
+  aspectRatio: z.enum(IMAGE_ASPECT_RATIOS).default('1:1'),
 });
 
 export type ImageConfig = z.infer<typeof imageConfigSchema>;
 
-export const streamChatRequestSchema = z.object({
-  modality: z.enum(['text', 'image']).default('text'),
-  models: z.array(z.string()).min(1).max(MAX_SELECTED_MODELS),
-  userMessage: z.object({
-    id: z.uuid(),
-    content: z.string().min(1), // plaintext — server encrypts with epoch key
-  }),
-  /**
-   * Full conversation history used as the model's prompt.
-   * When `modality === 'image'`, this is ignored by the image pipeline —
-   * only `userMessage.content` is used as the image prompt.
-   */
-  messagesForInference: z
-    .array(
-      z.object({
-        role: z.enum(['user', 'assistant', 'system']),
-        content: z.string(),
-      })
-    )
-    .min(1),
-  fundingSource: fundingSourceSchema, // client's billing claim — compared with backend's resolveBilling()
-  webSearchEnabled: z.boolean().optional(),
-  customInstructions: z.string().max(5000).optional(),
-  forkId: z.uuid().optional(),
-  imageConfig: imageConfigSchema.optional(),
+export const videoConfigSchema = z.object({
+  aspectRatio: z.enum(VIDEO_ASPECT_RATIOS),
+  durationSeconds: z.number().int().min(MIN_VIDEO_DURATION_SECONDS).max(MAX_VIDEO_DURATION_SECONDS),
+  resolution: z.enum(VIDEO_RESOLUTIONS),
 });
+
+export type VideoConfig = z.infer<typeof videoConfigSchema>;
+
+export const streamChatRequestSchema = z
+  .object({
+    modality: z.enum(['text', 'image', 'video']).default('text'),
+    models: z.array(z.string()).min(1).max(MAX_SELECTED_MODELS),
+    userMessage: z.object({
+      id: z.uuid(),
+      content: z.string().min(1), // plaintext — server encrypts with epoch key
+    }),
+    /**
+     * Full conversation history used as the model's prompt.
+     * For media modalities only `userMessage.content` is used as the prompt.
+     */
+    messagesForInference: z
+      .array(
+        z.object({
+          role: z.enum(['user', 'assistant', 'system']),
+          content: z.string(),
+        })
+      )
+      .min(1),
+    fundingSource: fundingSourceSchema, // client's billing claim — compared with backend's resolveBilling()
+    webSearchEnabled: z.boolean().optional(),
+    customInstructions: z.string().max(5000).optional(),
+    forkId: z.uuid().optional(),
+    imageConfig: imageConfigSchema.optional(),
+    videoConfig: videoConfigSchema.optional(),
+  })
+  .refine((data) => data.modality !== 'video' || data.videoConfig !== undefined, {
+    message: 'videoConfig is required when modality is "video"',
+    path: ['videoConfig'],
+  });
 
 export type StreamChatRequest = z.infer<typeof streamChatRequestSchema>;
 
