@@ -22,7 +22,7 @@
     "@hushbox/shared": "workspace:*",
     "@hushbox/ui": "workspace:*",
     "lucide-react": "^0.577.0",
-    "astro": "^5.18.0",
+    "astro": "^6.1.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "zod": "^4.3.6"
