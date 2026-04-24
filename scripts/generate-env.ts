@@ -25,13 +25,9 @@ const BUILD_VARIANTS: Record<string, Record<string, string>> = {
   },
   'build-env-web-release': {
     VITE_PLATFORM: 'web',
-    VITE_APP_VERSION: '${{ steps.version.outputs.version }}',
+    VITE_APP_VERSION: '${{ needs.prepare-version.outputs.version }}',
   },
-  'build-env-android-play': {
-    VITE_PLATFORM: 'android',
-    VITE_APP_VERSION: '${{ needs.prepare.outputs.version }}',
-  },
-  'build-env-android-apk': {
+  'build-env-android': {
     VITE_PLATFORM: '${{ inputs.vite-platform }}',
     VITE_APP_VERSION: '${{ inputs.version }}',
   },
@@ -56,7 +52,7 @@ const DEPLOY_SECRET_OVERRIDES: Record<string, string> = {
 const WORKFLOW_FILES = [
   '.github/workflows/ci.yml',
   '.github/workflows/release.yml',
-  '.github/workflows/build-android-apk.yml',
+  '.github/workflows/build-android.yml',
 ];
 
 /**

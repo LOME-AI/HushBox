@@ -1,8 +1,8 @@
 default_platform(:ios)
 
 platform :ios do
-  desc "Build and upload to App Store"
-  lane :release do
+  desc "Shared: set up CI keychain, pull signing certs, build the IPA. Returns the App Store Connect API key for the caller."
+  private_lane :build_ipa do
     setup_ci
 
     api_key = app_store_connect_api_key(
@@ -26,8 +26,22 @@ platform :ios do
       output_name: "HushBox.ipa",
     )
 
+    api_key
+  end
+
+  desc "Build IPA only (no upload) — for manual artifact retrieval"
+  lane :build do
+    build_ipa
+  end
+
+  desc "Build and upload to App Store Connect. Pass submit_for_review as true to auto-submit to App Store review (defaults to false, which means TestFlight only)."
+  lane :release do |options|
+    submit_for_review = options[:submit_for_review] || false
+    api_key = build_ipa
+
     upload_to_app_store(
       api_key: api_key,
+      submit_for_review: submit_for_review,
       skip_metadata: true,
       skip_screenshots: true,
       force: true,

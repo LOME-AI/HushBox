@@ -888,64 +888,64 @@ describe('build-env variants', () => {
     return readFileSync(path.join(TEST_DIR_VARIANTS, '.github/workflows', filename), 'utf8');
   };
 
-  describe('build-env-android-apk', () => {
+  describe('build-env-android', () => {
     it('overrides VITE_PLATFORM to inputs.vite-platform expression', () => {
       createWorkflow(
-        'build-android-apk.yml',
-        `name: APK
-        # BEGIN GENERATED: build-env-android-apk
+        'build-android.yml',
+        `name: Android
+        # BEGIN GENERATED: build-env-android
         old content
-        # END GENERATED: build-env-android-apk`
+        # END GENERATED: build-env-android`
       );
 
       updateWorkflows(TEST_DIR_VARIANTS);
 
-      const content = readWorkflow('build-android-apk.yml');
+      const content = readWorkflow('build-android.yml');
       expect(content).toContain('VITE_PLATFORM: ${{ inputs.vite-platform }}');
     });
 
     it('overrides VITE_APP_VERSION to use inputs.version', () => {
       createWorkflow(
-        'build-android-apk.yml',
-        `name: APK
-        # BEGIN GENERATED: build-env-android-apk
+        'build-android.yml',
+        `name: Android
+        # BEGIN GENERATED: build-env-android
         old content
-        # END GENERATED: build-env-android-apk`
+        # END GENERATED: build-env-android`
       );
 
       updateWorkflows(TEST_DIR_VARIANTS);
 
-      const content = readWorkflow('build-android-apk.yml');
+      const content = readWorkflow('build-android.yml');
       expect(content).toContain('VITE_APP_VERSION: ${{ inputs.version }}');
     });
 
     it('does not use VITE_APP_VERSION secret', () => {
       createWorkflow(
-        'build-android-apk.yml',
-        `name: APK
-        # BEGIN GENERATED: build-env-android-apk
+        'build-android.yml',
+        `name: Android
+        # BEGIN GENERATED: build-env-android
         old content
-        # END GENERATED: build-env-android-apk`
+        # END GENERATED: build-env-android`
       );
 
       updateWorkflows(TEST_DIR_VARIANTS);
 
-      const content = readWorkflow('build-android-apk.yml');
+      const content = readWorkflow('build-android.yml');
       expect(content).not.toContain('secrets.VITE_APP_VERSION');
     });
 
     it('does not include VITE_OPAQUE_SERVER_ID (removed, hard-coded in crypto)', () => {
       createWorkflow(
-        'build-android-apk.yml',
-        `name: APK
-        # BEGIN GENERATED: build-env-android-apk
+        'build-android.yml',
+        `name: Android
+        # BEGIN GENERATED: build-env-android
         old content
-        # END GENERATED: build-env-android-apk`
+        # END GENERATED: build-env-android`
       );
 
       updateWorkflows(TEST_DIR_VARIANTS);
 
-      const content = readWorkflow('build-android-apk.yml');
+      const content = readWorkflow('build-android.yml');
       expect(content).not.toContain('VITE_OPAQUE_SERVER_ID');
     });
   });
@@ -966,7 +966,7 @@ describe('build-env variants', () => {
       expect(content).toContain('VITE_PLATFORM: web');
     });
 
-    it('overrides VITE_APP_VERSION to use step output', () => {
+    it('overrides VITE_APP_VERSION to use prepare-version job output', () => {
       createWorkflow(
         'release.yml',
         `name: Release
@@ -978,77 +978,18 @@ describe('build-env variants', () => {
       updateWorkflows(TEST_DIR_VARIANTS);
 
       const content = readWorkflow('release.yml');
-      expect(content).toContain('VITE_APP_VERSION: ${{ steps.version.outputs.version }}');
-    });
-  });
-
-  describe('build-env-android-play', () => {
-    it('overrides VITE_PLATFORM to android', () => {
-      createWorkflow(
-        'release.yml',
-        `name: Release
-        # BEGIN GENERATED: build-env-android-play
-        old content
-        # END GENERATED: build-env-android-play`
-      );
-
-      updateWorkflows(TEST_DIR_VARIANTS);
-
-      const content = readWorkflow('release.yml');
-      expect(content).toContain('VITE_PLATFORM: android');
-    });
-
-    it('overrides VITE_APP_VERSION to use job output', () => {
-      createWorkflow(
-        'release.yml',
-        `name: Release
-        # BEGIN GENERATED: build-env-android-play
-        old content
-        # END GENERATED: build-env-android-play`
-      );
-
-      updateWorkflows(TEST_DIR_VARIANTS);
-
-      const content = readWorkflow('release.yml');
-      expect(content).toContain('VITE_APP_VERSION: ${{ needs.prepare.outputs.version }}');
+      expect(content).toContain('VITE_APP_VERSION: ${{ needs.prepare-version.outputs.version }}');
     });
   });
 
   describe('shared values across variants', () => {
     it('all variants include VITE_API_URL from envConfig', () => {
       createWorkflow(
-        'build-android-apk.yml',
-        `name: APK
-        # BEGIN GENERATED: build-env-android-apk
+        'build-android.yml',
+        `name: Android
+        # BEGIN GENERATED: build-env-android
         old
-        # END GENERATED: build-env-android-apk`
-      );
-      createWorkflow(
-        'release.yml',
-        `name: Release
-        # BEGIN GENERATED: build-env-web-release
-        old
-        # END GENERATED: build-env-web-release
-        # BEGIN GENERATED: build-env-android-play
-        old
-        # END GENERATED: build-env-android-play`
-      );
-
-      updateWorkflows(TEST_DIR_VARIANTS);
-
-      const apk = readWorkflow('build-android-apk.yml');
-      const release = readWorkflow('release.yml');
-      expect(apk).toContain('VITE_API_URL: https://api.hushbox.ai');
-      expect(release).toContain('VITE_API_URL: https://api.hushbox.ai');
-    });
-
-    it('all variants include VITE_HELCIM_JS_TOKEN from envConfig', () => {
-      createWorkflow(
-        'build-android-apk.yml',
-        `name: APK
-        # BEGIN GENERATED: build-env-android-apk
-        old
-        # END GENERATED: build-env-android-apk`
+        # END GENERATED: build-env-android`
       );
       createWorkflow(
         'release.yml',
@@ -1060,9 +1001,35 @@ describe('build-env variants', () => {
 
       updateWorkflows(TEST_DIR_VARIANTS);
 
-      const apk = readWorkflow('build-android-apk.yml');
+      const android = readWorkflow('build-android.yml');
       const release = readWorkflow('release.yml');
-      expect(apk).toContain('VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}');
+      expect(android).toContain('VITE_API_URL: https://api.hushbox.ai');
+      expect(release).toContain('VITE_API_URL: https://api.hushbox.ai');
+    });
+
+    it('all variants include VITE_HELCIM_JS_TOKEN from envConfig', () => {
+      createWorkflow(
+        'build-android.yml',
+        `name: Android
+        # BEGIN GENERATED: build-env-android
+        old
+        # END GENERATED: build-env-android`
+      );
+      createWorkflow(
+        'release.yml',
+        `name: Release
+        # BEGIN GENERATED: build-env-web-release
+        old
+        # END GENERATED: build-env-web-release`
+      );
+
+      updateWorkflows(TEST_DIR_VARIANTS);
+
+      const android = readWorkflow('build-android.yml');
+      const release = readWorkflow('release.yml');
+      expect(android).toContain(
+        'VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}'
+      );
       expect(release).toContain(
         'VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}'
       );
@@ -1097,7 +1064,7 @@ describe('build-env variants', () => {
     });
 
     it('skips missing workflow files gracefully', () => {
-      // Only create ci.yml, not release.yml or build-android-apk.yml
+      // Only create ci.yml, not release.yml or build-android.yml
       createWorkflow(
         'ci.yml',
         `name: CI

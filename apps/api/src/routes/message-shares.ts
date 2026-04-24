@@ -6,6 +6,8 @@ import {
   ERROR_CODE_INTERNAL,
   ERROR_CODE_MESSAGE_NOT_FOUND,
   ERROR_CODE_SHARE_NOT_FOUND,
+  ERROR_CODE_STORAGE_READ_FAILED,
+  publicShareContentTypeSchema,
   toBase64,
   fromBase64,
 } from '@hushbox/shared';
@@ -17,10 +19,14 @@ import {
   type ContentItem,
 } from '@hushbox/db';
 import { eq, and, asc, isNull } from 'drizzle-orm';
-import type { AppEnv } from '../types.js';
 import { requireAuth } from '../middleware/require-auth.js';
 import { getUser } from '../lib/get-user.js';
 import { createErrorResponse } from '../lib/error-response.js';
+import type { AppEnv } from '../types.js';
+import type { MediaStorage } from '../services/storage/types.js';
+import type { PublicShareContentItem } from '@hushbox/shared';
+
+const MEDIA_CONTENT_TYPES = new Set(['image', 'audio', 'video']);
 
 const createShareSchema = z.object({
   messageId: z.string(),
@@ -98,33 +104,35 @@ export const messageSharesRoute = new Hono<AppEnv>().post(
 
 /**
  * Serializes a stored content item for the public share response.
- * Strips `model_name`, `cost`, and `is_smart_model` — share recipients see
- * content, not generation metadata.
+ * Strips `model_name`, `cost`, `is_smart_model`, and the internal `storage_key` —
+ * share recipients see content, not generation metadata. For media items, mints
+ * a short-lived presigned GET URL so the client can fetch + decrypt the bytes.
  */
-function serializePublicShareContentItem(item: ContentItem): {
-  id: string;
-  contentType: 'text' | 'image' | 'audio' | 'video';
-  position: number;
-  encryptedBlob: string | null;
-  storageKey: string | null;
-  mimeType: string | null;
-  sizeBytes: number | null;
-  width: number | null;
-  height: number | null;
-  durationMs: number | null;
-} {
-  return {
+async function serializePublicShareContentItem(
+  item: ContentItem,
+  mediaStorage: MediaStorage
+): Promise<PublicShareContentItem> {
+  // DB CHECK constraint enforces the value set at write time; parsing here
+  // gives us a type-narrow and a loud failure if a rogue row ever slips through.
+  const contentType = publicShareContentTypeSchema.parse(item.contentType);
+  const base: Omit<PublicShareContentItem, 'downloadUrl' | 'expiresAt'> = {
     id: item.id,
-    contentType: item.contentType as 'text' | 'image' | 'audio' | 'video',
+    contentType,
     position: item.position,
     encryptedBlob: item.encryptedBlob ? toBase64(item.encryptedBlob) : null,
-    storageKey: item.storageKey,
     mimeType: item.mimeType,
     sizeBytes: item.sizeBytes,
     width: item.width,
     height: item.height,
     durationMs: item.durationMs,
   };
+
+  if (!MEDIA_CONTENT_TYPES.has(contentType) || !item.storageKey) {
+    return { ...base, downloadUrl: null, expiresAt: null };
+  }
+
+  const { url, expiresAt } = await mediaStorage.mintDownloadUrl({ key: item.storageKey });
+  return { ...base, downloadUrl: url, expiresAt };
 }
 
 /** Public route — GET /:shareId (mounted at /api/shares). No auth required. */
@@ -133,6 +141,7 @@ export const publicSharesRoute = new Hono<AppEnv>().get(
   zValidator('param', z.object({ shareId: z.string() })),
   async (c) => {
     const db = c.get('db');
+    const mediaStorage = c.get('mediaStorage');
     const { shareId } = c.req.valid('param');
 
     const share = await db
@@ -157,13 +166,28 @@ export const publicSharesRoute = new Hono<AppEnv>().get(
       .where(eq(contentItems.messageId, share.messageId))
       .orderBy(asc(contentItems.position));
 
+    let serializedItems: PublicShareContentItem[];
+    try {
+      serializedItems = await Promise.all(
+        items.map((item) => serializePublicShareContentItem(item, mediaStorage))
+      );
+    } catch (error) {
+      console.error('Presigned URL mint failed for share', {
+        shareId: share.id,
+        messageId: share.messageId,
+        itemCount: items.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return c.json(createErrorResponse(ERROR_CODE_STORAGE_READ_FAILED), 500);
+    }
+
     return c.json(
       {
         shareId: share.id,
         messageId: share.messageId,
         /** Wrapped content key — recipients unwrap with the shareSecret from the URL fragment. */
         wrappedShareKey: toBase64(share.wrappedShareKey),
-        contentItems: items.map((item) => serializePublicShareContentItem(item)),
+        contentItems: serializedItems,
         createdAt: share.createdAt.toISOString(),
       },
       200

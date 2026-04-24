@@ -11,14 +11,35 @@ vi.mock('../components/shared/app-shell.js', () => ({
   ),
 }));
 
+// ChatLayout is mocked for safety: the page no longer uses it after Step 9, but
+// if a stale reference slips through, we want the test to fail on the assertion,
+// not on a cascade of env-parsing side effects from the real ChatLayout tree.
 vi.mock('../components/chat/chat-layout.js', () => ({
-  ChatLayout: ({ messages, inputDisabled }: { messages: unknown[]; inputDisabled: boolean }) => (
+  ChatLayout: () => <div data-testid="chat-layout-should-not-render" />,
+}));
+
+vi.mock('../components/chat/markdown-renderer.js', () => ({
+  MarkdownRenderer: ({ content }: { content: string }) => (
+    <div data-testid="markdown-renderer">{content}</div>
+  ),
+}));
+
+vi.mock('../components/chat/shared-media-content-item.js', () => ({
+  SharedMediaContentItem: ({
+    item,
+  }: {
+    item: {
+      contentItemId: string;
+      contentType: string;
+      downloadUrl: string;
+    };
+  }) => (
     <div
-      data-testid="chat-layout"
-      data-input-disabled={String(inputDisabled)}
-      data-message-count={messages.length}
+      data-testid={`shared-media-${item.contentItemId}`}
+      data-content-type={item.contentType}
+      data-download-url={item.downloadUrl}
     >
-      Chat Layout
+      Shared media: {item.contentItemId}
     </div>
   ),
 }));
@@ -40,6 +61,17 @@ import { useSharedMessage } from '../hooks/use-shared-message.js';
 import { SharedMessagePage } from './share.m.$shareId.js';
 
 const mockUseSharedMessage = vi.mocked(useSharedMessage);
+
+type SharedMessageData = NonNullable<ReturnType<typeof useSharedMessage>['data']>;
+
+function mockData(overrides: Partial<SharedMessageData> = {}): SharedMessageData {
+  return {
+    createdAt: '2024-01-15T14:34:00Z',
+    contentKey: new Uint8Array([1, 2, 3]),
+    contentItems: [{ type: 'text', position: 0, content: 'Hello world' }],
+    ...overrides,
+  };
+}
 
 describe('SharedMessagePage', () => {
   beforeEach(() => {
@@ -102,13 +134,9 @@ describe('SharedMessagePage', () => {
     expect(screen.getByText('This share link may be invalid or expired.')).toBeInTheDocument();
   });
 
-  it('renders AppShell with ChatLayout when data loads', () => {
+  it('renders AppShell with shared message content when data loads', () => {
     mockUseSharedMessage.mockReturnValue({
-      data: {
-        content: 'Hello world',
-        createdAt: '2024-01-15T14:34:00Z',
-        author: 'alice',
-      },
+      data: mockData(),
       isLoading: false,
       isError: false,
     } as unknown as ReturnType<typeof useSharedMessage>);
@@ -116,39 +144,111 @@ describe('SharedMessagePage', () => {
     render(<SharedMessagePage />);
 
     expect(screen.getByTestId('app-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('chat-layout')).toBeInTheDocument();
+    expect(screen.getByTestId('shared-message-content')).toBeInTheDocument();
   });
 
-  it('always disables input for shared messages', () => {
+  it('renders text content items via MarkdownRenderer', () => {
     mockUseSharedMessage.mockReturnValue({
-      data: {
-        content: 'Hello world',
-        createdAt: '2024-01-15T14:34:00Z',
-        author: 'alice',
-      },
+      data: mockData({
+        contentItems: [
+          { type: 'text', position: 0, content: 'First paragraph' },
+          { type: 'text', position: 1, content: 'Second paragraph' },
+        ],
+      }),
       isLoading: false,
       isError: false,
     } as unknown as ReturnType<typeof useSharedMessage>);
 
     render(<SharedMessagePage />);
 
-    expect(screen.getByTestId('chat-layout')).toHaveAttribute('data-input-disabled', 'true');
+    const renderers = screen.getAllByTestId('markdown-renderer');
+    expect(renderers).toHaveLength(2);
+    expect(renderers[0]).toHaveTextContent('First paragraph');
+    expect(renderers[1]).toHaveTextContent('Second paragraph');
   });
 
-  it('renders single message in chat layout', () => {
+  it('renders media content items via SharedMediaContentItem', () => {
     mockUseSharedMessage.mockReturnValue({
-      data: {
-        content: 'Hello world',
-        createdAt: '2024-01-15T14:34:00Z',
-        author: 'alice',
-      },
+      data: mockData({
+        contentItems: [
+          {
+            type: 'media',
+            position: 0,
+            contentItemId: 'img-1',
+            contentType: 'image',
+            mimeType: 'image/png',
+            sizeBytes: 1024,
+            width: 512,
+            height: 512,
+            durationMs: null,
+            downloadUrl: 'https://signed.example/a',
+            expiresAt: '2026-04-19T00:05:00.000Z',
+          },
+          {
+            type: 'media',
+            position: 1,
+            contentItemId: 'vid-1',
+            contentType: 'video',
+            mimeType: 'video/mp4',
+            sizeBytes: 4096,
+            width: 1920,
+            height: 1080,
+            durationMs: 5000,
+            downloadUrl: 'https://signed.example/b',
+            expiresAt: '2026-04-19T00:05:00.000Z',
+          },
+        ],
+      }),
       isLoading: false,
       isError: false,
     } as unknown as ReturnType<typeof useSharedMessage>);
 
     render(<SharedMessagePage />);
 
-    expect(screen.getByTestId('chat-layout')).toHaveAttribute('data-message-count', '1');
+    const img = screen.getByTestId('shared-media-img-1');
+    expect(img).toHaveAttribute('data-content-type', 'image');
+    expect(img).toHaveAttribute('data-download-url', 'https://signed.example/a');
+    const vid = screen.getByTestId('shared-media-vid-1');
+    expect(vid).toHaveAttribute('data-content-type', 'video');
+  });
+
+  it('renders interleaved text and media in position order', () => {
+    mockUseSharedMessage.mockReturnValue({
+      data: mockData({
+        contentItems: [
+          { type: 'text', position: 0, content: 'before' },
+          {
+            type: 'media',
+            position: 1,
+            contentItemId: 'img-mid',
+            contentType: 'image',
+            mimeType: 'image/png',
+            sizeBytes: 1,
+            width: 1,
+            height: 1,
+            durationMs: null,
+            downloadUrl: 'https://signed.example/mid',
+            expiresAt: '2026-04-19T00:05:00.000Z',
+          },
+          { type: 'text', position: 2, content: 'after' },
+        ],
+      }),
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useSharedMessage>);
+
+    render(<SharedMessagePage />);
+
+    const container = screen.getByTestId('shared-message-content');
+    const children = [...container.children];
+    expect(children).toHaveLength(3);
+    expect(children[0]!.querySelector('[data-testid="markdown-renderer"]')?.textContent).toBe(
+      'before'
+    );
+    expect(children[1]!.querySelector('[data-testid="shared-media-img-mid"]')).not.toBeNull();
+    expect(children[2]!.querySelector('[data-testid="markdown-renderer"]')?.textContent).toBe(
+      'after'
+    );
   });
 
   it('passes hash fragment as keyBase64 to hook', () => {

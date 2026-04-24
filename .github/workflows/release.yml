@@ -2,16 +2,59 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Deploy target'
+        type: choice
+        required: true
+        options:
+          - github
+          - play_store
+          - apple_store
+          - all
+      track:
+        description: 'Release track (see validation rules)'
+        type: choice
+        required: true
+        options:
+          - production
+          - internal
+          - experimental
+          - manual
 
 permissions:
   contents: write
 
 jobs:
-  # ── Prepare: build web + extract version ────────────────
-  prepare:
+  # ── Validate (platform, track) combination ─────────────
+  # Valid:
+  #   (github, production | internal | experimental)
+  #   (play_store | apple_store, production | internal | manual)
+  #   (all, production | internal)
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
-    environment: production
+    timeout-minutes: 2
+    steps:
+      - name: Validate input combination
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          TRACK: ${{ inputs.track }}
+        run: |
+          if [ "$TRACK" = "experimental" ] && [ "$PLATFORM" != "github" ]; then
+            echo "::error::track=experimental requires platform=github (got platform=$PLATFORM)"
+            exit 1
+          fi
+          if [ "$TRACK" = "manual" ] && { [ "$PLATFORM" = "github" ] || [ "$PLATFORM" = "all" ]; }; then
+            echo "::error::track=manual requires platform=play_store or platform=apple_store (got platform=$PLATFORM)"
+            exit 1
+          fi
+          echo "OK: platform=$PLATFORM, track=$TRACK"
+
+  # ── Version extraction (needed by every downstream job) ─
+  prepare-version:
+    needs: [validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
     outputs:
       version_name: ${{ steps.version.outputs.version_name }}
       version_code: ${{ steps.version.outputs.version_code }}
@@ -21,7 +64,6 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
-
       - name: Get latest version
         id: tag
         run: |
@@ -31,13 +73,24 @@ jobs:
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
       - name: Extract version
         id: version
         run: pnpm tsx scripts/extract-version.ts
         env:
           INPUT_VERSION: ${{ steps.tag.outputs.tag }}
 
+  # ── Web build artifact (only needed by iOS path) ───────
+  prepare-web:
+    needs: [prepare-version]
+    if: |
+      (inputs.platform == 'apple_store' || inputs.platform == 'all')
+      && inputs.track != 'experimental'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
       - name: Build web
         run: pnpm build
         # BEGIN GENERATED: build-env-web-release
@@ -45,132 +98,56 @@ jobs:
           VITE_API_URL: https://api.hushbox.ai
           VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
           VITE_PLATFORM: web
-          VITE_APP_VERSION: ${{ steps.version.outputs.version }}
+          VITE_APP_VERSION: ${{ needs.prepare-version.outputs.version }}
         # END GENERATED: build-env-web-release
-
       - name: Merge marketing into web dist
         run: cp -r apps/marketing/dist/* apps/web/dist/
-
       - name: Upload web build artifact
         uses: actions/upload-artifact@v6
         with:
           name: web-dist
           path: apps/web/dist
 
-  # ── iOS: Build + App Store upload ───────────────────────
-  build-ios:
-    runs-on: macos-latest
-    timeout-minutes: 15
-    needs: [prepare]
-    environment: production
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup
-
-      - name: Download web build artifact
-        uses: actions/download-artifact@v7
-        with:
-          name: web-dist
-          path: apps/web/dist
-
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-          bundler-cache: true
-          working-directory: apps/web/ios
-
-      - name: Generate platform assets
-        working-directory: apps/web
-        run: npx @capacitor/assets generate --assetPath resources/assets --ios
-
-      - name: Sync iOS
-        working-directory: apps/web
-        run: npx cap sync ios
-
-      - name: Set iOS version
-        working-directory: apps/web/ios/App
-        run: |
-          agvtool new-marketing-version ${{ needs.prepare.outputs.version_name }}
-          agvtool new-version -all ${{ needs.prepare.outputs.version_code }}
-
-      - name: Build and upload to App Store
-        working-directory: apps/web/ios
-        run: bundle exec fastlane release
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
-          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
-
-  # ── Android Play Store: Build AAB + upload ──────────────
-  build-android-play:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [prepare]
-    environment: production
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Decode keystore
-        run: echo "$KEYSTORE_B64" | base64 -d > /tmp/hushbox-release.jks
-        env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-
-      - name: Build web for Android
-        run: pnpm --filter web build
-        # BEGIN GENERATED: build-env-android-play
-        env:
-          VITE_API_URL: https://api.hushbox.ai
-          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
-          VITE_PLATFORM: android
-          VITE_APP_VERSION: ${{ needs.prepare.outputs.version }}
-        # END GENERATED: build-env-android-play
-
-      - name: Generate platform assets
-        working-directory: apps/web
-        run: npx @capacitor/assets generate --assetPath resources/assets --android
-
-      - name: Sync Android
-        working-directory: apps/web
-        run: npx cap sync android
-
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-          bundler-cache: true
-          working-directory: apps/web/android
-
-      - name: Build and upload to Play Store
-        working-directory: apps/web/android
-        run: bundle exec fastlane play_store
-        env:
-          PLAY_STORE_JSON_KEY: ${{ secrets.PLAY_STORE_JSON_KEY }}
-          ANDROID_KEYSTORE_PATH: /tmp/hushbox-release.jks
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
-          VERSION_NAME: ${{ needs.prepare.outputs.version_name }}
-
-  # ── Android Obtainium: Build APK + GitHub Release ───────
-  build-android-obtainium:
-    needs: [prepare]
-    uses: ./.github/workflows/build-android-apk.yml
+  # ── iOS: TestFlight / App Store submit / IPA artifact ──
+  ios:
+    needs: [prepare-version, prepare-web]
+    if: |
+      (inputs.platform == 'apple_store' || inputs.platform == 'all')
+      && inputs.track != 'experimental'
+    uses: ./.github/workflows/build-ios.yml
     with:
-      version-name: ${{ needs.prepare.outputs.version_name }}
-      version-code: ${{ needs.prepare.outputs.version_code }}
-      version: ${{ needs.prepare.outputs.version }}
-      prerelease: false
-      vite-platform: android-direct
+      version-name: ${{ needs.prepare-version.outputs.version_name }}
+      version-code: ${{ needs.prepare-version.outputs.version_code }}
+      output: ${{ inputs.track == 'production' && 'app-store-submit' || inputs.track == 'manual' && 'ipa-artifact' || 'testflight' }}
+    secrets: inherit
+
+  # ── Android Play Store: AAB → track or artifact ────────
+  android-play:
+    needs: [prepare-version]
+    if: |
+      (inputs.platform == 'play_store' || inputs.platform == 'all')
+      && inputs.track != 'experimental'
+    uses: ./.github/workflows/build-android.yml
+    with:
+      version-name: ${{ needs.prepare-version.outputs.version_name }}
+      version-code: ${{ needs.prepare-version.outputs.version_code }}
+      version: ${{ needs.prepare-version.outputs.version }}
+      vite-platform: android
+      output: ${{ inputs.track == 'manual' && 'aab-artifact' || 'aab-play-upload' }}
+      play-track: ${{ inputs.track == 'production' && 'production' || 'internal' }}
+    secrets: inherit
+
+  # ── Android GitHub: APK + Release (production/internal/experimental) ─
+  android-github:
+    needs: [prepare-version]
+    if: inputs.platform == 'github' || inputs.platform == 'all'
+    uses: ./.github/workflows/build-android.yml
+    with:
+      version-name: ${{ needs.prepare-version.outputs.version_name }}
+      version-code: ${{ needs.prepare-version.outputs.version_code }}
+      version: ${{ needs.prepare-version.outputs.version }}
+      vite-platform: ${{ inputs.track == 'internal' && 'android' || 'android-direct' }}
+      output: apk-github-release
+      github-release-prerelease: ${{ inputs.track != 'production' }}
+      github-release-title-suffix: ${{ inputs.track == 'internal' && ' (Internal)' || inputs.track == 'experimental' && ' (Experimental)' || '' }}
     secrets: inherit

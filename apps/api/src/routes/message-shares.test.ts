@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Hono } from 'hono';
 import { toBase64 } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
+import type { MediaStorage } from '../services/storage/types.js';
 import { messageSharesRoute, publicSharesRoute } from './message-shares.js';
 
 const TEST_USER_ID = 'user-share-001';
@@ -182,10 +183,27 @@ function createGetShareMockDb(config: GetShareMockDbConfig): unknown {
 interface GetShareTestAppOptions {
   user?: AppEnv['Variables']['user'] | null;
   dbConfig?: GetShareMockDbConfig;
+  mediaStorage?: MediaStorage;
+}
+
+function createStubMediaStorage(overrides: Partial<MediaStorage> = {}): MediaStorage {
+  const mint = vi.fn<MediaStorage['mintDownloadUrl']>((params) =>
+    Promise.resolve({
+      url: `https://signed.example/${params.key}`,
+      expiresAt: '2026-04-19T00:05:00.000Z',
+    })
+  );
+  return {
+    isMock: true,
+    put: vi.fn(() => Promise.resolve()),
+    delete: vi.fn(() => Promise.resolve()),
+    mintDownloadUrl: mint,
+    ...overrides,
+  };
 }
 
 function createGetShareTestApp(options: GetShareTestAppOptions = {}): Hono<AppEnv> {
-  const { user = null, dbConfig = {} } = options;
+  const { user = null, dbConfig = {}, mediaStorage = createStubMediaStorage() } = options;
   const app = new Hono<AppEnv>();
 
   app.use('*', async (c, next) => {
@@ -194,6 +212,7 @@ function createGetShareTestApp(options: GetShareTestAppOptions = {}): Hono<AppEn
     c.set('session', user ? createMockSession() : null);
     c.set('sessionData', null);
     c.set('db', createGetShareMockDb(dbConfig) as AppEnv['Variables']['db']);
+    c.set('mediaStorage', mediaStorage);
     await next();
   });
 
@@ -425,6 +444,179 @@ describe('message-shares routes', () => {
       expect(res.status).toBe(200);
       const body = await res.json<{ shareId: string }>();
       expect(body.shareId).toBe(TEST_SHARE_ID);
+    });
+
+    it('mints a presigned downloadUrl for each media content item and strips storageKey', async () => {
+      const createdAt = new Date('2025-07-01T12:00:00.000Z');
+      const mintMock = vi.fn<MediaStorage['mintDownloadUrl']>((params) =>
+        Promise.resolve({
+          url: `https://signed.example/${params.key}?sig=abc`,
+          expiresAt: '2026-04-19T00:05:00.000Z',
+        })
+      );
+      const mediaStorage = createStubMediaStorage({ mintDownloadUrl: mintMock });
+
+      const app = createGetShareTestApp({
+        mediaStorage,
+        dbConfig: {
+          share: {
+            id: TEST_SHARE_ID,
+            messageId: TEST_MESSAGE_ID,
+            wrappedShareKey: TEST_WRAPPED_SHARE_KEY,
+            createdAt,
+          },
+          contentItems: [
+            {
+              id: 'ci-img',
+              messageId: TEST_MESSAGE_ID,
+              contentType: 'image',
+              position: 0,
+              encryptedBlob: null,
+              storageKey: 'media/conv/msg/img-1.enc',
+              mimeType: 'image/png',
+              sizeBytes: 2048,
+              width: 1024,
+              height: 1024,
+              durationMs: null,
+              modelName: 'google/imagen-4',
+              cost: '0.00400000',
+              isSmartModel: false,
+            },
+            {
+              id: 'ci-vid',
+              messageId: TEST_MESSAGE_ID,
+              contentType: 'video',
+              position: 1,
+              encryptedBlob: null,
+              storageKey: 'media/conv/msg/vid-1.enc',
+              mimeType: 'video/mp4',
+              sizeBytes: 4096,
+              width: 1920,
+              height: 1080,
+              durationMs: 5000,
+              modelName: 'google/veo-3.1',
+              cost: '0.50000000',
+              isSmartModel: false,
+            },
+          ],
+        },
+      });
+
+      const res = await app.request(`/${TEST_SHARE_ID}`);
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{
+        contentItems: {
+          id: string;
+          contentType: string;
+          downloadUrl?: string | null;
+          expiresAt?: string | null;
+          storageKey?: unknown;
+          modelName?: unknown;
+          cost?: unknown;
+          isSmartModel?: unknown;
+        }[];
+      }>();
+
+      expect(mintMock).toHaveBeenCalledTimes(2);
+      expect(mintMock).toHaveBeenCalledWith({ key: 'media/conv/msg/img-1.enc' });
+      expect(mintMock).toHaveBeenCalledWith({ key: 'media/conv/msg/vid-1.enc' });
+
+      const img = body.contentItems.find((item) => item.id === 'ci-img');
+      const vid = body.contentItems.find((item) => item.id === 'ci-vid');
+      expect(img?.downloadUrl).toBe('https://signed.example/media/conv/msg/img-1.enc?sig=abc');
+      expect(img?.expiresAt).toBe('2026-04-19T00:05:00.000Z');
+      expect(vid?.downloadUrl).toBe('https://signed.example/media/conv/msg/vid-1.enc?sig=abc');
+      expect(vid?.expiresAt).toBe('2026-04-19T00:05:00.000Z');
+
+      // storageKey is stripped from the public response (internal detail once downloadUrl exists).
+      expect(img).not.toHaveProperty('storageKey');
+      expect(vid).not.toHaveProperty('storageKey');
+
+      // Sensitive generation metadata is stripped.
+      expect(img).not.toHaveProperty('modelName');
+      expect(img).not.toHaveProperty('cost');
+      expect(img).not.toHaveProperty('isSmartModel');
+    });
+
+    it('does not mint a downloadUrl for text content items', async () => {
+      const createdAt = new Date('2025-07-01T12:00:00.000Z');
+      const mintMock = vi.fn<MediaStorage['mintDownloadUrl']>(() =>
+        Promise.resolve({ url: 'should-not-be-called', expiresAt: 'x' })
+      );
+      const mediaStorage = createStubMediaStorage({ mintDownloadUrl: mintMock });
+
+      const app = createGetShareTestApp({
+        mediaStorage,
+        dbConfig: {
+          share: {
+            id: TEST_SHARE_ID,
+            messageId: TEST_MESSAGE_ID,
+            wrappedShareKey: TEST_WRAPPED_SHARE_KEY,
+            createdAt,
+          },
+          contentItems: defaultContentItems,
+        },
+      });
+
+      const res = await app.request(`/${TEST_SHARE_ID}`);
+
+      expect(res.status).toBe(200);
+      expect(mintMock).not.toHaveBeenCalled();
+      const body = await res.json<{
+        contentItems: {
+          contentType: string;
+          downloadUrl?: string | null;
+          expiresAt?: string | null;
+        }[];
+      }>();
+      const text = body.contentItems[0]!;
+      expect(text.contentType).toBe('text');
+      expect(text.downloadUrl ?? null).toBeNull();
+      expect(text.expiresAt ?? null).toBeNull();
+    });
+
+    it('returns 500 when presigned URL minting fails', async () => {
+      const createdAt = new Date('2025-07-01T12:00:00.000Z');
+      const mintMock = vi.fn<MediaStorage['mintDownloadUrl']>(() =>
+        Promise.reject(new Error('R2 unreachable'))
+      );
+      const mediaStorage = createStubMediaStorage({ mintDownloadUrl: mintMock });
+
+      const app = createGetShareTestApp({
+        mediaStorage,
+        dbConfig: {
+          share: {
+            id: TEST_SHARE_ID,
+            messageId: TEST_MESSAGE_ID,
+            wrappedShareKey: TEST_WRAPPED_SHARE_KEY,
+            createdAt,
+          },
+          contentItems: [
+            {
+              id: 'ci-img',
+              messageId: TEST_MESSAGE_ID,
+              contentType: 'image',
+              position: 0,
+              encryptedBlob: null,
+              storageKey: 'media/conv/msg/img-1.enc',
+              mimeType: 'image/png',
+              sizeBytes: 2048,
+              width: 1024,
+              height: 1024,
+              durationMs: null,
+              modelName: null,
+              cost: null,
+              isSmartModel: false,
+            },
+          ],
+        },
+      });
+
+      const res = await app.request(`/${TEST_SHARE_ID}`);
+      expect(res.status).toBe(500);
+      const body = await res.json<ErrorBody>();
+      expect(body.code).toBe('STORAGE_READ_FAILED');
     });
   });
 });

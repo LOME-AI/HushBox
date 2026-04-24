@@ -131,6 +131,10 @@ async function captureScreenshot(
     storageState: storageStatePath,
     viewport: { width: resolution.cssWidth, height: resolution.cssHeight },
     deviceScaleFactor: resolution.dpr,
+    // Make `(pointer: coarse)` match so useIsTouchDevice() returns true and
+    // overlays render as bottom sheets instead of desktop dialogs.
+    hasTouch: true,
+    isMobile: true,
   });
   const page = await context.newPage();
 
@@ -200,10 +204,16 @@ async function authenticateAsAlice(
  * These run after navigating to the conversation URL.
  */
 async function scrollChatToTop(page: import('playwright').Page): Promise<void> {
-  const messageList = page.getByRole('log', { name: 'Chat messages' });
-  await messageList.evaluate((el: { scrollTop: number }) => {
+  // The role=log wrapper is not the scroller — Virtuoso's viewport is the
+  // inner [data-slot="scroll-area-viewport"] div (see message-list.tsx Scroller).
+  const viewport = page
+    .getByRole('log', { name: 'Chat messages' })
+    .locator('[data-slot="scroll-area-viewport"]');
+  await viewport.evaluate((el: { scrollTop: number }) => {
     el.scrollTop = 0;
   });
+  // Let Virtuoso settle after the scroll before the screenshot is taken.
+  await page.waitForTimeout(100);
 }
 
 async function runScreenshotSetup(

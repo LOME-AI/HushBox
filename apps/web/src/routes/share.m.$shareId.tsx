@@ -3,14 +3,9 @@ import { useMemo } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { AlertTriangle } from 'lucide-react';
 import { AppShell } from '../components/shared/app-shell.js';
-import { ChatLayout } from '../components/chat/chat-layout.js';
+import { MarkdownRenderer } from '../components/chat/markdown-renderer.js';
+import { SharedMediaContentItem } from '../components/chat/shared-media-content-item.js';
 import { useSharedMessage } from '../hooks/use-shared-message.js';
-
-interface SharedMessageData {
-  content: string;
-  createdAt: string;
-  author: string;
-}
 
 export const Route = createFileRoute('/share/m/$shareId')({
   component: SharedMessagePage,
@@ -21,7 +16,6 @@ export function SharedMessagePage(): React.JSX.Element {
   const keyBase64 = useMemo(() => globalThis.location.hash.slice(1) || null, []);
 
   const { data, isLoading, isError } = useSharedMessage(shareId, keyBase64);
-  const messageData = data as SharedMessageData | undefined;
 
   if (isLoading) {
     return (
@@ -31,7 +25,7 @@ export function SharedMessagePage(): React.JSX.Element {
     );
   }
 
-  if (isError || !messageData) {
+  if (isError || !data) {
     return (
       <AppShell>
         <div data-testid="shared-message-error" className="flex flex-1 items-center justify-center">
@@ -47,32 +41,35 @@ export function SharedMessagePage(): React.JSX.Element {
     );
   }
 
-  const singleMessage = {
-    id: `shared-${shareId}`,
-    conversationId: '',
-    role: 'assistant' as const,
-    content: messageData.content,
-    createdAt: messageData.createdAt,
-  };
-
   return (
     <AppShell>
-      <ChatLayout
-        title="Shared Message"
-        messages={[singleMessage]}
-        streamingMessageIds={new Set<string>()}
-        inputDisabled={true}
-        isProcessing={false}
-        isAuthenticated={false}
-        inputValue=""
-        onInputChange={() => {
-          /* noop — read-only shared view */
-        }}
-        onSubmit={() => {
-          /* noop — read-only shared view */
-        }}
-        historyCharacters={0}
-      />
+      <div className="flex flex-1 flex-col overflow-y-auto px-4 py-8">
+        <div className="mx-auto w-full max-w-2xl">
+          <h1 className="mb-6 text-lg font-semibold">Shared Message</h1>
+          <div
+            data-testid="shared-message-content"
+            className="bg-card flex flex-col gap-4 rounded-md border p-4"
+          >
+            {data.contentItems.map((item) => {
+              if (item.type === 'text') {
+                return (
+                  <div
+                    key={`text-${String(item.position)}`}
+                    className="prose dark:prose-invert max-w-none"
+                  >
+                    <MarkdownRenderer content={item.content} />
+                  </div>
+                );
+              }
+              return (
+                <div key={item.contentItemId}>
+                  <SharedMediaContentItem item={item} contentKey={data.contentKey} />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </AppShell>
   );
 }

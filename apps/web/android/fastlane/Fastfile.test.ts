@@ -16,43 +16,82 @@ describe('Android Fastfile', () => {
     expect(content).toContain('default_platform(:android)');
   });
 
-  it('defines a play_store lane', () => {
+  it('defines a build_aab lane', () => {
     const content = readFastfile();
-    expect(content).toContain('lane :play_store do');
+    expect(content).toContain('lane :build_aab do');
   });
 
-  it('defines a github_release lane', () => {
+  it('defines a build_apk lane', () => {
     const content = readFastfile();
-    expect(content).toContain('lane :github_release do');
+    expect(content).toContain('lane :build_apk do');
   });
 
-  it('builds AAB with bundle task for Play Store', () => {
+  it('defines an upload_aab lane that accepts options', () => {
     const content = readFastfile();
-    expect(content).toContain('task: "bundle"');
-    expect(content).toContain('build_type: "Release"');
+    expect(content).toMatch(/lane :upload_aab do \|\w+\|/);
   });
 
-  it('uploads to Play Store production track', () => {
+  it('build_aab uses gradle bundle task with Release build type', () => {
     const content = readFastfile();
-    expect(content).toContain('upload_to_play_store(');
-    expect(content).toContain('track: "production"');
+    const buildAabLane = extractLane(content, 'build_aab');
+    expect(buildAabLane).toContain('task: "bundle"');
+    expect(buildAabLane).toContain('build_type: "Release"');
   });
 
-  it('reads Play Store JSON key from environment', () => {
+  it('build_apk uses gradle assemble task with Release build type', () => {
     const content = readFastfile();
-    expect(content).toContain('ENV["PLAY_STORE_JSON_KEY"]');
+    const buildApkLane = extractLane(content, 'build_apk');
+    expect(buildApkLane).toContain('task: "assemble"');
+    expect(buildApkLane).toContain('build_type: "Release"');
   });
 
-  it('builds APK with assemble task for GitHub Release', () => {
+  it('upload_aab reads track from options with production default', () => {
     const content = readFastfile();
-    expect(content).toContain('task: "assemble"');
+    const uploadLane = extractLane(content, 'upload_aab');
+    expect(uploadLane).toMatch(/\[:track\]\s*\|\|\s*"production"/);
   });
 
-  it('skips metadata and screenshot uploads', () => {
+  it('upload_aab passes track through to upload_to_play_store', () => {
     const content = readFastfile();
-    expect(content).toContain('skip_upload_metadata: true');
-    expect(content).toContain('skip_upload_images: true');
-    expect(content).toContain('skip_upload_screenshots: true');
+    const uploadLane = extractLane(content, 'upload_aab');
+    expect(uploadLane).toContain('upload_to_play_store(');
+    expect(uploadLane).toMatch(/track:\s*track/);
+  });
+
+  it('upload_aab reads Play Store JSON key from environment', () => {
+    const content = readFastfile();
+    const uploadLane = extractLane(content, 'upload_aab');
+    expect(uploadLane).toContain('ENV["PLAY_STORE_JSON_KEY"]');
+  });
+
+  it('upload_aab points at the AAB produced by build_aab', () => {
+    const content = readFastfile();
+    const uploadLane = extractLane(content, 'upload_aab');
+    expect(uploadLane).toContain('app/build/outputs/bundle/release/app-release.aab');
+  });
+
+  it('upload_aab skips metadata, image, and screenshot uploads', () => {
+    const content = readFastfile();
+    const uploadLane = extractLane(content, 'upload_aab');
+    expect(uploadLane).toContain('skip_upload_metadata: true');
+    expect(uploadLane).toContain('skip_upload_images: true');
+    expect(uploadLane).toContain('skip_upload_screenshots: true');
+  });
+
+  it('does not reference the retired play_store lane', () => {
+    const content = readFastfile();
+    expect(content).not.toMatch(/lane :play_store\b/);
+  });
+
+  it('does not reference the retired github_release lane', () => {
+    const content = readFastfile();
+    expect(content).not.toMatch(/lane :github_release\b/);
+  });
+
+  it('does not hardcode any single track value at the call site', () => {
+    const content = readFastfile();
+    expect(content).not.toMatch(/track:\s*"production"/);
+    expect(content).not.toMatch(/track:\s*"internal"/);
   });
 });
 
@@ -129,3 +168,31 @@ describe('Android build.gradle', () => {
     expect(content).toContain('VERSION_NAME environment variable is required');
   });
 });
+
+function extractLane(content: string, laneName: string): string {
+  const startPattern = new RegExp(`lane :${laneName} do(?:\\s*\\|[^|]*\\|)?`);
+  const startMatch = startPattern.exec(content);
+  if (!startMatch) {
+    throw new Error(`Lane :${laneName} not found in Fastfile`);
+  }
+  const body = content.slice(startMatch.index + startMatch[0].length);
+  let depth = 1;
+  let i = 0;
+  while (i < body.length && depth > 0) {
+    if (body.startsWith('do', i) || body.startsWith('do\n', i) || body.startsWith('do ', i)) {
+      depth += 1;
+      i += 2;
+      continue;
+    }
+    if (body.startsWith('end', i) && (body[i + 3] === '\n' || body[i + 3] === ' ' || i + 3 === body.length)) {
+      depth -= 1;
+      if (depth === 0) {
+        return body.slice(0, i);
+      }
+      i += 3;
+      continue;
+    }
+    i += 1;
+  }
+  throw new Error(`Could not find matching end for lane :${laneName}`);
+}

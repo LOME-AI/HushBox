@@ -60,22 +60,25 @@ function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
   return Wrapper;
 }
 
+interface SharePayloadContentItem {
+  id: string;
+  contentType: 'text' | 'image' | 'audio' | 'video';
+  position: number;
+  encryptedBlob?: string | null;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  durationMs?: number | null;
+  downloadUrl?: string | null;
+  expiresAt?: string | null;
+}
+
 interface SharePayloadOverrides {
   shareId?: string;
   messageId?: string;
   wrappedShareKey?: string;
-  contentItems?: {
-    id: string;
-    contentType: 'text' | 'image' | 'audio' | 'video';
-    position: number;
-    encryptedBlob?: string | null;
-    storageKey?: string | null;
-    mimeType?: string | null;
-    sizeBytes?: number | null;
-    width?: number | null;
-    height?: number | null;
-    durationMs?: number | null;
-  }[];
+  contentItems?: SharePayloadContentItem[];
   createdAt?: string;
 }
 
@@ -90,12 +93,13 @@ function sharePayload(overrides: SharePayloadOverrides = {}): Record<string, unk
         contentType: 'text',
         position: 0,
         encryptedBlob: 'ciphertext-b64',
-        storageKey: null,
         mimeType: null,
         sizeBytes: null,
         width: null,
         height: null,
         durationMs: null,
+        downloadUrl: null,
+        expiresAt: null,
       },
     ],
     createdAt: overrides.createdAt ?? '2026-01-15T10:00:00Z',
@@ -145,7 +149,7 @@ describe('useSharedMessage', () => {
     });
   });
 
-  it('unwraps the share key, decrypts each text content item, and joins them', async () => {
+  it('decrypts each text content item into a structured text entry in position order', async () => {
     const shareSecret = new Uint8Array([1, 1]);
     const contentKey = new Uint8Array([2, 2]);
 
@@ -154,10 +158,12 @@ describe('useSharedMessage', () => {
       return new TextEncoder().encode(b64);
     });
     mockOpenShare.mockReturnValue(contentKey);
+    // Hook sorts by position BEFORE decrypting, so the mock is called in
+    // position order (0, 1, 2) regardless of input order.
     mockDecryptTextWithContentKey
       .mockReturnValueOnce('first')
-      .mockReturnValueOnce(' second')
-      .mockReturnValueOnce(' third');
+      .mockReturnValueOnce('second')
+      .mockReturnValueOnce('third');
 
     mockFetchJson.mockResolvedValue(
       sharePayload({
@@ -168,36 +174,18 @@ describe('useSharedMessage', () => {
             contentType: 'text',
             position: 0,
             encryptedBlob: 'blob-1',
-            storageKey: null,
-            mimeType: null,
-            sizeBytes: null,
-            width: null,
-            height: null,
-            durationMs: null,
-          },
-          {
-            id: 'ci-2',
-            contentType: 'text',
-            position: 1,
-            encryptedBlob: 'blob-2',
-            storageKey: null,
-            mimeType: null,
-            sizeBytes: null,
-            width: null,
-            height: null,
-            durationMs: null,
           },
           {
             id: 'ci-3',
             contentType: 'text',
             position: 2,
             encryptedBlob: 'blob-3',
-            storageKey: null,
-            mimeType: null,
-            sizeBytes: null,
-            width: null,
-            height: null,
-            durationMs: null,
+          },
+          {
+            id: 'ci-2',
+            contentType: 'text',
+            position: 1,
+            encryptedBlob: 'blob-2',
           },
         ],
         createdAt: '2026-02-01T00:00:00Z',
@@ -223,10 +211,152 @@ describe('useSharedMessage', () => {
     const firstCallKey = mockDecryptTextWithContentKey.mock.calls[0]![0];
     expect(firstCallKey).toBe(contentKey);
 
-    expect(result.current.data).toEqual({
-      content: 'first second third',
-      createdAt: '2026-02-01T00:00:00Z',
+    // Structured output, ordered by `position`, using each item's decrypted text.
+    expect(result.current.data?.createdAt).toBe('2026-02-01T00:00:00Z');
+    expect(result.current.data?.contentItems).toEqual([
+      { type: 'text', position: 0, content: 'first' },
+      { type: 'text', position: 1, content: 'second' },
+      { type: 'text', position: 2, content: 'third' },
+    ]);
+    // contentKey exposed so downstream components can decrypt media with it.
+    expect(result.current.data?.contentKey).toBe(contentKey);
+  });
+
+  it('returns media items with downloadUrl, mimeType, and metadata in position order', async () => {
+    const contentKey = new Uint8Array([9, 9]);
+    mockOpenShare.mockReturnValue(contentKey);
+    mockDecryptTextWithContentKey.mockReturnValue('caption');
+
+    mockFetchJson.mockResolvedValue(
+      sharePayload({
+        contentItems: [
+          {
+            id: 'ci-text',
+            contentType: 'text',
+            position: 0,
+            encryptedBlob: 'txt',
+          },
+          {
+            id: 'ci-img',
+            contentType: 'image',
+            position: 1,
+            mimeType: 'image/png',
+            sizeBytes: 2048,
+            width: 1024,
+            height: 1024,
+            durationMs: null,
+            downloadUrl: 'https://signed.example/img?sig=a',
+            expiresAt: '2026-04-19T00:05:00.000Z',
+            encryptedBlob: null,
+          },
+          {
+            id: 'ci-vid',
+            contentType: 'video',
+            position: 2,
+            mimeType: 'video/mp4',
+            sizeBytes: 4096,
+            width: 1920,
+            height: 1080,
+            durationMs: 5000,
+            downloadUrl: 'https://signed.example/vid?sig=b',
+            expiresAt: '2026-04-19T00:05:00.000Z',
+            encryptedBlob: null,
+          },
+        ],
+      })
+    );
+
+    const { useSharedMessage } = await import('./use-shared-message.js');
+    const { result } = renderHook(() => useSharedMessage('share-2', 'key'), {
+      wrapper: createWrapper(),
     });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.data?.contentItems).toEqual([
+      { type: 'text', position: 0, content: 'caption' },
+      {
+        type: 'media',
+        position: 1,
+        contentItemId: 'ci-img',
+        contentType: 'image',
+        mimeType: 'image/png',
+        sizeBytes: 2048,
+        width: 1024,
+        height: 1024,
+        durationMs: null,
+        downloadUrl: 'https://signed.example/img?sig=a',
+        expiresAt: '2026-04-19T00:05:00.000Z',
+      },
+      {
+        type: 'media',
+        position: 2,
+        contentItemId: 'ci-vid',
+        contentType: 'video',
+        mimeType: 'video/mp4',
+        sizeBytes: 4096,
+        width: 1920,
+        height: 1080,
+        durationMs: 5000,
+        downloadUrl: 'https://signed.example/vid?sig=b',
+        expiresAt: '2026-04-19T00:05:00.000Z',
+      },
+    ]);
+    // Text decrypt runs; media items are not symmetric-decrypted in the hook.
+    expect(mockDecryptTextWithContentKey).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips media items that are missing downloadUrl (degraded response)', async () => {
+    mockOpenShare.mockReturnValue(new Uint8Array([7]));
+    mockDecryptTextWithContentKey.mockReturnValue('t');
+
+    mockFetchJson.mockResolvedValue(
+      sharePayload({
+        contentItems: [
+          {
+            id: 'ci-text',
+            contentType: 'text',
+            position: 0,
+            encryptedBlob: 'blob',
+          },
+          {
+            id: 'ci-broken',
+            contentType: 'image',
+            position: 1,
+            mimeType: 'image/png',
+            sizeBytes: 1,
+            width: 1,
+            height: 1,
+            durationMs: null,
+            downloadUrl: null,
+            expiresAt: null,
+            encryptedBlob: null,
+          },
+        ],
+      })
+    );
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { useSharedMessage } = await import('./use-shared-message.js');
+    const { result } = renderHook(() => useSharedMessage('share-3', 'key'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.data?.contentItems).toHaveLength(1);
+    expect(result.current.data?.contentItems[0]!.type).toBe('text');
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Skipping malformed shared media item',
+      expect.objectContaining({ id: 'ci-broken' })
+    );
+
+    warnSpy.mockRestore();
   });
 
   it('propagates errors from fetchJson', async () => {
