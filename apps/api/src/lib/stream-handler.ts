@@ -4,6 +4,8 @@
  * Provides typed event writers for SSE streams used by chat endpoints.
  */
 
+import type { StageDonePayload, StageErrorPayload, StageStartPayload } from '@hushbox/shared';
+
 export interface SSEStream {
   writeSSE: (event: { event: string; data: string }) => Promise<void>;
   onAbort: (handler: () => void) => void;
@@ -96,6 +98,16 @@ export interface DoneEventData {
   models?: DoneModelEntry[];
 }
 
+/**
+ * Wrapper for the stage:done payload — the discriminated union itself
+ * carries the stageId, while the wrapper carries the assistantMessageId so
+ * the frontend can correlate the event to a specific row in the UI.
+ */
+export interface StageDoneEventData {
+  assistantMessageId: string;
+  payload: StageDonePayload;
+}
+
 export interface SSEEventWriter {
   writeStart: (data: StartEventData) => Promise<void>;
   writeToken: (content: string) => Promise<void>;
@@ -104,6 +116,12 @@ export interface SSEEventWriter {
   writeModelDone: (data: ModelDoneEventData) => Promise<void>;
   writeModelError: (data: ModelErrorEventData) => Promise<void>;
   writeDone: (data?: DoneEventData) => Promise<void>;
+  /** Pre-inference stage status — generic across all stage types. */
+  writeStageStart: (data: StageStartPayload) => Promise<void>;
+  /** Pre-inference stage success — payload is discriminated by stageId. */
+  writeStageDone: (data: StageDoneEventData) => Promise<void>;
+  /** Pre-inference stage failure — generic across all stage types. */
+  writeStageError: (data: StageErrorPayload) => Promise<void>;
   isConnected: () => boolean;
 }
 
@@ -161,6 +179,18 @@ export function createSSEEventWriter(stream: SSEStream): SSEEventWriter {
 
     writeDone: async (data?: DoneEventData) => {
       await writeIfConnected('done', data ?? {});
+    },
+
+    writeStageStart: async (data: StageStartPayload) => {
+      await writeIfConnected('stage:start', data);
+    },
+
+    writeStageDone: async (data: StageDoneEventData) => {
+      await writeIfConnected('stage:done', data);
+    },
+
+    writeStageError: async (data: StageErrorPayload) => {
+      await writeIfConnected('stage:error', data);
     },
 
     isConnected: () => connected,

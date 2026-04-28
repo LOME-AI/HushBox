@@ -818,6 +818,126 @@ describe('MessageItem', () => {
       expect(screen.queryByTestId('model-nametag')).not.toBeInTheDocument();
     });
 
+    it('renders the Smart chip when isSmartModel is true', () => {
+      // Use a model that's in the mockModelsData fixture so its name resolves cleanly.
+      const knownModel = mockModelsData.data.models[0];
+      if (!knownModel) throw new Error('test fixture must include at least one model');
+      const aiMsg = {
+        id: 'ai-smart',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: 'Routed by Smart Model',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: knownModel.id,
+        isSmartModel: true,
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getByTestId('smart-model-chip')).toBeInTheDocument();
+      expect(screen.getByTestId('model-nametag')).toHaveTextContent(knownModel.name);
+    });
+
+    it('does not render the Smart chip when isSmartModel is absent', () => {
+      const knownModel = mockModelsData.data.models[0];
+      if (!knownModel) throw new Error('test fixture must include at least one model');
+      const aiMsg = {
+        id: 'ai-non-smart',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: 'Direct selection',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: knownModel.id,
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByTestId('smart-model-chip')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('pre-inference stage rendering', () => {
+    it('renders the stage label in the thinking indicator while classifying', () => {
+      const aiMsg = {
+        id: 'ai-classifying',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: '',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'smart-model',
+        classifyingStageId: 'smart-model' as const,
+      };
+      render(
+        <MessageItem
+          message={aiMsg}
+          isStreaming
+          modelName="Smart Model"
+          allowedActions={ALL_AI_ACTIONS}
+        />
+      );
+      const indicator = screen.getByTestId('thinking-indicator');
+      expect(indicator).toHaveTextContent('Choosing the best model');
+      // Model name is suppressed during classifying.
+      expect(indicator).not.toHaveTextContent('Smart Model is thinking');
+    });
+
+    it('does not render the Smart chip while classifying (resolution pending)', () => {
+      const aiMsg = {
+        id: 'ai-classifying',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: '',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'smart-model',
+        classifyingStageId: 'smart-model' as const,
+      };
+      render(
+        <MessageItem
+          message={aiMsg}
+          isStreaming
+          modelName="Smart Model"
+          allowedActions={ALL_AI_ACTIONS}
+        />
+      );
+      expect(screen.queryByTestId('smart-model-chip')).not.toBeInTheDocument();
+    });
+
+    it('uses resolvedModelName in the nametag when set live during streaming', () => {
+      const aiMsg = {
+        id: 'ai-resolved',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: 'Streaming output…',
+        createdAt: '2024-01-01T00:00:00Z',
+        // After stage:done the optimistic message has the resolved id and
+        // resolvedModelName set; useModels lookup may not yet contain the id.
+        modelName: 'unknown/just-resolved',
+        resolvedModelName: 'Just Resolved 4.6',
+        isSmartModel: true,
+      };
+      render(<MessageItem message={aiMsg} isStreaming allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getByTestId('model-nametag')).toHaveTextContent('Just Resolved 4.6');
+      expect(screen.getByTestId('smart-model-chip')).toBeInTheDocument();
+    });
+
+    it('renders friendly error when stage failed (errorCode + no classifyingStageId)', () => {
+      const aiMsg = {
+        id: 'ai-stage-failed',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: '',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'smart-model',
+        errorCode: 'CLASSIFIER_FAILED',
+      };
+      render(
+        <MessageItem
+          message={aiMsg}
+          isStreaming
+          modelName="Smart Model"
+          allowedActions={ERROR_AI_ACTIONS}
+        />
+      );
+      const errorEl = screen.getByTestId('model-error-message');
+      expect(errorEl).toHaveTextContent(/Smart Model could not pick/i);
+    });
+
     it('hides nametag when assistant message has no content and is not streaming', () => {
       const aiMsg = {
         id: 'ai-empty',

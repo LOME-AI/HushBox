@@ -1,4 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import {
+  ALL_FEE_CATEGORIES,
+  FEE_CATEGORIES,
+  formatFeePercent,
+  TOTAL_FEE_RATE,
+} from '@hushbox/shared';
 import { welcomeEmail } from './welcome.js';
 
 describe('welcomeEmail', () => {
@@ -28,13 +34,29 @@ describe('welcomeEmail', () => {
       expect(result.html).toContain('pay-as-you-go');
     });
 
-    it('contains transparent fee breakdown', () => {
+    it('renders the total fee rate as the headline percent', () => {
       const result = welcomeEmail({});
 
-      expect(result.html).toContain('15%');
-      expect(result.html).toContain('5%');
-      expect(result.html).toContain('4.5%');
-      expect(result.html).toContain('5.5%');
+      expect(result.html).toContain(formatFeePercent(TOTAL_FEE_RATE));
+    });
+
+    it('renders one row per non-zero fee category with its short label and percent', () => {
+      const result = welcomeEmail({});
+
+      for (const category of FEE_CATEGORIES) {
+        expect(result.html).toContain(formatFeePercent(category.rate));
+        expect(result.html).toContain(category.shortLabel);
+      }
+    });
+
+    it('does not render any row for a zero-rate fee category', () => {
+      const result = welcomeEmail({});
+
+      for (const category of ALL_FEE_CATEGORIES) {
+        if (category.rate === 0) {
+          expect(result.html).not.toContain(category.shortLabel);
+        }
+      }
     });
 
     it('explains how to add credits', () => {
@@ -97,10 +119,29 @@ describe('welcomeEmail', () => {
       expect(result.text).toContain('pay-as-you-go');
     });
 
-    it('contains transparent fee breakdown', () => {
+    it('renders the total fee rate as the headline percent', () => {
       const result = welcomeEmail({});
 
-      expect(result.text).toContain('15%');
+      expect(result.text).toContain(formatFeePercent(TOTAL_FEE_RATE));
+    });
+
+    it('renders one bullet per non-zero fee category with its short label and percent', () => {
+      const result = welcomeEmail({});
+
+      for (const category of FEE_CATEGORIES) {
+        expect(result.text).toContain(formatFeePercent(category.rate));
+        expect(result.text).toContain(category.shortLabel);
+      }
+    });
+
+    it('does not render any bullet for a zero-rate fee category', () => {
+      const result = welcomeEmail({});
+
+      for (const category of ALL_FEE_CATEGORIES) {
+        if (category.rate === 0) {
+          expect(result.text).not.toContain(category.shortLabel);
+        }
+      }
     });
 
     it('contains mobile app billing note', () => {

@@ -1,6 +1,12 @@
 ---
 import { ROUTES } from '@hushbox/shared/routes';
-import { SHIPPED_FEATURES, COMING_SOON_FEATURES, COMPARISON_ROWS } from '@hushbox/shared';
+import {
+  SHIPPED_FEATURES,
+  COMING_SOON_FEATURES,
+  COMPARISON_ROWS,
+  TOTAL_FEE_RATE,
+  formatFeePercent,
+} from '@hushbox/shared';
 import {
   buttonVariants,
   CipherWall,
@@ -171,7 +177,7 @@ function iconPath(lucideIcon: string): string {
           />
           <PillarCard
             title="Transparency"
-            description="Every single line of code is open source. Our pricing is public. A 15% fee, broken down to the penny. No subscriptions. You only pay for what you use. You don't have to trust our promises. You can read our code."
+            description={`Every single line of code is open source. Our pricing is public. A ${formatFeePercent(TOTAL_FEE_RATE)} fee, broken down to the penny. No subscriptions. You only pay for what you use. You don't have to trust our promises. You can read our code.`}
           />
         </div>
       </ScrollReveal>

@@ -93,7 +93,7 @@ Our servers can't read your stored conversations because they never hold the dec
 
 ## Pricing
 
-We charge **15%** on AI model usage and **$0.0003** per 1,000 characters for storage.
+We charge **9.5%** on AI model usage and **$0.0003** per 1,000 characters for storage.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/readme/pricing-dark.svg">

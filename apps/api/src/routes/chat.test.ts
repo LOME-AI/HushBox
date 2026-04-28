@@ -49,6 +49,19 @@ async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> 
   return (await res.json()) as T;
 }
 
+/** Detect classifier system prompt without coupling to its exact wording. */
+function classifierSystemPromptDetected(request: { messages?: unknown[] }): boolean {
+  const messages = request.messages ?? [];
+  for (const m of messages) {
+    if (typeof m !== 'object' || m === null) continue;
+    const candidate = m as { role?: string; content?: unknown };
+    if (candidate.role !== 'system') continue;
+    if (typeof candidate.content !== 'string') continue;
+    if (candidate.content.startsWith('[HUSHBOX_CLASSIFIER]')) return true;
+  }
+  return false;
+}
+
 // Generate a valid X25519 key pair so epoch encryption in saveChatTurn works.
 const testEpochKeyPair = generateKeyPair();
 
@@ -1489,6 +1502,7 @@ describe('chat routes', () => {
       function createBroadcastApp(options: {
         conversations: MockConversation[];
         users: MockUser[];
+        aiClientOverride?: AppEnv['Variables']['aiClient'];
       }): {
         app: ReturnType<typeof createTestApp>;
         mockStub: { fetch: Mock };
@@ -1541,7 +1555,7 @@ describe('chat routes', () => {
             pending2FAExpiresAt: 0,
             createdAt: Date.now(),
           });
-          c.set('aiClient', createMockAIClient());
+          c.set('aiClient', options.aiClientOverride ?? createMockAIClient());
           c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
           c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
           await next();
@@ -1645,6 +1659,65 @@ describe('chat routes', () => {
           (b) => (b as Record<string, unknown>)['type'] === 'message:complete'
         );
         expect(messageCompleteEvents).toHaveLength(1);
+      });
+
+      it('broadcasts the resolved model id (not "smart-model") in message:complete for Smart Model selections', async () => {
+        vi.useRealTimers();
+        // Sync the gateway mock with the smart-model fixture so eligibility resolves.
+        (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ = [
+          {
+            id: 'openai/gpt-5',
+            name: 'GPT-5',
+            description: 'A capable model',
+            modelType: 'language',
+            pricing: { input: '0.00001', output: '0.00003' },
+          },
+          {
+            id: 'openai/gpt-4o-mini',
+            name: 'GPT-4o Mini',
+            description: 'A cheap model',
+            modelType: 'language',
+            pricing: { input: '0.000001', output: '0.000003' },
+          },
+        ];
+        // Pick the cheap model from the fixture as the classifier resolution so the
+        // assertion can avoid hardcoding any specific id.
+        const expectedResolvedId = 'openai/gpt-4o-mini';
+        const aiClient = createMockAIClient();
+        aiClient.setClassifierResolution(expectedResolvedId);
+
+        const { app, broadcastBodies } = createBroadcastApp({
+          conversations: [
+            {
+              id: TEST_CONVERSATION_ID,
+              userId: TEST_USER_ID,
+              title: 'Test',
+              currentEpoch: 1,
+              nextSequence: 1,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ],
+          users: [{ id: TEST_USER_ID, balance: '10.00000000' }],
+          aiClientOverride: aiClient,
+        });
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: ['smart-model'] }),
+        });
+        await res.text();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const messageCompleteEvents = broadcastBodies.filter(
+          (b) => (b as Record<string, unknown>)['type'] === 'message:complete'
+        );
+        expect(messageCompleteEvents.length).toBeGreaterThanOrEqual(1);
+        for (const event of messageCompleteEvents) {
+          const payload = event as Record<string, unknown>;
+          expect(payload['modelName']).toBe(expectedResolvedId);
+          expect(payload['modelName']).not.toBe('smart-model');
+        }
       });
 
       it('flushes remaining token buffer as message:stream after stream ends', async () => {
@@ -2421,8 +2494,89 @@ describe('chat routes', () => {
         const cheapModelReservation = Number(evalCalls2[0]?.[2]?.[0]);
 
         // Smart Model reserves at worst-case (most expensive allowed model)
-        // so the reservation should be higher than the cheapest model
+        // PLUS the classifier worst-case overhead — strictly greater than
+        // a direct selection of the cheapest model.
         expect(smartModelReservation).toBeGreaterThan(cheapModelReservation);
+      });
+
+      it('emits stage:start and stage:done events when classifier resolves an eligible model', async () => {
+        vi.useRealTimers();
+        stubSmartModelTestModels(fetchMock);
+        // Sync the gateway mock to whatever the test fixture lists. Avoids
+        // hardcoded model ids in the assertion below — the resolved model is
+        // whichever non-Smart-Model entry is cheapest in the eligible set.
+        (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ =
+          smartModelTestModels
+            .filter((m) => m.id !== SMART_MODEL_TEST_ID)
+            .map((m) => ({
+              id: m.id,
+              name: m.name,
+              description: m.description,
+              modelType: 'language',
+              pricing: { input: m.pricing.prompt, output: m.pricing.completion },
+            }));
+        // Pick any real eligible model id at random and instruct the mock
+        // classifier to "resolve" to it. The test then asserts the SSE
+        // payload contains exactly that id, so changes to the fixture
+        // automatically flow through.
+        const expectedResolvedId = smartModelTestModels.find(
+          (m) => m.id !== SMART_MODEL_TEST_ID
+        )?.id;
+        if (expectedResolvedId === undefined)
+          throw new Error('test fixture must include a real model');
+        const aiClient = createMockAIClient();
+        aiClient.setClassifierResolution(expectedResolvedId);
+        const app = createTestApp(undefined, undefined, undefined, aiClient);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: [SMART_MODEL_TEST_ID] }),
+        });
+
+        expect(res.status).toBe(200);
+        const body = await res.text();
+        expect(body).toContain('event: stage:start');
+        expect(body).toContain('event: stage:done');
+        expect(body).toContain('"stageId":"smart-model"');
+        expect(body).toContain(`"resolvedModelId":"${expectedResolvedId}"`);
+        // The classifier call must have happened — verify by searching the
+        // mock's request history for a request whose system prompt contains
+        // the classifier marker.
+        const classifierRequests = aiClient
+          .getRequestHistory()
+          .filter((r) => r.modality === 'text' && classifierSystemPromptDetected(r));
+        expect(classifierRequests.length).toBeGreaterThanOrEqual(1);
+      });
+
+      it('emits stage:error and excludes the slot when classifier resolution fails', async () => {
+        vi.useRealTimers();
+        stubSmartModelTestModels(fetchMock);
+        (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ =
+          smartModelTestModels
+            .filter((m) => m.id !== SMART_MODEL_TEST_ID)
+            .map((m) => ({
+              id: m.id,
+              name: m.name,
+              description: m.description,
+              modelType: 'language',
+              pricing: { input: m.pricing.prompt, output: m.pricing.completion },
+            }));
+        const aiClient = createMockAIClient();
+        // Configure a classifier output that won't match any eligible model.
+        aiClient.setClassifierResolution('totally-unrelated-model-id-xyz');
+        const app = createTestApp(undefined, undefined, undefined, aiClient);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ models: [SMART_MODEL_TEST_ID] }),
+        });
+
+        expect(res.status).toBe(200);
+        const body = await res.text();
+        expect(body).toContain('event: stage:error');
+        expect(body).toContain('"errorCode":"CLASSIFIER_FAILED"');
       });
     });
 

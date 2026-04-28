@@ -1942,4 +1942,120 @@ describe('saveUserOnlyMessage', () => {
       .where(eq(usageRecords.id, result.assistantResults[1]!.usageRecordId));
     expect(mediaUsage!.type).toBe('media_generation');
   });
+
+  it('persists Smart Model assistant with separate usage_records for classifier and inference', async () => {
+    const setup = await createTestSetup(db, '10.00000000');
+    createdUserIds.push(setup.user.id);
+
+    const userMsgId = crypto.randomUUID();
+    const assistantMsgId = crypto.randomUUID();
+
+    const result = await saveChatTurn(db, {
+      userMessageId: userMsgId,
+      userContent: 'Smart Model prompt',
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      senderId: setup.user.id,
+      parentMessageId: null,
+      assistantMessages: [
+        {
+          modality: 'text',
+          id: assistantMsgId,
+          content: 'Resolved response',
+          // Resolved (downstream) model id, NOT 'smart-model'
+          model: 'anthropic/claude-sonnet-4.6',
+          cost: 0.003, // main inference dollars
+          inputTokens: 100,
+          outputTokens: 50,
+          isSmartModel: true,
+          preInferenceBillings: [
+            {
+              stageId: 'smart-model',
+              modelId: 'cheap/c',
+              costDollars: 0.0005,
+              inputTokens: 1400,
+              outputTokens: 20,
+            },
+          ],
+        },
+      ],
+    });
+
+    // Two usage_records for the same source_id
+    const usageRows = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.sourceId, assistantMsgId));
+    expect(usageRows).toHaveLength(2);
+    const sortedByCost = usageRows.toSorted(
+      (a, b) => Number.parseFloat(a.cost) - Number.parseFloat(b.cost)
+    );
+    expect(sortedByCost[0]!.cost).toBe('0.00050000'); // classifier
+    expect(sortedByCost[1]!.cost).toBe('0.00300000'); // main inference
+
+    // Both rows are llm_completion type with their respective models
+    const sortedCompletions = await db
+      .select()
+      .from(llmCompletions)
+      .where(
+        inArray(
+          llmCompletions.usageRecordId,
+          usageRows.map((r) => r.id)
+        )
+      );
+    const completionModels = sortedCompletions
+      .map((c) => c.model)
+      .toSorted((a, b) => a.localeCompare(b));
+    expect(completionModels).toEqual(['anthropic/claude-sonnet-4.6', 'cheap/c']);
+
+    // content_items.cost == main + stages (denormalized total)
+    const contentItem = await getTextContentItem(db, assistantMsgId);
+    expect(contentItem.cost).toBe('0.00350000');
+    expect(contentItem.modelName).toBe('anthropic/claude-sonnet-4.6');
+    expect(contentItem.isSmartModel).toBe(true);
+
+    // assistantResults.cost reflects the displayed total
+    expect(result.assistantResults[0]!.cost).toBe('0.00350000');
+  });
+
+  it('persists Smart Model assistant with no preInferenceBillings array correctly', async () => {
+    // Defensive — if a slot is flagged isSmartModel but produces no stage billings,
+    // we still persist a content item with is_smart_model = true and a single usage_records row.
+    const setup = await createTestSetup(db, '10.00000000');
+    createdUserIds.push(setup.user.id);
+
+    const userMsgId = crypto.randomUUID();
+    const assistantMsgId = crypto.randomUUID();
+
+    await saveChatTurn(db, {
+      userMessageId: userMsgId,
+      userContent: 'Smart Model prompt',
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      senderId: setup.user.id,
+      parentMessageId: null,
+      assistantMessages: [
+        {
+          modality: 'text',
+          id: assistantMsgId,
+          content: 'Resolved response',
+          model: 'anthropic/claude-sonnet-4.6',
+          cost: 0.003,
+          inputTokens: 100,
+          outputTokens: 50,
+          isSmartModel: true,
+        },
+      ],
+    });
+
+    const usageRows = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.sourceId, assistantMsgId));
+    expect(usageRows).toHaveLength(1);
+
+    const contentItem = await getTextContentItem(db, assistantMsgId);
+    expect(contentItem.isSmartModel).toBe(true);
+    expect(contentItem.cost).toBe('0.00300000');
+  });
 });

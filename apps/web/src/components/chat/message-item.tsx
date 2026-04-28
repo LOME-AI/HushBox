@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@hushbox/ui';
-import { shortenModelName, friendlyErrorMessage } from '@hushbox/shared';
+import { shortenModelName, friendlyErrorMessage, stageLabel } from '@hushbox/shared';
 import { getModelColor } from '@/lib/model-color';
 import { useModels } from '@/hooks/models';
 import { Check, Copy, GitBranch, Pencil, RefreshCw, Share2 } from 'lucide-react';
@@ -399,6 +399,30 @@ function MessageMediaItems({
   );
 }
 
+function StreamingPlaceholder({
+  primaryMessage,
+  modelName,
+  models,
+}: Readonly<{
+  primaryMessage: Message;
+  modelName: string | undefined;
+  models: ReturnType<typeof useModels>['data'] | undefined;
+}>): React.JSX.Element {
+  const rawModelName = primaryMessage.modelName ?? modelName ?? '';
+  const resolved = models?.models.find((m) => m.id === rawModelName);
+  // While a pre-inference stage is running (e.g., Smart Model classifier),
+  // replace the model-name placeholder with the stage label — the slot
+  // doesn't yet know which model will run.
+  const stageId = primaryMessage.classifyingStageId;
+  const indicatorProps = stageId
+    ? {
+        modelName: resolved?.name ?? rawModelName,
+        stageLabel: stageLabel(stageId),
+      }
+    : { modelName: resolved?.name ?? rawModelName };
+  return <ThinkingIndicator {...indicatorProps} />;
+}
+
 function AIMessageContent({
   primaryMessage,
   isStreaming,
@@ -420,9 +444,13 @@ function AIMessageContent({
     );
   }
   if (isStreaming && primaryMessage.content === '') {
-    const rawModelName = primaryMessage.modelName ?? modelName ?? '';
-    const resolved = modelsData?.models.find((m) => m.id === rawModelName);
-    return <ThinkingIndicator modelName={resolved?.name ?? rawModelName} />;
+    return (
+      <StreamingPlaceholder
+        primaryMessage={primaryMessage}
+        modelName={modelName}
+        models={modelsData}
+      />
+    );
   }
   return (
     <MarkdownRenderer
@@ -476,7 +504,11 @@ function AIMessageNametag({
   const nametagText = (() => {
     if (primaryMessage.modelName) {
       const resolved = modelsData?.models.find((m) => m.id === primaryMessage.modelName);
-      return shortenModelName(resolved?.name ?? primaryMessage.modelName);
+      // resolvedModelName (set during streaming after stage:done) takes
+      // precedence over a useModels lookup that may not yet have hydrated
+      // the resolved id — keeps the nametag stable across the resolve event.
+      const liveDisplay = primaryMessage.resolvedModelName ?? resolved?.name;
+      return shortenModelName(liveDisplay ?? primaryMessage.modelName);
     }
     return modelName ? shortenModelName(modelName) : 'AI';
   })();
@@ -484,20 +516,31 @@ function AIMessageNametag({
   const color = getModelColor(primaryMessage.modelName ?? modelName ?? 'AI');
 
   return (
-    <p
-      data-testid="model-nametag"
-      className="mb-0.5 inline-block rounded bg-[var(--nametag-bg)] px-1.5 py-0.5 text-xs text-[var(--nametag-fg)] dark:bg-[var(--nametag-bg-dark)] dark:text-[var(--nametag-fg-dark)]"
-      style={
-        {
-          '--nametag-bg': color.bg,
-          '--nametag-fg': color.fg,
-          '--nametag-bg-dark': color.bgDark,
-          '--nametag-fg-dark': color.fgDark,
-        } as React.CSSProperties
-      }
-    >
-      {nametagText}
-    </p>
+    <span data-testid="model-nametag-container" className="mb-0.5 inline-flex items-center gap-1">
+      <p
+        data-testid="model-nametag"
+        className="inline-block rounded bg-[var(--nametag-bg)] px-1.5 py-0.5 text-xs text-[var(--nametag-fg)] dark:bg-[var(--nametag-bg-dark)] dark:text-[var(--nametag-fg-dark)]"
+        style={
+          {
+            '--nametag-bg': color.bg,
+            '--nametag-fg': color.fg,
+            '--nametag-bg-dark': color.bgDark,
+            '--nametag-fg-dark': color.fgDark,
+          } as React.CSSProperties
+        }
+      >
+        {nametagText}
+      </p>
+      {primaryMessage.isSmartModel && (
+        <span
+          data-testid="smart-model-chip"
+          className="border-border text-muted-foreground inline-block rounded border px-1.5 py-0.5 text-[10px] tracking-wide uppercase"
+          title="This response was routed by Smart Model"
+        >
+          Smart
+        </span>
+      )}
+    </span>
   );
 }
 

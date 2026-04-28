@@ -372,6 +372,13 @@ export const ERROR_CODE_UNSUPPORTED_RESOLUTION = 'UNSUPPORTED_RESOLUTION';
  */
 export const ERROR_CODE_AUDIO_DISABLED = 'AUDIO_DISABLED';
 
+/**
+ * Smart Model classifier failed: the call errored out, returned unparseable
+ * output, or picked a model not in the eligible set. The Smart slot for this
+ * message is aborted; sibling slots (explicit selections) keep streaming.
+ */
+export const ERROR_CODE_CLASSIFIER_FAILED = 'CLASSIFIER_FAILED';
+
 // ============================================================
 // Error Response Schema
 // ============================================================

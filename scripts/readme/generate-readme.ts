@@ -44,6 +44,7 @@ export function collectReadmeInputs(rootDir: string): string[] {
     path.join(rootDir, 'scripts/readme/generate-readme.ts'),
     path.join(rootDir, 'README.template.md'),
     path.join(rootDir, 'packages/shared/src/constants.ts'),
+    path.join(rootDir, 'packages/shared/src/fees.ts'),
     path.join(rootDir, 'packages/shared/src/tiers.ts'),
   ];
 }

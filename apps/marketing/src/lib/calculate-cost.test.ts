@@ -53,7 +53,7 @@ describe('calculateMonthlyCost', () => {
     expect(result.monthlyCost).toBeGreaterThan(0);
   });
 
-  it('includes the 15% fee in the cost', () => {
+  it('includes the total fee rate in the cost', () => {
     const models = [makeModel()];
     const result = calculateMonthlyCost(models);
     // The cost should be higher than raw token cost alone

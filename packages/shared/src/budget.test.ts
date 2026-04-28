@@ -28,6 +28,7 @@ import {
   CAPACITY_YELLOW_THRESHOLD,
   STORAGE_COST_PER_CHARACTER,
   MAX_SELECTED_MODELS,
+  TOTAL_FEE_RATE,
 } from './constants.js';
 
 describe('estimateTokensForTier', () => {
@@ -2151,8 +2152,8 @@ describe('calculateBudgetFromManifest', () => {
         variableItems: [{ type: 'text-output-tokens', costPerUnit: 0.000_06, applyFees: false }],
       };
       const result = calculateBudgetFromManifest(manifestWithFees, 10);
-      // 1.0 * 1.15 = 1.15
-      expect(result.totalFixedCost).toBeCloseTo(1.15, 10);
+      // 1.0 * (1 + TOTAL_FEE_RATE)
+      expect(result.totalFixedCost).toBeCloseTo(1 + TOTAL_FEE_RATE, 10);
     });
 
     it('applies fees to variable items when flagged', () => {
@@ -2161,7 +2162,7 @@ describe('calculateBudgetFromManifest', () => {
         variableItems: [{ type: 'future-output', costPerUnit: 1, applyFees: true }],
       };
       const result = calculateBudgetFromManifest(manifestWithFees, 10);
-      expect(result.variableCostPerToken).toBeCloseTo(1.15, 10);
+      expect(result.variableCostPerToken).toBeCloseTo(1 + TOTAL_FEE_RATE, 10);
     });
 
     it('does not apply fees when flag is false', () => {

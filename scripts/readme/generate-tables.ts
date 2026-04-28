@@ -1,12 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import * as lucideStatic from 'lucide-static';
-import {
-  CREDIT_CARD_FEE_RATE,
-  HUSHBOX_FEE_RATE,
-  PROVIDER_FEE_RATE,
-  TOTAL_FEE_RATE,
-} from '../../packages/shared/src/constants.js';
+import { TOTAL_FEE_RATE } from '../../packages/shared/src/constants.js';
+import { FEE_CATEGORIES, formatFeePercent } from '../../packages/shared/src/fees.js';
 import {
   FREE_ALLOWANCE_CENTS_VALUE,
   TRIAL_MESSAGE_LIMIT,
@@ -94,25 +90,15 @@ export function generateComparisonSvg(options: TableOptions): string {
 
 export function generatePricingSvg(options: TableOptions): string {
   const { width, theme } = options;
-  const rows = [
-    {
-      label: 'HushBox',
-      rate: `${String(HUSHBOX_FEE_RATE * 100)}%`,
-      desc: 'Development, servers, support',
-    },
-    {
-      label: 'Card processing',
-      rate: `${String(CREDIT_CARD_FEE_RATE * 100)}%`,
-      desc: 'Credit card fees',
-    },
-    {
-      label: 'Provider overhead',
-      rate: `${String(PROVIDER_FEE_RATE * 100)}%`,
-      desc: 'API infrastructure',
-    },
+  const rows: { label: string; rate: string; desc: string; isTotal?: boolean }[] = [
+    ...FEE_CATEGORIES.map((category) => ({
+      label: category.shortLabel,
+      rate: formatFeePercent(category.rate),
+      desc: category.description,
+    })),
     {
       label: 'Total',
-      rate: `${String(TOTAL_FEE_RATE * 100)}%`,
+      rate: formatFeePercent(TOTAL_FEE_RATE),
       desc: 'On AI model usage',
       isTotal: true,
     },
@@ -422,6 +408,7 @@ export function collectTableInputs(repoRoot: string): string[] {
     path.join(repoRoot, 'packages/shared/src/features.ts'),
     path.join(repoRoot, 'packages/shared/src/comparison.ts'),
     path.join(repoRoot, 'packages/shared/src/constants.ts'),
+    path.join(repoRoot, 'packages/shared/src/fees.ts'),
     path.join(repoRoot, 'packages/shared/src/tiers.ts'),
     path.join(repoRoot, 'packages/config/tailwind/index.css'),
     path.join(repoRoot, 'node_modules/lucide-static/package.json'),

@@ -60,14 +60,16 @@ export const HUSHBOX_FEE_RATE = 0.05;
 /** Credit card processing fee (4.5%) */
 export const CREDIT_CARD_FEE_RATE = 0.045;
 
-/** AI provider overhead fee (5.5%) */
-export const PROVIDER_FEE_RATE = 0.055;
+/** AI provider overhead fee */
+export const PROVIDER_FEE_RATE = 0;
 
 /**
  * Total combined fee rate applied to all model usage.
  * SINGLE SOURCE OF TRUTH for fee calculations.
- * = HUSHBOX_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE
- * = 0.05 + 0.045 + 0.055 = 0.15 (15%)
+ * Sum of HUSHBOX_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE.
+ * Setting any individual rate to 0 cascades through every fee-rendering surface
+ * (legal, email, marketing, billing UI, README, pricing SVG) via FEE_CATEGORIES
+ * in `./fees.ts`.
  */
 export const TOTAL_FEE_RATE = HUSHBOX_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE;
 

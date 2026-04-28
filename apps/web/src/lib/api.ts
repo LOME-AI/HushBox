@@ -37,6 +37,25 @@ export interface Message {
   parentMessageId?: string | null;
   errorCode?: string;
   /**
+   * True when this assistant message was produced via a Smart Model (or
+   * future routing) stage. Drives the "Smart" chip on the nametag.
+   */
+  isSmartModel?: boolean;
+  /**
+   * Stage id currently classifying for this slot — drives the in-flight
+   * "Choosing the best model…" placeholder. Cleared (set to `undefined`) on
+   * `stage:done` / `stage:error`. Only set during streaming on optimistic
+   * messages.
+   */
+  classifyingStageId?: 'smart-model' | undefined;
+  /**
+   * Resolved model name from a Smart Model (or future) stage — replaces the
+   * streaming nametag once the classifier resolves. Set during streaming on
+   * optimistic messages; persisted messages derive the same display from
+   * `modelName` via the `useModels` lookup.
+   */
+  resolvedModelName?: string | undefined;
+  /**
    * Wrap-once envelope metadata forwarded from the API response. Required by
    * `useMessageShare` to re-wrap the content key under a `shareSecret`.
    * Base64-encoded ECIES blob — safe to keep on the display object.

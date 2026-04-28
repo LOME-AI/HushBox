@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { CLASSIFIER_SYSTEM_PROMPT_MARKER } from '@hushbox/shared';
 import { createMockAIClient } from './mock.js';
 import type {
   MockAIClient,
@@ -43,6 +44,83 @@ describe('createMockAIClient', () => {
       expect(typeof client.clearHistory).toBe('function');
       expect(typeof client.addFailingModel).toBe('function');
       expect(typeof client.clearFailingModels).toBe('function');
+      expect(typeof client.setClassifierResolution).toBe('function');
+      expect(typeof client.setClassifierFailure).toBe('function');
+    });
+  });
+
+  describe('classifier streaming', () => {
+    function classifierRequest(): TextRequest {
+      return {
+        modality: 'text',
+        model: 'cheap/c',
+        messages: [
+          {
+            role: 'system',
+            content: `${CLASSIFIER_SYSTEM_PROMPT_MARKER}\nPick a model.\nAvailable: m/a, m/b`,
+          },
+          { role: 'user', content: '[USER START]: hello' },
+        ],
+      };
+    }
+
+    it('emits the configured resolution as text-deltas plus a finish event', async () => {
+      client.setClassifierResolution('anthropic/claude-opus-4.6');
+      const events = await collectEvents(client.stream(classifierRequest()));
+      const text = events
+        .filter(
+          (e): e is Extract<InferenceEvent, { kind: 'text-delta' }> => e.kind === 'text-delta'
+        )
+        .map((e) => e.content)
+        .join('');
+      expect(text).toBe('anthropic/claude-opus-4.6');
+      expect(events.at(-1)?.kind).toBe('finish');
+    });
+
+    it('returns the default classifier resolution when none is configured', async () => {
+      const events = await collectEvents(client.stream(classifierRequest()));
+      const text = events
+        .filter(
+          (e): e is Extract<InferenceEvent, { kind: 'text-delta' }> => e.kind === 'text-delta'
+        )
+        .map((e) => e.content)
+        .join('');
+      expect(text.length).toBeGreaterThan(0);
+    });
+
+    it('rejects the stream when classifier failure is set', async () => {
+      client.setClassifierFailure(new Error('classifier dead'));
+      await expect(collectEvents(client.stream(classifierRequest()))).rejects.toThrow(
+        'classifier dead'
+      );
+    });
+
+    it('clears classifier failure when set to null', async () => {
+      client.setClassifierFailure(new Error('classifier dead'));
+      client.setClassifierFailure(null);
+      const events = await collectEvents(client.stream(classifierRequest()));
+      expect(events.length).toBeGreaterThan(0);
+    });
+
+    it('does not classify when system prompt lacks the marker', async () => {
+      // Plain text request — should echo the user message, not return a model id
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'm/a',
+        messages: [
+          { role: 'system', content: 'You are helpful.' },
+          { role: 'user', content: 'Hello, world!' },
+        ],
+      };
+      client.setClassifierResolution('classifier/should-not-fire');
+      const events = await collectEvents(client.stream(request));
+      const text = events
+        .filter(
+          (e): e is Extract<InferenceEvent, { kind: 'text-delta' }> => e.kind === 'text-delta'
+        )
+        .map((e) => e.content)
+        .join('');
+      expect(text).toBe('Echo: Hello, world!');
     });
   });
 

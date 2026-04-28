@@ -107,7 +107,7 @@ export interface FixedCostItem {
   units: number;
   /** Cost per unit in USD (before fees) */
   costPerUnit: number;
-  /** Whether the 15% HushBox fee applies to this cost */
+  /** Whether the total fee rate (TOTAL_FEE_RATE) applies to this cost */
   applyFees: boolean;
 }
 
@@ -120,7 +120,7 @@ export interface VariableCostItem {
   type: string;
   /** Cost per output token in USD (before fees) */
   costPerUnit: number;
-  /** Whether the 15% HushBox fee applies to this cost */
+  /** Whether the total fee rate (TOTAL_FEE_RATE) applies to this cost */
   applyFees: boolean;
 }
 

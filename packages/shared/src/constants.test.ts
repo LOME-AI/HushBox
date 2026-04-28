@@ -134,12 +134,12 @@ describe('Fee Structure', () => {
   });
 
   describe('PROVIDER_FEE_RATE', () => {
-    it('is 0.055 (5.5%)', () => {
-      expect(PROVIDER_FEE_RATE).toBe(0.055);
+    it('is 0 (Vercel AI Gateway charges no markup)', () => {
+      expect(PROVIDER_FEE_RATE).toBe(0);
     });
 
-    it('is a positive number less than 1', () => {
-      expect(PROVIDER_FEE_RATE).toBeGreaterThan(0);
+    it('is a non-negative number less than 1', () => {
+      expect(PROVIDER_FEE_RATE).toBeGreaterThanOrEqual(0);
       expect(PROVIDER_FEE_RATE).toBeLessThan(1);
     });
   });
@@ -149,8 +149,8 @@ describe('Fee Structure', () => {
       expect(TOTAL_FEE_RATE).toBe(HUSHBOX_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE);
     });
 
-    it('equals 0.15 (15%)', () => {
-      expect(TOTAL_FEE_RATE).toBe(0.15);
+    it('equals 0.095 (9.5%)', () => {
+      expect(TOTAL_FEE_RATE).toBeCloseTo(0.095, 10);
     });
   });
 });

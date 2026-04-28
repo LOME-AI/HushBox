@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ModelSelectorModal } from './model-selector-modal';
-import type { Model } from '@hushbox/shared';
+import { TOTAL_FEE_RATE, formatPricePer1k, type Model } from '@hushbox/shared';
 
 // Mock the api module to break the import chain that requires VITE_API_URL
 vi.mock('@/lib/api', () => ({
@@ -472,7 +472,7 @@ describe('ModelSelectorModal', () => {
     expect(screen.getByText(/128,000 tokens/)).toBeInTheDocument();
   });
 
-  it('displays prices with HushBox fee applied (15% markup)', () => {
+  it('displays prices with the total fee rate applied', () => {
     render(
       <ModelSelectorModal
         open={true}
@@ -483,8 +483,10 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    expect(screen.getByText('$0.0115 / 1k')).toBeInTheDocument();
-    expect(screen.getByText('$0.0345 / 1k')).toBeInTheDocument();
+    const expectedInput = formatPricePer1k(0.000_01 * (1 + TOTAL_FEE_RATE));
+    const expectedOutput = formatPricePer1k(0.000_03 * (1 + TOTAL_FEE_RATE));
+    expect(screen.getByText(`${expectedInput} / 1k`)).toBeInTheDocument();
+    expect(screen.getByText(`${expectedOutput} / 1k`)).toBeInTheDocument();
   });
 
   it('closes on Escape key', async () => {

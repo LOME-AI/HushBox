@@ -115,4 +115,96 @@ describe('useOptimisticMessages', () => {
 
     expect(result.current.optimisticMessages).toEqual([]);
   });
+
+  describe('pre-inference stage state', () => {
+    it('marks a message as classifying when a stage starts', () => {
+      const { result } = renderHook(() => useOptimisticMessages());
+      act(() => {
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-smart' }));
+      });
+
+      act(() => {
+        result.current.setOptimisticMessageStageStart('msg-smart', 'smart-model');
+      });
+
+      expect(result.current.optimisticMessages[0]!.classifyingStageId).toBe('smart-model');
+      expect(result.current.optimisticMessages[0]!.resolvedModelName).toBeUndefined();
+    });
+
+    it('does not affect other messages when one starts a stage', () => {
+      const { result } = renderHook(() => useOptimisticMessages());
+      act(() => {
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-explicit' }));
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-smart' }));
+      });
+
+      act(() => {
+        result.current.setOptimisticMessageStageStart('msg-smart', 'smart-model');
+      });
+
+      expect(result.current.optimisticMessages[0]!.classifyingStageId).toBeUndefined();
+      expect(result.current.optimisticMessages[1]!.classifyingStageId).toBe('smart-model');
+    });
+
+    it('clears classifyingStageId and records resolution on stage:done for smart-model', () => {
+      const { result } = renderHook(() => useOptimisticMessages());
+      act(() => {
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-smart' }));
+        result.current.setOptimisticMessageStageStart('msg-smart', 'smart-model');
+      });
+
+      act(() => {
+        result.current.setOptimisticMessageStageDone('msg-smart', {
+          stageId: 'smart-model',
+          resolvedModelId: 'anthropic/claude-opus-4.6',
+          resolvedModelName: 'Claude Opus 4.6',
+        });
+      });
+
+      const msg = result.current.optimisticMessages[0]!;
+      expect(msg.classifyingStageId).toBeUndefined();
+      expect(msg.resolvedModelName).toBe('Claude Opus 4.6');
+      expect(msg.modelName).toBe('anthropic/claude-opus-4.6');
+      expect(msg.isSmartModel).toBe(true);
+    });
+
+    it('clears classifyingStageId and records errorCode on stage:error', () => {
+      const { result } = renderHook(() => useOptimisticMessages());
+      act(() => {
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-smart' }));
+        result.current.setOptimisticMessageStageStart('msg-smart', 'smart-model');
+      });
+
+      act(() => {
+        result.current.setOptimisticMessageStageError('msg-smart', 'CLASSIFIER_FAILED');
+      });
+
+      const msg = result.current.optimisticMessages[0]!;
+      expect(msg.classifyingStageId).toBeUndefined();
+      expect(msg.errorCode).toBe('CLASSIFIER_FAILED');
+      expect(msg.content).toBe('');
+    });
+
+    it('leaves other messages untouched when one finishes a stage', () => {
+      const { result } = renderHook(() => useOptimisticMessages());
+      act(() => {
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-explicit' }));
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-smart' }));
+        result.current.setOptimisticMessageStageStart('msg-smart', 'smart-model');
+      });
+
+      act(() => {
+        result.current.setOptimisticMessageStageDone('msg-smart', {
+          stageId: 'smart-model',
+          resolvedModelId: 'm/r',
+          resolvedModelName: 'Resolved',
+        });
+      });
+
+      const explicit = result.current.optimisticMessages[0]!;
+      expect(explicit.modelName).toBeUndefined();
+      expect(explicit.resolvedModelName).toBeUndefined();
+      expect(explicit.isSmartModel).toBeUndefined();
+    });
+  });
 });

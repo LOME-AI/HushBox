@@ -32,6 +32,14 @@ function pickModelName(contentItems: ContentItemResponse[]): string | null {
   return null;
 }
 
+/**
+ * True iff any content item on the message was produced via a routing stage
+ * (Smart Model today). Drives the "Smart" chip on the assistant nametag.
+ */
+function pickIsSmartModel(contentItems: ContentItemResponse[]): boolean {
+  return contentItems.some((item) => item.isSmartModel);
+}
+
 function extractMediaItems(contentItems: ContentItemResponse[]): MessageMediaItem[] {
   const media: MessageMediaItem[] = [];
   for (const item of contentItems) {
@@ -61,6 +69,7 @@ function buildDecryptedMessage(msg: MessageResponse, content: string): Message {
   const cost = sumCost(msg.contentItems);
   const modelName = pickModelName(msg.contentItems);
   const mediaItems = extractMediaItems(msg.contentItems);
+  const isSmartModel = pickIsSmartModel(msg.contentItems);
   return {
     id: msg.id,
     conversationId: msg.conversationId,
@@ -73,6 +82,7 @@ function buildDecryptedMessage(msg: MessageResponse, content: string): Message {
     parentMessageId: msg.parentMessageId,
     wrappedContentKey: msg.wrappedContentKey,
     epochNumber: msg.epochNumber,
+    ...(isSmartModel && { isSmartModel: true }),
     ...(mediaItems.length > 0 && { mediaItems }),
   };
 }

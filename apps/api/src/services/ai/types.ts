@@ -144,4 +144,16 @@ export interface MockAIClient extends AIClient {
   clearHistory(): void;
   addFailingModel(id: string): void;
   clearFailingModels(): void;
+  /**
+   * Configure the model id the mock returns for classifier calls (any text
+   * stream whose system message starts with `CLASSIFIER_SYSTEM_PROMPT_MARKER`).
+   * Defaults to a stable mock id; tests override per scenario.
+   */
+  setClassifierResolution(modelId: string): void;
+  /**
+   * Make the next classifier call fail by rejecting the stream's iterator.
+   * Pass `null` to clear. Failure mode: rejection from the async iterator;
+   * passing `null` after the test is good practice.
+   */
+  setClassifierFailure(error: Error | null): void;
 }

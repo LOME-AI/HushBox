@@ -33,17 +33,16 @@ export function estimateTokenCount(text: string): number {
 }
 
 /**
- * Apply all fees (HushBox + CC + Provider) to a base price.
+ * Apply all fees to a base price.
  * SINGLE SOURCE OF TRUTH for fee application.
  *
  * Used by:
  * - Model selector to show per-token pricing with fees
  * - calculateTokenCostWithFees as building block
  *
- * Fee breakdown (15% total):
- * - 5% HushBox profit margin
- * - 4.5% credit card processing
- * - 5.5% AI provider overhead
+ * The total fee rate is the sum of every non-zero category in FEE_CATEGORIES
+ * (see `./fees.ts`). Setting any individual rate to 0 cascades through every
+ * pricing surface automatically.
  */
 export function applyFees(basePrice: number): number {
   return basePrice * (1 + TOTAL_FEE_RATE);
@@ -87,11 +86,11 @@ export interface MessageCostParams {
  * For production, use calculateMessageCostFromActual with exact costs.
  *
  * Components:
- * 1. Token cost with fees: uses calculateTokenCostWithFees (includes 15% markup)
+ * 1. Token cost with fees: uses calculateTokenCostWithFees (TOTAL_FEE_RATE markup)
  * 2. Storage fee: (inputCharacters + outputCharacters) × STORAGE_COST_PER_CHARACTER
  *
  * Storage fee applies only to new messages (input + output), not conversation history.
- * Fees (15%) apply only to model cost, not to storage fee.
+ * Fees apply only to model cost (and web search), not to the storage fee.
  */
 export function estimateMessageCostDevelopment(params: MessageCostParams): number {
   const {

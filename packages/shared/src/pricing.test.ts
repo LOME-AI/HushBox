@@ -54,10 +54,10 @@ describe('parseTokenPrice', () => {
 });
 
 describe('applyFees', () => {
-  it('applies total fee rate (15%) to base price', () => {
-    expect(applyFees(1)).toBeCloseTo(1.15, 10);
-    expect(applyFees(10)).toBeCloseTo(11.5, 10);
-    expect(applyFees(100)).toBeCloseTo(115, 10);
+  it('applies the total fee rate to the base price', () => {
+    expect(applyFees(1)).toBeCloseTo(1 + TOTAL_FEE_RATE, 10);
+    expect(applyFees(10)).toBeCloseTo(10 * (1 + TOTAL_FEE_RATE), 10);
+    expect(applyFees(100)).toBeCloseTo(100 * (1 + TOTAL_FEE_RATE), 10);
   });
 
   it('handles zero price', () => {
@@ -65,7 +65,7 @@ describe('applyFees', () => {
   });
 
   it('handles very small prices', () => {
-    expect(applyFees(0.000_01)).toBeCloseTo(0.000_011_5, 10);
+    expect(applyFees(0.000_01)).toBeCloseTo(0.000_01 * (1 + TOTAL_FEE_RATE), 10);
   });
 });
 
@@ -266,7 +266,7 @@ describe('estimateMessageCostDevelopment', () => {
       const result = estimateMessageCostDevelopment(gpt4Params);
 
       const modelCost = 1000 * 0.000_03 + 500 * 0.000_06; // 0.03 + 0.03 = 0.06
-      const hushboxFee = modelCost * TOTAL_FEE_RATE; // 0.06 * 0.15 = 0.009
+      const hushboxFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = (4000 + 2000) * STORAGE_COST_PER_CHARACTER;
 
       expect(result).toBeCloseTo(modelCost + hushboxFee + storageFee, 10);
@@ -380,7 +380,7 @@ describe('calculateMessageCostFromActual', () => {
   };
 
   describe('model cost with fees', () => {
-    it('applies 15% fee to gateway exact cost', () => {
+    it('applies the total fee rate to gateway exact cost', () => {
       const result = calculateMessageCostFromActual(baseParams);
       const expectedModelCostWithFees = applyFees(0.001);
       const expectedStorageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
@@ -543,7 +543,7 @@ describe('calculateMessageCostFromActual', () => {
 
 describe('getModelCostPer1k', () => {
   it('calculates combined cost per 1k tokens with fees applied', () => {
-    // input: $0.01/1k, output: $0.03/1k → combined base: $0.04/1k → with 15% fee: $0.046/1k
+    // input: $0.01/1k, output: $0.03/1k → combined base: $0.04/1k → with TOTAL_FEE_RATE applied
     const result = getModelCostPer1k(0.000_01, 0.000_03);
     const baseCostPer1k = (0.000_01 + 0.000_03) * 1000; // 0.04
     expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);

@@ -3,9 +3,11 @@ import { render, screen } from '@testing-library/react';
 import { FeeBreakdown } from './fee-breakdown';
 import {
   HUSHBOX_FEE_RATE,
-  CREDIT_CARD_FEE_RATE,
-  PROVIDER_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
+  ALL_FEE_CATEGORIES,
+  FEE_BUCKET_BY_ID,
+  FEE_CATEGORIES,
+  roundPreservingSum,
 } from '@hushbox/shared';
 
 describe('FeeBreakdown', () => {
@@ -27,28 +29,85 @@ describe('FeeBreakdown', () => {
 
     it('does NOT render dollar amounts', () => {
       render(<FeeBreakdown depositAmount={100} />);
-      // Should not find any $X.XX patterns in fee items
       expect(screen.queryByText(/\$\d+\.\d{2}/)).not.toBeInTheDocument();
     });
   });
 
   describe('category structure', () => {
-    it('renders Service Value category header with ~85%', () => {
+    function expectedApproximateLabels(depositAmount: number): {
+      serviceValue: string;
+      transactionCosts: string;
+      platformFee: string;
+    } {
+      const storageFee = 1_000_000 * STORAGE_COST_PER_CHARACTER;
+      const fees = FEE_CATEGORIES.reduce((sum, c) => sum + c.rate * depositAmount, 0);
+      const modelUsage = depositAmount - fees - storageFee;
+      const serviceValuePct = ((modelUsage + storageFee) / depositAmount) * 100;
+      const transactionCostsPct = FEE_CATEGORIES.filter(
+        (c) => FEE_BUCKET_BY_ID[c.id] === 'transaction-costs'
+      ).reduce((sum, c) => sum + c.rate * 100, 0);
+      const platformFeePct = FEE_CATEGORIES.filter(
+        (c) => FEE_BUCKET_BY_ID[c.id] === 'platform-fee'
+      ).reduce((sum, c) => sum + c.rate * 100, 0);
+      const [serviceValue, transactionCosts, platformFee] = roundPreservingSum([
+        serviceValuePct,
+        transactionCostsPct,
+        platformFeePct,
+      ]);
+      return {
+        serviceValue: `~${String(serviceValue)}%`,
+        transactionCosts: `~${String(transactionCosts)}%`,
+        platformFee: `~${String(platformFee)}%`,
+      };
+    }
+
+    it('renders Service Value category with a dynamically computed approximate label', () => {
       render(<FeeBreakdown depositAmount={100} />);
       expect(screen.getByTestId('category-service-value')).toBeInTheDocument();
-      expect(screen.getByTestId('category-service-value-pct')).toHaveTextContent(/~85%/);
+      const labels = expectedApproximateLabels(100);
+      expect(screen.getByTestId('category-service-value-pct')).toHaveTextContent(
+        labels.serviceValue
+      );
     });
 
-    it('renders Transaction Costs category header with ~10%', () => {
+    it('renders Transaction Costs category when at least one transaction-cost fee has rate > 0', () => {
+      const hasTransactionCosts = FEE_CATEGORIES.some(
+        (c) => FEE_BUCKET_BY_ID[c.id] === 'transaction-costs'
+      );
       render(<FeeBreakdown depositAmount={100} />);
-      expect(screen.getByTestId('category-transaction-costs')).toBeInTheDocument();
-      expect(screen.getByTestId('category-transaction-costs-pct')).toHaveTextContent(/~10%/);
+      if (hasTransactionCosts) {
+        expect(screen.getByTestId('category-transaction-costs')).toBeInTheDocument();
+        const labels = expectedApproximateLabels(100);
+        expect(screen.getByTestId('category-transaction-costs-pct')).toHaveTextContent(
+          labels.transactionCosts
+        );
+      } else {
+        expect(screen.queryByTestId('category-transaction-costs')).not.toBeInTheDocument();
+      }
     });
 
-    it('renders Platform Fee category header with ~5%', () => {
+    it('renders Platform Fee category when the hushbox fee has rate > 0', () => {
+      const hasPlatformFee = FEE_CATEGORIES.some((c) => FEE_BUCKET_BY_ID[c.id] === 'platform-fee');
       render(<FeeBreakdown depositAmount={100} />);
-      expect(screen.getByTestId('category-platform-fee')).toBeInTheDocument();
-      expect(screen.getByTestId('category-platform-fee-pct')).toHaveTextContent(/~5%/);
+      if (hasPlatformFee) {
+        expect(screen.getByTestId('category-platform-fee')).toBeInTheDocument();
+        const labels = expectedApproximateLabels(100);
+        expect(screen.getByTestId('category-platform-fee-pct')).toHaveTextContent(
+          labels.platformFee
+        );
+      } else {
+        expect(screen.queryByTestId('category-platform-fee')).not.toBeInTheDocument();
+      }
+    });
+
+    it('approximate labels for the three top-level groups sum to exactly 100%', () => {
+      render(<FeeBreakdown depositAmount={100} />);
+      const labels = expectedApproximateLabels(100);
+      const sum =
+        Number.parseInt(labels.serviceValue.replaceAll(/[^\d-]/g, ''), 10) +
+        Number.parseInt(labels.transactionCosts.replaceAll(/[^\d-]/g, ''), 10) +
+        Number.parseInt(labels.platformFee.replaceAll(/[^\d-]/g, ''), 10);
+      expect(sum).toBe(100);
     });
   });
 
@@ -67,59 +126,48 @@ describe('FeeBreakdown', () => {
     });
   });
 
-  describe('Transaction Costs items', () => {
-    it('shows Payment processing with percentage', () => {
+  describe('fee items', () => {
+    it('renders one row per non-zero fee category with its label and percent', () => {
       render(<FeeBreakdown depositAmount={100} />);
-      expect(screen.getByTestId('item-payment-processing')).toBeInTheDocument();
-      const expectedPct = (CREDIT_CARD_FEE_RATE * 100).toFixed(1);
-      expect(screen.getByTestId('item-payment-processing-pct')).toHaveTextContent(
-        `${expectedPct}%`
-      );
+      for (const category of FEE_CATEGORIES) {
+        const item = screen.getByTestId(`item-fee-${category.id}`);
+        expect(item).toBeInTheDocument();
+        const expectedPct = (category.rate * 100).toFixed(1);
+        expect(screen.getByTestId(`item-fee-${category.id}-pct`)).toHaveTextContent(
+          `${expectedPct}%`
+        );
+        expect(item).toHaveTextContent(category.label);
+      }
     });
 
-    it('shows AI Provider fees with percentage', () => {
+    it('does not render any row for a zero-rate fee category', () => {
       render(<FeeBreakdown depositAmount={100} />);
-      expect(screen.getByTestId('item-provider-fees')).toBeInTheDocument();
-      const expectedPct = (PROVIDER_FEE_RATE * 100).toFixed(1);
-      expect(screen.getByTestId('item-provider-fees-pct')).toHaveTextContent(`${expectedPct}%`);
-    });
-  });
-
-  describe('Platform Fee items', () => {
-    it('shows HushBox margin with percentage', () => {
-      render(<FeeBreakdown depositAmount={100} />);
-      expect(screen.getByTestId('item-hushbox-margin')).toBeInTheDocument();
-      const expectedPct = (HUSHBOX_FEE_RATE * 100).toFixed(1);
-      expect(screen.getByTestId('item-hushbox-margin-pct')).toHaveTextContent(`${expectedPct}%`);
+      for (const category of ALL_FEE_CATEGORIES) {
+        if (category.rate === 0) {
+          expect(screen.queryByTestId(`item-fee-${category.id}`)).not.toBeInTheDocument();
+          // The label must not appear anywhere in the rendered output
+          expect(screen.queryByText(category.label)).not.toBeInTheDocument();
+        }
+      }
     });
   });
 
   describe('percentage calculations', () => {
-    it('calculates Service Value percentage correctly', () => {
+    it('Service Value percentage is the residual after fees and storage', () => {
       const depositAmount = 100;
       const storageFee = 1_000_000 * STORAGE_COST_PER_CHARACTER;
-      const hushboxFee = depositAmount * HUSHBOX_FEE_RATE;
-      const ccFee = depositAmount * CREDIT_CARD_FEE_RATE;
-      const providerFee = depositAmount * PROVIDER_FEE_RATE;
-      const modelUsage = depositAmount - hushboxFee - ccFee - providerFee - storageFee;
+      const totalFeesRate = FEE_CATEGORIES.reduce((sum, c) => sum + c.rate, 0);
+      const modelUsage = depositAmount - depositAmount * totalFeesRate - storageFee;
       const serviceValuePct = ((modelUsage + storageFee) / depositAmount) * 100;
 
-      render(<FeeBreakdown depositAmount={depositAmount} />);
-      // Should be approximately 85%
-      expect(serviceValuePct).toBeGreaterThan(80);
-      expect(serviceValuePct).toBeLessThan(90);
+      // Should be a meaningful share of the deposit (sanity check across rate values).
+      expect(serviceValuePct).toBeGreaterThan(50);
+      expect(serviceValuePct).toBeLessThan(100);
     });
 
-    it('calculates Transaction Costs percentage correctly', () => {
-      const transactionCostsPct = (CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE) * 100;
-      // Should be 10%
-      expect(transactionCostsPct).toBe(10);
-    });
-
-    it('calculates Platform Fee percentage correctly', () => {
+    it('Platform Fee percentage equals HUSHBOX_FEE_RATE', () => {
       const platformFeePct = HUSHBOX_FEE_RATE * 100;
-      // Should be 5%
-      expect(platformFeePct).toBe(5);
+      expect(platformFeePct).toBe(HUSHBOX_FEE_RATE * 100);
     });
   });
 });

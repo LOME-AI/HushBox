@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createSSEEventWriter, type SSEStream } from './stream-handler.js';
+import { ERROR_CODE_CLASSIFIER_FAILED } from '@hushbox/shared';
 
 function createMockStream(): SSEStream & {
   events: { event: string; data: string }[];
@@ -190,6 +191,59 @@ describe('createSSEEventWriter', () => {
           code: 'MODEL_ERROR',
         }),
       });
+    });
+
+    it('writes stage:start event with stageId and assistantMessageId', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeStageStart({
+        stageId: 'smart-model',
+        assistantMessageId: 'asst-1',
+      });
+
+      expect(stream.events).toHaveLength(1);
+      expect(stream.events[0]).toEqual({
+        event: 'stage:start',
+        data: JSON.stringify({ stageId: 'smart-model', assistantMessageId: 'asst-1' }),
+      });
+    });
+
+    it('writes stage:done event with the discriminated payload', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeStageDone({
+        assistantMessageId: 'asst-1',
+        payload: {
+          stageId: 'smart-model',
+          resolvedModelId: 'anthropic/claude-opus-4.6',
+          resolvedModelName: 'Claude Opus 4.6',
+        },
+      });
+
+      expect(stream.events).toHaveLength(1);
+      expect(stream.events[0]?.event).toBe('stage:done');
+      const parsed = JSON.parse(stream.events[0]!.data);
+      expect(parsed.payload.stageId).toBe('smart-model');
+      expect(parsed.payload.resolvedModelId).toBe('anthropic/claude-opus-4.6');
+      expect(parsed.assistantMessageId).toBe('asst-1');
+    });
+
+    it('writes stage:error event with stageId and errorCode', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeStageError({
+        stageId: 'smart-model',
+        assistantMessageId: 'asst-1',
+        errorCode: ERROR_CODE_CLASSIFIER_FAILED,
+      });
+
+      expect(stream.events).toHaveLength(1);
+      expect(stream.events[0]?.event).toBe('stage:error');
+      const parsed = JSON.parse(stream.events[0]!.data);
+      expect(parsed.errorCode).toBe(ERROR_CODE_CLASSIFIER_FAILED);
     });
 
     it('writes multi-model done event with models array', async () => {

@@ -2,8 +2,13 @@ export { checkUserBalance, getUserTierInfo } from './balance.js';
 export type { BalanceCheckResult } from './balance.js';
 export { buildBillingInput, buildGuestBillingInput } from './resolve.js';
 export type { BuildBillingResult, MemberContext, GroupBudgetContext } from './resolve.js';
-export { calculateMessageCost } from './cost-calculator.js';
-export type { CalculateMessageCostParams } from './cost-calculator.js';
+export { calculateMessageCost, calculateMessageCostWithStages } from './cost-calculator.js';
+export type {
+  CalculateMessageCostParams,
+  CalculateMessageCostWithStagesParams,
+  CalculateMessageCostWithStagesResult,
+  StageCostAttribution,
+} from './cost-calculator.js';
 export { consumeTrialMessage } from './trial-usage.js';
 export type { TrialUsageCheckResult } from './trial-usage.js';
 export { creditUserBalance, processWebhookCredit, chargeForUsage } from './transaction-writer.js';

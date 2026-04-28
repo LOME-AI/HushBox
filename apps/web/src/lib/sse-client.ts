@@ -4,6 +4,8 @@
  * Provides reusable functionality for parsing SSE streams from the API.
  */
 
+import type { StageDonePayload, StageErrorPayload, StageStartPayload } from '@hushbox/shared';
+
 export interface SSELineResult {
   type: 'event' | 'data';
   value: string;
@@ -109,6 +111,11 @@ export interface StartEventData {
   models: StartModelEntry[];
 }
 
+export interface StageDoneEventData {
+  assistantMessageId: string;
+  payload: StageDonePayload;
+}
+
 export interface SSEHandlers {
   onStart?: (data: StartEventData) => void;
   onToken?: (data: ModelTokenData) => void;
@@ -116,6 +123,12 @@ export interface SSEHandlers {
   onDone?: (data: DoneEventData) => void;
   onModelDone?: (data: ModelDoneData) => void;
   onModelError?: (data: ModelErrorData) => void;
+  /** Emitted when a pre-inference stage starts; UI typically shows a label. */
+  onStageStart?: (data: StageStartPayload) => void;
+  /** Emitted when a pre-inference stage finishes successfully; payload is discriminated by stageId. */
+  onStageDone?: (data: StageDoneEventData) => void;
+  /** Emitted when a pre-inference stage fails; the slot is excluded from inference. */
+  onStageError?: (data: StageErrorPayload) => void;
 }
 
 export interface SSEParser {
@@ -155,6 +168,15 @@ function createEventHandlers(handlers: SSEHandlers): Record<string, EventHandler
     'model:error': (data) => {
       const modelErrorData = data as ModelErrorData;
       handlers.onModelError?.(modelErrorData);
+    },
+    'stage:start': (data) => {
+      handlers.onStageStart?.(data as StageStartPayload);
+    },
+    'stage:done': (data) => {
+      handlers.onStageDone?.(data as StageDoneEventData);
+    },
+    'stage:error': (data) => {
+      handlers.onStageError?.(data as StageErrorPayload);
     },
     done: (data) => {
       const doneData = data as DoneEventData;

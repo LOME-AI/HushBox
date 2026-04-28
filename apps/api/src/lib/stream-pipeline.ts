@@ -11,12 +11,12 @@ import { streamSSE } from 'hono/streaming';
 import {
   calculateBudget,
   applyFees,
+  buildEligibleModels,
   getModelPricing,
   buildSystemPrompt,
   estimateTokenCount,
   buildCostManifest,
   calculateBudgetFromManifest,
-  canAffordModel,
   effectiveBudgetCents,
   resolveBilling,
   getCushionCents,
@@ -38,7 +38,11 @@ import type { FundingSource, DenialReason, ResolveBillingInput, UserTier } from 
 import type { AppEnv, Bindings } from '../types.js';
 import { buildPrompt } from '../services/prompt/builder.js';
 import type { BuildBillingResult, MemberContext } from '../services/billing/index.js';
-import { calculateMessageCost } from '../services/billing/index.js';
+import { calculateMessageCost, calculateMessageCostWithStages } from '../services/billing/index.js';
+import { executePreInferenceChain, resolveStagesForSlot } from './pre-inference/index.js';
+import type { PreInferenceBillingPersistence } from '../services/chat/message-persistence.js';
+import type { PreInferenceBilling } from '@hushbox/shared';
+import { ERROR_CODE_CLASSIFIER_FAILED } from '@hushbox/shared';
 import { fetchModels, processModels } from '@hushbox/shared/models';
 import type {
   AIClient,
@@ -126,7 +130,30 @@ export interface BillingValidationSuccess {
   worstCaseCents: number;
   groupBudget?: GroupBudgetReservation;
   billingUserId: string;
-  smartModelAllowedModels?: string[];
+  /**
+   * Stage configuration for any Smart Model slots in the request. Present
+   * when SMART_MODEL_ID was in `models` and the user could afford at least
+   * one eligible model + classifier overhead. Consumed by the pipeline to
+   * build the per-slot Smart Model stage before inference.
+   */
+  smartModelResolution?: SmartModelResolution;
+}
+
+/**
+ * Pre-computed Smart Model stage configuration produced during billing
+ * resolution. The pipeline uses it to construct a {@link SmartModelStage}
+ * per Smart Model slot — the conversation context is filled in there since
+ * messagesForInference is the same across all parallel slots.
+ */
+export interface SmartModelResolution {
+  /** Cheapest eligible text model — used to make the classifier call. */
+  classifierModelId: string;
+  /** Eligible inference model ids the classifier may pick from. */
+  eligibleInferenceIds: readonly string[];
+  /** Worst-case cents (with fees) reserved for the classifier call itself. */
+  classifierWorstCaseCents: number;
+  /** Lookup for resolved model name + description (descriptions for prompt, name for SSE). */
+  modelMetadataById: ReadonlyMap<string, { name: string; description: string }>;
 }
 
 export interface BillingValidationFailure {
@@ -519,7 +546,7 @@ export async function resolveAndReserveBilling(
   }
 
   // 6. Resolve effective payer — determines balance, tier, and free allowance
-  //    for all downstream steps (auto-router filtering, budget, reservation).
+  //    for all downstream steps (Smart Model filtering, budget, reservation).
   //    For group billing, constrain by group budget limits so the worst-case
   //    reservation doesn't exceed conversation/member budgets.
   const isGroupBilling =
@@ -540,41 +567,23 @@ export async function resolveAndReserveBilling(
       : rawPayerBalanceCents;
   const payerFreeAllowanceCents = isGroupBilling ? 0 : billingResult.input.freeAllowanceCents;
 
-  // 7. Smart Model: build allowed models and override pricing with worst-case.
-  //    Runs after payer resolution so affordability uses the actual payer's balance.
-  //    Step 11 will replace this with a classifier-based router.
-  let smartModelAllowedModels: string[] | undefined;
-  if (models.length === 1 && models[0] === SMART_MODEL_ID) {
+  // 7. Smart Model: resolve eligible models and override per-slot pricing
+  //    to max-of-eligible. Runs after payer resolution so affordability uses
+  //    the actual payer's balance. The classifier worst-case is added to the
+  //    final reservation below; per-stage logic lives in `SmartModelStage`.
+  let smartModelResolution: SmartModelResolution | undefined;
+  if (models.includes(SMART_MODEL_ID)) {
     const { models: poolModels, premiumIds } = processModels(gatewayModels);
-    const premiumSet = new Set(premiumIds);
-    const canAccessPremium = payerTier === 'paid';
+    const eligibility = buildEligibleModels({
+      textModels: poolModels.filter((m) => m.modality === 'text' && !m.isSmartModel),
+      premiumIds: new Set(premiumIds),
+      payerTier,
+      payerBalanceCents,
+      payerFreeAllowanceCents,
+      promptCharacterCount,
+    });
 
-    const allowed: { id: string; inputPrice: number; outputPrice: number }[] = [];
-
-    for (const pm of poolModels) {
-      if (pm.isSmartModel) continue;
-      const isPremium = premiumSet.has(pm.id);
-      if (isPremium && !canAccessPremium) continue;
-
-      const mInputPrice = applyFees(pm.pricePerInputToken);
-      const mOutputPrice = applyFees(pm.pricePerOutputToken);
-
-      const affordResult = canAffordModel({
-        tier: payerTier,
-        balanceCents: payerBalanceCents,
-        freeAllowanceCents: payerFreeAllowanceCents,
-        promptCharacterCount,
-        modelInputPricePerToken: mInputPrice,
-        modelOutputPricePerToken: mOutputPrice,
-        isPremium,
-      });
-
-      if (affordResult.affordable) {
-        allowed.push({ id: pm.id, inputPrice: mInputPrice, outputPrice: mOutputPrice });
-      }
-    }
-
-    if (allowed.length === 0) {
+    if (eligibility === null) {
       return {
         success: false,
         response: c.json(
@@ -586,15 +595,48 @@ export async function resolveAndReserveBilling(
       };
     }
 
-    // Override pricing with worst-case (most expensive allowed model)
-    const existingPricing = allPricing[0];
-    if (!existingPricing) throw new Error('invariant: allPricing must have at least one entry');
-    allPricing[0] = {
-      inputPricePerToken: Math.max(...allowed.map((m) => m.inputPrice)),
-      outputPricePerToken: Math.max(...allowed.map((m) => m.outputPrice)),
-      contextLength: existingPricing.contextLength,
+    // Pricing override: every Smart Model slot reserves at the most expensive
+    // eligible model so the budget can absorb whichever model the classifier picks.
+    const eligibleSet = new Set(eligibility.eligibleInferenceIds);
+    let maxInputFee = 0;
+    let maxOutputFee = 0;
+    for (const pm of poolModels) {
+      if (!eligibleSet.has(pm.id)) continue;
+      const inputFee = applyFees(pm.pricePerInputToken);
+      const outputFee = applyFees(pm.pricePerOutputToken);
+      if (inputFee > maxInputFee) maxInputFee = inputFee;
+      if (outputFee > maxOutputFee) maxOutputFee = outputFee;
+    }
+
+    for (const [index, modelId] of models.entries()) {
+      if (modelId !== SMART_MODEL_ID) continue;
+      const existing = allPricing[index];
+      if (!existing) throw new Error(`invariant: allPricing missing entry ${String(index)}`);
+      allPricing[index] = {
+        inputPricePerToken: maxInputFee,
+        outputPricePerToken: maxOutputFee,
+        contextLength: existing.contextLength,
+      };
+    }
+
+    // Build metadata lookup for the eligible models — used by the SmartModelStage
+    // when constructing the classifier prompt and reporting the resolved name.
+    const metadata = new Map<string, { name: string; description: string }>();
+    for (const id of eligibility.eligibleInferenceIds) {
+      const raw = gatewayModels.find((m) => m.id === id);
+      if (!raw) continue;
+      metadata.set(id, {
+        name: raw.name,
+        description: raw.description,
+      });
+    }
+
+    smartModelResolution = {
+      classifierModelId: eligibility.classifierModelId,
+      eligibleInferenceIds: eligibility.eligibleInferenceIds,
+      classifierWorstCaseCents: eligibility.classifierWorstCaseCents,
+      modelMetadataById: metadata,
     };
-    smartModelAllowedModels = allowed.map((m) => m.id);
   }
 
   // 8. Compute budget for maxOutputTokens based on payer
@@ -618,14 +660,19 @@ export async function resolveAndReserveBilling(
     estimatedInputTokens: budgetResult.estimatedInputTokens,
   });
 
-  // 8. Calculate worst case cost for reservation (derived from budget — single source of truth)
+  // 8. Calculate worst case cost for reservation (derived from budget — single source of truth).
+  //    Add per-stage worst-case cents to cover any pre-inference stages
+  //    (Smart Model classifier, future prompt enhancers, etc.) that haven't
+  //    run yet but will be billed as separate usage_records.
   const effectiveMaxOutputTokens =
     safeMaxTokens ?? minContextLength - budgetResult.estimatedInputTokens;
-  const worstCaseCents = computeWorstCaseCents(
+  const inferenceWorstCaseCents = computeWorstCaseCents(
     budgetResult.estimatedInputCost,
     effectiveMaxOutputTokens,
     budgetResult.outputCostPerToken
   );
+  const stageReservationCents = smartModelResolution?.classifierWorstCaseCents ?? 0;
+  const worstCaseCents = inferenceWorstCaseCents + stageReservationCents;
 
   // 9. Reserve budget
   if (isGroupBilling && memberContext && conversationId) {
@@ -670,7 +717,7 @@ export async function resolveAndReserveBilling(
       worstCaseCents,
       groupBudget: groupReservation,
       billingUserId: memberContext.ownerId,
-      ...(smartModelAllowedModels !== undefined && { smartModelAllowedModels }),
+      ...(smartModelResolution !== undefined && { smartModelResolution }),
     };
   }
 
@@ -700,7 +747,7 @@ export async function resolveAndReserveBilling(
     gatewayModels,
     worstCaseCents,
     billingUserId: userId,
-    ...(smartModelAllowedModels !== undefined && { smartModelAllowedModels }),
+    ...(smartModelResolution !== undefined && { smartModelResolution }),
   };
 }
 
@@ -1030,51 +1077,337 @@ async function writeFirstStreamError(
   }
 }
 
+/**
+ * Extract the most recent user message and assistant message from the
+ * inference history, for the Smart Model classifier's truncation algorithm.
+ * Both are plain strings — empty when no message of that role exists.
+ *
+ * Pure helper; lives next to the pipeline that consumes it. Future stages
+ * that need conversation context can reuse this.
+ */
+function findLatestByRole(
+  messages: readonly MessageForInference[],
+  role: MessageForInference['role']
+): string {
+  return messages.findLast((m) => m.role === role)?.content ?? '';
+}
+
+function extractConversationContextForClassifier(
+  messagesForInference: readonly MessageForInference[]
+): { latestUserMessage: string; latestAssistantMessage: string } {
+  return {
+    latestUserMessage: findLatestByRole(messagesForInference, 'user'),
+    latestAssistantMessage: findLatestByRole(messagesForInference, 'assistant'),
+  };
+}
+
 interface BuildAssistantMessagesOptions {
   successfulModels: [string, StreamResult][];
   getAssistantId: (modelId: string) => string;
   aiClient: AIClient;
   lastInferenceMessage: { content: string } | undefined;
+  /**
+   * Per-slot metadata produced by pre-inference. Keyed by the slot's user-facing
+   * modelId (the same key used for SSE events). Slots without metadata behave
+   * as before — no stages, no Smart Model badge, model id is the selection.
+   */
+  slotMetadataByModelId: ReadonlyMap<string, SlotPreInferenceMetadata>;
+}
+
+interface AssistantPersistInput {
+  modality: 'text';
+  id: string;
+  content: string;
+  model: string;
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+  isSmartModel?: boolean;
+  preInferenceBillings?: PreInferenceBillingPersistence[];
+}
+
+interface SlotAssistantInput {
+  assistantMessageId: string;
+  result: StreamResult;
+  /** Always present — buildAssistantMessages synthesises a no-stage default for slots without pre-inference. */
+  meta: SlotPreInferenceMetadata;
+  inputContent: string;
+  aiClient: AIClient;
+}
+
+function baseAssistantPersist(input: {
+  assistantMessageId: string;
+  fullContent: string;
+  persistedModelId: string;
+  cost: number;
+  inputContent: string;
+  isSmartModel: boolean;
+}): AssistantPersistInput {
+  return {
+    modality: 'text' as const,
+    id: input.assistantMessageId,
+    content: input.fullContent,
+    model: input.persistedModelId,
+    cost: input.cost,
+    inputTokens: estimateTokenCount(input.inputContent),
+    outputTokens: estimateTokenCount(input.fullContent),
+    ...(input.isSmartModel && { isSmartModel: true }),
+  };
+}
+
+/**
+ * Slot ran pre-inference stages (Smart Model classifier today). Cost
+ * calculator returns the total + per-stage breakdown; persistence writes
+ * the main usage_records row plus one row per stage.
+ */
+async function buildStagedPersistInput(
+  input: SlotAssistantInput,
+  modelId: string,
+  generationId: string
+): Promise<AssistantPersistInput> {
+  const { assistantMessageId, result, meta, inputContent, aiClient } = input;
+  const costResult = await calculateMessageCostWithStages({
+    aiClient,
+    mainGenerationId: generationId,
+    stageBillings: meta.preInferenceBillings,
+    inputContent,
+    outputContent: result.fullContent,
+  });
+  const stagePersistence: PreInferenceBillingPersistence[] = costResult.stageBreakdown.map((b) => ({
+    stageId: b.billing.stageId,
+    modelId: b.billing.modelId,
+    costDollars: b.costDollars,
+    inputTokens: estimateTokenCount(b.billing.inputContent),
+    outputTokens: estimateTokenCount(b.billing.outputContent),
+  }));
+  return {
+    ...baseAssistantPersist({
+      assistantMessageId,
+      fullContent: result.fullContent,
+      persistedModelId: modelId,
+      cost: costResult.mainCostDollars,
+      inputContent,
+      isSmartModel: true,
+    }),
+    preInferenceBillings: stagePersistence,
+  };
+}
+
+async function buildSlotPersistInput(input: SlotAssistantInput): Promise<AssistantPersistInput> {
+  const { assistantMessageId, result, meta, inputContent, aiClient } = input;
+
+  // generationId is required to compute exact cost — fall back to 0 if missing
+  // (only happens for failed/incomplete streams that still produced content).
+  if (!result.generationId) {
+    return baseAssistantPersist({
+      assistantMessageId,
+      fullContent: result.fullContent,
+      persistedModelId: meta.resolvedModelId,
+      cost: 0,
+      inputContent,
+      isSmartModel: meta.isSmartModel,
+    });
+  }
+
+  if (meta.preInferenceBillings.length > 0) {
+    return buildStagedPersistInput(input, meta.resolvedModelId, result.generationId);
+  }
+
+  const totalCost = await calculateMessageCost({
+    aiClient,
+    generationId: result.generationId,
+    inputContent,
+    outputContent: result.fullContent,
+  });
+  return baseAssistantPersist({
+    assistantMessageId,
+    fullContent: result.fullContent,
+    persistedModelId: meta.resolvedModelId,
+    cost: totalCost,
+    inputContent,
+    isSmartModel: meta.isSmartModel,
+  });
 }
 
 /** Builds the assistant message array from successful model results for persistence. */
-async function buildAssistantMessages(options: BuildAssistantMessagesOptions): Promise<
-  {
-    modality: 'text';
-    id: string;
-    content: string;
-    model: string;
-    cost: number;
-    inputTokens: number;
-    outputTokens: number;
-  }[]
-> {
-  const { successfulModels, getAssistantId, aiClient, lastInferenceMessage } = options;
+async function buildAssistantMessages(
+  options: BuildAssistantMessagesOptions
+): Promise<AssistantPersistInput[]> {
+  const {
+    successfulModels,
+    getAssistantId,
+    aiClient,
+    lastInferenceMessage,
+    slotMetadataByModelId,
+  } = options;
+  const inputContent = lastInferenceMessage?.content ?? '';
   return Promise.all(
-    successfulModels.map(async ([modelId, result]) => {
-      const assistantMessageId = getAssistantId(modelId);
-      // generationId is required to compute exact cost — fall back to 0 if missing
-      // (this only happens for failed/incomplete streams that still produced content).
-      const totalCost = result.generationId
-        ? await calculateMessageCost({
-            aiClient,
-            generationId: result.generationId,
-            inputContent: lastInferenceMessage?.content ?? '',
-            outputContent: result.fullContent,
-          })
-        : 0;
-
-      return {
-        modality: 'text' as const,
-        id: assistantMessageId,
-        content: result.fullContent,
-        model: modelId,
-        cost: totalCost,
-        inputTokens: estimateTokenCount(lastInferenceMessage?.content ?? ''),
-        outputTokens: estimateTokenCount(result.fullContent),
-      };
-    })
+    successfulModels.map(([modelId, result]) =>
+      buildSlotPersistInput({
+        assistantMessageId: getAssistantId(modelId),
+        result,
+        meta: slotMetadataByModelId.get(modelId) ?? {
+          modelId,
+          assistantMessageId: getAssistantId(modelId),
+          resolvedModelId: modelId,
+          isSmartModel: false,
+          preInferenceBillings: [],
+        },
+        inputContent,
+        aiClient,
+      })
+    )
   );
+}
+
+/**
+ * Pre-inference outcome for a single slot, captured before stream entries are
+ * built. Successful slots contribute streamEntries; failed slots are reported
+ * via `writeModelError` and excluded.
+ */
+interface SlotPreInferenceMetadata {
+  modelId: string;
+  assistantMessageId: string;
+  resolvedModelId: string;
+  isSmartModel: boolean;
+  preInferenceBillings: PreInferenceBilling[];
+}
+
+interface RunPreInferenceForSlotsArgs {
+  models: readonly string[];
+  getAssistantId: (modelId: string) => string;
+  smartModelResolution: SmartModelResolution | undefined;
+  conversationContext: { latestUserMessage: string; latestAssistantMessage: string };
+  aiClient: AIClient;
+  writer: SSEEventWriter;
+}
+
+/**
+ * The `is_smart_model` flag must be tied to the routing stage specifically,
+ * not "any stage that produces a `resolvedModelId`" — future stages (model
+ * fallback, safety redirect) might also rewrite the model id without being
+ * routing. Exported so the discriminator can be unit-tested directly.
+ *
+ * The cast to `string` widens `b.stageId` away from today's literal union so
+ * the comparison reads as forward-compat against future stage types, not
+ * "is the only existing stage equal to itself."
+ */
+export function derivedIsSmartModel(billings: readonly PreInferenceBilling[]): boolean {
+  return billings.some((b) => (b.stageId as string) === 'smart-model');
+}
+
+async function runPreInferenceForSlot(
+  modelId: string,
+  args: RunPreInferenceForSlotsArgs
+): Promise<SlotPreInferenceMetadata | null> {
+  const { getAssistantId, smartModelResolution, conversationContext, aiClient, writer } = args;
+  const assistantMsgId = getAssistantId(modelId);
+  const stages = resolveStagesForSlot({
+    modality: 'text',
+    selectedModelId: modelId,
+    ...(smartModelResolution !== undefined && {
+      smartModelResolution: { ...smartModelResolution, conversationContext },
+    }),
+  });
+
+  if (stages.length === 0) {
+    return {
+      modelId,
+      assistantMessageId: assistantMsgId,
+      resolvedModelId: modelId,
+      isSmartModel: false,
+      preInferenceBillings: [],
+    };
+  }
+
+  const chainResult = await executePreInferenceChain({
+    stages,
+    aiClient,
+    writer,
+    assistantMessageId: assistantMsgId,
+  });
+
+  if (!chainResult.ok) {
+    await writer.writeModelError({
+      modelId,
+      message: 'Pre-inference stage failed',
+      code: chainResult.errorCode,
+    });
+    return null;
+  }
+
+  return {
+    modelId,
+    assistantMessageId: assistantMsgId,
+    resolvedModelId: chainResult.transformation.resolvedModelId ?? modelId,
+    isSmartModel: derivedIsSmartModel(chainResult.billings),
+    preInferenceBillings: chainResult.billings,
+  };
+}
+
+/**
+ * Per-slot pre-inference: each slot runs its stage chain (currently only Smart
+ * Model). Successful slots produce a {@link SlotPreInferenceMetadata}; failed
+ * slots emit `model:error` and are excluded so sibling slots stream
+ * independently.
+ *
+ * Sequential by design today — Smart Model is the only stage and the user can
+ * select it at most once, so at most one slot has stages and parallelism would
+ * add no value. Switch to `Promise.all` when multiple slots ever carry stages
+ * (e.g., per-slot prompt enhancers).
+ */
+async function runPreInferenceForSlots(
+  args: RunPreInferenceForSlotsArgs
+): Promise<Map<string, SlotPreInferenceMetadata>> {
+  const slotMetadataByModelId = new Map<string, SlotPreInferenceMetadata>();
+  for (const modelId of args.models) {
+    const meta = await runPreInferenceForSlot(modelId, args);
+    if (meta !== null) slotMetadataByModelId.set(modelId, meta);
+  }
+  return slotMetadataByModelId;
+}
+
+interface BuildSlotStreamEntriesArgs {
+  models: readonly string[];
+  slotMetadataByModelId: ReadonlyMap<string, SlotPreInferenceMetadata>;
+  aiMessages: ReturnType<typeof buildAIMessages>;
+  safeMaxTokens: number | undefined;
+  aiClient: AIClient;
+  envBindings: Bindings;
+  conversationId: string;
+  senderId: string;
+}
+
+/**
+ * Build one stream entry per slot that survived pre-inference. The SSE key
+ * remains the user-facing modelId (e.g., 'smart-model'); the actual
+ * `aiClient.stream` call uses the resolved model id when stages produced one.
+ */
+function buildSlotStreamEntries(args: BuildSlotStreamEntriesArgs): ModelStreamEntry[] {
+  const entries: ModelStreamEntry[] = [];
+  for (const modelId of args.models) {
+    const meta = args.slotMetadataByModelId.get(modelId);
+    if (!meta) continue;
+    const textRequest: TextRequest = {
+      modality: 'text',
+      model: meta.resolvedModelId,
+      messages: args.aiMessages,
+      ...(args.safeMaxTokens === undefined ? {} : { maxOutputTokens: args.safeMaxTokens }),
+    };
+    const rawStream = args.aiClient.stream(textRequest);
+    entries.push({
+      modelId,
+      assistantMessageId: meta.assistantMessageId,
+      stream: withBroadcast(rawStream, {
+        env: args.envBindings,
+        conversationId: args.conversationId,
+        assistantMessageId: meta.assistantMessageId,
+        modelName: meta.resolvedModelId,
+        senderId: args.senderId,
+      }),
+    });
+  }
+  return entries;
 }
 
 /**
@@ -1098,7 +1431,7 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
     forkId,
     parentMessageId,
   } = input;
-  const { safeMaxTokens, billingUserId } = billingValidation;
+  const { safeMaxTokens, billingUserId, smartModelResolution } = billingValidation;
   const model = models[0];
   if (!model) throw new Error('invariant: models must have at least one entry');
   const db = c.get('db');
@@ -1114,6 +1447,7 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
 
   const aiMessages = buildAIMessages(systemPrompt, messagesForInference);
   const lastInferenceMessage = messagesForInference.at(-1);
+  const conversationContext = extractConversationContextForClassifier(messagesForInference);
 
   // Early broadcast: notify other group members of user's message
   const lastContent = lastInferenceMessage?.content ?? '';
@@ -1130,122 +1464,201 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
     safeExecutionCtx(c)
   );
 
-  // Build one stream entry per model via AIClient
-  const streamEntries: ModelStreamEntry[] = models.map((modelId) => {
-    const assistantMsgId = getAssistantId(modelId);
-    const textRequest: TextRequest = {
-      modality: 'text',
-      model: modelId,
-      messages: aiMessages,
-      ...(safeMaxTokens === undefined ? {} : { maxOutputTokens: safeMaxTokens }),
-    };
-    const rawStream = aiClient.stream(textRequest);
-    return {
-      modelId,
-      assistantMessageId: assistantMsgId,
-      stream: withBroadcast(rawStream, {
-        env: c.env,
-        conversationId,
-        assistantMessageId: assistantMsgId,
-        modelName: modelId,
-        senderId,
-      }),
-    };
-  });
-
   return streamSSE(c, async (stream) => {
     const writer = createSSEEventWriter(stream);
     try {
-      await writer.writeStart({
-        userMessageId: userMessage.id,
-        models: models.map((modelId) => ({
-          modelId,
-          assistantMessageId: getAssistantId(modelId),
-        })),
-      });
-
-      const multiResults = await collectMultiModelStreams(streamEntries, writer);
-
-      // Check if ALL models failed
-      const successfulModels = [...multiResults.entries()].filter(
-        ([, r]) => r.error === null && r.fullContent.length > 0
-      );
-
-      if (successfulModels.length === 0) {
-        await writeFirstStreamError(multiResults, writer);
-        return;
-      }
-
-      // Build assistant messages array from successful models
-      const assistantMessages = await buildAssistantMessages({
-        successfulModels,
+      await runStreamingTurn({
+        writer,
+        models,
         getAssistantId,
-        aiClient,
+        smartModelResolution,
+        conversationContext,
+        aiMessages,
+        safeMaxTokens,
         lastInferenceMessage,
-      });
-
-      const billingPromise = saveChatTurn(db, {
-        userMessageId: userMessage.id,
-        userContent: userMessage.content,
-        conversationId,
-        userId: billingUserId,
-        senderId,
-        assistantMessages,
-        ...(memberContext !== undefined &&
-          billingValidation.groupBudget !== undefined && {
-            groupBillingContext: { memberId: memberContext.memberId },
-          }),
-        parentMessageId,
-        ...(forkId !== undefined && { forkId }),
-      });
-
-      const primaryModel = model; // models[0] — already validated above
-      const billingResult = await handleBillingResult({
+        aiClient,
+        db,
         c,
-        billingPromise,
-        assistantMessageId: getAssistantId(primaryModel),
-        userId: billingUserId,
+        userMessage,
+        billingValidation,
+        memberContext,
+        parentMessageId,
+        forkId,
         senderId,
-        model: primaryModel,
-        generationId: multiResults.get(primaryModel)?.generationId,
+        conversationId,
+        billingUserId,
+        primaryModel: model,
       });
-
-      if (billingResult) {
-        await broadcastAndFinish({
-          c,
-          conversationId,
-          userMessageId: userMessage.id,
-          assistantMessageId: getAssistantId(primaryModel),
-          billingResult,
-          writer,
-          modelName: primaryModel,
-        });
-
-        // Broadcast completion for additional models
-        for (const [modelId] of successfulModels) {
-          if (modelId === primaryModel) continue;
-          broadcastFireAndForget(
-            c.env,
-            conversationId,
-            createEvent('message:complete', {
-              messageId: getAssistantId(modelId),
-              conversationId,
-              sequenceNumber: billingResult.aiSequence,
-              epochNumber: billingResult.epochNumber,
-              modelName: modelId,
-            })
-          );
-        }
-      } else {
-        await writer.writeError({
-          message: 'Failed to save message',
-          code: ERROR_CODE_BILLING_ERROR,
-        });
-      }
     } finally {
       await releaseReservation();
     }
   });
+}
+
+interface RunStreamingTurnArgs {
+  writer: SSEEventWriter;
+  models: string[];
+  getAssistantId: (modelId: string) => string;
+  smartModelResolution: SmartModelResolution | undefined;
+  conversationContext: { latestUserMessage: string; latestAssistantMessage: string };
+  aiMessages: ReturnType<typeof buildAIMessages>;
+  safeMaxTokens: number | undefined;
+  lastInferenceMessage: MessageForInference | undefined;
+  aiClient: AIClient;
+  db: AppEnv['Variables']['db'];
+  c: Context<AppEnv>;
+  userMessage: { id: string; content: string };
+  billingValidation: BillingValidationSuccess;
+  memberContext: MemberContext | undefined;
+  parentMessageId: string | null;
+  forkId: string | undefined;
+  senderId: string;
+  conversationId: string;
+  billingUserId: string;
+  primaryModel: string;
+}
+
+/**
+ * Drive the per-turn SSE streaming flow inside the streamSSE callback. Pulled
+ * out so the outer pipeline only owns the writer lifecycle and reservation
+ * release; this function owns event emission, pre-inference, multi-model
+ * collection, persistence, and broadcast.
+ */
+async function runStreamingTurn(args: RunStreamingTurnArgs): Promise<void> {
+  const { writer, models, getAssistantId, userMessage } = args;
+
+  await writer.writeStart({
+    userMessageId: userMessage.id,
+    models: models.map((modelId) => ({
+      modelId,
+      assistantMessageId: getAssistantId(modelId),
+    })),
+  });
+
+  const slotMetadataByModelId = await runPreInferenceForSlots({
+    models,
+    getAssistantId,
+    smartModelResolution: args.smartModelResolution,
+    conversationContext: args.conversationContext,
+    aiClient: args.aiClient,
+    writer,
+  });
+
+  const streamEntries = buildSlotStreamEntries({
+    models,
+    slotMetadataByModelId,
+    aiMessages: args.aiMessages,
+    safeMaxTokens: args.safeMaxTokens,
+    aiClient: args.aiClient,
+    envBindings: args.c.env,
+    conversationId: args.conversationId,
+    senderId: args.senderId,
+  });
+
+  if (streamEntries.length === 0) {
+    await writer.writeError({
+      message: 'All slots failed pre-inference',
+      code: ERROR_CODE_CLASSIFIER_FAILED,
+    });
+    return;
+  }
+
+  const multiResults = await collectMultiModelStreams(streamEntries, writer);
+  const successfulModels = [...multiResults.entries()].filter(
+    ([, r]) => r.error === null && r.fullContent.length > 0
+  );
+
+  if (successfulModels.length === 0) {
+    await writeFirstStreamError(multiResults, writer);
+    return;
+  }
+
+  await persistAndBroadcastTurn({
+    ...args,
+    successfulModels,
+    multiResults,
+    slotMetadataByModelId,
+  });
+}
+
+interface PersistAndBroadcastArgs extends RunStreamingTurnArgs {
+  successfulModels: [string, StreamResult][];
+  multiResults: Map<string, StreamResult>;
+  slotMetadataByModelId: ReadonlyMap<string, SlotPreInferenceMetadata>;
+}
+
+async function persistAndBroadcastTurn(args: PersistAndBroadcastArgs): Promise<void> {
+  const assistantMessages = await buildAssistantMessages({
+    successfulModels: args.successfulModels,
+    getAssistantId: args.getAssistantId,
+    aiClient: args.aiClient,
+    lastInferenceMessage: args.lastInferenceMessage,
+    slotMetadataByModelId: args.slotMetadataByModelId,
+  });
+
+  const billingPromise = saveChatTurn(args.db, {
+    userMessageId: args.userMessage.id,
+    userContent: args.userMessage.content,
+    conversationId: args.conversationId,
+    userId: args.billingUserId,
+    senderId: args.senderId,
+    assistantMessages,
+    ...(args.memberContext !== undefined &&
+      args.billingValidation.groupBudget !== undefined && {
+        groupBillingContext: { memberId: args.memberContext.memberId },
+      }),
+    parentMessageId: args.parentMessageId,
+    ...(args.forkId !== undefined && { forkId: args.forkId }),
+  });
+
+  const billingResult = await handleBillingResult({
+    c: args.c,
+    billingPromise,
+    assistantMessageId: args.getAssistantId(args.primaryModel),
+    userId: args.billingUserId,
+    senderId: args.senderId,
+    model: args.primaryModel,
+    generationId: args.multiResults.get(args.primaryModel)?.generationId,
+  });
+
+  if (!billingResult) {
+    await args.writer.writeError({
+      message: 'Failed to save message',
+      code: ERROR_CODE_BILLING_ERROR,
+    });
+    return;
+  }
+
+  // Broadcast events use the RESOLVED model id — what `content_items.model_name`
+  // stores — so other group members see the actual model that produced the
+  // response, not the user-facing slot id (e.g., 'smart-model').
+  const resolveBroadcastModelName = (modelId: string): string =>
+    args.slotMetadataByModelId.get(modelId)?.resolvedModelId ?? modelId;
+
+  await broadcastAndFinish({
+    c: args.c,
+    conversationId: args.conversationId,
+    userMessageId: args.userMessage.id,
+    assistantMessageId: args.getAssistantId(args.primaryModel),
+    billingResult,
+    writer: args.writer,
+    modelName: resolveBroadcastModelName(args.primaryModel),
+  });
+
+  for (const [modelId] of args.successfulModels) {
+    if (modelId === args.primaryModel) continue;
+    broadcastFireAndForget(
+      args.c.env,
+      args.conversationId,
+      createEvent('message:complete', {
+        messageId: args.getAssistantId(modelId),
+        conversationId: args.conversationId,
+        sequenceNumber: billingResult.aiSequence,
+        epochNumber: billingResult.epochNumber,
+        modelName: resolveBroadcastModelName(modelId),
+      })
+    );
+  }
 }
 
 // ============================================================================

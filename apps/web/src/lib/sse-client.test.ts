@@ -36,6 +36,9 @@ describe('createSSEParser', () => {
       onDone: ReturnType<typeof vi.fn>;
       onModelDone: ReturnType<typeof vi.fn>;
       onModelError: ReturnType<typeof vi.fn>;
+      onStageStart: ReturnType<typeof vi.fn>;
+      onStageDone: ReturnType<typeof vi.fn>;
+      onStageError: ReturnType<typeof vi.fn>;
     };
   } => {
     const onStart = vi.fn();
@@ -44,9 +47,32 @@ describe('createSSEParser', () => {
     const onDone = vi.fn();
     const onModelDone = vi.fn();
     const onModelError = vi.fn();
+    const onStageStart = vi.fn();
+    const onStageDone = vi.fn();
+    const onStageError = vi.fn();
     return {
-      handlers: { onStart, onToken, onError, onDone, onModelDone, onModelError },
-      mocks: { onStart, onToken, onError, onDone, onModelDone, onModelError },
+      handlers: {
+        onStart,
+        onToken,
+        onError,
+        onDone,
+        onModelDone,
+        onModelError,
+        onStageStart,
+        onStageDone,
+        onStageError,
+      },
+      mocks: {
+        onStart,
+        onToken,
+        onError,
+        onDone,
+        onModelDone,
+        onModelError,
+        onStageStart,
+        onStageDone,
+        onStageError,
+      },
     };
   };
 
@@ -103,6 +129,54 @@ describe('createSSEParser', () => {
     parser.processChunk('data: {}\n\n');
 
     expect(mocks.onDone).toHaveBeenCalled();
+  });
+
+  it('calls onStageStart when stage:start event is received', () => {
+    const { handlers, mocks } = createMockHandlers();
+    const parser = createSSEParser(handlers);
+
+    parser.processChunk('event: stage:start\n');
+    parser.processChunk('data: {"stageId":"smart-model","assistantMessageId":"asst-1"}\n\n');
+
+    expect(mocks.onStageStart).toHaveBeenCalledWith({
+      stageId: 'smart-model',
+      assistantMessageId: 'asst-1',
+    });
+  });
+
+  it('calls onStageDone with the discriminated payload when stage:done event is received', () => {
+    const { handlers, mocks } = createMockHandlers();
+    const parser = createSSEParser(handlers);
+
+    parser.processChunk('event: stage:done\n');
+    parser.processChunk(
+      'data: {"assistantMessageId":"asst-1","payload":{"stageId":"smart-model","resolvedModelId":"a/m","resolvedModelName":"AM"}}\n\n'
+    );
+
+    expect(mocks.onStageDone).toHaveBeenCalledWith({
+      assistantMessageId: 'asst-1',
+      payload: {
+        stageId: 'smart-model',
+        resolvedModelId: 'a/m',
+        resolvedModelName: 'AM',
+      },
+    });
+  });
+
+  it('calls onStageError when stage:error event is received', () => {
+    const { handlers, mocks } = createMockHandlers();
+    const parser = createSSEParser(handlers);
+
+    parser.processChunk('event: stage:error\n');
+    parser.processChunk(
+      'data: {"stageId":"smart-model","assistantMessageId":"asst-1","errorCode":"CLASSIFIER_FAILED"}\n\n'
+    );
+
+    expect(mocks.onStageError).toHaveBeenCalledWith({
+      stageId: 'smart-model',
+      assistantMessageId: 'asst-1',
+      errorCode: 'CLASSIFIER_FAILED',
+    });
   });
 
   it('handles multi-line chunks correctly', () => {

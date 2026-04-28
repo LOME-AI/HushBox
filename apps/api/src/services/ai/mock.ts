@@ -1,3 +1,5 @@
+import { CLASSIFIER_SYSTEM_PROMPT_MARKER } from '@hushbox/shared';
+
 import type {
   AIMessage,
   InferenceEvent,
@@ -18,6 +20,9 @@ const CHARS_PER_TOKEN = 4;
 
 /** Deterministic mock cost returned by getGenerationStats (USD). */
 const MOCK_GENERATION_STATS_COST = 0.001;
+
+/** Default model id returned by classifier calls — overridable per test. */
+const DEFAULT_CLASSIFIER_RESOLUTION = 'anthropic/claude-sonnet-4.6';
 
 // ---------------------------------------------------------------------------
 // Canned media buffers
@@ -297,6 +302,43 @@ function countPromptCharacters(messages: AIMessage[]): number {
   return total;
 }
 
+function isClassifierRequest(request: TextRequest): boolean {
+  const system = request.messages.find((m) => m.role === 'system');
+  if (!system) return false;
+  const content = typeof system.content === 'string' ? system.content : '';
+  return content.startsWith(CLASSIFIER_SYSTEM_PROMPT_MARKER);
+}
+
+function createClassifierStream(modelId: string): InferenceStream {
+  return syncStream(function* (): Generator<InferenceEvent> {
+    for (const char of modelId) {
+      yield { kind: 'text-delta', content: char };
+    }
+    yield {
+      kind: 'finish',
+      providerMetadata: {
+        generationId: `mock-classifier-${String(Date.now())}`,
+        usage: {
+          inputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN),
+          outputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN),
+        },
+      },
+    };
+  });
+}
+
+function createFailingClassifierStream(error: Error): InferenceStream {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+      return {
+        next(): Promise<IteratorResult<InferenceEvent>> {
+          return Promise.reject(error);
+        },
+      };
+    },
+  };
+}
+
 function createTextStream(request: TextRequest): InferenceStream {
   const echoContent = `Echo: ${extractLastUserContent(request.messages)}`;
 
@@ -384,6 +426,8 @@ function createAudioStream(): InferenceStream {
 export function createMockAIClient(): MockAIClient {
   const history: InferenceRequest[] = [];
   const failingModels = new Set<string>();
+  let classifierResolution = DEFAULT_CLASSIFIER_RESOLUTION;
+  let classifierFailure: Error | null = null;
 
   return {
     isMock: true,
@@ -416,6 +460,12 @@ export function createMockAIClient(): MockAIClient {
 
       switch (request.modality) {
         case 'text': {
+          if (isClassifierRequest(request)) {
+            if (classifierFailure !== null) {
+              return createFailingClassifierStream(classifierFailure);
+            }
+            return createClassifierStream(classifierResolution);
+          }
           return createTextStream(request);
         }
         case 'image': {
@@ -448,6 +498,14 @@ export function createMockAIClient(): MockAIClient {
 
     clearFailingModels(): void {
       failingModels.clear();
+    },
+
+    setClassifierResolution(modelId: string): void {
+      classifierResolution = modelId;
+    },
+
+    setClassifierFailure(error: Error | null): void {
+      classifierFailure = error;
     },
   };
 }

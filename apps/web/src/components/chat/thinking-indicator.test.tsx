@@ -60,4 +60,16 @@ describe('ThinkingIndicator', () => {
     expect(screen.getByText('deepseek-r1 is thinking')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'deepseek-r1 is thinking');
   });
+
+  it('replaces the "is thinking" text with stageLabel when provided', () => {
+    render(<ThinkingIndicator modelName="GPT-4" stageLabel="Choosing the best model…" />);
+    expect(screen.getByText('Choosing the best model…')).toBeInTheDocument();
+    // Model name is suppressed when a stage label is active.
+    expect(screen.queryByText('GPT-4 is thinking')).not.toBeInTheDocument();
+  });
+
+  it('uses the stageLabel as the aria-label when provided', () => {
+    render(<ThinkingIndicator modelName="GPT-4" stageLabel="Choosing the best model…" />);
+    expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'Choosing the best model…');
+  });
 });

@@ -25,6 +25,7 @@ import {
   BATCH_INTERVAL_MS,
   lookupModelPricing,
   computeWorstCaseCents,
+  derivedIsSmartModel,
   resolveWebSearchCost,
   handleBillingResult,
   withBroadcast,
@@ -201,6 +202,62 @@ describe('computeWorstCaseCents', () => {
     // (0 + 500 * 0.002) * 100 = 100
     const result = computeWorstCaseCents(0, 500, 0.002);
     expect(result).toBe(100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// derivedIsSmartModel
+// ---------------------------------------------------------------------------
+
+describe('derivedIsSmartModel', () => {
+  it('returns false for an empty billing list', () => {
+    expect(derivedIsSmartModel([])).toBe(false);
+  });
+
+  it('returns true when at least one billing entry has stageId smart-model', () => {
+    expect(
+      derivedIsSmartModel([
+        {
+          stageId: 'smart-model',
+          modelId: 'cheap/c',
+          generationId: 'gen-1',
+          inputContent: 'in',
+          outputContent: 'out',
+        },
+      ])
+    ).toBe(true);
+  });
+
+  it('does NOT return true for a hypothetical non-Smart-Model stage that produced billing', () => {
+    // Forward-compat: a future stage type (prompt-enhancer, fallback-router, etc.)
+    // that bills should NOT flag the slot as Smart Model.
+    const fakeBilling = {
+      // Cast lets us simulate a future StageId without polluting the real union.
+      stageId: 'prompt-enhancer' as 'smart-model',
+      modelId: 'cheap/c',
+      generationId: 'gen-1',
+      inputContent: 'in',
+      outputContent: 'out',
+    };
+    expect(derivedIsSmartModel([fakeBilling])).toBe(false);
+  });
+
+  it('returns true when smart-model billing is mixed with other stages', () => {
+    const fakePromptEnhancer = {
+      stageId: 'prompt-enhancer' as 'smart-model',
+      modelId: 'cheap/c',
+      generationId: 'gen-1',
+      inputContent: 'in',
+      outputContent: 'out',
+    };
+    const smartModel = {
+      stageId: 'smart-model' as const,
+      modelId: 'cheap/c',
+      generationId: 'gen-2',
+      inputContent: 'in',
+      outputContent: 'out',
+    };
+    expect(derivedIsSmartModel([fakePromptEnhancer, smartModel])).toBe(true);
   });
 });
 

@@ -1,6 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { CostPieChart } from './cost-pie-chart';
+import { ALL_FEE_CATEGORIES, FEE_BUCKET_BY_ID, FEE_CATEGORIES } from '@hushbox/shared';
+
+function expectedSliceCount(): number {
+  // Service Value is always rendered. Transaction Costs and Platform Fee
+  // are rendered only if they contain at least one non-zero fee category.
+  let count = 1;
+  if (FEE_CATEGORIES.some((c) => FEE_BUCKET_BY_ID[c.id] === 'transaction-costs')) {
+    count += 1;
+  }
+  if (FEE_CATEGORIES.some((c) => FEE_BUCKET_BY_ID[c.id] === 'platform-fee')) {
+    count += 1;
+  }
+  return count;
+}
 
 describe('CostPieChart', () => {
   describe('rendering', () => {
@@ -17,7 +31,6 @@ describe('CostPieChart', () => {
 
     it('does NOT render legend text', () => {
       render(<CostPieChart depositAmount={100} />);
-      // Should not find any label text
       expect(screen.queryByText('Model usage')).not.toBeInTheDocument();
       expect(screen.queryByText('Storage')).not.toBeInTheDocument();
       expect(screen.queryByText('HushBox profit')).not.toBeInTheDocument();
@@ -29,55 +42,73 @@ describe('CostPieChart', () => {
       render(<CostPieChart depositAmount={100} />);
       const container = screen.getByTestId('cost-pie-chart');
       const svg = container.querySelector('svg');
-      // Should not have any text elements
       expect(svg?.querySelector('text')).not.toBeInTheDocument();
     });
   });
 
   describe('pie slices', () => {
-    it('renders Service Value slice (blue)', () => {
+    it('renders one path per non-empty category group', () => {
       render(<CostPieChart depositAmount={100} />);
       const container = screen.getByTestId('cost-pie-chart');
       const paths = container.querySelectorAll('path');
-      // Should have 3 category slices
-      expect(paths.length).toBe(3);
-      // First slice should be Service Value (blue)
-      const serviceValueSlice = container.querySelector('[data-testid="slice-service-value"]');
-      expect(serviceValueSlice).toBeInTheDocument();
-      expect(serviceValueSlice).toHaveAttribute('fill', '#3b82f6');
+      expect(paths.length).toBe(expectedSliceCount());
     });
 
-    it('renders Transaction Costs slice (amber)', () => {
+    it('renders the Service Value slice (blue) at all rate values', () => {
+      render(<CostPieChart depositAmount={100} />);
+      const container = screen.getByTestId('cost-pie-chart');
+      const slice = container.querySelector('[data-testid="slice-service-value"]');
+      expect(slice).toBeInTheDocument();
+      expect(slice).toHaveAttribute('fill', '#3b82f6');
+    });
+
+    it('renders the Transaction Costs slice (amber) iff at least one transaction fee has rate > 0', () => {
       render(<CostPieChart depositAmount={100} />);
       const container = screen.getByTestId('cost-pie-chart');
       const slice = container.querySelector('[data-testid="slice-transaction-costs"]');
-      expect(slice).toBeInTheDocument();
-      expect(slice).toHaveAttribute('fill', '#f59e0b');
+      const hasTransactionCosts = FEE_CATEGORIES.some(
+        (c) => FEE_BUCKET_BY_ID[c.id] === 'transaction-costs'
+      );
+      if (hasTransactionCosts) {
+        expect(slice).toBeInTheDocument();
+        expect(slice).toHaveAttribute('fill', '#f59e0b');
+      } else {
+        expect(slice).not.toBeInTheDocument();
+      }
     });
 
-    it('renders Platform Fee slice (brand red)', () => {
+    it('renders the Platform Fee slice (brand red) iff the hushbox fee has rate > 0', () => {
       render(<CostPieChart depositAmount={100} />);
       const container = screen.getByTestId('cost-pie-chart');
       const slice = container.querySelector('[data-testid="slice-platform-fee"]');
-      expect(slice).toBeInTheDocument();
-      expect(slice).toHaveAttribute('fill', '#ec4755');
+      const hasPlatformFee = FEE_CATEGORIES.some((c) => FEE_BUCKET_BY_ID[c.id] === 'platform-fee');
+      if (hasPlatformFee) {
+        expect(slice).toBeInTheDocument();
+        expect(slice).toHaveAttribute('fill', '#ec4755');
+      } else {
+        expect(slice).not.toBeInTheDocument();
+      }
     });
-  });
 
-  describe('slice proportions', () => {
-    it('Service Value slice is largest (~85%)', () => {
+    it('does not render a slice for any zero-rate fee category bucket', () => {
       render(<CostPieChart depositAmount={100} />);
       const container = screen.getByTestId('cost-pie-chart');
-      const serviceValueSlice = container.querySelector('[data-testid="slice-service-value"]');
-      const transactionCostsSlice = container.querySelector(
-        '[data-testid="slice-transaction-costs"]'
-      );
-      const platformFeeSlice = container.querySelector('[data-testid="slice-platform-fee"]');
-
-      // All slices should exist
-      expect(serviceValueSlice).toBeInTheDocument();
-      expect(transactionCostsSlice).toBeInTheDocument();
-      expect(platformFeeSlice).toBeInTheDocument();
+      const allTransactionRatesZero = ALL_FEE_CATEGORIES.filter(
+        (c) => FEE_BUCKET_BY_ID[c.id] === 'transaction-costs'
+      ).every((c) => c.rate === 0);
+      const allPlatformRatesZero = ALL_FEE_CATEGORIES.filter(
+        (c) => FEE_BUCKET_BY_ID[c.id] === 'platform-fee'
+      ).every((c) => c.rate === 0);
+      if (allTransactionRatesZero) {
+        expect(
+          container.querySelector('[data-testid="slice-transaction-costs"]')
+        ).not.toBeInTheDocument();
+      }
+      if (allPlatformRatesZero) {
+        expect(
+          container.querySelector('[data-testid="slice-platform-fee"]')
+        ).not.toBeInTheDocument();
+      }
     });
   });
 

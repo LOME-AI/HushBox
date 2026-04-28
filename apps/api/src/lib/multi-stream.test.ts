@@ -28,6 +28,9 @@ function createMockWriter(): SSEEventWriter & {
     writeModelDone: record('writeModelDone'),
     writeModelError: record('writeModelError'),
     writeDone: record('writeDone'),
+    writeStageStart: record('writeStageStart'),
+    writeStageDone: record('writeStageDone'),
+    writeStageError: record('writeStageError'),
     isConnected: () => true,
   };
 }

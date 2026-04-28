@@ -18,7 +18,8 @@ import {
   type RegenerateStreamRequest,
   type ModelResult,
 } from '@/hooks/use-chat-stream';
-import type { DoneEventData, StartEventData } from '@/lib/sse-client';
+import type { DoneEventData, StageDoneEventData, StartEventData } from '@/lib/sse-client';
+import type { StageErrorPayload, StageStartPayload } from '@hushbox/shared';
 import { useOptimisticMessages } from '@/hooks/use-optimistic-messages';
 import {
   useConversation,
@@ -497,6 +498,9 @@ export function useAuthenticatedChat({
     removeOptimisticMessage,
     updateOptimisticMessageContent,
     setOptimisticMessageError,
+    setOptimisticMessageStageStart,
+    setOptimisticMessageStageDone,
+    setOptimisticMessageStageError,
     resetOptimisticMessages,
   } = useOptimisticMessages();
 
@@ -621,8 +625,25 @@ export function useAuthenticatedChat({
           setOptimisticMessageError(msgId, data.code ?? 'STREAM_ERROR');
         }
       },
+      onStageStart: (data: StageStartPayload) => {
+        setOptimisticMessageStageStart(data.assistantMessageId, data.stageId);
+      },
+      onStageDone: (data: StageDoneEventData) => {
+        setOptimisticMessageStageDone(data.assistantMessageId, data.payload);
+      },
+      onStageError: (data: StageErrorPayload) => {
+        setOptimisticMessageStageError(data.assistantMessageId, data.errorCode);
+      },
     }),
-    [state, addOptimisticMessage, updateOptimisticMessageContent, setOptimisticMessageError]
+    [
+      state,
+      addOptimisticMessage,
+      updateOptimisticMessageContent,
+      setOptimisticMessageError,
+      setOptimisticMessageStageStart,
+      setOptimisticMessageStageDone,
+      setOptimisticMessageStageError,
+    ]
   );
 
   interface ExecuteStreamParams {
@@ -1055,6 +1076,24 @@ export function useAuthenticatedChat({
             onToken: (token) => {
               updateOptimisticMessageContent(assistantMsgId, token);
             },
+            // Smart Model regeneration re-routes through the classifier (Q3),
+            // so the same stage events fire here. Stage payloads carry
+            // assistantMessageId — match it against this regeneration's slot.
+            onStageStart: (data) => {
+              if (data.assistantMessageId === assistantMsgId) {
+                setOptimisticMessageStageStart(assistantMsgId, data.stageId);
+              }
+            },
+            onStageDone: (data) => {
+              if (data.assistantMessageId === assistantMsgId) {
+                setOptimisticMessageStageDone(assistantMsgId, data.payload);
+              }
+            },
+            onStageError: (data) => {
+              if (data.assistantMessageId === assistantMsgId) {
+                setOptimisticMessageStageError(assistantMsgId, data.errorCode);
+              }
+            },
           });
 
           state.stopStreaming();
@@ -1097,6 +1136,9 @@ export function useAuthenticatedChat({
       addOptimisticMessage,
       removeOptimisticMessage,
       updateOptimisticMessageContent,
+      setOptimisticMessageStageStart,
+      setOptimisticMessageStageDone,
+      setOptimisticMessageStageError,
       state,
       queryClient,
     ]

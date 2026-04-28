@@ -1,6 +1,13 @@
 import { useState, useCallback } from 'react';
 import { ERROR_CODE_CONTEXT_LENGTH_EXCEEDED } from '@hushbox/shared';
-import type { Modality, ImageConfig, VideoConfig, AudioConfig } from '@hushbox/shared';
+import type {
+  Modality,
+  ImageConfig,
+  VideoConfig,
+  AudioConfig,
+  StageStartPayload,
+  StageErrorPayload,
+} from '@hushbox/shared';
 import { getApiUrl } from '../lib/api';
 import { getTrialToken } from '../lib/trial-token';
 import { getLinkGuestAuth } from '../lib/link-guest-auth';
@@ -11,6 +18,7 @@ import {
   type StartEventData,
   type ModelDoneData,
   type ModelErrorData,
+  type StageDoneEventData,
 } from '../lib/sse-client';
 
 // ============================================================================
@@ -88,6 +96,14 @@ interface StreamOptions {
   onToken?: (token: string, modelId: string) => void;
   onModelDone?: (data: ModelDoneData) => void;
   onModelError?: (data: ModelErrorData) => void;
+  /**
+   * Pre-inference stage events. UI can use these to show a "Choosing the
+   * best model…" placeholder for Smart Model rows, then update the nametag
+   * to the resolved model name when stage:done arrives.
+   */
+  onStageStart?: (data: StageStartPayload) => void;
+  onStageDone?: (data: StageDoneEventData) => void;
+  onStageError?: (data: StageErrorPayload) => void;
   signal?: AbortSignal;
 }
 
@@ -361,6 +377,15 @@ async function executeStream(
     onModelError: (data) => {
       streamState.modelErrors.set(data.modelId, data.code ?? 'STREAM_ERROR');
       options?.onModelError?.(data);
+    },
+    onStageStart: (data) => {
+      options?.onStageStart?.(data);
+    },
+    onStageDone: (data) => {
+      options?.onStageDone?.(data);
+    },
+    onStageError: (data) => {
+      options?.onStageError?.(data);
     },
     onError: (errorData) => {
       streamState.error =

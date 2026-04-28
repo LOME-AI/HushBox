@@ -1,4 +1,5 @@
 import { type Database } from '@hushbox/db';
+import type { StageId } from '@hushbox/shared';
 import {
   assignSequenceNumbers,
   fetchEpochPublicKey,
@@ -13,6 +14,21 @@ import {
   updateForkTip,
   validateParentMessageId,
 } from './message-helpers.js';
+
+/**
+ * One pre-inference stage charge that the persistence layer must write
+ * alongside the main inference's `usage_records` row. Same source_id, separate
+ * row per stage. Used today for Smart Model's classifier call; the framework
+ * supports any future stage that makes a billable LLM call.
+ */
+export interface PreInferenceBillingPersistence {
+  stageId: StageId;
+  modelId: string;
+  /** Cost in dollars (with fees) — written verbatim to this stage's usage_records.cost. */
+  costDollars: number;
+  inputTokens: number;
+  outputTokens: number;
+}
 
 export interface SaveUserOnlyMessageParams {
   conversationId: string;
@@ -103,11 +119,31 @@ export interface TextAssistantMessageInput {
   modality: 'text';
   id: string;
   content: string;
+  /**
+   * Model id stored on `content_items.model_name`. For Smart Model slots, this
+   * is the resolved (downstream) model id, NOT 'smart-model'.
+   */
   model: string;
+  /**
+   * Cost in dollars of the MAIN inference call only (with fees + storage).
+   * Becomes this slot's main `usage_records.cost`. The total cost displayed
+   * in the UI (and stored on `content_items.cost`) is `cost + Σ
+   * preInferenceBillings.costDollars`, derived inside the persistence layer.
+   */
   cost: number;
   inputTokens: number;
   outputTokens: number;
   cachedTokens?: number;
+  /**
+   * Marks the content item as produced via a routing stage (Smart Model).
+   * Drives the "Smart" chip on the message nametag. Off by default.
+   */
+  isSmartModel?: boolean;
+  /**
+   * Pre-inference billing breadcrumbs — one extra `usage_records` row each.
+   * Empty/undefined for slots that ran the main inference directly.
+   */
+  preInferenceBillings?: readonly PreInferenceBillingPersistence[];
 }
 
 export interface MediaAssistantMessageInput {
@@ -208,7 +244,12 @@ async function persistTextAssistant(
   msg: TextAssistantMessageInput,
   context: PersistAssistantContext
 ): Promise<AssistantResult> {
-  const costAmount = msg.cost.toFixed(8);
+  const stageBillings = msg.preInferenceBillings ?? [];
+  const stageCostDollars = stageBillings.reduce((sum, b) => sum + b.costDollars, 0);
+  const totalCostDollars = msg.cost + stageCostDollars;
+  const totalCostAmount = totalCostDollars.toFixed(8);
+  const mainCostAmount = msg.cost.toFixed(8);
+
   const persisted = await insertEnvelopeTextMessage(tx, {
     id: msg.id,
     conversationId: context.conversationId,
@@ -218,13 +259,14 @@ async function persistTextAssistant(
     sequenceNumber: context.sequenceNumber,
     senderType: 'ai',
     modelName: msg.model,
-    cost: costAmount,
+    cost: totalCostAmount,
+    isSmartModel: msg.isSmartModel ?? false,
     parentMessageId: context.userMessageId,
   });
 
   const { usageRecordId } = await chargeAndTrackUsage(tx, {
     userId: context.userId,
-    cost: costAmount,
+    cost: mainCostAmount,
     model: msg.model,
     assistantMessageId: msg.id,
     conversationId: context.conversationId,
@@ -236,11 +278,28 @@ async function persistTextAssistant(
     }),
   });
 
+  // Each stage produces its own usage_records row, sharing the source_id.
+  // The wallet sees the sum (main + stages) as the message's total charge.
+  for (const billing of stageBillings) {
+    await chargeAndTrackUsage(tx, {
+      userId: context.userId,
+      cost: billing.costDollars.toFixed(8),
+      model: billing.modelId,
+      assistantMessageId: msg.id,
+      conversationId: context.conversationId,
+      inputTokens: billing.inputTokens,
+      outputTokens: billing.outputTokens,
+      ...(context.groupBillingContext !== undefined && {
+        groupBillingContext: context.groupBillingContext,
+      }),
+    });
+  }
+
   return {
     assistantMessageId: msg.id,
     model: msg.model,
     aiSequence: context.sequenceNumber,
-    cost: costAmount,
+    cost: totalCostAmount,
     usageRecordId,
     envelope: {
       messageId: msg.id,
