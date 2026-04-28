@@ -39,6 +39,7 @@ import {
   ERROR_CODE_BALANCE_RESERVED,
   ERROR_CODE_BILLING_MISMATCH,
   ERROR_CODE_PRIVILEGE_INSUFFICIENT,
+  FEATURE_FLAGS,
 } from '@hushbox/shared';
 import { clearModelCache } from '@hushbox/shared/models';
 import { generateKeyPair } from '@hushbox/crypto';
@@ -2991,6 +2992,126 @@ describe('chat routes', () => {
         expect(res.status).toBe(200);
         expect(text).toContain('event: done');
         expect(text).toContain('"contentType":"video"');
+      });
+    });
+
+    describe('audio modality', () => {
+      const AUDIO_MODEL_ID = 'openai/tts-1';
+      const TEXT_MODEL_ID = 'anthropic/claude-sonnet-4.6';
+      const DEFAULT_AUDIO_CONFIG = {
+        format: 'mp3' as const,
+        maxDurationSeconds: 60,
+      };
+
+      it('returns 503 AUDIO_DISABLED when FEATURE_FLAGS.AUDIO_ENABLED is off', async () => {
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'audio',
+            models: [AUDIO_MODEL_ID],
+            audioConfig: DEFAULT_AUDIO_CONFIG,
+          }),
+        });
+
+        expect(res.status).toBe(503);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('AUDIO_DISABLED');
+      });
+
+      it('rejects audio request missing audioConfig with 400 (schema)', async () => {
+        const app = createTestApp();
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'audio',
+            models: [AUDIO_MODEL_ID],
+          }),
+        });
+
+        expect(res.status).toBe(400);
+      });
+
+      describe('with FEATURE_FLAGS.AUDIO_ENABLED temporarily on', () => {
+        // Save/restore pattern: capture the original flag value before flipping
+        // so afterEach restores it regardless of the global default. afterEach
+        // runs even when beforeEach throws, so the flag can't leak across tests.
+        let originalAudioEnabled: boolean;
+        beforeEach(() => {
+          originalAudioEnabled = FEATURE_FLAGS.AUDIO_ENABLED;
+          FEATURE_FLAGS.AUDIO_ENABLED = true;
+        });
+        afterEach(() => {
+          FEATURE_FLAGS.AUDIO_ENABLED = originalAudioEnabled;
+        });
+
+        it('returns 400 MODEL_NOT_FOUND when selected audio model is unknown', async () => {
+          const app = createTestApp();
+
+          const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: streamBody({
+              modality: 'audio',
+              models: ['openai/non-existent-tts'],
+              audioConfig: DEFAULT_AUDIO_CONFIG,
+            }),
+          });
+
+          expect(res.status).toBe(400);
+          const body: ErrorBody = await res.json();
+          expect(body.code).toBe('MODEL_NOT_FOUND');
+        });
+
+        it('returns 400 MODALITY_MISMATCH when audio modality includes a non-audio model', async () => {
+          const app = createTestApp();
+
+          const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: streamBody({
+              modality: 'audio',
+              models: [AUDIO_MODEL_ID, TEXT_MODEL_ID],
+              audioConfig: DEFAULT_AUDIO_CONFIG,
+            }),
+          });
+
+          expect(res.status).toBe(400);
+          const body: ErrorBody = await res.json();
+          expect(body.code).toBe('MODALITY_MISMATCH');
+          const invalidModels = body.details?.['invalidModels'] as string[] | undefined;
+          expect(invalidModels).toContain(TEXT_MODEL_ID);
+        });
+
+        it('happy path: returns SSE stream with audio content items', async () => {
+          vi.useRealTimers();
+          const app = createTestApp();
+
+          const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: streamBody({
+              modality: 'audio',
+              models: [AUDIO_MODEL_ID],
+              audioConfig: DEFAULT_AUDIO_CONFIG,
+            }),
+          });
+
+          expect(res.status).toBe(200);
+          expect(res.headers.get('content-type')).toBe('text/event-stream');
+
+          const text = await res.text();
+          expect(text).toContain('event: start');
+          expect(text).toContain('event: model:done');
+          expect(text).toContain('event: done');
+          expect(text).toContain('"contentType":"audio"');
+          // Mock audio yields durationMs: 1000
+          expect(text).toContain('"durationMs":1000');
+        });
       });
     });
   });

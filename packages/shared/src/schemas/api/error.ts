@@ -366,6 +366,12 @@ export const ERROR_CODE_MISSING_MODALITY_CONFIG = 'MISSING_MODALITY_CONFIG';
  */
 export const ERROR_CODE_UNSUPPORTED_RESOLUTION = 'UNSUPPORTED_RESOLUTION';
 
+/**
+ * Audio modality is requested but `FEATURE_FLAGS.AUDIO_ENABLED` is off.
+ * Removed when the AI Gateway ships speech-model support and the flag flips.
+ */
+export const ERROR_CODE_AUDIO_DISABLED = 'AUDIO_DISABLED';
+
 // ============================================================
 // Error Response Schema
 // ============================================================

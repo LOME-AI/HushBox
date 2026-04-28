@@ -16,6 +16,7 @@ import {
   estimateVideoWorstCaseCents,
   computeImageExactCents,
   computeVideoExactCents,
+  computeAudioWorstCaseCents,
 } from './pricing.js';
 import type { MessageCostParams, MessageCostFromActualParams } from './pricing.js';
 import {
@@ -27,6 +28,7 @@ import {
   MEDIA_STORAGE_COST_PER_BYTE,
   ESTIMATED_IMAGE_BYTES,
   ESTIMATED_VIDEO_BYTES_PER_SECOND,
+  ESTIMATED_AUDIO_BYTES_PER_SECOND,
 } from './constants.js';
 
 describe('parseTokenPrice', () => {
@@ -965,5 +967,44 @@ describe('computeVideoExactCents', () => {
     const short = computeVideoExactCents([0.1], 2);
     const long = computeVideoExactCents([0.1], 8);
     expect(long).toBeCloseTo(short * 4, 5);
+  });
+});
+
+describe('computeAudioWorstCaseCents', () => {
+  it('returns 0 when the price list is empty', () => {
+    expect(computeAudioWorstCaseCents([], 60)).toBe(0);
+  });
+
+  it('returns 0 when maxDurationSeconds is 0', () => {
+    expect(computeAudioWorstCaseCents([0.015, 0.03], 0)).toBe(0);
+  });
+
+  it('sums per-model (perSecond × maxDurationSeconds) with fees and per-model storage', () => {
+    const prices = [0.015, 0.03];
+    const maxDurationSeconds = 60;
+    const expectedDollars =
+      applyFees((0.015 + 0.03) * maxDurationSeconds) +
+      mediaStorageCost(maxDurationSeconds * ESTIMATED_AUDIO_BYTES_PER_SECOND) * 2;
+    expect(computeAudioWorstCaseCents(prices, maxDurationSeconds)).toBeCloseTo(
+      expectedDollars * 100,
+      5
+    );
+  });
+
+  it('does not use the max — a mixed pool costs less than count × max', () => {
+    const mixed = computeAudioWorstCaseCents([0.015, 0.03], 60);
+    const maxOnly = computeAudioWorstCaseCents([0.03, 0.03], 60);
+    expect(mixed).toBeLessThan(maxOnly);
+  });
+
+  it('scales linearly with duration', () => {
+    const short = computeAudioWorstCaseCents([0.015], 30);
+    const long = computeAudioWorstCaseCents([0.015], 120);
+    expect(long).toBeCloseTo(short * 4, 5);
+  });
+
+  it('treats a zero-price entry as only its storage cost', () => {
+    const result = computeAudioWorstCaseCents([0], 30);
+    expect(result).toBeCloseTo(mediaStorageCost(30 * ESTIMATED_AUDIO_BYTES_PER_SECOND) * 100, 5);
   });
 });

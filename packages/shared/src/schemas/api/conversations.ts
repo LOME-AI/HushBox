@@ -7,6 +7,8 @@ import {
   VIDEO_RESOLUTIONS,
   MIN_VIDEO_DURATION_SECONDS,
   MAX_VIDEO_DURATION_SECONDS,
+  AUDIO_FORMATS,
+  MAX_AUDIO_DURATION_SECONDS,
 } from '../../constants.js';
 
 /**
@@ -89,9 +91,27 @@ export const videoConfigSchema = z.object({
 
 export type VideoConfig = z.infer<typeof videoConfigSchema>;
 
+/**
+ * Audio (TTS) generation config. Unlike video, the duration of TTS output is
+ * not user-controllable — it emerges from synthesizing the input text — so
+ * `maxDurationSeconds` caps worst-case spend rather than fixing the duration.
+ */
+export const audioConfigSchema = z.object({
+  format: z.enum(AUDIO_FORMATS).default('mp3'),
+  voice: z.string().optional(),
+  maxDurationSeconds: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_AUDIO_DURATION_SECONDS)
+    .default(MAX_AUDIO_DURATION_SECONDS),
+});
+
+export type AudioConfig = z.infer<typeof audioConfigSchema>;
+
 export const streamChatRequestSchema = z
   .object({
-    modality: z.enum(['text', 'image', 'video']).default('text'),
+    modality: z.enum(['text', 'image', 'video', 'audio']).default('text'),
     models: z.array(z.string()).min(1).max(MAX_SELECTED_MODELS),
     userMessage: z.object({
       id: z.uuid(),
@@ -115,10 +135,15 @@ export const streamChatRequestSchema = z
     forkId: z.uuid().optional(),
     imageConfig: imageConfigSchema.optional(),
     videoConfig: videoConfigSchema.optional(),
+    audioConfig: audioConfigSchema.optional(),
   })
   .refine((data) => data.modality !== 'video' || data.videoConfig !== undefined, {
     message: 'videoConfig is required when modality is "video"',
     path: ['videoConfig'],
+  })
+  .refine((data) => data.modality !== 'audio' || data.audioConfig !== undefined, {
+    message: 'audioConfig is required when modality is "audio"',
+    path: ['audioConfig'],
   });
 
 export type StreamChatRequest = z.infer<typeof streamChatRequestSchema>;

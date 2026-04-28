@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { ERROR_CODE_CONTEXT_LENGTH_EXCEEDED } from '@hushbox/shared';
-import type { Modality, ImageConfig, VideoConfig } from '@hushbox/shared';
+import type { Modality, ImageConfig, VideoConfig, AudioConfig } from '@hushbox/shared';
 import { getApiUrl } from '../lib/api';
 import { getTrialToken } from '../lib/trial-token';
 import { getLinkGuestAuth } from '../lib/link-guest-auth';
@@ -34,6 +34,7 @@ interface AuthenticatedStreamRequest {
   forkId?: string;
   imageConfig?: ImageConfig;
   videoConfig?: VideoConfig;
+  audioConfig?: AudioConfig;
 }
 
 interface TrialStreamMessage {

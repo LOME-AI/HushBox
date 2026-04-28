@@ -13,6 +13,7 @@ function makeModel(provider: string): Model {
     pricePerOutputToken: 0.000_002,
     pricePerImage: 0,
     pricePerSecondByResolution: {},
+    pricePerSecond: 0,
     capabilities: [],
     description: 'Test',
     supportedParameters: [],

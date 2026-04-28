@@ -55,6 +55,10 @@ import {
   ROUTES,
   type FundingSource,
   type MemberPrivilege,
+  type Modality,
+  type ImageConfig,
+  type VideoConfig,
+  type AudioConfig,
 } from '@hushbox/shared';
 import type { Message, MessageMediaItem } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth';
@@ -251,6 +255,39 @@ function startStreamingIfNeeded(
 ): void {
   if (assistantMessageIds.length > 0) {
     state.startStreaming(assistantMessageIds);
+  }
+}
+
+/**
+ * Picks the per-modality config block for the stream request payload.
+ * Returns an empty object for text. Pure helper — both `executeStream`
+ * and `executeStreamAndFinalize` use it so adding a new modality is one edit.
+ */
+type ModalityConfigPayload =
+  | { imageConfig: ImageConfig }
+  | { videoConfig: VideoConfig }
+  | { audioConfig: AudioConfig }
+  | Record<string, never>;
+
+function buildModalityConfigPayload(
+  activeModality: Modality,
+  imageConfig: ImageConfig,
+  videoConfig: VideoConfig,
+  audioConfig: AudioConfig
+): ModalityConfigPayload {
+  switch (activeModality) {
+    case 'image': {
+      return { imageConfig };
+    }
+    case 'video': {
+      return { videoConfig };
+    }
+    case 'audio': {
+      return { audioConfig };
+    }
+    case 'text': {
+      return {};
+    }
   }
 }
 
@@ -467,6 +504,7 @@ export function useAuthenticatedChat({
   const selectedModels = useModelStore((state) => state.selections[state.activeModality]);
   const imageConfig = useModelStore((state) => state.imageConfig);
   const videoConfig = useModelStore((state) => state.videoConfig);
+  const audioConfig = useModelStore((state) => state.audioConfig);
   const { webSearchEnabled } = useSearchStore();
   const { isStreaming, startStream, startRegenerateStream } = useChatStream('authenticated');
   const chatError = useChatErrorStore((s) => s.error);
@@ -610,8 +648,7 @@ export function useAuthenticatedChat({
           webSearchEnabled,
           ...(customInstructions != null && { customInstructions }),
           ...(forkId != null && { forkId }),
-          ...(activeModality === 'image' && { imageConfig }),
-          ...(activeModality === 'video' && { videoConfig }),
+          ...buildModalityConfigPayload(activeModality, imageConfig, videoConfig, audioConfig),
         },
         callbacks
       );
@@ -636,6 +673,7 @@ export function useAuthenticatedChat({
       activeModality,
       imageConfig,
       videoConfig,
+      audioConfig,
     ]
   );
 
@@ -720,8 +758,7 @@ export function useAuthenticatedChat({
             fundingSource,
             webSearchEnabled,
             ...(customInstructions != null && { customInstructions }),
-            ...(activeModality === 'image' && { imageConfig }),
-            ...(activeModality === 'video' && { videoConfig }),
+            ...buildModalityConfigPayload(activeModality, imageConfig, videoConfig, audioConfig),
           },
           {
             onStart: handleStreamStart,

@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { InferenceEvent, TextRequest, ImageRequest, VideoRequest } from './types.js';
+import type {
+  InferenceEvent,
+  TextRequest,
+  ImageRequest,
+  VideoRequest,
+  AudioRequest,
+} from './types.js';
 
 // ---------------------------------------------------------------------------
 // Module mocks — intercept ai + @ai-sdk/gateway at the module boundary
@@ -346,6 +352,21 @@ describe('createRealAIClient', () => {
       expect(callArgs.providerOptions).toEqual({
         gateway: { zeroDataRetention: true },
       });
+    });
+  });
+
+  describe('audio generation', () => {
+    it('throws an explicit "not yet supported" error when invoked', async () => {
+      const request: AudioRequest = {
+        modality: 'audio',
+        model: 'openai/tts-1',
+        prompt: 'Hello, world.',
+        format: 'mp3',
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toThrow(
+        /audio output is not yet supported by the AI Gateway/i
+      );
     });
   });
 

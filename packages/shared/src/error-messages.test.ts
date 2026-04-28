@@ -584,6 +584,12 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('maps AUDIO_DISABLED to user-facing message', () => {
+    expect(friendlyErrorMessage('AUDIO_DISABLED')).toBe(
+      'Audio generation is not yet available. Please try a different content type.'
+    );
+  });
+
   // ------------------------------------------------------------------
   // Unknown code fallback
   // ------------------------------------------------------------------

@@ -31,6 +31,7 @@ import {
   broadcastAndFinish,
   resolveAndReserveImageBilling,
   resolveAndReserveVideoBilling,
+  resolveAndReserveAudioBilling,
   type BroadcastContext,
 } from './stream-pipeline.js';
 import { computeImageWorstCaseCents } from '@hushbox/shared';
@@ -884,6 +885,28 @@ interface MockRedisForBilling {
   eval: ReturnType<typeof vi.fn>;
 }
 
+/**
+ * Default paid-tier media billing result used by image/video/audio resolvers.
+ * Centralized so tests across modalities share one fixture (and the linter
+ * doesn't flag identical local helpers).
+ */
+function buildPaidMediaBillingResult(
+  overrides: Partial<BuildBillingResult['input']> = {}
+): BuildBillingResult {
+  return {
+    input: {
+      tier: 'paid',
+      balanceCents: 100_000,
+      freeAllowanceCents: 0,
+      isPremiumModel: false,
+      estimatedMinimumCostCents: 0,
+      ...overrides,
+    },
+    rawUserBalanceCents: overrides.balanceCents ?? 100_000,
+    rawFreeAllowanceCents: overrides.freeAllowanceCents ?? 0,
+  };
+}
+
 /** Build a minimal Hono Context mock sufficient for the media-billing resolvers. */
 function createMockBillingContext(redis: MockRedisForBilling): {
   c: Context<AppEnv>;
@@ -1006,22 +1029,9 @@ describe('resolveAndReserveVideoBilling', () => {
   type MockRedis = MockRedisForBilling;
   const createMockVideoBillingContext = createMockBillingContext;
 
-  function makeBillingResult(
-    overrides: Partial<BuildBillingResult['input']> = {}
-  ): BuildBillingResult {
-    return {
-      input: {
-        tier: 'paid',
-        balanceCents: 100_000, // $1000 — video is expensive
-        freeAllowanceCents: 0,
-        isPremiumModel: false,
-        estimatedMinimumCostCents: 0,
-        ...overrides,
-      },
-      rawUserBalanceCents: overrides.balanceCents ?? 100_000,
-      rawFreeAllowanceCents: overrides.freeAllowanceCents ?? 0,
-    };
-  }
+  // Shares the same shape as the audio billing fixture; centralized at module
+  // scope (`buildPaidMediaBillingResult`) — $1000 default balance covers video.
+  const makeBillingResult = buildPaidMediaBillingResult;
 
   it('happy path: paid tier reserves worst-case cents and returns success', async () => {
     const redis: MockRedis = {
@@ -1161,5 +1171,146 @@ describe('resolveAndReserveVideoBilling', () => {
     });
     if (!one.success || !two.success) throw new Error('expected success');
     expect(two.worstCaseCents).toBeCloseTo(one.worstCaseCents * 2, 5);
+  });
+});
+
+describe('resolveAndReserveAudioBilling', () => {
+  type MockRedis = MockRedisForBilling;
+  const createMockAudioBillingContext = createMockBillingContext;
+
+  // Shares the same shape as the video billing fixture; centralized at module
+  // scope (`buildPaidMediaBillingResult`) to keep duplication in check.
+  const makeBillingResult = buildPaidMediaBillingResult;
+
+  it('happy path: paid tier reserves worst-case cents and returns success', async () => {
+    const redis: MockRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      eval: vi.fn().mockResolvedValue('10'),
+    };
+    const { c } = createMockAudioBillingContext(redis);
+
+    const result = await resolveAndReserveAudioBilling(c, {
+      billingResult: makeBillingResult({ tier: 'paid', balanceCents: 100_000 }),
+      userId: 'user-1',
+      models: ['openai/tts-1'],
+      perSecondByModel: new Map([['openai/tts-1', 0.015]]),
+      maxDurationSeconds: 60,
+      clientFundingSource: 'personal_balance',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.billingUserId).toBe('user-1');
+    expect(result.perSecondByModel.get('openai/tts-1')).toBe(0.015);
+    expect(result.maxDurationSeconds).toBe(60);
+    expect(result.worstCaseCents).toBeGreaterThan(0);
+    expect(redis.eval).toHaveBeenCalledTimes(1);
+  });
+
+  it('scales worst-case cents with maxDurationSeconds', async () => {
+    const redis: MockRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      eval: vi.fn().mockResolvedValue('10'),
+    };
+    const { c } = createMockAudioBillingContext(redis);
+
+    const short = await resolveAndReserveAudioBilling(c, {
+      billingResult: makeBillingResult(),
+      userId: 'u',
+      models: ['openai/tts-1'],
+      perSecondByModel: new Map([['openai/tts-1', 0.015]]),
+      maxDurationSeconds: 30,
+      clientFundingSource: 'personal_balance',
+    });
+    const long = await resolveAndReserveAudioBilling(c, {
+      billingResult: makeBillingResult(),
+      userId: 'u',
+      models: ['openai/tts-1'],
+      perSecondByModel: new Map([['openai/tts-1', 0.015]]),
+      maxDurationSeconds: 120,
+      clientFundingSource: 'personal_balance',
+    });
+    if (!short.success || !long.success) throw new Error('expected success');
+    expect(long.worstCaseCents).toBeCloseTo(short.worstCaseCents * 4, 5);
+  });
+
+  it('denial path: trial tier returns 402 without reservation', async () => {
+    const redis: MockRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      eval: vi.fn().mockResolvedValue('0'),
+    };
+    const { c, jsonSpy } = createMockAudioBillingContext(redis);
+
+    const result = await resolveAndReserveAudioBilling(c, {
+      billingResult: makeBillingResult({
+        tier: 'trial',
+        balanceCents: 0,
+        freeAllowanceCents: 0,
+      }),
+      userId: 'user-trial',
+      models: ['openai/tts-1'],
+      perSecondByModel: new Map([['openai/tts-1', 0.015]]),
+      maxDurationSeconds: 60,
+      clientFundingSource: 'trial_fixed',
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.response.status).toBe(402);
+    expect(jsonSpy).toHaveBeenCalledTimes(1);
+    expect(redis.eval).not.toHaveBeenCalled();
+  });
+
+  it('mismatch path: returns 409 when client funding source disagrees', async () => {
+    const redis: MockRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      eval: vi.fn().mockResolvedValue('0'),
+    };
+    const { c, jsonSpy } = createMockAudioBillingContext(redis);
+
+    const result = await resolveAndReserveAudioBilling(c, {
+      billingResult: makeBillingResult({ tier: 'paid', balanceCents: 100_000 }),
+      userId: 'user-1',
+      models: ['openai/tts-1'],
+      perSecondByModel: new Map([['openai/tts-1', 0.015]]),
+      maxDurationSeconds: 60,
+      clientFundingSource: 'free_allowance',
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.response.status).toBe(409);
+    const [, status] = jsonSpy.mock.calls[0]!;
+    expect(status).toBe(409);
+  });
+
+  it('scales worst-case cents with model count', async () => {
+    const redis: MockRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      eval: vi.fn().mockResolvedValue('10'),
+    };
+    const { c } = createMockAudioBillingContext(redis);
+
+    const one = await resolveAndReserveAudioBilling(c, {
+      billingResult: makeBillingResult(),
+      userId: 'u',
+      models: ['openai/tts-1'],
+      perSecondByModel: new Map([['openai/tts-1', 0.015]]),
+      maxDurationSeconds: 60,
+      clientFundingSource: 'personal_balance',
+    });
+    const two = await resolveAndReserveAudioBilling(c, {
+      billingResult: makeBillingResult(),
+      userId: 'u',
+      models: ['openai/tts-1', 'openai/tts-1-hd'],
+      perSecondByModel: new Map([
+        ['openai/tts-1', 0.015],
+        ['openai/tts-1-hd', 0.03],
+      ]),
+      maxDurationSeconds: 60,
+      clientFundingSource: 'personal_balance',
+    });
+    if (!one.success || !two.success) throw new Error('expected success');
+    expect(two.worstCaseCents).toBeGreaterThan(one.worstCaseCents);
   });
 });

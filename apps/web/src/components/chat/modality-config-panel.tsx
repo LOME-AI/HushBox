@@ -6,6 +6,9 @@ import {
   VIDEO_RESOLUTIONS,
   MIN_VIDEO_DURATION_SECONDS,
   MAX_VIDEO_DURATION_SECONDS,
+  AUDIO_FORMATS,
+  MAX_AUDIO_DURATION_SECONDS,
+  FEATURE_FLAGS,
 } from '@hushbox/shared';
 import type { Model } from '@hushbox/shared';
 import { useModelStore } from '@/stores/model';
@@ -43,12 +46,12 @@ function ImageConfigControls(): React.JSX.Element {
   const setImageConfig = useModelStore((s) => s.setImageConfig);
   const selectedModels = useModelStore((s) => s.selections.image);
   const { data } = useModels();
-  const primaryModel = data?.models.find((m) => m.id === selectedModels[0]?.id);
-  const perImage = primaryModel?.pricePerImage ?? 0;
+  const pricesPerImage = selectedModels.map(
+    (m) => data?.models.find((dm) => dm.id === m.id)?.pricePerImage ?? 0
+  );
   const cost = useMediaCostEstimate({
     modality: 'image',
-    modelCount: selectedModels.length,
-    imagePricing: { perImage },
+    imagePricing: { pricesPerImage },
   });
 
   return (
@@ -96,7 +99,12 @@ function VideoConfigControls(): React.JSX.Element {
   const primaryModel = data?.models.find((m) => m.id === selectedModels[0]?.id);
   const supportedResolutions = supportedResolutionsFor(primaryModel);
   const priceByRes = primaryModel?.pricePerSecondByResolution ?? {};
-  const perSecond = priceByRes[videoConfig.resolution] ?? 0;
+  const pricesPerSecond = selectedModels.map(
+    (m) =>
+      data?.models.find((dm) => dm.id === m.id)?.pricePerSecondByResolution[
+        videoConfig.resolution
+      ] ?? 0
+  );
 
   // If the current resolution isn't supported by the primary model, move to the first supported one.
   React.useEffect(() => {
@@ -109,8 +117,7 @@ function VideoConfigControls(): React.JSX.Element {
 
   const cost = useMediaCostEstimate({
     modality: 'video',
-    modelCount: selectedModels.length,
-    videoPricing: { perSecond, durationSeconds: videoConfig.durationSeconds },
+    videoPricing: { pricesPerSecond, durationSeconds: videoConfig.durationSeconds },
   });
 
   return (
@@ -181,21 +188,80 @@ function VideoConfigControls(): React.JSX.Element {
   );
 }
 
+function AudioConfigControls(): React.JSX.Element {
+  const audioConfig = useModelStore((s) => s.audioConfig);
+  const setAudioConfig = useModelStore((s) => s.setAudioConfig);
+  const selectedModels = useModelStore((s) => s.selections.audio);
+  const { data } = useModels();
+  const pricesPerSecond = selectedModels.map(
+    (m) => data?.models.find((dm) => dm.id === m.id)?.pricePerSecond ?? 0
+  );
+  const cost = useMediaCostEstimate({
+    modality: 'audio',
+    audioPricing: { pricesPerSecond, durationSeconds: audioConfig.maxDurationSeconds },
+  });
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
+        <div className="text-muted-foreground flex items-center justify-between text-xs">
+          <span>Format</span>
+          <CostLine dollars={cost.estimatedDollars} />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {AUDIO_FORMATS.map((format) => (
+            <TogglePill
+              key={format}
+              label={format}
+              isActive={audioConfig.format === format}
+              onClick={() => {
+                setAudioConfig({ format });
+              }}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="text-muted-foreground flex items-center justify-between text-xs">
+          <span>Max duration</span>
+          <span>{`${String(audioConfig.maxDurationSeconds)}s`}</span>
+        </div>
+        <input
+          type="range"
+          min={1}
+          max={MAX_AUDIO_DURATION_SECONDS}
+          value={audioConfig.maxDurationSeconds}
+          onChange={(e) => {
+            setAudioConfig({ maxDurationSeconds: Number(e.target.value) });
+          }}
+          aria-label="Audio max duration in seconds"
+          className="accent-primary h-1 w-full"
+        />
+      </div>
+    </div>
+  );
+}
+
 /**
  * Renders the inline media generation config above the prompt textarea.
- * Returns null for text and audio modalities; owns no state (reads/writes via the model store).
+ * Returns null for the text modality; owns no state (reads/writes via the model store).
+ * The audio panel only renders when `FEATURE_FLAGS.AUDIO_ENABLED` is true — until
+ * then the prompt-input never selects the audio modality.
  */
 export function ModalityConfigPanel({
   className,
 }: Readonly<{ className?: string }>): React.JSX.Element | null {
   const activeModality = useModelStore((s) => s.activeModality);
 
-  if (activeModality === 'text' || activeModality === 'audio') return null;
+  if (activeModality === 'text') return null;
+  if (activeModality === 'audio' && !FEATURE_FLAGS.AUDIO_ENABLED) return null;
 
   return (
     <div className={cn('border-border border-b px-3 py-3', className)}>
       {activeModality === 'image' && <ImageConfigControls />}
       {activeModality === 'video' && <VideoConfigControls />}
+      {activeModality === 'audio' && <AudioConfigControls />}
     </div>
   );
 }

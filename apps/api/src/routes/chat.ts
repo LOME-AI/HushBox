@@ -17,9 +17,17 @@ import {
   ERROR_CODE_MODEL_NOT_FOUND,
   ERROR_CODE_MODALITY_MISMATCH,
   ERROR_CODE_UNSUPPORTED_RESOLUTION,
+  ERROR_CODE_AUDIO_DISABLED,
+  FEATURE_FLAGS,
   estimateTokenCount,
 } from '@hushbox/shared';
-import type { FundingSource, RegenerateRequest } from '@hushbox/shared';
+import type {
+  FundingSource,
+  RegenerateRequest,
+  ImageConfig,
+  VideoConfig,
+  AudioConfig,
+} from '@hushbox/shared';
 import type { AppEnv, Bindings } from '../types.js';
 import { buildPrompt } from '../services/prompt/builder.js';
 import {
@@ -53,9 +61,11 @@ import {
   resolveAndReserveBilling,
   resolveAndReserveImageBilling,
   resolveAndReserveVideoBilling,
+  resolveAndReserveAudioBilling,
   executeStreamPipeline,
   executeImagePipeline,
   executeVideoPipeline,
+  executeAudioPipeline,
   resolveWebSearchCost,
   BATCH_INTERVAL_MS,
 } from '../lib/stream-pipeline.js';
@@ -361,6 +371,47 @@ async function lookupVideoModels(
   return { perSecondByModel, mismatches, notFound, unsupportedResolutions };
 }
 
+interface AudioModelLookup {
+  /**
+   * Per-second USD price for each selected audio model, keyed by model ID.
+   * Audio is single-price (no per-resolution split, unlike video).
+   */
+  perSecondByModel: Map<string, number>;
+  /** Model IDs that are NOT audio models (should be rejected). */
+  mismatches: string[];
+  /** Model IDs that were requested but not found in the gateway. */
+  notFound: string[];
+}
+
+/**
+ * Validate selected models against the audio modality and collect each
+ * model's flat per-second price.
+ */
+async function lookupAudioModels(
+  aiClient: AppEnv['Variables']['aiClient'],
+  models: string[]
+): Promise<AudioModelLookup> {
+  const allModels = await aiClient.listModels();
+  const mismatches: string[] = [];
+  const notFound: string[] = [];
+  const perSecondByModel = new Map<string, number>();
+
+  for (const modelId of models) {
+    const info = allModels.find((m) => m.id === modelId);
+    if (!info) {
+      notFound.push(modelId);
+      continue;
+    }
+    if (info.pricing.kind !== 'audio') {
+      mismatches.push(modelId);
+      continue;
+    }
+    perSecondByModel.set(modelId, info.pricing.perSecond);
+  }
+
+  return { perSecondByModel, mismatches, notFound };
+}
+
 interface ImageBranchInput {
   c: Context<AppEnv>;
   conversationId: string;
@@ -371,7 +422,7 @@ interface ImageBranchInput {
   userMessage: { id: string; content: string };
   parentMessageId: string | null;
   forkId: string | undefined;
-  imageConfig: { aspectRatio?: string } | undefined;
+  imageConfig: ImageConfig | undefined;
 }
 
 async function handleImageStreamRequest(input: ImageBranchInput): Promise<Response> {
@@ -449,7 +500,7 @@ interface VideoBranchInput {
   userMessage: { id: string; content: string };
   parentMessageId: string | null;
   forkId: string | undefined;
-  videoConfig: { aspectRatio: string; durationSeconds: number; resolution: string };
+  videoConfig: VideoConfig;
 }
 
 async function handleVideoStreamRequest(input: VideoBranchInput): Promise<Response> {
@@ -526,6 +577,86 @@ async function handleVideoStreamRequest(input: VideoBranchInput): Promise<Respon
     ...(forkId !== undefined && { forkId }),
     parentMessageId,
     aspectRatio: videoConfig.aspectRatio,
+  });
+}
+
+interface AudioBranchInput {
+  c: Context<AppEnv>;
+  conversationId: string;
+  callerId: string;
+  user: AppEnv['Variables']['user'];
+  billingContext: BillingContext;
+  models: string[];
+  userMessage: { id: string; content: string };
+  parentMessageId: string | null;
+  forkId: string | undefined;
+  audioConfig: AudioConfig;
+}
+
+async function handleAudioStreamRequest(input: AudioBranchInput): Promise<Response> {
+  const {
+    c,
+    conversationId,
+    callerId,
+    user,
+    billingContext,
+    models,
+    userMessage,
+    parentMessageId,
+    forkId,
+    audioConfig,
+  } = input;
+  const { memberContext, billingUserId, clientFundingSource, billingResult } = billingContext;
+  const aiClient = c.get('aiClient');
+  const redis = c.get('redis');
+
+  const { perSecondByModel, mismatches, notFound } = await lookupAudioModels(aiClient, models);
+
+  if (notFound.length > 0) {
+    return c.json(createErrorResponse(ERROR_CODE_MODEL_NOT_FOUND, { models: notFound }), 400);
+  }
+  if (mismatches.length > 0) {
+    return c.json(
+      createErrorResponse(ERROR_CODE_MODALITY_MISMATCH, { invalidModels: mismatches }),
+      400
+    );
+  }
+
+  const audioBilling = await resolveAndReserveAudioBilling(c, {
+    billingResult,
+    userId: billingUserId,
+    models,
+    perSecondByModel,
+    maxDurationSeconds: audioConfig.maxDurationSeconds,
+    clientFundingSource,
+    ...(memberContext !== undefined && { memberContext }),
+    conversationId,
+  });
+  if (!audioBilling.success) {
+    return audioBilling.response;
+  }
+
+  const releaseAudioReservation = resolveReleaseReservation(
+    redis,
+    audioBilling.groupBudget,
+    user,
+    audioBilling.worstCaseCents
+  );
+
+  return executeAudioPipeline({
+    c,
+    conversationId,
+    models,
+    userMessage,
+    prompt: userMessage.content,
+    audioBilling,
+    ...(memberContext !== undefined && { memberContext }),
+    releaseReservation: releaseAudioReservation,
+    senderId: callerId,
+    ...(forkId !== undefined && { forkId }),
+    parentMessageId,
+    format: audioConfig.format,
+    ...(audioConfig.voice !== undefined && { voice: audioConfig.voice }),
   });
 }
 
@@ -964,6 +1095,95 @@ async function validateRegenerationRequest(
   };
 }
 
+interface DispatchModalityInput {
+  modality: 'text' | 'image' | 'video' | 'audio';
+  c: Context<AppEnv>;
+  conversationId: string;
+  callerId: string;
+  user: AppEnv['Variables']['user'];
+  billingContext: BillingContext;
+  models: string[];
+  userMessage: { id: string; content: string };
+  messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[];
+  parentMessageId: string | null;
+  forkId: string | undefined;
+  webSearchEnabled: boolean;
+  customInstructions: string | undefined;
+  imageConfig: ImageConfig | undefined;
+  videoConfig: VideoConfig | undefined;
+  audioConfig: AudioConfig | undefined;
+}
+
+/** Dispatches a stream request to the modality-specific handler. */
+async function dispatchModalityRequest(input: DispatchModalityInput): Promise<Response> {
+  switch (input.modality) {
+    case 'image': {
+      return handleImageStreamRequest({
+        c: input.c,
+        conversationId: input.conversationId,
+        callerId: input.callerId,
+        user: input.user,
+        billingContext: input.billingContext,
+        models: input.models,
+        userMessage: input.userMessage,
+        parentMessageId: input.parentMessageId,
+        forkId: input.forkId,
+        imageConfig: input.imageConfig,
+      });
+    }
+    case 'video': {
+      if (!input.videoConfig) {
+        throw new Error('invariant: videoConfig required for video modality');
+      }
+      return handleVideoStreamRequest({
+        c: input.c,
+        conversationId: input.conversationId,
+        callerId: input.callerId,
+        user: input.user,
+        billingContext: input.billingContext,
+        models: input.models,
+        userMessage: input.userMessage,
+        parentMessageId: input.parentMessageId,
+        forkId: input.forkId,
+        videoConfig: input.videoConfig,
+      });
+    }
+    case 'audio': {
+      if (!input.audioConfig) {
+        throw new Error('invariant: audioConfig required for audio modality');
+      }
+      return handleAudioStreamRequest({
+        c: input.c,
+        conversationId: input.conversationId,
+        callerId: input.callerId,
+        user: input.user,
+        billingContext: input.billingContext,
+        models: input.models,
+        userMessage: input.userMessage,
+        parentMessageId: input.parentMessageId,
+        forkId: input.forkId,
+        audioConfig: input.audioConfig,
+      });
+    }
+    case 'text': {
+      return handleTextStreamRequest({
+        c: input.c,
+        conversationId: input.conversationId,
+        callerId: input.callerId,
+        user: input.user,
+        billingContext: input.billingContext,
+        models: input.models,
+        userMessage: input.userMessage,
+        messagesForInference: input.messagesForInference,
+        parentMessageId: input.parentMessageId,
+        forkId: input.forkId,
+        webSearchEnabled: input.webSearchEnabled,
+        customInstructions: input.customInstructions,
+      });
+    }
+  }
+}
+
 export const chatRoute = new Hono<AppEnv>()
 
   .post(
@@ -991,6 +1211,7 @@ export const chatRoute = new Hono<AppEnv>()
         forkId,
         imageConfig,
         videoConfig,
+        audioConfig,
       } = c.req.valid('json');
 
       // Validate last message
@@ -998,9 +1219,17 @@ export const chatRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_LAST_MESSAGE_NOT_USER), 400);
       }
 
-      // Block link guests from media generation (image/video)
-      if ((modality === 'image' || modality === 'video') && linkGuest) {
+      // Block link guests from media generation (image/video/audio)
+      if ((modality === 'image' || modality === 'video' || modality === 'audio') && linkGuest) {
         return c.json(createErrorResponse(ERROR_CODE_MEDIA_TRIAL_BLOCKED), 403);
+      }
+
+      // Audio is dead-coded behind FEATURE_FLAGS.AUDIO_ENABLED until the AI
+      // Gateway ships speech-model support. 503 (Service Unavailable) is the
+      // right code: the request is well-formed; the feature is temporarily
+      // off and will return when the gateway adds speech support.
+      if (modality === 'audio' && !FEATURE_FLAGS.AUDIO_ENABLED) {
+        return c.json(createErrorResponse(ERROR_CODE_AUDIO_DISABLED), 503);
       }
 
       // --- Resolve billing (focused branch) ---
@@ -1030,39 +1259,8 @@ export const chatRoute = new Hono<AppEnv>()
       // Resolve parentMessageId: fork tip when in a fork, latest message otherwise
       const parentMessageId = await resolveParentMessageId(db, conversationId, forkId);
 
-      if (modality === 'image') {
-        return handleImageStreamRequest({
-          c,
-          conversationId,
-          callerId,
-          user,
-          billingContext,
-          models,
-          userMessage,
-          parentMessageId,
-          forkId,
-          imageConfig,
-        });
-      }
-
-      if (modality === 'video') {
-        // videoConfig is guaranteed present by the schema refine when modality === 'video'.
-        if (!videoConfig) throw new Error('invariant: videoConfig required for video modality');
-        return handleVideoStreamRequest({
-          c,
-          conversationId,
-          callerId,
-          user,
-          billingContext,
-          models,
-          userMessage,
-          parentMessageId,
-          forkId,
-          videoConfig,
-        });
-      }
-
-      return handleTextStreamRequest({
+      return dispatchModalityRequest({
+        modality,
         c,
         conversationId,
         callerId,
@@ -1075,6 +1273,9 @@ export const chatRoute = new Hono<AppEnv>()
         forkId,
         webSearchEnabled,
         customInstructions,
+        imageConfig,
+        videoConfig,
+        audioConfig,
       });
     }
   )

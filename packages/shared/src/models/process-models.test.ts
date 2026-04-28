@@ -76,6 +76,18 @@ function createVideoModel(overrides: Partial<Parameters<typeof processModels>[0]
   });
 }
 
+function createAudioModel(overrides: Partial<Parameters<typeof processModels>[0][0]> = {}) {
+  return createModel({
+    id: 'openai/tts-1',
+    name: 'TTS-1',
+    modality: 'audio',
+    context_length: 0,
+    pricing: { prompt: '0', completion: '0', per_second: '0.015' },
+    architecture: { input_modalities: ['text'], output_modalities: ['audio'] },
+    ...overrides,
+  });
+}
+
 describe('processModels', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -818,12 +830,70 @@ describe('processModels', () => {
     });
   });
 
+  describe('audio modality', () => {
+    it('includes audio models with positive per_second pricing', () => {
+      const models = [createAudioModel({ id: 'openai/tts-1' })];
+
+      const result = processModels(models);
+
+      const tts = result.models.find((m) => m.id === 'openai/tts-1');
+      expect(tts).toBeDefined();
+      expect(tts?.modality).toBe('audio');
+      expect(tts?.pricePerSecond).toBeCloseTo(0.015, 6);
+      expect(tts?.pricePerInputToken).toBe(0);
+      expect(tts?.pricePerOutputToken).toBe(0);
+      expect(tts?.pricePerImage).toBe(0);
+    });
+
+    it('excludes audio models without per_second pricing', () => {
+      const models = [
+        createAudioModel({
+          id: 'no-price/audio',
+          pricing: { prompt: '0', completion: '0' },
+        }),
+      ];
+      expect(processModels(models).models.find((m) => m.id === 'no-price/audio')).toBeUndefined();
+    });
+
+    it('excludes audio models with zero per_second pricing', () => {
+      const models = [
+        createAudioModel({
+          id: 'zero/audio',
+          pricing: { prompt: '0', completion: '0', per_second: '0' },
+        }),
+      ];
+      expect(processModels(models).models.find((m) => m.id === 'zero/audio')).toBeUndefined();
+    });
+
+    it('marks every audio model as premium', () => {
+      const models = [createAudioModel({ id: 'openai/tts-1' })];
+
+      const result = processModels(models);
+
+      expect(result.premiumIds).toContain('openai/tts-1');
+    });
+
+    it('parses per_second pricing as a number', () => {
+      const models = [
+        createAudioModel({
+          id: 'vendor/a',
+          pricing: { prompt: '0', completion: '0', per_second: '0.030' },
+        }),
+      ];
+
+      const result = processModels(models);
+      const a = result.models.find((m) => m.id === 'vendor/a');
+      expect(a?.pricePerSecond).toBeCloseTo(0.03, 6);
+    });
+  });
+
   describe('multi-modality combinations', () => {
-    it('returns text, image, and video models in a single array', () => {
+    it('returns text, image, video, and audio models in a single array', () => {
       const models = [
         createModel({ id: 'text/one' }),
         createImageModel({ id: 'image/one' }),
         createVideoModel({ id: 'video/one' }),
+        createAudioModel({ id: 'audio/one' }),
       ];
 
       const result = processModels(models);
@@ -832,6 +902,7 @@ describe('processModels', () => {
       expect(ids).toContain('text/one');
       expect(ids).toContain('image/one');
       expect(ids).toContain('video/one');
+      expect(ids).toContain('audio/one');
       expect(ids).toContain(SMART_MODEL_ID);
     });
 
@@ -840,16 +911,19 @@ describe('processModels', () => {
         createModel({ id: 'text/one' }),
         createImageModel({ id: 'image/one' }),
         createVideoModel({ id: 'video/one' }),
+        createAudioModel({ id: 'audio/one' }),
       ];
 
       const result = processModels(models);
       const text = result.models.find((m) => m.id === 'text/one');
       const image = result.models.find((m) => m.id === 'image/one');
       const video = result.models.find((m) => m.id === 'video/one');
+      const audio = result.models.find((m) => m.id === 'audio/one');
 
       expect(text?.modality).toBe('text');
       expect(image?.modality).toBe('image');
       expect(video?.modality).toBe('video');
+      expect(audio?.modality).toBe('audio');
     });
   });
 });

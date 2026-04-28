@@ -32,6 +32,7 @@ import {
   parseTokenPrice,
   computeImageExactCents,
   computeVideoExactCents,
+  computeAudioWorstCaseCents,
 } from '@hushbox/shared';
 import type { FundingSource, DenialReason, ResolveBillingInput, UserTier } from '@hushbox/shared';
 import type { AppEnv, Bindings } from '../types.js';
@@ -47,6 +48,7 @@ import type {
   TextRequest,
   ImageRequest,
   VideoRequest,
+  AudioRequest,
 } from '../services/ai/index.js';
 import { eq } from 'drizzle-orm';
 import { conversations } from '@hushbox/db';
@@ -1269,6 +1271,11 @@ export interface ImagePipelineInput {
  * Per-kind pricing and output metadata for the shared media persistence helper.
  * Discriminates the fields that vary by media kind (per-image vs per-second,
  * dimensions vs duration) so one code path handles all media modalities.
+ *
+ * Note for audio: `durationSeconds` is derived from the actual generated
+ * `durationMs`, not from the request — TTS duration is determined by the
+ * synthesis. The pricing factory in the audio pipeline reads `result.durationMs`
+ * via the `pricingFor` callback's second argument.
  */
 export type MediaPersistPricing =
   | { kind: 'image'; perImage: number }
@@ -1493,8 +1500,12 @@ interface ProcessMediaResultsInput {
   mediaStorage: MediaStorage;
   epochPublicKey: Uint8Array;
   conversationId: string;
-  /** Per-result pricing factory — called once per successful model result. */
-  pricingFor: (modelId: string) => MediaPersistPricing;
+  /**
+   * Per-result pricing factory — called once per successful model result.
+   * Receives the result so audio can derive `durationSeconds` from
+   * `result.durationMs`. Image/video implementations ignore the second arg.
+   */
+  pricingFor: (modelId: string, result: MediaStreamResult) => MediaPersistPricing;
   getAssistantId: (modelId: string) => string;
   successfulModels: [string, MediaStreamResult][];
 }
@@ -1533,7 +1544,7 @@ async function processMediaResults(
       width: result.width,
       height: result.height,
       durationMs: result.durationMs,
-      pricing: pricingFor(modelId),
+      pricing: pricingFor(modelId, result),
     });
     assistantMessages.push(stored.assistantMessage);
     downloadUrls.set(stored.contentItemId, stored.downloadUrl);
@@ -1555,7 +1566,7 @@ interface MediaPipelineInput {
   senderId: string;
   forkId: string | undefined;
   parentMessageId: string | null;
-  pricingFor: (modelId: string) => MediaPersistPricing;
+  pricingFor: (modelId: string, result: MediaStreamResult) => MediaPersistPricing;
   buildRequest: (modelId: string) => InferenceRequest;
   /** Message written to SSE when every model in the batch fails. */
   noContentErrorMessage: string;
@@ -1728,7 +1739,7 @@ export function executeImagePipeline(input: ImagePipelineInput): Response {
     senderId,
     forkId,
     parentMessageId,
-    pricingFor: (modelId): MediaPersistPricing => {
+    pricingFor: (modelId: string): MediaPersistPricing => {
       const perImage = imageBilling.perImageByModel.get(modelId);
       if (perImage === undefined) {
         throw new Error(`invariant: perImageByModel missing entry for ${modelId}`);
@@ -1797,7 +1808,7 @@ export function executeVideoPipeline(input: VideoPipelineInput): Response {
     senderId,
     forkId,
     parentMessageId,
-    pricingFor: (modelId): MediaPersistPricing => {
+    pricingFor: (modelId: string): MediaPersistPricing => {
       const perSecond = videoBilling.perSecondByModel.get(modelId);
       if (perSecond === undefined) {
         throw new Error(`invariant: perSecondByModel missing entry for ${modelId}`);
@@ -1818,5 +1829,158 @@ export function executeVideoPipeline(input: VideoPipelineInput): Response {
       resolution: videoBilling.resolution,
     }),
     noContentErrorMessage: 'No video generated',
+  });
+}
+
+// ============================================================================
+// resolveAndReserveAudioBilling
+// ============================================================================
+
+export interface AudioBillingValidationSuccess {
+  success: true;
+  worstCaseCents: number;
+  groupBudget?: GroupBudgetReservation;
+  billingUserId: string;
+  /** Per-second price for each selected audio model, keyed by model ID. */
+  perSecondByModel: Map<string, number>;
+  /** Upper bound the user picked for worst-case reservation. */
+  maxDurationSeconds: number;
+}
+
+export interface ResolveAndReserveAudioBillingInput {
+  billingResult: BuildBillingResult;
+  userId: string;
+  models: string[];
+  /** Per-second USD price for each selected audio model. */
+  perSecondByModel: Map<string, number>;
+  /** Cap on the synthesized audio duration; reservation uses this as the upper bound. */
+  maxDurationSeconds: number;
+  clientFundingSource: FundingSource;
+  memberContext?: MemberContext;
+  conversationId?: string;
+}
+
+/**
+ * Resolve billing for audio (TTS) generation.
+ *
+ * Audio differs from image and video in that the output duration is not
+ * user-specified — it emerges from synthesizing the input text. We can't
+ * compute an exact pre-flight cost, so we reserve against `maxDurationSeconds`
+ * and rebill at the actual generated duration.
+ */
+export async function resolveAndReserveAudioBilling(
+  c: Context<AppEnv>,
+  input: ResolveAndReserveAudioBillingInput
+): Promise<AudioBillingValidationSuccess | BillingValidationFailure> {
+  const {
+    billingResult,
+    userId,
+    perSecondByModel,
+    maxDurationSeconds,
+    clientFundingSource,
+    memberContext,
+    conversationId,
+  } = input;
+
+  const worstCaseCents = computeAudioWorstCaseCents(
+    [...perSecondByModel.values()],
+    maxDurationSeconds
+  );
+
+  const base = await resolveAndReserveMediaBilling(c, {
+    billingResult,
+    userId,
+    worstCaseCents,
+    clientFundingSource,
+    ...(memberContext !== undefined && { memberContext }),
+    ...(conversationId !== undefined && { conversationId }),
+  });
+  if ('success' in base) return base;
+
+  return {
+    success: true,
+    ...base,
+    perSecondByModel,
+    maxDurationSeconds,
+  };
+}
+
+// ============================================================================
+// executeAudioPipeline
+// ============================================================================
+
+export interface AudioPipelineInput {
+  c: Context<AppEnv>;
+  conversationId: string;
+  models: string[];
+  userMessage: { id: string; content: string };
+  prompt: string;
+  audioBilling: AudioBillingValidationSuccess;
+  memberContext?: MemberContext;
+  releaseReservation: () => Promise<void>;
+  senderId: string;
+  forkId?: string;
+  parentMessageId: string | null;
+  format: 'mp3' | 'wav' | 'ogg';
+  voice?: string;
+}
+
+/**
+ * Execute the full audio (TTS) generation pipeline.
+ *
+ * Audio billing is post-hoc per-model: each model's actual cost is its
+ * `perSecond × actualDurationMs/1000`, computed in `pricingFor` once the
+ * generation completes. The pre-flight reservation (in
+ * `resolveAndReserveAudioBilling`) covers worst-case via `maxDurationSeconds`.
+ */
+export function executeAudioPipeline(input: AudioPipelineInput): Response {
+  const {
+    c,
+    conversationId,
+    models,
+    userMessage,
+    prompt,
+    audioBilling,
+    memberContext,
+    releaseReservation,
+    senderId,
+    forkId,
+    parentMessageId,
+    format,
+    voice,
+  } = input;
+
+  return executeMediaPipeline({
+    c,
+    conversationId,
+    models,
+    userMessage,
+    prompt,
+    billingUserId: audioBilling.billingUserId,
+    groupBudget: audioBilling.groupBudget,
+    memberContext,
+    releaseReservation,
+    senderId,
+    forkId,
+    parentMessageId,
+    pricingFor: (modelId, result): MediaPersistPricing => {
+      const perSecond = audioBilling.perSecondByModel.get(modelId);
+      if (perSecond === undefined) {
+        throw new Error(`invariant: perSecondByModel missing entry for ${modelId}`);
+      }
+      // TTS duration is determined by the synthesis, not the request — read
+      // from the actual stream result. Fall back to 0 if absent (which yields
+      // storage-only cost; the model cost component is 0 when duration is 0).
+      const durationSeconds = (result.durationMs ?? 0) / 1000;
+      return { kind: 'audio', perSecond, durationSeconds };
+    },
+    buildRequest: (modelId): AudioRequest => ({
+      modality: 'audio',
+      model: modelId,
+      prompt,
+      format,
+      ...(voice !== undefined && { voice }),
+    }),
+    noContentErrorMessage: 'No audio generated',
   });
 }

@@ -48,6 +48,7 @@ describe('modelSchema', () => {
         modality: 'text',
         pricePerImage: 0,
         pricePerSecondByResolution: {},
+        pricePerSecond: 0,
       });
     }
   });
@@ -84,12 +85,73 @@ describe('modelSchema', () => {
       pricePerOutputToken: 0,
       pricePerImage: 0.04,
       pricePerSecondByResolution: {},
+      pricePerSecond: 0,
       capabilities: [],
       description: 'High-quality image generation',
     };
     const result = modelSchema.safeParse(imageModel);
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.pricePerSecondByResolution).toEqual({});
+  });
+
+  it('parses an audio model with pricePerSecond', () => {
+    const audioModel = {
+      id: 'openai/tts-1',
+      name: 'TTS-1',
+      provider: 'OpenAI',
+      modality: 'audio',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0.015,
+      capabilities: [],
+      description: 'Text-to-speech audio generation',
+    };
+    const result = modelSchema.safeParse(audioModel);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.pricePerSecond).toBeCloseTo(0.015, 6);
+    }
+  });
+
+  it('defaults pricePerSecond to 0 when absent', () => {
+    const imageModel = {
+      id: 'google/imagen-4',
+      name: 'Imagen 4',
+      provider: 'Google',
+      modality: 'image',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0.04,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'High-quality image generation',
+    };
+    const result = modelSchema.safeParse(imageModel);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.pricePerSecond).toBe(0);
+  });
+
+  it('rejects pricePerSecond with a negative value', () => {
+    const result = modelSchema.safeParse({
+      id: 'x',
+      name: 'X',
+      provider: 'X',
+      modality: 'audio',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: -0.01,
+      capabilities: [],
+      description: 'x',
+    });
+    expect(result.success).toBe(false);
   });
 
   it('rejects pricePerSecondByResolution with negative prices', () => {
@@ -234,6 +296,7 @@ describe('Model type', () => {
       pricePerOutputToken: 0.0002,
       pricePerImage: 0,
       pricePerSecondByResolution: {},
+      pricePerSecond: 0,
       capabilities: ['internet-search'],
       description: 'A test model for type inference.',
       supportedParameters: ['temperature', 'web_search_options'],

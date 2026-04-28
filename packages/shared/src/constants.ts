@@ -165,6 +165,28 @@ export const VIDEO_RESOLUTIONS = ['720p', '1080p'] as const;
 export const IMAGE_ASPECT_RATIOS = ['1:1', '3:2', '16:9', '9:16', '4:3'] as const;
 
 // ============================================================================
+// Audio Generation Constants
+// ============================================================================
+
+/**
+ * Maximum audio duration the user can cap a TTS generation at, in seconds.
+ * Unlike video (deterministic duration in the request), TTS duration emerges
+ * from synthesizing the input text, so the user picks an upper bound that
+ * caps worst-case spend; the actual bill uses the generated `durationMs`.
+ */
+export const MAX_AUDIO_DURATION_SECONDS = 600;
+
+/**
+ * Conservative byte estimate per second of generated audio (encrypted).
+ * 256 kbps ≈ 32 KB/s — well above typical TTS output. Used only for
+ * pre-flight reservation; actual cost uses real `sizeBytes` from R2.
+ */
+export const ESTIMATED_AUDIO_BYTES_PER_SECOND = 32_000;
+
+/** Audio output formats offered in the audio config picker. Single source of truth — request schema derives from this. */
+export const AUDIO_FORMATS = ['mp3', 'wav', 'ogg'] as const;
+
+// ============================================================================
 // Budget Protection Constants
 // ============================================================================
 

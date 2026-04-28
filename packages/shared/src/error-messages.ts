@@ -159,6 +159,7 @@ const ERROR_MESSAGES = {
     'The selected content type needs configuration (aspect ratio, duration, or resolution).',
   UNSUPPORTED_RESOLUTION:
     "One or more selected video models don't support the requested resolution. Pick a different resolution.",
+  AUDIO_DISABLED: 'Audio generation is not yet available. Please try a different content type.',
 } as const satisfies Record<string, string>;
 
 /** Known error code — union of all keys in the error message map. */

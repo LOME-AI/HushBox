@@ -273,21 +273,22 @@ function streamVideoRequest(
 }
 
 // ---------------------------------------------------------------------------
-// Audio generation (behind feature flag — placeholder until gateway support)
+// Audio generation (dead code — guarded by FEATURE_FLAGS.AUDIO_ENABLED at the
+// route layer, this throws if the audio branch is ever invoked while the AI
+// Gateway lacks speech-model support. When the gateway exposes `speechModel()`
+// (and `experimental_generateSpeech` can route through it), this body is
+// replaced with the real adapter. Until then, fail loud rather than emit a
+// silent finish that downstream pipelines would mistake for a successful
+// generation. The route's flag check + the missing ZDR audio model list
+// together guarantee this is unreachable in production.)
 // ---------------------------------------------------------------------------
 
 function streamAudioRequest(_request: AudioRequest): InferenceStream {
   return {
     [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
-      let done = false;
       return {
         next(): Promise<IteratorResult<InferenceEvent>> {
-          if (done) return Promise.resolve({ done: true, value: undefined });
-          done = true;
-          return Promise.resolve({
-            done: false,
-            value: { kind: 'finish' as const },
-          });
+          return Promise.reject(new Error('Audio output is not yet supported by the AI Gateway'));
         },
       };
     },

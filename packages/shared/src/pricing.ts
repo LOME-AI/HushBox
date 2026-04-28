@@ -7,6 +7,7 @@ import {
   CHARS_PER_TOKEN_STANDARD,
   ESTIMATED_IMAGE_BYTES,
   ESTIMATED_VIDEO_BYTES_PER_SECOND,
+  ESTIMATED_AUDIO_BYTES_PER_SECOND,
 } from './constants.js';
 import type { UserTier } from './tiers.js';
 
@@ -321,6 +322,28 @@ export function computeVideoExactCents(
   if (pricesPerSecond.length === 0 || durationSeconds === 0) return 0;
   const sumModelCost = pricesPerSecond.reduce((s, p) => s + p * durationSeconds, 0);
   const estimatedBytes = durationSeconds * ESTIMATED_VIDEO_BYTES_PER_SECOND;
+  const storage = mediaStorageCost(estimatedBytes) * pricesPerSecond.length;
+  return (applyFees(sumModelCost) + storage) * 100;
+}
+
+/**
+ * Worst-case pre-inference cost for audio (TTS) generation in cents. Unlike
+ * image and video — where the count or duration is fixed in the request — TTS
+ * output length emerges from the synthesis, so we reserve against the user's
+ * `maxDurationSeconds` cap and rebill at the actual generated `durationMs`.
+ *
+ * Same shape as `computeVideoExactCents`: sum per-model (perSecond × maxDuration),
+ * apply fees once, add per-model storage. The "WorstCase" suffix mirrors text's
+ * `computeWorstCaseCents` (both reserve against an upper bound that the actual
+ * output usually undershoots).
+ */
+export function computeAudioWorstCaseCents(
+  pricesPerSecond: readonly number[],
+  maxDurationSeconds: number
+): number {
+  if (pricesPerSecond.length === 0 || maxDurationSeconds === 0) return 0;
+  const sumModelCost = pricesPerSecond.reduce((s, p) => s + p * maxDurationSeconds, 0);
+  const estimatedBytes = maxDurationSeconds * ESTIMATED_AUDIO_BYTES_PER_SECOND;
   const storage = mediaStorageCost(estimatedBytes) * pricesPerSecond.length;
   return (applyFees(sumModelCost) + storage) * 100;
 }

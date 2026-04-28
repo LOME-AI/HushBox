@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { createModelStoreStub, type ModelStoreStub } from '@/test-utils/model-store-mock';
 import { ModalityConfigPanel } from './modality-config-panel';
@@ -317,6 +317,97 @@ describe('ModalityConfigPanel', () => {
       });
       render(<ModalityConfigPanel />);
       expect(screen.queryByText(/^≈ \$/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('audio modality (FEATURE_FLAGS.AUDIO_ENABLED on)', () => {
+    // Save/restore pattern — afterEach runs even when beforeEach throws,
+    // so the flag can't leak across tests in this file.
+    let originalAudioEnabled: boolean;
+    beforeEach(async () => {
+      const { FEATURE_FLAGS } = await import('@hushbox/shared');
+      originalAudioEnabled = FEATURE_FLAGS.AUDIO_ENABLED;
+      FEATURE_FLAGS.AUDIO_ENABLED = true;
+      resetModelStoreStub({
+        activeModality: 'audio',
+        audioConfig: { format: 'mp3', maxDurationSeconds: 60 },
+        selections: {
+          text: [{ id: 'text-model', name: 'Text' }],
+          image: [],
+          audio: [{ id: 'openai/tts-1', name: 'TTS-1' }],
+          video: [],
+        },
+      });
+    });
+
+    afterEach(async () => {
+      const { FEATURE_FLAGS } = await import('@hushbox/shared');
+      FEATURE_FLAGS.AUDIO_ENABLED = originalAudioEnabled;
+    });
+
+    it('renders the format picker with all supported formats', () => {
+      render(<ModalityConfigPanel />);
+      expect(screen.getByRole('button', { name: 'mp3' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'wav' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'ogg' })).toBeInTheDocument();
+    });
+
+    it('marks the active format with aria-pressed=true', () => {
+      render(<ModalityConfigPanel />);
+      expect(screen.getByRole('button', { name: 'mp3' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'wav' })).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('calls setAudioConfig when a format is clicked', () => {
+      render(<ModalityConfigPanel />);
+      fireEvent.click(screen.getByRole('button', { name: 'wav' }));
+      expect(modelStoreStubRef.current.setAudioConfig).toHaveBeenCalledWith({ format: 'wav' });
+    });
+
+    it('displays an estimated cost for the current config', () => {
+      mockModels({
+        models: [
+          {
+            id: 'openai/tts-1',
+            modality: 'audio',
+            pricePerImage: 0,
+            pricePerSecondByResolution: {},
+          } as never,
+        ],
+      });
+      // Override the mock with an audio-priced model — the panel reads pricePerSecond.
+      mockUseModels.mockReturnValue({
+        data: {
+          models: [
+            { id: 'openai/tts-1', modality: 'audio', pricePerSecond: 0.015 } as never,
+          ] as never,
+          premiumIds: new Set<string>(),
+        },
+      });
+      render(<ModalityConfigPanel />);
+      expect(screen.getByText(/^≈ \$\d+\.\d+/)).toBeInTheDocument();
+    });
+
+    it('renders a max duration slider that reflects audioConfig.maxDurationSeconds', () => {
+      render(<ModalityConfigPanel />);
+      const slider = screen.getByRole('slider', { name: /audio max duration/i });
+      expect(slider).toHaveValue('60');
+    });
+
+    it('calls setAudioConfig when the duration slider changes', () => {
+      render(<ModalityConfigPanel />);
+      const slider = screen.getByRole('slider', { name: /audio max duration/i });
+      fireEvent.change(slider, { target: { value: '120' } });
+      expect(modelStoreStubRef.current.setAudioConfig).toHaveBeenCalledWith({
+        maxDurationSeconds: 120,
+      });
+    });
+
+    it('caps the slider max at MAX_AUDIO_DURATION_SECONDS', () => {
+      render(<ModalityConfigPanel />);
+      const slider = screen.getByRole('slider', { name: /audio max duration/i });
+      expect(slider).toHaveAttribute('max', '600');
+      expect(slider).toHaveAttribute('min', '1');
     });
   });
 });

@@ -27,6 +27,12 @@ export interface RawModel {
      * Absent for video models that use per-token pricing.
      */
     per_second_by_resolution?: Record<string, string>;
+    /**
+     * Flat per-second USD for audio (TTS) models, from `/v1/models` pricing.
+     * Audio is single-price (no per-resolution split). Absent for audio models
+     * that use variable or token-based pricing.
+     */
+    per_second?: string;
   };
   supported_parameters: string[];
   created: number;

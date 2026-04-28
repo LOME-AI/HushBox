@@ -45,6 +45,13 @@ export const modelSchema = z
      */
     pricePerSecondByResolution: z.record(z.string(), z.number().nonnegative()).default({}),
 
+    /**
+     * Flat per-second cost in USD for audio (TTS) models. 0 for non-audio
+     * models. Audio is priced per-second of generated speech (no resolution
+     * split, unlike video).
+     */
+    pricePerSecond: z.number().nonnegative().default(0),
+
     /** Model capabilities */
     capabilities: z.array(modelCapabilitySchema),
 

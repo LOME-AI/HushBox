@@ -111,6 +111,7 @@ function transformText(model: RawModel): Model {
     pricePerOutputToken: parseTokenPrice(model.pricing.completion),
     pricePerImage: 0,
     pricePerSecondByResolution: {},
+    pricePerSecond: 0,
     capabilities: deriveCapabilities(model.supported_parameters),
     supportedParameters: model.supported_parameters,
     webSearchPrice: model.pricing.web_search
@@ -177,6 +178,7 @@ function buildSmartModelEntry(pool: RawModel[]): Model {
     pricePerOutputToken: SMART_MODEL_OUTPUT_PRICE_PER_TOKEN,
     pricePerImage: 0,
     pricePerSecondByResolution: {},
+    pricePerSecond: 0,
     capabilities: [],
     supportedParameters: [],
     isSmartModel: true,
@@ -205,6 +207,7 @@ function transformImage(model: RawModel): Model {
     pricePerOutputToken: 0,
     pricePerImage: perImageRaw === undefined ? 0 : parseTokenPrice(perImageRaw),
     pricePerSecondByResolution: {},
+    pricePerSecond: 0,
     capabilities: [],
     supportedParameters: model.supported_parameters,
     created: model.created,
@@ -250,6 +253,7 @@ function transformVideo(model: RawModel): Model {
     pricePerOutputToken: 0,
     pricePerImage: 0,
     pricePerSecondByResolution,
+    pricePerSecond: 0,
     capabilities: [],
     supportedParameters: model.supported_parameters,
     created: model.created,
@@ -270,6 +274,50 @@ function processVideoModels(raws: RawModel[]): MediaProcessingResult {
 }
 
 // ============================================================
+// Audio processing
+// ============================================================
+
+function transformAudio(model: RawModel): Model {
+  const { provider, displayName } = extractProvider(model);
+  const perSecondRaw = model.pricing.per_second;
+  return {
+    id: model.id,
+    name: displayName,
+    description: model.description,
+    provider,
+    modality: 'audio',
+    contextLength: 0,
+    pricePerInputToken: 0,
+    pricePerOutputToken: 0,
+    pricePerImage: 0,
+    pricePerSecondByResolution: {},
+    pricePerSecond: perSecondRaw === undefined ? 0 : parseTokenPrice(perSecondRaw),
+    capabilities: [],
+    supportedParameters: model.supported_parameters,
+    created: model.created,
+  };
+}
+
+function hasFlatAudioPricing(model: RawModel): boolean {
+  const raw = model.pricing.per_second;
+  if (raw === undefined) return false;
+  return parseTokenPrice(raw) > 0;
+}
+
+/**
+ * Process audio (TTS) models. Symmetric with image/video processing — once the
+ * AI Gateway exposes speech models and `ZDR_AUDIO_MODELS` is populated, this
+ * naturally returns audio entries. Today the ZDR set is empty so this returns
+ * empty even if `FEATURE_FLAGS.AUDIO_ENABLED` is on.
+ */
+function processAudioModels(raws: RawModel[]): MediaProcessingResult {
+  const zdrFiltered = raws.filter((m) => isZdrModel(m.id, 'audio'));
+  const priced = zdrFiltered.filter((m) => hasFlatAudioPricing(m));
+  const models = priced.map((m) => transformAudio(m));
+  return { models, premiumIds: models.map((m) => m.id) };
+}
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -285,13 +333,12 @@ export function processModels(rawModels: RawModel[]): ProcessedModels {
   const text = processTextModels(byModality.text);
   const image = processImageModels(byModality.image);
   const video = processVideoModels(byModality.video);
-  // Audio flag-gated — `ZDR_AUDIO_MODELS` is empty and `FEATURE_FLAGS.AUDIO_ENABLED`
-  // stays off until the AI Gateway ships audio output. Nothing to process.
+  const audio = processAudioModels(byModality.audio);
 
   const smartPrefix = text.filteredPool.length > 0 ? [buildSmartModelEntry(text.filteredPool)] : [];
 
   return {
-    models: [...text.models, ...smartPrefix, ...image.models, ...video.models],
-    premiumIds: [...text.premiumIds, ...image.premiumIds, ...video.premiumIds],
+    models: [...text.models, ...smartPrefix, ...image.models, ...video.models, ...audio.models],
+    premiumIds: [...text.premiumIds, ...image.premiumIds, ...video.premiumIds, ...audio.premiumIds],
   };
 }

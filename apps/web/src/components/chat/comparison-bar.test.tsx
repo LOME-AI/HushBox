@@ -24,6 +24,7 @@ function buildModel(id: string, name: string, overrides: Partial<Model> = {}): M
     pricePerOutputToken: 0.000_01,
     pricePerImage: 0,
     pricePerSecondByResolution: {},
+    pricePerSecond: 0,
     capabilities: [],
     description: `Description for ${name}`,
     supportedParameters: [],

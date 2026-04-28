@@ -604,14 +604,93 @@ describe('streamChatRequestSchema', () => {
     expect(result.imageConfig?.aspectRatio).toBe('1:1');
   });
 
-  it('rejects modality audio (gated behind feature flag)', () => {
+  it('accepts modality audio with full audioConfig', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['openai/tts-1'],
+      userMessage: { id: validMsgId, content: 'Hello, world.' },
+      messagesForInference: [{ role: 'user', content: 'Hello, world.' }],
+      fundingSource: 'personal_balance',
+      modality: 'audio',
+      audioConfig: { format: 'mp3', maxDurationSeconds: 60 },
+    });
+    expect(result.modality).toBe('audio');
+    expect(result.audioConfig?.format).toBe('mp3');
+    expect(result.audioConfig?.maxDurationSeconds).toBe(60);
+  });
+
+  it('defaults audioConfig.format to mp3 and maxDurationSeconds to MAX_AUDIO_DURATION_SECONDS', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['openai/tts-1'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+      modality: 'audio',
+      audioConfig: {},
+    });
+    expect(result.audioConfig?.format).toBe('mp3');
+    expect(result.audioConfig?.maxDurationSeconds).toBe(600);
+  });
+
+  it('rejects modality audio without audioConfig', () => {
     expect(() =>
       streamChatRequestSchema.parse({
-        models: ['google/veo-3.1'],
+        models: ['openai/tts-1'],
         userMessage: { id: validMsgId, content: 'Hello' },
         messagesForInference: [{ role: 'user', content: 'Hello' }],
         fundingSource: 'personal_balance',
         modality: 'audio',
+      })
+    ).toThrow();
+  });
+
+  it('rejects audioConfig with invalid format', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['openai/tts-1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'audio',
+        audioConfig: { format: 'flac' },
+      })
+    ).toThrow();
+  });
+
+  it('rejects audioConfig with maxDurationSeconds below 1', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['openai/tts-1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'audio',
+        audioConfig: { format: 'mp3', maxDurationSeconds: 0 },
+      })
+    ).toThrow();
+  });
+
+  it('rejects audioConfig with maxDurationSeconds above 600', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['openai/tts-1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'audio',
+        audioConfig: { format: 'mp3', maxDurationSeconds: 601 },
+      })
+    ).toThrow();
+  });
+
+  it('rejects audioConfig with non-integer maxDurationSeconds', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['openai/tts-1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'audio',
+        audioConfig: { format: 'mp3', maxDurationSeconds: 30.5 },
       })
     ).toThrow();
   });

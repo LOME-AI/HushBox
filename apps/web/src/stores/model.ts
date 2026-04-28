@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { SMART_MODEL_ID, MAX_SELECTED_MODELS } from '@hushbox/shared';
-import type { Modality, ImageConfig, VideoConfig } from '@hushbox/shared';
+import { SMART_MODEL_ID, MAX_SELECTED_MODELS, MAX_AUDIO_DURATION_SECONDS } from '@hushbox/shared';
+import type { Modality, ImageConfig, VideoConfig, AudioConfig } from '@hushbox/shared';
 
 export const DEFAULT_MODEL_ID = SMART_MODEL_ID;
 export const DEFAULT_MODEL_NAME = 'Smart Model';
@@ -16,6 +16,7 @@ export interface ModelStoreState {
   selections: Record<Modality, SelectedModelEntry[]>;
   imageConfig: ImageConfig;
   videoConfig: VideoConfig;
+  audioConfig: AudioConfig;
 
   setActiveModality: (modality: Modality) => void;
   setSelectedModels: (modality: Modality, entries: SelectedModelEntry[]) => void;
@@ -24,6 +25,7 @@ export interface ModelStoreState {
   clearSelection: (modality: Modality) => void;
   setImageConfig: (config: Partial<ImageConfig>) => void;
   setVideoConfig: (config: Partial<VideoConfig>) => void;
+  setAudioConfig: (config: Partial<AudioConfig>) => void;
 }
 
 const DEFAULT_TEXT_ENTRY: SelectedModelEntry = {
@@ -37,6 +39,10 @@ const DEFAULT_VIDEO_CONFIG: VideoConfig = {
   aspectRatio: '16:9',
   durationSeconds: 4,
   resolution: '720p',
+};
+const DEFAULT_AUDIO_CONFIG: AudioConfig = {
+  format: 'mp3',
+  maxDurationSeconds: MAX_AUDIO_DURATION_SECONDS,
 };
 
 function defaultSelections(): Record<Modality, SelectedModelEntry[]> {
@@ -79,6 +85,7 @@ export const useModelStore = create<ModelStoreState>()(
       selections: defaultSelections(),
       imageConfig: { ...DEFAULT_IMAGE_CONFIG },
       videoConfig: { ...DEFAULT_VIDEO_CONFIG },
+      audioConfig: { ...DEFAULT_AUDIO_CONFIG },
 
       setActiveModality: (modality) =>
         set((state) => {
@@ -130,6 +137,9 @@ export const useModelStore = create<ModelStoreState>()(
 
       setVideoConfig: (config) =>
         set((state) => ({ videoConfig: { ...state.videoConfig, ...config } })),
+
+      setAudioConfig: (config) =>
+        set((state) => ({ audioConfig: { ...state.audioConfig, ...config } })),
     }),
     {
       name: 'hushbox-model-storage',
@@ -195,4 +205,4 @@ useModelStore.subscribe((state) => {
   }
 });
 
-export { type ImageConfig, type VideoConfig } from '@hushbox/shared';
+export { type ImageConfig, type VideoConfig, type AudioConfig } from '@hushbox/shared';
