@@ -3,7 +3,11 @@ import { createGateway } from '@ai-sdk/gateway';
 import { fetchModels, isZdrModel } from '@hushbox/shared/models';
 import type { RawModel } from '@hushbox/shared/models';
 import { parseTokenPrice } from '@hushbox/shared';
-import { recordServiceEvidence, SERVICE_NAMES, type Database } from '@hushbox/db';
+import {
+  recordServiceEvidence,
+  SERVICE_NAMES,
+  type EvidenceConfig as SharedEvidenceConfig,
+} from '@hushbox/db';
 import type {
   AIClient,
   InferenceEvent,
@@ -23,11 +27,11 @@ import type {
  * Optional evidence-recording config.
  * When supplied, the real client calls `recordServiceEvidence` after each
  * successful AI Gateway call so CI can verify the integration was exercised.
+ *
+ * Re-exported as `EvidenceConfig` here for callers that previously imported
+ * it from this module. New callers should import directly from `@hushbox/db`.
  */
-export interface EvidenceConfig {
-  db: Database;
-  isCI: boolean;
-}
+export type EvidenceConfig = SharedEvidenceConfig;
 
 // ---------------------------------------------------------------------------
 // Map merged RawModel → AIClient ModelInfo

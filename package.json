@@ -44,7 +44,7 @@
     "clean": "turbo clean && rm -rf node_modules",
     "prepare": "husky",
     "docker:cleanup": "./scripts/with-env tsx scripts/docker-cleanup.ts",
-    "db:up": "./scripts/with-env docker compose up -d --wait postgres neon-proxy redis serverless-redis-http",
+    "db:up": "./scripts/with-env docker compose up -d --wait postgres neon-proxy redis serverless-redis-http minio && ./scripts/with-env docker compose up -d minio-setup",
     "db:down": "./scripts/with-env docker compose down",
     "db:reset": "./scripts/with-env tsx scripts/db-reset.ts",
     "db:migrate": "./scripts/with-env pnpm --filter @hushbox/db db:migrate",

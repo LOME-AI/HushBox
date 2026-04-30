@@ -1,18 +1,18 @@
 /**
  * Object storage abstraction for encrypted media.
  *
- * Writes/deletes go through Cloudflare's R2 Workers binding (no credentials needed).
+ * One implementation, one codepath: the same `aws4fetch` S3 calls hit MinIO
+ * in dev/CI and Cloudflare R2 in production. Endpoint URL and credentials
+ * are the only environment-specific config.
+ *
  * Reads are done by clients via short-lived presigned GET URLs minted via
- * the S3 API using the R2 S3 credentials — bytes flow direct R2 → browser
- * without passing through the Worker.
+ * the S3 API — bytes flow direct R2 → browser without passing through the
+ * Worker.
  *
  * There is intentionally NO mintUploadUrl. Presigned PUT URLs are a security
  * anti-pattern; all writes originate inside the Worker.
  */
 export interface MediaStorage {
-  /** Whether this is a mock (test) implementation. */
-  readonly isMock: boolean;
-
   /**
    * Store encrypted bytes at the given key.
    * Called from strategies after encrypting media under a message's content key.
@@ -40,25 +40,25 @@ export interface MediaStorage {
    * @throws StorageWriteError on upstream failure.
    */
   delete(key: string): Promise<void>;
-}
 
-/**
- * In-memory MediaStorage used in unit/integration tests.
- * Exposes test helpers that the real storage does not.
- */
-export interface MockMediaStorage extends MediaStorage {
-  readonly isMock: true;
-  /** Return the stored bytes for a key, or undefined if missing. */
-  getObject(key: string): { bytes: Uint8Array; contentType: string } | undefined;
-  /** Remove all stored objects. */
-  clearAll(): void;
-  /** List all currently stored keys in insertion order. */
-  listKeys(): string[];
+  /**
+   * List objects under a prefix, paginated by cursor. Used by the daily R2 GC
+   * cron to find orphans. Wraps S3 ListObjectsV2.
+   *
+   * @throws StorageReadError on listing failure.
+   */
+  list(
+    prefix: string,
+    options?: { cursor?: string; limit?: number }
+  ): Promise<{
+    objects: { key: string; uploaded: Date; size: number }[];
+    nextCursor?: string;
+  }>;
 }
 
 /**
  * Thrown when a storage write (`put` or `delete`) fails upstream.
- * The cause is the underlying error from the R2 binding, preserved for logging.
+ * The cause is the underlying error from the S3 backend, preserved for logging.
  */
 export class StorageWriteError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
@@ -68,7 +68,8 @@ export class StorageWriteError extends Error {
 }
 
 /**
- * Thrown when a presigned URL cannot be minted or a storage read fails.
+ * Thrown when a presigned URL cannot be minted, a list call fails, or any
+ * other read fails.
  */
 export class StorageReadError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {

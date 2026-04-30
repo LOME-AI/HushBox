@@ -61,6 +61,7 @@ Coding standards for all contributors (human and AI).
 - Always use `envUtils` (from `createEnvUtilities()`) for environment branching
 - Never check `NODE_ENV`, `CI`, or `E2E` directly
 - Never use `??` fallback defaults for environment variables — `envConfig` defines values for every mode
+- Never branch on env-var existence to choose between mock and real implementations. Mock-vs-real picks come from `isLocalDev`/`isE2E`/`isCI` — never `if (env.API_KEY) { real } else { mock }`. Required-config existence checks (`if (!env.DATABASE_URL) throw`) are fine and encouraged — that's fail-fast on missing infra, not a silent fallback.
 - If a variable is missing at runtime, fail-fast with a clear error
 - Backend middleware: use `c.get('envUtils')` (set by `envMiddleware()`)
 - Middleware running before `envMiddleware()`: call `createEnvUtilities(c.env)` directly

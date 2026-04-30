@@ -248,6 +248,101 @@ describe('createHelcimClient', () => {
       expect(body.amount).toBe(25.5);
     });
   });
+
+  describe('evidence recording', () => {
+    interface FakeDb {
+      insert: ReturnType<typeof vi.fn>;
+    }
+
+    function createFakeDb(): FakeDb {
+      const values = vi.fn(() => Promise.resolve([]));
+      return {
+        insert: vi.fn(() => ({ values })),
+      };
+    }
+
+    function approvedResponseStub(): void {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            transactionId: 12_345,
+            approvalCode: 'ABC123',
+            cardNumber: '************1234',
+            cardType: 'Visa',
+          }),
+      });
+    }
+
+    function paymentRequest(): {
+      cardToken: string;
+      customerCode: string;
+      amount: string;
+      paymentId: string;
+      ipAddress: string;
+    } {
+      return {
+        cardToken: 'test-token',
+        customerCode: 'CST1234',
+        amount: '10.00000000',
+        paymentId: 'payment-123',
+        ipAddress: '192.168.1.1',
+      };
+    }
+
+    it('records evidence after a successful processPayment when isCI=true', async () => {
+      const db = createFakeDb();
+      const client = createHelcimClient({ ...config, evidence: { db: db as never, isCI: true } });
+      approvedResponseStub();
+
+      await client.processPayment(paymentRequest());
+
+      expect(db.insert).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not record evidence when isCI=false', async () => {
+      const db = createFakeDb();
+      const client = createHelcimClient({ ...config, evidence: { db: db as never, isCI: false } });
+      approvedResponseStub();
+
+      await client.processPayment(paymentRequest());
+
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('does not record evidence when evidence config is omitted', async () => {
+      // Strong proof: a poisoned db whose insert throws would surface if the
+      // code path reached recordServiceEvidence. processPayment must complete
+      // successfully even though the db is unusable, because evidence is omitted.
+      const poisonedDb = {
+        insert: vi.fn(() => {
+          throw new Error('db.insert must not be called when evidence is omitted');
+        }),
+      };
+      const client = createHelcimClient(config);
+      approvedResponseStub();
+
+      const result = await client.processPayment(paymentRequest());
+
+      expect(result.status).toBe('approved');
+      expect(poisonedDb.insert).not.toHaveBeenCalled();
+    });
+
+    it('does not record evidence when payment is declined', async () => {
+      const db = createFakeDb();
+      const client = createHelcimClient({ ...config, evidence: { db: db as never, isCI: true } });
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: () => Promise.resolve({ responseMessage: 'Card declined' }),
+      });
+
+      const result = await client.processPayment(paymentRequest());
+
+      expect(result.status).toBe('declined');
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('verifyWebhookSignatureAsync', () => {

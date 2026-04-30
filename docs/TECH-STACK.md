@@ -195,9 +195,10 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 
 ## AI / LLM
 
-| Technology     | Purpose                                                                                               |
-| -------------- | ----------------------------------------------------------------------------------------------------- |
-| **OpenRouter** | LLM gateway. Single API for GPT, Claude, Gemini, Grok, others. Model metadata API for auto-discovery. |
+| Technology              | Purpose                                                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Vercel AI SDK**       | Provider-agnostic streaming inference for text, image, and video. Backs the internal `AIClient` interface. |
+| **Vercel AI Gateway**   | LLM gateway. Single API for GPT, Claude, Gemini, Grok, others. Model metadata API for auto-discovery. |
 
 ---
 
@@ -211,7 +212,7 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 | **Playwright**      | E2E testing. Cross-browser,.                                                        |
 | **fishery**         | Test factories with traits, sequences, and async DB creation.                       |
 | **@faker-js/faker** | Realistic fake data generation.                                                     |
-| **MinIO**           | Local S3 mock. Emulates R2 for local development.                                   |
+| **MinIO**           | Local S3-compatible server. Emulates R2 for local dev and CI tests via `pnpm db:up`. |
 | **Payment Mocks**   | Local mock for Helcim. No real API calls in local development.                      |
 | **Helcim Sandbox**  | Helcim's test environment. Used in CI for real payment flow testing.                |
 | **execa**           | Subprocess execution. Clean API for running shell commands from TypeScript scripts. |
@@ -304,7 +305,7 @@ Local dev and CI use `.env.development`. No secrets needed outside production.
 
 ```
 Browser → API (Workers) → Neon Postgres / R2
-                       → OpenRouter (LLM)
+                       → Vercel AI Gateway (LLM)
                        → Fly.io (code execution)
                        → Durable Objects (group chat broadcast)
 ```
@@ -333,6 +334,6 @@ Starts:
 - Neon Proxy (Docker) on :4444 (WebSocket → Postgres)
 - Redis (Docker) on :6379
 - Serverless Redis HTTP (Docker) on :8079 (Upstash REST API emulator)
-- MinIO (S3 mock) on :9000
+- MinIO (S3-compatible R2 emulator) on :9000
 
-All external APIs (OpenRouter, Helcim) are mocked locally. Real API calls (to OpenRouter and Helcim Sandbox) only run in CI when a HushBox team member comments "pr test". These tests must pass to merge the PR.
+External APIs are mocked locally. Real-API tests run on every PR in CI: AI Gateway via the test job (vitest integration tests with `AI_GATEWAY_API_KEY_RESTRICTED`); Helcim sandbox via the e2e job (Playwright payment flows with `HELCIM_API_TOKEN_SANDBOX`). The `verify:evidence` step asserts each real service was actually exercised.

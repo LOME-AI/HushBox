@@ -140,12 +140,16 @@ export const envConfig = {
     // NOT in CI - email service uses console client when CI=true
   },
 
-  // Vercel AI Gateway API key. Only production and ciE2E need it — local dev,
-  // unit tests, and local E2E all use the mock AIClient.
+  // Vercel AI Gateway API key. Two distinct GitHub secrets resolve to the same
+  // env var name in different modes — _RESTRICTED is a low-budget key used by
+  // CI integration tests in the ciVitest mode test job; _PRODUCTION is the
+  // unrestricted production-grade key. The AI client factory mocks when
+  // isE2E=true, so CiE2E does NOT need the key — local E2E and CI E2E both
+  // use the mock AIClient. Mirrors the deleted OpenRouter pattern exactly.
   AI_GATEWAY_API_KEY: {
     to: [Destination.Backend],
-    [Mode.CiE2E]: secret('AI_GATEWAY_API_KEY'),
-    [Mode.Production]: secret('AI_GATEWAY_API_KEY'),
+    [Mode.CiVitest]: secret('AI_GATEWAY_API_KEY_RESTRICTED'),
+    [Mode.Production]: secret('AI_GATEWAY_API_KEY_PRODUCTION'),
   },
 
   // Unauthenticated public endpoint exposing per-modality pricing (per-image

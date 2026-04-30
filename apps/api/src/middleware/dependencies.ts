@@ -12,6 +12,7 @@ import {
   ERROR_CODE_BILLING_SESSION_RESTRICTED,
 } from '@hushbox/shared';
 import { createRedisClient } from '../lib/redis.js';
+import { createEvidenceConfig } from '../lib/evidence-config.js';
 import { createIronSessionMiddleware } from './iron-session.js';
 import { getAIClient } from '../services/ai/index.js';
 import { getMediaStorage } from '../services/storage/index.js';
@@ -140,9 +141,7 @@ export function aiClientMiddleware(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     // dbMiddleware + envMiddleware run before this on every route prefix
     // that uses aiClientMiddleware — so `db` and `envUtils` are always set.
-    const db = c.get('db');
-    const { isCI } = c.get('envUtils');
-    c.set('aiClient', getAIClient(c.env, { db, isCI }));
+    c.set('aiClient', getAIClient(c.env, createEvidenceConfig(c)));
     await next();
   };
 }
@@ -158,7 +157,7 @@ export function mediaStorageMiddleware(): MiddlewareHandler<AppEnv> {
 export function helcimMiddleware(): MiddlewareHandler<AppEnv> {
   // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
-    c.set('helcim', getHelcimClient(c.env));
+    c.set('helcim', getHelcimClient(c.env, createEvidenceConfig(c)));
     await next();
   };
 }

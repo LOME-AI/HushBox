@@ -129,6 +129,7 @@ jobs:
         run: pnpm generate:env --mode=ciVitest
         # BEGIN GENERATED: vitest-env
         env:
+          AI_GATEWAY_API_KEY_RESTRICTED: ${{ secrets.AI_GATEWAY_API_KEY_RESTRICTED }}
         # END GENERATED: vitest-env
 
       - name: Verify environment configuration
@@ -145,6 +146,8 @@ jobs:
             docker save redis:7-alpine -o /tmp/docker-cache/redis.tar &
             docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar &
             docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar &
+            docker save minio/minio:latest -o /tmp/docker-cache/minio.tar &
+            docker save minio/mc:latest -o /tmp/docker-cache/minio-mc.tar &
             wait
           fi
 
@@ -281,7 +284,6 @@ jobs:
         run: pnpm generate:env --mode=ciE2E
         # BEGIN GENERATED: e2e-env
         env:
-          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
           HELCIM_API_TOKEN_SANDBOX: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
           HELCIM_WEBHOOK_VERIFIER_SANDBOX: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
           VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
@@ -309,6 +311,8 @@ jobs:
             docker save redis:7-alpine -o /tmp/docker-cache/redis.tar &
             docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar &
             docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar &
+            docker save minio/minio:latest -o /tmp/docker-cache/minio.tar &
+            docker save minio/mc:latest -o /tmp/docker-cache/minio-mc.tar &
             wait
           fi
 
@@ -354,6 +358,10 @@ jobs:
       - name: Verify Hookdeck was called
         if: matrix.project == 'chromium'
         run: pnpm verify:evidence --require=hookdeck
+
+      - name: Verify Helcim was called
+        if: matrix.project == 'chromium'
+        run: pnpm verify:evidence --require=helcim
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v6
@@ -428,7 +436,6 @@ jobs:
         run: pnpm generate:env --mode=ciE2E
         # BEGIN GENERATED: e2e-env
         env:
-          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
           HELCIM_API_TOKEN_SANDBOX: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
           HELCIM_WEBHOOK_VERIFIER_SANDBOX: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
           VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
@@ -520,7 +527,7 @@ jobs:
           echo "${{ secrets.IRON_SESSION_SECRET }}" | pnpm exec wrangler secret put IRON_SESSION_SECRET
           echo "${{ needs.version.outputs.version }}" | pnpm exec wrangler secret put APP_VERSION
           echo "${{ secrets.RESEND_API_KEY }}" | pnpm exec wrangler secret put RESEND_API_KEY
-          echo "${{ secrets.AI_GATEWAY_API_KEY }}" | pnpm exec wrangler secret put AI_GATEWAY_API_KEY
+          echo "${{ secrets.AI_GATEWAY_API_KEY_PRODUCTION }}" | pnpm exec wrangler secret put AI_GATEWAY_API_KEY
           echo "${{ secrets.FCM_PROJECT_ID }}" | pnpm exec wrangler secret put FCM_PROJECT_ID
           echo "${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}" | pnpm exec wrangler secret put FCM_SERVICE_ACCOUNT_JSON
           echo "${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_API_TOKEN

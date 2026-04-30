@@ -77,14 +77,13 @@ function createMediaMockDb(config: MediaMockDbConfig): unknown {
 }
 /* eslint-enable unicorn/no-thenable */
 
-interface FakeStorage extends Pick<MediaStorage, 'isMock' | 'mintDownloadUrl'> {
+interface FakeStorage extends Pick<MediaStorage, 'mintDownloadUrl'> {
   mintedFor: string[];
 }
 
 function createFakeStorage(options: { fail?: boolean } = {}): FakeStorage {
   const minted: string[] = [];
   return {
-    isMock: true,
     mintedFor: minted,
     mintDownloadUrl: ({ key }) => {
       minted.push(key);

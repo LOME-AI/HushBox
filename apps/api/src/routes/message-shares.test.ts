@@ -194,9 +194,9 @@ function createStubMediaStorage(overrides: Partial<MediaStorage> = {}): MediaSto
     })
   );
   return {
-    isMock: true,
     put: vi.fn(() => Promise.resolve()),
     delete: vi.fn(() => Promise.resolve()),
+    list: vi.fn(() => Promise.resolve({ objects: [] })),
     mintDownloadUrl: mint,
     ...overrides,
   };

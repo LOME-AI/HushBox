@@ -1,5 +1,6 @@
 import type { HelcimClient, ProcessPaymentRequest, ProcessPaymentResponse } from './types.js';
 import { verifyHmacSha256Webhook } from '@hushbox/crypto';
+import { recordServiceEvidence, SERVICE_NAMES, type EvidenceConfig } from '@hushbox/db';
 import { safeJsonParse } from '../../lib/safe-json.js';
 
 const HELCIM_API_URL = 'https://api.helcim.com/v2/payment/purchase';
@@ -20,9 +21,15 @@ interface HelcimApiResponse {
   errors?: Record<string, HelcimErrorDetail[]>;
 }
 
-interface HelcimClientConfig {
+export interface HelcimClientConfig {
   apiToken: string;
   webhookVerifier: string;
+  /**
+   * Optional evidence-recording config. When supplied, the client calls
+   * `recordServiceEvidence(SERVICE_NAMES.HELCIM)` after each successful
+   * processPayment so CI's verify:evidence step can prove the integration ran.
+   */
+  evidence?: EvidenceConfig;
 }
 
 function extractHelcimErrors(errors: Record<string, HelcimErrorDetail[]>): string {
@@ -80,6 +87,13 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
       const data = await safeJsonParse<HelcimApiResponse>(response, 'Helcim payment');
 
       if (response.ok && data.approvalCode) {
+        if (config.evidence !== undefined) {
+          await recordServiceEvidence(
+            config.evidence.db,
+            config.evidence.isCI,
+            SERVICE_NAMES.HELCIM
+          );
+        }
         return {
           status: 'approved',
           transactionId: data.transactionId == null ? null : String(data.transactionId),

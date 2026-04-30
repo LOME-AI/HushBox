@@ -1,4 +1,4 @@
-import { CLASSIFIER_SYSTEM_PROMPT_MARKER } from '@hushbox/shared';
+import { CHARS_PER_TOKEN_STANDARD, CLASSIFIER_SYSTEM_PROMPT_MARKER } from '@hushbox/shared';
 
 import type {
   AIMessage,
@@ -15,9 +15,6 @@ import type {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Characters per token approximation for deterministic cost. */
-const CHARS_PER_TOKEN = 4;
-
 /** Deterministic mock cost returned by getGenerationStats (USD). */
 const MOCK_GENERATION_STATS_COST = 0.001;
 
@@ -32,7 +29,7 @@ const DEFAULT_CLASSIFIER_RESOLUTION = 'anthropic/claude-sonnet-4.6';
  * Minimal valid 1x1 PNG (67 bytes).
  * PNG signature + IHDR + IDAT + IEND.
  */
-const CANNED_PNG = new Uint8Array([
+export const CANNED_PNG = new Uint8Array([
   // PNG signature
   0x89,
   0x50,
@@ -107,7 +104,7 @@ const CANNED_PNG = new Uint8Array([
 /**
  * Minimal MP4 placeholder (ftyp + moov atoms, not playable but non-empty).
  */
-const CANNED_MP4 = new Uint8Array([
+export const CANNED_MP4 = new Uint8Array([
   // ftyp box
   0x00,
   0x00,
@@ -319,8 +316,8 @@ function createClassifierStream(modelId: string): InferenceStream {
       providerMetadata: {
         generationId: `mock-classifier-${String(Date.now())}`,
         usage: {
-          inputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN),
-          outputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN),
+          inputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN_STANDARD),
+          outputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN_STANDARD),
         },
       },
     };
@@ -354,8 +351,8 @@ function createTextStream(request: TextRequest): InferenceStream {
       providerMetadata: {
         generationId: `mock-gen-${String(Date.now())}`,
         usage: {
-          inputTokens: Math.ceil(promptCharacters / CHARS_PER_TOKEN),
-          outputTokens: Math.ceil(echoContent.length / CHARS_PER_TOKEN),
+          inputTokens: Math.ceil(promptCharacters / CHARS_PER_TOKEN_STANDARD),
+          outputTokens: Math.ceil(echoContent.length / CHARS_PER_TOKEN_STANDARD),
         },
       },
     };

@@ -19,12 +19,12 @@ bindings = [{ name = "CONVERSATION_ROOM", class_name = "ConversationRoom" }]
 [[migrations]]
 tag = "v1"
 new_classes = ["ConversationRoom"]
+
+[triggers]
+crons = ["0 3 * * *"]
 [[r2_buckets]]
 binding = "APP_BUILDS"
 bucket_name = "hushbox-app-builds"
-[[r2_buckets]]
-binding = "MEDIA_BUCKET"
-bucket_name = "hushbox-media"
 [vars]
 NODE_ENV = "production"
 API_URL = "https://api.hushbox.ai"

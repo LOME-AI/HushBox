@@ -325,6 +325,10 @@ describe('createApp', () => {
       UPSTASH_REDIS_REST_TOKEN: 'test-token',
       AI_GATEWAY_API_KEY: 'test-key',
       PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+      R2_S3_ENDPOINT: 'http://localhost:9000',
+      R2_ACCESS_KEY_ID: 'minioadmin',
+      R2_SECRET_ACCESS_KEY: 'minioadmin',
+      R2_BUCKET_MEDIA: 'hushbox-media-dev',
     };
 
     it('does not return 500 for POST /api/trial/stream with valid body', async () => {

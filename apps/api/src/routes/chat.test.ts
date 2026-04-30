@@ -34,7 +34,7 @@ import { chatRoute } from './chat.js';
 import type { AppEnv } from '../types.js';
 import { createMockAIClient } from '../services/ai/mock.js';
 import type { InferenceEvent } from '../services/ai/types.js';
-import { createMockMediaStorage } from '../services/storage/index.js';
+import type { MediaStorage } from '../services/storage/index.js';
 import {
   ERROR_CODE_BALANCE_RESERVED,
   ERROR_CODE_BILLING_MISMATCH,
@@ -47,6 +47,17 @@ import { generateKeyPair } from '@hushbox/crypto';
 /** Type-safe JSON response parser for test assertions. */
 async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> {
   return (await res.json()) as T;
+}
+
+/** Inline MediaStorage stub for tests that don't exercise the storage path. */
+function stubMediaStorage(): MediaStorage {
+  return {
+    put: () => Promise.resolve(),
+    delete: () => Promise.resolve(),
+    list: () => Promise.resolve({ objects: [] }),
+    mintDownloadUrl: () =>
+      Promise.resolve({ url: 'data:,', expiresAt: new Date(Date.now() + 300_000).toISOString() }),
+  };
 }
 
 /** Detect classifier system prompt without coupling to its exact wording. */
@@ -451,7 +462,7 @@ function createTestApp(
     c.set('user', mockUser);
     c.set('session', mockSession);
     c.set('aiClient', aiClientOverride ?? createMockAIClient());
-    c.set('mediaStorage', createMockMediaStorage());
+    c.set('mediaStorage', stubMediaStorage());
     c.set(
       'db',
       createMockDb(dbOptions ?? defaultDbOptions) as unknown as AppEnv['Variables']['db']

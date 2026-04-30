@@ -333,14 +333,12 @@ local_protocol = "http"
 
   describe('ciE2E mode', () => {
     beforeEach(() => {
-      process.env['AI_GATEWAY_API_KEY'] = 'test-ai-gateway-key';
       process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test-helcim-token';
       process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test-helcim-verifier';
       process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'] = 'test-vite-helcim-token';
     });
 
     afterEach(() => {
-      delete process.env['AI_GATEWAY_API_KEY'];
       delete process.env['HELCIM_API_TOKEN_SANDBOX'];
       delete process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'];
       delete process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'];
@@ -365,12 +363,31 @@ local_protocol = "http"
       );
     });
 
-    it('throws when AI_GATEWAY_API_KEY is missing', () => {
+    it('does NOT require AI_GATEWAY_API_KEY in ciE2E (factory mocks when isE2E=true)', () => {
       delete process.env['AI_GATEWAY_API_KEY'];
+      delete process.env['AI_GATEWAY_API_KEY_RESTRICTED'];
 
       expect(() => {
         generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
-      }).toThrow('Missing required secrets in process.env: AI_GATEWAY_API_KEY');
+      }).not.toThrow();
+    });
+  });
+
+  describe('ciVitest mode', () => {
+    beforeEach(() => {
+      process.env['AI_GATEWAY_API_KEY_RESTRICTED'] = 'test-ai-gateway-restricted';
+    });
+
+    afterEach(() => {
+      delete process.env['AI_GATEWAY_API_KEY_RESTRICTED'];
+    });
+
+    it('throws when AI_GATEWAY_API_KEY_RESTRICTED is missing', () => {
+      delete process.env['AI_GATEWAY_API_KEY_RESTRICTED'];
+
+      expect(() => {
+        generateEnvFiles(TEST_DIR_ENV, 'ciVitest');
+      }).toThrow('Missing required secrets in process.env: AI_GATEWAY_API_KEY_RESTRICTED');
     });
   });
 });
@@ -849,7 +866,6 @@ local_protocol = "http"
 
     it('does not offset ports in CI modes', () => {
       // Set up required CI secrets
-      process.env['AI_GATEWAY_API_KEY'] = 'test';
       process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test';
       process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test';
       process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'] = 'test';

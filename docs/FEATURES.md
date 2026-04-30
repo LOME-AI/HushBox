@@ -8,7 +8,7 @@ Complete feature list for HushBox, organized by category.
 
 | Feature                   | Status  | Description                                                                                       |
 | ------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
-| Multi-Model Chat          | Shipped | Access GPT, Claude, Gemini, Grok, and all models available through OpenRouter from one interface. |
+| Multi-Model Chat          | Shipped | Access GPT, Claude, Gemini, Grok, and all models available through the Vercel AI Gateway from one interface. |
 | Model Switching           | Shipped | Change to a different AI model at any point, even mid-conversation.                               |
 | Auto Model Selection      | Planned | Let the system choose the optimal model based on your task.                                       |
 | Multi-Model Conversations | Planned | Chat with multiple AI models in the same conversation to compare responses.                       |

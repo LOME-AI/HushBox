@@ -1,4 +1,5 @@
 import { createEnvUtilities, type EnvContext } from '@hushbox/shared';
+import type { EvidenceConfig } from '@hushbox/db';
 import type { HelcimClient } from './types.js';
 import { createMockHelcimClient } from './mock.js';
 import { createHelcimClient } from './helcim.js';
@@ -23,9 +24,12 @@ interface HelcimEnv extends EnvContext {
  * Get the appropriate Helcim client based on environment.
  *
  * - Local dev: Returns mock client with webhook scheduling
- * - CI/Production: Requires real credentials, fails fast if missing
+ * - CI/Production: Requires real credentials, fails fast if missing.
+ *   When `evidence` is supplied (db + isCI), the real client records evidence
+ *   after every successful processPayment so the CI verify:evidence step can
+ *   prove the integration was exercised.
  */
-export function getHelcimClient(env: HelcimEnv): HelcimClient {
+export function getHelcimClient(env: HelcimEnv, evidence?: EvidenceConfig): HelcimClient {
   const { isLocalDev } = createEnvUtilities(env);
 
   if (isLocalDev) {
@@ -45,5 +49,6 @@ export function getHelcimClient(env: HelcimEnv): HelcimClient {
   return createHelcimClient({
     apiToken: env.HELCIM_API_TOKEN,
     webhookVerifier: env.HELCIM_WEBHOOK_VERIFIER,
+    ...(evidence !== undefined && { evidence }),
   });
 }

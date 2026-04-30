@@ -160,14 +160,14 @@ flowchart LR
     API["API\n(Cloudflare Workers)"]
     DB[("Neon\nPostgreSQL")]
     Cache["Upstash\nRedis"]
-    OR["OpenRouter\n(100+ models)"]
+    AG["Vercel AI Gateway\n(100+ models)"]
     DO["Durable Objects\n(WebSocket)"]
     R2["Cloudflare R2"]
 
     Browser --> API
     API --> DB
     API --> Cache
-    API --> OR
+    API --> AG
     API --> DO
     API --> R2
     DO -.->|real-time| Browser

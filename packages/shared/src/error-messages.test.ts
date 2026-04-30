@@ -468,8 +468,20 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('maps FORK_ID_REQUIRED to user-facing message', () => {
+    expect(friendlyErrorMessage('FORK_ID_REQUIRED')).toBe(
+      'Something went wrong. Please refresh the page and try again.'
+    );
+  });
+
   it('maps TARGET_MESSAGE_NOT_FOUND to user-facing message', () => {
     expect(friendlyErrorMessage('TARGET_MESSAGE_NOT_FOUND')).toBe('Target message not found.');
+  });
+
+  it('maps INVALID_PARENT_MESSAGE to user-facing message', () => {
+    expect(friendlyErrorMessage('INVALID_PARENT_MESSAGE')).toBe(
+      'Something went wrong saving your message. Please try again.'
+    );
   });
 
   it('maps CANNOT_REGENERATE_WHILE_STREAMING to user-facing message', () => {
@@ -496,6 +508,12 @@ describe('friendlyErrorMessage', () => {
   it('maps BILLING_SESSION_RESTRICTED to user-facing message', () => {
     expect(friendlyErrorMessage('BILLING_SESSION_RESTRICTED')).toBe(
       'This session can only access billing. Please log in normally for full access.'
+    );
+  });
+
+  it('maps BUILD_NOT_FOUND to user-facing message', () => {
+    expect(friendlyErrorMessage('BUILD_NOT_FOUND')).toBe(
+      'The requested app version was not found.'
     );
   });
 
@@ -587,6 +605,12 @@ describe('friendlyErrorMessage', () => {
   it('maps AUDIO_DISABLED to user-facing message', () => {
     expect(friendlyErrorMessage('AUDIO_DISABLED')).toBe(
       'Audio generation is not yet available. Please try a different content type.'
+    );
+  });
+
+  it('maps CLASSIFIER_FAILED to user-facing message', () => {
+    expect(friendlyErrorMessage('CLASSIFIER_FAILED')).toBe(
+      'Smart Model could not pick the best model for your message. Please try again.'
     );
   });
 

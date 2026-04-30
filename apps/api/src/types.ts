@@ -55,12 +55,10 @@ export interface Bindings {
   R2_ACCESS_KEY_ID?: string;
   /** R2 S3 API secret access key (reads only). */
   R2_SECRET_ACCESS_KEY?: string;
-  /** R2 bucket name for media. Matches the bucket the MEDIA_BUCKET binding points at. */
+  /** R2 bucket name for media. Used by the aws4fetch S3 client for all operations. */
   R2_BUCKET_MEDIA?: string;
   CONVERSATION_ROOM?: DONamespaceBinding;
   APP_BUILDS?: R2BucketBinding;
-  /** Encrypted-media R2 bucket. Writes go through this binding; reads via presigned URLs. */
-  MEDIA_BUCKET?: R2BucketBinding;
 }
 
 export interface Variables {

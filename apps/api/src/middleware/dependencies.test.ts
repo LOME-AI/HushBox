@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
 import type { AppEnv } from '../types.js';
 
 /** Type-safe JSON response parser for test assertions. */
@@ -651,8 +651,22 @@ describe('helcimMiddleware', () => {
     vi.resetAllMocks();
   });
 
+  /**
+   * helcimMiddleware now reads `db` and `envUtils` from context (via
+   * createEvidenceConfig) so it can pass evidence config to the factory.
+   * Stub both before invoking helcimMiddleware in tests.
+   */
+  function setupHelcimContext(): MiddlewareHandler<AppEnv> {
+    return async (c, next) => {
+      c.set('db', {} as never);
+      c.set('envUtils', { isCI: false, isDev: false, isLocalDev: false } as never);
+      await next();
+    };
+  }
+
   it('sets helcim on context', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', setupHelcimContext());
     app.use('*', helcimMiddleware());
     app.get('/', (c) => {
       c.get('helcim');
@@ -665,8 +679,9 @@ describe('helcimMiddleware', () => {
     expect(body).toEqual({ hasHelcim: true });
   });
 
-  it('passes env to getHelcimClient factory', async () => {
+  it('passes env and evidence config to getHelcimClient factory', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', setupHelcimContext());
     app.use('*', helcimMiddleware());
     app.get('/', (c) => c.json({ ok: true }));
 
@@ -677,12 +692,16 @@ describe('helcimMiddleware', () => {
     };
     await app.request('/', {}, env);
 
-    expect(getHelcimClient).toHaveBeenCalledWith(env);
+    expect(getHelcimClient).toHaveBeenCalledWith(
+      env,
+      expect.objectContaining({ db: expect.any(Object), isCI: false })
+    );
   });
 
   it('calls next() to continue middleware chain', async () => {
     const app = new Hono<AppEnv>();
     const nextCalled = vi.fn();
+    app.use('*', setupHelcimContext());
     app.use('*', helcimMiddleware());
     app.use('*', async (_, next) => {
       nextCalled();
@@ -887,19 +906,39 @@ describe('mediaStorageMiddleware', () => {
     vi.resetAllMocks();
   });
 
-  it('sets mediaStorage on context (mock in local dev)', async () => {
+  it('sets mediaStorage on context with the expected MediaStorage shape', async () => {
     const app = new Hono<AppEnv>();
     app.use('*', envMiddleware());
     app.use('*', mediaStorageMiddleware());
     app.get('/', (c) => {
       const storage = c.get('mediaStorage');
-      return c.json({ isMock: storage.isMock });
+      return c.json({
+        hasPut: typeof storage.put === 'function',
+        hasDelete: typeof storage.delete === 'function',
+        hasList: typeof storage.list === 'function',
+        hasMint: typeof storage.mintDownloadUrl === 'function',
+      });
     });
 
-    const res = await app.request('/', {}, { NODE_ENV: 'development' });
+    const res = await app.request(
+      '/',
+      {},
+      {
+        NODE_ENV: 'development',
+        R2_S3_ENDPOINT: 'http://localhost:9000',
+        R2_ACCESS_KEY_ID: 'minioadmin',
+        R2_SECRET_ACCESS_KEY: 'minioadmin',
+        R2_BUCKET_MEDIA: 'hushbox-media-dev',
+      }
+    );
     expect(res.status).toBe(200);
-    const body = await jsonBody<{ isMock: boolean }>(res);
-    expect(body.isMock).toBe(true);
+    const body = await jsonBody<{
+      hasPut: boolean;
+      hasDelete: boolean;
+      hasList: boolean;
+      hasMint: boolean;
+    }>(res);
+    expect(body).toEqual({ hasPut: true, hasDelete: true, hasList: true, hasMint: true });
   });
 
   it('calls next() to continue middleware chain', async () => {
@@ -913,7 +952,17 @@ describe('mediaStorageMiddleware', () => {
     });
     app.get('/', (c) => c.json({ ok: true }));
 
-    await app.request('/', {}, { NODE_ENV: 'development' });
+    await app.request(
+      '/',
+      {},
+      {
+        NODE_ENV: 'development',
+        R2_S3_ENDPOINT: 'http://localhost:9000',
+        R2_ACCESS_KEY_ID: 'minioadmin',
+        R2_SECRET_ACCESS_KEY: 'minioadmin',
+        R2_BUCKET_MEDIA: 'hushbox-media-dev',
+      }
+    );
 
     expect(nextCalled).toHaveBeenCalled();
   });
