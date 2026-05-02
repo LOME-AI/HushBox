@@ -6,11 +6,19 @@ import { getWorktreeConfig } from './worktree.js';
 import { seed } from './seed.js';
 import { cleanupOrphanedProjects } from './docker-cleanup.js';
 
-const DOCKER_SERVICES = ['postgres', 'neon-proxy', 'redis', 'serverless-redis-http'];
+const DOCKER_SERVICES = ['postgres', 'neon-proxy', 'redis', 'serverless-redis-http', 'minio'];
 
 export async function startDocker(): Promise<void> {
   console.log('Starting Docker services...');
   await execa('docker', ['compose', 'up', '-d', '--wait', ...DOCKER_SERVICES], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+  // The minio-setup container creates the local bucket via mc and exits. It
+  // depends on minio's healthcheck, so it must be started AFTER the --wait
+  // call above, not in the same compose-up command (compose `up --wait` only
+  // waits for services that have a healthcheck, which minio-setup does not).
+  await execa('docker', ['compose', 'up', '-d', 'minio-setup'], {
     stdio: 'inherit',
     env: process.env,
   });

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ContentKey } from '@hushbox/crypto';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -29,7 +30,7 @@ interface SharedMediaItemProps extends Omit<
   Parameters<typeof SharedMediaContentItem>[0],
   'contentKey'
 > {
-  contentKey?: Uint8Array;
+  contentKey?: ContentKey;
 }
 
 function defaultItem(
@@ -56,7 +57,7 @@ function baseProps(
 ): Parameters<typeof SharedMediaContentItem>[0] {
   return {
     item: defaultItem(),
-    contentKey: new Uint8Array([9, 9, 9]),
+    contentKey: new Uint8Array([9, 9, 9]) as unknown as ContentKey,
     ...overrides,
   };
 }
@@ -212,7 +213,7 @@ describe('SharedMediaContentItem', () => {
       error: null,
     });
 
-    const contentKey = new Uint8Array([1, 2, 3]);
+    const contentKey = new Uint8Array([1, 2, 3]) as ContentKey;
     render(
       <SharedMediaContentItem
         item={defaultItem({

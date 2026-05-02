@@ -149,7 +149,10 @@ export function aiClientMiddleware(): MiddlewareHandler<AppEnv> {
 export function mediaStorageMiddleware(): MiddlewareHandler<AppEnv> {
   // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
-    c.set('mediaStorage', getMediaStorage(c.env));
+    // dbMiddleware + envMiddleware run before this on every route prefix that
+    // uses mediaStorageMiddleware — so `db` and `envUtils` are always set,
+    // matching the aiClientMiddleware pattern.
+    c.set('mediaStorage', getMediaStorage(c.env, createEvidenceConfig(c)));
     await next();
   };
 }

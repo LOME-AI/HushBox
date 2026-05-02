@@ -40,6 +40,12 @@ describe('parseCliArgs', () => {
 
     expect(result).toEqual({ require: ['ai-gateway', 'hookdeck'] });
   });
+
+  it('accepts the r2-storage, r2-gc and billing-mismatch service names', () => {
+    expect(parseCliArgs(['--require=r2-storage'])).toEqual({ require: ['r2-storage'] });
+    expect(parseCliArgs(['--require=r2-gc'])).toEqual({ require: ['r2-gc'] });
+    expect(parseCliArgs(['--require=billing-mismatch'])).toEqual({ require: ['billing-mismatch'] });
+  });
 });
 
 describe('formatResult', () => {

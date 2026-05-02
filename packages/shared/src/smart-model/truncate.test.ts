@@ -101,9 +101,23 @@ describe('truncateForClassifier', () => {
       latestAssistantMessage: '',
     });
     const stripped = out.replaceAll(/\[(USER|AI) (START|END)\]: /g, '').replaceAll('\n\n', '');
-    // When AI is empty, only user start + user end fire — capped at 2 × per-direction.
-    expect(stripped.length).toBeLessThanOrEqual(CLASSIFIER_CHARS_PER_DIRECTION * 2);
-    expect(stripped.length).toBeGreaterThan(CLASSIFIER_CHARS_PER_DIRECTION); // not just one direction
+    // When AI is empty, the unused AI per-direction caps redistribute to the
+    // user directions, so we can approach the global budget — not stuck at
+    // 2 × per-direction.
+    expect(stripped.length).toBe(MAX_CLASSIFIER_CONTEXT_CHARS);
+  });
+
+  it('first-message redistribution: 4000-char user prompt fills full global budget', () => {
+    // Plan §10.3: when the AI message is empty (first turn), the per-direction
+    // cap shouldn't halve the usable budget. A 4000-char prompt should yield
+    // ~4000 chars across USER START + USER END.
+    const userMessage = long(MAX_CLASSIFIER_CONTEXT_CHARS);
+    const out = truncateForClassifier({
+      latestUserMessage: userMessage,
+      latestAssistantMessage: '',
+    });
+    const stripped = out.replaceAll(/\[(USER|AI) (START|END)\]: /g, '').replaceAll('\n\n', '');
+    expect(stripped.length).toBe(MAX_CLASSIFIER_CONTEXT_CHARS);
   });
 
   it('preserves directional separators between sections', () => {

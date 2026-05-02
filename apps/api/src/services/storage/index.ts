@@ -1,3 +1,4 @@
+import type { EvidenceConfig } from '@hushbox/db';
 import { createMediaStorage, type MediaStorageEnv } from './media-storage.js';
 import type { MediaStorage } from './types.js';
 
@@ -11,7 +12,16 @@ export type { MediaStorageEnv } from './media-storage.js';
  *
  * Tests that need a stub construct one inline per-test (matching the Redis
  * stub pattern); there is no factory-level mock implementation.
+ *
+ * The optional `evidence` argument mirrors the AIClient + Helcim pattern:
+ * when supplied, every successful storage operation records
+ * `SERVICE_NAMES.R2_STORAGE` so CI's verify:evidence step can prove the
+ * integration was exercised. `recordServiceEvidence` itself gates on
+ * `isCI === true`, so production stays a no-op even when the config flows in.
  */
-export function getMediaStorage(env: MediaStorageEnv): MediaStorage {
-  return createMediaStorage(env);
+export function getMediaStorage(env: MediaStorageEnv, evidence?: EvidenceConfig): MediaStorage {
+  return createMediaStorage({
+    ...env,
+    ...(evidence === undefined ? {} : { evidence }),
+  });
 }

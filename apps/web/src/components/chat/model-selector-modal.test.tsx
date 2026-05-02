@@ -232,6 +232,26 @@ describe('ModelSelectorModal', () => {
     expect(screen.queryByText(/quick select model/i)).not.toBeInTheDocument();
   });
 
+  it('renders the model rows inside a container with role="listbox"', () => {
+    render(
+      <ModelSelectorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        models={mockModels}
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
+        onSelect={vi.fn()}
+      />
+    );
+
+    const listbox = screen.getByRole('listbox', { name: /models/i });
+    expect(listbox).toBeInTheDocument();
+    // Each rendered option should be a child of this listbox
+    const options = screen.getAllByRole('option');
+    for (const option of options) {
+      expect(listbox.contains(option)).toBe(true);
+    }
+  });
+
   it('renders sections in order: Sort, Search', () => {
     render(
       <ModelSelectorModal
@@ -1304,8 +1324,8 @@ describe('ModelSelectorModal', () => {
     });
   });
 
-  describe('web search subtitle', () => {
-    it('shows "Web Search" in subtitle for models with web search capability', () => {
+  describe('web search removed (universal)', () => {
+    it('never shows a "Web Search" subtitle on a model row (universal across text models)', () => {
       render(
         <ModelSelectorModal
           open={true}
@@ -1317,27 +1337,12 @@ describe('ModelSelectorModal', () => {
       );
 
       const gptItem = screen.getByTestId('model-item-openai/gpt-4-turbo');
-      expect(gptItem).toHaveTextContent('Web Search');
-    });
-
-    it('does not show "Web Search" in subtitle for models without web search capability', () => {
-      render(
-        <ModelSelectorModal
-          open={true}
-          onOpenChange={vi.fn()}
-          models={mockModels}
-          selectedIds={new Set(['openai/gpt-4-turbo'])}
-          onSelect={vi.fn()}
-        />
-      );
-
+      expect(gptItem).not.toHaveTextContent('Web Search');
       const llamaItem = screen.getByTestId('model-item-meta-llama/llama-3.1-70b-instruct');
       expect(llamaItem).not.toHaveTextContent('Web Search');
     });
-  });
 
-  describe('web search filter', () => {
-    it('renders Web Search filter button', () => {
+    it('does not render a Web Search filter button', () => {
       render(
         <ModelSelectorModal
           open={true}
@@ -1348,26 +1353,7 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      expect(screen.getAllByRole('button', { name: /web search/i }).length).toBeGreaterThan(0);
-    });
-
-    it('filters to only web-search-capable models when active', async () => {
-      const user = userEvent.setup();
-      render(
-        <ModelSelectorModal
-          open={true}
-          onOpenChange={vi.fn()}
-          models={mockModels}
-          selectedIds={new Set(['openai/gpt-4-turbo'])}
-          onSelect={vi.fn()}
-        />
-      );
-
-      await user.click(first(screen.getAllByRole('button', { name: /web search/i })));
-
-      expect(screen.getByText('GPT-4 Turbo')).toBeInTheDocument();
-      expect(screen.getByText('Claude 3.5 Sonnet')).toBeInTheDocument();
-      expect(screen.queryByText('Llama 3.1 70B')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /web search/i })).not.toBeInTheDocument();
     });
   });
 

@@ -29,18 +29,28 @@ export interface ErrorEventData {
 export interface ModelDoneEventData {
   modelId: string;
   assistantMessageId: string;
-  cost: string;
 }
 
 export interface ModelErrorEventData {
   modelId: string;
   message: string;
-  code?: string;
+  code: string;
 }
 
 export interface TokenEventData {
   modelId: string;
   content: string;
+}
+
+/**
+ * `model:media:start` payload — surfaced from the AI client's media-start
+ * event so the UI can swap the generic "Loading…" placeholder for a more
+ * descriptive "Generating image…" indicator.
+ */
+export interface ModelMediaStartEventData {
+  modelId: string;
+  mediaType: 'image' | 'audio' | 'video';
+  mimeType: string;
 }
 
 /**
@@ -56,8 +66,12 @@ export interface DoneContentItem {
   position: number;
   /** Base64-encoded symmetric ciphertext under the message's content key. Text items only. */
   encryptedBlob?: string | null;
-  /** Presigned GET URL for media items. Populated by the strategy after R2 upload. */
-  downloadUrl?: string | null;
+  /**
+   * Presigned GET URL for media items. Populated by the strategy after R2 upload.
+   * Omitted (not nulled) when not applicable — keep this consistent with
+   * `InsertedMediaContentItem.downloadUrl` so the persistence and wire shapes match.
+   */
+  downloadUrl?: string;
   mimeType?: string | null;
   sizeBytes?: number | null;
   width?: number | null;
@@ -110,8 +124,8 @@ export interface StageDoneEventData {
 
 export interface SSEEventWriter {
   writeStart: (data: StartEventData) => Promise<void>;
-  writeToken: (content: string) => Promise<void>;
   writeModelToken: (data: TokenEventData) => Promise<void>;
+  writeModelMediaStart: (data: ModelMediaStartEventData) => Promise<void>;
   writeError: (data: ErrorEventData) => Promise<void>;
   writeModelDone: (data: ModelDoneEventData) => Promise<void>;
   writeModelError: (data: ModelErrorEventData) => Promise<void>;
@@ -157,12 +171,12 @@ export function createSSEEventWriter(stream: SSEStream): SSEEventWriter {
       await writeIfConnected('start', data);
     },
 
-    writeToken: async (content: string) => {
-      await writeIfConnected('token', { content });
-    },
-
     writeModelToken: async (data: TokenEventData) => {
       await writeIfConnected('token', data);
+    },
+
+    writeModelMediaStart: async (data: ModelMediaStartEventData) => {
+      await writeIfConnected('model:media:start', data);
     },
 
     writeError: async (data: ErrorEventData) => {

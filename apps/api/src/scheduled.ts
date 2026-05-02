@@ -34,7 +34,7 @@ export async function scheduledHandler(
     throw new Error('DATABASE_URL is required for the scheduled handler');
   }
 
-  const { isDev } = createEnvUtilities(env);
+  const { isDev, isCI } = createEnvUtilities(env);
   const db: Database = createDb(
     isDev
       ? { connectionString: env.DATABASE_URL, neonDev: LOCAL_NEON_DEV_CONFIG }
@@ -43,7 +43,7 @@ export async function scheduledHandler(
   const storage = createMediaStorage(env);
 
   try {
-    const stats = await runR2Gc({ storage, db, now: Date.now() });
+    const stats = await runR2Gc({ storage, db, now: Date.now(), evidence: { db, isCI } });
     console.warn('r2-gc', stats);
   } catch (error) {
     console.error('r2-gc failed', error);

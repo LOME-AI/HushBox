@@ -87,6 +87,12 @@ export function createApp() {
   base.use('/api/budgets/*', sessionMiddleware());
 
   base.use('/api/shares/*', dbMiddleware());
+  // The public share endpoint is unauthenticated but rate-limited by IP via the
+  // shareGetIpRateLimit registry entry, so it needs Redis access. Mount AFTER
+  // dbMiddleware so the redis client is available alongside the DB client when
+  // the route handler runs.
+  base.use('/api/shares/*', redisMiddleware());
+  base.use('/api/shares/*', mediaStorageMiddleware());
 
   base.use('/api/messages/*', csrfProtection());
   base.use('/api/messages/*', dbMiddleware());

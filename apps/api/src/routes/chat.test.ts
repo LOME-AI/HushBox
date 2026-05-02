@@ -2560,7 +2560,11 @@ describe('chat routes', () => {
         expect(classifierRequests.length).toBeGreaterThanOrEqual(1);
       });
 
-      it('emits stage:error and excludes the slot when classifier resolution fails', async () => {
+      it('falls back to the value model and continues when classifier resolution fails', async () => {
+        // Plan §10.11: when the classifier returns garbage, the slot falls
+        // back to the cheapest eligible model (the classifier model itself)
+        // rather than aborting with stage:error. The user still pays for the
+        // failed classifier attempt.
         vi.useRealTimers();
         stubSmartModelTestModels(fetchMock);
         (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ =
@@ -2586,8 +2590,11 @@ describe('chat routes', () => {
 
         expect(res.status).toBe(200);
         const body = await res.text();
-        expect(body).toContain('event: stage:error');
-        expect(body).toContain('"errorCode":"CLASSIFIER_FAILED"');
+        // No CLASSIFIER_FAILED — degraded gracefully.
+        expect(body).not.toContain('"errorCode":"CLASSIFIER_FAILED"');
+        // Stage:done was still emitted with a fallback marker.
+        expect(body).toContain('event: stage:done');
+        expect(body).toContain('"fallbackOccurred":true');
       });
     });
 
@@ -3279,6 +3286,32 @@ describe('chat routes', () => {
         });
       });
     });
+
+    describe('webSearchEnabled threading', () => {
+      it('forwards webSearchEnabled=true to the AI client TextRequest', async () => {
+        vi.useRealTimers();
+        const aiClient = createMockAIClient();
+        const app = createTestApp(undefined, undefined, undefined, aiClient);
+
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({ webSearchEnabled: true }),
+        });
+        await res.text();
+
+        // Find the non-classifier text request — the mock records the full
+        // InferenceRequest including webSearchEnabled.
+        const textRequests = aiClient
+          .getRequestHistory()
+          .filter((r) => r.modality === 'text' && !classifierSystemPromptDetected(r));
+        expect(textRequests.length).toBeGreaterThanOrEqual(1);
+        expect(textRequests[0]).toMatchObject({
+          modality: 'text',
+          webSearchEnabled: true,
+        });
+      });
+    });
   });
 
   describe('POST /message', () => {
@@ -3653,6 +3686,30 @@ describe('chat routes', () => {
       expect(text).toContain('event: start');
       expect(text).toContain('event: token');
       expect(text).toContain('event: done');
+    });
+
+    it('forwards webSearchEnabled=true to the AI client TextRequest', async () => {
+      vi.useRealTimers();
+      const aiClient = createMockAIClient();
+      const app = createTestApp(undefined, undefined, undefined, aiClient);
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: regenerateBody({
+          action: 'retry',
+          messagesForInference: [{ role: 'user', content: 'Hello' }],
+          webSearchEnabled: true,
+        }),
+      });
+      await res.text();
+
+      const textRequests = aiClient.getRequestHistory().filter((r) => r.modality === 'text');
+      expect(textRequests.length).toBeGreaterThanOrEqual(1);
+      expect(textRequests[0]).toMatchObject({
+        modality: 'text',
+        webSearchEnabled: true,
+      });
     });
   });
 });

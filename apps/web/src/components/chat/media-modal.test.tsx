@@ -86,4 +86,33 @@ describe('MediaModal', () => {
     rerender(<MediaModal {...defaultProps} mimeType="audio/mpeg" />);
     expect(document.querySelector('img')).toBeNull();
   });
+
+  describe('download button', () => {
+    it('renders an accessible download anchor for image media', () => {
+      render(<MediaModal {...defaultProps} mimeType="image/png" />);
+      const anchor = screen.getByRole('link', { name: /download media/i });
+      expect(anchor).toBeInTheDocument();
+      expect(anchor.getAttribute('href')).toBe('blob:mock-url');
+      expect(anchor.getAttribute('download')).toMatch(/^hushbox-image-\d{8}-\d{6}\.png$/);
+    });
+
+    it('renders an accessible download anchor for video media', () => {
+      render(<MediaModal {...defaultProps} mimeType="video/mp4" />);
+      const anchor = screen.getByRole('link', { name: /download media/i });
+      expect(anchor.getAttribute('href')).toBe('blob:mock-url');
+      expect(anchor.getAttribute('download')).toMatch(/^hushbox-video-\d{8}-\d{6}\.mp4$/);
+    });
+
+    it('renders an accessible download anchor for audio media', () => {
+      render(<MediaModal {...defaultProps} mimeType="audio/mpeg" />);
+      const anchor = screen.getByRole('link', { name: /download media/i });
+      expect(anchor.getAttribute('href')).toBe('blob:mock-url');
+      expect(anchor.getAttribute('download')).toMatch(/^hushbox-audio-\d{8}-\d{6}\.mp3$/);
+    });
+
+    it('does not render the download anchor when blobUrl is null', () => {
+      render(<MediaModal {...defaultProps} blobUrl={null} />);
+      expect(screen.queryByRole('link', { name: /download media/i })).not.toBeInTheDocument();
+    });
+  });
 });

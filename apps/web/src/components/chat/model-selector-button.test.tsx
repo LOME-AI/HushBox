@@ -167,7 +167,7 @@ describe('ModelSelectorButton', () => {
     expect(screen.queryByPlaceholderText('Search models')).not.toBeInTheDocument();
   });
 
-  it('has accessible name', () => {
+  it('has accessible name including the current selection', () => {
     render(
       <ModelSelectorButton
         models={mockModels}
@@ -176,7 +176,24 @@ describe('ModelSelectorButton', () => {
       />
     );
 
-    expect(screen.getByRole('button')).toHaveAccessibleName(/model/i);
+    expect(screen.getByRole('button')).toHaveAccessibleName(/select model.*current.*GPT-4 Turbo/i);
+  });
+
+  it('reflects "Multiple Models" in the accessible name when 2+ are selected', () => {
+    render(
+      <ModelSelectorButton
+        models={mockModels}
+        selectedModels={[
+          { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
+          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+        ]}
+        onSelect={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button')).toHaveAccessibleName(
+      /select model.*current.*Multiple Models/i
+    );
   });
 
   it('has centered text', () => {
@@ -260,5 +277,36 @@ describe('ModelSelectorButton', () => {
     );
 
     expect(screen.getByRole('button')).toHaveTextContent('GPT-4 Turbo');
+  });
+
+  it('exposes aria-haspopup="dialog" so screen readers announce a popup trigger', () => {
+    render(
+      <ModelSelectorButton
+        models={mockModels}
+        selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
+        onSelect={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('model-selector-button')).toHaveAttribute('aria-haspopup', 'dialog');
+  });
+
+  it('reflects open/closed state via aria-expanded', async () => {
+    const user = userEvent.setup();
+    render(
+      <ModelSelectorButton
+        models={mockModels}
+        selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
+        onSelect={vi.fn()}
+      />
+    );
+
+    const trigger = screen.getByTestId('model-selector-button');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(trigger);
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    });
   });
 });

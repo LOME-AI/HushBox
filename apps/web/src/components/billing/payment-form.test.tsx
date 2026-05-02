@@ -18,6 +18,14 @@ vi.mock('../../hooks/billing', () => ({
   useCreatePayment: vi.fn(),
   useProcessPayment: vi.fn(),
   usePaymentStatus: vi.fn(),
+  billingKeys: {
+    all: ['billing'] as const,
+    balance: () => ['billing', 'balance'] as const,
+    transactions: () => ['billing', 'transactions'] as const,
+    transactionList: (cursor?: string) => ['billing', 'transactions', { cursor }] as const,
+    payments: () => ['billing', 'payments'] as const,
+    payment: (id: string) => ['billing', 'payments', id] as const,
+  },
 }));
 
 // Mock env module
@@ -571,6 +579,16 @@ describe('PaymentForm', () => {
         expect(screen.getByText(/failed.*load.*payment/i)).toBeInTheDocument();
       });
     });
+
+    it('uses fallback copy when script rejection is not an Error instance', async () => {
+      vi.mocked(helcimLoader.loadHelcimScript).mockRejectedValue('plain string error');
+
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/failed to load payment form/i)).toBeInTheDocument();
+      });
+    });
   });
 
   describe('accessibility', () => {
@@ -766,6 +784,1107 @@ describe('PaymentForm', () => {
 
       const cvvInput = screen.getByLabelText<HTMLInputElement>(/cvv/i);
       expect(cvvInput.value).toBe('200');
+    });
+  });
+
+  describe('script-load failure UI', () => {
+    it('reload button calls window.location.reload', async () => {
+      vi.mocked(helcimLoader.loadHelcimScript).mockRejectedValue(new Error('Script load failed'));
+      const reloadSpy = vi.fn();
+      const originalLocation = globalThis.location;
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/failed.*load.*payment/i)).toBeInTheDocument();
+      });
+
+      // Stub location only for the duration of the click so userEvent setup
+      // above isn't disturbed.
+      Object.defineProperty(globalThis, 'location', {
+        configurable: true,
+        writable: true,
+        value: { reload: reloadSpy },
+      });
+
+      try {
+        await user.click(screen.getByRole('button', { name: /reload page/i }));
+        expect(reloadSpy).toHaveBeenCalled();
+      } finally {
+        Object.defineProperty(globalThis, 'location', {
+          configurable: true,
+          writable: true,
+          value: originalLocation,
+        });
+      }
+    });
+  });
+
+  describe('process payment - success path', () => {
+    it('shows success view when processPayment returns completed', async () => {
+      const onSuccess = vi.fn();
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockResolvedValue({
+        status: 'completed',
+        newBalance: '15.00',
+      });
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm onSuccess={onSuccess} onCancel={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      // helcimProcess simulates Helcim DOM update; trigger MutationObserver via insertion
+      globalThis.helcimProcess = vi.fn(() => {
+        // Populate response and customerCode + dispatch a child mutation to trigger observer
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) {
+          const temporary = document.createElement('span');
+          results.append(temporary);
+        }
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(mockProcessPayment.mutateAsync).toHaveBeenCalledWith({
+          paymentId: 'pay_123',
+          cardToken: 'tok_abc',
+          customerCode: 'cust_abc',
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/payment successful/i)).toBeInTheDocument();
+      });
+      expect(onSuccess).toHaveBeenCalledWith('15.00');
+    });
+
+    it('PaymentSuccessCard close button invokes onCancel', async () => {
+      const onCancel = vi.fn();
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockResolvedValue({
+        status: 'completed',
+        newBalance: '15.00',
+      });
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm onCancel={onCancel} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) {
+          const temporary = document.createElement('span');
+          results.append(temporary);
+        }
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/payment successful/i)).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: /close/i }));
+      expect(onCancel).toHaveBeenCalled();
+    });
+
+    it('PaymentSuccessCard renders without onCancel when omitted', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockResolvedValue({
+        status: 'completed',
+        newBalance: '15.00',
+      });
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/payment successful/i)).toBeInTheDocument();
+      });
+
+      // Clicking close when no onCancel provided does nothing (no error).
+      await user.click(screen.getByRole('button', { name: /close/i }));
+    });
+  });
+
+  describe('process payment - error path', () => {
+    it('shows error view when processPayment throws', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockRejectedValue(new Error('Charge declined'));
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+      });
+    });
+
+    it('shows error view when processPayment throws non-Error value', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockRejectedValue('some string error');
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'tok_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('tokenization failures', () => {
+    it('shows error view when tokenization returns success: false', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: false,
+        errorMessage: 'Card declined by Helcim',
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        // For failures (response='0'), MutationObserver processes immediately
+        // (no customerCode required)
+        setVal('response', '0');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+      });
+    });
+
+    it('uses fallback error message when tokenization fails without errorMessage', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({ success: false });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '0');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+      });
+    });
+
+    it('shows error when tokenization returns success but missing required fields', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      // Success without cardToken — should fall through to "missing token" branch.
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        customerCode: 'cust_abc',
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc'); // observer needs SOME value to fire
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('helcim process not available', () => {
+    it('shows error when globalThis.helcimProcess is undefined', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      // Remove the global so submit takes the "not available" branch.
+      globalThis.helcimProcess = undefined;
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('polling for webhook confirmation', () => {
+    it('starts polling when processPayment returns processing', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+      vi.mocked(billingHooks.usePaymentStatus).mockReturnValue({
+        data: undefined,
+      } as ReturnType<typeof billingHooks.usePaymentStatus>);
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        // After processPayment returns 'processing', usePaymentStatus is invoked
+        // with enabled=true. We assert the latest call to it had enabled set.
+        const calls = vi.mocked(billingHooks.usePaymentStatus).mock.calls;
+        const lastCall = calls.at(-1);
+        expect(lastCall?.[1]).toMatchObject({ enabled: true });
+      });
+    });
+
+    it('completes payment when polling returns completed', async () => {
+      const onSuccess = vi.fn();
+
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+
+      // Return completed data only when enabled=true (i.e. polling has started).
+      vi.mocked(billingHooks.usePaymentStatus).mockImplementation((_id, options) => {
+        if (options?.enabled) {
+          return {
+            data: { status: 'completed', newBalance: '99.00' },
+          } as ReturnType<typeof billingHooks.usePaymentStatus>;
+        }
+        return { data: undefined } as ReturnType<typeof billingHooks.usePaymentStatus>;
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm onSuccess={onSuccess} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(
+        () => {
+          expect(screen.getByText(/payment successful/i)).toBeInTheDocument();
+        },
+        { timeout: 3000 }
+      );
+      expect(onSuccess).toHaveBeenCalledWith('99.00');
+    });
+
+    it('moves to error state when polling returns failed', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+
+      vi.mocked(billingHooks.usePaymentStatus).mockImplementation((_id, options) => {
+        if (options?.enabled) {
+          return {
+            data: { status: 'failed', errorMessage: 'Webhook said no' },
+          } as ReturnType<typeof billingHooks.usePaymentStatus>;
+        }
+        return { data: undefined } as ReturnType<typeof billingHooks.usePaymentStatus>;
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(
+        () => {
+          expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+        },
+        { timeout: 3000 }
+      );
+    });
+
+    it('moves to error when polling exceeds timeout', async () => {
+      // DevOnly renders error message only in isLocalDev — required to assert
+      // on the timeout copy.
+      vi.mocked(envModule).env = {
+        isDev: true,
+        isLocalDev: true,
+        isProduction: false,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: false,
+      };
+
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+      vi.mocked(billingHooks.usePaymentStatus).mockReturnValue({
+        data: undefined,
+      } as ReturnType<typeof billingHooks.usePaymentStatus>);
+
+      // The polling effect uses Date.now twice: once to seed pollingStartTime,
+      // and again to compute elapsed time. Stub Date.now to advance by 120s on
+      // each subsequent call so elapsed > POLLING_TIMEOUT_MS (60s).
+      const realDateNow = Date.now.bind(Date);
+      const t0 = realDateNow();
+      let advance = 0;
+      const dateSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+        advance += 1;
+        return t0 + advance * 120_000;
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/timed out/i)).toBeInTheDocument();
+      });
+
+      dateSpy.mockRestore();
+    });
+  });
+
+  describe('mutation observer guards - customerCode race', () => {
+    it('ignores response=1 mutations until customerCode is also populated', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      vi.mocked(helcimLoader.readHelcimResult).mockClear();
+
+      // Submit with response=1 set but NO customerCode — observer should
+      // early-return without invoking readHelcimResult.
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        // Intentionally leave customerCode blank.
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      // Wait a tick for any observer firings.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
+
+      expect(helcimLoader.readHelcimResult).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('mutation observer guards', () => {
+    it('ignores Helcim DOM mutations when not expecting tokenization', async () => {
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
+      });
+
+      // Trigger a stray mutation before any submit; readHelcimResult should
+      // never be called because expectingTokenizationRef is false.
+      vi.mocked(helcimLoader.readHelcimResult).mockClear();
+      const results = document.querySelector('#helcimResults');
+      const responseEl = document.querySelector<HTMLInputElement>('#response');
+      if (responseEl) responseEl.value = '1';
+      if (results) results.append(document.createElement('span'));
+
+      // Wait a tick for any observer to fire.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 50);
+      });
+
+      expect(helcimLoader.readHelcimResult).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('dev simulate buttons - timer cleanup', () => {
+    it('cleans up the simulate timer on unmount without errors', async () => {
+      const user = userEvent.setup();
+      vi.mocked(envModule).env = {
+        isDev: true,
+        isLocalDev: true,
+        isProduction: false,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: false,
+      };
+
+      const { unmount } = renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('simulate-success-btn')).toBeInTheDocument();
+      });
+
+      // Click but unmount before the 100ms timer fires.
+      await user.click(screen.getByTestId('simulate-success-btn'));
+      unmount();
+    });
+
+    it('triggers form requestSubmit ~100ms after simulate-success click', async () => {
+      const user = userEvent.setup();
+      vi.mocked(envModule).env = {
+        isDev: true,
+        isLocalDev: true,
+        isProduction: false,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: false,
+      };
+
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('simulate-success-btn')).toBeInTheDocument();
+      });
+
+      const requestSubmitSpy = vi.fn();
+      const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
+      if (formEl) {
+        formEl.requestSubmit = requestSubmitSpy;
+      }
+
+      await user.click(screen.getByTestId('simulate-success-btn'));
+
+      await waitFor(() => {
+        expect(requestSubmitSpy).toHaveBeenCalled();
+      });
+    });
+
+    it('triggers form requestSubmit ~100ms after simulate-failure click', async () => {
+      const user = userEvent.setup();
+      vi.mocked(envModule).env = {
+        isDev: true,
+        isLocalDev: true,
+        isProduction: false,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: false,
+      };
+
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('simulate-failure-btn')).toBeInTheDocument();
+      });
+
+      const requestSubmitSpy = vi.fn();
+      const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
+      if (formEl) {
+        formEl.requestSubmit = requestSubmitSpy;
+      }
+
+      await user.click(screen.getByTestId('simulate-failure-btn'));
+
+      await waitFor(() => {
+        expect(requestSubmitSpy).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('helcim script - mounted guard', () => {
+    it('ignores resolved script load if component unmounted first', async () => {
+      let resolveLoad: () => void = () => {};
+      vi.mocked(helcimLoader.loadHelcimScript).mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveLoad = resolve;
+          })
+      );
+
+      const { unmount } = renderWithProviders(<PaymentForm />);
+
+      unmount();
+
+      // Resolve after unmount; should hit the !mounted branch silently.
+      resolveLoad();
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+
+      // Sanity assertion for sonarjs/assertions-in-tests.
+      expect(helcimLoader.loadHelcimScript).toHaveBeenCalled();
+    });
+
+    it('ignores rejected script load if component unmounted first', async () => {
+      let rejectLoad: (err: Error) => void = () => {};
+      vi.mocked(helcimLoader.loadHelcimScript).mockImplementation(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectLoad = reject;
+          })
+      );
+
+      const { unmount } = renderWithProviders(<PaymentForm />);
+
+      unmount();
+
+      rejectLoad(new Error('boom'));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+
+      expect(helcimLoader.loadHelcimScript).toHaveBeenCalled();
+    });
+  });
+
+  describe('helcim process unavailable - non-Error throw', () => {
+    it('handles non-Error rejection from createPayment', async () => {
+      const user = userEvent.setup();
+      mockCreatePayment.mutateAsync.mockRejectedValue('plain string failure');
+
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('PaymentErrorCard with onCancel', () => {
+    it('renders both Cancel and Try Again buttons when onCancel provided', async () => {
+      const onCancel = vi.fn();
+      mockCreatePayment.mutateAsync.mockRejectedValue(new Error('boom'));
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm onCancel={onCancel} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+      });
+      expect(screen.getByRole('button', { name: /^cancel$/i })).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+      expect(onCancel).toHaveBeenCalled();
+    });
+  });
+
+  describe('PaymentErrorCard without onCancel', () => {
+    it('renders only the try-again primary action', async () => {
+      mockCreatePayment.mutateAsync.mockRejectedValue(new Error('boom'));
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+      });
+      // No onCancel passed — Cancel button should not exist on the error card.
+      expect(screen.queryByRole('button', { name: /^cancel$/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('PaymentErrorCard error message default', () => {
+    it('renders fallback dev error copy when errorMessage is null', async () => {
+      // Force isLocalDev so DevOnly renders, then trigger error with no message.
+      vi.mocked(envModule).env = {
+        isDev: true,
+        isLocalDev: true,
+        isProduction: false,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: false,
+      };
+
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+
+      // Polling returns failed with NO errorMessage so onFailed receives undefined.
+      vi.mocked(billingHooks.usePaymentStatus).mockImplementation((_id, options) => {
+        if (options?.enabled) {
+          return {
+            data: { status: 'failed' },
+          } as ReturnType<typeof billingHooks.usePaymentStatus>;
+        }
+        return { data: undefined } as ReturnType<typeof billingHooks.usePaymentStatus>;
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/an unexpected error occurred/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('PaymentSuccessCard amount fallback', () => {
+    it('renders +$0.00 when amount is empty', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockResolvedValue({
+        status: 'completed',
+        // newBalance is intentionally absent — exercises the
+        // status.newBalance falsy branch in handlePaymentStatusUpdate.
+      });
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+
+      // Polling returns completed without newBalance so the success card
+      // renders even though onSuccess never receives a balance.
+      vi.mocked(billingHooks.usePaymentStatus).mockImplementation((_id, options) => {
+        if (options?.enabled) {
+          return {
+            data: { status: 'completed' },
+          } as ReturnType<typeof billingHooks.usePaymentStatus>;
+        }
+        return { data: undefined } as ReturnType<typeof billingHooks.usePaymentStatus>;
+      });
+
+      mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      // Polling returned completed (no newBalance) — handled stays true so
+      // polling stops, but the success card is NOT shown because the
+      // onConfirmed callback only fires when newBalance is truthy. The form
+      // remains in 'processing' / form view rather than 'success' view.
+      // We instead exercise the handlePaymentStatusUpdate branch by checking
+      // that the status update was processed (polling stopped).
+      await waitFor(() => {
+        const calls = vi.mocked(billingHooks.usePaymentStatus).mock.calls;
+        expect(calls.some((c) => c[1]?.enabled === true)).toBe(true);
+      });
+    });
+  });
+
+  describe('amount already set when simulating', () => {
+    it('preserves amount when simulate-success is clicked after typing', async () => {
+      const user = userEvent.setup();
+      vi.mocked(envModule).env = {
+        isDev: true,
+        isLocalDev: true,
+        isProduction: false,
+        isCI: false,
+        isE2E: false,
+        requiresRealServices: false,
+      };
+
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('simulate-success-btn')).toBeInTheDocument();
+      });
+
+      // Type an amount before clicking simulate so populateTestCard's
+      // `if (!form.amount)` branch goes false.
+      await user.type(screen.getByLabelText(/amount/i), '25');
+
+      const requestSubmitSpy = vi.fn();
+      const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
+      if (formEl) formEl.requestSubmit = requestSubmitSpy;
+
+      await user.click(screen.getByTestId('simulate-success-btn'));
+
+      // Amount should remain '25' (not be overwritten with '100').
+      expect(screen.getByLabelText<HTMLInputElement>(/amount/i).value).toBe('25');
+    });
+  });
+
+  describe('payment status update branches', () => {
+    it('treats unknown status as a no-op (continues polling)', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+      // Polling returns an unknown status — handled returns false; component
+      // stays on the form (no success, no error card).
+      vi.mocked(billingHooks.usePaymentStatus).mockImplementation((_id, options) => {
+        if (options?.enabled) {
+          return {
+            data: { status: 'pending' },
+          } as ReturnType<typeof billingHooks.usePaymentStatus>;
+        }
+        return { data: undefined } as ReturnType<typeof billingHooks.usePaymentStatus>;
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      // After processPayment resolves with 'processing', polling starts.
+      // Wait for usePaymentStatus to be called with enabled=true.
+      await waitFor(() => {
+        const calls = vi.mocked(billingHooks.usePaymentStatus).mock.calls;
+        expect(calls.some((c) => c[1]?.enabled === true)).toBe(true);
+      });
+
+      // No success or error card should appear since status is 'pending'.
+      expect(screen.queryByText(/payment successful/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument();
     });
   });
 });

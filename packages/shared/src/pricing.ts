@@ -8,6 +8,8 @@ import {
   ESTIMATED_IMAGE_BYTES,
   ESTIMATED_VIDEO_BYTES_PER_SECOND,
   ESTIMATED_AUDIO_BYTES_PER_SECOND,
+  MAX_SEARCH_TOOL_CALLS,
+  SEARCH_COST_PER_CALL,
 } from './constants.js';
 import type { UserTier } from './tiers.js';
 
@@ -266,14 +268,40 @@ export function calculateMediaGenerationCost(params: CalculateMediaGenerationCos
 }
 
 /**
+ * Shared recipe for media pre-inference cost in cents:
+ *   (fee-inflated Σ(price × multiplier)) + per-model storage
+ *
+ * Image: multiplier = 1, storageBytes = ESTIMATED_IMAGE_BYTES.
+ * Video/Audio: multiplier = duration, storageBytes = duration × bytesPerSecond.
+ *
+ * Returns 0 when there are no prices OR when multiplier is 0 — both image
+ * (multiplier always 1) and video/audio (multiplier=0 → fully zero cost) match
+ * the historical behavior. Per-model storage tracks the count of priced models.
+ */
+function computeMediaWorstCaseCents(input: {
+  prices: readonly number[];
+  multiplier: number;
+  storageBytesPerModel: number;
+}): number {
+  const { prices, multiplier, storageBytesPerModel } = input;
+  if (prices.length === 0 || multiplier === 0) return 0;
+  const sumModelCost = prices.reduce((s, p) => s + p * multiplier, 0);
+  const storage = mediaStorageCost(storageBytesPerModel) * prices.length;
+  return (applyFees(sumModelCost) + storage) * 100;
+}
+
+/**
  * Pre-inference worst-case cost for image generation in cents.
  * Uses ESTIMATED_IMAGE_BYTES as the storage estimate; actual cost is
  * recomputed post-inference with the real R2 object size.
  */
 export function computeImageWorstCaseCents(perImage: number, modelCount: number): number {
   if (modelCount === 0) return 0;
-  const perModel = applyFees(perImage) + mediaStorageCost(ESTIMATED_IMAGE_BYTES);
-  return perModel * modelCount * 100;
+  return computeMediaWorstCaseCents({
+    prices: Array.from({ length: modelCount }, () => perImage),
+    multiplier: 1,
+    storageBytesPerModel: ESTIMATED_IMAGE_BYTES,
+  });
 }
 
 export interface EstimateVideoWorstCaseCentsInput {
@@ -289,10 +317,12 @@ export interface EstimateVideoWorstCaseCentsInput {
  */
 export function estimateVideoWorstCaseCents(input: EstimateVideoWorstCaseCentsInput): number {
   const { perSecond, durationSeconds, modelCount } = input;
-  if (durationSeconds === 0 || modelCount === 0) return 0;
-  const estimatedBytes = durationSeconds * ESTIMATED_VIDEO_BYTES_PER_SECOND;
-  const perModel = applyFees(perSecond * durationSeconds) + mediaStorageCost(estimatedBytes);
-  return perModel * modelCount * 100;
+  if (modelCount === 0) return 0;
+  return computeMediaWorstCaseCents({
+    prices: Array.from({ length: modelCount }, () => perSecond),
+    multiplier: durationSeconds,
+    storageBytesPerModel: durationSeconds * ESTIMATED_VIDEO_BYTES_PER_SECOND,
+  });
 }
 
 /**
@@ -302,10 +332,11 @@ export function estimateVideoWorstCaseCents(input: EstimateVideoWorstCaseCentsIn
  * the real prices, apply fees once to the sum, and add per-model storage.
  */
 export function computeImageExactCents(pricesPerImage: readonly number[]): number {
-  if (pricesPerImage.length === 0) return 0;
-  const sumModelCost = pricesPerImage.reduce((s, p) => s + p, 0);
-  const storage = mediaStorageCost(ESTIMATED_IMAGE_BYTES) * pricesPerImage.length;
-  return (applyFees(sumModelCost) + storage) * 100;
+  return computeMediaWorstCaseCents({
+    prices: pricesPerImage,
+    multiplier: 1,
+    storageBytesPerModel: ESTIMATED_IMAGE_BYTES,
+  });
 }
 
 /**
@@ -318,11 +349,11 @@ export function computeVideoExactCents(
   pricesPerSecond: readonly number[],
   durationSeconds: number
 ): number {
-  if (pricesPerSecond.length === 0 || durationSeconds === 0) return 0;
-  const sumModelCost = pricesPerSecond.reduce((s, p) => s + p * durationSeconds, 0);
-  const estimatedBytes = durationSeconds * ESTIMATED_VIDEO_BYTES_PER_SECOND;
-  const storage = mediaStorageCost(estimatedBytes) * pricesPerSecond.length;
-  return (applyFees(sumModelCost) + storage) * 100;
+  return computeMediaWorstCaseCents({
+    prices: pricesPerSecond,
+    multiplier: durationSeconds,
+    storageBytesPerModel: durationSeconds * ESTIMATED_VIDEO_BYTES_PER_SECOND,
+  });
 }
 
 /**
@@ -340,9 +371,20 @@ export function computeAudioWorstCaseCents(
   pricesPerSecond: readonly number[],
   maxDurationSeconds: number
 ): number {
-  if (pricesPerSecond.length === 0 || maxDurationSeconds === 0) return 0;
-  const sumModelCost = pricesPerSecond.reduce((s, p) => s + p * maxDurationSeconds, 0);
-  const estimatedBytes = maxDurationSeconds * ESTIMATED_AUDIO_BYTES_PER_SECOND;
-  const storage = mediaStorageCost(estimatedBytes) * pricesPerSecond.length;
-  return (applyFees(sumModelCost) + storage) * 100;
+  return computeMediaWorstCaseCents({
+    prices: pricesPerSecond,
+    multiplier: maxDurationSeconds,
+    storageBytesPerModel: maxDurationSeconds * ESTIMATED_AUDIO_BYTES_PER_SECOND,
+  });
+}
+
+/**
+ * Worst-case Perplexity Search cost (in USD, fees included) for a single
+ * text-streaming request when web search is enabled. The pre-flight reservation
+ * uses this so a user with `webSearchEnabled === true` is fronted enough budget
+ * to cover up to `MAX_SEARCH_TOOL_CALLS` tool invocations. Post-flight billing
+ * pulls the gateway's `totalCost`, which already includes search.
+ */
+export function worstCaseSearchCost(): number {
+  return applyFees(MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL);
 }

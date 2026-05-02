@@ -33,7 +33,7 @@
 }
 
 .prose-blog :where(blockquote):not(:where([class~='not-prose'] *)) {
-  @apply border-brand-red bg-brand-red-subtle border-l-4 rounded-r-lg py-3 pl-4 italic;
+  @apply border-brand-red bg-brand-red-subtle rounded-r-lg border-l-4 py-3 pl-4 italic;
 }
 
 .prose-blog :where(pre):not(:where([class~='not-prose'] *)) {

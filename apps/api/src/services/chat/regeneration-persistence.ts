@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { messages, type Database } from '@hushbox/db';
+import { messages, type Database, type DatabaseClient } from '@hushbox/db';
 import {
   assignSequenceNumbers,
   fetchEpochPublicKey,
@@ -26,6 +26,12 @@ interface SharedBillingParams {
   cachedTokens?: number;
   groupBillingContext?: { memberId: string };
   forkId?: string;
+  /**
+   * Tip the caller observed at request validation time. Threaded into
+   * `updateForkTip` so a concurrent writer that already advanced the tip
+   * causes a conflict, not silent overwrite.
+   */
+  forkTipExpectedMessageId?: string;
 }
 
 // ============================================================================
@@ -51,7 +57,7 @@ interface InsertChargeResult {
  * saveRegeneratedResponse and saveEditedChatTurn.
  */
 async function insertChargeAndFinalizeFork(
-  txDb: Database,
+  txDb: DatabaseClient,
   params: InsertChargeAndFinalizeForkParams
 ): Promise<InsertChargeResult> {
   const costAmount = params.totalCost.toFixed(8);
@@ -84,7 +90,14 @@ async function insertChargeAndFinalizeFork(
   });
 
   if (params.forkId) {
-    await updateForkTip(txDb, params.forkId, params.assistantMessageId);
+    // forkTipMessageId is the tip captured during request validation; the
+    // conditional update enforces nobody else moved the tip in the meantime.
+    await updateForkTip(
+      txDb,
+      params.forkId,
+      params.assistantMessageId,
+      params.forkTipExpectedMessageId ?? null
+    );
   }
 
   return {
@@ -126,6 +139,9 @@ function buildChargeParams(input: BuildChargeParamsInput): InsertChargeAndFinali
       groupBillingContext: params.groupBillingContext,
     }),
     ...(params.forkId !== undefined && { forkId: params.forkId }),
+    ...(params.forkTipExpectedMessageId !== undefined && {
+      forkTipExpectedMessageId: params.forkTipExpectedMessageId,
+    }),
     epochPublicKey,
     epochNumber,
     aiSequence,
@@ -148,7 +164,7 @@ interface SequenceAndEpochResult {
  * Shared by both saveRegeneratedResponse and saveEditedChatTurn.
  */
 async function assignSequencesAndFetchEpoch(
-  txDb: Database,
+  txDb: DatabaseClient,
   conversationId: string,
   count: number
 ): Promise<SequenceAndEpochResult> {
@@ -193,7 +209,7 @@ export async function saveRegeneratedResponse(
   const { conversationId, anchorMessageId, forkTipMessageId } = params;
 
   return db.transaction(async (tx) => {
-    const txDb = tx as unknown as Database;
+    const txDb = tx;
 
     await deleteMessagesAfterAnchor(txDb, {
       conversationId,
@@ -210,7 +226,10 @@ export async function saveRegeneratedResponse(
     if (aiSeq === undefined) throw new Error('invariant: expected at least one sequence number');
 
     const chargeParams = buildChargeParams({
-      params,
+      params: {
+        ...params,
+        ...(forkTipMessageId !== undefined && { forkTipExpectedMessageId: forkTipMessageId }),
+      },
       epochPublicKey,
       epochNumber,
       aiSequence: aiSeq,
@@ -271,7 +290,7 @@ export async function saveEditedChatTurn(
   } = params;
 
   return db.transaction(async (tx) => {
-    const txDb = tx as unknown as Database;
+    const txDb = tx;
 
     // Look up the target message's parentMessageId
     const [targetMsg] = await txDb
@@ -324,7 +343,10 @@ export async function saveEditedChatTurn(
     });
 
     const chargeParams = buildChargeParams({
-      params,
+      params: {
+        ...params,
+        ...(forkTipMessageId !== undefined && { forkTipExpectedMessageId: forkTipMessageId }),
+      },
       epochPublicKey,
       epochNumber,
       aiSequence: aiSeq,

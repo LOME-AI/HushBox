@@ -4,5 +4,6 @@ export default defineProject({
   test: {
     name: 'shared',
     environment: 'node',
+    exclude: ['**/dist/**', '**/node_modules/**'],
   },
 });

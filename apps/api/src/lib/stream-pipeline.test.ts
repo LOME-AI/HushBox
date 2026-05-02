@@ -307,7 +307,7 @@ describe('resolveWebSearchCost', () => {
     expect(resolveWebSearchCost(false, 'openai/gpt-4o', models)).toBe(0);
   });
 
-  it('returns parsed web_search cost when enabled and model has web_search pricing', () => {
+  it('returns the worst-case search cost (10 calls, fees included) when enabled', async () => {
     const models = [
       makeModelInfo({
         id: 'openai/gpt-4o',
@@ -315,10 +315,14 @@ describe('resolveWebSearchCost', () => {
       }),
     ];
 
-    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBe(0.004);
+    const { worstCaseSearchCost } = await import('@hushbox/shared');
+    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeCloseTo(
+      worstCaseSearchCost(),
+      9
+    );
   });
 
-  it('returns 0 when enabled but model has no web_search pricing', () => {
+  it('returns the worst-case cost regardless of per-call price (gateway settles actual)', async () => {
     const models = [
       makeModelInfo({
         id: 'openai/gpt-4o',
@@ -326,28 +330,54 @@ describe('resolveWebSearchCost', () => {
       }),
     ];
 
-    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBe(0);
+    const { worstCaseSearchCost } = await import('@hushbox/shared');
+    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeCloseTo(
+      worstCaseSearchCost(),
+      9
+    );
   });
 
-  it('returns 0 when enabled but model is not found', () => {
+  it('still returns the worst case when the model is not found in the list', async () => {
     const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
 
-    expect(resolveWebSearchCost(true, 'nonexistent/model', models)).toBe(0);
+    const { worstCaseSearchCost } = await import('@hushbox/shared');
+    expect(resolveWebSearchCost(true, 'nonexistent/model', models)).toBeCloseTo(
+      worstCaseSearchCost(),
+      9
+    );
   });
 
-  it('returns 0 when models array is empty', () => {
-    expect(resolveWebSearchCost(true, 'openai/gpt-4o', [])).toBe(0);
+  it('returns the worst case when models array is empty', async () => {
+    const { worstCaseSearchCost } = await import('@hushbox/shared');
+    expect(resolveWebSearchCost(true, 'openai/gpt-4o', [])).toBeCloseTo(worstCaseSearchCost(), 9);
   });
 
-  it('parses web_search string pricing correctly', () => {
-    const models = [
-      makeModelInfo({
-        id: 'test/model',
-        pricing: { prompt: '0', completion: '0', web_search: '0.0123' },
-      }),
-    ];
+  it('reserves MAX_SEARCH_TOOL_CALLS × SEARCH_COST_PER_CALL × (1 + fee) per request', async () => {
+    const { applyFees, MAX_SEARCH_TOOL_CALLS, SEARCH_COST_PER_CALL } =
+      await import('@hushbox/shared');
+    const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
 
-    expect(resolveWebSearchCost(true, 'test/model', models)).toBe(0.0123);
+    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeCloseTo(
+      applyFees(MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL),
+      9
+    );
+  });
+
+  it('reserves the locked worst-case dollar amount (~$0.05475) per request', () => {
+    // Pinning the math: MAX=10, per_call=$0.005, fee_rate=0.095
+    // Total = applyFees(10 × 0.005) = 0.05 × 1.095 = 0.05475
+    const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
+    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeCloseTo(0.054_75, 9);
+  });
+
+  it('is strictly greater than the legacy 1× per-call estimate (the bug we fixed)', async () => {
+    const { applyFees, SEARCH_COST_PER_CALL } = await import('@hushbox/shared');
+    const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
+
+    // The previous bug reserved only 1× SEARCH_COST_PER_CALL (with fees).
+    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeGreaterThan(
+      applyFees(SEARCH_COST_PER_CALL)
+    );
   });
 });
 
@@ -922,7 +952,8 @@ describe('broadcastAndFinish', () => {
     const item = items[0]!;
     expect(item['id']).toBe('ci-img');
     expect(item['contentType']).toBe('image');
-    expect(item['downloadUrl']).toBeNull();
+    // downloadUrl is omitted (not nulled) when not yet populated by the strategy.
+    expect(item['downloadUrl']).toBeUndefined();
     expect(item['mimeType']).toBe('image/png');
     expect(item['sizeBytes']).toBe(1_000_000);
     expect(item['width']).toBe(1024);

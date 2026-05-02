@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   collectMultiModelStreams,
   collectMultiMediaModelStreams,
+  collectSingleSlot,
   type ModelStreamEntry,
   type MediaModelStreamEntry,
 } from './multi-stream.js';
@@ -22,8 +23,8 @@ function createMockWriter(): SSEEventWriter & {
   return {
     events,
     writeStart: record('writeStart'),
-    writeToken: record('writeToken'),
     writeModelToken: record('writeModelToken'),
+    writeModelMediaStart: record('writeModelMediaStart'),
     writeError: record('writeError'),
     writeModelDone: record('writeModelDone'),
     writeModelError: record('writeModelError'),
@@ -148,7 +149,7 @@ describe('collectMultiModelStreams', () => {
     });
   });
 
-  it('writes model:done for each completed model', async () => {
+  it('writes model:done for each completed model without per-event cost', async () => {
     const writer = createMockWriter();
     const entries: ModelStreamEntry[] = [
       {
@@ -217,6 +218,67 @@ describe('collectMultiModelStreams', () => {
       modelId: 'anthropic/claude-sonnet-4.6',
       message: 'Timeout',
       code: 'STREAM_ERROR',
+    });
+  });
+
+  it('classifies context-length errors with the dedicated code', async () => {
+    const writer = createMockWriter();
+    const entries: ModelStreamEntry[] = [
+      {
+        modelId: 'openai/gpt-4o',
+        assistantMessageId: 'asst-1',
+        stream: createFailingStream([], new Error('input exceeds context length of 200000')),
+      },
+    ];
+
+    await collectMultiModelStreams(entries, writer);
+
+    const errorEvents = writer.events.filter((e) => e.method === 'writeModelError');
+    expect(errorEvents).toHaveLength(1);
+    expect((errorEvents[0]!.args[0] as { code: string }).code).toBe('CONTEXT_LENGTH_EXCEEDED');
+  });
+
+  it('omits cost from model:done payload (cost only on final done event)', async () => {
+    const writer = createMockWriter();
+    const entries: ModelStreamEntry[] = [
+      {
+        modelId: 'openai/gpt-4o',
+        assistantMessageId: 'asst-1',
+        stream: createTextStream(['hi']),
+      },
+    ];
+
+    await collectMultiModelStreams(entries, writer);
+
+    const doneEvents = writer.events.filter((e) => e.method === 'writeModelDone');
+    expect(doneEvents).toHaveLength(1);
+    const payload = doneEvents[0]!.args[0] as Record<string, unknown>;
+    expect(payload).toEqual({
+      modelId: 'openai/gpt-4o',
+      assistantMessageId: 'asst-1',
+    });
+    expect('cost' in payload).toBe(false);
+  });
+
+  it('emits writeModelMediaStart when the stream yields media-start', async () => {
+    const writer = createMockWriter();
+    const bytes = new Uint8Array([1]);
+    const entries: MediaModelStreamEntry[] = [
+      {
+        modelId: 'google/imagen-4',
+        assistantMessageId: 'asst-1',
+        stream: createMediaStream(bytes, 'image/png', { width: 256, height: 256 }),
+      },
+    ];
+
+    await collectMultiMediaModelStreams(entries, writer);
+
+    const startEvents = writer.events.filter((e) => e.method === 'writeModelMediaStart');
+    expect(startEvents).toHaveLength(1);
+    expect(startEvents[0]!.args[0]).toEqual({
+      modelId: 'google/imagen-4',
+      mediaType: 'image',
+      mimeType: 'image/png',
     });
   });
 
@@ -378,5 +440,226 @@ describe('collectMultiMediaModelStreams', () => {
     const errorEvents = writer.events.filter((e) => e.method === 'writeModelError');
     expect(doneEvents).toHaveLength(1);
     expect(errorEvents).toHaveLength(1);
+  });
+});
+
+// ============================================================================
+// collectSingleSlot — shared per-slot text collector (used by multi-stream
+// fan-out and the single-model regenerate path).
+// ============================================================================
+
+describe('collectSingleSlot', () => {
+  it('returns content, generationId, and null error on success', async () => {
+    const writer = createMockWriter();
+
+    const result = await collectSingleSlot({
+      modelId: 'anthropic/claude-sonnet-4.6',
+      assistantMessageId: 'asst-1',
+      stream: createTextStream(['Hello', ' world'], 'gen-1'),
+      writer,
+    });
+
+    expect(result.modelId).toBe('anthropic/claude-sonnet-4.6');
+    expect(result.content).toBe('Hello world');
+    expect(result.generationId).toBe('gen-1');
+    expect(result.error).toBeNull();
+  });
+
+  it('writes one writeModelToken per non-empty text-delta', async () => {
+    const writer = createMockWriter();
+
+    await collectSingleSlot({
+      modelId: 'm1',
+      assistantMessageId: 'a1',
+      stream: createTextStream(['Hi', ' there']),
+      writer,
+    });
+
+    const tokenEvents = writer.events.filter((e) => e.method === 'writeModelToken');
+    expect(tokenEvents).toHaveLength(2);
+    expect(tokenEvents[0]!.args[0]).toEqual({ modelId: 'm1', content: 'Hi' });
+    expect(tokenEvents[1]!.args[0]).toEqual({ modelId: 'm1', content: ' there' });
+  });
+
+  it('skips empty text-delta tokens', async () => {
+    const writer = createMockWriter();
+
+    const result = await collectSingleSlot({
+      modelId: 'm1',
+      assistantMessageId: 'a1',
+      stream: createTextStream(['Hi', '', ' there']),
+      writer,
+    });
+
+    expect(result.content).toBe('Hi there');
+    const tokenEvents = writer.events.filter((e) => e.method === 'writeModelToken');
+    expect(tokenEvents).toHaveLength(2);
+  });
+
+  it('writes writeModelDone on success', async () => {
+    const writer = createMockWriter();
+
+    await collectSingleSlot({
+      modelId: 'm1',
+      assistantMessageId: 'a1',
+      stream: createTextStream(['Hi']),
+      writer,
+    });
+
+    const doneEvents = writer.events.filter((e) => e.method === 'writeModelDone');
+    expect(doneEvents).toHaveLength(1);
+    expect(doneEvents[0]!.args[0]).toEqual({ modelId: 'm1', assistantMessageId: 'a1' });
+  });
+
+  it('captures error and returns content collected so far', async () => {
+    const writer = createMockWriter();
+
+    const result = await collectSingleSlot({
+      modelId: 'm1',
+      assistantMessageId: 'a1',
+      stream: createFailingStream(['Partial'], new Error('boom')),
+      writer,
+    });
+
+    expect(result.content).toBe('Partial');
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error!.message).toBe('boom');
+  });
+
+  it('writes writeModelError with classified code by default on failure', async () => {
+    const writer = createMockWriter();
+
+    await collectSingleSlot({
+      modelId: 'm1',
+      assistantMessageId: 'a1',
+      stream: createFailingStream([], new Error('input exceeds context length of 200000')),
+      writer,
+    });
+
+    const errorEvents = writer.events.filter((e) => e.method === 'writeModelError');
+    expect(errorEvents).toHaveLength(1);
+    expect((errorEvents[0]!.args[0] as { code: string }).code).toBe('CONTEXT_LENGTH_EXCEEDED');
+  });
+
+  it('omits writeModelError when emitErrorEvent=false (caller writes own error)', async () => {
+    const writer = createMockWriter();
+
+    const result = await collectSingleSlot({
+      modelId: 'm1',
+      assistantMessageId: 'a1',
+      stream: createFailingStream([], new Error('boom')),
+      writer,
+      emitErrorEvent: false,
+    });
+
+    expect(result.error).toBeInstanceOf(Error);
+    const errorEvents = writer.events.filter((e) => e.method === 'writeModelError');
+    expect(errorEvents).toHaveLength(0);
+    const doneEvents = writer.events.filter((e) => e.method === 'writeModelDone');
+    expect(doneEvents).toHaveLength(0);
+  });
+
+  it('invokes onTokenBatch with batched content when interval elapses', async () => {
+    vi.useFakeTimers();
+    const writer = createMockWriter();
+    const batches: { modelId: string; content: string }[] = [];
+
+    // Stream with timed delays: 0ms, 0ms, 150ms (past 100ms BATCH_INTERVAL_MS), 0ms.
+    const stream: InferenceStream = {
+      [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+        let index = 0;
+        const items: { delay: number; event: InferenceEvent }[] = [
+          { delay: 0, event: { kind: 'text-delta', content: 'A' } },
+          { delay: 0, event: { kind: 'text-delta', content: 'B' } },
+          { delay: 150, event: { kind: 'text-delta', content: 'C' } },
+          { delay: 0, event: { kind: 'text-delta', content: 'D' } },
+          { delay: 0, event: { kind: 'finish', providerMetadata: {} } },
+        ];
+        return {
+          next(): Promise<IteratorResult<InferenceEvent>> {
+            if (index >= items.length) return Promise.resolve({ done: true, value: undefined });
+            const { delay, event } = items[index++]!;
+            return new Promise((resolve) => {
+              setTimeout(() => {
+                resolve({ done: false, value: event });
+              }, delay);
+            });
+          },
+        };
+      },
+    };
+
+    const promise = collectSingleSlot({
+      modelId: 'm1',
+      assistantMessageId: 'a1',
+      stream,
+      writer,
+      onTokenBatch: (modelId, content) => batches.push({ modelId, content }),
+      batchIntervalMs: 100,
+    });
+
+    await vi.runAllTimersAsync();
+    const result = await promise;
+    vi.useRealTimers();
+
+    expect(result.content).toBe('ABCD');
+    // First flush: after 'C' arrives (delay 150 > 100), 'AB' (or 'ABC'? the
+    // current chat.ts logic flushes the *new* buffer including 'C'). Verify
+    // semantics by checking accumulated batches sum to whole content.
+    expect(batches.length).toBeGreaterThanOrEqual(1);
+    const total = batches.map((b) => b.content).join('');
+    expect(total).toBe('ABCD');
+    for (const batch of batches) {
+      expect(batch.modelId).toBe('m1');
+    }
+  });
+
+  it('flushes leftover broadcast buffer at end (success path)', async () => {
+    const writer = createMockWriter();
+    const batches: string[] = [];
+
+    await collectSingleSlot({
+      modelId: 'm1',
+      assistantMessageId: 'a1',
+      stream: createTextStream(['quick', 'tokens']),
+      writer,
+      onTokenBatch: (_modelId, content) => batches.push(content),
+      batchIntervalMs: 1_000_000, // never elapses naturally
+    });
+
+    // Leftover buffer must flush at end so broadcast subscribers see content.
+    expect(batches.join('')).toBe('quicktokens');
+  });
+
+  it('flushes leftover broadcast buffer at end (error path)', async () => {
+    const writer = createMockWriter();
+    const batches: string[] = [];
+
+    await collectSingleSlot({
+      modelId: 'm1',
+      assistantMessageId: 'a1',
+      stream: createFailingStream(['Partial'], new Error('boom')),
+      writer,
+      onTokenBatch: (_modelId, content) => batches.push(content),
+      batchIntervalMs: 1_000_000,
+      emitErrorEvent: false,
+    });
+
+    expect(batches.join('')).toBe('Partial');
+  });
+
+  it('does not call onTokenBatch when not provided', async () => {
+    const writer = createMockWriter();
+
+    const result = await collectSingleSlot({
+      modelId: 'm1',
+      assistantMessageId: 'a1',
+      stream: createTextStream(['Hi']),
+      writer,
+    });
+
+    expect(result.error).toBeNull();
+    // Just verify no exception and the basic SSE writes still happen.
+    expect(writer.events.filter((e) => e.method === 'writeModelToken')).toHaveLength(1);
   });
 });

@@ -1,4 +1,10 @@
 #!/bin/sh
+# Drizzle migration drift — auto-fix
+pnpm --filter @hushbox/db db:generate >/dev/null 2>&1 || true
+if ! git diff --quiet packages/db/drizzle/; then
+  echo "Drizzle schema/snapshots regenerated; staging changes."
+  git add packages/db/drizzle/
+fi
 pnpm lint:duplication
 pnpm lint:unused
 pnpm lint

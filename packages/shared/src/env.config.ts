@@ -203,8 +203,9 @@ export const envConfig = {
     [Mode.Production]: secret('HELCIM_WEBHOOK_VERIFIER_PRODUCTION'),
   },
 
-  // R2 media storage — credentials used only for minting presigned GET URLs.
-  // Writes go through the MEDIA_BUCKET Workers binding and need no credentials.
+  // R2 media storage — single S3 codepath for both reads and writes.
+  // PUTs/DELETEs/LIST/presigned GET URLs all go through aws4fetch using these
+  // R2 S3 API credentials. No Workers binding.
   R2_S3_ENDPOINT: {
     to: [Destination.Backend],
     [Mode.Development]: 'http://localhost:9000',
@@ -257,7 +258,6 @@ export const envConfig = {
     [Mode.Production]: secret('VITE_HELCIM_JS_TOKEN_PRODUCTION'),
     // NOT in e2e - only CI e2e and production need real Helcim
   },
-
 
   VITE_PLATFORM: {
     to: [Destination.Frontend],
@@ -322,7 +322,19 @@ export const backendEnvSchema = z.object({
   // Auth secrets
   OPAQUE_MASTER_SECRET: z.string().min(32),
   IRON_SESSION_SECRET: z.string().min(32),
-  // R2 media storage (presigned URL credentials)
+  // R2 media storage (S3 API credentials — full read/write scope).
+  //
+  // These four fields are `.optional()` here because dev and CI satisfy them
+  // automatically from `envConfig`'s mode-specific defaults pointing at the
+  // local MinIO emulator — engineers do not (and should not) set them in
+  // their personal env files.
+  //
+  // In production they are REQUIRED. The runtime fail-fast guard lives in
+  // `apps/api/src/services/storage/media-storage.ts:requireConfig`, which
+  // throws a clear error when any of these four env vars is missing or empty
+  // when the storage client is constructed. Keeping the schema permissive
+  // here while delegating the production assertion to the consumer module
+  // avoids a second source of truth and keeps dev/CI bootstrap clean.
   R2_S3_ENDPOINT: z.string().url().optional(),
   R2_ACCESS_KEY_ID: z.string().min(1).optional(),
   R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),

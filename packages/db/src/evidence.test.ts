@@ -39,6 +39,12 @@ describe('evidence', () => {
       expect(SERVICE_NAMES.HOOKDECK).toBe('hookdeck');
     });
 
+    it('exports R2 storage, R2 GC and billing-mismatch service names', () => {
+      expect(SERVICE_NAMES.R2_STORAGE).toBe('r2-storage');
+      expect(SERVICE_NAMES.R2_GC).toBe('r2-gc');
+      expect(SERVICE_NAMES.BILLING_MISMATCH).toBe('billing-mismatch');
+    });
+
     it('has correct type inference', () => {
       const name: ServiceName = SERVICE_NAMES.AI_GATEWAY;
       expect(name).toBe('ai-gateway');

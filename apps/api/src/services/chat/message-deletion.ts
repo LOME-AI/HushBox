@@ -1,5 +1,5 @@
 import { eq, gt, and, inArray } from 'drizzle-orm';
-import { messages, type Database } from '@hushbox/db';
+import { messages, type DatabaseClient } from '@hushbox/db';
 
 // ============================================================================
 // Types
@@ -34,7 +34,7 @@ export interface DeleteMessagesAfterAnchorResult {
  * Idempotent: re-running after deletion returns empty deletedIds.
  */
 export async function deleteMessagesAfterAnchor(
-  tx: Database,
+  tx: DatabaseClient,
   params: DeleteMessagesAfterAnchorParams
 ): Promise<DeleteMessagesAfterAnchorResult> {
   if (params.forkTipMessageId === undefined) {
@@ -53,7 +53,7 @@ export async function deleteMessagesAfterAnchor(
 // ============================================================================
 
 async function deleteLinear(
-  tx: Database,
+  tx: DatabaseClient,
   conversationId: string,
   anchorMessageId: string
 ): Promise<DeleteMessagesAfterAnchorResult> {
@@ -130,7 +130,7 @@ function findExclusiveCandidates(
 }
 
 async function deleteForkChain(
-  tx: Database,
+  tx: DatabaseClient,
   conversationId: string,
   anchorMessageId: string,
   forkTipMessageId: string

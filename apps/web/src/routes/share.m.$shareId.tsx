@@ -19,7 +19,12 @@ export function SharedMessagePage(): React.JSX.Element {
 
   if (isLoading) {
     return (
-      <div data-testid="shared-message-loading" className="flex h-dvh items-center justify-center">
+      <div
+        data-testid="shared-message-loading"
+        role="status"
+        aria-live="polite"
+        className="flex h-dvh items-center justify-center"
+      >
         <span className="text-muted-foreground text-sm">Decrypting shared message...</span>
       </div>
     );
@@ -28,7 +33,11 @@ export function SharedMessagePage(): React.JSX.Element {
   if (isError || !data) {
     return (
       <AppShell>
-        <div data-testid="shared-message-error" className="flex flex-1 items-center justify-center">
+        <div
+          data-testid="shared-message-error"
+          role="alert"
+          className="flex flex-1 items-center justify-center"
+        >
           <div className="flex flex-col items-center gap-3">
             <AlertTriangle className="text-muted-foreground h-8 w-8" />
             <h2 className="text-lg font-semibold">Unable to access message</h2>

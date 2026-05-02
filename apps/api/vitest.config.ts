@@ -5,5 +5,6 @@ export default defineProject({
     name: 'api',
     environment: 'node',
     globals: true,
+    exclude: ['**/dist/**', '**/node_modules/**'],
   },
 });

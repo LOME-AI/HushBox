@@ -10,6 +10,8 @@ import {
   ERROR_CODE_CONVERSATION_NOT_FOUND,
   toBase64,
   fromBase64,
+  contentTypeSchema,
+  senderTypeSchema,
 } from '@hushbox/shared';
 import { eq } from 'drizzle-orm';
 import type { Conversation, ContentItem, Database } from '@hushbox/db';
@@ -47,7 +49,7 @@ function serializeConversation(conv: Conversation): z.infer<typeof conversationR
 function serializeContentItem(item: ContentItem): z.infer<typeof contentItemResponseSchema> {
   return {
     id: item.id,
-    contentType: item.contentType as 'text' | 'image' | 'audio' | 'video',
+    contentType: contentTypeSchema.parse(item.contentType),
     position: item.position,
     encryptedBlob: item.encryptedBlob ? toBase64(item.encryptedBlob) : null,
     storageKey: item.storageKey,
@@ -68,8 +70,8 @@ function serializeMessage(msg: MessageWithContent): z.infer<typeof messageRespon
     id: msg.id,
     conversationId: msg.conversationId,
     wrappedContentKey: toBase64(msg.wrappedContentKey),
-    // DB constraint guarantees senderType IN ('user', 'ai')
-    senderType: msg.senderType as 'user' | 'ai',
+    // DB CHECK constraint guarantees this set; re-parse so a rogue row fails loud.
+    senderType: senderTypeSchema.parse(msg.senderType),
     senderId: msg.senderId ?? null,
     epochNumber: msg.epochNumber,
     sequenceNumber: msg.sequenceNumber,

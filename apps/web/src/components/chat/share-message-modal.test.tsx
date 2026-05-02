@@ -84,6 +84,17 @@ describe('ShareMessageModal', () => {
     expect(screen.getByTestId('share-message-copy-button')).toBeInTheDocument();
   });
 
+  it('announces share-link success via role="status" / aria-live="polite"', async () => {
+    render(<ShareMessageModal {...defaultProps} />);
+
+    await userEvent.click(screen.getByTestId('share-message-create-button'));
+
+    const success = screen.getByTestId('share-message-success');
+    expect(success).toHaveAttribute('role', 'status');
+    expect(success).toHaveAttribute('aria-live', 'polite');
+    expect(success).toHaveTextContent('Share link created!');
+  });
+
   it('displays the generated URL', async () => {
     render(<ShareMessageModal {...defaultProps} />);
 

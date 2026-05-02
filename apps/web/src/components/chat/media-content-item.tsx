@@ -29,6 +29,7 @@ export function MediaContentItem({
     epochNumber,
     wrappedContentKey,
     mimeType: item.mimeType,
+    ...(item.downloadUrl !== undefined && { preFetchedUrl: item.downloadUrl }),
   });
 
   if (error) {

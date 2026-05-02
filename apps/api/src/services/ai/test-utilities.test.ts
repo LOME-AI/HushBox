@@ -9,7 +9,7 @@ import type { AIClient, InferenceEvent, InferenceStream, ModelInfo } from './typ
 
 function makeStubClient(models: ModelInfo[]): AIClient {
   return {
-    isMock: true,
+    isMock: false,
     listModels: vi.fn().mockResolvedValue(models),
     getModel: vi.fn(),
     stream: vi.fn() as unknown as AIClient['stream'],

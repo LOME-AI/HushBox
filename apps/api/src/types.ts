@@ -49,11 +49,11 @@ export interface Bindings {
   UPSTASH_REDIS_REST_TOKEN?: string;
   OPAQUE_MASTER_SECRET?: string;
   IRON_SESSION_SECRET?: string;
-  /** R2 S3 API endpoint for presigned GET URL minting (reads only). */
+  /** R2 S3 API endpoint — full read/write scope, used by aws4fetch for all storage operations. */
   R2_S3_ENDPOINT?: string;
-  /** R2 S3 API access key id (reads only). */
+  /** R2 S3 API access key id — full read/write scope, used by aws4fetch for all storage operations. */
   R2_ACCESS_KEY_ID?: string;
-  /** R2 S3 API secret access key (reads only). */
+  /** R2 S3 API secret access key — full read/write scope, used by aws4fetch for all storage operations. */
   R2_SECRET_ACCESS_KEY?: string;
   /** R2 bucket name for media. Used by the aws4fetch S3 client for all operations. */
   R2_BUCKET_MEDIA?: string;

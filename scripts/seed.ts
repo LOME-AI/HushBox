@@ -1,3 +1,19 @@
+/**
+ * Database seed script for local development.
+ *
+ * Limitation — media bytes are NOT seeded to MinIO.
+ *
+ * The seed populates `content_items` rows with `contentType: 'text'` only;
+ * media-typed content items (image, video, audio) are not generated. As a
+ * result, no encrypted media blobs are uploaded to the local MinIO bucket.
+ * Any dev flow that fetches a presigned URL for a seeded media row would get
+ * a missing-object response — but in practice there are no such rows because
+ * we don't seed media content items.
+ *
+ * To exercise media end-to-end in dev, run a real chat flow that triggers
+ * the media pipeline (which both encrypts the bytes and uploads them to
+ * MinIO via the same code path used in production).
+ */
 import { eq } from 'drizzle-orm';
 import { config } from 'dotenv';
 import path from 'node:path';

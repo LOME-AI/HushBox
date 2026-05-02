@@ -58,7 +58,7 @@ describe('message-share', () => {
       const contentKey = generateContentKey();
 
       const { shareSecret, wrappedShareKey } = createShare(contentKey);
-      const tampered = new Uint8Array(wrappedShareKey);
+      const tampered = new Uint8Array(wrappedShareKey) as typeof wrappedShareKey;
       tampered[tampered.length - 1] = (tampered.at(-1) ?? 0) ^ 0xff;
 
       expect(() => openShare(shareSecret, tampered)).toThrow();

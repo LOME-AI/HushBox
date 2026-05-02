@@ -17,6 +17,7 @@ import {
   computeImageExactCents,
   computeVideoExactCents,
   computeAudioWorstCaseCents,
+  worstCaseSearchCost,
 } from './pricing.js';
 import type { MessageCostParams, MessageCostFromActualParams } from './pricing.js';
 import {
@@ -29,6 +30,8 @@ import {
   ESTIMATED_IMAGE_BYTES,
   ESTIMATED_VIDEO_BYTES_PER_SECOND,
   ESTIMATED_AUDIO_BYTES_PER_SECOND,
+  MAX_SEARCH_TOOL_CALLS,
+  SEARCH_COST_PER_CALL,
 } from './constants.js';
 
 describe('parseTokenPrice', () => {
@@ -1006,5 +1009,18 @@ describe('computeAudioWorstCaseCents', () => {
   it('treats a zero-price entry as only its storage cost', () => {
     const result = computeAudioWorstCaseCents([0], 30);
     expect(result).toBeCloseTo(mediaStorageCost(30 * ESTIMATED_AUDIO_BYTES_PER_SECOND) * 100, 5);
+  });
+});
+
+describe('worstCaseSearchCost', () => {
+  it('returns fee-inflated cost of MAX_SEARCH_TOOL_CALLS × SEARCH_COST_PER_CALL', () => {
+    expect(worstCaseSearchCost()).toBeCloseTo(
+      applyFees(MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL),
+      9
+    );
+  });
+
+  it('is strictly greater than a single per-call cost (the old 1× estimate)', () => {
+    expect(worstCaseSearchCost()).toBeGreaterThan(applyFees(SEARCH_COST_PER_CALL));
   });
 });

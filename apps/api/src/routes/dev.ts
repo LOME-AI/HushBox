@@ -1,10 +1,14 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { getIronSession } from 'iron-session';
-import { users } from '@hushbox/db';
-import { ERROR_CODE_NOT_FOUND, ERROR_CODE_SERVER_MISCONFIGURED } from '@hushbox/shared';
+import { users, sharedMessages, llmCompletions, messages, usageRecords } from '@hushbox/db';
+import {
+  ERROR_CODE_NOT_FOUND,
+  ERROR_CODE_SERVER_MISCONFIGURED,
+  ERROR_CODE_INVALID_OPERATION,
+} from '@hushbox/shared';
 import {
   listDevPersonas,
   cleanupTestData,
@@ -14,7 +18,6 @@ import {
   createDevGroupChat,
   setWalletBalance,
 } from '../services/dev/index.js';
-import type { MockAIClient } from '../services/ai/index.js';
 import {
   verificationEmail,
   passwordChangedEmail,
@@ -222,13 +225,84 @@ export const devRoute = new Hono<AppEnv>()
     const { modelId } = c.req.valid('json');
     const aiClient = c.get('aiClient');
     if (!aiClient.isMock) {
-      return c.json({ success: false, error: 'fail-model only works with mock client' }, 400);
+      return c.json(
+        createErrorResponse(ERROR_CODE_INVALID_OPERATION, {
+          reason: 'fail-model only works with mock client',
+        }),
+        400
+      );
     }
-    const mockClient = aiClient as MockAIClient;
+    // Discriminated union narrows: `aiClient` is now `MockAIClient`.
     if (modelId) {
-      mockClient.addFailingModel(modelId);
+      aiClient.addFailingModel(modelId);
     } else {
-      mockClient.clearFailingModels();
+      aiClient.clearFailingModels();
     }
     return c.json({ success: true });
-  });
+  })
+  // Configures the model id that the mock classifier resolves to. Used by the
+  // smart-model E2E tests to drive deterministic resolution per scenario.
+  .post(
+    '/classifier-resolution',
+    zValidator('json', z.object({ modelId: z.string().min(1) })),
+    (c) => {
+      const { modelId } = c.req.valid('json');
+      const aiClient = c.get('aiClient');
+      if (!aiClient.isMock) {
+        return c.json(
+          createErrorResponse(ERROR_CODE_INVALID_OPERATION, {
+            reason: 'classifier-resolution only works with mock client',
+          }),
+          400
+        );
+      }
+      aiClient.setClassifierResolution(modelId);
+      return c.json({ success: true });
+    }
+  )
+  // Toggles classifier failure on the mock AI client. Setting `enabled: true`
+  // makes the next classifier call reject; `enabled: false` clears the failure.
+  .post('/classifier-failure', zValidator('json', z.object({ enabled: z.boolean() })), (c) => {
+    const { enabled } = c.req.valid('json');
+    const aiClient = c.get('aiClient');
+    if (!aiClient.isMock) {
+      return c.json(
+        createErrorResponse(ERROR_CODE_INVALID_OPERATION, {
+          reason: 'classifier-failure only works with mock client',
+        }),
+        400
+      );
+    }
+    aiClient.setClassifierFailure(enabled ? new Error('Classifier unavailable (test)') : null);
+    return c.json({ success: true });
+  })
+  // Counts llm_completions rows for a given conversation. Used by smart-model
+  // E2E tests to assert that BOTH classifier + inference completions persisted
+  // (= 2 rows for a single Smart Model send).
+  .get(
+    '/llm-completions-count/:conversationId',
+    zValidator('param', z.object({ conversationId: z.string().min(1) })),
+    async (c) => {
+      const db = c.get('db');
+      const { conversationId } = c.req.valid('param');
+      const [row] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(llmCompletions)
+        .innerJoin(usageRecords, eq(usageRecords.id, llmCompletions.usageRecordId))
+        .innerJoin(messages, eq(messages.id, usageRecords.sourceId))
+        .where(eq(messages.conversationId, conversationId));
+      return c.json({ count: row?.count ?? 0 });
+    }
+  )
+  // Revokes a single message share by deleting the row from `shared_messages`.
+  // Used by E2E to assert that subsequent /api/shares/:id calls return 404.
+  .post(
+    '/revoke-message-share',
+    zValidator('json', z.object({ shareId: z.string().min(1) })),
+    async (c) => {
+      const db = c.get('db');
+      const { shareId } = c.req.valid('json');
+      const result = await db.delete(sharedMessages).where(eq(sharedMessages.id, shareId));
+      return c.json({ success: true, rowsAffected: result.rowCount ?? 0 });
+    }
+  );

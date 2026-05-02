@@ -9,6 +9,7 @@ import {
   ERROR_CODE_AUTHENTICATED_ON_TRIAL,
   ERROR_CODE_TRIAL_MESSAGE_TOO_EXPENSIVE,
   ERROR_CODE_STREAM_ERROR,
+  ERROR_CODE_FEATURE_REQUIRES_AUTH,
   calculateBudget,
   resolveBilling,
   getModelPricing,
@@ -23,7 +24,9 @@ import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { createSSEEventWriter } from '../lib/stream-handler.js';
 import { lookupModelPricing } from '../lib/stream-pipeline.js';
+import { textStrategy } from '../lib/modality-strategies.js';
 import { hashIp, getClientIp } from '../lib/client-ip.js';
+import { rateLimitByIp } from '../middleware/rate-limit.js';
 import type { Context } from 'hono';
 
 interface TrialMessage {
@@ -200,14 +203,23 @@ const messageSchema = z.object({
 const trialStreamRequestSchema = z.object({
   messages: z.array(messageSchema).min(1),
   model: z.string(),
+  webSearchEnabled: z.boolean().optional(),
 });
 
 export const trialChatRoute = new Hono<AppEnv>().post(
   '/stream',
+  rateLimitByIp('trialChatStreamIpRateLimit'),
   zValidator('json', trialStreamRequestSchema),
   async (c) => {
-    const { messages, model } = c.req.valid('json');
+    const { messages, model, webSearchEnabled } = c.req.valid('json');
     const aiClient = c.get('aiClient');
+
+    // Defense-in-depth: trial users have no reserved budget for the search
+    // tool cap, so reject hand-crafted requests that try to enable it. The
+    // frontend already gates this for trial users.
+    if (webSearchEnabled === true) {
+      return c.json(createErrorResponse(ERROR_CODE_FEATURE_REQUIRES_AUTH), 403);
+    }
 
     const validation = await validateTrialRequest(c, messages, model);
     if (!validation.success) {
@@ -235,16 +247,17 @@ export const trialChatRoute = new Hono<AppEnv>().post(
       let streamError: Error | null = null;
 
       try {
-        const inferenceStream = aiClient.stream({
-          modality: 'text',
-          model,
-          messages: aiMessages,
-          ...(safeMaxTokens === undefined ? {} : { maxOutputTokens: safeMaxTokens }),
-        });
+        const inferenceStream = aiClient.stream(
+          textStrategy.buildRequest({
+            modelId: model,
+            messages: aiMessages,
+            ...(safeMaxTokens !== undefined && { maxOutputTokens: safeMaxTokens }),
+          })
+        );
 
         for await (const event of inferenceStream) {
           if (event.kind === 'text-delta' && event.content.length > 0) {
-            await writer.writeToken(event.content);
+            await writer.writeModelToken({ modelId: model, content: event.content });
           }
         }
       } catch (error) {

@@ -31,6 +31,7 @@ import {
   generateKeyPair,
   openMessageEnvelope,
   decryptTextWithContentKey,
+  type WrappedContentKey,
 } from '@hushbox/crypto';
 import { saveChatTurn, saveUserOnlyMessage } from './message-persistence.js';
 
@@ -55,7 +56,7 @@ function decryptMessageText(
   wrappedContentKey: Uint8Array,
   encryptedBlob: Uint8Array
 ): string {
-  const contentKey = openMessageEnvelope(epochPrivateKey, wrappedContentKey);
+  const contentKey = openMessageEnvelope(epochPrivateKey, wrappedContentKey as WrappedContentKey);
   return decryptTextWithContentKey(contentKey, encryptedBlob);
 }
 

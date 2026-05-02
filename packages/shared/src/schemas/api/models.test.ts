@@ -444,3 +444,211 @@ describe('Model type', () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe('modelSchema modality-specific validation', () => {
+  // Refine guard rails — each modality has its own pricing field. Mismatches
+  // are bugs (e.g., a text model accidentally getting per-image pricing from
+  // the gateway) and the schema must catch them before the bad data leaks
+  // into the UI or billing pipeline.
+
+  it('rejects an image model that lacks pricePerImage > 0', () => {
+    const result = modelSchema.safeParse({
+      id: 'img/x',
+      name: 'X',
+      provider: 'Provider',
+      modality: 'image',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'image with no per-image price',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an image model with per-token pricing set', () => {
+    const result = modelSchema.safeParse({
+      id: 'img/x',
+      name: 'X',
+      provider: 'Provider',
+      modality: 'image',
+      contextLength: 0,
+      // image models must not carry token pricing — that's a text-modality field
+      pricePerInputToken: 0.000_01,
+      pricePerOutputToken: 0,
+      pricePerImage: 0.04,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'image with token pricing',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a video model with no pricePerSecondByResolution entries', () => {
+    const result = modelSchema.safeParse({
+      id: 'vid/x',
+      name: 'X',
+      provider: 'Provider',
+      modality: 'video',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'video missing per-second-by-resolution',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a video model with per-image pricing set', () => {
+    const result = modelSchema.safeParse({
+      id: 'vid/x',
+      name: 'X',
+      provider: 'Provider',
+      modality: 'video',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      // video must not carry image pricing
+      pricePerImage: 0.04,
+      pricePerSecondByResolution: { '720p': 0.4 },
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'video with image pricing',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an audio model that lacks pricePerSecond > 0', () => {
+    const result = modelSchema.safeParse({
+      id: 'aud/x',
+      name: 'X',
+      provider: 'Provider',
+      modality: 'audio',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'audio with no per-second price',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an audio model with pricePerSecondByResolution entries', () => {
+    const result = modelSchema.safeParse({
+      id: 'aud/x',
+      name: 'X',
+      provider: 'Provider',
+      modality: 'audio',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      // audio is flat per-second, not per-resolution
+      pricePerSecondByResolution: { '720p': 0.4 },
+      pricePerSecond: 0.015,
+      capabilities: [],
+      description: 'audio with per-resolution pricing',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a text model with pricePerImage set', () => {
+    const result = modelSchema.safeParse({
+      id: 'txt/x',
+      name: 'X',
+      provider: 'Provider',
+      modality: 'text',
+      contextLength: 8192,
+      pricePerInputToken: 0.000_01,
+      pricePerOutputToken: 0.000_03,
+      pricePerImage: 0.04,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'text with per-image pricing',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a text model with pricePerSecond set', () => {
+    const result = modelSchema.safeParse({
+      id: 'txt/x',
+      name: 'X',
+      provider: 'Provider',
+      modality: 'text',
+      contextLength: 8192,
+      pricePerInputToken: 0.000_01,
+      pricePerOutputToken: 0.000_03,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0.015,
+      capabilities: [],
+      description: 'text with per-second pricing',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts a valid image model', () => {
+    const result = modelSchema.safeParse({
+      id: 'img/imagen-4',
+      name: 'Imagen 4',
+      provider: 'Google',
+      modality: 'image',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0.04,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'High-quality image generation',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a valid video model', () => {
+    const result = modelSchema.safeParse({
+      id: 'vid/veo',
+      name: 'Veo 3',
+      provider: 'Google',
+      modality: 'video',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: { '720p': 0.4, '1080p': 0.4 },
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'Video generation',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a valid audio model', () => {
+    const result = modelSchema.safeParse({
+      id: 'aud/tts-1',
+      name: 'TTS-1',
+      provider: 'OpenAI',
+      modality: 'audio',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0.015,
+      capabilities: [],
+      description: 'Text-to-speech audio',
+    });
+    expect(result.success).toBe(true);
+  });
+});

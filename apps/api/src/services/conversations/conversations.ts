@@ -9,6 +9,7 @@ import {
   conversationMembers,
   users,
   type Database,
+  type DatabaseClient,
   type Conversation,
   type Message,
   type ContentItem,
@@ -52,7 +53,7 @@ function groupContentItemsByMessage(items: ContentItem[]): Map<string, ContentIt
 }
 
 export async function fetchMessagesWithContent(
-  db: Database,
+  db: DatabaseClient,
   conversationId: string,
   visibleFromEpoch?: number
 ): Promise<MessageWithContent[]> {
@@ -304,10 +305,7 @@ export async function createOrGetConversation(
 
     if (!isNew) {
       // Existing conversation - fetch all messages with their content items
-      const existingMessages = await fetchMessagesWithContent(
-        tx as unknown as Database,
-        conversation.id
-      );
+      const existingMessages = await fetchMessagesWithContent(tx, conversation.id);
 
       return { conversation, messages: existingMessages, isNew: false };
     }

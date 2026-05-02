@@ -5,11 +5,7 @@
  */
 
 import type { Model, ModelCapability } from '../schemas/api/models.js';
-import {
-  SMART_MODEL_ID,
-  SMART_MODEL_INPUT_PRICE_PER_TOKEN,
-  SMART_MODEL_OUTPUT_PRICE_PER_TOKEN,
-} from '../constants.js';
+import { SMART_MODEL_ID } from '../constants.js';
 import { parseTokenPrice } from '../pricing.js';
 
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
@@ -161,11 +157,21 @@ function processTextModels(raws: RawModel[]): TextProcessingResult {
  * Synthetic Smart Model entry with price ranges derived from the text pool.
  * The Smart Model is not a gateway model — it's a virtual entry the UI can
  * select; the backend resolves the actual model per-message.
+ *
+ * Headline `pricePerInputToken` / `pricePerOutputToken` track the cheapest
+ * model in the pool so cost-aware UI surfaces (budget bars, cheapest-eligible
+ * reservation) reflect the real lower bound. Caller MUST guarantee the pool
+ * is non-empty (gated at `processModels`'s `smartPrefix` construction).
  */
 function buildSmartModelEntry(pool: RawModel[]): Model {
   const inputPrices = pool.map((m) => parseTokenPrice(m.pricing.prompt));
   const outputPrices = pool.map((m) => parseTokenPrice(m.pricing.completion));
   const contexts = pool.map((m) => m.context_length);
+
+  const minInput = Math.min(...inputPrices);
+  const minOutput = Math.min(...outputPrices);
+  const maxInput = Math.max(...inputPrices);
+  const maxOutput = Math.max(...outputPrices);
 
   return {
     id: SMART_MODEL_ID,
@@ -174,18 +180,18 @@ function buildSmartModelEntry(pool: RawModel[]): Model {
     provider: 'HushBox',
     modality: 'text',
     contextLength: Math.max(...contexts),
-    pricePerInputToken: SMART_MODEL_INPUT_PRICE_PER_TOKEN,
-    pricePerOutputToken: SMART_MODEL_OUTPUT_PRICE_PER_TOKEN,
+    pricePerInputToken: minInput,
+    pricePerOutputToken: minOutput,
     pricePerImage: 0,
     pricePerSecondByResolution: {},
     pricePerSecond: 0,
     capabilities: [],
     supportedParameters: [],
     isSmartModel: true,
-    minPricePerInputToken: Math.min(...inputPrices),
-    minPricePerOutputToken: Math.min(...outputPrices),
-    maxPricePerInputToken: Math.max(...inputPrices),
-    maxPricePerOutputToken: Math.max(...outputPrices),
+    minPricePerInputToken: minInput,
+    minPricePerOutputToken: minOutput,
+    maxPricePerInputToken: maxInput,
+    maxPricePerOutputToken: maxOutput,
   };
 }
 

@@ -324,6 +324,9 @@ function toMessageMediaItem(item: DoneContentItemShape): MessageMediaItem | null
     ...(item.width !== undefined && { width: item.width }),
     ...(item.height !== undefined && { height: item.height }),
     ...(item.durationMs !== undefined && { durationMs: item.durationMs }),
+    // Forward the SSE-provided presigned URL so `MediaContentItem` can skip
+    // the `/api/media/:id/download-url` round-trip for just-generated media.
+    ...(item.downloadUrl !== undefined && { downloadUrl: item.downloadUrl }),
   };
 }
 

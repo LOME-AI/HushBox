@@ -1,8 +1,15 @@
-import { streamText, generateImage, experimental_generateVideo } from 'ai';
+import {
+  streamText,
+  generateImage,
+  experimental_generateVideo,
+  gateway as gatewayTools,
+  stepCountIs,
+} from 'ai';
 import { createGateway } from '@ai-sdk/gateway';
+import { z } from 'zod';
 import { fetchModels, isZdrModel } from '@hushbox/shared/models';
 import type { RawModel } from '@hushbox/shared/models';
-import { parseTokenPrice } from '@hushbox/shared';
+import { parseTokenPrice, MAX_SEARCH_TOOL_CALLS, assertNever } from '@hushbox/shared';
 import {
   recordServiceEvidence,
   SERVICE_NAMES,
@@ -102,20 +109,35 @@ const ZDR_PROVIDER_OPTIONS = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function extractGatewayMeta(
-  metadata: Record<string, Record<string, unknown>> | undefined
-): Record<string, unknown> | undefined {
-  if (metadata === undefined) return undefined;
-  return metadata['gateway'];
+/**
+ * Provider-metadata Zod schema for the `gateway` namespace. The AI Gateway
+ * docs declare `providerMetadata.gateway.generationId: string` (used for
+ * `getGenerationInfo({ id })`). We parse defensively so an SDK shape change
+ * yields `undefined` rather than a runtime crash.
+ */
+const gatewayProviderMetaSchema = z.looseObject({
+  gateway: z
+    .looseObject({
+      generationId: z.string().optional(),
+    })
+    .optional(),
+});
+
+function extractGatewayMeta(metadata: unknown): { generationId?: string } | undefined {
+  if (metadata === undefined || metadata === null) return undefined;
+  const parsed = gatewayProviderMetaSchema.safeParse(metadata);
+  if (!parsed.success) return undefined;
+  const inner = parsed.data.gateway;
+  if (inner === undefined) return undefined;
+  return inner.generationId === undefined ? {} : { generationId: inner.generationId };
 }
 
 function buildFinishMetadata(
-  gatewayMeta: Record<string, unknown> | undefined,
+  gatewayMeta: { generationId?: string } | undefined,
   usage?: { inputTokens?: number | null; outputTokens?: number | null }
 ): ProviderMetadata {
-  const generationId = gatewayMeta?.['generationId'];
   const result: ProviderMetadata = {};
-  if (typeof generationId === 'string') result.generationId = generationId;
+  if (gatewayMeta?.generationId !== undefined) result.generationId = gatewayMeta.generationId;
   if (usage) {
     result.usage = {
       ...(usage.inputTokens == null ? {} : { inputTokens: usage.inputTokens }),
@@ -162,33 +184,37 @@ function streamTextRequest(
     return { role: 'user' as const, content };
   });
 
+  const searchTools =
+    request.webSearchEnabled === true
+      ? { perplexitySearch: gatewayTools.tools.perplexitySearch() }
+      : undefined;
+
   const result = streamText({
     model: gateway(request.model),
     ...(systemMessage === undefined
       ? {}
       : { system: typeof systemMessage.content === 'string' ? systemMessage.content : '' }),
     messages: mappedMessages,
-    ...(request.maxOutputTokens === undefined ? {} : { maxTokens: request.maxOutputTokens }),
+    ...(request.maxOutputTokens === undefined ? {} : { maxOutputTokens: request.maxOutputTokens }),
     providerOptions: ZDR_PROVIDER_OPTIONS,
+    ...(searchTools === undefined
+      ? {}
+      : { tools: searchTools, stopWhen: stepCountIs(MAX_SEARCH_TOOL_CALLS) }),
   });
 
   return {
     async *[Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
       for await (const part of result.fullStream) {
-        if (part.type === 'text-delta') {
-          const raw = part as Record<string, unknown>;
-          const text =
-            (raw['textDelta'] as string | undefined) ?? (raw['text'] as string | undefined) ?? '';
-          if (text.length > 0) {
-            yield { kind: 'text-delta', content: text };
-          }
+        if (
+          part.type === 'text-delta' && // v6 TextStreamTextDeltaPart: { type: 'text-delta'; text: string; ... }
+          part.text.length > 0
+        ) {
+          yield { kind: 'text-delta', content: part.text };
         }
       }
 
       const metadata = await result.providerMetadata;
-      const gatewayMeta = extractGatewayMeta(
-        metadata as Record<string, Record<string, unknown>> | undefined
-      );
+      const gatewayMeta = extractGatewayMeta(metadata);
       const usage = await result.totalUsage;
 
       yield {
@@ -223,16 +249,15 @@ function streamImageRequest(
         providerOptions: ZDR_PROVIDER_OPTIONS,
       });
 
-      const image = result.image;
-      const bytes = image.uint8Array;
-      const mimeType = (image as unknown as { mimeType?: string }).mimeType ?? 'image/png';
+      const file = result.images[0];
+      if (file === undefined) throw new Error('Empty image generation result');
+      const bytes = file.uint8Array;
+      const mimeType = file.mediaType;
 
       yield { kind: 'media-start', mediaType: 'image', mimeType };
       yield { kind: 'media-done', bytes, mimeType };
 
-      const imageGatewayMeta = extractGatewayMeta(
-        result.providerMetadata as unknown as Record<string, Record<string, unknown>> | undefined
-      );
+      const imageGatewayMeta = extractGatewayMeta(result.providerMetadata);
       yield { kind: 'finish', providerMetadata: buildFinishMetadata(imageGatewayMeta) };
     },
   };
@@ -249,7 +274,7 @@ function streamVideoRequest(
   return {
     async *[Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
       const result = await experimental_generateVideo({
-        model: gateway.videoModel(request.model),
+        model: gateway.video(request.model),
         prompt: request.prompt,
         ...(request.aspectRatio === undefined
           ? {}
@@ -261,16 +286,15 @@ function streamVideoRequest(
         providerOptions: ZDR_PROVIDER_OPTIONS,
       });
 
-      const video = result.video;
-      const bytes = video.uint8Array;
-      const mimeType = (video as unknown as { mimeType?: string }).mimeType ?? 'video/mp4';
+      const file = result.videos[0];
+      if (file === undefined) throw new Error('Empty video generation result');
+      const bytes = file.uint8Array;
+      const mimeType = file.mediaType;
 
       yield { kind: 'media-start', mediaType: 'video', mimeType };
       yield { kind: 'media-done', bytes, mimeType };
 
-      const videoGatewayMeta = extractGatewayMeta(
-        result.providerMetadata as unknown as Record<string, Record<string, unknown>> | undefined
-      );
+      const videoGatewayMeta = extractGatewayMeta(result.providerMetadata);
       yield { kind: 'finish', providerMetadata: buildFinishMetadata(videoGatewayMeta) };
     },
   };
@@ -370,12 +394,15 @@ export function createRealAIClient(options: CreateRealAIClientOptions): AIClient
         case 'audio': {
           return withEvidenceOnStream(streamAudioRequest(request));
         }
+        default: {
+          return assertNever(request);
+        }
       }
     },
 
     async getGenerationStats(generationId: string): Promise<{ costUsd: number }> {
       const info = await gateway.getGenerationInfo({ id: generationId });
-      const result = { costUsd: (info as { totalCost: number }).totalCost };
+      const result = { costUsd: info.totalCost };
       await recordEvidence();
       return result;
     },

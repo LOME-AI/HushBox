@@ -30,6 +30,7 @@ import {
   generateKeyPair,
   openMessageEnvelope,
   decryptTextWithContentKey,
+  type WrappedContentKey,
 } from '@hushbox/crypto';
 import {
   assignSequenceNumbers,
@@ -239,7 +240,10 @@ describe('message-helpers', () => {
       expect(inserted!.sequenceNumber).toBe(0);
       expect(inserted!.epochNumber).toBe(1);
 
-      const contentKey = openMessageEnvelope(setup.epochPrivateKey, inserted!.wrappedContentKey);
+      const contentKey = openMessageEnvelope(
+        setup.epochPrivateKey,
+        inserted!.wrappedContentKey as WrappedContentKey
+      );
       const item = await fetchFirstContentItem(db, msgId);
       expect(item).toBeDefined();
       expect(item!.contentType).toBe('text');
@@ -494,7 +498,7 @@ describe('message-helpers', () => {
         parentMessageId: msgId,
       });
 
-      await updateForkTip(db, fork.id, newTipId);
+      await updateForkTip(db, fork.id, newTipId, msgId);
 
       const [updatedFork] = await db
         .select()
@@ -508,8 +512,103 @@ describe('message-helpers', () => {
     it('is a no-op when fork does not exist', async () => {
       // updateForkTip uses a WHERE clause — non-matching ID updates zero rows
       await expect(
-        updateForkTip(db, 'nonexistent-fork-id', 'some-msg-id')
+        updateForkTip(db, 'nonexistent-fork-id', 'some-msg-id', null)
       ).resolves.toBeUndefined();
+    });
+
+    it('throws ForkTipConflictError when expected tip does not match', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const msgId = crypto.randomUUID();
+      await insertEnvelopeTextMessage(db, {
+        id: msgId,
+        conversationId: setup.conversation.id,
+        textContent: 'Tip message',
+        epochPublicKey: setup.epoch.epochPublicKey,
+        epochNumber: 1,
+        sequenceNumber: 0,
+        senderType: 'user',
+        senderId: setup.user.id,
+        parentMessageId: null,
+      });
+
+      const forkData = conversationForkFactory.build({
+        conversationId: setup.conversation.id,
+        name: 'Conflict Fork',
+        tipMessageId: msgId,
+      });
+      const [fork] = await db.insert(conversationForks).values(forkData).returning();
+      if (!fork) throw new Error('Failed to create test fork');
+
+      const newTipId = crypto.randomUUID();
+      await insertEnvelopeTextMessage(db, {
+        id: newTipId,
+        conversationId: setup.conversation.id,
+        textContent: 'New tip',
+        epochPublicKey: setup.epoch.epochPublicKey,
+        epochNumber: 1,
+        sequenceNumber: 1,
+        senderType: 'ai',
+        modelName: 'test-model',
+        parentMessageId: msgId,
+      });
+
+      // Stale expected tip (null while actual is msgId) should refuse the update.
+      await expect(updateForkTip(db, fork.id, newTipId, null)).rejects.toThrow(/fork tip/i);
+
+      const [unchanged] = await db
+        .select()
+        .from(conversationForks)
+        .where(eq(conversationForks.id, fork.id));
+      expect(unchanged!.tipMessageId).toBe(msgId);
+    });
+
+    it('updates atomically when expected tip matches', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const msgId = crypto.randomUUID();
+      await insertEnvelopeTextMessage(db, {
+        id: msgId,
+        conversationId: setup.conversation.id,
+        textContent: 'Tip message',
+        epochPublicKey: setup.epoch.epochPublicKey,
+        epochNumber: 1,
+        sequenceNumber: 0,
+        senderType: 'user',
+        senderId: setup.user.id,
+        parentMessageId: null,
+      });
+
+      const forkData = conversationForkFactory.build({
+        conversationId: setup.conversation.id,
+        name: 'Atomic Fork',
+        tipMessageId: msgId,
+      });
+      const [fork] = await db.insert(conversationForks).values(forkData).returning();
+      if (!fork) throw new Error('Failed to create test fork');
+
+      const newTipId = crypto.randomUUID();
+      await insertEnvelopeTextMessage(db, {
+        id: newTipId,
+        conversationId: setup.conversation.id,
+        textContent: 'New tip atomic',
+        epochPublicKey: setup.epoch.epochPublicKey,
+        epochNumber: 1,
+        sequenceNumber: 1,
+        senderType: 'ai',
+        modelName: 'test-model',
+        parentMessageId: msgId,
+      });
+
+      await updateForkTip(db, fork.id, newTipId, msgId);
+
+      const [updated] = await db
+        .select()
+        .from(conversationForks)
+        .where(eq(conversationForks.id, fork.id));
+      expect(updated!.tipMessageId).toBe(newTipId);
     });
   });
 

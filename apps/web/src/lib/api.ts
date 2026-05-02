@@ -1,4 +1,4 @@
-import { frontendEnvSchema } from '@hushbox/shared';
+import { frontendEnvSchema, type ContentItemResponse } from '@hushbox/shared';
 
 const env = frontendEnvSchema.parse({
   VITE_API_URL: import.meta.env['VITE_API_URL'] as unknown,
@@ -70,16 +70,32 @@ export interface Message {
   mediaItems?: MessageMediaItem[];
 }
 
-export interface MessageMediaItem {
-  id: string;
+/**
+ * Display-shape for media content items attached to a message.
+ *
+ * Derived from the shared `contentItemResponseSchema` so the wire/display
+ * shapes never drift. We narrow `contentType` to non-text media, mark the
+ * media-only fields as required (the shared schema makes them nullable for
+ * text items, but the UI never receives those here), and add `downloadUrl`
+ * which is forwarded from the SSE `done` event for just-generated media.
+ */
+export type MessageMediaItem = Pick<ContentItemResponse, 'id' | 'position'> & {
   contentType: 'image' | 'audio' | 'video';
-  position: number;
   mimeType: string;
   sizeBytes: number;
   width?: number | null;
   height?: number | null;
   durationMs?: number | null;
-}
+  /**
+   * Pre-fetched presigned GET URL forwarded from the SSE `done` event for
+   * media items generated in the current session. Lets the consumer skip
+   * `useMediaDownloadUrl()` for the common case (just-generated media), saving
+   * a network round-trip immediately after the assistant message lands.
+   * Re-fetched messages from the API don't carry this — the URL is only valid
+   * for `MEDIA_DOWNLOAD_URL_TTL_SECONDS`.
+   */
+  downloadUrl?: string;
+};
 
 export {
   type ConversationResponse as Conversation,

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { redirect } from '@tanstack/react-router';
+import { SMART_MODEL_ID } from '@hushbox/shared';
 import {
   useAuthStore,
   useSession,
@@ -1535,7 +1536,7 @@ describe('auth', () => {
 
       const { selections } = useModelStore.getState();
       expect(selections.text).toHaveLength(1);
-      expect(selections.text[0]?.id).toBe('model-a');
+      expect(selections.text[0]?.id).toBe(SMART_MODEL_ID);
       expect(selections.image).toEqual([]);
       expect(selections.video).toEqual([]);
     });

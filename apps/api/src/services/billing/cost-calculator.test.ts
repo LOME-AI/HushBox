@@ -1,6 +1,22 @@
 import { describe, it, expect, vi } from 'vitest';
-import { applyFees, type PreInferenceBilling } from '@hushbox/shared';
-import { calculateMessageCost, calculateMessageCostWithStages } from './cost-calculator.js';
+import { applyFees, STORAGE_COST_PER_CHARACTER, type PreInferenceBilling } from '@hushbox/shared';
+
+const recordEvidenceMock = vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve());
+vi.mock('@hushbox/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/db')>();
+  return {
+    ...actual,
+    recordServiceEvidence: recordEvidenceMock,
+  };
+});
+
+const {
+  calculateMessageCost,
+  calculateMessageCostWithStages,
+  recordBillingMismatchIfExceeded,
+  BILLING_MISMATCH_THRESHOLD_RATIO,
+} = await import('./cost-calculator.js');
+const { SERVICE_NAMES } = await import('@hushbox/db');
 import type { AIClient } from '../ai/index.js';
 
 function makeMockAIClient(costUsd: number): AIClient {
@@ -11,6 +27,10 @@ function makeMockAIClient(costUsd: number): AIClient {
     stream: vi.fn(),
     getGenerationStats: vi.fn().mockResolvedValue({ costUsd }),
   } as unknown as AIClient;
+}
+
+function storageFee(inputContent: string, outputContent: string): number {
+  return (inputContent.length + outputContent.length) * STORAGE_COST_PER_CHARACTER;
 }
 
 describe('calculateMessageCost', () => {
@@ -73,6 +93,26 @@ describe('calculateMessageCost', () => {
     });
 
     expect(aiClient.getGenerationStats).toHaveBeenCalledWith('gen-abc-xyz');
+  });
+
+  it('does not double-count web search cost — gateway totalCost already includes search', async () => {
+    // Gateway returns 0.10 (which already bundles any search calls). The
+    // calculator must not add another search reservation on top — it should
+    // be exactly applyFees(0.10) plus the storage fee for the message bytes.
+    const gatewayCost = 0.1;
+    const aiClient = makeMockAIClient(gatewayCost);
+    const inputContent = 'hi';
+    const outputContent = 'world';
+
+    const result = await calculateMessageCost({
+      aiClient,
+      generationId: 'gen-search-1',
+      inputContent,
+      outputContent,
+    });
+
+    const expected = applyFees(gatewayCost) + storageFee(inputContent, outputContent);
+    expect(result).toBeCloseTo(expected, 10);
   });
 });
 
@@ -226,5 +266,86 @@ describe('calculateMessageCostWithStages', () => {
     });
     // Parallel: all starts come before any ends — even though main is slowest.
     expect(callOrder.slice(0, 3).every((s) => s.startsWith('start:'))).toBe(true);
+  });
+});
+
+describe('recordBillingMismatchIfExceeded', () => {
+  const fakeDb = { __fake: 'db' } as unknown as import('@hushbox/db').Database;
+
+  it('exposes a sensible default threshold', () => {
+    // Threshold is a fractional ratio (e.g. 0.5 == 50% deviation tolerated).
+    expect(BILLING_MISMATCH_THRESHOLD_RATIO).toBeGreaterThan(0);
+    expect(BILLING_MISMATCH_THRESHOLD_RATIO).toBeLessThan(1);
+  });
+
+  it('records evidence when actual exceeds estimate by more than the threshold', async () => {
+    recordEvidenceMock.mockClear();
+    await recordBillingMismatchIfExceeded({
+      estimateUsd: 0.01,
+      actualUsd: 0.02, // +100% deviation
+      evidence: { db: fakeDb, isCI: true },
+    });
+
+    expect(recordEvidenceMock).toHaveBeenCalledTimes(1);
+    expect(recordEvidenceMock).toHaveBeenCalledWith(
+      fakeDb,
+      true,
+      SERVICE_NAMES.BILLING_MISMATCH,
+      expect.objectContaining({
+        estimateUsd: 0.01,
+        actualUsd: 0.02,
+      })
+    );
+  });
+
+  it('records evidence when actual undershoots estimate by more than the threshold', async () => {
+    recordEvidenceMock.mockClear();
+    await recordBillingMismatchIfExceeded({
+      estimateUsd: 0.1,
+      actualUsd: 0.01, // 90% under
+      evidence: { db: fakeDb, isCI: true },
+    });
+    expect(recordEvidenceMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not record evidence when within the threshold', async () => {
+    recordEvidenceMock.mockClear();
+    await recordBillingMismatchIfExceeded({
+      estimateUsd: 0.1,
+      actualUsd: 0.11, // +10% deviation
+      evidence: { db: fakeDb, isCI: true },
+    });
+    expect(recordEvidenceMock).not.toHaveBeenCalled();
+  });
+
+  it('does not record evidence when no evidence config is supplied', async () => {
+    recordEvidenceMock.mockClear();
+    await recordBillingMismatchIfExceeded({
+      estimateUsd: 0.01,
+      actualUsd: 1,
+    });
+    expect(recordEvidenceMock).not.toHaveBeenCalled();
+  });
+
+  it('records when actual is non-zero against a zero estimate', async () => {
+    recordEvidenceMock.mockClear();
+    await recordBillingMismatchIfExceeded({
+      estimateUsd: 0,
+      actualUsd: 0.5,
+      evidence: { db: fakeDb, isCI: true },
+    });
+    // A non-zero actual against a zero estimate is, by any sane definition,
+    // an unbounded deviation — record it.
+    expect(recordEvidenceMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not record when both estimate and actual are zero', async () => {
+    recordEvidenceMock.mockClear();
+    await recordBillingMismatchIfExceeded({
+      estimateUsd: 0,
+      actualUsd: 0,
+      evidence: { db: fakeDb, isCI: true },
+    });
+    expect(recordEvidenceMock).not.toHaveBeenCalled();
   });
 });

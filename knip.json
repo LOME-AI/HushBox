@@ -39,7 +39,12 @@
       "ignoreDependencies": ["zod"]
     }
   },
-  "ignoreDependencies": ["eslint-formatter-summary", "github-markdown-css", "tailwindcss", "tw-animate-css"],
+  "ignoreDependencies": [
+    "eslint-formatter-summary",
+    "github-markdown-css",
+    "tailwindcss",
+    "tw-animate-css"
+  ],
   "ignoreBinaries": ["maestro", "adb", "cap", "wrangler"],
   "ignoreExportsUsedInFile": true
 }

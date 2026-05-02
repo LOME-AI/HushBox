@@ -61,10 +61,12 @@ describe('dev script', () => {
   });
 
   describe('startDocker', () => {
-    it('calls docker compose up with correct arguments', async () => {
+    it('calls docker compose up with correct arguments including minio', async () => {
       await startDocker();
 
-      expect(mockExeca).toHaveBeenCalledWith(
+      // First call: bring up the core services (with --wait) including minio
+      expect(mockExeca).toHaveBeenNthCalledWith(
+        1,
         'docker',
         [
           'compose',
@@ -75,7 +77,22 @@ describe('dev script', () => {
           'neon-proxy',
           'redis',
           'serverless-redis-http',
+          'minio',
         ],
+        expect.objectContaining({
+          stdio: 'inherit',
+        })
+      );
+    });
+
+    it('runs minio-setup after the core services are ready', async () => {
+      await startDocker();
+
+      // Second call: minio-setup runs after the wait completes
+      expect(mockExeca).toHaveBeenNthCalledWith(
+        2,
+        'docker',
+        ['compose', 'up', '-d', 'minio-setup'],
         expect.objectContaining({
           stdio: 'inherit',
         })
@@ -160,13 +177,27 @@ describe('dev script', () => {
         return Promise.resolve({ orphaned: [], removed: [], failed: [] });
       });
 
+      // Distinguish core compose-up from minio-setup so the order of
+      // dependent steps stays asserted as before, even though startDocker
+      // now issues two `docker compose up` calls.
+      const labelDocker = (args: readonly string[] | undefined): string =>
+        Array.isArray(args) && args.includes('minio-setup') ? 'minio-setup' : 'docker';
+      const labelPnpm = (args: readonly string[] | undefined): string => {
+        if (!Array.isArray(args)) return '';
+        if (args.includes('db:migrate')) return 'migrations';
+        if (args.includes('db:studio')) return 'studio';
+        return '';
+      };
+      const labelExecaCall = (cmd: string | URL, args: readonly string[] | undefined): string => {
+        if (cmd === 'docker') return labelDocker(args);
+        if (cmd === 'pnpm') return labelPnpm(args);
+        if (cmd === 'turbo') return 'turbo';
+        return '';
+      };
+
       mockExeca.mockImplementation(((cmd: string | URL, args?: readonly string[]) => {
-        if (cmd === 'docker') callOrder.push('docker');
-        if (cmd === 'pnpm' && Array.isArray(args) && args.includes('db:migrate'))
-          callOrder.push('migrations');
-        if (cmd === 'pnpm' && Array.isArray(args) && args.includes('db:studio'))
-          callOrder.push('studio');
-        if (cmd === 'turbo') callOrder.push('turbo');
+        const label = labelExecaCall(cmd, args);
+        if (label !== '') callOrder.push(label);
         return Promise.resolve({} as never);
       }) as never);
 
@@ -177,7 +208,15 @@ describe('dev script', () => {
 
       await main();
 
-      expect(callOrder).toEqual(['cleanup', 'docker', 'migrations', 'studio', 'seed', 'turbo']);
+      expect(callOrder).toEqual([
+        'cleanup',
+        'docker',
+        'minio-setup',
+        'migrations',
+        'studio',
+        'seed',
+        'turbo',
+      ]);
     });
 
     it('calls cleanupOrphanedProjects with dryRun false', async () => {
@@ -222,8 +261,9 @@ describe('dev script', () => {
 
       await expect(main()).rejects.toThrow('Migration failed');
 
-      // Should have called docker and migrations, but not turbo
-      expect(callCount).toBe(2);
+      // Should have called docker (core), minio-setup, then migrations (which
+      // rejects), but not turbo. That's three execa calls before the error.
+      expect(callCount).toBe(3);
     });
   });
 });

@@ -181,6 +181,7 @@ function VideoConfigControls(): React.JSX.Element {
             setVideoConfig({ durationSeconds: Number(e.target.value) });
           }}
           aria-label="Video duration in seconds"
+          aria-valuetext={`${String(videoConfig.durationSeconds)} seconds`}
           className="accent-primary h-1 w-full"
         />
       </div>
@@ -236,6 +237,7 @@ function AudioConfigControls(): React.JSX.Element {
             setAudioConfig({ maxDurationSeconds: Number(e.target.value) });
           }}
           aria-label="Audio max duration in seconds"
+          aria-valuetext={`${String(audioConfig.maxDurationSeconds)} seconds`}
           className="accent-primary h-1 w-full"
         />
       </div>

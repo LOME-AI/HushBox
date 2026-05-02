@@ -10,6 +10,7 @@ import {
   epochMembers,
   conversationMembers,
   type Database,
+  type DatabaseClient,
 } from '@hushbox/db';
 import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN, type DevPersona } from '@hushbox/shared';
 import { createFirstEpoch, encryptTextForEpoch } from '@hushbox/crypto';
@@ -266,7 +267,7 @@ export async function createDevConversation(
       } else {
         // AI messages: use production helpers directly in a transaction
         await db.transaction(async (tx) => {
-          const txDb = tx as unknown as Database;
+          const txDb = tx;
           const { sequences, currentEpoch } = await assignSequenceNumbers(
             txDb,
             result.conversation.id,
@@ -303,7 +304,7 @@ export async function createDevConversation(
 }
 
 interface InsertGroupChatMessagesParams {
-  txDb: Database;
+  txDb: DatabaseClient;
   conversationId: string;
   epochPublicKey: Uint8Array;
   msgs: { senderEmail?: string; content: string; senderType: 'user' | 'ai' }[];
@@ -461,7 +462,7 @@ export async function createDevGroupChat(
     // Insert messages if provided — one wrap-once envelope per message
     if (params.messages && params.messages.length > 0) {
       await insertGroupChatMessages({
-        txDb: tx as unknown as Database,
+        txDb: tx,
         conversationId,
         epochPublicKey: epochResult.epochPublicKey,
         msgs: params.messages,

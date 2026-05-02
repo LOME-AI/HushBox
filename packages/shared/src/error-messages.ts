@@ -38,6 +38,7 @@ const ERROR_MESSAGES = {
   FORBIDDEN: "You don't have permission to do this.",
   PAYMENT_REQUIRED: 'Payment is required for this action.',
   CONFLICT: 'This action conflicts with the current state. Please refresh and try again.',
+  INVALID_OPERATION: 'This operation is not supported in the current context.',
   EXPIRED: 'This item has expired.',
   SERVICE_UNAVAILABLE: 'This service is temporarily unavailable. Please try again later.',
   BILLING_MISMATCH: 'Billing state has changed. Please retry.',
@@ -97,6 +98,12 @@ const ERROR_MESSAGES = {
   STREAM_ERROR: 'Something went wrong. Please try again or try a different model.',
   BILLING_ERROR: 'Something went wrong saving your message. Your balance was not charged.',
   CHAT_STREAM_FAILED: 'Something went wrong. Please try again or try a different model.',
+  STREAM_TIMEOUT: 'The model stopped responding. Please try again.',
+  CONTENT_POLICY:
+    'The model declined to answer because it considered the request unsafe. Try rephrasing your message.',
+  PROVIDER_BILLING:
+    "The AI provider rejected our credentials. We're investigating; please try again shortly.",
+  NETWORK_ERROR: "We couldn't reach the AI provider. Check your connection and try again.",
   CONTEXT_LENGTH_EXCEEDED:
     'This conversation is too long for the selected model. Try a model with a larger context window.',
   PAYMENT_NOT_FOUND: 'Payment not found.',
@@ -112,6 +119,7 @@ const ERROR_MESSAGES = {
   PREMIUM_REQUIRES_ACCOUNT: 'Premium models require a free account.',
   TRIAL_MESSAGE_TOO_EXPENSIVE: 'This message exceeds trial limits. Sign up for more capacity.',
   AUTHENTICATED_ON_TRIAL: 'Authenticated users should use the main chat.',
+  FEATURE_REQUIRES_AUTH: 'This feature requires a free account. Please sign up to use it.',
   MEMBER_LIMIT_REACHED: 'Conversation has reached the maximum of 100 members.',
   PRIVILEGE_INSUFFICIENT: 'Insufficient privilege for this action.',
   MEMBER_NOT_FOUND: 'Member not found.',
@@ -136,6 +144,8 @@ const ERROR_MESSAGES = {
   TARGET_MESSAGE_NOT_FOUND: 'Target message not found.',
   INVALID_PARENT_MESSAGE: 'Something went wrong saving your message. Please try again.',
   CANNOT_REGENERATE_WHILE_STREAMING: 'Please wait for the current response to finish.',
+  FORK_TIP_CONFLICT: 'Another reply landed at the same time. Please retry.',
+  DUPLICATE_MESSAGE: 'This message was already sent. Refresh to see the latest state.',
 
   // Mobile codes
   UPGRADE_REQUIRED: 'A new version is available. Please update to continue.',
@@ -146,6 +156,7 @@ const ERROR_MESSAGES = {
 
   // Media storage codes
   STORAGE_WRITE_FAILED: "We couldn't save the generated media. Please try again.",
+  MEDIA_TOO_LARGE: 'Generated media is too large to store. Please try a smaller request.',
   STORAGE_READ_FAILED: "We couldn't load this media. Please refresh the page.",
   CONTENT_ITEM_NOT_FOUND: 'Content item not found.',
   CONTENT_ITEM_NOT_MEDIA: 'This content item is not downloadable media.',

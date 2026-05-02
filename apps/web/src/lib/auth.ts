@@ -691,12 +691,9 @@ export async function signOutAndClearCache(): Promise<void> {
   clearStoredAuth();
   clearEpochKeyCache(); // zeros and clears all cached epoch keys
   useAuthStore.getState().clear(); // zeros privateKey, clears state
-  // Reset every modality on sign out so the next user starts clean.
-  const modelStore = useModelStore.getState();
-  modelStore.clearSelection('text');
-  modelStore.clearSelection('image');
-  modelStore.clearSelection('audio');
-  modelStore.clearSelection('video');
+  // Reset every modality and force text active so the trial page never lands
+  // with a non-text modality (which disables every icon for trial users).
+  useModelStore.getState().resetForUnauthenticated();
   queryClient.clear();
   initPromise = null;
 }

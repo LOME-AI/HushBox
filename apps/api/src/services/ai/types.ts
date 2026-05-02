@@ -131,15 +131,23 @@ export interface InferenceStream {
 // Client interfaces
 // ---------------------------------------------------------------------------
 
-export interface AIClient {
-  readonly isMock: boolean;
+/**
+ * Shared methods for any AIClient. Concrete clients narrow `isMock` to a
+ * literal so `if (client.isMock)` is enough for TypeScript to discriminate.
+ */
+export interface AIClientBase {
   listModels(): Promise<ModelInfo[]>;
   getModel(id: string): Promise<ModelInfo>;
   stream(request: InferenceRequest): InferenceStream;
   getGenerationStats(generationId: string): Promise<{ costUsd: number }>;
 }
 
-export interface MockAIClient extends AIClient {
+export interface RealAIClient extends AIClientBase {
+  readonly isMock: false;
+}
+
+export interface MockAIClient extends AIClientBase {
+  readonly isMock: true;
   getRequestHistory(): InferenceRequest[];
   clearHistory(): void;
   addFailingModel(id: string): void;
@@ -157,3 +165,6 @@ export interface MockAIClient extends AIClient {
    */
   setClassifierFailure(error: Error | null): void;
 }
+
+/** Discriminated union — narrows on `client.isMock` without casts. */
+export type AIClient = RealAIClient | MockAIClient;

@@ -66,7 +66,9 @@ export function ModelSelectorButton({
         variant="outline"
         onClick={handleClick}
         disabled={disabled}
-        aria-label="Select model"
+        aria-label={`Select model (current: ${displayText})`}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
         data-testid="model-selector-button"
         className="bg-secondary hover:bg-secondary/80 mx-2 justify-center px-6"
       >

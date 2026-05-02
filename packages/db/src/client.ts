@@ -44,5 +44,13 @@ export type Database = ReturnType<typeof createDb>;
 /**
  * Narrowed type that works for both Database and PgTransaction.
  * Use this for functions called within db.transaction() callbacks.
+ *
+ * Includes `transaction` because Drizzle transactions support nested
+ * `.transaction()` calls (which become savepoints), letting helpers freely
+ * compose without needing to know whether they were handed a top-level
+ * `Database` or an inner transaction.
  */
-export type DatabaseClient = Pick<Database, 'select' | 'insert' | 'update' | 'delete'>;
+export type DatabaseClient = Pick<
+  Database,
+  'select' | 'insert' | 'update' | 'delete' | 'transaction'
+>;

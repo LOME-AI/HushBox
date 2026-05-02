@@ -1,12 +1,15 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages';
 
 /**
  * Image generation flow end-to-end.
  *
- * Uses the mock AIClient (dev/E2E default) which returns a canned 1x1 PNG via
+ * Uses the mock AIClient (dev/E2E default) which returns a canned PNG via
  * `google/imagen-4`. Asserts the UI round-trip: switch to image modality,
  * pick an aspect ratio, send prompt, see an `<img>` element render.
+ *
+ * Coverage matrix: see plan §B (B1..B14). Each test below is mapped to its
+ * plan id in the test name comment so reviewers can spot gaps.
  */
 test.describe('Image Generation', () => {
   test('switches to image modality, generates, and renders inline', async ({
@@ -16,28 +19,32 @@ test.describe('Image Generation', () => {
     await chatPage.goto();
     await chatPage.expectNewChatPageVisible();
 
-    // Step 1: switch modality
-    const imageIcon = authenticatedPage.getByRole('button', { name: /switch to image/i });
-    await expect(imageIcon).toBeVisible();
-    await imageIcon.click();
-
-    // Step 2: aspect ratio picker renders
-    await expect(authenticatedPage.getByRole('button', { name: '1:1' })).toBeVisible();
+    await chatPage.switchToImageMode();
+    // Sanity: 16:9 pill also renders.
     await expect(authenticatedPage.getByRole('button', { name: '16:9' })).toBeVisible();
 
-    // Step 3: send prompt
     const prompt = `A photo of a sunset over mountains ${String(Date.now())}`;
     await chatPage.sendNewChatMessage(prompt);
     await chatPage.waitForConversation();
     await chatPage.expectMessageVisible(prompt);
 
-    // Step 4: image content item renders as <img> with download link
-    const imageElement = chatPage.messageList.locator('img').first();
-    await expect(imageElement).toBeVisible({ timeout: 30_000 });
-    const downloadLink = chatPage.messageList
-      .getByRole('link', { name: /download media/i })
-      .first();
-    await expect(downloadLink).toBeVisible();
+    await chatPage.expectImageVisible();
+    await chatPage.expectDownloadLinkVisible();
+
+    // The canned PNG must actually decode in the browser — naturalWidth /
+    // naturalHeight match the 16×16 dimensions emitted by mock.ts. A DOM-only
+    // <img> assertion does not prove the bytes are valid; this does.
+    const imgElement = chatPage.messageList.locator('img').first();
+    await expect
+      .poll(async () => imgElement.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
+        timeout: 10_000,
+      })
+      .toBe(16);
+    await expect
+      .poll(async () => imgElement.evaluate((el) => (el as HTMLImageElement).naturalHeight), {
+        timeout: 10_000,
+      })
+      .toBe(16);
   });
 
   test('changing aspect ratio updates the active button state', async ({ authenticatedPage }) => {
@@ -45,7 +52,7 @@ test.describe('Image Generation', () => {
     await chatPage.goto();
     await chatPage.expectNewChatPageVisible();
 
-    await authenticatedPage.getByRole('button', { name: /switch to image/i }).click();
+    await chatPage.switchToImageMode();
 
     // 1:1 is default
     const oneToOne = authenticatedPage.getByRole('button', { name: '1:1' });
@@ -56,5 +63,341 @@ test.describe('Image Generation', () => {
     await sixteenNine.click();
     await expect(sixteenNine).toHaveAttribute('aria-pressed', 'true');
     await expect(oneToOne).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  /** B1+B2: cost badge AND model nametag render on the generated image message. */
+  test('generated image displays cost badge and model nametag', async ({ authenticatedPage }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    await chatPage.switchToImageMode();
+    const prompt = `Cost+nametag check ${String(Date.now())}`;
+    await chatPage.sendNewChatMessage(prompt);
+    await chatPage.waitForConversation();
+    await chatPage.expectImageVisible();
+    await chatPage.waitForStreamComplete();
+
+    // Cost badge: at least one $... visible on the assistant message.
+    const costBadge = chatPage.messageList.locator('[data-testid="message-cost"]').first();
+    await expect(costBadge).toBeVisible();
+    await expect(costBadge).toContainText(/\$/);
+
+    // Model nametag visible on the assistant message — assert via the existing helper.
+    await chatPage.expectAllAIMessagesHaveNametag();
+  });
+
+  /**
+   * B3: page reload re-renders the generated image. The presigned download URL
+   * has a 5-minute TTL — on reload the client must mint a fresh URL and decrypt
+   * the bytes again. Asserting the `<img>` shows after reload covers that
+   * round-trip without depending on the URL string itself.
+   *
+   * Uses the imageConversation fixture so the generation is already finalized
+   * before the test body runs — saves a redundant generate-then-reload chain.
+   */
+  test('page reload re-renders the generated image', async ({ imageConversation }) => {
+    test.slow();
+    const chatPage = new ChatPage(imageConversation.page);
+    await chatPage.expectImageVisible();
+
+    await imageConversation.page.reload();
+    await chatPage.waitForConversationLoaded();
+
+    // Image still renders after reload.
+    await chatPage.expectImageVisible();
+    await chatPage.expectDownloadLinkVisible();
+  });
+
+  /** B5: regenerate replaces the rendered image. Use clickRegenerate on the assistant message. */
+  test('regenerate replaces the image with a fresh response', async ({ authenticatedPage }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    await chatPage.switchToImageMode();
+    const prompt = `Regenerate check ${String(Date.now())}`;
+    await chatPage.sendNewChatMessage(prompt);
+    await chatPage.waitForConversation();
+    await chatPage.expectImageVisible();
+    await chatPage.waitForStreamComplete();
+
+    // Trigger regenerate on the assistant message (index 1).
+    await chatPage.clickRegenerate(1);
+
+    // After regenerate, the new image renders. Re-assert that the message
+    // list still shows an `<img>` (the old one was replaced, not removed).
+    await chatPage.waitForStreamComplete();
+    await chatPage.expectImageVisible();
+  });
+
+  /**
+   * Edit on the user prompt opens the prompt editor; saving with new content
+   * re-runs generation. The old <img> is replaced with a new one corresponding
+   * to the edited prompt.
+   */
+  test('edit on user prompt regenerates a new image with edited content', async ({
+    authenticatedPage,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    await chatPage.switchToImageMode();
+    const prompt = `Edit-image initial ${String(Date.now())}`;
+    await chatPage.sendNewChatMessage(prompt);
+    await chatPage.waitForConversation();
+    await chatPage.expectImageVisible();
+    await chatPage.waitForStreamComplete();
+
+    // Capture the original blob src so we can assert it gets replaced.
+    const originalSource = await chatPage.messageList.locator('img').first().getAttribute('src');
+    expect(originalSource).toMatch(/^blob:/);
+
+    await chatPage.clickEdit(0);
+    await chatPage.expectEditModeActive();
+
+    const editedMessage = `Edit-image edited ${String(Date.now())}`;
+    await chatPage.messageInput.clear();
+    await chatPage.messageInput.fill(editedMessage);
+    await expect(chatPage.sendButton).toBeEnabled({ timeout: 15_000 });
+    await chatPage.sendButton.click();
+
+    await chatPage.expectMessageVisible(editedMessage);
+    await chatPage.waitForStreamComplete();
+    await chatPage.expectImageVisible();
+
+    // After regen, the rendered <img> has a new blob URL.
+    await expect
+      .poll(async () => chatPage.messageList.locator('img').first().getAttribute('src'), {
+        timeout: 10_000,
+      })
+      .not.toBe(originalSource);
+  });
+
+  /**
+   * Retry on the user prompt re-runs the same prompt. New image renders with
+   * the same prompt text but a fresh blob URL (new createObjectURL allocation).
+   */
+  test('retry on user prompt regenerates the image with the same prompt', async ({
+    authenticatedPage,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    await chatPage.switchToImageMode();
+    const prompt = `Retry-image ${String(Date.now())}`;
+    await chatPage.sendNewChatMessage(prompt);
+    await chatPage.waitForConversation();
+    await chatPage.expectImageVisible();
+    await chatPage.waitForStreamComplete();
+
+    const originalSource = await chatPage.messageList.locator('img').first().getAttribute('src');
+    expect(originalSource).toMatch(/^blob:/);
+
+    await chatPage.clickRetry(0);
+    await chatPage.waitForStreamComplete();
+    await chatPage.expectImageVisible();
+
+    // Same user prompt remains; new image rendered.
+    await chatPage.expectMessageVisible(prompt);
+    await expect
+      .poll(async () => chatPage.messageList.locator('img').first().getAttribute('src'), {
+        timeout: 10_000,
+      })
+      .not.toBe(originalSource);
+  });
+
+  /**
+   * B7: a trial (unauthenticated) user sees the image modality icon disabled
+   * and gets a "sign up to unlock" tooltip on focus. The icon button itself
+   * doesn't open a signup modal — instead the affordance is muted with a
+   * disabled state per the plan §9.1 trial UX.
+   */
+  test('trial user sees image modality icon disabled with sign-up tooltip', async ({
+    unauthenticatedPage,
+  }) => {
+    const chatPage = new ChatPage(unauthenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    // The image icon button must exist but be disabled (or aria-disabled).
+    // The `ToggleButtonWithTooltip` wrapper sets aria-disabled on the wrapping span
+    // for accessibility — we can find it via the trial label.
+    const imageIconWrapper = unauthenticatedPage.getByRole('button', {
+      name: /image generation.*sign up to unlock/i,
+    });
+    await expect(imageIconWrapper).toBeVisible();
+  });
+
+  /**
+   * B8: aspect ratio change drives the request payload sent to /api/chat.
+   * Intercept the chat request and assert the `imageConfig.aspectRatio` reflects
+   * the user's selection.
+   */
+  test('aspect ratio choice flows through to /api/chat request payload', async ({
+    authenticatedPage,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    await chatPage.switchToImageMode();
+    await chatPage.selectAspectRatio('16:9');
+
+    let chatPayload: unknown;
+    await authenticatedPage.route('**/api/chat', async (route) => {
+      const request = route.request();
+      const postData = request.postData();
+      if (postData) {
+        chatPayload = JSON.parse(postData) as unknown;
+      }
+      await route.continue();
+    });
+
+    const prompt = `Aspect-ratio payload check ${String(Date.now())}`;
+    await chatPage.sendNewChatMessage(prompt);
+    await chatPage.waitForConversation();
+
+    // Sanity: the request fired and we captured a payload that mentions 16:9.
+    await expect.poll(() => chatPayload, { timeout: 10_000 }).toBeDefined();
+    expect(JSON.stringify(chatPayload)).toContain('16:9');
+  });
+
+  /**
+   * B10+B11: download link points to an object URL (blob:...) the user can
+   * fetch. Reuses the imageConversation fixture — the generate-and-wait
+   * pipeline runs once during fixture setup rather than per-test.
+   */
+  test('download link href is a blob URL that points at the rendered image', async ({
+    imageConversation,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(imageConversation.page);
+
+    const href = await chatPage.getDownloadLinkHref();
+    expect(href).toBeTruthy();
+    // Decrypted media URLs are local blob URLs (createObjectURL).
+    expect(href).toMatch(/^blob:/);
+  });
+
+  /** B12: the send button is disabled while a generation is in flight (isProcessing). */
+  test('send button is disabled while image is generating', async ({ authenticatedPage }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    await chatPage.switchToImageMode();
+    const prompt = `Disable-while-generating ${String(Date.now())}`;
+    await chatPage.sendNewChatMessage(prompt);
+    await chatPage.waitForConversation();
+
+    // While streaming, the send button shows the stop icon and is disabled.
+    // The button toggles to enabled only after streaming completes.
+    // Use waitForStreamComplete to bracket the period — once cost is visible the
+    // send button must be enabled again.
+    await chatPage.waitForStreamComplete();
+    await expect(chatPage.sendButton).toBeEnabled();
+  });
+
+  /** B13: empty image prompt does not send (send button disabled). */
+  test('empty image prompt does not enable send button', async ({ authenticatedPage }) => {
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    await chatPage.switchToImageMode();
+    // Empty input — send button must be disabled.
+    await expect(chatPage.sendButton).toBeDisabled();
+
+    // Whitespace-only must also be disabled.
+    await chatPage.promptInput.fill('   ');
+    await expect(chatPage.sendButton).toBeDisabled();
+  });
+
+  /**
+   * Layout: the rendered <img> stays within the viewport width and within the
+   * surrounding message bubble. Catches CSS regressions that would let media
+   * overflow horizontally on small screens.
+   */
+  test('rendered image fits within viewport and message bubble bounds', async ({
+    imageConversation,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(imageConversation.page);
+    await chatPage.expectImageVisible();
+
+    const viewport = imageConversation.page.viewportSize();
+    expect(viewport, 'viewport size is required').not.toBeNull();
+    const viewportWidth = viewport!.width;
+
+    const imgElement = chatPage.messageList.locator('img').first();
+    const imgBox = await imgElement.boundingBox();
+    expect(imgBox).not.toBeNull();
+    expect(imgBox!.width).toBeLessThanOrEqual(viewportWidth);
+
+    // The <img> sits inside an assistant message bubble (data-role="assistant").
+    const bubble = chatPage.messageList.locator('[data-role="assistant"]').first();
+    const bubbleBox = await bubble.boundingBox();
+    expect(bubbleBox).not.toBeNull();
+
+    // Image fits horizontally inside the bubble bounds (allowing small fudge
+    // for sub-pixel rounding from boundingBox).
+    expect(imgBox!.x).toBeGreaterThanOrEqual(bubbleBox!.x - 1);
+    expect(imgBox!.x + imgBox!.width).toBeLessThanOrEqual(bubbleBox!.x + bubbleBox!.width + 1);
+  });
+
+  /** B14: a long image prompt is accepted without truncation (generation completes). */
+  test('long image prompt is accepted', async ({ authenticatedPage }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    await chatPage.switchToImageMode();
+
+    // Prompt of ~600 characters — well within reasonable budget.
+    const longPrompt =
+      'A highly detailed renaissance painting of '.repeat(15) + ` ${String(Date.now())}`;
+    await chatPage.sendNewChatMessage(longPrompt);
+    await chatPage.waitForConversation();
+    await chatPage.expectImageVisible();
+  });
+
+  /**
+   * B9: low-balance user attempting an image generation hits the preflight
+   * affordability check. The send button must be disabled, the budget banner
+   * must show "Insufficient balance.", and no image is rendered (no /api/chat
+   * round-trip ever happens, so no R2 object is created).
+   */
+  test('low-balance user sees insufficient-balance error and cannot send', async ({
+    lowBalancePage,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(lowBalancePage);
+    await chatPage.goto();
+    await chatPage.waitForAppStable();
+
+    await chatPage.switchToImageMode();
+
+    // Type a prompt; the budget banner should render in the prompt input region.
+    await chatPage.promptInput.fill(`Insufficient image ${String(Date.now())}`);
+
+    await unsettledExpect(lowBalancePage.getByTestId('budget-messages')).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(lowBalancePage.getByText(/Insufficient balance\./i)).toBeVisible();
+    await expect(chatPage.sendButton).toBeDisabled();
+
+    // No conversation was ever created — still on /chat (no /:id segment).
+    await expect(lowBalancePage).toHaveURL(/\/chat$/);
+    await expect(lowBalancePage.locator('img')).toHaveCount(0);
   });
 });

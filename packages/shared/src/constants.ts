@@ -41,19 +41,6 @@ export const VALUE_VIDEO_MODEL_ID = 'google/veo-3.1-fast-generate-001' satisfies
  */
 export const SMART_MODEL_ID = 'smart-model';
 
-/**
- * Client-only input price estimation for the Smart Model display.
- * Used only as a headline price on the model selector; backend computes
- * actual pricing dynamically from the allowed models list.
- */
-export const SMART_MODEL_INPUT_PRICE_PER_TOKEN = 0.000_000_039;
-
-/**
- * Client-only output price estimation for the Smart Model display.
- * See SMART_MODEL_INPUT_PRICE_PER_TOKEN.
- */
-export const SMART_MODEL_OUTPUT_PRICE_PER_TOKEN = 0.000_000_19;
-
 /** HushBox's profit margin on AI model usage (5%) */
 export const HUSHBOX_FEE_RATE = 0.05;
 
@@ -139,6 +126,9 @@ export const ESTIMATED_IMAGE_BYTES = 8_000_000;
  * to fetch and decrypt media after unwrapping the content key.
  */
 export const MEDIA_DOWNLOAD_URL_TTL_SECONDS = 300;
+
+/** Maximum bytes for a single-PUT R2 upload via the Worker. Multipart is not supported. */
+export const MAX_MEDIA_OBJECT_BYTES = 250_000_000; // 250 MB
 
 // ============================================================================
 // Video Generation Constants
@@ -274,8 +264,40 @@ export const MAX_CONVERSATION_MEMBERS = 100;
 /** Maximum number of forks allowed per conversation */
 export const MAX_FORKS_PER_CONVERSATION = 5;
 
+/**
+ * Maximum number of Perplexity Search tool calls allowed per text streaming
+ * request. Used by the AI SDK's `stopWhen` cap and by `worstCaseSearchCost()`
+ * to size the pre-flight reservation.
+ */
+export const MAX_SEARCH_TOOL_CALLS = 10;
+
+/**
+ * Conservative pre-flight cost per Perplexity Search tool call in USD. Real
+ * billing comes from the gateway's `totalCost`, which already includes search;
+ * this constant only sizes the worst-case reservation up front.
+ */
+export const SEARCH_COST_PER_CALL = 0.005;
+
 /** Maximum number of models that can be selected simultaneously for multi-model chat */
 export const MAX_SELECTED_MODELS = 5;
+
+/**
+ * Maximum gap between SSE events before the client gives up on a chat stream.
+ * Surfaces a server crash mid-stream so the UI can clear "streaming" state.
+ * No reconnection is attempted — the failure is reported and the user retries.
+ */
+export const STREAM_TIMEOUT_MS = 90_000;
+
+/**
+ * Cadence at which the media pipeline writes SSE keep-alive comment lines
+ * (`:keep-alive\n\n`). Per the SSE spec, lines starting with `:` are comments
+ * and are discarded by EventSource consumers; we use them so a slow video
+ * generation (>90s with no events between `model:media:start` and `done`)
+ * still resets {@link STREAM_TIMEOUT_MS} on the client and avoids a spurious
+ * timeout. Keep strictly below `STREAM_TIMEOUT_MS / 2` so two consecutive
+ * heartbeats never miss the timeout window.
+ */
+export const KEEPALIVE_INTERVAL_MS = 30_000;
 
 // ============================================================================
 // Legal Constants

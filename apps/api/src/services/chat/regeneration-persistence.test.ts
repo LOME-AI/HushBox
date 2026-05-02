@@ -26,6 +26,7 @@ import {
   generateKeyPair,
   openMessageEnvelope,
   decryptTextWithContentKey,
+  type WrappedContentKey,
 } from '@hushbox/crypto';
 import { saveRegeneratedResponse, saveEditedChatTurn } from './regeneration-persistence.js';
 
@@ -209,7 +210,10 @@ describe('saveRegeneratedResponse', () => {
     expect(aiMsg.parentMessageId).toBe(msg1.id);
     const [aiCi] = await db.select().from(contentItems).where(eq(contentItems.messageId, newAiId));
     if (!aiCi?.encryptedBlob) throw new Error('AI content item not found');
-    const contentKey = openMessageEnvelope(setup.epochPrivateKey, aiMsg.wrappedContentKey);
+    const contentKey = openMessageEnvelope(
+      setup.epochPrivateKey,
+      aiMsg.wrappedContentKey as WrappedContentKey
+    );
     const decrypted = decryptTextWithContentKey(contentKey, aiCi.encryptedBlob);
     expect(decrypted).toBe('Regenerated response');
   });
@@ -503,12 +507,18 @@ describe('saveEditedChatTurn', () => {
       .from(contentItems)
       .where(eq(contentItems.messageId, newUserId));
     if (!userCi?.encryptedBlob) throw new Error('User content item not found');
-    const userCk = openMessageEnvelope(setup.epochPrivateKey, newUserMsg.wrappedContentKey);
+    const userCk = openMessageEnvelope(
+      setup.epochPrivateKey,
+      newUserMsg.wrappedContentKey as WrappedContentKey
+    );
     const decryptedUser = decryptTextWithContentKey(userCk, userCi.encryptedBlob);
     expect(decryptedUser).toBe('Edited user message');
     const [aiCi] = await db.select().from(contentItems).where(eq(contentItems.messageId, newAiId));
     if (!aiCi?.encryptedBlob) throw new Error('AI content item not found');
-    const aiCk = openMessageEnvelope(setup.epochPrivateKey, newAiMsg.wrappedContentKey);
+    const aiCk = openMessageEnvelope(
+      setup.epochPrivateKey,
+      newAiMsg.wrappedContentKey as WrappedContentKey
+    );
     const decryptedAi = decryptTextWithContentKey(aiCk, aiCi.encryptedBlob);
     expect(decryptedAi).toBe('New AI response to edit');
   }, 15_000);

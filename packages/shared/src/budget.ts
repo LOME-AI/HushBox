@@ -580,8 +580,8 @@ export interface CanAffordModelResult {
 /**
  * Single function answering "can this user send a message with this model?"
  *
- * Combines premium gating + budget calculation. Used by the auto-router
- * to build the allowed models list and by validateBilling for affordability checks.
+ * Combines premium gating + budget calculation. Used by `validateBilling`
+ * for affordability checks.
  */
 export function canAffordModel(input: CanAffordModelInput): CanAffordModelResult {
   const {

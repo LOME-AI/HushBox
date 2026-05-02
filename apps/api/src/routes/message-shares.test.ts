@@ -6,6 +6,56 @@ import type { SessionData } from '../lib/session.js';
 import type { MediaStorage } from '../services/storage/types.js';
 import { messageSharesRoute, publicSharesRoute } from './message-shares.js';
 
+// Hoisted DB mock used by the createApp() integration test below. The factory
+// function is invoked lazily, so the per-test `__setRows` controls what the
+// share + content_items selects return for that single request.
+const dbMockState = vi.hoisted(() => ({
+  rows: [] as unknown[][],
+}));
+
+vi.mock('@hushbox/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/db')>();
+  /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
+  const createChain = (): Record<string, unknown> => {
+    const chain: Record<string, unknown> = {
+      from: () => chain,
+      where: () => chain,
+      orderBy: () => chain,
+      limit: () => ({
+        then: (resolve: (v: unknown[]) => unknown) => {
+          const next = dbMockState.rows.shift() ?? [];
+          return Promise.resolve(resolve(next));
+        },
+      }),
+      then: (resolve: (v: unknown[]) => unknown) => {
+        const next = dbMockState.rows.shift() ?? [];
+        return Promise.resolve(resolve(next));
+      },
+    };
+    return chain;
+  };
+  /* eslint-enable unicorn/no-thenable */
+  return {
+    ...actual,
+    createDb: vi.fn(() => ({
+      select: vi.fn(() => createChain()),
+    })),
+    LOCAL_NEON_DEV_CONFIG: {},
+  };
+});
+
+// Stub the Upstash Redis client so the per-IP rate-limit middleware in front of
+// the public share GET handler can run without a real Redis instance. The
+// rate-limit code only calls get/set, and a get→null→set sequence is exactly
+// "first attempt in window, allowed".
+vi.mock('../lib/redis.js', () => ({
+  createRedisClient: vi.fn(() => ({
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue('OK'),
+    del: vi.fn().mockResolvedValue(1),
+  })),
+}));
+
 const TEST_USER_ID = 'user-share-001';
 const TEST_MESSAGE_ID = 'msg-share-001';
 const TEST_CONVERSATION_ID = 'conv-share-001';
@@ -55,6 +105,8 @@ interface CreateShareMockDbConfig {
 
 /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
 function createShareMockDb(config: CreateShareMockDbConfig): unknown {
+  // Pre-transaction lookup: messages.select(). Returns the message (or empty).
+  // Inside-transaction lookups: SELECT membership FOR SHARE → INSERT ... RETURNING.
   let selectCallIndex = 0;
   const selectResults: unknown[][] = [
     config.message ? [config.message] : [],
@@ -66,6 +118,7 @@ function createShareMockDb(config: CreateShareMockDbConfig): unknown {
     where: () => createQueryChain(),
     innerJoin: () => createQueryChain(),
     leftJoin: () => createQueryChain(),
+    for: () => createQueryChain(),
     limit: () => ({
       then: (resolve: (v: unknown[]) => unknown) => {
         const result = selectResults[selectCallIndex++] ?? [];
@@ -78,7 +131,7 @@ function createShareMockDb(config: CreateShareMockDbConfig): unknown {
     },
   });
 
-  return {
+  const tx = {
     select: () => createQueryChain(),
     insert: () => ({
       values: () => ({
@@ -86,12 +139,39 @@ function createShareMockDb(config: CreateShareMockDbConfig): unknown {
       }),
     }),
   };
+
+  return {
+    select: () => createQueryChain(),
+    insert: () => ({
+      values: () => ({
+        returning: () => Promise.resolve([{ id: config.insertedShare?.id ?? 'new-share-id' }]),
+      }),
+    }),
+    transaction: <T>(callback: (tx: unknown) => Promise<T>): Promise<T> => callback(tx),
+  };
 }
 /* eslint-enable unicorn/no-thenable */
 
 interface CreateShareTestAppOptions {
   user?: AppEnv['Variables']['user'] | null;
   dbConfig?: CreateShareMockDbConfig;
+}
+
+/**
+ * Lightweight redis stub for tests: no-op store with shape compatible with the
+ * rate-limit middleware that runs before the route handler. Each test fires one
+ * request, so a get→null→set sequence always passes the limit check.
+ */
+function createShareNoopRedis(): {
+  get: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
+  del: ReturnType<typeof vi.fn>;
+} {
+  return {
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue('OK'),
+    del: vi.fn().mockResolvedValue(1),
+  };
 }
 
 function createShareTestApp(options: CreateShareTestAppOptions = {}): Hono<AppEnv> {
@@ -104,6 +184,7 @@ function createShareTestApp(options: CreateShareTestAppOptions = {}): Hono<AppEn
     c.set('session', user ? createMockSession() : null);
     c.set('sessionData', user ? createMockSession() : null);
     c.set('db', createShareMockDb(dbConfig) as AppEnv['Variables']['db']);
+    c.set('redis', createShareNoopRedis() as unknown as AppEnv['Variables']['redis']);
     await next();
   });
 
@@ -213,6 +294,7 @@ function createGetShareTestApp(options: GetShareTestAppOptions = {}): Hono<AppEn
     c.set('sessionData', null);
     c.set('db', createGetShareMockDb(dbConfig) as AppEnv['Variables']['db']);
     c.set('mediaStorage', mediaStorage);
+    c.set('redis', createShareNoopRedis() as unknown as AppEnv['Variables']['redis']);
     await next();
   });
 
@@ -316,33 +398,40 @@ describe('message-shares routes', () => {
       let capturedValues: unknown = null;
 
       /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
-      const mockDb = {
-        select: (() => {
-          let callIndex = 0;
-          const results: unknown[][] = [
-            [{ id: TEST_MESSAGE_ID, conversationId: TEST_CONVERSATION_ID }],
-            [{ id: 'cm-001' }],
-          ];
-          const chain = (): Record<string, unknown> => ({
-            from: () => chain(),
-            where: () => chain(),
-            limit: () => ({
-              then: (resolve: (v: unknown[]) => unknown) => {
-                const result = results[callIndex++] ?? [];
-                return Promise.resolve(resolve(result));
-              },
-            }),
-          });
-          return () => chain();
-        })(),
-        insert: () => ({
-          values: (vals: unknown) => {
-            capturedValues = vals;
-            return {
-              returning: () => Promise.resolve([{ id: 'captured-share-id' }]),
-            };
+      let callIndex = 0;
+      const results: unknown[][] = [
+        [{ id: TEST_MESSAGE_ID, conversationId: TEST_CONVERSATION_ID }],
+        [{ id: 'cm-001' }],
+      ];
+      const chain = (): Record<string, unknown> => ({
+        from: () => chain(),
+        where: () => chain(),
+        for: () => chain(),
+        limit: () => ({
+          then: (resolve: (v: unknown[]) => unknown) => {
+            const result = results[callIndex++] ?? [];
+            return Promise.resolve(resolve(result));
           },
         }),
+      });
+
+      const txInsert = {
+        values: (vals: unknown) => {
+          capturedValues = vals;
+          return {
+            returning: () => Promise.resolve([{ id: 'captured-share-id' }]),
+          };
+        },
+      };
+      const tx = {
+        select: () => chain(),
+        insert: () => txInsert,
+      };
+
+      const mockDb = {
+        select: () => chain(),
+        insert: () => txInsert,
+        transaction: <T>(callback: (tx: unknown) => Promise<T>): Promise<T> => callback(tx),
       };
       /* eslint-enable unicorn/no-thenable */
 
@@ -353,6 +442,7 @@ describe('message-shares routes', () => {
         c.set('session', createMockSession());
         c.set('sessionData', createMockSession());
         c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
+        c.set('redis', createShareNoopRedis() as unknown as AppEnv['Variables']['redis']);
         await next();
       });
       app.route('/', messageSharesRoute);
@@ -574,6 +664,69 @@ describe('message-shares routes', () => {
       expect(text.contentType).toBe('text');
       expect(text.downloadUrl ?? null).toBeNull();
       expect(text.expiresAt ?? null).toBeNull();
+    });
+
+    it('mounts mediaStorageMiddleware on /api/shares so media items get a downloadUrl', async () => {
+      // Regression: previously /api/shares/* mounted dbMiddleware + redisMiddleware
+      // but NOT mediaStorageMiddleware, so c.get('mediaStorage') was undefined and
+      // calling .mintDownloadUrl(...) threw at runtime. This test wires the route
+      // through createApp() so the actual middleware mounting is exercised.
+      const { createApp } = await import('../app.js');
+
+      // Two selects per request: sharedMessages lookup, then contentItems lookup.
+      const createdAt = new Date('2025-07-01T12:00:00.000Z');
+      dbMockState.rows = [
+        [
+          {
+            id: TEST_SHARE_ID,
+            messageId: TEST_MESSAGE_ID,
+            wrappedShareKey: TEST_WRAPPED_SHARE_KEY,
+            createdAt,
+          },
+        ],
+        [
+          {
+            id: 'ci-img',
+            messageId: TEST_MESSAGE_ID,
+            contentType: 'image',
+            position: 0,
+            encryptedBlob: null,
+            storageKey: 'media/conv/msg/img-1.enc',
+            mimeType: 'image/png',
+            sizeBytes: 2048,
+            width: 1024,
+            height: 1024,
+            durationMs: null,
+            modelName: null,
+            cost: null,
+            isSmartModel: false,
+          },
+        ],
+      ];
+
+      const app = createApp();
+      const res = await app.request(
+        `/api/shares/${TEST_SHARE_ID}`,
+        {},
+        {
+          DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+          NODE_ENV: 'development',
+          UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+          UPSTASH_REDIS_REST_TOKEN: 'test-token',
+          R2_S3_ENDPOINT: 'http://localhost:9000',
+          R2_ACCESS_KEY_ID: 'minioadmin',
+          R2_SECRET_ACCESS_KEY: 'minioadmin',
+          R2_BUCKET_MEDIA: 'hushbox-media-dev',
+        }
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{
+        contentItems: { id: string; downloadUrl?: string | null }[];
+      }>();
+      const img = body.contentItems.find((item) => item.id === 'ci-img');
+      expect(img?.downloadUrl).toBeTruthy();
+      expect(img?.downloadUrl).toContain('media/conv/msg/img-1.enc');
     });
 
     it('returns 500 when presigned URL minting fails', async () => {

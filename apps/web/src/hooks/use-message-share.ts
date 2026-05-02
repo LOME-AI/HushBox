@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { openMessageEnvelope, createShare } from '@hushbox/crypto';
+import { openMessageEnvelope, createShare, type WrappedContentKey } from '@hushbox/crypto';
 import { toBase64, fromBase64 } from '@hushbox/shared';
 import { client, fetchJson } from '../lib/api-client.js';
 import { getEpochKey } from '../lib/epoch-key-cache.js';
@@ -45,7 +45,10 @@ export function useMessageShare(): ReturnType<
         );
       }
 
-      const contentKey = openMessageEnvelope(epochKey, fromBase64(wrappedContentKey));
+      const contentKey = openMessageEnvelope(
+        epochKey,
+        fromBase64(wrappedContentKey) as WrappedContentKey
+      );
       const { shareSecret, wrappedShareKey } = createShare(contentKey);
 
       const result = await fetchJson<{ shareId: string }>(

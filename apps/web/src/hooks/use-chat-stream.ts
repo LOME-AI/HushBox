@@ -14,12 +14,17 @@ import { getLinkGuestAuth } from '../lib/link-guest-auth';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import {
   createSSEParser,
+  readWithTimeout,
+  StreamTimeoutError,
   type DoneEventData,
   type StartEventData,
   type ModelDoneData,
   type ModelErrorData,
+  type ModelMediaStartData,
   type StageDoneEventData,
 } from '../lib/sse-client';
+
+export { StreamTimeoutError } from '../lib/sse-client';
 
 // ============================================================================
 // Types
@@ -96,6 +101,8 @@ interface StreamOptions {
   onToken?: (token: string, modelId: string) => void;
   onModelDone?: (data: ModelDoneData) => void;
   onModelError?: (data: ModelErrorData) => void;
+  /** Notification that media generation has started for a slot — drives a "Generating…" UI hint. */
+  onModelMediaStart?: (data: ModelMediaStartData) => void;
   /**
    * Pre-inference stage events. UI can use these to show a "Choosing the
    * best model…" placeholder for Smart Model rows, then update the nametag
@@ -285,7 +292,12 @@ interface StreamState {
   done: boolean;
   doneData: DoneEventData | null;
   startData: StartEventData | null;
-  modelResults: Map<string, { cost: string }>;
+  /**
+   * Cost map sourced exclusively from the final `done` event's `models[].cost`.
+   * Per-model `model:done` no longer carries cost (M-Z1) — final spend is only
+   * known after the post-flight billing pass on the server.
+   */
+  modelCosts: Map<string, string>;
   modelErrors: Map<string, string>;
 }
 
@@ -301,7 +313,7 @@ async function consumeSSEStream(
   try {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- standard pattern for async iterator
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithTimeout(reader);
       if (done) break;
 
       parser.processChunk(decoder.decode(value, { stream: true }));
@@ -319,7 +331,7 @@ async function consumeSSEStream(
       return {
         modelId: m.modelId,
         assistantMessageId: m.assistantMessageId,
-        cost: state.modelResults.get(m.modelId)?.cost ?? '0',
+        cost: state.modelCosts.get(m.modelId) ?? '0',
         ...(errorCode && { errorCode }),
       };
     });
@@ -358,7 +370,7 @@ async function executeStream(
     done: false,
     doneData: null,
     startData: null,
-    modelResults: new Map(),
+    modelCosts: new Map(),
     modelErrors: new Map(),
   };
 
@@ -371,12 +383,16 @@ async function executeStream(
       options?.onToken?.(tokenData.content, tokenData.modelId);
     },
     onModelDone: (data) => {
-      streamState.modelResults.set(data.modelId, { cost: data.cost });
+      // Per-model dones no longer carry cost — `done.models[].cost` is the
+      // sole source of truth (M-Z1).
       options?.onModelDone?.(data);
     },
     onModelError: (data) => {
-      streamState.modelErrors.set(data.modelId, data.code ?? 'STREAM_ERROR');
+      streamState.modelErrors.set(data.modelId, data.code);
       options?.onModelError?.(data);
+    },
+    onModelMediaStart: (data) => {
+      options?.onModelMediaStart?.(data);
     },
     onStageStart: (data) => {
       options?.onStageStart?.(data);
@@ -396,10 +412,24 @@ async function executeStream(
     onDone: (doneData) => {
       streamState.done = true;
       streamState.doneData = doneData;
+      for (const m of doneData.models ?? []) {
+        streamState.modelCosts.set(m.modelId, m.cost);
+      }
     },
   });
 
-  return await consumeSSEStream(reader, parser, streamState);
+  try {
+    return await consumeSSEStream(reader, parser, streamState);
+  } catch (error: unknown) {
+    if (error instanceof StreamTimeoutError) {
+      // Re-throw a fresh StreamTimeoutError so callers see the same class name
+      // regardless of how the error propagated, but preserve the original via
+      // `Error.cause` so debugging tools and stack-trace inspection still get
+      // the original failure context.
+      throw new StreamTimeoutError(error.message, { cause: error });
+    }
+    throw error;
+  }
 }
 
 export function useChatStream(mode: StreamMode): ChatStreamHook {

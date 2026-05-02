@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { contentItems, mediaGenerations, messages, usageRecords } from '@hushbox/db';
-import { saveChatTurn } from './message-persistence.js';
-import { CANNED_MP4 } from '../ai/mock.js';
+import { saveChatTurn } from '../services/chat/message-persistence.js';
+import { CANNED_MP4, CANNED_MP4_DURATION } from '../services/ai/mock.js';
 import {
   cleanupMediaTest,
   cleanupTestUserData,
@@ -10,13 +10,15 @@ import {
   fetchAndDecryptMedia,
   setupMediaStrategyTest,
   type MediaStrategyTestContext,
-} from './media-strategy-test-helpers.js';
+} from '../services/chat/media-strategy-test-helpers.js';
 
 const VIDEO_MODEL = 'google/veo-3.1-fast-generate-001';
 const VIDEO_MIME = 'video/mp4';
 const VIDEO_WIDTH = 1280;
 const VIDEO_HEIGHT = 720;
-const VIDEO_DURATION_MS = 1000;
+// Aligned with the canned MP4 mvhd duration (= 2000 ms) so DB rows reflect
+// what the runtime mock actually advertises for browser-decodable bytes.
+const VIDEO_DURATION_MS = CANNED_MP4_DURATION;
 const VIDEO_RESOLUTION = '720p';
 const VIDEO_COST_DOLLARS = 0.1;
 const VIDEO_COST_STRING = '0.10000000';

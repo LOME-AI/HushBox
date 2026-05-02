@@ -10,6 +10,7 @@ import {
 } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 import { requireAuth } from '../middleware/require-auth.js';
+import { rateLimitByUser } from '../middleware/rate-limit.js';
 import { getUser } from '../lib/get-user.js';
 import { createErrorResponse } from '../lib/error-response.js';
 
@@ -29,6 +30,7 @@ const MEDIA_CONTENT_TYPES = new Set(['image', 'audio', 'video']);
 export const mediaRoute = new Hono<AppEnv>().get(
   '/:contentItemId/download-url',
   requireAuth(),
+  rateLimitByUser('mediaDownloadUserRateLimit'),
   zValidator('param', z.object({ contentItemId: z.string().min(1) })),
   async (c) => {
     const user = getUser(c);

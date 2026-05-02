@@ -5,6 +5,9 @@ export const SERVICE_NAMES = {
   AI_GATEWAY: 'ai-gateway',
   HELCIM: 'helcim',
   HOOKDECK: 'hookdeck',
+  R2_STORAGE: 'r2-storage',
+  R2_GC: 'r2-gc',
+  BILLING_MISMATCH: 'billing-mismatch',
 } as const;
 
 export type ServiceName = (typeof SERVICE_NAMES)[keyof typeof SERVICE_NAMES];

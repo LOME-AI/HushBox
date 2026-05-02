@@ -74,7 +74,12 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
 
   return (
     <>
-      <div className="flex items-center gap-2 text-sm text-green-600">
+      <div
+        data-testid="share-message-success"
+        role="status"
+        aria-live="polite"
+        className="flex items-center gap-2 text-sm text-green-600"
+      >
         <LinkIcon className="h-4 w-4" />
         <span>Share link created!</span>
       </div>

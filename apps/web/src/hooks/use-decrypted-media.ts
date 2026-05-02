@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { openMessageEnvelope } from '@hushbox/crypto';
+import { openMessageEnvelope, type ContentKey, type WrappedContentKey } from '@hushbox/crypto';
 import { fromBase64 } from '@hushbox/shared';
 import { getEpochKey } from '@/lib/epoch-key-cache';
 import { useMediaDownloadUrl } from '@/hooks/use-media-url';
@@ -11,6 +11,14 @@ interface UseDecryptedMediaParams {
   epochNumber: number;
   wrappedContentKey: string;
   mimeType: string;
+  /**
+   * Pre-fetched presigned GET URL forwarded by the SSE `done` event. When
+   * present, we skip the `/api/media/:id/download-url` round-trip — the URL
+   * is already on the wire and valid for `MEDIA_DOWNLOAD_URL_TTL_SECONDS`.
+   * Falls back to the query when the URL is absent (re-fetched messages) or
+   * the in-flight URL has expired.
+   */
+  preFetchedUrl?: string | undefined;
 }
 
 interface DecryptedMediaResult {
@@ -20,7 +28,7 @@ interface DecryptedMediaResult {
 }
 
 interface UnwrapResult {
-  contentKey: Uint8Array | null;
+  contentKey: ContentKey | null;
   error: Error | null;
 }
 
@@ -39,7 +47,7 @@ function unwrapContentKey(
     const epochKey = getEpochKey(conversationId, epochNumber);
     if (!epochKey) return { contentKey: null, error: new Error('Epoch key not available') };
     return {
-      contentKey: openMessageEnvelope(epochKey, fromBase64(wrappedContentKey)),
+      contentKey: openMessageEnvelope(epochKey, fromBase64(wrappedContentKey) as WrappedContentKey),
       error: null,
     };
   } catch (error) {
@@ -60,12 +68,19 @@ function unwrapContentKey(
  *   useDecryptBlob       — fetches ciphertext + symmetric decrypt + blob URL
  */
 export function useDecryptedMedia(params: UseDecryptedMediaParams): DecryptedMediaResult {
-  const { contentItemId, conversationId, epochNumber, wrappedContentKey, mimeType } = params;
+  const { contentItemId, conversationId, epochNumber, wrappedContentKey, mimeType, preFetchedUrl } =
+    params;
+  // Skip the network round-trip when the SSE done event already gave us a URL.
+  // `useMediaDownloadUrl` keys its query on the contentItemId, so passing
+  // `null` disables it for the lifetime of this consumer.
+  const queryEnabled = preFetchedUrl === undefined;
   const {
-    downloadUrl,
+    downloadUrl: queriedUrl,
     error: urlError,
     isLoading: urlLoading,
-  } = useMediaDownloadUrl(contentItemId);
+  } = useMediaDownloadUrl(queryEnabled ? contentItemId : null);
+
+  const effectiveUrl = preFetchedUrl ?? queriedUrl;
 
   const unwrapped = useMemo(
     () => unwrapContentKey(conversationId, epochNumber, wrappedContentKey),
@@ -77,7 +92,7 @@ export function useDecryptedMedia(params: UseDecryptedMediaParams): DecryptedMed
     isLoading: decryptLoading,
     error: decryptError,
   } = useDecryptBlob({
-    downloadUrl: downloadUrl ?? null,
+    downloadUrl: effectiveUrl ?? null,
     contentKey: unwrapped.contentKey,
     mimeType,
   });
@@ -86,7 +101,7 @@ export function useDecryptedMedia(params: UseDecryptedMediaParams): DecryptedMed
     blobUrl,
     // Hide the "awaiting inputs" loading while we have an unwrap error — the
     // error path should surface immediately, not sit behind a spinner.
-    isLoading: urlLoading || (unwrapped.contentKey !== null && decryptLoading),
+    isLoading: (queryEnabled && urlLoading) || (unwrapped.contentKey !== null && decryptLoading),
     error: urlError ?? unwrapped.error ?? decryptError,
   };
 }

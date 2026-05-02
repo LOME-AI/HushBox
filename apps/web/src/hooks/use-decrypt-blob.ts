@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { decryptBinaryWithContentKey } from '@hushbox/crypto';
+import { decryptBinaryWithContentKey, type ContentKey } from '@hushbox/crypto';
 
 interface UseDecryptBlobParams {
   /** Presigned GET URL for the encrypted ciphertext. Null means "not ready yet". */
   downloadUrl: string | null;
   /** Already-unwrapped content key. Null means "not ready yet". */
-  contentKey: Uint8Array | null;
+  contentKey: ContentKey | null;
   /** MIME type used to build the output Blob. */
   mimeType: string;
 }
@@ -58,7 +58,9 @@ export function useDecryptBlob(params: UseDecryptBlobParams): DecryptBlobResult 
         setBlobUrl(currentBlobUrl);
       } catch (error_) {
         if (!cancelled) {
-          setError(error_ instanceof Error ? error_ : new Error('Decryption failed'));
+          setError(
+            error_ instanceof Error ? error_ : new Error('Decryption failed', { cause: error_ })
+          );
         }
       } finally {
         if (!cancelled) setDecrypting(false);

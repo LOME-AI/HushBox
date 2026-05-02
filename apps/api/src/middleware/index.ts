@@ -8,6 +8,7 @@ export { requireAuth } from './require-auth.js';
 export { requirePrivilege } from './require-privilege.js';
 export { requireLinkGuest } from './require-link-guest.js';
 export { versionCheck } from './version-check.js';
+export { rateLimitByUser, rateLimitByIp } from './rate-limit.js';
 export {
   dbMiddleware,
   redisMiddleware,

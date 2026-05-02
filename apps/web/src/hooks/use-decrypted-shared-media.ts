@@ -1,3 +1,4 @@
+import type { ContentKey } from '@hushbox/crypto';
 import { useDecryptBlob } from '@/hooks/use-decrypt-blob';
 
 interface UseDecryptedSharedMediaParams {
@@ -9,7 +10,7 @@ interface UseDecryptedSharedMediaParams {
    * Safe to store in React state for the lifetime of the share view; the
    * view is read-only and ephemeral.
    */
-  contentKey: Uint8Array | null;
+  contentKey: ContentKey | null;
   /** MIME type used to build the output Blob. */
   mimeType: string;
 }

@@ -381,6 +381,19 @@ describe('MessageItem', () => {
       expect(props['isStreaming']).toBeUndefined();
       spy.mockRestore();
     });
+
+    it('marks the streaming AI message container with aria-live="polite"', () => {
+      render(<MessageItem message={assistantMessage} isStreaming allowedActions={NO_ACTIONS} />);
+      const live = screen.getByTestId('ai-message-live-region');
+      expect(live).toHaveAttribute('aria-live', 'polite');
+    });
+
+    it('does not mark non-streaming AI message text with aria-live', () => {
+      render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
+      const region = screen.queryByTestId('ai-message-live-region');
+      // When not streaming, the announce region must be absent or have aria-live="off"
+      if (region) expect(region.getAttribute('aria-live')).toBe('off');
+    });
   });
 
   describe('thinking indicator', () => {

@@ -1,11 +1,19 @@
+import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen } from '@testing-library/react';
 
 // Mock TanStack Router
 const redirectError = new Error('REDIRECT');
+const useParamsMock = vi.fn();
+const useSearchMock = vi.fn();
 vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: vi.fn(
-    () => (config: { beforeLoad?: () => Promise<void>; component?: unknown }) => config
-  ),
+  createFileRoute: vi.fn(() => (config: Record<string, unknown>) => {
+    return {
+      ...config,
+      useParams: useParamsMock,
+      useSearch: useSearchMock,
+    };
+  }),
   redirect: vi.fn(() => {
     throw redirectError;
   }),
@@ -19,12 +27,35 @@ vi.mock('@/lib/auth', () => ({
 
 // Mock error boundary
 vi.mock('@/components/shared/error-boundary', () => ({
-  ErrorBoundary: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ErrorBoundary: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="error-boundary">{children}</div>
+  ),
 }));
 
 // Mock authenticated chat page
+const authenticatedChatPageMock = vi.fn(
+  ({
+    routeConversationId,
+    initialForkId,
+  }: {
+    routeConversationId: string;
+    initialForkId?: string | undefined;
+  }) => (
+    <div
+      data-testid="authenticated-chat"
+      data-conv-id={routeConversationId}
+      data-fork-id={initialForkId ?? ''}
+    >
+      chat page
+    </div>
+  )
+);
+
 vi.mock('@/components/chat/authenticated-chat-page', () => ({
-  AuthenticatedChatPage: () => <div data-testid="authenticated-chat">chat page</div>,
+  AuthenticatedChatPage: (props: {
+    routeConversationId: string;
+    initialForkId?: string | undefined;
+  }) => authenticatedChatPageMock(props),
 }));
 
 // Mock query options
@@ -44,6 +75,16 @@ vi.mock('@/hooks/keys', () => ({
   keyChainQueryOptions: vi.fn(() => mockKeyChainOptions),
 }));
 
+interface RouteConfig {
+  beforeLoad?: () => Promise<void>;
+  loader?: (args: {
+    params: { id: string };
+    context: { queryClient: { prefetchQuery: ReturnType<typeof vi.fn> } };
+  }) => void;
+  component: () => React.JSX.Element;
+  validateSearch: (search: Record<string, unknown>) => { fork: string | undefined };
+}
+
 describe('chat.$id route beforeLoad', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -62,9 +103,7 @@ describe('chat.$id route beforeLoad', () => {
     });
 
     const { Route } = await import('./chat.$id');
-    const routeConfig = Route as unknown as {
-      beforeLoad?: () => Promise<void>;
-    };
+    const routeConfig = Route as unknown as RouteConfig;
 
     expect(routeConfig.beforeLoad).toBeDefined();
     await routeConfig.beforeLoad!();
@@ -75,9 +114,7 @@ describe('chat.$id route beforeLoad', () => {
     mockRequireAuth.mockRejectedValue(redirectError);
 
     const { Route } = await import('./chat.$id');
-    const routeConfig = Route as unknown as {
-      beforeLoad?: () => Promise<void>;
-    };
+    const routeConfig = Route as unknown as RouteConfig;
 
     await expect(routeConfig.beforeLoad!()).rejects.toThrow('REDIRECT');
   });
@@ -92,12 +129,7 @@ describe('chat.$id route loader', () => {
     mockRequireAuth.mockResolvedValue({ user: { id: 'user-1' } });
 
     const { Route } = await import('./chat.$id');
-    const routeConfig = Route as unknown as {
-      loader?: (args: {
-        params: { id: string };
-        context: { queryClient: { prefetchQuery: ReturnType<typeof vi.fn> } };
-      }) => void;
-    };
+    const routeConfig = Route as unknown as RouteConfig;
 
     expect(routeConfig.loader).toBeDefined();
 
@@ -110,5 +142,81 @@ describe('chat.$id route loader', () => {
     expect(mockPrefetchQuery).toHaveBeenCalledTimes(2);
     expect(mockPrefetchQuery).toHaveBeenCalledWith(mockConversationOptions);
     expect(mockPrefetchQuery).toHaveBeenCalledWith(mockKeyChainOptions);
+  });
+});
+
+describe('chat.$id validateSearch', () => {
+  it('extracts fork param when provided as a string', async () => {
+    const { Route } = await import('./chat.$id');
+    const routeConfig = Route as unknown as RouteConfig;
+
+    expect(routeConfig.validateSearch({ fork: 'fork-123' })).toEqual({
+      fork: 'fork-123',
+    });
+  });
+
+  it('returns undefined fork when not present', async () => {
+    const { Route } = await import('./chat.$id');
+    const routeConfig = Route as unknown as RouteConfig;
+
+    expect(routeConfig.validateSearch({})).toEqual({ fork: undefined });
+  });
+
+  it('returns undefined when fork is not a string', async () => {
+    const { Route } = await import('./chat.$id');
+    const routeConfig = Route as unknown as RouteConfig;
+
+    expect(routeConfig.validateSearch({ fork: 42 })).toEqual({ fork: undefined });
+    expect(routeConfig.validateSearch({ fork: null })).toEqual({ fork: undefined });
+    expect(routeConfig.validateSearch({ fork: ['x'] })).toEqual({ fork: undefined });
+  });
+
+  it('ignores unrelated search params', async () => {
+    const { Route } = await import('./chat.$id');
+    const routeConfig = Route as unknown as RouteConfig;
+
+    expect(routeConfig.validateSearch({ fork: 'fork-x', extra: 'noise' })).toEqual({
+      fork: 'fork-x',
+    });
+  });
+});
+
+describe('chat.$id component', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders AuthenticatedChatPage inside an ErrorBoundary, forwarding params', async () => {
+    useParamsMock.mockReturnValue({ id: 'conv-abc' });
+    useSearchMock.mockReturnValue({ fork: 'fork-xyz' });
+
+    const { Route } = await import('./chat.$id');
+    const routeConfig = Route as unknown as RouteConfig;
+
+    render(<routeConfig.component />);
+
+    expect(screen.getByTestId('error-boundary')).toBeInTheDocument();
+    const chat = screen.getByTestId('authenticated-chat');
+    expect(chat).toHaveAttribute('data-conv-id', 'conv-abc');
+    expect(chat).toHaveAttribute('data-fork-id', 'fork-xyz');
+    expect(authenticatedChatPageMock).toHaveBeenCalledWith({
+      routeConversationId: 'conv-abc',
+      initialForkId: 'fork-xyz',
+    });
+  });
+
+  it('forwards undefined fork to AuthenticatedChatPage', async () => {
+    useParamsMock.mockReturnValue({ id: 'conv-abc' });
+    useSearchMock.mockReturnValue({ fork: undefined });
+
+    const { Route } = await import('./chat.$id');
+    const routeConfig = Route as unknown as RouteConfig;
+
+    render(<routeConfig.component />);
+
+    expect(authenticatedChatPageMock).toHaveBeenCalledWith({
+      routeConversationId: 'conv-abc',
+      initialForkId: undefined,
+    });
   });
 });

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import {
   buildSystemPrompt,
-  applyFees,
+  worstCaseSearchCost,
   getModelPricing,
   generateNotifications,
   type CapabilityId,
@@ -63,7 +63,7 @@ function resolveWebSearchCost(
   webSearchPrice: number | undefined
 ): number {
   if (webSearchEnabled && webSearchPrice != null && webSearchPrice > 0) {
-    return applyFees(webSearchPrice);
+    return worstCaseSearchCost();
   }
   return 0;
 }

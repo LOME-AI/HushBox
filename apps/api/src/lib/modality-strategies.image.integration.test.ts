@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { contentItems, mediaGenerations, messages, usageRecords } from '@hushbox/db';
-import { saveChatTurn } from './message-persistence.js';
-import { CANNED_PNG } from '../ai/mock.js';
+import { saveChatTurn } from '../services/chat/message-persistence.js';
+import { CANNED_PNG, CANNED_PNG_WIDTH, CANNED_PNG_HEIGHT } from '../services/ai/mock.js';
 import {
   cleanupMediaTest,
   cleanupTestUserData,
@@ -10,12 +10,14 @@ import {
   fetchAndDecryptMedia,
   setupMediaStrategyTest,
   type MediaStrategyTestContext,
-} from './media-strategy-test-helpers.js';
+} from '../services/chat/media-strategy-test-helpers.js';
 
 const IMAGE_MODEL = 'google/imagen-4';
 const IMAGE_MIME = 'image/png';
-const IMAGE_WIDTH = 1;
-const IMAGE_HEIGHT = 1;
+// Aligned with the canned PNG dimensions emitted by mock.ts so DB rows reflect
+// the same metadata the runtime advertises (16×16 — what browsers can decode).
+const IMAGE_WIDTH = CANNED_PNG_WIDTH;
+const IMAGE_HEIGHT = CANNED_PNG_HEIGHT;
 const IMAGE_COST_DOLLARS = 0.046;
 const IMAGE_COST_STRING = '0.04600000';
 

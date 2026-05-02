@@ -55,6 +55,10 @@ jobs:
         run: pnpm typecheck
       - name: Verify typecheck coverage
         run: pnpm verify:typecheck-coverage
+      - name: Drizzle migration drift check
+        run: |
+          pnpm --filter @hushbox/db db:generate
+          git diff --exit-code packages/db/drizzle/ || (echo "Schema/snapshot drift. Run 'pnpm db:generate' and commit." && exit 1)
 
   duplication:
     runs-on: blacksmith-2vcpu-ubuntu-2404

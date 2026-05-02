@@ -102,6 +102,12 @@ interface MultiModelConversation {
   url: string;
 }
 
+interface MediaConversation {
+  conversationId: string;
+  assistantMessageId: string;
+  page: Page;
+}
+
 interface CustomFixtures {
   authenticatedPage: Page;
   unauthenticatedPage: Page;
@@ -111,6 +117,12 @@ interface CustomFixtures {
   createPage: (storageState?: StorageState) => Promise<Page>;
   testConversation: TestConversation;
   multiModelConversation: MultiModelConversation;
+  /** Authenticated conversation with one finished image generation. */
+  imageConversation: MediaConversation;
+  /** Authenticated conversation with one finished video generation. */
+  videoConversation: MediaConversation;
+  /** Authenticated low-balance user (~$0.01) for affordability error testing. */
+  lowBalancePage: Page;
   authenticatedRequest: APIRequestContext;
   // 2FA test user (has TOTP enabled)
   test2FAPage: Page;
@@ -339,6 +351,131 @@ export const test = base.extend<CustomFixtures>({
     },
     { timeout: 60_000 },
   ],
+
+  imageConversation: [
+    async ({ authenticatedPage }, use) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+      await chatPage.expectNewChatPageVisible();
+
+      await chatPage.switchToImageMode();
+      const prompt = `Image fixture ${String(Date.now())}`;
+      await chatPage.sendNewChatMessage(prompt);
+      await chatPage.waitForConversation();
+      await chatPage.expectImageVisible();
+      await chatPage.waitForStreamComplete();
+
+      const url = new URL(authenticatedPage.url());
+      const conversationId = url.pathname.split('/').pop() ?? '';
+
+      // The assistant is the second message in the conversation.
+      const assistantMessageId =
+        (await authenticatedPage
+          .locator('[data-role="assistant"]')
+          .first()
+          .getAttribute('data-message-id')) ?? '';
+      rawExpect(assistantMessageId, 'imageConversation: missing assistant message id').not.toBe('');
+
+      await use({ conversationId, assistantMessageId, page: authenticatedPage });
+    },
+    { timeout: 60_000 },
+  ],
+
+  videoConversation: [
+    async ({ authenticatedPage }, use) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+      await chatPage.expectNewChatPageVisible();
+
+      await chatPage.switchToVideoMode();
+      const prompt = `Video fixture ${String(Date.now())}`;
+      await chatPage.sendNewChatMessage(prompt);
+      await chatPage.waitForConversation();
+      await chatPage.expectVideoVisible();
+      await chatPage.waitForStreamComplete();
+
+      const url = new URL(authenticatedPage.url());
+      const conversationId = url.pathname.split('/').pop() ?? '';
+
+      const assistantMessageId =
+        (await authenticatedPage
+          .locator('[data-role="assistant"]')
+          .first()
+          .getAttribute('data-message-id')) ?? '';
+      rawExpect(assistantMessageId, 'videoConversation: missing assistant message id').not.toBe('');
+
+      await use({ conversationId, assistantMessageId, page: authenticatedPage });
+    },
+    { timeout: 60_000 },
+  ],
+
+  // Low-balance page: authenticated as test-billing-validation (zero starting balance);
+  // wallet is set to $0.01 via the dev endpoint before the test runs so any
+  // image/video generation triggers the insufficient-balance preflight error.
+  // Reset to $0 after the test to avoid bleed.
+  lowBalancePage: async ({ browser, playwright }, use, testInfo) => {
+    const lowBalanceEmail = 'test-billing-validation@test.hushbox.ai';
+    const requestContext = await playwright.request.newContext({
+      baseURL: apiUrl,
+      storageState: 'e2e/.auth/test-billing-validation.json',
+    });
+
+    // Set free-tier balance to a tiny amount so the preflight rejects media generation.
+    await requestContext.post('/api/dev/wallet-balance', {
+      data: { email: lowBalanceEmail, walletType: 'purchased', balance: '0.01000000' },
+    });
+    await requestContext.post('/api/dev/wallet-balance', {
+      data: { email: lowBalanceEmail, walletType: 'free_tier', balance: '0.00000000' },
+    });
+
+    const harPath = testInfo.outputPath('lowBalancePage.har');
+    const isRetry = testInfo.retry > 0;
+    const context = await browser.newContext({
+      storageState: 'e2e/.auth/test-billing-validation.json',
+      ...(isRetry && {
+        recordHar: { path: harPath, mode: 'minimal', urlFilter: /\/api\// },
+      }),
+    });
+    const page = await context.newPage();
+    const { errors, cleanup } = attachConsoleErrors(page);
+    await use(page);
+
+    const failed = testInfo.status !== testInfo.expectedStatus;
+    if (failed && errors.length > 0) {
+      await testInfo.attach(`console-errors-lowBalancePage`, {
+        body: errors.join('\n'),
+        contentType: 'text/plain',
+      });
+    }
+    if (failed) {
+      const snapshot = await page
+        .locator(':root')
+        .ariaSnapshot()
+        .catch(() => null);
+      if (snapshot) {
+        await testInfo.attach(`page-snapshot-lowBalancePage`, {
+          body: snapshot,
+          contentType: 'text/yaml',
+        });
+      }
+    }
+
+    cleanup();
+    await context.close();
+
+    if (failed && isRetry && existsSync(harPath)) {
+      await testInfo.attach(`har-lowBalancePage`, {
+        path: harPath,
+        contentType: 'application/json',
+      });
+    }
+
+    // Reset balance after the test.
+    await requestContext.post('/api/dev/wallet-balance', {
+      data: { email: lowBalanceEmail, walletType: 'purchased', balance: '0.00000000' },
+    });
+    await requestContext.dispose();
+  },
 
   testConversation: async ({ authenticatedPage, authenticatedRequest }, use) => {
     const testMessage = `Fixture setup ${String(Date.now())}`;

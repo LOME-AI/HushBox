@@ -248,9 +248,21 @@ describe('getAccessibleModelIds', () => {
 
   const premiumIds = new Set(['premium-model']);
 
-  it('returns hardcoded text pins when canAccessPremium is true and modality defaults to text', () => {
+  it('paid users on text get the most-expensive non-premium as strongest and cheapest as value (dynamic)', () => {
+    // Plan §10.12: text "Strongest" / "Value" buttons must resolve dynamically
+    // for paid users — not the hardcoded constants.
     const result = getAccessibleModelIds(testModels, premiumIds, true);
 
+    // 'expensive-basic' is most expensive non-premium; 'cheap-basic' cheapest.
+    expect(result.strongestId).toBe('expensive-basic');
+    expect(result.valueId).toBe('cheap-basic');
+    // Sanity: never the hardcoded constants when dynamic data is available.
+    expect(result.strongestId).not.toBe(STRONGEST_TEXT_MODEL_ID);
+    expect(result.valueId).not.toBe(VALUE_TEXT_MODEL_ID);
+  });
+
+  it('paid users on text fall back to hardcoded text pins when no models are available', () => {
+    const result = getAccessibleModelIds([], new Set(), true);
     expect(result.strongestId).toBe(STRONGEST_TEXT_MODEL_ID);
     expect(result.valueId).toBe(VALUE_TEXT_MODEL_ID);
   });

@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ContentKey } from '@hushbox/crypto';
 
 vi.mock('../hooks/use-shared-message.js', () => ({
   useSharedMessage: vi.fn(),
@@ -67,7 +68,7 @@ type SharedMessageData = NonNullable<ReturnType<typeof useSharedMessage>['data']
 function mockData(overrides: Partial<SharedMessageData> = {}): SharedMessageData {
   return {
     createdAt: '2024-01-15T14:34:00Z',
-    contentKey: new Uint8Array([1, 2, 3]),
+    contentKey: new Uint8Array([1, 2, 3]) as ContentKey,
     contentItems: [{ type: 'text', position: 0, content: 'Hello world' }],
     ...overrides,
   };
@@ -94,6 +95,20 @@ describe('SharedMessagePage', () => {
     expect(screen.getByTestId('shared-message-loading')).toBeInTheDocument();
   });
 
+  it('announces loading state via role="status" and aria-live="polite"', () => {
+    mockUseSharedMessage.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+    } as ReturnType<typeof useSharedMessage>);
+
+    render(<SharedMessagePage />);
+
+    const loading = screen.getByTestId('shared-message-loading');
+    expect(loading).toHaveAttribute('role', 'status');
+    expect(loading).toHaveAttribute('aria-live', 'polite');
+  });
+
   it('renders error state wrapped in AppShell', () => {
     mockUseSharedMessage.mockReturnValue({
       data: undefined,
@@ -105,6 +120,18 @@ describe('SharedMessagePage', () => {
 
     expect(screen.getByTestId('app-shell')).toBeInTheDocument();
     expect(screen.getByTestId('shared-message-error')).toBeInTheDocument();
+  });
+
+  it('announces error state via role="alert"', () => {
+    mockUseSharedMessage.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    } as ReturnType<typeof useSharedMessage>);
+
+    render(<SharedMessagePage />);
+
+    expect(screen.getByTestId('shared-message-error')).toHaveAttribute('role', 'alert');
   });
 
   it('shows AlertTriangle icon in error state', () => {

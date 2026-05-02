@@ -443,8 +443,17 @@ function createMockDb(options: {
 function createMockRedis(options?: { reservedCents?: number; evalOverride?: string }) {
   const reservedValue = options?.reservedCents ? String(options.reservedCents) : null;
   const evalValue = options?.evalOverride ?? '0';
+  // Key-aware get: rate-limit keys must return null (so the per-user cap allows
+  // the test request through), while reservation/balance keys return the
+  // configured `reservedCents`. Any 'chat:reserved:*' or other reservation key
+  // hits the legacy branch.
   return {
-    get: vi.fn().mockResolvedValue(reservedValue),
+    get: vi.fn().mockImplementation((key: string) => {
+      if (typeof key === 'string' && key.includes(':ratelimit:')) {
+        return Promise.resolve(null);
+      }
+      return Promise.resolve(reservedValue);
+    }),
     set: vi.fn().mockResolvedValue('OK'),
     del: vi.fn().mockResolvedValue(1),
     eval: vi.fn().mockResolvedValue(evalValue),

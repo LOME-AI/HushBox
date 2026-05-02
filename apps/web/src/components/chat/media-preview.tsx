@@ -78,15 +78,16 @@ export function MediaPreview({
         </button>
       )}
       {isVideo && (
+        // AI-generated media has no caption source today; revisit when
+        // transcription becomes available. Empty <track> elements add no
+        // accessibility value and risk WCAG misclassification, so omitted.
         <video
           src={blobUrl}
           controls
           preload="metadata"
           className="max-h-96 w-full rounded-md border"
           aria-label={`${ariaPrefix} video`}
-        >
-          <track kind="captions" />
-        </video>
+        />
       )}
       {isAudio && (
         <audio

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CLASSIFIER_SYSTEM_PROMPT_MARKER } from '@hushbox/shared';
-import { createMockAIClient } from './mock.js';
+import { createMockAIClient, CANNED_PNG, CANNED_MP4 } from './mock.js';
 import type {
   MockAIClient,
   TextRequest,
@@ -269,8 +269,22 @@ describe('createMockAIClient', () => {
       expect(done).toBeDefined();
       expect(done!.bytes.length).toBeGreaterThan(0);
       expect(done!.mimeType).toBe('image/png');
-      expect(done!.width).toBe(1);
-      expect(done!.height).toBe(1);
+      // 16×16 valid PNG so browsers in E2E can read naturalWidth/naturalHeight.
+      expect(done!.width).toBe(16);
+      expect(done!.height).toBe(16);
+    });
+
+    it('canned PNG byte length and signature match a real PNG file', () => {
+      // Length matches the constant declared in mock.ts (73 bytes for the
+      // minimal 16×16 RGB PNG with deflated zero pixel rows).
+      expect(CANNED_PNG.length).toBe(73);
+      // First 8 bytes must be the PNG signature: 89 50 4E 47 0D 0A 1A 0A.
+      // Asserting the first 4 (89 50 4E 47 = "\x89PNG") is enough to guard
+      // against accidental corruption.
+      expect(CANNED_PNG[0]).toBe(0x89);
+      expect(CANNED_PNG[1]).toBe(0x50); // P
+      expect(CANNED_PNG[2]).toBe(0x4e); // N
+      expect(CANNED_PNG[3]).toBe(0x47); // G
     });
 
     it('emits finish with a generationId (no inline cost)', async () => {
@@ -338,6 +352,29 @@ describe('createMockAIClient', () => {
       expect(done!.bytes.length).toBeGreaterThan(0);
       expect(done!.mimeType).toBe('video/mp4');
       expect(done!.durationMs).toBe(2000);
+    });
+
+    it('canned MP4 byte length, ftyp signature, and parseable moov offset', () => {
+      // Length must match the canned 485-byte MP4 declared in mock.ts.
+      expect(CANNED_MP4.length).toBe(485);
+
+      // ISO BMFF: bytes [0..3] = box size (big-endian); bytes [4..7] = box type.
+      // For our canned file the first box is `ftyp` (= 66 74 79 70).
+      expect(CANNED_MP4[4]).toBe(0x66); // f
+      expect(CANNED_MP4[5]).toBe(0x74); // t
+      expect(CANNED_MP4[6]).toBe(0x79); // y
+      expect(CANNED_MP4[7]).toBe(0x70); // p
+
+      // ftyp box size from the 4 BE bytes at offset 0. moov atom begins at
+      // exactly that offset (we declare the file with two boxes: ftyp + moov).
+      const ftypSize =
+        (CANNED_MP4[0]! << 24) | (CANNED_MP4[1]! << 16) | (CANNED_MP4[2]! << 8) | CANNED_MP4[3]!;
+      const moovOffset = ftypSize;
+      // moov type bytes immediately follow the moov size word at moovOffset+4.
+      expect(CANNED_MP4[moovOffset + 4]).toBe(0x6d); // m
+      expect(CANNED_MP4[moovOffset + 5]).toBe(0x6f); // o
+      expect(CANNED_MP4[moovOffset + 6]).toBe(0x6f); // o
+      expect(CANNED_MP4[moovOffset + 7]).toBe(0x76); // v
     });
   });
 

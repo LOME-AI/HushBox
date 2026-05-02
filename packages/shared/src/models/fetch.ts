@@ -30,23 +30,35 @@ export function clearModelCache(): void {
 const DEFAULT_CONTEXT_LENGTH = 128_000;
 
 // ============================================================================
-// SDK `/config` response (strongly typed via @ai-sdk/gateway)
+// SDK `/config` response (strongly typed via @ai-sdk/gateway, but we still
+// parse defensively at the boundary — the SDK declares many fields as
+// `unknown` and a shape change should fail loud, not slip through unnoticed).
 // ============================================================================
 
-interface GatewayModelEntry {
-  id: string;
-  name: string;
-  description?: string | null;
-  pricing?: {
-    input: string;
-    output: string;
-  } | null;
-  modelType?: 'language' | 'embedding' | 'image' | 'video' | null;
-  specification?: {
-    provider: string;
-    modelId: string;
-  };
-}
+const gatewayModelEntrySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  pricing: z
+    .object({
+      input: z.string(),
+      output: z.string(),
+    })
+    .nullish(),
+  modelType: z.enum(['language', 'embedding', 'image', 'video']).nullish(),
+  specification: z
+    .object({
+      provider: z.string(),
+      modelId: z.string(),
+    })
+    .optional(),
+});
+
+const gatewayModelsResponseSchema = z.object({
+  models: z.array(gatewayModelEntrySchema),
+});
+
+type GatewayModelEntry = z.infer<typeof gatewayModelEntrySchema>;
 
 // ============================================================================
 // Public `/v1/models` response (not SDK-typed — source of media pricing).
@@ -236,8 +248,8 @@ export async function fetchModels(options: FetchModelsOptions): Promise<RawModel
     fetchPublicModels(publicModelsUrl),
   ]);
 
-  const entries = (sdkResponse as { models: GatewayModelEntry[] }).models;
-  const merged = entries.map((entry) => toRawModel(entry, publicMap.get(entry.id)));
+  const parsed = gatewayModelsResponseSchema.parse(sdkResponse);
+  const merged = parsed.models.map((entry) => toRawModel(entry, publicMap.get(entry.id)));
 
   modelsCache = {
     apiKey,

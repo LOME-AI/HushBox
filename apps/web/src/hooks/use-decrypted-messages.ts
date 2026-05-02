@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { openMessageEnvelope, decryptTextWithContentKey } from '@hushbox/crypto';
+import {
+  openMessageEnvelope,
+  decryptTextWithContentKey,
+  type WrappedContentKey,
+} from '@hushbox/crypto';
 import { useAuthStore } from '@/lib/auth';
 import type { Message, MessageMediaItem } from '@/lib/api';
 import { fromBase64 } from '@hushbox/shared';
@@ -145,7 +149,10 @@ export function useDecryptedMessages(
       }
 
       try {
-        const contentKey = openMessageEnvelope(epochKey, fromBase64(msg.wrappedContentKey));
+        const contentKey = openMessageEnvelope(
+          epochKey,
+          fromBase64(msg.wrappedContentKey) as WrappedContentKey
+        );
         const parts: string[] = [];
         for (const item of msg.contentItems) {
           if (item.contentType === 'text' && item.encryptedBlob != null) {

@@ -3,6 +3,29 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+// Break the import chain that requires VITE_API_URL at module load time.
+// Without these mocks, frontendEnvSchema.parse() runs in src/lib/api.ts and
+// throws ZodError, preventing every test in this file from loading.
+vi.mock('@/lib/api', () => ({
+  getApiUrl: vi.fn(() => 'http://localhost:8787'),
+  ApiError: class ApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public data?: unknown
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
+  },
+}));
+
+vi.mock('@/lib/api-client', () => ({
+  client: {},
+  fetchJson: vi.fn(),
+}));
+
 import { PromptInput } from './prompt-input';
 import type { ChatSearchProps, PromptInputRef } from './prompt-input';
 import type { PromptBudgetResult } from '@/hooks/use-prompt-budget';
@@ -771,8 +794,16 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps({ modelSupportsSearch: false })}
         />
       );
-      const button = screen.getByRole('button', { name: /internet search unavailable/i });
-      expect(button).toBeDisabled();
+      // Both the wrapper span (role=button for keyboard tooltip) and the inner
+      // disabled <button> share the accessible name. We assert disablement on
+      // the actual <button> element.
+      const buttons = screen
+        .getAllByRole('button', { name: /internet search unavailable/i })
+        .filter((element) => element.tagName === 'BUTTON');
+      expect(buttons.length).toBeGreaterThan(0);
+      for (const button of buttons) {
+        expect(button).toBeDisabled();
+      }
     });
 
     it('shows disabled search toggle for unauthenticated users', () => {
@@ -785,8 +816,13 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps()}
         />
       );
-      const button = screen.getByRole('button', { name: /internet search unavailable/i });
-      expect(button).toBeDisabled();
+      const buttons = screen
+        .getAllByRole('button', { name: /internet search unavailable/i })
+        .filter((element) => element.tagName === 'BUTTON');
+      expect(buttons.length).toBeGreaterThan(0);
+      for (const button of buttons) {
+        expect(button).toBeDisabled();
+      }
     });
   });
 
@@ -802,8 +838,13 @@ describe('PromptInput', () => {
         />
       );
 
-      const button = screen.getByRole('button', { name: /internet search unavailable/i });
-      const wrapper = button.closest('span[data-slot="tooltip-trigger"]');
+      // Filter to the inner <button>; the wrapper span itself has role=button
+      // for keyboard users so getByRole would match both.
+      const button = screen
+        .getAllByRole('button', { name: /internet search unavailable/i })
+        .find((element) => element.tagName === 'BUTTON');
+      expect(button).toBeDefined();
+      const wrapper = button?.closest('span[data-slot="tooltip-trigger"]');
       expect(wrapper).not.toBeNull();
     });
 
@@ -1181,7 +1222,7 @@ describe('PromptInput', () => {
       ).not.toBeInTheDocument();
     });
 
-    it('does not render modality icons for unauthenticated users', () => {
+    it('renders modality icons disabled with sign-up label for unauthenticated users', () => {
       renderWithProviders(
         <PromptInput
           value="Hello"
@@ -1192,9 +1233,86 @@ describe('PromptInput', () => {
           onSelectModality={vi.fn()}
         />
       );
+      // Icons render under a per-modality "sign up to unlock" tooltip so
+      // screen readers explain why they're disabled. We assert the underlying
+      // <button> elements are disabled (the wrapping span exposes role=button +
+      // aria-disabled for keyboard-focus tooltip discovery, which jest-dom's
+      // toBeDisabled() doesn't recognize on non-form elements).
+      const buttons = screen
+        .getAllByRole('button', { name: /sign up to unlock/i })
+        .filter((element) => element.tagName === 'BUTTON');
+      expect(buttons.length).toBeGreaterThan(0);
+      for (const button of buttons) {
+        expect(button).toBeDisabled();
+      }
+    });
+
+    it('makes disabled trial modality icons keyboard-focusable for tooltip discovery', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated={false}
+          activeModality="text"
+          onSelectModality={vi.fn()}
+        />
+      );
+      // The wrapping span carries role=button + tabIndex=0 so keyboard users
+      // can tab onto it and read the trial tooltip (the inner native button is
+      // disabled and unreachable). aria-disabled communicates "not actionable".
+      const wrappers = screen
+        .getAllByRole('button', { name: /sign up to unlock/i })
+        .filter((element) => element.tagName !== 'BUTTON');
+      expect(wrappers.length).toBeGreaterThan(0);
+      for (const wrapper of wrappers) {
+        expect(wrapper).toHaveAttribute('tabindex', '0');
+        expect(wrapper).toHaveAttribute('aria-disabled', 'true');
+      }
+    });
+
+    it('uses per-modality trial tooltip text mentioning the modality name', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated={false}
+          activeModality="text"
+          onSelectModality={vi.fn()}
+        />
+      );
+      // The image and video icons render with action-context tooltips.
       expect(
-        screen.queryByRole('button', { name: /switch to (image|video|audio|text)/i })
-      ).not.toBeInTheDocument();
+        screen.queryAllByRole('button', {
+          name: /image generation — sign up to unlock/i,
+        }).length
+      ).toBeGreaterThan(0);
+      expect(
+        screen.queryAllByRole('button', {
+          name: /video generation — sign up to unlock/i,
+        }).length
+      ).toBeGreaterThan(0);
+    });
+
+    it('does not invoke onSelectModality when a disabled trial icon is clicked', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const handleSelect = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated={false}
+          activeModality="text"
+          onSelectModality={handleSelect}
+        />
+      );
+      const button = screen.getAllByRole('button', { name: /sign up to unlock/i })[0];
+      if (!button) throw new Error('Expected at least one disabled trial icon');
+      await user.click(button);
+      expect(handleSelect).not.toHaveBeenCalled();
     });
 
     it('renders image and video icons for authenticated users in text mode', () => {

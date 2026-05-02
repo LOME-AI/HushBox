@@ -1,9 +1,27 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Hono } from 'hono';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
 import type { MediaStorage } from '../services/storage/index.js';
 import { mediaRoute } from './media.js';
+
+/**
+ * Lightweight redis stub: no-op store with a shape compatible with the rate-limit
+ * middleware that runs ahead of the route handler. The rate-limit middleware
+ * calls redis.get → null → redis.set, which both no-op here, so a single test
+ * request always passes the limit check.
+ */
+function createNoopRedis(): {
+  get: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
+  del: ReturnType<typeof vi.fn>;
+} {
+  return {
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue('OK'),
+    del: vi.fn().mockResolvedValue(1),
+  };
+}
 
 const TEST_USER_ID = 'user-media-001';
 const TEST_CONTENT_ITEM_ID = 'ci-media-001';
@@ -116,6 +134,7 @@ function createMediaTestApp(options: TestAppOptions = {}): {
     c.set('sessionData', user ? createMockSession() : null);
     c.set('db', createMediaMockDb(dbConfig) as AppEnv['Variables']['db']);
     c.set('mediaStorage', storage as unknown as MediaStorage);
+    c.set('redis', createNoopRedis() as unknown as AppEnv['Variables']['redis']);
     await next();
   });
 

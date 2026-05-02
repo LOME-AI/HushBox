@@ -6,6 +6,7 @@ import {
   BalanceReservedError,
   BillingMismatchError,
   ContextCapacityError,
+  StreamTimeoutError,
 } from './use-chat-stream';
 import * as trialTokenModule from '../lib/trial-token';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
@@ -249,9 +250,9 @@ describe('useChatStream', () => {
         'event: token',
         'data: {"modelId":"gpt-4","content":"world!"}',
         'event: model:done',
-        'data: {"modelId":"gpt-4","assistantMessageId":"msg-456","cost":"0.00150000"}',
+        'data: {"modelId":"gpt-4","assistantMessageId":"msg-456"}',
         'event: done',
-        'data: {}',
+        'data: {"userMessageId":"user-456","assistantMessageId":"msg-456","userSequence":1,"aiSequence":2,"epochNumber":1,"cost":"0.00150000","models":[{"modelId":"gpt-4","assistantMessageId":"msg-456","aiSequence":2,"cost":"0.00150000","wrappedContentKey":"k","contentItems":[]}]}',
       ];
 
       mockFetch.mockResolvedValueOnce({
@@ -535,7 +536,7 @@ describe('useChatStream', () => {
         'event: token',
         'data: {"modelId":"gpt-4","content":"world!"}',
         'event: model:done',
-        'data: {"modelId":"gpt-4","assistantMessageId":"msg-456","cost":"0.00100000"}',
+        'data: {"modelId":"gpt-4","assistantMessageId":"msg-456"}',
         'event: done',
         'data: {}',
       ];
@@ -556,10 +557,11 @@ describe('useChatStream', () => {
         });
       });
 
+      // Trial flow: server doesn't ship `done.models[].cost`, so cost defaults to '0'.
       expect(streamResult).toEqual(
         expect.objectContaining({
           userMessageId: '',
-          models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-456', cost: '0.00100000' }],
+          models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-456', cost: '0' }],
         })
       );
     });
@@ -945,9 +947,9 @@ describe('useChatStream', () => {
         'event: token',
         'data: {"modelId":"gpt-4","content":"New response"}',
         'event: model:done',
-        'data: {"modelId":"gpt-4","assistantMessageId":"msg-regen","cost":"0.00100000"}',
+        'data: {"modelId":"gpt-4","assistantMessageId":"msg-regen"}',
         'event: done',
-        'data: {}',
+        'data: {"userMessageId":"user-123","assistantMessageId":"msg-regen","userSequence":1,"aiSequence":2,"epochNumber":1,"cost":"0.00100000","models":[{"modelId":"gpt-4","assistantMessageId":"msg-regen","aiSequence":2,"cost":"0.00100000","wrappedContentKey":"k","contentItems":[]}]}',
       ];
 
       mockFetch.mockResolvedValueOnce({
@@ -1129,11 +1131,11 @@ describe('useChatStream', () => {
         'event: token',
         'data: {"modelId":"claude-3","content":"Hi"}',
         'event: model:done',
-        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1","cost":"0.00200000"}',
+        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1"}',
         'event: model:done',
-        'data: {"modelId":"claude-3","assistantMessageId":"asst-2","cost":"0.00300000"}',
+        'data: {"modelId":"claude-3","assistantMessageId":"asst-2"}',
         'event: done',
-        'data: {}',
+        'data: {"userMessageId":"user-1","assistantMessageId":"asst-1","userSequence":1,"aiSequence":2,"epochNumber":1,"cost":"0.00500000","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1","aiSequence":2,"cost":"0.00200000","wrappedContentKey":"k","contentItems":[]},{"modelId":"claude-3","assistantMessageId":"asst-2","aiSequence":3,"cost":"0.00300000","wrappedContentKey":"k","contentItems":[]}]}',
       ];
 
       mockFetch.mockResolvedValueOnce({
@@ -1208,16 +1210,16 @@ describe('useChatStream', () => {
       expect(onToken).toHaveBeenNthCalledWith(3, 'B', 'gpt-4');
     });
 
-    it('calls onModelDone for each completed model', async () => {
+    it('calls onModelDone for each completed model (no per-event cost)', async () => {
       const sseEvents = [
         'event: start',
         'data: {"userMessageId":"user-1","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1"},{"modelId":"claude-3","assistantMessageId":"asst-2"}]}',
         'event: model:done',
-        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1","cost":"0.002"}',
+        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1"}',
         'event: model:done',
-        'data: {"modelId":"claude-3","assistantMessageId":"asst-2","cost":"0.003"}',
+        'data: {"modelId":"claude-3","assistantMessageId":"asst-2"}',
         'event: done',
-        'data: {}',
+        'data: {"userMessageId":"user-1","assistantMessageId":"asst-1","userSequence":1,"aiSequence":2,"epochNumber":1,"cost":"0.005","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1","aiSequence":2,"cost":"0.002","wrappedContentKey":"k","contentItems":[]},{"modelId":"claude-3","assistantMessageId":"asst-2","aiSequence":3,"cost":"0.003","wrappedContentKey":"k","contentItems":[]}]}',
       ];
 
       mockFetch.mockResolvedValueOnce({
@@ -1246,12 +1248,10 @@ describe('useChatStream', () => {
       expect(onModelDone).toHaveBeenNthCalledWith(1, {
         modelId: 'gpt-4',
         assistantMessageId: 'asst-1',
-        cost: '0.002',
       });
       expect(onModelDone).toHaveBeenNthCalledWith(2, {
         modelId: 'claude-3',
         assistantMessageId: 'asst-2',
-        cost: '0.003',
       });
     });
 
@@ -1260,9 +1260,9 @@ describe('useChatStream', () => {
         'event: start',
         'data: {"userMessageId":"user-1","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1"},{"modelId":"claude-3","assistantMessageId":"asst-2"}]}',
         'event: model:done',
-        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1","cost":"0.002"}',
+        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1"}',
         'event: model:error',
-        'data: {"modelId":"claude-3","message":"Model unavailable"}',
+        'data: {"modelId":"claude-3","message":"Model unavailable","code":"STREAM_ERROR"}',
         'event: done',
         'data: {}',
       ];
@@ -1295,6 +1295,7 @@ describe('useChatStream', () => {
       expect(onModelError).toHaveBeenCalledWith({
         modelId: 'claude-3',
         message: 'Model unavailable',
+        code: 'STREAM_ERROR',
       });
     });
 
@@ -1434,6 +1435,177 @@ describe('useChatStream', () => {
 
       useStreamingActivityStore.getState().endStream();
       expect(useStreamingActivityStore.getState().activeStreams).toBe(0);
+    });
+  });
+
+  describe('stream timeout (M-Z3)', () => {
+    it('surfaces a StreamTimeoutError when the stream goes silent after start', async () => {
+      // A reader.read() that resolves the encoded `start` event but then hangs
+      // forever — simulates a server crash mid-stream.
+      const encoder = new TextEncoder();
+      let resolved = false;
+      const reader: ReadableStreamDefaultReader<Uint8Array> = {
+        read: vi.fn(() => {
+          if (!resolved) {
+            resolved = true;
+            const chunk =
+              'event: start\ndata: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"a"}]}\n\n';
+            return Promise.resolve({
+              done: false,
+              value: encoder.encode(chunk),
+            } as ReadableStreamReadResult<Uint8Array>);
+          }
+          // Never resolve — model:done / done never arrives.
+          return new Promise<ReadableStreamReadResult<Uint8Array>>(() => {
+            /* hang */
+          });
+        }),
+        cancel: vi.fn().mockResolvedValue(null),
+        releaseLock: vi.fn(),
+        get closed(): Promise<undefined> {
+          return new Promise<undefined>(() => {
+            /* never resolves */
+          });
+        },
+      };
+      const fakeBody = {
+        getReader: () => reader,
+      } as unknown as ReadableStream<Uint8Array>;
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: fakeBody,
+      });
+
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useChatStream('authenticated'));
+
+        let caught: unknown;
+        const startPromise = act(async () => {
+          try {
+            await result.current.startStream({
+              conversationId: 'conv-1',
+              models: ['gpt-4'],
+              userMessage: { id: 'msg-1', content: 'Hello' },
+              messagesForInference: [{ role: 'user', content: 'Hello' }],
+              fundingSource: 'personal_balance',
+            });
+          } catch (error) {
+            caught = error;
+          }
+        });
+
+        // Advance well past STREAM_TIMEOUT_MS (90s). vi.runAllTimersAsync flushes
+        // the timeout reject so the consumer's catch fires.
+        await vi.advanceTimersByTimeAsync(95_000);
+        await startPromise;
+
+        expect(caught).toBeInstanceOf(StreamTimeoutError);
+        expect((caught as StreamTimeoutError).code).toBe('STREAM_TIMEOUT');
+        // The re-thrown StreamTimeoutError preserves the original via `cause`
+        // so debugging tools and `error.cause` chains remain intact.
+        expect((caught as StreamTimeoutError).cause).toBeInstanceOf(StreamTimeoutError);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not time out when the server emits keep-alive comments', async () => {
+      // Simulates a slow video generation: `start`, then a heartbeat every 30s
+      // (under STREAM_TIMEOUT_MS=90s), eventually followed by `done`. The
+      // heartbeat bytes arrive as a separate `reader.read()` resolution, which
+      // resets `readWithTimeout`'s internal timer.
+      const encoder = new TextEncoder();
+      const startChunk = encoder.encode(
+        'event: start\ndata: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"a"}]}\n\n'
+      );
+      const keepAliveChunk = encoder.encode(':keep-alive\n\n');
+      const doneChunk = encoder.encode(
+        'event: done\ndata: {"userMessageId":"u","aiSequence":1,"epochNumber":1,"cost":"0"}\n\n'
+      );
+
+      let phase = 0;
+      const reader: ReadableStreamDefaultReader<Uint8Array> = {
+        read: vi.fn(() => {
+          // Phase 0: emit start immediately. Phases 1..3: emit a keep-alive
+          // every 60s (well within the 90s timeout). Phase 4: emit done.
+          if (phase === 0) {
+            phase += 1;
+            return Promise.resolve({
+              done: false,
+              value: startChunk,
+            } as ReadableStreamReadResult<Uint8Array>);
+          }
+          if (phase < 4) {
+            phase += 1;
+            return new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
+              setTimeout(() => {
+                resolve({ done: false, value: keepAliveChunk });
+              }, 60_000);
+            });
+          }
+          if (phase === 4) {
+            phase += 1;
+            return Promise.resolve({
+              done: false,
+              value: doneChunk,
+            } as ReadableStreamReadResult<Uint8Array>);
+          }
+          return Promise.resolve({
+            done: true,
+            value: undefined,
+          } as ReadableStreamReadResult<Uint8Array>);
+        }),
+        cancel: vi.fn().mockResolvedValue(null),
+        releaseLock: vi.fn(),
+        get closed(): Promise<undefined> {
+          return new Promise<undefined>(() => {
+            /* never */
+          });
+        },
+      };
+      const fakeBody = { getReader: () => reader } as unknown as ReadableStream<Uint8Array>;
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: fakeBody,
+      });
+
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useChatStream('authenticated'));
+
+        let caught: unknown;
+        let resolvedResult: unknown;
+        const startPromise = act(async () => {
+          try {
+            resolvedResult = await result.current.startStream({
+              conversationId: 'conv-1',
+              models: ['gpt-4'],
+              userMessage: { id: 'msg-1', content: 'Hello' },
+              messagesForInference: [{ role: 'user', content: 'Hello' }],
+              fundingSource: 'personal_balance',
+            });
+          } catch (error) {
+            caught = error;
+          }
+        });
+
+        // 60s, 120s, 180s — three keep-alives, each well within the 90s
+        // timeout. Then the done event resolves and the stream finishes.
+        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(60_000);
+        await startPromise;
+
+        expect(caught).toBeUndefined();
+        expect(resolvedResult).toBeDefined();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

@@ -306,7 +306,7 @@ function validateCost(cost: string): number {
  * If no wallet has sufficient balance: marks usage_record as 'failed', throws error.
  */
 export async function chargeForUsage(
-  db: Database,
+  db: DatabaseClient,
   params: ChargeForUsageParams
 ): Promise<ChargeResult> {
   const {
@@ -382,7 +382,7 @@ export interface ChargeForMediaGenerationParams {
  * pattern as chargeForUsage but inserts media_generations detail row.
  */
 export async function chargeForMediaGeneration(
-  db: Database,
+  db: DatabaseClient,
   params: ChargeForMediaGenerationParams
 ): Promise<ChargeResult> {
   const {

@@ -1,7 +1,6 @@
 import {
   buildClassifierMessages,
   CLASSIFIER_OUTPUT_TOKEN_CAP,
-  ERROR_CODE_CLASSIFIER_FAILED,
   resolveClassifierOutput,
   truncateForClassifier,
   type TruncationInput,
@@ -10,7 +9,7 @@ import {
 import type { TextRequest } from '../../services/ai/index.js';
 
 import type { PreInferenceRunArgs, PreInferenceStage } from './types.js';
-import type { PreInferenceOutcome } from '@hushbox/shared';
+import type { PreInferenceBilling, PreInferenceOutcome } from '@hushbox/shared';
 
 export interface SmartModelStageConfig {
   /** Cheapest eligible text model — used to make the classifier call. */
@@ -29,13 +28,14 @@ export interface SmartModelStageConfig {
  * Concrete pre-inference stage that picks one model from a pre-filtered
  * eligible list by asking the cheapest-eligible model to act as a router.
  *
- * Failure modes — all surface as `CLASSIFIER_FAILED`:
- * - Classifier stream throws (network, gateway, or `setClassifierFailure` in tests)
- * - Classifier finishes without a generationId (cannot bill)
- * - Classifier output can't be fuzzy-resolved to an eligible id
+ * Short-circuit: when only one model is eligible, the classifier call is
+ * skipped entirely — no billing, no waste — and the slot resolves directly
+ * to that one id.
  *
- * On failure, emits `stage:error` and returns `ok: false` so the executor
- * aborts the chain. Sibling slots (explicit selections) keep streaming.
+ * Failure modes (classifier throws, no generationId, garbage output) all
+ * fall back to the cheapest eligible model (`classifierModelId`). The user
+ * still pays for the failed classifier attempt when one was made; we degrade
+ * gracefully rather than aborting the slot.
  */
 export function createSmartModelStage(config: SmartModelStageConfig): PreInferenceStage {
   return {
@@ -95,20 +95,77 @@ async function runSmartModelStage(
 
   await writer.writeStageStart({ stageId: 'smart-model', assistantMessageId });
 
+  // Single-eligible short-circuit: skip the classifier entirely — no billing.
+  if (config.eligibleInferenceIds.length === 1) {
+    const [onlyId] = config.eligibleInferenceIds;
+    if (onlyId === undefined) throw new Error('invariant: eligibleInferenceIds[0] missing');
+    return resolveOk({
+      config,
+      writer,
+      assistantMessageId,
+      resolvedId: onlyId,
+      billing: null,
+      fallbackOccurred: false,
+    });
+  }
+
   const { request, messages } = buildClassifierRequest(config);
+  const fallbackId = config.classifierModelId;
 
   let result: ClassifierStreamResult;
   try {
     result = await consumeClassifierStream(aiClient, request);
-  } catch {
-    return failure(writer, assistantMessageId);
+  } catch (error) {
+    // Throw → no generationId, nothing to bill. Fall back to cheapest eligible.
+    // Preserve the upstream cause for Sentry/dev logs so the failure isn't
+    // silently swallowed; downstream still degrades gracefully.
+    console.error('Smart Model classifier failed', error);
+    return resolveOk({
+      config,
+      writer,
+      assistantMessageId,
+      resolvedId: fallbackId,
+      billing: null,
+      fallbackOccurred: true,
+    });
   }
+
+  // Build the billing breadcrumb if we got a generationId — the call cost
+  // something whether or not the output was usable.
+  const billing: PreInferenceBilling | null =
+    result.generationId === null
+      ? null
+      : {
+          stageId: 'smart-model',
+          modelId: config.classifierModelId,
+          generationId: result.generationId,
+          inputContent: messages.map((m) => m.content).join('\n\n'),
+          outputContent: result.outputText,
+        };
 
   const resolvedId = resolveClassifierOutput(result.outputText, config.eligibleInferenceIds);
-  if (result.generationId === null || resolvedId === null) {
-    return failure(writer, assistantMessageId);
-  }
+  const fallbackOccurred = resolvedId === null;
+  return resolveOk({
+    config,
+    writer,
+    assistantMessageId,
+    resolvedId: resolvedId ?? fallbackId,
+    billing,
+    fallbackOccurred,
+  });
+}
 
+interface ResolveOkArgs {
+  config: SmartModelStageConfig;
+  writer: PreInferenceRunArgs['writer'];
+  assistantMessageId: string;
+  resolvedId: string;
+  billing: PreInferenceBilling | null;
+  fallbackOccurred: boolean;
+}
+
+async function resolveOk(args: ResolveOkArgs): Promise<PreInferenceOutcome> {
+  const { config, writer, assistantMessageId, resolvedId, billing, fallbackOccurred } = args;
   const resolvedName = config.modelMetadataById.get(resolvedId)?.name ?? resolvedId;
   await writer.writeStageDone({
     assistantMessageId,
@@ -116,30 +173,13 @@ async function runSmartModelStage(
       stageId: 'smart-model',
       resolvedModelId: resolvedId,
       resolvedModelName: resolvedName,
+      ...(fallbackOccurred && { fallbackOccurred: true }),
     },
   });
 
   return {
     ok: true,
     transformation: { resolvedModelId: resolvedId },
-    billing: {
-      stageId: 'smart-model',
-      modelId: config.classifierModelId,
-      generationId: result.generationId,
-      inputContent: messages.map((m) => m.content).join('\n\n'),
-      outputContent: result.outputText,
-    },
+    billing,
   };
-}
-
-async function failure(
-  writer: PreInferenceRunArgs['writer'],
-  assistantMessageId: string
-): Promise<PreInferenceOutcome> {
-  await writer.writeStageError({
-    stageId: 'smart-model',
-    assistantMessageId,
-    errorCode: ERROR_CODE_CLASSIFIER_FAILED,
-  });
-  return { ok: false, errorCode: ERROR_CODE_CLASSIFIER_FAILED };
 }

@@ -214,6 +214,49 @@ describe('useModelStore', () => {
     });
   });
 
+  describe('resetForUnauthenticated', () => {
+    it('forces activeModality back to text', () => {
+      useModelStore.setState({ activeModality: 'image' });
+      useModelStore.getState().resetForUnauthenticated();
+      expect(useModelStore.getState().activeModality).toBe('text');
+    });
+
+    it('resets text selection to the default Smart Model entry', () => {
+      useModelStore.setState({
+        selections: {
+          text: [{ id: 'a', name: 'A' }],
+          image: [{ id: 'imagen', name: 'Imagen' }],
+          audio: [],
+          video: [],
+        },
+      });
+      useModelStore.getState().resetForUnauthenticated();
+      expect(useModelStore.getState().selections.text).toEqual([defaultTextEntry]);
+    });
+
+    it('clears non-text modalities', () => {
+      useModelStore.setState({
+        selections: {
+          text: [defaultTextEntry],
+          image: [{ id: 'imagen', name: 'Imagen' }],
+          audio: [{ id: 'audio-m', name: 'Audio' }],
+          video: [{ id: 'veo', name: 'Veo' }],
+        },
+      });
+      useModelStore.getState().resetForUnauthenticated();
+      const state = useModelStore.getState();
+      expect(state.selections.image).toEqual([]);
+      expect(state.selections.audio).toEqual([]);
+      expect(state.selections.video).toEqual([]);
+    });
+
+    it('forces text modality even when starting from video', () => {
+      useModelStore.setState({ activeModality: 'video' });
+      useModelStore.getState().resetForUnauthenticated();
+      expect(useModelStore.getState().activeModality).toBe('text');
+    });
+  });
+
   describe('clearSelection', () => {
     it('reduces text selection to only the primary entry', () => {
       useModelStore.setState({

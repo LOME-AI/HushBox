@@ -32,4 +32,13 @@ describe('createEvidenceConfig', () => {
     expect(result.db).toBe(dbSentinel);
     expect(result.isCI).toBe(false);
   });
+
+  it('returns isCI=false when envUtils is missing (test harness bypassing envMiddleware)', () => {
+    const dbSentinel = { sentinel: 'db' };
+    const map = new Map<string, unknown>([['db', dbSentinel]]);
+    const c = { get: (key: string) => map.get(key) } as unknown as Context<AppEnv>;
+    const result = createEvidenceConfig(c);
+    expect(result.db).toBe(dbSentinel);
+    expect(result.isCI).toBe(false);
+  });
 });

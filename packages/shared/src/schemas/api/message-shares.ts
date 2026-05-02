@@ -5,7 +5,20 @@ import { z } from 'zod';
  * parsing. Enforced at the DB via a CHECK constraint on `content_items`;
  * re-parsed here so the server fails loud if a rogue row slips through.
  */
-export const publicShareContentTypeSchema = z.enum(['text', 'image', 'audio', 'video']);
+export const contentTypeSchema = z.enum(['text', 'image', 'audio', 'video']);
+
+/** Re-export for backwards compatibility with public-share consumers. */
+export const publicShareContentTypeSchema = contentTypeSchema;
+
+/**
+ * Sender-type discriminator. Enforced at the DB via CHECK on `messages.sender_type`.
+ * Re-parsed at serialization boundaries so the server fails loud if the DB
+ * ever holds a value outside this set.
+ */
+export const senderTypeSchema = z.enum(['user', 'ai']);
+
+export type ContentType = z.infer<typeof contentTypeSchema>;
+export type SenderType = z.infer<typeof senderTypeSchema>;
 
 /**
  * A single content item in the public share response. Shape is deliberately

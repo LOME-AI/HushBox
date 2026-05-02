@@ -21,6 +21,7 @@ import {
   encryptTextWithContentKey,
   decryptTextWithContentKey,
 } from './message-encrypt.js';
+import type { WrappedContentKey } from './content-key.js';
 import { wrapEpochKeyForNewMember } from './member.js';
 import { createSharedLink, deriveKeysFromLinkSecret } from './link.js';
 import { createShare, openShare } from './message-share.js';
@@ -32,7 +33,7 @@ import { at } from '@hushbox/shared/src/test-utilities.js';
  * one content key per message, wrapped once, used for one content item.
  */
 interface StoredMessage {
-  wrappedContentKey: Uint8Array;
+  wrappedContentKey: WrappedContentKey;
   ciphertext: Uint8Array;
 }
 

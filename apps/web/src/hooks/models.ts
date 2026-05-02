@@ -82,11 +82,44 @@ const PREMIUM_PINS: Record<Modality, { strongestId: string; valueId: string }> =
 };
 
 /**
+ * Find the strongest (most expensive non-premium) and value (cheapest)
+ * text models. Paid users still get non-premium ids — the goal is to
+ * surface the user's typical day-to-day pick, not their most expensive
+ * possible call.
+ */
+function findStrongestAndValueAllTextModels(
+  models: Model[],
+  premiumIds: Set<string>
+): { strongestId: string; valueId: string } | null {
+  const basicTextModels = models.filter(
+    (m) => m.modality === 'text' && m.id !== SMART_MODEL_ID && !premiumIds.has(m.id)
+  );
+  if (basicTextModels.length === 0) return null;
+
+  const sorted = [...basicTextModels].toSorted((a, b) => {
+    const priceA = getModelCostPer1k(a.pricePerInputToken, a.pricePerOutputToken);
+    const priceB = getModelCostPer1k(b.pricePerInputToken, b.pricePerOutputToken);
+    return priceB - priceA;
+  });
+
+  return {
+    strongestId: sorted[0]?.id ?? '',
+    valueId: sorted.at(-1)?.id ?? '',
+  };
+}
+
+/**
  * Per-modality strongest/value quick-select pins.
  *
- * Premium (paid) users get the hard-coded per-modality pins. Non-premium users
- * can't access media modalities at all (all media models are classified as
- * premium in `processModels`), so only the text fallback matters — it derives
+ * Plan §10.12: paid users on text resolve dynamically from the model list
+ * (most expensive non-premium = strongest, cheapest = value), falling back
+ * to the hard-coded constants only when the model list is empty.
+ *
+ * Image and video paid pins remain hard-coded — those modalities don't have
+ * the same per-message price spread that makes a dynamic pick meaningful.
+ *
+ * Non-premium users can't access media modalities at all (all media models
+ * are classified as premium in `processModels`); the text fallback derives
  * strongest/value from the user's accessible basic-tier text models.
  */
 export function getAccessibleModelIds(
@@ -95,7 +128,12 @@ export function getAccessibleModelIds(
   canAccessPremium: boolean,
   modality: Modality = 'text'
 ): { strongestId: string; valueId: string } {
-  if (canAccessPremium) return PREMIUM_PINS[modality];
+  if (canAccessPremium) {
+    if (modality === 'text') {
+      return findStrongestAndValueAllTextModels(models, premiumIds) ?? PREMIUM_PINS.text;
+    }
+    return PREMIUM_PINS[modality];
+  }
   if (modality === 'text') return findStrongestAndValueBasicTextModels(models, premiumIds);
   return { strongestId: '', valueId: '' };
 }

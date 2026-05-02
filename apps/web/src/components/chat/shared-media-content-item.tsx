@@ -1,4 +1,5 @@
 import * as React from 'react';
+import type { ContentKey } from '@hushbox/crypto';
 import { useDecryptedSharedMedia } from '@/hooks/use-decrypted-shared-media';
 import { MediaPlaceholder, MediaPreview } from './media-preview';
 import type { SharedContentItem } from '@/hooks/use-shared-message';
@@ -8,7 +9,7 @@ type SharedMediaItem = Extract<SharedContentItem, { type: 'media' }>;
 interface SharedMediaContentItemProps {
   item: SharedMediaItem;
   /** Message-level content key (already unwrapped from the shareSecret). */
-  contentKey: Uint8Array;
+  contentKey: ContentKey;
   className?: string;
 }
 

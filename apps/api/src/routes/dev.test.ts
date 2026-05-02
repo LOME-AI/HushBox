@@ -859,4 +859,69 @@ describe('devRoute', () => {
       expect(res.status).toBe(400);
     });
   });
+
+  describe('POST /fail-model', () => {
+    interface FailModelTestApp extends Hono<AppEnv> {
+      __addFailingModel: ReturnType<typeof vi.fn>;
+      __clear: ReturnType<typeof vi.fn>;
+    }
+
+    function createFailModelApp(options: { isMock: boolean }): FailModelTestApp {
+      const addFailingModel = vi.fn();
+      const clearFailingModels = vi.fn();
+      const aiClient = options.isMock
+        ? { isMock: true, addFailingModel, clearFailingModels }
+        : { isMock: false };
+      const app = new Hono<AppEnv>();
+      app.use('*', async (c, next) => {
+        c.set('aiClient', aiClient as AppEnv['Variables']['aiClient']);
+        await next();
+      });
+      app.route('/dev', devRoute);
+      return Object.assign(app, {
+        __addFailingModel: addFailingModel,
+        __clear: clearFailingModels,
+      });
+    }
+
+    it('returns 200 and registers a failing model when client is mock', async () => {
+      const app = createFailModelApp({ isMock: true });
+      const res = await app.request('/dev/fail-model', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: 'anthropic/claude-fake' }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{ success: boolean }>(res);
+      expect(body.success).toBe(true);
+      expect(app.__addFailingModel).toHaveBeenCalledWith('anthropic/claude-fake');
+    });
+
+    it('clears failing models when modelId is null', async () => {
+      const app = createFailModelApp({ isMock: true });
+      const res = await app.request('/dev/fail-model', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: null }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(app.__clear).toHaveBeenCalled();
+    });
+
+    it('returns 400 with INVALID_OPERATION error code when client is not mock', async () => {
+      const app = createFailModelApp({ isMock: false });
+      const res = await app.request('/dev/fail-model', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: 'any/model' }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await jsonBody<{ code: string; details?: { reason?: string } }>(res);
+      expect(body.code).toBe('INVALID_OPERATION');
+      expect(body.details?.reason).toContain('mock');
+    });
+  });
 });

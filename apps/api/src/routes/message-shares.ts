@@ -20,6 +20,7 @@ import {
 } from '@hushbox/db';
 import { eq, and, asc, isNull } from 'drizzle-orm';
 import { requireAuth } from '../middleware/require-auth.js';
+import { rateLimitByUser, rateLimitByIp } from '../middleware/rate-limit.js';
 import { getUser } from '../lib/get-user.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import type { AppEnv } from '../types.js';
@@ -41,13 +42,14 @@ const createShareSchema = z.object({
 export const messageSharesRoute = new Hono<AppEnv>().post(
   '/share',
   requireAuth(),
+  rateLimitByUser('shareCreateUserRateLimit'),
   zValidator('json', createShareSchema),
   async (c) => {
     const user = getUser(c);
     const db = c.get('db');
     const { messageId, wrappedShareKey: wrappedShareKeyBase64 } = c.req.valid('json');
 
-    // 1. Verify the message exists
+    // 1. Verify the message exists (cheap pre-check so we can return 404 vs 403).
     const message = await db
       .select({
         id: messages.id,
@@ -62,43 +64,46 @@ export const messageSharesRoute = new Hono<AppEnv>().post(
       return c.json(createErrorResponse(ERROR_CODE_MESSAGE_NOT_FOUND), 404);
     }
 
-    // 2. Verify the user is an active member of the conversation
-    const membership = await db
-      .select({
-        id: conversationMembers.id,
-      })
-      .from(conversationMembers)
-      .where(
-        and(
-          eq(conversationMembers.conversationId, message.conversationId),
-          eq(conversationMembers.userId, user.id),
-          isNull(conversationMembers.leftAt)
+    // 2. Atomic membership check + insert inside one transaction. We use a
+    //    `SELECT ... FOR SHARE` to lock the membership row for the duration of
+    //    the transaction so a concurrent removal blocks until we commit, and
+    //    a concurrent removal that committed first leaves us with no row.
+    //    This closes the previous check-then-act race where a user could be
+    //    removed between the membership lookup and the insert.
+    const wrappedShareKeyBytes = fromBase64(wrappedShareKeyBase64);
+    const conversationId = message.conversationId;
+    const result = await db.transaction(async (tx) => {
+      const [activeMembership] = await tx
+        .select({ id: conversationMembers.id })
+        .from(conversationMembers)
+        .where(
+          and(
+            eq(conversationMembers.conversationId, conversationId),
+            eq(conversationMembers.userId, user.id),
+            isNull(conversationMembers.leftAt)
+          )
         )
-      )
-      .limit(1)
-      .then((rows) => rows[0]);
+        .for('share')
+        .limit(1);
 
-    if (!membership) {
+      if (!activeMembership) return { kind: 'forbidden' as const };
+
+      const [row] = await tx
+        .insert(sharedMessages)
+        .values({ messageId, wrappedContentKey: wrappedShareKeyBytes })
+        .returning();
+
+      return row ? { kind: 'ok' as const, shareId: row.id } : { kind: 'internal' as const };
+    });
+
+    if (result.kind === 'forbidden') {
       return c.json(createErrorResponse(ERROR_CODE_FORBIDDEN), 403);
     }
-
-    // 3. Insert the shared message — stores the message's content key re-wrapped
-    //    under a shareSecret. The server never sees the shareSecret or the
-    //    unwrapped content key.
-    const wrappedShareKeyBytes = fromBase64(wrappedShareKeyBase64);
-    const [inserted] = await db
-      .insert(sharedMessages)
-      .values({
-        messageId,
-        wrappedContentKey: wrappedShareKeyBytes,
-      })
-      .returning();
-
-    if (!inserted) {
+    if (result.kind === 'internal') {
       return c.json(createErrorResponse(ERROR_CODE_INTERNAL), 500);
     }
 
-    return c.json({ shareId: inserted.id }, 201);
+    return c.json({ shareId: result.shareId }, 201);
   }
 );
 
@@ -138,7 +143,8 @@ async function serializePublicShareContentItem(
 /** Public route — GET /:shareId (mounted at /api/shares). No auth required. */
 export const publicSharesRoute = new Hono<AppEnv>().get(
   '/:shareId',
-  zValidator('param', z.object({ shareId: z.string() })),
+  rateLimitByIp('shareGetIpRateLimit'),
+  zValidator('param', z.object({ shareId: z.string().min(1) })),
   async (c) => {
     const db = c.get('db');
     const mediaStorage = c.get('mediaStorage');

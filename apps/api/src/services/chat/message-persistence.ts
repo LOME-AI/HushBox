@@ -1,4 +1,4 @@
-import { type Database } from '@hushbox/db';
+import { type Database, type DatabaseClient } from '@hushbox/db';
 import type { StageId } from '@hushbox/shared';
 import {
   assignSequenceNumbers,
@@ -72,39 +72,35 @@ export async function saveUserOnlyMessage(
   const { conversationId, senderId, messageId, content, parentMessageId, forkId } = params;
 
   return db.transaction(async (tx) => {
-    await validateParentMessageId(tx as unknown as Database, conversationId, parentMessageId);
+    await validateParentMessageId(tx, conversationId, parentMessageId);
 
-    const { sequences, currentEpoch } = await assignSequenceNumbers(
-      tx as unknown as Database,
-      conversationId,
-      1
-    );
+    const { sequences, currentEpoch } = await assignSequenceNumbers(tx, conversationId, 1);
     const seq = sequences[0];
     if (seq === undefined) throw new Error('invariant: expected at least one sequence number');
 
     const { epochPublicKey, epochNumber } = await fetchEpochPublicKey(
-      tx as unknown as Database,
+      tx,
       conversationId,
       currentEpoch
     );
 
-    const { wrappedContentKey, contentItem } = await insertEnvelopeTextMessage(
-      tx as unknown as Database,
-      {
-        id: messageId,
-        conversationId,
-        textContent: content,
-        epochPublicKey,
-        epochNumber,
-        sequenceNumber: seq,
-        senderType: 'user',
-        senderId,
-        parentMessageId,
-      }
-    );
+    const { wrappedContentKey, contentItem } = await insertEnvelopeTextMessage(tx, {
+      id: messageId,
+      conversationId,
+      textContent: content,
+      epochPublicKey,
+      epochNumber,
+      sequenceNumber: seq,
+      senderType: 'user',
+      senderId,
+      parentMessageId,
+    });
 
     if (forkId) {
-      await updateForkTip(tx as unknown as Database, forkId, messageId);
+      // parentMessageId IS the fork tip when forkId is set (resolved upstream
+      // via resolveParentMessageId). Conditional update detects a concurrent
+      // writer that beat us to advancing the tip.
+      await updateForkTip(tx, forkId, messageId, parentMessageId);
     }
 
     return {
@@ -240,7 +236,7 @@ interface PersistAssistantContext {
 }
 
 async function persistTextAssistant(
-  tx: Database,
+  tx: DatabaseClient,
   msg: TextAssistantMessageInput,
   context: PersistAssistantContext
 ): Promise<AssistantResult> {
@@ -310,7 +306,7 @@ async function persistTextAssistant(
 }
 
 async function persistMediaAssistant(
-  tx: Database,
+  tx: DatabaseClient,
   msg: MediaAssistantMessageInput,
   context: PersistAssistantContext
 ): Promise<AssistantResult> {
@@ -379,7 +375,7 @@ function logNegativeCosts(
 }
 
 async function persistAllAssistants(
-  tx: Database,
+  tx: DatabaseClient,
   assistantMsgs: AssistantMessageInput[],
   sequences: number[],
   context: Omit<PersistAssistantContext, 'sequenceNumber'>
@@ -430,10 +426,10 @@ export async function saveChatTurn(
   logNegativeCosts(assistantMsgs, conversationId, userId);
 
   return db.transaction(async (tx) => {
-    await validateParentMessageId(tx as unknown as Database, conversationId, parentMessageId);
+    await validateParentMessageId(tx, conversationId, parentMessageId);
 
     const { sequences, currentEpoch } = await assignSequenceNumbers(
-      tx as unknown as Database,
+      tx,
       conversationId,
       1 + assistantMsgs.length
     );
@@ -441,12 +437,12 @@ export async function saveChatTurn(
     if (userSeq === undefined) throw new Error('invariant: expected at least one sequence number');
 
     const { epochPublicKey, epochNumber } = await fetchEpochPublicKey(
-      tx as unknown as Database,
+      tx,
       conversationId,
       currentEpoch
     );
 
-    const userPersisted = await insertEnvelopeTextMessage(tx as unknown as Database, {
+    const userPersisted = await insertEnvelopeTextMessage(tx, {
       id: userMessageId,
       conversationId,
       textContent: userContent,
@@ -458,24 +454,21 @@ export async function saveChatTurn(
       parentMessageId,
     });
 
-    const assistantResults = await persistAllAssistants(
-      tx as unknown as Database,
-      assistantMsgs,
-      sequences,
-      {
-        conversationId,
-        epochPublicKey,
-        epochNumber,
-        userMessageId,
-        userId,
-        ...(groupBillingContext !== undefined && { groupBillingContext }),
-      }
-    );
+    const assistantResults = await persistAllAssistants(tx, assistantMsgs, sequences, {
+      conversationId,
+      epochPublicKey,
+      epochNumber,
+      userMessageId,
+      userId,
+      ...(groupBillingContext !== undefined && { groupBillingContext }),
+    });
 
     if (forkId) {
       const lastAssistant = assistantMsgs.at(-1);
       if (!lastAssistant) throw new Error('invariant: assistantMsgs must not be empty');
-      await updateForkTip(tx as unknown as Database, forkId, lastAssistant.id);
+      // parentMessageId is the resolved fork tip from before the transaction;
+      // conditional update guards against a concurrent writer racing us.
+      await updateForkTip(tx, forkId, lastAssistant.id, parentMessageId);
     }
 
     const firstResult = assistantResults[0];

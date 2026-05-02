@@ -2,6 +2,29 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import * as React from 'react';
 import type { VirtuosoHandle } from 'react-virtuoso';
+
+// Break the import chain that requires VITE_API_URL at module load time.
+// Without these mocks, frontendEnvSchema.parse() runs in src/lib/api.ts and
+// throws ZodError, preventing every test in this file from loading.
+vi.mock('@/lib/api', () => ({
+  getApiUrl: vi.fn(() => 'http://localhost:8787'),
+  ApiError: class ApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public data?: unknown
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
+  },
+}));
+
+vi.mock('@/lib/api-client', () => ({
+  client: {},
+  fetchJson: vi.fn(),
+}));
+
 import { MessageList, type MessageListHandle } from './message-list';
 import type { Message } from '@/lib/api';
 

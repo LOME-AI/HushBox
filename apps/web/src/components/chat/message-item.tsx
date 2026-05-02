@@ -699,7 +699,12 @@ export function MessageItem({
                 {(primaryMessage.content !== '' || isStreaming === true) && (
                   <AIMessageNametag primaryMessage={primaryMessage} modelName={modelName} />
                 )}
-                <div className="w-full overflow-hidden text-base leading-relaxed break-words">
+                <div
+                  data-testid="ai-message-live-region"
+                  aria-live={isStreaming === true ? 'polite' : 'off'}
+                  aria-atomic="false"
+                  className="w-full overflow-hidden text-base leading-relaxed break-words"
+                >
                   <AIMessageContent
                     primaryMessage={primaryMessage}
                     isStreaming={isStreaming}

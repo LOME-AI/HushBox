@@ -49,6 +49,12 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('maps INVALID_OPERATION to user-facing message', () => {
+    expect(friendlyErrorMessage('INVALID_OPERATION')).toBe(
+      'This operation is not supported in the current context.'
+    );
+  });
+
   it('maps EXPIRED to user-facing message', () => {
     expect(friendlyErrorMessage('EXPIRED')).toBe('This item has expired.');
   });
@@ -379,6 +385,12 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('maps FEATURE_REQUIRES_AUTH to user-facing message', () => {
+    expect(friendlyErrorMessage('FEATURE_REQUIRES_AUTH')).toBe(
+      'This feature requires a free account. Please sign up to use it.'
+    );
+  });
+
   it('maps MEMBER_LIMIT_REACHED to user-facing message', () => {
     expect(friendlyErrorMessage('MEMBER_LIMIT_REACHED')).toBe(
       'Conversation has reached the maximum of 100 members.'
@@ -538,6 +550,24 @@ describe('friendlyErrorMessage', () => {
   it('maps CONTEXT_LENGTH_EXCEEDED to user-facing message', () => {
     expect(friendlyErrorMessage('CONTEXT_LENGTH_EXCEEDED')).toBe(
       'This conversation is too long for the selected model. Try a model with a larger context window.'
+    );
+  });
+
+  it('maps CONTENT_POLICY to user-facing message', () => {
+    expect(friendlyErrorMessage('CONTENT_POLICY')).toBe(
+      'The model declined to answer because it considered the request unsafe. Try rephrasing your message.'
+    );
+  });
+
+  it('maps PROVIDER_BILLING to user-facing message', () => {
+    expect(friendlyErrorMessage('PROVIDER_BILLING')).toBe(
+      "The AI provider rejected our credentials. We're investigating; please try again shortly."
+    );
+  });
+
+  it('maps NETWORK_ERROR to user-facing message', () => {
+    expect(friendlyErrorMessage('NETWORK_ERROR')).toBe(
+      "We couldn't reach the AI provider. Check your connection and try again."
     );
   });
 

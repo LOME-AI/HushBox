@@ -31,6 +31,9 @@ export const ERROR_CODE_PAYMENT_REQUIRED = 'PAYMENT_REQUIRED';
 /** Conflict - resource already in conflicting state */
 export const ERROR_CODE_CONFLICT = 'CONFLICT';
 
+/** Invalid operation - request shape valid but operation not supported in current context */
+export const ERROR_CODE_INVALID_OPERATION = 'INVALID_OPERATION';
+
 /** Expired - resource or token has expired */
 export const ERROR_CODE_EXPIRED = 'EXPIRED';
 
@@ -226,6 +229,13 @@ export const ERROR_CODE_TRIAL_MESSAGE_TOO_EXPENSIVE = 'TRIAL_MESSAGE_TOO_EXPENSI
 /** Authenticated user on trial endpoint */
 export const ERROR_CODE_AUTHENTICATED_ON_TRIAL = 'AUTHENTICATED_ON_TRIAL';
 
+/**
+ * Feature requires authentication. Returned by endpoints that defense-in-depth
+ * reject requests for paid/auth-only features (e.g., web search) when called
+ * by an unauthenticated trial user.
+ */
+export const ERROR_CODE_FEATURE_REQUIRES_AUTH = 'FEATURE_REQUIRES_AUTH';
+
 /** Conversation member limit reached */
 export const ERROR_CODE_MEMBER_LIMIT_REACHED = 'MEMBER_LIMIT_REACHED';
 
@@ -293,6 +303,12 @@ export const ERROR_CODE_INVALID_PARENT_MESSAGE = 'INVALID_PARENT_MESSAGE';
 /** Cannot regenerate while a message is currently streaming */
 export const ERROR_CODE_CANNOT_REGENERATE_WHILE_STREAMING = 'CANNOT_REGENERATE_WHILE_STREAMING';
 
+/** Fork tip changed between parent resolution and persistence — concurrent writer won the race. */
+export const ERROR_CODE_FORK_TIP_CONFLICT = 'FORK_TIP_CONFLICT';
+
+/** Duplicate user message — same conversation/sequence already persisted (retry hit a PK race). */
+export const ERROR_CODE_DUPLICATE_MESSAGE = 'DUPLICATE_MESSAGE';
+
 // ============================================================
 // Error Codes — SSE Streaming
 // ============================================================
@@ -308,6 +324,34 @@ export const ERROR_CODE_BILLING_ERROR = 'BILLING_ERROR';
 
 /** Chat stream failed — generic client-side stream failure */
 export const ERROR_CODE_CHAT_STREAM_FAILED = 'CHAT_STREAM_FAILED';
+
+/**
+ * Stream went silent — no SSE event received within {@link STREAM_TIMEOUT_MS}.
+ * Surfaces a server crash mid-stream (after `start`, before `done`) so the UI
+ * can clear the optimistic "streaming" state instead of hanging forever.
+ */
+export const ERROR_CODE_STREAM_TIMEOUT = 'STREAM_TIMEOUT';
+
+/**
+ * Provider returned a content-policy / moderation refusal. Surfaces a
+ * targeted UI message asking the user to rephrase, distinct from generic
+ * stream errors.
+ */
+export const ERROR_CODE_CONTENT_POLICY = 'CONTENT_POLICY';
+
+/**
+ * Provider auth / billing failure (HTTP 401/402/403, "insufficient credits").
+ * Distinct from user-facing PAYMENT_REQUIRED — this is the upstream gateway
+ * rejecting our credentials, not the user lacking balance.
+ */
+export const ERROR_CODE_PROVIDER_BILLING = 'PROVIDER_BILLING';
+
+/**
+ * Network / fetch error — connection refused, DNS failure, AbortError mid-stream.
+ * Distinguishes transient infrastructure issues from provider-side failures so
+ * the UI can suggest "retry" instead of "try a different model".
+ */
+export const ERROR_CODE_NETWORK_ERROR = 'NETWORK_ERROR';
 
 // ============================================================
 // Error Codes — Mobile
@@ -331,6 +375,9 @@ export const ERROR_CODE_BUILD_NOT_FOUND = 'BUILD_NOT_FOUND';
 
 /** Media storage write failed — R2 PUT returned an error. */
 export const ERROR_CODE_STORAGE_WRITE_FAILED = 'STORAGE_WRITE_FAILED';
+
+/** Generated media exceeds the single-PUT size limit; multipart upload not supported. */
+export const ERROR_CODE_MEDIA_TOO_LARGE = 'MEDIA_TOO_LARGE';
 
 /** Media storage read failed — presigned URL could not be minted or object fetch failed. */
 export const ERROR_CODE_STORAGE_READ_FAILED = 'STORAGE_READ_FAILED';

@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, isNull } from 'drizzle-orm';
 import {
   messages,
   contentItems,
@@ -6,9 +6,10 @@ import {
   epochs,
   conversationForks,
   type Database,
+  type DatabaseClient,
 } from '@hushbox/db';
 import { beginMessageEnvelope, encryptTextWithContentKey } from '@hushbox/crypto';
-import { ERROR_CODE_INVALID_PARENT_MESSAGE } from '@hushbox/shared';
+import { ERROR_CODE_FORK_TIP_CONFLICT, ERROR_CODE_INVALID_PARENT_MESSAGE } from '@hushbox/shared';
 import { chargeForUsage, chargeForMediaGeneration } from '../billing/transaction-writer.js';
 import { updateGroupSpending } from '../billing/budgets.js';
 
@@ -35,7 +36,7 @@ export class InvalidParentMessageError extends Error {
  * Runs inside a transaction to guarantee atomicity.
  */
 export async function validateParentMessageId(
-  tx: Database,
+  tx: DatabaseClient,
   conversationId: string,
   parentMessageId: string | null
 ): Promise<void> {
@@ -88,7 +89,7 @@ export interface AssignSequenceNumbersResult {
  * @throws Error('Conversation not found') if conversation does not exist
  */
 export async function assignSequenceNumbers(
-  tx: Database,
+  tx: DatabaseClient,
   conversationId: string,
   count: number
 ): Promise<AssignSequenceNumbersResult> {
@@ -128,7 +129,7 @@ export interface EpochKeyResult {
  * @throws Error('Epoch not found') if epoch does not exist
  */
 export async function fetchEpochPublicKey(
-  tx: Database,
+  tx: DatabaseClient,
   conversationId: string,
   currentEpoch: number
 ): Promise<EpochKeyResult> {
@@ -192,7 +193,7 @@ export interface InsertEnvelopeTextMessageResult {
  * forward them to the client via the SSE `done` event.
  */
 export async function insertEnvelopeTextMessage(
-  tx: Database,
+  tx: DatabaseClient,
   params: InsertEnvelopeTextMessageParams
 ): Promise<InsertEnvelopeTextMessageResult> {
   const { contentKey, wrappedContentKey } = beginMessageEnvelope(params.epochPublicKey);
@@ -263,7 +264,7 @@ export interface ChargeAndTrackUsageResult {
  * Charges the user's wallet for usage and optionally updates group spending tables.
  */
 export async function chargeAndTrackUsage(
-  tx: Database,
+  tx: DatabaseClient,
   params: ChargeAndTrackUsageParams
 ): Promise<ChargeAndTrackUsageResult> {
   const chargeResult = await chargeForUsage(tx, {
@@ -363,7 +364,7 @@ function resolveWrappedContentKey(
  * from `epochPublicKey`.
  */
 export async function insertEnvelopeMediaMessage(
-  tx: Database,
+  tx: DatabaseClient,
   params: InsertEnvelopeMediaMessageParams
 ): Promise<InsertEnvelopeMediaMessageResult> {
   const wrappedContentKey = resolveWrappedContentKey(params);
@@ -432,7 +433,7 @@ export interface ChargeAndTrackMediaUsageResult {
  * Charges the user's wallet for media generation usage and optionally updates group spending.
  */
 export async function chargeAndTrackMediaUsage(
-  tx: Database,
+  tx: DatabaseClient,
   params: ChargeAndTrackMediaUsageParams
 ): Promise<ChargeAndTrackMediaUsageResult> {
   const chargeResult = await chargeForMediaGeneration(tx, {
@@ -496,14 +497,59 @@ export async function resolveParentMessageId(
 // Fork Tip Update
 // ============================================================================
 
+export class ForkTipConflictError extends Error {
+  constructor(
+    public readonly code: string,
+    public readonly forkId: string,
+    public readonly expectedTipMessageId: string | null
+  ) {
+    super(
+      `fork tip conflict: fork ${forkId} expected tip ${
+        expectedTipMessageId ?? 'null'
+      } but actual tip differs`
+    );
+    this.name = 'ForkTipConflictError';
+  }
+}
+
 /**
- * Updates the tip message ID for a fork.
- * No-op if forkId is undefined.
+ * Atomically advances a fork's tip message id.
+ *
+ * Uses a conditional UPDATE: the row is updated only when the current
+ * `tip_message_id` matches `expectedTipMessageId`. A concurrent writer that
+ * already advanced the tip will cause this call to affect zero rows, which we
+ * treat as a conflict and surface to the route as
+ * {@link ERROR_CODE_FORK_TIP_CONFLICT}. The caller decides whether to retry.
+ *
+ * If the fork doesn't exist at all, this remains a no-op (matches prior
+ * behaviour: no fork = nothing to update; the caller already validated
+ * existence upstream when needed).
  */
 export async function updateForkTip(
-  tx: Database,
+  tx: DatabaseClient,
   forkId: string,
-  tipMessageId: string
+  newTipMessageId: string,
+  expectedTipMessageId: string | null
 ): Promise<void> {
-  await tx.update(conversationForks).set({ tipMessageId }).where(eq(conversationForks.id, forkId));
+  // Fast-path: if the fork is gone, do nothing (preserves no-op semantics).
+  const [existing] = await tx
+    .select({ id: conversationForks.id, tipMessageId: conversationForks.tipMessageId })
+    .from(conversationForks)
+    .where(eq(conversationForks.id, forkId));
+  if (!existing) return;
+
+  const tipCondition =
+    expectedTipMessageId === null
+      ? isNull(conversationForks.tipMessageId)
+      : eq(conversationForks.tipMessageId, expectedTipMessageId);
+
+  const result = await tx
+    .update(conversationForks)
+    .set({ tipMessageId: newTipMessageId })
+    .where(and(eq(conversationForks.id, forkId), tipCondition))
+    .returning({ id: conversationForks.id });
+
+  if (result.length === 0) {
+    throw new ForkTipConflictError(ERROR_CODE_FORK_TIP_CONFLICT, forkId, expectedTipMessageId);
+  }
 }

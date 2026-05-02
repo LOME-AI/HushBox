@@ -50,12 +50,53 @@ export const insertMessageSchema = createInsertSchema(messages, {
 });
 
 // --- Content Items ---
+//
+// Mirrors the `content_items_type_consistency` CHECK constraint at the Zod
+// boundary as a discriminated union. Validation rejects mixed text + media
+// payloads BEFORE they reach Postgres, so the constraint stays a defense in
+// depth instead of the only line of defense.
 export const selectContentItemSchema = createSelectSchema(contentItems, {
   encryptedBlob: () => zodInstance.instanceof(Uint8Array).nullable(),
 });
-export const insertContentItemSchema = createInsertSchema(contentItems, {
-  encryptedBlob: () => zodInstance.instanceof(Uint8Array).nullable(),
+
+const contentItemBaseInsertFields = {
+  id: zodInstance.string().optional(),
+  messageId: zodInstance.string(),
+  position: zodInstance.number().int().nonnegative().default(0),
+  modelName: zodInstance.string().nullable().optional(),
+  cost: zodInstance.string().nullable().optional(),
+  isSmartModel: zodInstance.boolean().optional(),
+  createdAt: zodInstance.date().optional(),
+};
+
+const insertTextContentItemSchema = zodInstance.object({
+  ...contentItemBaseInsertFields,
+  contentType: zodInstance.literal('text'),
+  encryptedBlob: zodInstance.instanceof(Uint8Array),
+  storageKey: zodInstance.undefined().or(zodInstance.null()).optional(),
+  mimeType: zodInstance.undefined().or(zodInstance.null()).optional(),
+  sizeBytes: zodInstance.undefined().or(zodInstance.null()).optional(),
+  width: zodInstance.undefined().or(zodInstance.null()).optional(),
+  height: zodInstance.undefined().or(zodInstance.null()).optional(),
+  durationMs: zodInstance.undefined().or(zodInstance.null()).optional(),
 });
+
+const insertMediaContentItemSchema = zodInstance.object({
+  ...contentItemBaseInsertFields,
+  contentType: zodInstance.enum(['image', 'audio', 'video']),
+  storageKey: zodInstance.string(),
+  mimeType: zodInstance.string(),
+  sizeBytes: zodInstance.number().int().nonnegative(),
+  width: zodInstance.number().int().nullable().optional(),
+  height: zodInstance.number().int().nullable().optional(),
+  durationMs: zodInstance.number().int().nullable().optional(),
+  encryptedBlob: zodInstance.undefined().or(zodInstance.null()).optional(),
+});
+
+export const insertContentItemSchema = zodInstance.discriminatedUnion('contentType', [
+  insertTextContentItemSchema,
+  insertMediaContentItemSchema,
+]);
 
 // --- Projects ---
 export const selectProjectSchema = createSelectSchema(projects, {

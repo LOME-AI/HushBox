@@ -1,5 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
-import { runR2Gc } from './r2-gc.js';
+
+const recordEvidenceMock = vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve());
+vi.mock('@hushbox/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/db')>();
+  return {
+    ...actual,
+    recordServiceEvidence: recordEvidenceMock,
+  };
+});
+
+const { runR2Gc } = await import('./r2-gc.js');
+const { SERVICE_NAMES } = await import('@hushbox/db');
 import type { MediaStorage } from '../storage/index.js';
 
 const NOW = new Date('2026-04-29T12:00:00.000Z').getTime();
@@ -211,5 +222,51 @@ describe('runR2Gc', () => {
       'custom-prefix/',
       expect.objectContaining({ limit: 250 })
     );
+  });
+
+  describe('evidence recording', () => {
+    it('does not record evidence when no evidence config is supplied', async () => {
+      recordEvidenceMock.mockClear();
+      const { storage } = stubStorage([{ objects: [] }]);
+      const dbHelper = stubDb([]);
+
+      await runR2Gc({ storage, db: dbHelper.db, now: NOW });
+
+      expect(recordEvidenceMock).not.toHaveBeenCalled();
+    });
+
+    it('records evidence at end of a successful run with stats payload', async () => {
+      recordEvidenceMock.mockClear();
+      const { storage } = stubStorage([
+        {
+          objects: [
+            { key: 'media/orphan-1.enc', uploaded: new Date(ONE_DAY_AGO), size: 100 },
+            { key: 'media/orphan-2.enc', uploaded: new Date(ONE_DAY_AGO), size: 250 },
+          ],
+        },
+      ]);
+      const dbHelper = stubDb([]);
+      const fakeDb = { __fake: 'db' } as unknown as import('@hushbox/db').Database;
+
+      await runR2Gc({
+        storage,
+        db: dbHelper.db,
+        now: NOW,
+        evidence: { db: fakeDb, isCI: true },
+      });
+
+      expect(recordEvidenceMock).toHaveBeenCalledWith(
+        fakeDb,
+        true,
+        SERVICE_NAMES.R2_GC,
+        expect.objectContaining({
+          scanned: 2,
+          orphansFound: 2,
+          deleted: 2,
+          bytesReclaimed: 350,
+          durationMs: expect.any(Number),
+        })
+      );
+    });
   });
 });

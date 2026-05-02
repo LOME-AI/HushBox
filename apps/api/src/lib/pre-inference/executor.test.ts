@@ -13,7 +13,7 @@ import type { PreInferenceRunArgs, PreInferenceStage } from './types.js';
 
 function noopAIClient(): AIClient {
   return {
-    isMock: true,
+    isMock: false,
     listModels: () => Promise.resolve([]),
     getModel: () => Promise.reject(new Error('not used')),
     stream: () => ({
@@ -32,8 +32,8 @@ function noopWriter(): SSEEventWriter {
   const noop = (): Promise<void> => Promise.resolve();
   return {
     writeStart: noop,
-    writeToken: noop,
     writeModelToken: noop,
+    writeModelMediaStart: noop,
     writeError: noop,
     writeModelDone: noop,
     writeModelError: noop,

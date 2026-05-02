@@ -4,13 +4,7 @@ import { Search, ChevronUp, ChevronDown, Lock, Square, CheckSquare } from 'lucid
 import { Overlay, Input, Button, ModalActions, ScrollArea, cn } from '@hushbox/ui';
 import type { Model, Modality } from '@hushbox/shared';
 import type { ModelSelectorGatingProps } from './model-selector-types';
-import {
-  ROUTES,
-  MAX_SELECTED_MODELS,
-  getModelCostPer1k,
-  shortenModelName,
-  modelSupportsCapability,
-} from '@hushbox/shared';
+import { ROUTES, MAX_SELECTED_MODELS, getModelCostPer1k, shortenModelName } from '@hushbox/shared';
 import { formatContextLength } from '../../lib/format';
 import { getAccessibleModelIds } from '../../hooks/models';
 import { useIsMobile } from '../../hooks/use-is-mobile';
@@ -159,18 +153,14 @@ function ModelItemDetails({
   isAuthenticated,
   pinnedLabel,
 }: Readonly<ModelItemDetailsProps>): React.JSX.Element {
-  const supportsWebSearch = modelSupportsCapability(model, 'web-search');
+  // Per-model "Web Search" badges intentionally omitted — search is universal
+  // across text models now (per gateway plan §9.2); per-model badges are noise.
   return (
     <div className="text-muted-foreground relative flex items-center justify-between text-xs">
       <span className="truncate">
-        {model.isSmartModel ? (
-          'Auto-picks the best model'
-        ) : (
-          <>
-            {model.provider} • Capacity: {formatContextLength(model.contextLength)}
-            {supportsWebSearch && ' • Web Search'}
-          </>
-        )}
+        {model.isSmartModel
+          ? 'Auto-picks the best model'
+          : `${model.provider} • Capacity: ${formatContextLength(model.contextLength)}`}
       </span>
       {showOverlay && <ModelItemOverlay isAuthenticated={isAuthenticated} />}
       {!showOverlay && pinnedLabel && (
@@ -317,8 +307,6 @@ interface SearchAndSortSectionProps {
   sortField: SortField;
   sortDirection: SortDirection;
   onSortClick: (field: 'price' | 'context') => void;
-  webSearchFilter: boolean;
-  onToggleWebSearch: () => void;
 }
 
 function SearchAndSortSection({
@@ -327,8 +315,6 @@ function SearchAndSortSection({
   sortField,
   sortDirection,
   onSortClick,
-  webSearchFilter,
-  onToggleWebSearch,
 }: Readonly<SearchAndSortSectionProps>): React.JSX.Element {
   return (
     <div className="border-border-strong space-y-2 border-b px-4 py-2">
@@ -349,27 +335,17 @@ function SearchAndSortSection({
           onClick={onSortClick}
         />
       </div>
-      <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-        <div className="relative">
-          <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-          <Input
-            type="text"
-            placeholder="Search models"
-            value={searchQuery}
-            onChange={(e) => {
-              onSearchChange(e.target.value);
-            }}
-            className="pl-9"
-          />
-        </div>
-        <Button
-          variant={webSearchFilter ? 'default' : 'outline'}
-          size="sm"
-          onClick={onToggleWebSearch}
-          aria-label={webSearchFilter ? 'Web search filter on' : 'Web search filter off'}
-        >
-          Web Search
-        </Button>
+      <div className="relative">
+        <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+        <Input
+          type="text"
+          placeholder="Search models"
+          value={searchQuery}
+          onChange={(e) => {
+            onSearchChange(e.target.value);
+          }}
+          className="pl-9"
+        />
       </div>
     </div>
   );
@@ -382,7 +358,6 @@ interface UseFilteredModelsOptions {
   sortDirection: SortDirection;
   premiumIds: Set<string>;
   canAccessPremium: boolean;
-  webSearchFilter: boolean;
   strongestId: string;
   valueId: string;
   /** Only show models matching this modality. Defaults to 'text'. */
@@ -421,13 +396,12 @@ function useFilteredModels({
   sortDirection,
   premiumIds,
   canAccessPremium,
-  webSearchFilter,
   strongestId,
   valueId,
   activeModality = 'text',
 }: UseFilteredModelsOptions): Model[] {
   return React.useMemo(() => {
-    const isDefault = sortField === null && !searchQuery.trim() && !webSearchFilter;
+    const isDefault = sortField === null && !searchQuery.trim();
 
     // Filter to models matching the active modality. Smart Model is text-only.
     const modalityFiltered = models.filter((m) => m.modality === activeModality);
@@ -435,10 +409,7 @@ function useFilteredModels({
       activeModality === 'text' ? modalityFiltered.find((m) => m.isSmartModel === true) : undefined;
     const nonSmartModels = modalityFiltered.filter((m) => m.isSmartModel !== true);
 
-    let result = filterBySearch(nonSmartModels, searchQuery);
-    if (webSearchFilter) {
-      result = result.filter((m) => modelSupportsCapability(m, 'web-search'));
-    }
+    const result = filterBySearch(nonSmartModels, searchQuery);
     const sorted = sortModels(result, sortField, sortDirection);
     const interlaced = interlaceModels(sorted, premiumIds, canAccessPremium);
 
@@ -450,7 +421,6 @@ function useFilteredModels({
     sortDirection,
     premiumIds,
     canAccessPremium,
-    webSearchFilter,
     strongestId,
     valueId,
     activeModality,
@@ -566,7 +536,6 @@ export function ModelSelectorModal({
   );
   const [sortField, setSortField] = React.useState<SortField>(null);
   const [sortDirection, setSortDirection] = React.useState<SortDirection>('asc');
-  const [webSearchFilter, setWebSearchFilter] = React.useState(false);
   const [localSelectedIds, setLocalSelectedIds] = React.useState<Set<string>>(new Set(selectedIds));
   const [showMultiModelSignup, setShowMultiModelSignup] = React.useState(false);
 
@@ -577,7 +546,6 @@ export function ModelSelectorModal({
       setLocalSelectedIds(new Set(selectedIds));
       setFocusedModelId(selectedIds.values().next().value ?? models[0]?.id ?? '');
       setSearchQuery('');
-      setWebSearchFilter(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- models is a fallback; re-running on models change would reset user's selection
   }, [open, selectedIds]);
@@ -595,7 +563,6 @@ export function ModelSelectorModal({
     sortDirection,
     premiumIds: premiumIds ?? new Set(),
     canAccessPremium,
-    webSearchFilter,
     strongestId,
     valueId,
     activeModality,
@@ -657,10 +624,6 @@ export function ModelSelectorModal({
     setLocalSelectedIds(new Set());
   }, []);
 
-  const handleToggleWebSearch = React.useCallback((): void => {
-    setWebSearchFilter((previous) => !previous);
-  }, []);
-
   // Prevent auto-focus on mobile to avoid triggering keyboard
   const handleOpenAutoFocus = React.useCallback(
     (event: Event) => {
@@ -691,8 +654,6 @@ export function ModelSelectorModal({
                 sortField={sortField}
                 sortDirection={sortDirection}
                 onSortClick={handleSortClick}
-                webSearchFilter={webSearchFilter}
-                onToggleWebSearch={handleToggleWebSearch}
               />
             </div>
 
@@ -708,13 +669,16 @@ export function ModelSelectorModal({
                     sortField={sortField}
                     sortDirection={sortDirection}
                     onSortClick={handleSortClick}
-                    webSearchFilter={webSearchFilter}
-                    onToggleWebSearch={handleToggleWebSearch}
                   />
                 </div>
 
                 <ScrollArea data-testid="model-list-scroll" className="min-h-0 flex-1">
-                  <div className="overflow-hidden p-2">
+                  <div
+                    className="overflow-hidden p-2"
+                    role="listbox"
+                    aria-label="Models"
+                    aria-multiselectable="true"
+                  >
                     {filteredModels.map((model) => {
                       const isAtLimit = localSelectedIds.size >= MAX_SELECTED_MODELS;
                       return (

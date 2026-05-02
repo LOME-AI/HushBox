@@ -298,7 +298,13 @@ describe('ChatWelcome', () => {
       wrapper: createWrapper(),
     });
 
-    expect(screen.getByRole('button', { name: /internet search/i })).toBeInTheDocument();
+    // The disabled-state wrapper span exposes role=button for keyboard tooltip
+    // discovery, so getAllByRole returns both span + inner <button>. We assert
+    // the actual control element is in the DOM.
+    const buttons = screen
+      .getAllByRole('button', { name: /internet search/i })
+      .filter((element) => element.tagName === 'BUTTON');
+    expect(buttons.length).toBeGreaterThan(0);
   });
 
   it('renders search toggle button for unauthenticated users', () => {
@@ -306,7 +312,10 @@ describe('ChatWelcome', () => {
       wrapper: createWrapper(),
     });
 
-    expect(screen.getByRole('button', { name: /internet search/i })).toBeInTheDocument();
+    const buttons = screen
+      .getAllByRole('button', { name: /internet search/i })
+      .filter((element) => element.tagName === 'BUTTON');
+    expect(buttons.length).toBeGreaterThan(0);
   });
 
   it('renders ComparisonBar when multiple models are selected', () => {

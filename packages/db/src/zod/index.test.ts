@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  insertContentItemSchema,
   insertConversationMemberSchema,
   insertConversationSchema,
   insertConversationSpendingSchema,
@@ -8,6 +9,7 @@ import {
   insertEpochSchema,
   insertLedgerEntrySchema,
   insertLlmCompletionSchema,
+  insertMediaGenerationSchema,
   insertMemberBudgetSchema,
   insertMessageSchema,
   insertPaymentSchema,
@@ -18,6 +20,7 @@ import {
   insertUsageRecordSchema,
   insertUserSchema,
   insertWalletSchema,
+  selectContentItemSchema,
   selectConversationMemberSchema,
   selectConversationSchema,
   selectConversationSpendingSchema,
@@ -25,6 +28,7 @@ import {
   selectEpochSchema,
   selectLedgerEntrySchema,
   selectLlmCompletionSchema,
+  selectMediaGenerationSchema,
   selectMemberBudgetSchema,
   selectMessageSchema,
   selectPaymentSchema,
@@ -962,6 +966,215 @@ describe('selectConversationSpendingSchema', () => {
       conversationId: '550e8400-e29b-41d4-a716-446655440001',
       totalSpent: '25.50000000',
       updatedAt: new Date(),
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+// ============================================================================
+// Content Items — discriminated union enforces text vs media XOR.
+// ============================================================================
+
+describe('insertContentItemSchema', () => {
+  it('accepts a text item with encryptedBlob and no media fields', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: new Uint8Array([1, 2, 3]),
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a text item that also carries storageKey', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: new Uint8Array([1, 2, 3]),
+      storageKey: 'media/foo/bar.enc',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a text item missing encryptedBlob', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'text',
+      position: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts an image item with storageKey, mimeType, sizeBytes', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'image',
+      position: 0,
+      storageKey: 'media/conv/msg/item.enc',
+      mimeType: 'image/png',
+      sizeBytes: 12_345,
+      modelName: 'imagen-4',
+      cost: '0.046',
+      isSmartModel: false,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a media item missing storageKey', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'image',
+      position: 0,
+      mimeType: 'image/png',
+      sizeBytes: 100,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a media item missing mimeType', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'audio',
+      position: 0,
+      storageKey: 'media/foo/bar.enc',
+      sizeBytes: 100,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a media item missing sizeBytes', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'video',
+      position: 0,
+      storageKey: 'media/foo/bar.enc',
+      mimeType: 'video/mp4',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a media item that also carries encryptedBlob', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'image',
+      position: 0,
+      storageKey: 'media/foo/bar.enc',
+      mimeType: 'image/png',
+      sizeBytes: 100,
+      encryptedBlob: new Uint8Array([1, 2, 3]),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an unknown contentType', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'banana',
+      position: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('selectContentItemSchema', () => {
+  it('accepts a complete text content item', () => {
+    const result = selectContentItemSchema.safeParse({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      messageId: '550e8400-e29b-41d4-a716-446655440001',
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: new Uint8Array([1, 2, 3]),
+      storageKey: null,
+      mimeType: null,
+      sizeBytes: null,
+      width: null,
+      height: null,
+      durationMs: null,
+      modelName: null,
+      cost: null,
+      isSmartModel: false,
+      createdAt: new Date(),
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a complete image content item', () => {
+    const result = selectContentItemSchema.safeParse({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      messageId: '550e8400-e29b-41d4-a716-446655440001',
+      contentType: 'image',
+      position: 0,
+      encryptedBlob: null,
+      storageKey: 'media/foo/bar.enc',
+      mimeType: 'image/png',
+      sizeBytes: 12_345,
+      width: 1024,
+      height: 1024,
+      durationMs: null,
+      modelName: 'imagen-4',
+      cost: '0.04600000',
+      isSmartModel: false,
+      createdAt: new Date(),
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('insertMediaGenerationSchema', () => {
+  it('accepts an image generation row', () => {
+    const result = insertMediaGenerationSchema.safeParse({
+      usageRecordId: '550e8400-e29b-41d4-a716-446655440000',
+      model: 'imagen-4',
+      provider: 'ai-gateway',
+      mediaType: 'image',
+      imageCount: 1,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a video generation row with duration and resolution', () => {
+    const result = insertMediaGenerationSchema.safeParse({
+      usageRecordId: '550e8400-e29b-41d4-a716-446655440000',
+      model: 'veo-3',
+      provider: 'ai-gateway',
+      mediaType: 'video',
+      durationMs: 5000,
+      resolution: '720p',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a row missing model', () => {
+    const result = insertMediaGenerationSchema.safeParse({
+      usageRecordId: '550e8400-e29b-41d4-a716-446655440000',
+      provider: 'ai-gateway',
+      mediaType: 'image',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a row missing mediaType', () => {
+    const result = insertMediaGenerationSchema.safeParse({
+      usageRecordId: '550e8400-e29b-41d4-a716-446655440000',
+      model: 'imagen-4',
+      provider: 'ai-gateway',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('selectMediaGenerationSchema', () => {
+  it('accepts a complete media generation row', () => {
+    const result = selectMediaGenerationSchema.safeParse({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      usageRecordId: '550e8400-e29b-41d4-a716-446655440001',
+      model: 'imagen-4',
+      provider: 'ai-gateway',
+      mediaType: 'image',
+      imageCount: 1,
+      durationMs: null,
+      resolution: null,
     });
     expect(result.success).toBe(true);
   });

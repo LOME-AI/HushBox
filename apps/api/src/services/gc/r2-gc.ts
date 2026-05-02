@@ -1,5 +1,11 @@
 import { inArray } from 'drizzle-orm';
-import { contentItems, type Database } from '@hushbox/db';
+import {
+  contentItems,
+  recordServiceEvidence,
+  SERVICE_NAMES,
+  type Database,
+  type EvidenceConfig,
+} from '@hushbox/db';
 import type { MediaStorage } from '../storage/index.js';
 
 const DEFAULT_PREFIX = 'media/';
@@ -13,6 +19,13 @@ export interface RunR2GcInput {
   prefix?: string;
   cutoffMs?: number;
   batchSize?: number;
+  /**
+   * Optional evidence config. When supplied, a successful GC run records
+   * `SERVICE_NAMES.R2_GC` so CI's verify:evidence step can prove the cron's
+   * code path executed. `recordServiceEvidence` gates on `isCI === true`, so
+   * production runs stay a no-op even when this is passed.
+   */
+  evidence?: EvidenceConfig;
 }
 
 export interface R2GcStats {
@@ -111,11 +124,25 @@ export async function runR2Gc(input: RunR2GcInput): Promise<R2GcStats> {
     cursor = page.nextCursor;
   } while (cursor !== undefined);
 
-  return {
+  const stats: R2GcStats = {
     scanned,
     orphansFound,
     deleted,
     bytesReclaimed,
     durationMs: Date.now() - startedAt,
   };
+
+  if (input.evidence !== undefined) {
+    // Persist run stats alongside the evidence row so dashboards can correlate
+    // GC effectiveness over time without scraping logs.
+    await recordServiceEvidence(input.evidence.db, input.evidence.isCI, SERVICE_NAMES.R2_GC, {
+      scanned: stats.scanned,
+      orphansFound: stats.orphansFound,
+      deleted: stats.deleted,
+      bytesReclaimed: stats.bytesReclaimed,
+      durationMs: stats.durationMs,
+    });
+  }
+
+  return stats;
 }

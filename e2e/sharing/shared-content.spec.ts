@@ -1,6 +1,9 @@
 import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { createInviteLink } from '../helpers/invite-link.js';
+import { requireEnv } from '../helpers/env.js';
+
+const apiUrl = requireEnv('VITE_API_URL');
 
 test.describe('Shared Content', () => {
   test('invite link: shared conversation view and revoked link error', async ({
@@ -143,5 +146,265 @@ test.describe('Shared Content', () => {
         timeout: 15_000,
       });
     });
+  });
+
+  /**
+   * D1: end-to-end share of a generated image.
+   * Sender generates an image, shares the assistant message, and the recipient
+   * (a fresh, unauthenticated browser context built via createPage()) sees the
+   * rendered image. Using a fresh page avoids TanStack Query cache pollution
+   * from previous unauthenticatedPage uses in the same fixture.
+   *
+   * Also intercepts the recipient's GET /api/shares/:id and asserts the
+   * response body does NOT carry `modelName` or `cost` keys — share recipients
+   * must see content, not generation metadata.
+   */
+  test('shared image message: guest sees the rendered image', async ({
+    authenticatedPage,
+    createPage,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    // Generate an image first.
+    await chatPage.switchToImageMode();
+    const prompt = `Share this image ${String(Date.now())}`;
+    await chatPage.sendNewChatMessage(prompt);
+    await chatPage.waitForConversation();
+    await chatPage.expectImageVisible();
+    await chatPage.waitForStreamComplete();
+
+    let shareUrl = '';
+
+    await test.step('share assistant image message and capture URL', async () => {
+      const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+      await aiMessage.hover();
+
+      const shareButton = aiMessage.getByRole('button', { name: 'Share' });
+      await expect(shareButton).toBeVisible();
+      await shareButton.click();
+
+      const modal = authenticatedPage.getByTestId('share-message-modal');
+      await expect(modal).toBeVisible();
+
+      await authenticatedPage.getByTestId('share-message-create-button').click();
+
+      const urlEl = authenticatedPage.getByTestId('share-message-url');
+      await expect(urlEl).toBeVisible();
+      shareUrl = (await urlEl.textContent()) ?? '';
+      expect(shareUrl).toContain('/share/m/');
+      expect(shareUrl).toContain('#');
+
+      await authenticatedPage.keyboard.press('Escape');
+    });
+
+    await test.step('guest sees the rendered image at the share URL', async () => {
+      const recipient = await createPage();
+
+      // Intercept the share fetch to assert sensitive fields are stripped.
+      let capturedShareBody: string | null = null;
+      await recipient.route('**/api/shares/*', async (route) => {
+        const response = await route.fetch();
+        capturedShareBody = await response.text();
+        await route.fulfill({ response });
+      });
+
+      await recipient.goto(shareUrl, { waitUntil: 'domcontentloaded' });
+
+      await expect(recipient.getByTestId('shared-message-loading')).not.toBeVisible({
+        timeout: 15_000,
+      });
+
+      // Image renders for the guest. The shared media renderer uses the same
+      // MediaPreview component, so an `<img>` element appears once decryption
+      // completes against the URL-fragment shareSecret.
+      await expect(recipient.locator('img').first()).toBeVisible({ timeout: 15_000 });
+
+      await expect(recipient.getByTestId('shared-message-error')).not.toBeVisible();
+
+      // Sensitive metadata must not appear in the share response payload.
+      expect(capturedShareBody, 'share response not captured').toBeTruthy();
+      const body = capturedShareBody!;
+      expect(body).not.toContain('"modelName"');
+      expect(body).not.toContain('"cost"');
+    });
+  });
+
+  /**
+   * D2: end-to-end share of a generated video. Sender generates a video,
+   * shares the message, and a fresh recipient browser context (createPage())
+   * sees a `<video>` element render in the share view (round-trip with the
+   * encrypted bytes fetched via the presigned URL and decrypted with the
+   * URL-fragment shareSecret).
+   */
+  test('shared video message: guest plays the rendered video', async ({
+    authenticatedPage,
+    createPage,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    await chatPage.switchToVideoMode();
+    const prompt = `Share this video ${String(Date.now())}`;
+    await chatPage.sendNewChatMessage(prompt);
+    await chatPage.waitForConversation();
+    await chatPage.expectVideoVisible();
+    await chatPage.waitForStreamComplete();
+
+    let shareUrl = '';
+
+    await test.step('share assistant video message and capture URL', async () => {
+      const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+      await aiMessage.hover();
+
+      const shareButton = aiMessage.getByRole('button', { name: 'Share' });
+      await expect(shareButton).toBeVisible();
+      await shareButton.click();
+
+      const modal = authenticatedPage.getByTestId('share-message-modal');
+      await expect(modal).toBeVisible();
+      await authenticatedPage.getByTestId('share-message-create-button').click();
+
+      const urlEl = authenticatedPage.getByTestId('share-message-url');
+      await expect(urlEl).toBeVisible();
+      shareUrl = (await urlEl.textContent()) ?? '';
+      expect(shareUrl).toContain('/share/m/');
+      expect(shareUrl).toContain('#');
+
+      await authenticatedPage.keyboard.press('Escape');
+    });
+
+    await test.step('guest sees the rendered video at the share URL', async () => {
+      const recipient = await createPage();
+      await recipient.goto(shareUrl, { waitUntil: 'domcontentloaded' });
+
+      await expect(recipient.getByTestId('shared-message-loading')).not.toBeVisible({
+        timeout: 15_000,
+      });
+
+      const videoElement = recipient.locator('video').first();
+      await expect(videoElement).toBeVisible({ timeout: 15_000 });
+
+      await expect(recipient.getByTestId('shared-message-error')).not.toBeVisible();
+    });
+  });
+
+  /**
+   * D3: the share-create POST is tiny — never carries inline media bytes.
+   * The encrypted media stays in R2; the share row only records a wrapped
+   * key (`wrappedShareKey`). We intercept POST /api/messages/share, capture
+   * the body, and assert (a) it is well under any sane "blob in JSON" size
+   * (<2 KB) and (b) it does not look like base64 image data.
+   */
+  test('share-create POST body stays small (no inline media bytes)', async ({
+    authenticatedPage,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    await chatPage.switchToImageMode();
+    await chatPage.sendNewChatMessage(`Share size check ${String(Date.now())}`);
+    await chatPage.waitForConversation();
+    await chatPage.expectImageVisible();
+    await chatPage.waitForStreamComplete();
+
+    let capturedBody: string | null = null;
+    await authenticatedPage.route('**/api/messages/share', async (route) => {
+      const data = route.request().postData();
+      if (data !== null) capturedBody = data;
+      await route.continue();
+    });
+
+    const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+    await aiMessage.hover();
+    await aiMessage.getByRole('button', { name: 'Share' }).click();
+
+    const modal = authenticatedPage.getByTestId('share-message-modal');
+    await expect(modal).toBeVisible();
+    await authenticatedPage.getByTestId('share-message-create-button').click();
+    await expect(authenticatedPage.getByTestId('share-message-url')).toBeVisible();
+
+    expect(capturedBody, 'POST body for share-create not captured').toBeTruthy();
+    const body = capturedBody!;
+    // Tiny: well under 2 KB. Real bodies are a few hundred bytes (messageId + wrapped key).
+    expect(body.length).toBeLessThan(2048);
+    // The PNG header in base64 starts with `iVBORw0K`. Ensure it's not in the body.
+    expect(body).not.toContain('iVBORw0K');
+    // Also no `data:image` payload smuggled in.
+    expect(body).not.toContain('data:image');
+  });
+
+  /**
+   * D5: revoking a share makes subsequent fetches return 404. Uses the dev-only
+   * `/api/dev/revoke-message-share` endpoint to delete the share row, then asserts
+   * that GET /api/shares/:id responds with 404 and the share view surfaces the
+   * standard error state.
+   *
+   * Recipient is a fresh createPage() so cache pollution from earlier
+   * unauthenticated work doesn't mask the revoked-state.
+   */
+  test('revoked message share returns 404 on fetch', async ({ authenticatedPage, createPage }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    await chatPage.switchToImageMode();
+    await chatPage.sendNewChatMessage(`Revoke share ${String(Date.now())}`);
+    await chatPage.waitForConversation();
+    await chatPage.expectImageVisible();
+    await chatPage.waitForStreamComplete();
+
+    let shareUrl = '';
+    let shareId = '';
+    let createResponseBody: { shareId: string } | null = null;
+
+    await authenticatedPage.route('**/api/messages/share', async (route) => {
+      const response = await route.fetch();
+      const json = (await response.json().catch(() => null)) as { shareId: string } | null;
+      if (json) createResponseBody = json;
+      await route.fulfill({ response });
+    });
+
+    const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+    await aiMessage.hover();
+    await aiMessage.getByRole('button', { name: 'Share' }).click();
+    const modal = authenticatedPage.getByTestId('share-message-modal');
+    await expect(modal).toBeVisible();
+    await authenticatedPage.getByTestId('share-message-create-button').click();
+
+    const urlEl = authenticatedPage.getByTestId('share-message-url');
+    await expect(urlEl).toBeVisible();
+    shareUrl = (await urlEl.textContent()) ?? '';
+    expect(createResponseBody, 'share-create response body not captured').toBeTruthy();
+    shareId = createResponseBody!.shareId;
+    expect(shareId).toBeTruthy();
+
+    await authenticatedPage.keyboard.press('Escape');
+
+    // Revoke the share via the dev endpoint.
+    const revoke = await authenticatedPage.request.post(`${apiUrl}/api/dev/revoke-message-share`, {
+      data: { shareId },
+    });
+    expect(revoke.ok()).toBe(true);
+
+    const recipient = await createPage();
+
+    // Direct API fetch returns 404.
+    const fetchAfterRevoke = await recipient.request.get(`${apiUrl}/api/shares/${shareId}`);
+    expect(fetchAfterRevoke.status()).toBe(404);
+
+    // The share view shows the error state, not the image.
+    await recipient.goto(shareUrl, { waitUntil: 'domcontentloaded' });
+    await expect(recipient.getByTestId('shared-message-error')).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(recipient.locator('img')).toHaveCount(0);
   });
 });

@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { usePromptBudget } from './use-prompt-budget';
-import type { BudgetCalculationResult, CapabilityId, ResolveBillingResult } from '@hushbox/shared';
+import {
+  worstCaseSearchCost,
+  type BudgetCalculationResult,
+  type CapabilityId,
+  type ResolveBillingResult,
+} from '@hushbox/shared';
 
 // Hoisted mock factories
 const {
@@ -10,25 +15,40 @@ const {
   mockUseResolveBilling,
   mockSelectedModels,
   mockModelsData,
-} = vi.hoisted(() => ({
-  mockUseBudgetCalculation: vi.fn(),
-  mockUseConversationBudgets: vi.fn(),
-  mockUseResolveBilling: vi.fn(),
-  mockSelectedModels: { current: [{ id: 'test-model', name: 'Test Model' }] },
-  mockModelsData: {
-    current: {
-      models: [
-        {
-          id: 'test-model',
-          contextLength: 128_000,
-          pricePerInputToken: 0.000_01,
-          pricePerOutputToken: 0.000_03,
-        },
-      ],
-      premiumIds: new Set<string>(),
+  mockSearchStore,
+} = vi.hoisted(() => {
+  interface HoistedModel {
+    id: string;
+    contextLength: number;
+    pricePerInputToken: number;
+    pricePerOutputToken: number;
+    webSearchPrice?: number;
+  }
+  interface HoistedModelsData {
+    models: HoistedModel[];
+    premiumIds: Set<string>;
+  }
+  return {
+    mockUseBudgetCalculation: vi.fn(),
+    mockUseConversationBudgets: vi.fn(),
+    mockUseResolveBilling: vi.fn(),
+    mockSelectedModels: { current: [{ id: 'test-model', name: 'Test Model' }] },
+    mockModelsData: {
+      current: {
+        models: [
+          {
+            id: 'test-model',
+            contextLength: 128_000,
+            pricePerInputToken: 0.000_01,
+            pricePerOutputToken: 0.000_03,
+          },
+        ],
+        premiumIds: new Set<string>(),
+      } as HoistedModelsData,
     },
-  },
-}));
+    mockSearchStore: { current: { webSearchEnabled: false } },
+  };
+});
 
 vi.mock('./use-budget-calculation', () => ({
   useBudgetCalculation: (...args: unknown[]) => mockUseBudgetCalculation(...args),
@@ -66,6 +86,10 @@ vi.mock('@/hooks/models', () => ({
     data: mockModelsData.current,
     isLoading: false,
   }),
+}));
+
+vi.mock('@/stores/search', () => ({
+  useSearchStore: () => mockSearchStore.current,
 }));
 
 vi.mock('@/lib/auth', () => ({
@@ -499,6 +523,67 @@ describe('usePromptBudget', () => {
         (n: { id: string }) => n.id === 'read_only_notice'
       );
       expect(hasReadOnlyNotice).toBe(true);
+    });
+  });
+
+  describe('web search cost', () => {
+    afterEach(() => {
+      mockSearchStore.current = { webSearchEnabled: false };
+      mockModelsData.current = {
+        models: [
+          {
+            id: 'test-model',
+            contextLength: 128_000,
+            pricePerInputToken: 0.000_01,
+            pricePerOutputToken: 0.000_03,
+          },
+        ],
+        premiumIds: new Set<string>(),
+      };
+    });
+
+    it('passes worst-case search cost (MAX × per-call, with fees) to useBudgetCalculation when web search is enabled', () => {
+      mockSearchStore.current = { webSearchEnabled: true };
+      mockModelsData.current = {
+        models: [
+          {
+            id: 'test-model',
+            contextLength: 128_000,
+            pricePerInputToken: 0.000_01,
+            pricePerOutputToken: 0.000_03,
+            webSearchPrice: 0.005,
+          },
+        ],
+        premiumIds: new Set<string>(),
+      };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      const budgetInput = mockUseBudgetCalculation.mock.calls[0]![0] as { webSearchCost: number };
+      // Worst-case = applyFees(MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL) = 10 * 0.005 * 1.095 = 0.05475
+      expect(budgetInput.webSearchCost).toBeCloseTo(worstCaseSearchCost(), 10);
+      expect(budgetInput.webSearchCost).toBeCloseTo(0.054_75, 10);
+    });
+
+    it('passes 0 web search cost when web search is disabled', () => {
+      mockSearchStore.current = { webSearchEnabled: false };
+      mockModelsData.current = {
+        models: [
+          {
+            id: 'test-model',
+            contextLength: 128_000,
+            pricePerInputToken: 0.000_01,
+            pricePerOutputToken: 0.000_03,
+            webSearchPrice: 0.005,
+          },
+        ],
+        premiumIds: new Set<string>(),
+      };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      const budgetInput = mockUseBudgetCalculation.mock.calls[0]![0] as { webSearchCost: number };
+      expect(budgetInput.webSearchCost).toBe(0);
     });
   });
 

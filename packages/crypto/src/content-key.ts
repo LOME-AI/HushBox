@@ -9,25 +9,36 @@ export const CONTENT_KEY_LENGTH = 32;
 export const SHARE_WRAP_INFO = 'share-wrap-v1';
 const SHARE_WRAP_INFO_BYTES = new TextEncoder().encode(SHARE_WRAP_INFO);
 
-export type ContentKey = Uint8Array;
-export type WrappedContentKey = Uint8Array;
+/**
+ * Branded raw 32-byte content key — symmetric, never persisted, never sent
+ * across the network in unwrapped form. Branding prevents accidentally
+ * passing a wrapped (ciphertext) key into a function expecting the raw key.
+ */
+export type ContentKey = Uint8Array & { readonly __brand: 'ContentKey' };
+
+/**
+ * Branded wrapped content key — the ciphertext form persisted to the DB
+ * (`messages.wrapped_content_key`) or sent over the wire. Decrypts to a
+ * `ContentKey` via `unwrapContentKeyForEpoch` / `unwrapContentKeyForShare`.
+ */
+export type WrappedContentKey = Uint8Array & { readonly __brand: 'WrappedContentKey' };
 
 export function generateContentKey(): ContentKey {
-  return randomBytes(CONTENT_KEY_LENGTH);
+  return randomBytes(CONTENT_KEY_LENGTH) as ContentKey;
 }
 
 export function wrapContentKeyForEpoch(
   epochPublicKey: Uint8Array,
   contentKey: ContentKey
 ): WrappedContentKey {
-  return eciesEncrypt(epochPublicKey, contentKey);
+  return eciesEncrypt(epochPublicKey, contentKey) as WrappedContentKey;
 }
 
 export function unwrapContentKeyForEpoch(
   epochPrivateKey: Uint8Array,
   wrapped: WrappedContentKey
 ): ContentKey {
-  return eciesDecrypt(epochPrivateKey, wrapped);
+  return eciesDecrypt(epochPrivateKey, wrapped) as ContentKey;
 }
 
 export function wrapContentKeyForShare(
@@ -35,7 +46,7 @@ export function wrapContentKeyForShare(
   contentKey: ContentKey
 ): WrappedContentKey {
   const key = hkdf(sha256, shareSecret, undefined, SHARE_WRAP_INFO_BYTES, 32);
-  return symmetricEncrypt(key, contentKey);
+  return symmetricEncrypt(key, contentKey) as WrappedContentKey;
 }
 
 export function unwrapContentKeyForShare(
@@ -43,5 +54,5 @@ export function unwrapContentKeyForShare(
   wrapped: WrappedContentKey
 ): ContentKey {
   const key = hkdf(sha256, shareSecret, undefined, SHARE_WRAP_INFO_BYTES, 32);
-  return symmetricDecrypt(key, wrapped);
+  return symmetricDecrypt(key, wrapped) as ContentKey;
 }

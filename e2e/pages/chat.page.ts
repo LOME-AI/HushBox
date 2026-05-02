@@ -322,6 +322,85 @@ export class ChatPage {
     await unsettledExpect(costBadge).toBeVisible({ timeout });
   }
 
+  // --- Modality switching helpers (image / video / audio) ---
+
+  /** Switch the prompt input to image generation modality. Click the image icon button. */
+  async switchToImageMode(): Promise<void> {
+    await this.waitForAppStable();
+    const imageIcon = this.page.getByRole('button', { name: /switch to image/i });
+    await expect(imageIcon).toBeVisible();
+    await imageIcon.click();
+    // Confirmation: the aspect ratio toggle pill is rendered (1:1 default).
+    await expect(this.page.getByRole('button', { name: '1:1' })).toBeVisible();
+  }
+
+  /** Switch the prompt input to video generation modality. Click the video icon button. */
+  async switchToVideoMode(): Promise<void> {
+    await this.waitForAppStable();
+    const videoIcon = this.page.getByRole('button', { name: /switch to video/i });
+    await expect(videoIcon).toBeVisible();
+    await videoIcon.click();
+    // Confirmation: video resolution buttons render (720p default for mock Veo 3.1).
+    await expect(this.page.getByRole('button', { name: /720p/i })).toBeVisible();
+  }
+
+  /** Click an aspect-ratio toggle pill ('1:1' | '16:9' | '9:16' | '4:5' etc). */
+  async selectAspectRatio(ratio: string): Promise<void> {
+    const pill = this.page.getByRole('button', { name: ratio });
+    await expect(pill).toBeVisible();
+    await pill.click();
+    await expect(pill).toHaveAttribute('aria-pressed', 'true');
+  }
+
+  /** Click a video resolution toggle pill (label starts with '720p' or '1080p' followed by inline price). */
+  async selectResolution(resolution: '720p' | '1080p'): Promise<void> {
+    const pill = this.page.getByRole('button', {
+      name: new RegExp(String.raw`^${resolution}\s+\$`, 'i'),
+    });
+    await expect(pill).toBeVisible();
+    await pill.click();
+    await expect(pill).toHaveAttribute('aria-pressed', 'true');
+  }
+
+  /** Drag the video duration slider to N seconds (uses keyboard for determinism). */
+  async setVideoDuration(seconds: number): Promise<void> {
+    const slider = this.page.getByRole('slider', { name: /video duration in seconds/i });
+    await expect(slider).toBeVisible();
+    await slider.focus();
+    // Set value directly by issuing input event on the underlying range input.
+    await slider.evaluate((el, value) => {
+      const input = el as HTMLInputElement;
+      input.value = String(value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, seconds);
+    await expect(slider).toHaveValue(String(seconds));
+  }
+
+  /** Wait for an inline `<img>` to render in the assistant message list. */
+  async expectImageVisible(timeout = 30_000): Promise<void> {
+    const imageElement = this.messageList.locator('img').first();
+    await expect(imageElement).toBeVisible({ timeout });
+  }
+
+  /** Wait for an inline `<video>` element to render in the assistant message list. */
+  async expectVideoVisible(timeout = 30_000): Promise<void> {
+    const videoElement = this.messageList.locator('video').first();
+    await expect(videoElement).toBeVisible({ timeout });
+  }
+
+  /** Confirm the "Download media" link is rendered alongside the inline media element. */
+  async expectDownloadLinkVisible(): Promise<void> {
+    const downloadLink = this.messageList.getByRole('link', { name: /download media/i }).first();
+    await expect(downloadLink).toBeVisible();
+  }
+
+  /** Returns the href of the first download media link in the assistant message list. */
+  async getDownloadLinkHref(): Promise<string | null> {
+    const downloadLink = this.messageList.getByRole('link', { name: /download media/i }).first();
+    return downloadLink.getAttribute('href');
+  }
+
   // --- Group chat locators ---
 
   getSenderLabels(): Locator {
