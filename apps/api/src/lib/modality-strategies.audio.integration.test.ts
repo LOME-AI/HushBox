@@ -16,13 +16,13 @@ import type { InferenceEvent } from '../services/ai/types.js';
 
 // Audio constants — these mirror what the MockAIClient emits for audio
 // requests. Numbers come from `createAudioStream()` in services/ai/mock.ts:
-//   media-start mediaType=audio mimeType=audio/wav
-//   media-done bytes=<silent WAV>, durationMs=1000
+//   media-start mediaType=audio mimeType=audio/mpeg
+//   media-done bytes=<canned MP3>, durationMs=3000
 const AUDIO_MODEL = 'openai/tts-1';
-const AUDIO_MIME = 'audio/wav';
-const AUDIO_DURATION_MS = 1000;
-const AUDIO_COST_DOLLARS = 0.015; // 1 second × $0.015/sec from MOCK_MODELS audio entry
-const AUDIO_COST_STRING = '0.01500000';
+const AUDIO_MIME = 'audio/mpeg';
+const AUDIO_DURATION_MS = 3000;
+const AUDIO_COST_DOLLARS = 0.045; // 3 seconds × $0.015/sec from MOCK_MODELS audio entry
+const AUDIO_COST_STRING = '0.04500000';
 
 interface AudioMockBytes {
   bytes: Uint8Array;

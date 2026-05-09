@@ -39,14 +39,14 @@ test.describe('Video Generation', () => {
     await chatPage.expectDownloadLinkVisible();
 
     // The canned MP4 must actually decode in the browser — duration parses to
-    // ~2 seconds (the mvhd duration of the canned bytes). DOM-only <video>
+    // ~5 seconds (the mock fixture is a 5-second 360p clip). DOM-only <video>
     // assertions don't prove the bytes are valid; this does.
     const videoElement = chatPage.messageList.locator('video').first();
     await expect
       .poll(async () => videoElement.evaluate((el) => (el as HTMLVideoElement).duration), {
         timeout: 10_000,
       })
-      .toBeCloseTo(2, 0);
+      .toBeCloseTo(5, 0);
   });
 
   test('resolution button labels include per-second price', async ({ authenticatedPage }) => {
@@ -218,7 +218,7 @@ test.describe('Video Generation', () => {
     await chatPage.selectResolution('1080p');
 
     let chatPayload: unknown;
-    await authenticatedPage.route('**/api/chat', async (route) => {
+    await authenticatedPage.route('**/api/chat/**', async (route) => {
       const postData = route.request().postData();
       if (postData) {
         chatPayload = JSON.parse(postData) as unknown;
@@ -278,7 +278,7 @@ test.describe('Video Generation', () => {
     await chatPage.selectAspectRatio('9:16');
 
     let chatPayload: unknown;
-    await authenticatedPage.route('**/api/chat', async (route) => {
+    await authenticatedPage.route('**/api/chat/**', async (route) => {
       const postData = route.request().postData();
       if (postData) {
         chatPayload = JSON.parse(postData) as unknown;

@@ -548,6 +548,18 @@ function UserMessageContent({
   );
 }
 
+/**
+ * The nametag is shown when the assistant message has visible content of any
+ * kind: text body, an in-flight stream, or persisted media items. Pure media
+ * responses (image/video/audio) carry empty `content` but still need the
+ * nametag so the user can see which model produced the media.
+ */
+function shouldRenderAIMessageNametag(message: Message, isStreaming: boolean | undefined): boolean {
+  if (message.content !== '') return true;
+  if (isStreaming === true) return true;
+  return (message.mediaItems?.length ?? 0) > 0;
+}
+
 function AIMessageNametag({
   primaryMessage,
   modelName,
@@ -752,7 +764,7 @@ export function MessageItem({
               </>
             ) : (
               <>
-                {(primaryMessage.content !== '' || isStreaming === true) && (
+                {shouldRenderAIMessageNametag(primaryMessage, isStreaming) && (
                   <AIMessageNametag primaryMessage={primaryMessage} modelName={modelName} />
                 )}
                 <div

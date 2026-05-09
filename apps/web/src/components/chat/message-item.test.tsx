@@ -1002,6 +1002,31 @@ describe('MessageItem', () => {
       expect(screen.getByTestId('model-nametag')).toBeInTheDocument();
     });
 
+    it('shows nametag for image/video/audio messages whose body is empty but mediaItems carry media', () => {
+      // Media-only assistant messages have no text body — the bytes live in
+      // mediaItems. The nametag should still render so the user can see which
+      // model produced the image/video/audio.
+      const aiMsg = {
+        id: 'ai-image',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: '',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'google/imagen-4.0-generate-001',
+        mediaItems: [
+          {
+            id: 'ci-1',
+            position: 0,
+            contentType: 'image' as const,
+            mimeType: 'image/jpeg',
+            sizeBytes: 1024,
+          },
+        ],
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getByTestId('model-nametag')).toBeInTheDocument();
+    });
+
     it('resolves model ID to display name via models list', () => {
       const aiMsg = {
         id: 'ai-resolve',

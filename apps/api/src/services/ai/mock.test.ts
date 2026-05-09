@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CLASSIFIER_SYSTEM_PROMPT_MARKER } from '@hushbox/shared';
-import { createMockAIClient, CANNED_PNG, CANNED_MP4 } from './mock.js';
+import { createMockAIClient, CANNED_IMAGE, CANNED_VIDEO } from './mock.js';
 import type {
   MockAIClient,
   TextRequest,
@@ -237,7 +237,7 @@ describe('createMockAIClient', () => {
       expect(kinds).toEqual(['media-start', 'media-done', 'finish']);
     });
 
-    it('emits media-start with image mediaType and image/png mimeType', async () => {
+    it('emits media-start with image mediaType and image/jpeg mimeType', async () => {
       const request: ImageRequest = {
         modality: 'image',
         model: 'google/imagen-4',
@@ -251,10 +251,10 @@ describe('createMockAIClient', () => {
 
       expect(start).toBeDefined();
       expect(start!.mediaType).toBe('image');
-      expect(start!.mimeType).toBe('image/png');
+      expect(start!.mimeType).toBe('image/jpeg');
     });
 
-    it('emits media-done with non-empty PNG bytes and dimensions', async () => {
+    it('emits media-done with non-empty JPEG bytes and 400×300 dimensions', async () => {
       const request: ImageRequest = {
         modality: 'image',
         model: 'google/imagen-4',
@@ -268,23 +268,18 @@ describe('createMockAIClient', () => {
 
       expect(done).toBeDefined();
       expect(done!.bytes.length).toBeGreaterThan(0);
-      expect(done!.mimeType).toBe('image/png');
-      // 16×16 valid PNG so browsers in E2E can read naturalWidth/naturalHeight.
-      expect(done!.width).toBe(16);
-      expect(done!.height).toBe(16);
+      expect(done!.mimeType).toBe('image/jpeg');
+      expect(done!.width).toBe(400);
+      expect(done!.height).toBe(300);
     });
 
-    it('canned PNG byte length and signature match a real PNG file', () => {
-      // Length matches the constant declared in mock.ts (73 bytes for the
-      // minimal 16×16 RGB PNG with deflated zero pixel rows).
-      expect(CANNED_PNG.length).toBe(73);
-      // First 8 bytes must be the PNG signature: 89 50 4E 47 0D 0A 1A 0A.
-      // Asserting the first 4 (89 50 4E 47 = "\x89PNG") is enough to guard
-      // against accidental corruption.
-      expect(CANNED_PNG[0]).toBe(0x89);
-      expect(CANNED_PNG[1]).toBe(0x50); // P
-      expect(CANNED_PNG[2]).toBe(0x4e); // N
-      expect(CANNED_PNG[3]).toBe(0x47); // G
+    it('canned image bytes start with the JPEG SOI marker', () => {
+      // JPEG files always begin with FF D8 FF — guards the fixture import
+      // against accidental corruption / wrong file type.
+      expect(CANNED_IMAGE.length).toBeGreaterThan(0);
+      expect(CANNED_IMAGE[0]).toBe(0xff);
+      expect(CANNED_IMAGE[1]).toBe(0xd8);
+      expect(CANNED_IMAGE[2]).toBe(0xff);
     });
 
     it('emits finish with a generationId (no inline cost)', async () => {
@@ -336,7 +331,7 @@ describe('createMockAIClient', () => {
       expect(start!.mimeType).toBe('video/mp4');
     });
 
-    it('emits media-done with bytes and durationMs of 2000', async () => {
+    it('emits media-done with bytes and durationMs matching the canned video', async () => {
       const request: VideoRequest = {
         modality: 'video',
         model: 'google/veo-3.1',
@@ -351,30 +346,17 @@ describe('createMockAIClient', () => {
       expect(done).toBeDefined();
       expect(done!.bytes.length).toBeGreaterThan(0);
       expect(done!.mimeType).toBe('video/mp4');
-      expect(done!.durationMs).toBe(2000);
+      expect(done!.durationMs).toBe(5000);
     });
 
-    it('canned MP4 byte length, ftyp signature, and parseable moov offset', () => {
-      // Length must match the canned 485-byte MP4 declared in mock.ts.
-      expect(CANNED_MP4.length).toBe(485);
-
+    it('canned video bytes carry the ISO BMFF ftyp box at offset 4', () => {
       // ISO BMFF: bytes [0..3] = box size (big-endian); bytes [4..7] = box type.
-      // For our canned file the first box is `ftyp` (= 66 74 79 70).
-      expect(CANNED_MP4[4]).toBe(0x66); // f
-      expect(CANNED_MP4[5]).toBe(0x74); // t
-      expect(CANNED_MP4[6]).toBe(0x79); // y
-      expect(CANNED_MP4[7]).toBe(0x70); // p
-
-      // ftyp box size from the 4 BE bytes at offset 0. moov atom begins at
-      // exactly that offset (we declare the file with two boxes: ftyp + moov).
-      const ftypSize =
-        (CANNED_MP4[0]! << 24) | (CANNED_MP4[1]! << 16) | (CANNED_MP4[2]! << 8) | CANNED_MP4[3]!;
-      const moovOffset = ftypSize;
-      // moov type bytes immediately follow the moov size word at moovOffset+4.
-      expect(CANNED_MP4[moovOffset + 4]).toBe(0x6d); // m
-      expect(CANNED_MP4[moovOffset + 5]).toBe(0x6f); // o
-      expect(CANNED_MP4[moovOffset + 6]).toBe(0x6f); // o
-      expect(CANNED_MP4[moovOffset + 7]).toBe(0x76); // v
+      // For any valid MP4 the first box must be `ftyp` (= 66 74 79 70).
+      expect(CANNED_VIDEO.length).toBeGreaterThan(0);
+      expect(CANNED_VIDEO[4]).toBe(0x66); // f
+      expect(CANNED_VIDEO[5]).toBe(0x74); // t
+      expect(CANNED_VIDEO[6]).toBe(0x79); // y
+      expect(CANNED_VIDEO[7]).toBe(0x70); // p
     });
   });
 
@@ -392,7 +374,7 @@ describe('createMockAIClient', () => {
       expect(kinds).toEqual(['media-start', 'media-done', 'finish']);
     });
 
-    it('emits media-done with audio/wav mimeType and durationMs', async () => {
+    it('emits media-done with audio/mpeg mimeType and durationMs', async () => {
       const request: AudioRequest = {
         modality: 'audio',
         model: 'some/audio-model',
@@ -406,7 +388,7 @@ describe('createMockAIClient', () => {
 
       expect(done).toBeDefined();
       expect(done!.bytes.length).toBeGreaterThan(0);
-      expect(done!.mimeType).toBe('audio/wav');
+      expect(done!.mimeType).toBe('audio/mpeg');
       expect(done!.durationMs).toBeGreaterThan(0);
     });
   });

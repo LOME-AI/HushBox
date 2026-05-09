@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { contentItems, mediaGenerations, messages, usageRecords } from '@hushbox/db';
 import { saveChatTurn } from '../services/chat/message-persistence.js';
-import { CANNED_MP4, CANNED_MP4_DURATION } from '../services/ai/mock.js';
+import { CANNED_VIDEO, CANNED_VIDEO_DURATION_MS } from '../services/ai/mock.js';
 import {
   cleanupMediaTest,
   cleanupTestUserData,
@@ -16,9 +16,9 @@ const VIDEO_MODEL = 'google/veo-3.1-fast-generate-001';
 const VIDEO_MIME = 'video/mp4';
 const VIDEO_WIDTH = 1280;
 const VIDEO_HEIGHT = 720;
-// Aligned with the canned MP4 mvhd duration (= 2000 ms) so DB rows reflect
-// what the runtime mock actually advertises for browser-decodable bytes.
-const VIDEO_DURATION_MS = CANNED_MP4_DURATION;
+// Aligned with the canned MP4 duration so DB rows reflect what the runtime
+// mock actually advertises for browser-decodable bytes.
+const VIDEO_DURATION_MS = CANNED_VIDEO_DURATION_MS;
 const VIDEO_RESOLUTION = '720p';
 const VIDEO_COST_DOLLARS = 0.1;
 const VIDEO_COST_STRING = '0.10000000';
@@ -44,7 +44,7 @@ describe('video strategy integration (real DB + real MinIO)', () => {
 
     const upload = await encryptAndUploadMedia({
       ctx,
-      cannedBytes: CANNED_MP4,
+      cannedBytes: CANNED_VIDEO,
       conversationId: ctx.setup.conversation.id,
       messageId: assistantMsgId,
       contentItemId,
@@ -126,7 +126,7 @@ describe('video strategy integration (real DB + real MinIO)', () => {
     expect(genRow!.resolution).toBe(VIDEO_RESOLUTION);
   });
 
-  it('mintDownloadUrl + fetch + decrypt round-trips to original CANNED_MP4 bytes', async () => {
+  it('mintDownloadUrl + fetch + decrypt round-trips to original CANNED_VIDEO bytes', async () => {
     const ctx = await setupMediaStrategyTest();
     contexts.push(ctx);
 
@@ -136,7 +136,7 @@ describe('video strategy integration (real DB + real MinIO)', () => {
 
     const upload = await encryptAndUploadMedia({
       ctx,
-      cannedBytes: CANNED_MP4,
+      cannedBytes: CANNED_VIDEO,
       conversationId: ctx.setup.conversation.id,
       messageId: assistantMsgId,
       contentItemId,
@@ -191,7 +191,7 @@ describe('video strategy integration (real DB + real MinIO)', () => {
       storageKey: item!.key!,
       contentKey: upload.contentKey,
     });
-    expect([...decrypted]).toEqual([...CANNED_MP4]);
+    expect([...decrypted]).toEqual([...CANNED_VIDEO]);
   });
 
   it('content_items.size_bytes records the ciphertext length for video', async () => {
@@ -204,14 +204,14 @@ describe('video strategy integration (real DB + real MinIO)', () => {
 
     const upload = await encryptAndUploadMedia({
       ctx,
-      cannedBytes: CANNED_MP4,
+      cannedBytes: CANNED_VIDEO,
       conversationId: ctx.setup.conversation.id,
       messageId: assistantMsgId,
       contentItemId,
       mimeType: VIDEO_MIME,
     });
 
-    expect(upload.ciphertext.byteLength).toBeGreaterThan(CANNED_MP4.byteLength);
+    expect(upload.ciphertext.byteLength).toBeGreaterThan(CANNED_VIDEO.byteLength);
 
     await saveChatTurn(ctx.db, {
       userMessageId: userMsgId,
@@ -255,6 +255,6 @@ describe('video strategy integration (real DB + real MinIO)', () => {
       .from(contentItems)
       .where(eq(contentItems.messageId, assistantMsgId));
     expect(item!.size).toBe(upload.ciphertext.byteLength);
-    expect(item!.size).not.toBe(CANNED_MP4.byteLength);
+    expect(item!.size).not.toBe(CANNED_VIDEO.byteLength);
   });
 });

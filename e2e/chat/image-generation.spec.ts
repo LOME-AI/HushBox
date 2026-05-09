@@ -31,20 +31,20 @@ test.describe('Image Generation', () => {
     await chatPage.expectImageVisible();
     await chatPage.expectDownloadLinkVisible();
 
-    // The canned PNG must actually decode in the browser — naturalWidth /
-    // naturalHeight match the 16×16 dimensions emitted by mock.ts. A DOM-only
+    // The canned JPEG must actually decode in the browser — naturalWidth /
+    // naturalHeight match the 400×300 dimensions emitted by mock.ts. A DOM-only
     // <img> assertion does not prove the bytes are valid; this does.
     const imgElement = chatPage.messageList.locator('img').first();
     await expect
       .poll(async () => imgElement.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
         timeout: 10_000,
       })
-      .toBe(16);
+      .toBe(400);
     await expect
       .poll(async () => imgElement.evaluate((el) => (el as HTMLImageElement).naturalHeight), {
         timeout: 10_000,
       })
-      .toBe(16);
+      .toBe(300);
   });
 
   test('changing aspect ratio updates the active button state', async ({ authenticatedPage }) => {
@@ -252,7 +252,7 @@ test.describe('Image Generation', () => {
     await chatPage.selectAspectRatio('16:9');
 
     let chatPayload: unknown;
-    await authenticatedPage.route('**/api/chat', async (route) => {
+    await authenticatedPage.route('**/api/chat/**', async (route) => {
       const request = route.request();
       const postData = request.postData();
       if (postData) {
@@ -287,7 +287,7 @@ test.describe('Image Generation', () => {
     expect(href).toMatch(/^blob:/);
   });
 
-  /** B12: the send button is disabled while a generation is in flight (isProcessing). */
+  /** B12: the send button transitions from disabled (no content) → disabled (streaming) → enabled (content typed, no stream). */
   test('send button is disabled while image is generating', async ({ authenticatedPage }) => {
     test.slow();
     const chatPage = new ChatPage(authenticatedPage);
@@ -300,10 +300,13 @@ test.describe('Image Generation', () => {
     await chatPage.waitForConversation();
 
     // While streaming, the send button shows the stop icon and is disabled.
-    // The button toggles to enabled only after streaming completes.
-    // Use waitForStreamComplete to bracket the period — once cost is visible the
-    // send button must be enabled again.
+    // The button toggles to enabled only when (a) streaming has completed AND
+    // (b) the textarea has new content — `canSubmitMessage` requires both
+    // `!isProcessing` and `hasContent`. Type a new prompt after stream complete
+    // to satisfy `hasContent`, then assert the button leaves its disabled
+    // state.
     await chatPage.waitForStreamComplete();
+    await chatPage.messageInput.fill('next prompt');
     await expect(chatPage.sendButton).toBeEnabled();
   });
 

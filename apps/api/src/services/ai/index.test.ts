@@ -50,4 +50,15 @@ describe('getAIClient', () => {
       'PUBLIC_MODELS_URL required'
     );
   });
+
+  it('returns the same mock instance across calls so test-only state persists', () => {
+    // E2E and unit tests rely on `setClassifierResolution` / `setClassifierFailure`
+    // / `addFailingModel` carrying across requests within the same Worker isolate.
+    // Returning a fresh MockAIClient per call wipes that state — every middleware
+    // invocation gets a default-state client, breaking smart-model and
+    // fail-model E2E setups.
+    const first = getAIClient({ NODE_ENV: 'development' });
+    const second = getAIClient({ NODE_ENV: 'development' });
+    expect(first).toBe(second);
+  });
 });

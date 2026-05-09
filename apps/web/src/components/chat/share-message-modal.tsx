@@ -131,13 +131,11 @@ export function ShareMessageModal({
   }
 
   async function handleCreate(): Promise<void> {
-    if (
-      !messageId ||
-      !messageContent ||
-      !conversationId ||
-      epochNumber == null ||
-      !wrappedContentKey
-    ) {
+    // Media-only assistant messages (image/video/audio) carry empty
+    // `messageContent` — the bytes live in encrypted contentItems addressed
+    // by `messageId` server-side. The share API only needs envelope metadata,
+    // so don't gate on textual content being present.
+    if (!messageId || !conversationId || epochNumber == null || !wrappedContentKey) {
       return;
     }
 

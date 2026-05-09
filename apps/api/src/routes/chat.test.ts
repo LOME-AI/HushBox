@@ -3117,8 +3117,8 @@ describe('chat routes', () => {
         expect(text).toContain('event: model:done');
         expect(text).toContain('event: done');
         expect(text).toContain('"contentType":"video"');
-        // Mock video yields durationMs: 2000 — the content item payload should carry it
-        expect(text).toContain('"durationMs":2000');
+        // Mock video yields durationMs: 5000 — the content item payload should carry it
+        expect(text).toContain('"durationMs":5000');
       });
 
       it('bills each video model at its own price (not the max) in a multi-model request', async () => {
@@ -3355,8 +3355,8 @@ describe('chat routes', () => {
           expect(text).toContain('event: model:done');
           expect(text).toContain('event: done');
           expect(text).toContain('"contentType":"audio"');
-          // Mock audio yields durationMs: 1000
-          expect(text).toContain('"durationMs":1000');
+          // Mock audio yields durationMs: 3000
+          expect(text).toContain('"durationMs":3000');
         });
       });
     });

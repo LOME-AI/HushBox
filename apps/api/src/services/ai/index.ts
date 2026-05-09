@@ -45,6 +45,16 @@ export interface AIClientOptions {
 }
 
 /**
+ * Cached mock client. The mock holds per-test-suite state via
+ * `setClassifierResolution` / `setClassifierFailure` / `addFailingModel` —
+ * if `getAIClient` returned a fresh instance per request, that state would
+ * never survive past the request that set it. Caching at module scope means
+ * one mock per Worker isolate, so dev-endpoint calls in E2E persist into the
+ * subsequent chat request. E2E suites reset state in `afterEach`.
+ */
+let mockClientCache: ReturnType<typeof createMockAIClient> | null = null;
+
+/**
  * Get the appropriate AIClient based on environment.
  *
  * - Local dev / test: Returns mock client
@@ -57,7 +67,8 @@ export function getAIClient(env: AIClientEnv, options: AIClientOptions = {}): AI
   const { isLocalDev, isE2E } = createEnvUtilities(env);
 
   if (isLocalDev || isE2E) {
-    return createMockAIClient();
+    mockClientCache ??= createMockAIClient();
+    return mockClientCache;
   }
 
   // The only non-test caller of requireGatewayConfig: every route now reads
