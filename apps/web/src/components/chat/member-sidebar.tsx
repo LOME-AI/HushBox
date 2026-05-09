@@ -1,6 +1,20 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import {
+  Plus,
+  Link as LinkIcon,
+  Lock,
+  MoreVertical,
+  LogOut,
+  Pencil,
+  Search,
+  UserMinus,
+  Users,
+  Shield,
+  DollarSign,
+  Trash2,
+} from 'lucide-react';
+import {
   IconButton,
   Input,
   Separator,
@@ -18,28 +32,14 @@ import {
   normalizeUsername,
   displayUsername,
 } from '@hushbox/shared';
-import {
-  Plus,
-  Link as LinkIcon,
-  Lock,
-  MoreVertical,
-  LogOut,
-  Pencil,
-  Search,
-  UserMinus,
-  Users,
-  Shield,
-  DollarSign,
-  Trash2,
-} from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useConversationBudgets } from '@/hooks/use-conversation-budgets';
 import { SidebarPanel } from '@/components/shared/sidebar-panel';
 import { SidebarActionButton } from '@/components/shared/sidebar-action-button';
 import { SidebarFooterBase } from '@/components/shared/sidebar-footer-base';
-import { LeaveConfirmationModal } from './leave-confirmation-modal';
 import { ConfirmationModal } from '@/components/shared/confirmation-modal';
+import { LeaveConfirmationModal } from './leave-confirmation-modal';
 
 interface MemberEntry {
   id: string;

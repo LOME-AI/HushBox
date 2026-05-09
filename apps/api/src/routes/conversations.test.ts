@@ -14,6 +14,8 @@ import {
   conversationMembers,
 } from '@hushbox/db';
 import { userFactory } from '@hushbox/db/factories';
+import { toBase64 as bytesToBase64, fromBase64 as base64ToBytes } from '@hushbox/shared';
+import { conversationsRoute } from './conversations.js';
 import type {
   ListConversationsResponse,
   GetConversationResponse,
@@ -21,8 +23,6 @@ import type {
   UpdateConversationResponse,
   DeleteConversationResponse,
 } from '@hushbox/shared';
-import { toBase64 as bytesToBase64, fromBase64 as base64ToBytes } from '@hushbox/shared';
-import { conversationsRoute } from './conversations.js';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
 

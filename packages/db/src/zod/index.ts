@@ -1,5 +1,4 @@
 import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
-import type { z } from 'zod';
 import { z as zodInstance } from 'zod';
 
 import {
@@ -23,6 +22,7 @@ import {
   users,
   wallets,
 } from '../schema/index';
+import type { z } from 'zod';
 
 // --- Users ---
 export const selectUserSchema = createSelectSchema(users, {

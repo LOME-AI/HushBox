@@ -1,17 +1,9 @@
 import { useState, useCallback } from 'react';
 import { ERROR_CODE_CONTEXT_LENGTH_EXCEEDED } from '@hushbox/shared';
-import type {
-  Modality,
-  ImageConfig,
-  VideoConfig,
-  AudioConfig,
-  StageStartPayload,
-  StageErrorPayload,
-} from '@hushbox/shared';
+import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { getApiUrl } from '../lib/api';
 import { getTrialToken } from '../lib/trial-token';
 import { getLinkGuestAuth } from '../lib/link-guest-auth';
-import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import {
   createSSEParser,
   readWithTimeout,
@@ -21,8 +13,17 @@ import {
   type ModelDoneData,
   type ModelErrorData,
   type ModelMediaStartData,
+  type ModelMediaProgressData,
   type StageDoneEventData,
 } from '../lib/sse-client';
+import type {
+  Modality,
+  ImageConfig,
+  VideoConfig,
+  AudioConfig,
+  StageStartPayload,
+  StageErrorPayload,
+} from '@hushbox/shared';
 
 export { StreamTimeoutError } from '../lib/sse-client';
 
@@ -103,6 +104,8 @@ interface StreamOptions {
   onModelError?: (data: ModelErrorData) => void;
   /** Notification that media generation has started for a slot — drives a "Generating…" UI hint. */
   onModelMediaStart?: (data: ModelMediaStartData) => void;
+  /** Synthetic progress for long-running media (video). Drives a 0-95% bar. */
+  onModelMediaProgress?: (data: ModelMediaProgressData) => void;
   /**
    * Pre-inference stage events. UI can use these to show a "Choosing the
    * best model…" placeholder for Smart Model rows, then update the nametag
@@ -393,6 +396,9 @@ async function executeStream(
     },
     onModelMediaStart: (data) => {
       options?.onModelMediaStart?.(data);
+    },
+    onModelMediaProgress: (data) => {
+      options?.onModelMediaProgress?.(data);
     },
     onStageStart: (data) => {
       options?.onStageStart?.(data);

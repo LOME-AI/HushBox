@@ -1,5 +1,5 @@
-import type { LegalSection, LegalDocumentMeta } from '@hushbox/shared/legal';
 import { ContentSection, Callout, Accordion, ScrollReveal, SectionNav } from '@hushbox/ui';
+import type { LegalSection, LegalDocumentMeta } from '@hushbox/shared/legal';
 
 interface LegalDocumentProps {
   meta: LegalDocumentMeta;

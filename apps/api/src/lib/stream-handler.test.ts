@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createSSEEventWriter, type SSEStream } from './stream-handler.js';
 import { ERROR_CODE_CLASSIFIER_FAILED } from '@hushbox/shared';
+import { createSSEEventWriter, type SSEStream } from './stream-handler.js';
 
 function createMockStream(): SSEStream & {
   events: { event: string; data: string }[];
@@ -170,12 +170,13 @@ describe('createSSEEventWriter', () => {
       });
     });
 
-    it('writes model:media:start event when media generation begins', async () => {
+    it('writes model:media:start event with assistantMessageId so the UI can attach to a specific row', async () => {
       const stream = createMockStream();
       const writer = createSSEEventWriter(stream);
 
       await writer.writeModelMediaStart({
         modelId: 'google/imagen-4',
+        assistantMessageId: 'asst-1',
         mediaType: 'image',
         mimeType: 'image/png',
       });
@@ -185,8 +186,30 @@ describe('createSSEEventWriter', () => {
         event: 'model:media:start',
         data: JSON.stringify({
           modelId: 'google/imagen-4',
+          assistantMessageId: 'asst-1',
           mediaType: 'image',
           mimeType: 'image/png',
+        }),
+      });
+    });
+
+    it('writes model:media:progress event with percent in [0, 100]', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeModelMediaProgress({
+        modelId: 'google/veo-3.1',
+        assistantMessageId: 'asst-1',
+        percent: 30,
+      });
+
+      expect(stream.events).toHaveLength(1);
+      expect(stream.events[0]).toEqual({
+        event: 'model:media:progress',
+        data: JSON.stringify({
+          modelId: 'google/veo-3.1',
+          assistantMessageId: 'asst-1',
+          percent: 30,
         }),
       });
     });

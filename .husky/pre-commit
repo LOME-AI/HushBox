@@ -9,3 +9,5 @@ git add README.md \
   packages/ui/src/assets/icons
 pnpm generate:env
 git add apps/api/wrangler.toml .github/workflows/ci.yml
+pnpm --filter @hushbox/db db:generate
+git add packages/db/drizzle

@@ -11,8 +11,8 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
-import type { Workspace } from './workspaces.js';
 import { discoverWorkspaces } from './workspaces.js';
+import type { Workspace } from './workspaces.js';
 
 const EXCLUDED_DIRS = new Set([
   'node_modules',

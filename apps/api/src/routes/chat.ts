@@ -4,7 +4,6 @@ import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { conversationForks } from '@hushbox/db';
-import { resolveParentMessageId, ForkTipConflictError } from '../services/chat/message-helpers.js';
 import {
   streamChatRequestSchema,
   userOnlyMessageSchema,
@@ -16,29 +15,17 @@ import {
   ERROR_CODE_MEDIA_TRIAL_BLOCKED,
   ERROR_CODE_MODEL_NOT_FOUND,
   ERROR_CODE_MODALITY_MISMATCH,
+  ERROR_CODE_MODEL_TIER_LOCKED,
   ERROR_CODE_UNSUPPORTED_RESOLUTION,
   ERROR_CODE_AUDIO_DISABLED,
   ERROR_CODE_DUPLICATE_MESSAGE,
   ERROR_CODE_FORK_TIP_CONFLICT,
   FEATURE_FLAGS,
   estimateTokenCount,
+  assertNever,
 } from '@hushbox/shared';
-import type {
-  FundingSource,
-  RegenerateRequest,
-  ImageConfig,
-  VideoConfig,
-  AudioConfig,
-} from '@hushbox/shared';
-import type { AppEnv, Bindings } from '../types.js';
-import { buildPrompt } from '../services/prompt/builder.js';
-import {
-  buildBillingInput,
-  buildGuestBillingInput,
-  calculateMessageCost,
-} from '../services/billing/index.js';
-import type { MemberContext } from '../services/billing/index.js';
-import type { TextRequest } from '../services/ai/index.js';
+import { processModels, type RawModel } from '@hushbox/shared/models';
+import { createEvent } from '@hushbox/realtime/events';
 import { collectSingleSlot } from '../lib/multi-stream.js';
 import {
   validateLastMessageIsFromUser,
@@ -54,7 +41,14 @@ import { createErrorResponse } from '../lib/error-response.js';
 import { createSSEEventWriter } from '../lib/stream-handler.js';
 import { requirePrivilege, rateLimitByUser } from '../middleware/index.js';
 import { broadcastFireAndForget } from '../lib/broadcast.js';
-import { createEvent } from '@hushbox/realtime/events';
+import {
+  buildBillingInput,
+  buildGuestBillingInput,
+  calculateMessageCost,
+} from '../services/billing/index.js';
+import { buildPrompt } from '../services/prompt/builder.js';
+import { getUserTierInfo } from '../services/billing/balance.js';
+import { resolveParentMessageId, ForkTipConflictError } from '../services/chat/message-helpers.js';
 import {
   releaseBudget,
   releaseGroupBudget,
@@ -73,15 +67,30 @@ import {
   BATCH_INTERVAL_MS,
 } from '../lib/stream-pipeline.js';
 import { classifyStreamErrorCode } from '../lib/classify-stream-error.js';
-import type { BroadcastContext, StreamResult } from '../lib/stream-pipeline.js';
-import { textStrategy } from '../lib/modality-strategies.js';
+import { getStrategy } from '../lib/modality-strategies.js';
 import { buildGroupBillingContext } from '../lib/billing-types.js';
 import { getPushClient, sendPushForNewMessage } from '../services/push/index.js';
 import { fireAndForget } from '../lib/fire-and-forget.js';
 import { safeExecutionCtx } from '../lib/safe-execution-ctx.js';
+import type { TextRequest } from '../services/ai/index.js';
+import type { MemberContext } from '../services/billing/index.js';
+import type { AppEnv, Bindings } from '../types.js';
+import type {
+  FundingSource,
+  RegenerateRequest,
+  ImageConfig,
+  VideoConfig,
+  AudioConfig,
+} from '@hushbox/shared';
+import type { BroadcastContext, StreamResult } from '../lib/stream-pipeline.js';
 
 // Re-export for existing test imports
 export { computeWorstCaseCents } from '../lib/stream-pipeline.js';
+
+interface InferenceMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
 
 function matchesUniqueViolationMessage(msg: string): boolean {
   return msg.includes('duplicate key') || msg.includes('unique constraint');
@@ -185,18 +194,37 @@ function flushBroadcastBuffer(broadcast: BroadcastContext, tokenBuffer: string):
   );
 }
 
-/** Read the AI gateway API key from env or throw a clear error. */
-function requireApiKey(c: Context<AppEnv>): string {
-  const apiKey = c.env.AI_GATEWAY_API_KEY;
-  if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required');
-  return apiKey;
-}
-
-/** Read the public models URL from env or throw a clear error. */
-function requirePublicModelsUrl(c: Context<AppEnv>): string {
-  const url = c.env.PUBLIC_MODELS_URL;
-  if (!url) throw new Error('PUBLIC_MODELS_URL required');
-  return url;
+/**
+ * Pre-billing tier gate: rejects requests where the caller has selected a
+ * premium model but their tier (free/trial/guest) doesn't allow it. Returns
+ * the locked model id when blocked, or null when the request can proceed.
+ *
+ * Distinct from the balance-based denial in `handleBillingDenial` (which
+ * fires for paid users with insufficient funds): this one fires earlier with
+ * a 403 + {@link ERROR_CODE_MODEL_TIER_LOCKED} so the client renders an
+ * "upgrade your account" message rather than "top up your balance".
+ *
+ * Owner-paid group chats are not gated here — the owner's tier governs model
+ * access via the existing `resolveBilling` group-billing path. This only
+ * gates the personal-billing path.
+ */
+async function findTierLockedModel(
+  c: Context<AppEnv>,
+  models: readonly string[],
+  callerId: string | null
+): Promise<string | null> {
+  const db = c.get('db');
+  const [tierInfo, rawModels] = await Promise.all([
+    getUserTierInfo(db, callerId),
+    c.var.aiClient.listRawModels(),
+  ]);
+  if (tierInfo.canAccessPremium) return null;
+  const { premiumIds } = processModels(rawModels);
+  const premiumSet = new Set(premiumIds);
+  for (const modelId of models) {
+    if (premiumSet.has(modelId)) return modelId;
+  }
+  return null;
 }
 
 /** Subset of ModelInfo fields the lookup needs — only `pricing` is read. */
@@ -231,7 +259,7 @@ interface MediaModelLookupResult<T> {
  * pricing rule (`pricing.image`, `pricing.perSecondByResolution[r]`,
  * `pricing.audio`).
  */
-async function lookupMediaModels<T>(
+export async function lookupMediaModels<T>(
   aiClient: AppEnv['Variables']['aiClient'],
   models: string[],
   extract: MediaPriceExtract<T>
@@ -261,6 +289,9 @@ async function lookupMediaModels<T>(
       case 'unsupported-resolution': {
         unsupportedResolutions.push(modelId);
         break;
+      }
+      default: {
+        assertNever(outcome);
       }
     }
   }
@@ -544,7 +575,7 @@ interface TextBranchInput {
   billingContext: BillingContext;
   models: string[];
   userMessage: { id: string; content: string };
-  messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[];
+  messagesForInference: InferenceMessage[];
   parentMessageId: string | null;
   forkId: string | undefined;
   webSearchEnabled: boolean;
@@ -619,8 +650,7 @@ async function resolveGuestBillingContext(
     ownerId: string;
     models: string[];
     conversationId: string;
-    apiKey: string;
-    publicModelsUrl: string;
+    aiClient: AppEnv['Variables']['aiClient'];
   }
 ): Promise<BillingContext> {
   const billingResult = await buildGuestBillingInput(db, redis, {
@@ -628,8 +658,7 @@ async function resolveGuestBillingContext(
     memberId: params.member.id,
     models: params.models,
     conversationId: params.conversationId,
-    apiKey: params.apiKey,
-    publicModelsUrl: params.publicModelsUrl,
+    aiClient: params.aiClient,
   });
   return {
     memberContext: { memberId: params.member.id, ownerId: params.ownerId },
@@ -649,8 +678,7 @@ async function resolveUserBillingContext(
     models: string[];
     conversationId: string;
     fundingSource: FundingSource;
-    apiKey: string;
-    publicModelsUrl: string;
+    aiClient: AppEnv['Variables']['aiClient'];
   }
 ): Promise<BillingContext> {
   const isOwner = params.callerId === params.ownerId;
@@ -662,8 +690,7 @@ async function resolveUserBillingContext(
     models: params.models,
     ...(memberContext !== undefined && { memberContext }),
     conversationId: params.conversationId,
-    apiKey: params.apiKey,
-    publicModelsUrl: params.publicModelsUrl,
+    aiClient: params.aiClient,
   });
   return {
     memberContext,
@@ -873,7 +900,7 @@ type RegenerateValidationResult =
       billingValidation: Awaited<ReturnType<typeof resolveAndReserveBilling>> & { success: true };
       billingUserId: string;
       safeMaxTokens: number | undefined;
-      gatewayModels: Awaited<ReturnType<typeof import('@hushbox/shared/models').fetchModels>>;
+      gatewayModels: RawModel[];
       worstCaseCents: number;
       groupBudget: GroupBudgetReservation | undefined;
       webSearchCost: number;
@@ -924,13 +951,10 @@ async function validateRegenerationRequest(
     };
   }
 
-  const apiKey = requireApiKey(c);
-  const publicModelsUrl = requirePublicModelsUrl(c);
   const billingInput = await buildBillingInput(db, redis, {
     userId,
     models: [model],
-    apiKey,
-    publicModelsUrl,
+    aiClient: c.var.aiClient,
     ...(memberContext !== undefined && { memberContext }),
     conversationId,
   });
@@ -972,7 +996,7 @@ interface DispatchModalityInput {
   billingContext: BillingContext;
   models: string[];
   userMessage: { id: string; content: string };
-  messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[];
+  messagesForInference: InferenceMessage[];
   parentMessageId: string | null;
   forkId: string | undefined;
   webSearchEnabled: boolean;
@@ -983,7 +1007,13 @@ interface DispatchModalityInput {
 }
 
 /** Dispatches a stream request to the modality-specific handler. */
-async function dispatchModalityRequest(input: DispatchModalityInput): Promise<Response> {
+export async function dispatchModalityRequest(input: DispatchModalityInput): Promise<Response> {
+  // `getStrategy` owns the canonical Modality switch with an `assertNever`
+  // exhaustiveness guard. Calling it here is the runtime gate against rogue
+  // values that bypass strict typing (e.g. test casts). The dispatch switch
+  // below has no `default` because every Modality case returns; adding a new
+  // modality fails typecheck in BOTH places.
+  getStrategy(input.modality);
   switch (input.modality) {
     case 'image': {
       return handleImageStreamRequest({
@@ -1052,6 +1082,82 @@ async function dispatchModalityRequest(input: DispatchModalityInput): Promise<Re
   }
 }
 
+interface StreamRequestGatesParams {
+  c: Context<AppEnv>;
+  modality: 'text' | 'image' | 'video' | 'audio';
+  linkGuest: AppEnv['Variables']['linkGuest'];
+  callerId: string;
+  ownerId: string;
+  models: string[];
+  messagesForInference: InferenceMessage[];
+}
+
+/**
+ * Tier gate: free/trial/guest users picking a premium model get a dedicated
+ * 403 + MODEL_TIER_LOCKED so the UI can render an "upgrade your account"
+ * message rather than the balance-focused PREMIUM_REQUIRES_BALANCE that fires
+ * later in handleBillingDenial.
+ *
+ * Only applied to direct-billing requests (caller is conversation owner, not
+ * a link guest). Group-billed and link-guest paths defer model-access
+ * decisions to `resolveBilling`, which evaluates the OWNER's tier — those
+ * paths still surface PREMIUM_REQUIRES_BALANCE / GROUP_BUDGET_EXHAUSTED via
+ * `handleBillingDenial`.
+ */
+interface TierLockParams {
+  c: Context<AppEnv>;
+  linkGuest: AppEnv['Variables']['linkGuest'];
+  callerId: string;
+  ownerId: string;
+  models: string[];
+}
+
+async function enforceTierLock(params: TierLockParams): Promise<Response | null> {
+  const { c, linkGuest, callerId, ownerId, models } = params;
+  const isDirectBilling = !linkGuest && callerId === ownerId;
+  if (!isDirectBilling) return null;
+  const lockedModel = await findTierLockedModel(c, models, callerId);
+  if (lockedModel === null) return null;
+  return c.json(createErrorResponse(ERROR_CODE_MODEL_TIER_LOCKED, { modelId: lockedModel }), 403);
+}
+
+/**
+ * Runs all preconditions for POST /:conversationId/stream and returns the
+ * matching error response if any gate fails. Returns null when every gate
+ * passes so the caller can proceed to billing resolution and dispatch.
+ *
+ * Gates (in order):
+ *   - last message is user-authored (LAST_MESSAGE_NOT_USER, 400)
+ *   - link guests can't request media generation (MEDIA_TRIAL_BLOCKED, 403)
+ *   - audio modality respects FEATURE_FLAGS.AUDIO_ENABLED (AUDIO_DISABLED, 503)
+ *   - direct-billing callers can't pick a premium model their tier locks
+ *     (MODEL_TIER_LOCKED, 403) — see {@link enforceTierLock}.
+ */
+async function validateStreamRequestGates(
+  params: StreamRequestGatesParams
+): Promise<Response | null> {
+  const { c, modality, linkGuest, callerId, ownerId, models, messagesForInference } = params;
+
+  if (!validateLastMessageIsFromUser(messagesForInference)) {
+    return c.json(createErrorResponse(ERROR_CODE_LAST_MESSAGE_NOT_USER), 400);
+  }
+
+  const isMediaModality = modality === 'image' || modality === 'video' || modality === 'audio';
+  if (isMediaModality && linkGuest) {
+    return c.json(createErrorResponse(ERROR_CODE_MEDIA_TRIAL_BLOCKED), 403);
+  }
+
+  // Audio is dead-coded behind FEATURE_FLAGS.AUDIO_ENABLED until the AI
+  // Gateway ships speech-model support. 503 (Service Unavailable) is the
+  // right code: the request is well-formed; the feature is temporarily
+  // off and will return when the gateway adds speech support.
+  if (modality === 'audio' && !FEATURE_FLAGS.AUDIO_ENABLED) {
+    return c.json(createErrorResponse(ERROR_CODE_AUDIO_DISABLED), 503);
+  }
+
+  return enforceTierLock({ c, linkGuest, callerId, ownerId, models });
+}
+
 const conversationIdParameterSchema = z.object({ conversationId: z.string().min(1) });
 
 export const chatRoute = new Hono<AppEnv>()
@@ -1086,35 +1192,25 @@ export const chatRoute = new Hono<AppEnv>()
         audioConfig,
       } = c.req.valid('json');
 
-      // Validate last message
-      if (!validateLastMessageIsFromUser(messagesForInference)) {
-        return c.json(createErrorResponse(ERROR_CODE_LAST_MESSAGE_NOT_USER), 400);
-      }
-
-      // Block link guests from media generation (image/video/audio)
-      if ((modality === 'image' || modality === 'video' || modality === 'audio') && linkGuest) {
-        return c.json(createErrorResponse(ERROR_CODE_MEDIA_TRIAL_BLOCKED), 403);
-      }
-
-      // Audio is dead-coded behind FEATURE_FLAGS.AUDIO_ENABLED until the AI
-      // Gateway ships speech-model support. 503 (Service Unavailable) is the
-      // right code: the request is well-formed; the feature is temporarily
-      // off and will return when the gateway adds speech support.
-      if (modality === 'audio' && !FEATURE_FLAGS.AUDIO_ENABLED) {
-        return c.json(createErrorResponse(ERROR_CODE_AUDIO_DISABLED), 503);
-      }
+      const gateError = await validateStreamRequestGates({
+        c,
+        modality,
+        linkGuest,
+        callerId,
+        ownerId,
+        models,
+        messagesForInference,
+      });
+      if (gateError) return gateError;
 
       // --- Resolve billing (focused branch) ---
-      const apiKey = requireApiKey(c);
-      const publicModelsUrl = requirePublicModelsUrl(c);
       const billingContext = linkGuest
         ? await resolveGuestBillingContext(db, redis, {
             member,
             ownerId,
             models,
             conversationId,
-            apiKey,
-            publicModelsUrl,
+            aiClient: c.var.aiClient,
           })
         : await resolveUserBillingContext(db, redis, {
             callerId,
@@ -1123,8 +1219,7 @@ export const chatRoute = new Hono<AppEnv>()
             models,
             conversationId,
             fundingSource,
-            apiKey,
-            publicModelsUrl,
+            aiClient: c.var.aiClient,
           });
       const user = c.get('user');
 
@@ -1297,7 +1392,7 @@ export const chatRoute = new Hono<AppEnv>()
       const aiMessages = buildAIMessages(systemPrompt, messagesForInference);
       const lastInferenceMessage = messagesForInference.at(-1);
 
-      const textRequest: TextRequest = textStrategy.buildRequest({
+      const textRequest: TextRequest = getStrategy('text').buildRequest({
         modelId: model,
         messages: aiMessages,
         webSearchEnabled,

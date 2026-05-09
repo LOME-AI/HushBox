@@ -12,6 +12,20 @@ const DEFAULT_PREFIX = 'media/';
 const DEFAULT_CUTOFF_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_BATCH_SIZE = 1000;
 
+/**
+ * Number of deletes to fan out in parallel per chunk. Cloudflare Workers cap
+ * concurrent fetches per invocation; 50 fits comfortably under that limit
+ * while reclaiming time vs. fully-sequential awaits.
+ */
+const GC_DELETE_BATCH_SIZE = 50;
+
+/**
+ * Soft runtime budget for the cron handler. The Workers `cpu_ms` ceiling is
+ * 30s; we bail at 25s so we have headroom to record evidence and return
+ * stats. Partial completion is recorded so dashboards can flag pile-ups.
+ */
+const MAX_GC_RUNTIME_MS = 25_000;
+
 export interface RunR2GcInput {
   storage: MediaStorage;
   db: Database;
@@ -34,6 +48,8 @@ export interface R2GcStats {
   deleted: number;
   bytesReclaimed: number;
   durationMs: number;
+  /** True when the run exited early because MAX_GC_RUNTIME_MS elapsed. */
+  partialCompletion: boolean;
 }
 
 interface PageStats {
@@ -62,13 +78,22 @@ async function deleteOrphans(
 ): Promise<{ deleted: number; bytesReclaimed: number }> {
   let deleted = 0;
   let bytesReclaimed = 0;
-  for (const orphan of orphans) {
-    try {
-      await storage.delete(orphan.key);
-      deleted += 1;
-      bytesReclaimed += orphan.size;
-    } catch (error) {
-      console.error('r2-gc delete failed', { key: orphan.key, error });
+  // Chunk the deletes and fan out in parallel via Promise.allSettled so a
+  // single rejection inside the chunk does not abort the rest of the batch.
+  // Sequential awaits exceed the 30s cpu_ms budget at scale.
+  for (let index = 0; index < orphans.length; index += GC_DELETE_BATCH_SIZE) {
+    const chunk = orphans.slice(index, index + GC_DELETE_BATCH_SIZE);
+    const results = await Promise.allSettled(chunk.map((o) => storage.delete(o.key)));
+    for (const [chunkIndex, result] of results.entries()) {
+      const orphan = chunk[chunkIndex];
+      if (orphan === undefined) continue;
+      if (result.status === 'fulfilled') {
+        deleted += 1;
+        bytesReclaimed += orphan.size;
+      } else {
+        const reason: unknown = result.reason;
+        console.error('r2-gc delete failed', { key: orphan.key, error: reason });
+      }
     }
   }
   return { deleted, bytesReclaimed };
@@ -108,8 +133,21 @@ export async function runR2Gc(input: RunR2GcInput): Promise<R2GcStats> {
   let deleted = 0;
   let bytesReclaimed = 0;
   let cursor: string | undefined;
+  let partialCompletion = false;
 
   do {
+    if (Date.now() - startedAt > MAX_GC_RUNTIME_MS) {
+      // Soft budget tripped — bail before kicking off another list/delete
+      // round and let the next cron run pick up the rest.
+      partialCompletion = true;
+      console.warn('r2-gc bailing early due to MAX_GC_RUNTIME_MS', {
+        scanned,
+        deleted,
+        durationMs: Date.now() - startedAt,
+      });
+      break;
+    }
+
     const page = await input.storage.list(prefix, {
       limit,
       ...(cursor !== undefined && { cursor }),
@@ -130,17 +168,20 @@ export async function runR2Gc(input: RunR2GcInput): Promise<R2GcStats> {
     deleted,
     bytesReclaimed,
     durationMs: Date.now() - startedAt,
+    partialCompletion,
   };
 
   if (input.evidence !== undefined) {
     // Persist run stats alongside the evidence row so dashboards can correlate
-    // GC effectiveness over time without scraping logs.
+    // GC effectiveness over time without scraping logs. `partialCompletion`
+    // is included so dashboards can flag pile-ups when the budget is tripped.
     await recordServiceEvidence(input.evidence.db, input.evidence.isCI, SERVICE_NAMES.R2_GC, {
       scanned: stats.scanned,
       orphansFound: stats.orphansFound,
       deleted: stats.deleted,
       bytesReclaimed: stats.bytesReclaimed,
       durationMs: stats.durationMs,
+      partialCompletion: stats.partialCompletion,
     });
   }
 

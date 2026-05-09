@@ -1,15 +1,15 @@
 import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
-import { MessageItem } from './message-item';
-import type { Message } from '@/lib/api';
 import { groupConsecutiveMessages, type MessageGroup } from '@/lib/chat-sender';
-import type { LinkInfo } from '@/lib/chat-sender';
 import { isMultiModelResponse, canRegenerateMessage } from '@/lib/chat-regeneration';
 import {
   resolveMessageActions,
   buildChatContext,
   type MessageContext,
 } from '@/lib/message-actions';
+import { MessageItem } from './message-item';
+import type { Message } from '@/lib/api';
+import type { LinkInfo } from '@/lib/chat-sender';
 import type { MemberPrivilege } from '@hushbox/shared';
 
 /**

@@ -1,5 +1,5 @@
-import type { Platform } from '@hushbox/shared';
 import { isPaymentDisabledPlatform } from '@hushbox/shared';
+import type { Platform } from '@hushbox/shared';
 
 const platform: Platform = (import.meta.env['VITE_PLATFORM'] as Platform | undefined) ?? 'web';
 

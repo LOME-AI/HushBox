@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DEV_PASSWORD } from '@hushbox/shared';
-import type { DevPersona } from '@hushbox/shared';
-import { signIn } from '@/lib/auth';
 import { toast } from '@hushbox/ui';
+import { signIn } from '@/lib/auth';
+import type { DevPersona } from '@hushbox/shared';
 
 class RedirectError extends Error {
   to: string;

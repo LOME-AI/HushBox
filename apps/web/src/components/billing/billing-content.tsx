@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -9,14 +10,13 @@ import {
   FeeBreakdown,
   CostPieChart,
 } from '@hushbox/ui';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import type { BalanceTransactionResponse } from '@hushbox/shared';
 import { useStableBalance } from '@/hooks/use-stable-balance';
 import { useTransactions } from '@/hooks/billing';
 import { formatBalance } from '@/lib/format';
 import { PaymentModal } from '@/components/billing/payment-modal';
 import { ManageOnlineButton } from '@/components/billing/manage-online-button';
 import { isPaymentDisabled } from '@/capacitor/platform';
+import type { BalanceTransactionResponse } from '@hushbox/shared';
 
 const TRANSACTIONS_PER_PAGE = 5;
 

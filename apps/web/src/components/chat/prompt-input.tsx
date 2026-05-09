@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { cn } from '@hushbox/ui';
 import {
   Bot,
   Image as ImageIcon,
@@ -14,16 +13,17 @@ import {
   Video,
   X,
 } from 'lucide-react';
+import { cn } from '@hushbox/ui';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@hushbox/ui';
 import { Textarea } from '@hushbox/ui';
-import type { CapabilityId, FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
 import { FEATURE_FLAGS } from '@hushbox/shared';
-import { CapacityBar } from './capacity-bar';
-import { BudgetMessages } from './budget-messages';
-import { ModalityConfigPanel } from './modality-config-panel';
 import { usePromptBudget } from '@/hooks/use-prompt-budget';
 import { useStability } from '@/providers/stability-provider';
 import { StableContent } from '@/components/shared/stable-content';
+import { CapacityBar } from './capacity-bar';
+import { BudgetMessages } from './budget-messages';
+import { ModalityConfigPanel } from './modality-config-panel';
+import type { CapabilityId, FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
 
 export interface PromptInputRef {
   focus: () => void;
@@ -107,6 +107,10 @@ function ToggleButtonWithTooltip({
       }
     : {};
 
+  // When disabled, the wrapper span carries role=button + aria-label so it's
+  // the only entry in the accessibility tree. The inner native button is
+  // aria-hidden and purely visual — keeps the same accessible name from being
+  // announced twice and resolves the strict-mode locator collision in tests.
   return (
     <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger asChild>
@@ -123,7 +127,7 @@ function ToggleButtonWithTooltip({
             size="icon"
             variant="ghost"
             disabled={disabled}
-            aria-label={ariaLabel}
+            {...(disabled ? { 'aria-hidden': true } : { 'aria-label': ariaLabel })}
           >
             {children}
           </Button>

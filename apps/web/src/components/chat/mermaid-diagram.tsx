@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { cn } from '@hushbox/ui';
 import mermaid from 'mermaid';
+import { cn } from '@hushbox/ui';
 
 interface MermaidDiagramProps {
   chart: string;

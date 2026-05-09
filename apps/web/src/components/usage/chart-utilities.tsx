@@ -1,7 +1,7 @@
 import * as React from 'react';
+import { ResponsiveContainer } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, ChartContainer } from '@hushbox/ui';
 import type { ChartConfig } from '@hushbox/ui';
-import { ResponsiveContainer } from 'recharts';
 
 export const CHART_COLORS = [
   'var(--chart-1)',

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { SuggestionChips } from './suggestion-chips';
 import { promptSuggestions } from '@/lib/prompt-suggestions';
+import { SuggestionChips } from './suggestion-chips';
 
 describe('SuggestionChips', () => {
   const mockOnSelect = vi.fn();

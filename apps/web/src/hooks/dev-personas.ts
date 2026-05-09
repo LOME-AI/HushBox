@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import type { DevPersonasResponse } from '@hushbox/shared';
 import { client, fetchJson } from '../lib/api-client.js';
 import { env } from '../lib/env.js';
+import type { DevPersonasResponse } from '@hushbox/shared';
 
 export type PersonaType = 'dev' | 'test';
 

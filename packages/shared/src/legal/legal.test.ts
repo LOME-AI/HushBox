@@ -5,7 +5,6 @@ import {
   TERMS_OF_SERVICE_META,
   TERMS_SECTIONS,
 } from './index.js';
-import type { LegalSection } from './types.js';
 import {
   PRIVACY_POLICY_EFFECTIVE_DATE,
   TERMS_OF_SERVICE_EFFECTIVE_DATE,
@@ -15,6 +14,7 @@ import {
   STORAGE_COST_PER_1K_CHARS,
 } from '../constants.js';
 import { ALL_FEE_CATEGORIES, FEE_CATEGORIES, formatFeePercent } from '../fees.js';
+import type { LegalSection } from './types.js';
 
 function assertValidSections(sections: LegalSection[]): void {
   const ids = sections.map((s) => s.id);

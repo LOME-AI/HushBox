@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { applyFees, calculateMediaGenerationCost, TOTAL_FEE_RATE } from '@hushbox/shared';
+import {
+  applyFees,
+  calculateMediaGenerationCost,
+  estimateMessageCostDevelopment,
+  estimateTokenCount,
+  TOTAL_FEE_RATE,
+} from '@hushbox/shared';
 import { calculateMessageCost } from '../billing/cost-calculator.js';
 import {
   clearTestModelCache,
@@ -30,10 +36,11 @@ describe('AIClient billing integration', () => {
       async () => {
         const spec = await getCheapestTestModel(client, 'text');
         if (spec.parameters.kind !== 'text') throw new Error('expected text spec');
+        const inputContent = 'Reply with one short word.';
         const request: TextRequest = {
           modality: 'text',
           model: spec.modelId,
-          messages: [{ role: 'user', content: 'Reply with one short word.' }],
+          messages: [{ role: 'user', content: inputContent }],
           maxOutputTokens: spec.parameters.maxOutputTokens,
         };
         const result = await consumeStream(client.stream(request));
@@ -41,6 +48,23 @@ describe('AIClient billing integration', () => {
         const stats = await client.getGenerationStats(result.generationId!);
         expect(stats.costUsd).toBeGreaterThan(0);
         expect(stats.costUsd).toBeLessThan(SANITY_TEXT_MAX_USD);
+
+        // Drift guard: the real path returns the gateway's reported cost, not
+        // a dev-mode estimate. If someone accidentally swaps the real
+        // `getGenerationStats` call for `estimateMessageCostDevelopment`, the
+        // returned number would land on the deterministic estimate and this
+        // assertion would fire.
+        const model = await client.getModel(spec.modelId);
+        if (model.pricing.kind !== 'token') throw new Error('expected token pricing');
+        const devEstimate = estimateMessageCostDevelopment({
+          inputTokens: estimateTokenCount(inputContent),
+          outputTokens: estimateTokenCount(result.textContent),
+          inputCharacters: inputContent.length,
+          outputCharacters: result.textContent.length,
+          pricePerInputToken: model.pricing.inputPerToken,
+          pricePerOutputToken: model.pricing.outputPerToken,
+        });
+        expect(stats.costUsd).not.toBe(devEstimate);
       },
       TEXT_TIMEOUT_MS
     );

@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Button, Textarea } from '@hushbox/ui';
 import { Send, Square } from 'lucide-react';
+import { Button, Textarea } from '@hushbox/ui';
 
 interface MessageInputProps {
   onSend: (message: string) => void;

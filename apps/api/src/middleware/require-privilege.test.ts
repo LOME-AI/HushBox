@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import { toBase64 } from '@hushbox/shared';
+import { requirePrivilege } from './require-privilege.js';
 import type { MemberPrivilege } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
-import { requirePrivilege } from './require-privilege.js';
 
 const TEST_USER_ID = 'user-priv-123';
 const TEST_CONVERSATION_ID = 'conv-priv-456';

@@ -1,7 +1,7 @@
-import type { APIRequestContext } from '@playwright/test';
 import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { BudgetHelper, setWalletBalance } from '../helpers/budget.js';
+import type { APIRequestContext } from '@playwright/test';
 
 async function getLastAiPayerId(
   request: APIRequestContext,

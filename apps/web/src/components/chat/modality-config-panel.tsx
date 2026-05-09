@@ -10,10 +10,10 @@ import {
   MAX_AUDIO_DURATION_SECONDS,
   FEATURE_FLAGS,
 } from '@hushbox/shared';
-import type { Model } from '@hushbox/shared';
 import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
 import { useMediaCostEstimate } from '@/hooks/use-media-cost-estimate';
+import type { Model } from '@hushbox/shared';
 
 interface TogglePillProps {
   label: string;

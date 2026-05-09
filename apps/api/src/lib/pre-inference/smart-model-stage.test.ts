@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createMockAIClient } from '../../services/ai/mock.js';
-import type { SSEEventWriter } from '../stream-handler.js';
-
 import { createSmartModelStage } from './smart-model-stage.js';
+import type { SSEEventWriter } from '../stream-handler.js';
 
 function createRecordingWriter(): SSEEventWriter & {
   events: { method: string; payload: unknown }[];
@@ -20,6 +19,9 @@ function createRecordingWriter(): SSEEventWriter & {
     writeStart: record('writeStart') as SSEEventWriter['writeStart'],
     writeModelToken: record('writeModelToken') as SSEEventWriter['writeModelToken'],
     writeModelMediaStart: record('writeModelMediaStart') as SSEEventWriter['writeModelMediaStart'],
+    writeModelMediaProgress: record(
+      'writeModelMediaProgress'
+    ) as SSEEventWriter['writeModelMediaProgress'],
     writeError: record('writeError') as SSEEventWriter['writeError'],
     writeModelDone: record('writeModelDone') as SSEEventWriter['writeModelDone'],
     writeModelError: record('writeModelError') as SSEEventWriter['writeModelError'],

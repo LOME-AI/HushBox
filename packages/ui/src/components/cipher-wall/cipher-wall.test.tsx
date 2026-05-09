@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { renderHook } from '@testing-library/react';
+import * as React from 'react';
 import { CipherWall, useRadialMask, computeExclusionZone } from './cipher-wall';
 import { EXCLUSION_STRIDE, CELL_WIDTH, CELL_HEIGHT } from './cipher-wall-engine';
-import * as React from 'react';
 
 let lastUseCipherWallOptions: Record<string, unknown> | undefined;
 const stableCanvasRef = { current: null };

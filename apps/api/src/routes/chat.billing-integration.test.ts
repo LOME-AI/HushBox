@@ -30,13 +30,9 @@ vi.mock('@ai-sdk/gateway', () => ({
   }),
 }));
 
-import { chatRoute, computeWorstCaseCents } from './chat.js';
-import type { AppEnv } from '../types.js';
-import { createMockAIClient } from '../services/ai/mock.js';
 import {
   ERROR_CODE_BALANCE_RESERVED,
   ERROR_CODE_INSUFFICIENT_BALANCE,
-  ERROR_CODE_PREMIUM_REQUIRES_BALANCE,
   calculateBudget,
   computeSafeMaxTokens,
   buildSystemPrompt,
@@ -49,9 +45,13 @@ import {
   STORAGE_COST_PER_CHARACTER,
   CHARS_PER_TOKEN_CONSERVATIVE,
   CHARS_PER_TOKEN_STANDARD,
+  createEnvUtilities,
 } from '@hushbox/shared';
-import type { UserTier } from '@hushbox/shared';
 import { generateKeyPair } from '@hushbox/crypto';
+import { chatRoute, computeWorstCaseCents } from './chat.js';
+import { createMockAIClientWithGatewayCatalog } from '../services/ai/mock-with-gateway-catalog.js';
+import type { AppEnv } from '../types.js';
+import type { UserTier } from '@hushbox/shared';
 
 // ============================================================================
 // Constants
@@ -509,9 +509,10 @@ function createTestApp(
     } as AppEnv['Bindings'];
     c.set('user', mockUser);
     c.set('session', mockSession);
-    c.set('aiClient', createMockAIClient());
+    c.set('aiClient', createMockAIClientWithGatewayCatalog());
     c.set('db', createMockDb(dbOptions) as unknown as AppEnv['Variables']['db']);
     c.set('redis', redisOverride as unknown as AppEnv['Variables']['redis']);
+    c.set('envUtils', createEnvUtilities(c.env));
     await next();
   });
 
@@ -641,7 +642,11 @@ describe('billing integration — scenario matrix', () => {
       expect(body.code).toBe(ERROR_CODE_INSUFFICIENT_BALANCE);
     });
 
-    it('F5: denies free tier access to premium models', async () => {
+    it('F5: denies free tier access to premium models with MODEL_TIER_LOCKED', async () => {
+      // Pre-billing tier gate now intercepts free-tier-on-premium with 403
+      // MODEL_TIER_LOCKED — distinct from the balance-driven
+      // PREMIUM_REQUIRES_BALANCE so the UI renders an "upgrade your account"
+      // message instead of "top up your balance".
       const mockRedis = createMockRedis();
       const app = createTestApp(freeDbOptions('0.05000000'), mockRedis);
 
@@ -651,9 +656,9 @@ describe('billing integration — scenario matrix', () => {
         body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
-      expect(res.status).toBe(402);
+      expect(res.status).toBe(403);
       const body: ErrorBody = await res.json();
-      expect(body.code).toBe(ERROR_CODE_PREMIUM_REQUIRES_BALANCE);
+      expect(body.code).toBe('MODEL_TIER_LOCKED');
     });
 
     it('F6: denies when no allowance at all', async () => {
@@ -1190,7 +1195,7 @@ describe('billing integration — scenario matrix', () => {
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
         });
-        c.set('aiClient', createMockAIClient());
+        c.set('aiClient', createMockAIClientWithGatewayCatalog());
         c.set(
           'db',
           createMockDb({
@@ -1207,6 +1212,7 @@ describe('billing integration — scenario matrix', () => {
           }) as unknown as AppEnv['Variables']['db']
         );
         c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
+        c.set('envUtils', createEnvUtilities(c.env));
         await next();
       });
 
@@ -1327,7 +1333,7 @@ describe('billing integration — scenario matrix', () => {
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
         });
-        c.set('aiClient', createMockAIClient());
+        c.set('aiClient', createMockAIClientWithGatewayCatalog());
         c.set(
           'db',
           createMockDb({
@@ -1344,6 +1350,7 @@ describe('billing integration — scenario matrix', () => {
           }) as unknown as AppEnv['Variables']['db']
         );
         c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
+        c.set('envUtils', createEnvUtilities(c.env));
         await next();
       });
 

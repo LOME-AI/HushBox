@@ -1,7 +1,7 @@
-import type { MiddlewareHandler } from 'hono';
 import { ERROR_CODE_NOT_AUTHENTICATED } from '@hushbox/shared';
-import type { AppEnv } from '../types.js';
 import { createErrorResponse } from '../lib/error-response.js';
+import type { MiddlewareHandler } from 'hono';
+import type { AppEnv } from '../types.js';
 
 /**
  * Middleware that requires authentication.

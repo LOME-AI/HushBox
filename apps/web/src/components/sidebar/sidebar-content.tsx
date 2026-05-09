@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { cn, Input, Separator } from '@hushbox/ui';
 import { Search } from 'lucide-react';
+import { cn, Input, Separator } from '@hushbox/ui';
 import { FEATURE_FLAGS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { NewChatButton } from './new-chat-button';

@@ -14,6 +14,7 @@ import {
   conversationSpending,
 } from '@hushbox/db';
 import { userFactory } from '@hushbox/db/factories';
+import { usageRoute } from './usage.js';
 import type {
   UsageSummaryResponse,
   SpendingOverTimeResponse,
@@ -23,7 +24,6 @@ import type {
   BalanceHistoryResponse,
   UsageModelsResponse,
 } from '@hushbox/shared';
-import { usageRoute } from './usage.js';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
 

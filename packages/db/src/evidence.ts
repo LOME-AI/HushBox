@@ -1,5 +1,5 @@
-import type { Database } from './client';
 import { serviceEvidence } from './schema/service-evidence';
+import type { Database } from './client';
 
 export const SERVICE_NAMES = {
   AI_GATEWAY: 'ai-gateway',

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
+import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import {
   useChatStream,
   TrialRateLimitError,
@@ -9,7 +10,6 @@ import {
   StreamTimeoutError,
 } from './use-chat-stream';
 import * as trialTokenModule from '../lib/trial-token';
-import { useStreamingActivityStore } from '@/stores/streaming-activity';
 
 // Mock modules
 vi.mock('../lib/api', () => ({

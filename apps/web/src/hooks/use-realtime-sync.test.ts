@@ -64,11 +64,11 @@ vi.mock('@tanstack/react-router', () => ({
 // ---------------------------------------------------------------------------
 
 import { useRealtimeSync } from './use-realtime-sync.js';
-import type { ConversationWebSocket } from '../lib/ws-client.js';
 import { chatKeys } from './chat.js';
 import { memberKeys } from './use-conversation-members.js';
 import { budgetKeys } from './use-conversation-budgets.js';
 import { billingKeys } from './billing.js';
+import type { ConversationWebSocket } from '../lib/ws-client.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

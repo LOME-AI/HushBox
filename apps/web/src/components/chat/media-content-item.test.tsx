@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ContentKey } from '@hushbox/crypto';
 import type { MessageMediaItem } from '@/lib/api';
 
 // ---------------------------------------------------------------------------
@@ -8,13 +9,7 @@ import type { MessageMediaItem } from '@/lib/api';
 // ---------------------------------------------------------------------------
 
 const mockUseDecryptedMedia = vi.fn<
-  (params: {
-    contentItemId: string;
-    conversationId: string;
-    epochNumber: number;
-    wrappedContentKey: string;
-    mimeType: string;
-  }) => {
+  (params: { contentItemId: string; contentKey: ContentKey | null; mimeType: string }) => {
     blobUrl: string | null;
     isLoading: boolean;
     error: Error | null;
@@ -45,10 +40,9 @@ function defaultItem(overrides: Partial<MessageMediaItem> = {}): MessageMediaIte
   };
 }
 
+const baseContentKey = new Uint8Array([1, 2, 3]) as ContentKey;
 const baseProps = {
-  conversationId: 'conv-1',
-  epochNumber: 1,
-  wrappedContentKey: 'wrapped-b64',
+  contentKey: baseContentKey,
 };
 
 // ---------------------------------------------------------------------------
@@ -94,7 +88,9 @@ describe('MediaContentItem', () => {
 
     render(<MediaContentItem item={defaultItem()} {...baseProps} />);
 
-    expect(screen.getByRole('status', { name: /failed to load media/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('status', { name: /couldn['’]t load this media.+refresh the page/i })
+    ).toBeInTheDocument();
     expect(document.querySelector('img')).toBeNull();
   });
 
@@ -273,20 +269,17 @@ describe('MediaContentItem', () => {
       error: null,
     });
 
+    const ck = new Uint8Array([7, 7, 7]) as ContentKey;
     render(
       <MediaContentItem
         item={defaultItem({ id: 'item-42', mimeType: 'image/webp' })}
-        conversationId="conv-xyz"
-        epochNumber={5}
-        wrappedContentKey="key-b64-abc"
+        contentKey={ck}
       />
     );
 
     expect(mockUseDecryptedMedia).toHaveBeenCalledWith({
       contentItemId: 'item-42',
-      conversationId: 'conv-xyz',
-      epochNumber: 5,
-      wrappedContentKey: 'key-b64-abc',
+      contentKey: ck,
       mimeType: 'image/webp',
     });
   });

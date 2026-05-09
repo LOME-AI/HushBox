@@ -11,6 +11,7 @@ import {
   MAX_SEARCH_TOOL_CALLS,
   SEARCH_COST_PER_CALL,
 } from './constants.js';
+import { assertNever } from './utils/assert-never.js';
 import type { UserTier } from './tiers.js';
 
 /**
@@ -263,6 +264,9 @@ export function calculateMediaGenerationCost(params: CalculateMediaGenerationCos
       if (durationSeconds === undefined)
         throw new Error('durationSeconds required for audio pricing');
       return applyFees(pricing.perSecond * durationSeconds) + storage;
+    }
+    default: {
+      return assertNever(pricing);
     }
   }
 }

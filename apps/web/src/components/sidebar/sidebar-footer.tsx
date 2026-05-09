@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { DropdownMenuItem, DropdownMenuSeparator } from '@hushbox/ui';
 import {
   Check,
   Database,
@@ -18,6 +17,7 @@ import {
   Users,
 } from 'lucide-react';
 import { SiGithub } from '@icons-pack/react-simple-icons';
+import { DropdownMenuItem, DropdownMenuSeparator } from '@hushbox/ui';
 import { FEATURE_FLAGS, displayUsername, ROUTES } from '@hushbox/shared';
 import { ExternalPageLink } from '@/components/shared/external-page-link';
 

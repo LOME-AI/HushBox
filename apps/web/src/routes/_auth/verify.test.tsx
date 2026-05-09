@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { authClient } from '@/lib/auth';
-import { toast } from '@hushbox/ui';
 import { useSearch } from '@tanstack/react-router';
+import { toast } from '@hushbox/ui';
+import { authClient } from '@/lib/auth';
 
 const mockNavigate = vi.fn();
 

@@ -8,8 +8,8 @@ import {
   checkDualRateLimit,
   recordDualFailedAttempt,
 } from './rate-limit.js';
-import type { RateLimitConfig } from './rate-limit.js';
 import { REDIS_REGISTRY } from './redis-registry.js';
+import type { RateLimitConfig } from './rate-limit.js';
 
 function createMockRedis(): {
   store: Map<string, unknown>;

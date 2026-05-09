@@ -1,17 +1,19 @@
 import * as React from 'react';
-import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@hushbox/ui';
-import { shortenModelName, friendlyErrorMessage, stageLabel } from '@hushbox/shared';
-import { getModelColor } from '@/lib/model-color';
-import { useModels } from '@/hooks/models';
 import { Check, Copy, GitBranch, Pencil, RefreshCw, Share2 } from 'lucide-react';
-import type { Message } from '@/lib/api';
-import type { MessageAction } from '@/lib/message-actions';
-import type { MessageGroup, LinkInfo } from '@/lib/chat-sender';
+import { shortenModelName, friendlyErrorMessage, stageLabel } from '@hushbox/shared';
+import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@hushbox/ui';
+import { useModels } from '@/hooks/models';
+import { getModelColor } from '@/lib/model-color';
 import { getSenderLabel, isOwnMessage } from '@/lib/chat-sender';
+import { useMessageContentKey } from '@/hooks/use-decrypted-media';
 import { MarkdownRenderer } from './markdown-renderer';
 import { MediaContentItem } from './media-content-item';
+import { MediaPlaceholder } from './media-preview';
 import { MessageCost } from './message-cost';
 import { ThinkingIndicator } from './thinking-indicator';
+import type { MessageGroup, LinkInfo } from '@/lib/chat-sender';
+import type { Message } from '@/lib/api';
+import type { MessageAction } from '@/lib/message-actions';
 
 interface MemberInfo {
   id: string;
@@ -381,25 +383,79 @@ function MessageMediaItems({
     [mediaItems]
   );
 
+  // Hoist contentKey resolution to the message level (Plan §15.5):
+  // unwrap ONCE per message and pass the result to every MediaContentItem.
+  // Hooks must run unconditionally — we always call the hook with safe
+  // fallbacks and only use the result when the message envelope is present.
+  const { contentKey } = useMessageContentKey(
+    conversationId,
+    epochNumber ?? 0,
+    wrappedContentKey ?? ''
+  );
+
   if (!mediaItems || mediaItems.length === 0) return null;
   if (!wrappedContentKey || epochNumber === undefined) return null;
 
   return (
     <div className="mt-2 flex flex-col gap-2">
       {ordered.map((item) => (
-        <MediaContentItem
-          key={item.id}
-          item={item}
-          conversationId={conversationId}
-          epochNumber={epochNumber}
-          wrappedContentKey={wrappedContentKey}
-        />
+        <MediaContentItem key={item.id} item={item} contentKey={contentKey} />
       ))}
     </div>
   );
 }
 
+const MEDIA_LOADING_LABEL_BY_TYPE: Record<'image' | 'audio' | 'video', string> = {
+  image: 'Generating image…',
+  video: 'Generating video…',
+  audio: 'Generating audio…',
+};
+
+function MediaInFlightPlaceholder({
+  mediaType,
+  progressPercent,
+}: Readonly<{
+  mediaType: 'image' | 'audio' | 'video';
+  progressPercent: number | undefined;
+}>): React.JSX.Element {
+  const loadingLabel = MEDIA_LOADING_LABEL_BY_TYPE[mediaType];
+  return (
+    <MediaPlaceholder
+      width={null}
+      height={null}
+      status="loading"
+      loadingLabel={loadingLabel}
+      {...(progressPercent !== undefined && { progressPercent })}
+    />
+  );
+}
+
 function StreamingPlaceholder({
+  primaryMessage,
+  modelName,
+  models,
+}: Readonly<{
+  primaryMessage: Message;
+  modelName: string | undefined;
+  models: ReturnType<typeof useModels>['data'] | undefined;
+}>): React.JSX.Element {
+  // Media generation in flight: swap the generic thinking indicator for a
+  // media-specific label as soon as `model:media:start` arrives.
+  const mediaInFlight = primaryMessage.mediaInFlight;
+  if (mediaInFlight) {
+    return (
+      <MediaInFlightPlaceholder
+        mediaType={mediaInFlight.mediaType}
+        progressPercent={primaryMessage.mediaProgress?.percent}
+      />
+    );
+  }
+  return (
+    <ThinkingPlaceholder primaryMessage={primaryMessage} modelName={modelName} models={models} />
+  );
+}
+
+function ThinkingPlaceholder({
   primaryMessage,
   modelName,
   models,

@@ -19,7 +19,6 @@ import {
   computeAudioWorstCaseCents,
   worstCaseSearchCost,
 } from './pricing.js';
-import type { MessageCostParams, MessageCostFromActualParams } from './pricing.js';
 import {
   TOTAL_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
@@ -33,6 +32,7 @@ import {
   MAX_SEARCH_TOOL_CALLS,
   SEARCH_COST_PER_CALL,
 } from './constants.js';
+import type { MessageCostParams, MessageCostFromActualParams } from './pricing.js';
 
 describe('parseTokenPrice', () => {
   it('parses a valid positive price string', () => {
@@ -802,6 +802,21 @@ describe('calculateMediaGenerationCost', () => {
           sizeBytes: 500_000,
         })
       ).toThrow('durationSeconds required');
+    });
+  });
+
+  describe('exhaustiveness guard', () => {
+    it('throws on unrecognized pricing kind (assertNever)', () => {
+      expect(() =>
+        calculateMediaGenerationCost({
+          pricing: { kind: 'rogue', perSecond: 0 } as unknown as {
+            kind: 'audio';
+            perSecond: number;
+          },
+          sizeBytes: 0,
+          durationSeconds: 1,
+        })
+      ).toThrow(/exhaustiveness/i);
     });
   });
 

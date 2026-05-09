@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { CostPieChart } from './cost-pie-chart';
 import { ALL_FEE_CATEGORIES, FEE_BUCKET_BY_ID, FEE_CATEGORIES } from '@hushbox/shared';
+import { CostPieChart } from './cost-pie-chart';
 
 function expectedSliceCount(): number {
   // Service Value is always rendered. Transaction Costs and Platform Fee

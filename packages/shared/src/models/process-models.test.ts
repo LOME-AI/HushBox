@@ -94,9 +94,6 @@ describe('processModels', () => {
     vi.useRealTimers();
   });
 
-  // ZDR compliance tests removed — ZDR is now per-model via isZdrModel,
-  // covered by zdr.test.ts. process-models tests bypass ZDR via vi.mock above.
-
   describe('filtering - always excluded', () => {
     it('excludes free models (both prices = 0)', () => {
       const models = [

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Hono } from 'hono';
 import { toBase64 } from '@hushbox/shared';
+import { messageSharesRoute, publicSharesRoute } from './message-shares.js';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
 import type { MediaStorage } from '../services/storage/types.js';
-import { messageSharesRoute, publicSharesRoute } from './message-shares.js';
 
 // Hoisted DB mock used by the createApp() integration test below. The factory
 // function is invoked lazily, so the per-test `__setRows` controls what the
@@ -355,7 +355,7 @@ describe('message-shares routes', () => {
       expect(body.code).toBe('MESSAGE_NOT_FOUND');
     });
 
-    it('returns 403 when user is not a member of the conversation', async () => {
+    it('returns 403 with SHARE_FORBIDDEN when user is not a member of the conversation', async () => {
       const app = createShareTestApp({
         dbConfig: {
           message: { id: TEST_MESSAGE_ID, conversationId: TEST_CONVERSATION_ID },
@@ -370,8 +370,9 @@ describe('message-shares routes', () => {
       });
 
       expect(res.status).toBe(403);
-      const body = await res.json<ErrorBody>();
-      expect(body.code).toBe('FORBIDDEN');
+      const body = await res.json<ErrorBody & { details?: { messageId?: string } }>();
+      expect(body.code).toBe('SHARE_FORBIDDEN');
+      expect(body.details?.messageId).toBe(TEST_MESSAGE_ID);
     });
 
     it('creates share and returns 201 with shareId', async () => {
@@ -727,6 +728,47 @@ describe('message-shares routes', () => {
       const img = body.contentItems.find((item) => item.id === 'ci-img');
       expect(img?.downloadUrl).toBeTruthy();
       expect(img?.downloadUrl).toContain('media/conv/msg/img-1.enc');
+    });
+
+    it('returns 500 with STORAGE_READ_FAILED when stored mimeType is not in the allowlist', async () => {
+      const createdAt = new Date('2025-07-01T12:00:00.000Z');
+      const mediaStorage = createStubMediaStorage();
+
+      const app = createGetShareTestApp({
+        mediaStorage,
+        dbConfig: {
+          share: {
+            id: TEST_SHARE_ID,
+            messageId: TEST_MESSAGE_ID,
+            wrappedShareKey: TEST_WRAPPED_SHARE_KEY,
+            createdAt,
+          },
+          contentItems: [
+            {
+              id: 'ci-bad',
+              messageId: TEST_MESSAGE_ID,
+              contentType: 'image',
+              position: 0,
+              encryptedBlob: null,
+              storageKey: 'media/conv/msg/bad-1.enc',
+              // image/gif isn't in the allowlist; serializer must throw
+              mimeType: 'image/gif',
+              sizeBytes: 1024,
+              width: 100,
+              height: 100,
+              durationMs: null,
+              modelName: null,
+              cost: null,
+              isSmartModel: false,
+            },
+          ],
+        },
+      });
+
+      const res = await app.request(`/${TEST_SHARE_ID}`);
+      expect(res.status).toBe(500);
+      const body = await res.json<ErrorBody>();
+      expect(body.code).toBe('STORAGE_READ_FAILED');
     });
 
     it('returns 500 when presigned URL minting fails', async () => {

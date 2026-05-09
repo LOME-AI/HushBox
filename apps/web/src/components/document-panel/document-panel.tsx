@@ -1,8 +1,8 @@
 import * as React from 'react';
-import { Button, cn } from '@hushbox/ui';
 import { X, Code, Eye, Copy, Check, Download, Maximize2, Minimize2 } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import { code } from '@streamdown/code';
+import { Button, cn } from '@hushbox/ui';
 import { useDocumentStore } from '../../stores/document';
 import { MermaidDiagram } from '../chat/mermaid-diagram';
 import { useIsMobile } from '../../hooks/use-is-mobile';

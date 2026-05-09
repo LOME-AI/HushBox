@@ -2,9 +2,9 @@ import * as React from 'react';
 import { Link, Outlet, createFileRoute, redirect } from '@tanstack/react-router';
 import { Logo } from '@hushbox/ui';
 import { ROUTES } from '@hushbox/shared';
+import { CipherWall } from '@hushbox/ui';
 import { authClient } from '@/lib/auth';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
-import { CipherWall } from '@hushbox/ui';
 
 export const Route = createFileRoute('/_auth')({
   beforeLoad: async () => {

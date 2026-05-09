@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { createErrorResponse, errorJson } from './error-response.js';
 import {
   ERROR_CODE_UNAUTHORIZED,
   ERROR_CODE_NOT_FOUND,
   ERROR_CODE_VALIDATION,
 } from '@hushbox/shared';
+import { createErrorResponse, errorJson } from './error-response.js';
 
 describe('createErrorResponse', () => {
   it('creates error response with just code', () => {

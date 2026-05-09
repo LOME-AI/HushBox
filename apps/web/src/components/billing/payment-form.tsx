@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Button, ModalActions, OverlayContent, OverlayHeader } from '@hushbox/ui';
 import { DollarSign, CreditCard, Lock, MapPin, User, Home } from 'lucide-react';
-import { HelcimLogo } from './helcim-logo.js';
+import { useQueryClient } from '@tanstack/react-query';
+import { Button, ModalActions, OverlayContent, OverlayHeader } from '@hushbox/ui';
 import { FormInput } from '@/components/shared/form-input';
 import { DevOnly } from '@/components/shared/dev-only';
 import { env } from '@/lib/env';
+import { HelcimLogo } from './helcim-logo.js';
 import { useFormEnterNav } from '../../hooks/use-form-enter-nav.js';
 import {
   loadHelcimScript,
@@ -18,7 +19,6 @@ import {
   usePaymentStatus,
   billingKeys,
 } from '../../hooks/billing.js';
-import { useQueryClient } from '@tanstack/react-query';
 import { usePaymentForm } from '../../hooks/use-payment-form.js';
 import { MIN_DEPOSIT_AMOUNT, MAX_DEPOSIT_AMOUNT } from '../../lib/payment-validation.js';
 

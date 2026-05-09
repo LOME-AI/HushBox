@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Hono } from 'hono';
+import { mediaRoute } from './media.js';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
 import type { MediaStorage } from '../services/storage/index.js';
-import { mediaRoute } from './media.js';
 
 /**
  * Lightweight redis stub: no-op store with a shape compatible with the rate-limit
@@ -171,6 +171,59 @@ describe('mediaRoute GET /:contentItemId/download-url', () => {
     expect(res.status).toBe(404);
     const body = await jsonBody<ErrorBody>(res);
     expect(body.code).toBe('CONTENT_ITEM_NOT_FOUND');
+  });
+
+  it("rejects download URL for media from an epoch the user wasn't in", async () => {
+    // Regression: previously the route only verified conversation membership.
+    // A late-joiner could mint download URLs for ciphertext from earlier
+    // epochs they were never part of (cannot decrypt, but exfiltrates blobs).
+    // The fixed query JOINs epoch_members on (memberPublicKey = user.publicKey,
+    // epochId from the message's epoch_number) so non-epoch-members get zero
+    // rows and a blind 404.
+    //
+    // We model this with a mock that captures the JOIN clauses: the test
+    // asserts the db chain receives BOTH innerJoin calls (one for
+    // conversation_members, one for epoch_members) before the route resolves,
+    // and that an empty result set surfaces as 404.
+    let innerJoinCallCount = 0;
+    /* eslint-disable unicorn/no-thenable */
+    const createCountingChain = (): Record<string, unknown> => ({
+      from: () => createCountingChain(),
+      innerJoin: (..._args: unknown[]) => {
+        innerJoinCallCount += 1;
+        return createCountingChain();
+      },
+      leftJoin: () => createCountingChain(),
+      where: () => createCountingChain(),
+      limit: () => ({
+        then: (resolve: (v: unknown[]) => unknown) => Promise.resolve(resolve([])),
+      }),
+      then: (resolve: (v: unknown[]) => unknown) => Promise.resolve(resolve([])),
+    });
+    /* eslint-enable unicorn/no-thenable */
+    const countingDb = { select: () => createCountingChain() } as unknown;
+
+    const app = new Hono<AppEnv>();
+    app.use('*', async (c, next) => {
+      c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+      c.set('user', createMockUser());
+      c.set('session', createMockSession());
+      c.set('sessionData', createMockSession());
+      c.set('db', countingDb as AppEnv['Variables']['db']);
+      c.set('mediaStorage', createFakeStorage() as unknown as MediaStorage);
+      c.set('redis', createNoopRedis() as unknown as AppEnv['Variables']['redis']);
+      await next();
+    });
+    app.route('/', mediaRoute);
+
+    const res = await app.request(`/${TEST_CONTENT_ITEM_ID}/download-url`);
+
+    expect(res.status).toBe(404);
+    const body = await jsonBody<ErrorBody>(res);
+    expect(body.code).toBe('CONTENT_ITEM_NOT_FOUND');
+    // Three inner joins: messages, conversation_members, epoch_members
+    // (epochs is also joined to resolve epoch_id from epoch_number).
+    expect(innerJoinCallCount).toBeGreaterThanOrEqual(3);
   });
 
   it('returns 400 when the content item is text (not downloadable)', async () => {

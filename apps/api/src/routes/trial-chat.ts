@@ -12,13 +12,11 @@ import {
   ERROR_CODE_FEATURE_REQUIRES_AUTH,
   calculateBudget,
   resolveBilling,
-  getModelPricing,
   buildSystemPrompt,
 } from '@hushbox/shared';
-import type { AppEnv } from '../types.js';
+import { processModels } from '@hushbox/shared/models';
 import { buildPrompt } from '../services/prompt/builder.js';
 import { consumeTrialMessage } from '../services/billing/index.js';
-import { fetchModels, processModels } from '@hushbox/shared/models';
 import { validateLastMessageIsFromUser, buildAIMessages } from '../services/chat/index.js';
 import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createErrorResponse } from '../lib/error-response.js';
@@ -27,6 +25,8 @@ import { lookupModelPricing } from '../lib/stream-pipeline.js';
 import { textStrategy } from '../lib/modality-strategies.js';
 import { hashIp, getClientIp } from '../lib/client-ip.js';
 import { rateLimitByIp } from '../middleware/rate-limit.js';
+import type { AppEnv } from '../types.js';
+import type { getModelPricing } from '@hushbox/shared';
 import type { Context } from 'hono';
 
 interface TrialMessage {
@@ -169,11 +169,7 @@ async function validateTrialRequest(
     return { success: false, response: quotaResult.errorResponse };
   }
 
-  const apiKey = c.env.AI_GATEWAY_API_KEY;
-  if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required for trial chat');
-  const publicModelsUrl = c.env.PUBLIC_MODELS_URL;
-  if (!publicModelsUrl) throw new Error('PUBLIC_MODELS_URL required for trial chat');
-  const allModels = await fetchModels({ apiKey, publicModelsUrl });
+  const allModels = await c.var.aiClient.listRawModels();
   const { premiumIds } = processModels(allModels);
 
   const modelError = checkTrialModelAccess(c, model, premiumIds);

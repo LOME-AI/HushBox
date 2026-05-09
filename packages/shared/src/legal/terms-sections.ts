@@ -1,4 +1,3 @@
-import type { LegalSection, LegalDocumentMeta } from './types.js';
 import {
   TERMS_OF_SERVICE_EFFECTIVE_DATE,
   BILLING_CONTACT_EMAIL,
@@ -6,6 +5,7 @@ import {
   STORAGE_COST_PER_1K_CHARS,
 } from '../constants.js';
 import { FEE_CATEGORIES, formatFeePercent } from '../fees.js';
+import type { LegalSection, LegalDocumentMeta } from './types.js';
 
 export const TERMS_OF_SERVICE_META: LegalDocumentMeta = {
   title: 'Terms of Service',

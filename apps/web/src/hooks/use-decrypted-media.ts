@@ -5,11 +5,52 @@ import { getEpochKey } from '@/lib/epoch-key-cache';
 import { useMediaDownloadUrl } from '@/hooks/use-media-url';
 import { useDecryptBlob } from '@/hooks/use-decrypt-blob';
 
+interface MessageContentKeyResult {
+  contentKey: ContentKey | null;
+  error: Error | null;
+}
+
+/**
+ * Resolve a message's content key ONCE per message: look up the epoch key from
+ * the cache and ECIES-open the wrapped content key. Hoisted out of
+ * `useDecryptedMedia` so an N-media message performs one unwrap, not N
+ * (Plan §15.5). The parent (`MessageMediaItems`) calls this and passes the
+ * resulting `contentKey` to each media item.
+ */
+export function useMessageContentKey(
+  conversationId: string,
+  epochNumber: number,
+  wrappedContentKey: string
+): MessageContentKeyResult {
+  return useMemo(() => {
+    try {
+      const epochKey = getEpochKey(conversationId, epochNumber);
+      if (!epochKey) {
+        return { contentKey: null, error: new Error('Epoch key not available') };
+      }
+      const contentKey = openMessageEnvelope(
+        epochKey,
+        fromBase64(wrappedContentKey) as WrappedContentKey
+      );
+      return { contentKey, error: null };
+    } catch (error) {
+      return {
+        contentKey: null,
+        error: error instanceof Error ? error : new Error('Decryption failed'),
+      };
+    }
+  }, [conversationId, epochNumber, wrappedContentKey]);
+}
+
 interface UseDecryptedMediaParams {
   contentItemId: string;
-  conversationId: string;
-  epochNumber: number;
-  wrappedContentKey: string;
+  /**
+   * Pre-unwrapped message content key — resolved once at the message level
+   * by the parent (`useMessageContentKey`) so an N-media message performs
+   * one ECIES unwrap, not N (Plan §15.5). Pass `null` while the parent is
+   * still resolving (fail-fast: a non-null key means the parent succeeded).
+   */
+  contentKey: ContentKey | null;
   mimeType: string;
   /**
    * Pre-fetched presigned GET URL forwarded by the SSE `done` event. When
@@ -27,49 +68,20 @@ interface DecryptedMediaResult {
   error: Error | null;
 }
 
-interface UnwrapResult {
-  contentKey: ContentKey | null;
-  error: Error | null;
-}
-
 /**
- * Pure helper: synchronously look up the epoch key from the cache and unwrap
- * the message's content key. Failure modes (no epoch key, ECIES throw) are
- * returned as an error so the caller can surface them without tripping the
- * decrypt hook's loading state.
- */
-function unwrapContentKey(
-  conversationId: string,
-  epochNumber: number,
-  wrappedContentKey: string
-): UnwrapResult {
-  try {
-    const epochKey = getEpochKey(conversationId, epochNumber);
-    if (!epochKey) return { contentKey: null, error: new Error('Epoch key not available') };
-    return {
-      contentKey: openMessageEnvelope(epochKey, fromBase64(wrappedContentKey) as WrappedContentKey),
-      error: null,
-    };
-  } catch (error) {
-    return {
-      contentKey: null,
-      error: error instanceof Error ? error : new Error('Decryption failed'),
-    };
-  }
-}
-
-/**
- * Fetches a media content item's encrypted bytes, decrypts them client-side
- * using the parent message's wrappedContentKey, and returns a blob URL.
+ * Fetches a single media content item's encrypted bytes and decrypts them
+ * using a pre-unwrapped message-level content key, producing a blob URL.
  *
- * Composes three pieces:
+ * The content key MUST be resolved once at the message level (see
+ * `useMessageContentKey` + `MessageMediaItems`) — an N-media message
+ * performs exactly one ECIES unwrap, not N.
+ *
+ * Composes two pieces:
  *   useMediaDownloadUrl  — fetches the presigned R2 URL
- *   unwrapContentKey     — ECIES-opens the message content key under the epoch
  *   useDecryptBlob       — fetches ciphertext + symmetric decrypt + blob URL
  */
 export function useDecryptedMedia(params: UseDecryptedMediaParams): DecryptedMediaResult {
-  const { contentItemId, conversationId, epochNumber, wrappedContentKey, mimeType, preFetchedUrl } =
-    params;
+  const { contentItemId, contentKey, mimeType, preFetchedUrl } = params;
   // Skip the network round-trip when the SSE done event already gave us a URL.
   // `useMediaDownloadUrl` keys its query on the contentItemId, so passing
   // `null` disables it for the lifetime of this consumer.
@@ -82,26 +94,22 @@ export function useDecryptedMedia(params: UseDecryptedMediaParams): DecryptedMed
 
   const effectiveUrl = preFetchedUrl ?? queriedUrl;
 
-  const unwrapped = useMemo(
-    () => unwrapContentKey(conversationId, epochNumber, wrappedContentKey),
-    [conversationId, epochNumber, wrappedContentKey]
-  );
-
   const {
     blobUrl,
     isLoading: decryptLoading,
     error: decryptError,
   } = useDecryptBlob({
     downloadUrl: effectiveUrl ?? null,
-    contentKey: unwrapped.contentKey,
+    contentKey,
     mimeType,
   });
 
   return {
     blobUrl,
-    // Hide the "awaiting inputs" loading while we have an unwrap error — the
-    // error path should surface immediately, not sit behind a spinner.
-    isLoading: (queryEnabled && urlLoading) || (unwrapped.contentKey !== null && decryptLoading),
-    error: urlError ?? unwrapped.error ?? decryptError,
+    // Hide "awaiting inputs" loading once the URL has resolved and the
+    // contentKey is missing — the parent's error path should surface
+    // immediately, not sit behind a spinner.
+    isLoading: (queryEnabled && urlLoading) || (contentKey !== null && decryptLoading),
+    error: urlError ?? decryptError,
   };
 }

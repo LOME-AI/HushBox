@@ -2,8 +2,11 @@ import {
   CHARS_PER_TOKEN_STANDARD,
   CLASSIFIER_SYSTEM_PROMPT_MARKER,
   assertNever,
+  type AllowedMediaMimeType,
 } from '@hushbox/shared';
 
+import { rawModelToModelInfo } from './model-mapping.js';
+import type { RawModel } from '@hushbox/shared/models';
 import type {
   AIMessage,
   InferenceEvent,
@@ -12,6 +15,7 @@ import type {
   MessageContentPart,
   MockAIClient,
   ModelInfo,
+  RecordedInferenceRequest,
   TextRequest,
 } from './types.js';
 
@@ -22,8 +26,23 @@ import type {
 /** Deterministic mock cost returned by getGenerationStats (USD). */
 const MOCK_GENERATION_STATS_COST = 0.001;
 
-/** Default model id returned by classifier calls — overridable per test. */
-const DEFAULT_CLASSIFIER_RESOLUTION = 'anthropic/claude-sonnet-4.6';
+/**
+ * Default model id returned by classifier calls — overridable per test.
+ *
+ * Must be a cheap text model so it lands in the integration harness's top-N
+ * eligible set (`buildHarness` sorts by cost). claude-haiku-4.5 is one of the
+ * cheapest entries in the catalog below.
+ */
+const DEFAULT_CLASSIFIER_RESOLUTION = 'anthropic/claude-haiku-4.5';
+
+/**
+ * Mime types emitted by the canned media streams. The `satisfies` clause makes
+ * the compiler reject any value not in the {@link AllowedMediaMimeType}
+ * allowlist, so the mock and the schema enum can never drift apart.
+ */
+const MOCK_IMAGE_MIME = 'image/png' as const satisfies AllowedMediaMimeType;
+const MOCK_VIDEO_MIME = 'video/mp4' as const satisfies AllowedMediaMimeType;
+const MOCK_AUDIO_MIME = 'audio/wav' as const satisfies AllowedMediaMimeType;
 
 // ---------------------------------------------------------------------------
 // Canned media buffers
@@ -50,9 +69,7 @@ export const CANNED_PNG = new Uint8Array([
   0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 ]);
 
-/** Movie timescale of the canned MP4 (units per second in mvhd/mdhd boxes). */
-export const CANNED_MP4_TIMESCALE = 1000;
-/** Duration of the canned MP4 in mvhd timescale units (= 2 seconds). */
+/** Duration of the canned MP4 in mvhd timescale units (= 2 seconds at 1000 units/sec). */
 export const CANNED_MP4_DURATION = 2000;
 
 /**
@@ -156,80 +173,167 @@ const CANNED_WAV = new Uint8Array([
 // Mock model catalogue
 // ---------------------------------------------------------------------------
 
-const MOCK_MODELS: ModelInfo[] = [
+/**
+ * Single source of truth for the mock model catalog.
+ *
+ * Shaped as `RawModel[]` (the gateway-side merged shape) so `processModels`
+ * — used by `/api/models`, the chat tier-gate, and billing premium-id checks
+ * — sees the same data the real gateway produces. `MOCK_MODELS` (ModelInfo)
+ * is derived from this via `rawModelToModelInfo`, keeping inference-layer
+ * pricing and the routes' premium classification consistent in tests.
+ *
+ * Pricing strings follow the gateway's per-token / per-image / per-second
+ * conventions. The text entries are real ZDR ids (anthropic/claude-*) so
+ * `processModels` keeps them after ZDR filtering. The image/video/audio
+ * entries are intentionally not on the ZDR allow-list; `processModels`
+ * filters them out, which is correct (production uses real ZDR ids), while
+ * `listModels()` still returns them for inference-layer mock streaming.
+ */
+const MOCK_RAW_MODELS: RawModel[] = [
   {
     id: 'anthropic/claude-sonnet-4.6',
     name: 'Claude Sonnet 4.6',
-    provider: 'Anthropic',
-    modality: 'text',
     description: 'Fast, intelligent model for everyday tasks',
-    contextLength: 200_000,
-    pricing: { kind: 'token', inputPerToken: 0.000_003, outputPerToken: 0.000_015 },
-    capabilities: [],
-    isZdr: true,
+    modality: 'text',
+    context_length: 200_000,
+    pricing: { prompt: '0.000003', completion: '0.000015' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
   {
     id: 'anthropic/claude-opus-4.6',
     name: 'Claude Opus 4.6',
-    provider: 'Anthropic',
-    modality: 'text',
     description: 'Most capable model for complex tasks',
-    contextLength: 200_000,
-    pricing: { kind: 'token', inputPerToken: 0.000_015, outputPerToken: 0.000_075 },
-    capabilities: [],
-    isZdr: true,
+    modality: 'text',
+    context_length: 200_000,
+    pricing: { prompt: '0.000015', completion: '0.000075' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
   {
-    id: 'google/imagen-4',
+    id: 'anthropic/claude-haiku-4.5',
+    name: 'Claude Haiku 4.5',
+    description: 'Fast, cheap model for everyday tasks',
+    modality: 'text',
+    context_length: 200_000,
+    pricing: { prompt: '0.0000003', completion: '0.0000015' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+  },
+  {
+    id: 'openai/gpt-5-nano',
+    name: 'GPT-5 Nano',
+    description: 'Cheap general-purpose model',
+    modality: 'text',
+    context_length: 200_000,
+    pricing: { prompt: '0.0000004', completion: '0.0000016' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+  },
+  {
+    id: 'google/gemini-2.5-flash-lite',
+    name: 'Gemini 2.5 Flash Lite',
+    description: 'Lightweight, low-cost model',
+    modality: 'text',
+    context_length: 200_000,
+    pricing: { prompt: '0.00000025', completion: '0.0000012' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+  },
+  {
+    id: 'openai/gpt-5-mini',
+    name: 'GPT-5 Mini',
+    description: 'Balanced cost-quality model',
+    modality: 'text',
+    context_length: 200_000,
+    pricing: { prompt: '0.0000005', completion: '0.0000018' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+  },
+  {
+    id: 'google/imagen-4.0-generate-001',
     name: 'Imagen 4',
-    provider: 'Google',
-    modality: 'image',
     description: 'High-quality image generation',
-    pricing: { kind: 'image', perImage: 0.04 },
-    capabilities: ['aspect-ratio'],
-    isZdr: true,
-  },
-  {
-    id: 'openai/dall-e-3',
-    name: 'DALL-E 3',
-    provider: 'OpenAI',
     modality: 'image',
-    description: 'Creative image generation',
-    pricing: { kind: 'image', perImage: 0.04 },
-    capabilities: ['aspect-ratio'],
-    isZdr: true,
+    context_length: 0,
+    pricing: { prompt: '0', completion: '0', per_image: '0.04' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['image'], output_modalities: ['image'] },
   },
   {
-    id: 'google/veo-3.1',
+    id: 'google/imagen-4.0-fast-generate-001',
+    name: 'Imagen 4 Fast',
+    description: 'Fast image generation',
+    modality: 'image',
+    context_length: 0,
+    pricing: { prompt: '0', completion: '0', per_image: '0.04' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['image'], output_modalities: ['image'] },
+  },
+  {
+    id: 'google/veo-3.1-generate-001',
     name: 'Veo 3.1',
-    provider: 'Google',
-    modality: 'video',
     description: 'Video generation with audio',
-    pricing: { kind: 'video', perSecondByResolution: { '720p': 0.1, '1080p': 0.15 } },
-    capabilities: ['aspect-ratio', 'duration'],
-    isZdr: true,
+    modality: 'video',
+    context_length: 0,
+    pricing: {
+      prompt: '0',
+      completion: '0',
+      per_second_by_resolution: { '720p': '0.1', '1080p': '0.15' },
+    },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['video'], output_modalities: ['video'] },
   },
   {
-    id: 'runway/gen-3',
-    name: 'Runway Gen-3',
-    provider: 'Runway',
+    id: 'google/veo-3.1-fast-generate-001',
+    name: 'Veo 3.1 Fast',
+    description: 'Fast video generation with audio',
     modality: 'video',
-    description: 'Cinematic video generation',
-    pricing: { kind: 'video', perSecondByResolution: { '720p': 0.12, '1080p': 0.18 } },
-    capabilities: ['aspect-ratio', 'duration'],
-    isZdr: true,
+    context_length: 0,
+    pricing: {
+      prompt: '0',
+      completion: '0',
+      per_second_by_resolution: { '720p': '0.12', '1080p': '0.18' },
+    },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['video'], output_modalities: ['video'] },
   },
   {
     id: 'openai/tts-1',
     name: 'TTS-1',
-    provider: 'OpenAI',
-    modality: 'audio',
     description: 'Text-to-speech audio generation',
-    pricing: { kind: 'audio', perSecond: 0.015 },
-    capabilities: [],
-    isZdr: true,
+    modality: 'audio',
+    context_length: 0,
+    pricing: { prompt: '0', completion: '0' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['audio'], output_modalities: ['audio'] },
   },
 ];
+
+const MOCK_AUDIO_PER_SECOND = 0.015;
+
+const MOCK_MODELS: ModelInfo[] = MOCK_RAW_MODELS.map((m) => {
+  const info = rawModelToModelInfo(m);
+  // The shared mapper hardcodes audio.perSecond to 0 because the gateway
+  // fetcher doesn't extract audio pricing yet. Override here so the mock
+  // exposes a deterministic non-zero rate; chat-pipeline tests rely on
+  // perSecond × duration math producing a fixed cost.
+  if (info.modality === 'audio' && info.pricing.kind === 'audio') {
+    return { ...info, pricing: { kind: 'audio', perSecond: MOCK_AUDIO_PER_SECOND } };
+  }
+  return info;
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -343,11 +447,11 @@ function createTextStream(request: TextRequest): InferenceStream {
 
 function createImageStream(): InferenceStream {
   return syncStream(function* (): Generator<InferenceEvent> {
-    yield { kind: 'media-start', mediaType: 'image', mimeType: 'image/png' };
+    yield { kind: 'media-start', mediaType: 'image', mimeType: MOCK_IMAGE_MIME };
     yield {
       kind: 'media-done',
       bytes: CANNED_PNG,
-      mimeType: 'image/png',
+      mimeType: MOCK_IMAGE_MIME,
       width: CANNED_PNG_WIDTH,
       height: CANNED_PNG_HEIGHT,
     };
@@ -362,11 +466,11 @@ function createImageStream(): InferenceStream {
 
 function createVideoStream(): InferenceStream {
   return syncStream(function* (): Generator<InferenceEvent> {
-    yield { kind: 'media-start', mediaType: 'video', mimeType: 'video/mp4' };
+    yield { kind: 'media-start', mediaType: 'video', mimeType: MOCK_VIDEO_MIME };
     yield {
       kind: 'media-done',
       bytes: CANNED_MP4,
-      mimeType: 'video/mp4',
+      mimeType: MOCK_VIDEO_MIME,
       width: 1920,
       height: 1080,
       durationMs: 2000,
@@ -382,11 +486,11 @@ function createVideoStream(): InferenceStream {
 
 function createAudioStream(): InferenceStream {
   return syncStream(function* (): Generator<InferenceEvent> {
-    yield { kind: 'media-start', mediaType: 'audio', mimeType: 'audio/wav' };
+    yield { kind: 'media-start', mediaType: 'audio', mimeType: MOCK_AUDIO_MIME };
     yield {
       kind: 'media-done',
       bytes: CANNED_WAV,
-      mimeType: 'audio/wav',
+      mimeType: MOCK_AUDIO_MIME,
       durationMs: 1000,
     };
     yield {
@@ -403,7 +507,7 @@ function createAudioStream(): InferenceStream {
 // ---------------------------------------------------------------------------
 
 export function createMockAIClient(): MockAIClient {
-  const history: InferenceRequest[] = [];
+  const history: RecordedInferenceRequest[] = [];
   const failingModels = new Set<string>();
   let classifierResolution = DEFAULT_CLASSIFIER_RESOLUTION;
   let classifierFailure: Error | null = null;
@@ -413,6 +517,11 @@ export function createMockAIClient(): MockAIClient {
 
     listModels(): Promise<ModelInfo[]> {
       return Promise.resolve([...MOCK_MODELS]);
+    },
+
+    listRawModels(): Promise<RawModel[]> {
+      // structuredClone so callers can't mutate the shared catalog array.
+      return Promise.resolve(MOCK_RAW_MODELS.map((m) => structuredClone(m)));
     },
 
     getModel(id: string): Promise<ModelInfo> {
@@ -435,7 +544,17 @@ export function createMockAIClient(): MockAIClient {
         };
       }
 
-      history.push(structuredClone(request));
+      // The mock never reaches a real gateway, so ZDR is moot in practice;
+      // we tag every recorded request with `zdrEnforced: true` so test
+      // assertions can detect a future regression on the real-client path
+      // (where ZDR_PROVIDER_OPTIONS must be set on EVERY SDK call). Mock
+      // stays a faithful stand-in: if real.ts loses ZDR, integration tests
+      // fail; if mock loses the flag, this assertion fails.
+      const recorded: RecordedInferenceRequest = {
+        ...structuredClone(request),
+        zdrEnforced: true,
+      };
+      history.push(recorded);
 
       switch (request.modality) {
         case 'text': {
@@ -466,7 +585,7 @@ export function createMockAIClient(): MockAIClient {
       return Promise.resolve({ costUsd: MOCK_GENERATION_STATS_COST });
     },
 
-    getRequestHistory(): InferenceRequest[] {
+    getRequestHistory(): RecordedInferenceRequest[] {
       return [...history];
     },
 

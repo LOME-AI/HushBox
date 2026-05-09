@@ -8,6 +8,7 @@ import {
   doneEventDataSchema,
   modelDoneDataSchema,
   modelErrorDataSchema,
+  modelMediaProgressDataSchema,
   modelMediaStartDataSchema,
   modelTokenDataSchema,
   sseErrorDataSchema,
@@ -126,11 +127,30 @@ export interface ModelErrorData {
   code: string;
 }
 
-/** Surfaced from the AI client's media-start event for live "Generating image…" UI. */
+/**
+ * Surfaced from the AI client's media-start event for live "Generating image…" UI.
+ *
+ * Emitted twice per media model: once pre-gateway with a placeholder mimeType
+ * (e.g. `application/octet-stream`) so the UI can swap the placeholder
+ * immediately, and once post-gateway with the real mime so the UI can prepare
+ * the right `<img>`/`<video>`/`<audio>` element type.
+ */
 export interface ModelMediaStartData {
   modelId: string;
+  assistantMessageId: string;
   mediaType: 'image' | 'audio' | 'video';
   mimeType: string;
+}
+
+/**
+ * Synthetic progress percent (0-100) for long-running media generations
+ * (today: video). Server emits up to 95% pre-completion at fixed intervals;
+ * `model:done` is the authoritative 100%.
+ */
+export interface ModelMediaProgressData {
+  modelId: string;
+  assistantMessageId: string;
+  percent: number;
 }
 
 export interface StartModelEntry {
@@ -156,6 +176,8 @@ export interface SSEHandlers {
   onModelDone?: (data: ModelDoneData) => void;
   onModelError?: (data: ModelErrorData) => void;
   onModelMediaStart?: (data: ModelMediaStartData) => void;
+  /** Emitted only for video; payload `{ modelId, assistantMessageId, percent }`. */
+  onModelMediaProgress?: (data: ModelMediaProgressData) => void;
   /** Emitted when a pre-inference stage starts; UI typically shows a label. */
   onStageStart?: (data: StageStartPayload) => void;
   /** Emitted when a pre-inference stage finishes successfully; payload is discriminated by stageId. */
@@ -239,6 +261,14 @@ function createEventHandlers(handlers: SSEHandlers): Record<string, EventHandler
         return;
       }
       handlers.onModelMediaStart?.(parsed.data);
+    },
+    'model:media:progress': (data) => {
+      const parsed = modelMediaProgressDataSchema.safeParse(data);
+      if (!parsed.success) {
+        logParseFailure('model:media:progress', data, parsed.error);
+        return;
+      }
+      handlers.onModelMediaProgress?.(parsed.data);
     },
     'stage:start': (data) => {
       const parsed = stageStartPayloadSchema.safeParse(data);

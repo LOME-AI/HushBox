@@ -14,11 +14,11 @@ import {
 } from '@hushbox/shared';
 import { createEvent } from '@hushbox/realtime/events';
 import { toRotationParams, handleRotationError } from '../services/keys/keys.js';
-import type { AppEnv } from '../types.js';
 import { requirePrivilege, requireLinkGuest } from '../middleware/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { broadcastFireAndForget } from '../lib/broadcast.js';
 import { listLinks, createLink, revokeLink, changeLinkPrivilege } from '../services/links/index.js';
+import type { AppEnv } from '../types.js';
 
 export const linksRoute = new Hono<AppEnv>()
   .get(

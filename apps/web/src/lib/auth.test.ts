@@ -3,6 +3,19 @@ import { renderHook } from '@testing-library/react';
 import { redirect } from '@tanstack/react-router';
 import { SMART_MODEL_ID } from '@hushbox/shared';
 import {
+  createOpaqueClient,
+  startLogin,
+  finishLogin,
+  startRegistration,
+  finishRegistration,
+  createAccount,
+  unwrapAccountKeyWithPassword,
+  rewrapAccountKeyForPasswordChange,
+  recoverAccountFromMnemonic,
+  decryptTextFromEpoch,
+} from '@hushbox/crypto';
+import { toBase64 } from '@hushbox/shared';
+import {
   useAuthStore,
   useSession,
   signIn,
@@ -121,19 +134,6 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
 
 // Import mocked modules for type safety
 import { persistExportKey, getStoredAuth, clearStoredAuth, restoreSession } from './auth-client.js';
-import {
-  createOpaqueClient,
-  startLogin,
-  finishLogin,
-  startRegistration,
-  finishRegistration,
-  createAccount,
-  unwrapAccountKeyWithPassword,
-  rewrapAccountKeyForPasswordChange,
-  recoverAccountFromMnemonic,
-  decryptTextFromEpoch,
-} from '@hushbox/crypto';
-import { toBase64 } from '@hushbox/shared';
 import { getLinkGuestAuth } from './link-guest-auth.js';
 
 const mockedGetLinkGuestAuth = vi.mocked(getLinkGuestAuth);

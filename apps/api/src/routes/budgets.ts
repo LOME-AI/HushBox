@@ -5,7 +5,6 @@ import { eq } from 'drizzle-orm';
 import { conversations } from '@hushbox/db';
 import { effectiveBudgetCents, ERROR_CODE_CONVERSATION_NOT_FOUND } from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
-import type { AppEnv } from '../types.js';
 import { requirePrivilege } from '../middleware/index.js';
 import {
   getConversationBudgets,
@@ -15,6 +14,7 @@ import {
 } from '../services/billing/budgets.js';
 import { getUserTierInfo } from '../services/billing/balance.js';
 import { getGroupReservedTotals } from '../lib/speculative-balance.js';
+import type { AppEnv } from '../types.js';
 
 export const budgetsRoute = new Hono<AppEnv>()
   .get(

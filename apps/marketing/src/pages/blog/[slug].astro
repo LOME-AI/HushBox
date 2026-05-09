@@ -1,13 +1,13 @@
 ---
-import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
 import { render } from 'astro:content';
+import { Badge } from '@hushbox/ui';
 import BlogLayout from '../../layouts/BlogLayout.astro';
 import BlogPostCard from '../../components/blog/BlogPostCard.astro';
 import { TableOfContents } from '../../components/blog/TableOfContents';
 import BlogDisclaimer from '../../components/blog/BlogDisclaimer.astro';
 import { ShareButton } from '../../components/blog/ShareButton';
 import { getPublishedPosts, getRelatedPosts, getReadingTime, formatPostDate } from '../../lib/blog';
-import { Badge } from '@hushbox/ui';
+import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
 
 export const getStaticPaths = (async () => {
   const posts = await getPublishedPosts();

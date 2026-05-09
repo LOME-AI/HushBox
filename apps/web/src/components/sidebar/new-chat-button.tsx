@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { useNavigate, useLocation } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
+import { ROUTES } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { useIsMobile } from '@/hooks/use-is-mobile';
-import { ROUTES } from '@hushbox/shared';
 import { SidebarActionButton } from '@/components/shared/sidebar-action-button';
 
 export function NewChatButton(): React.JSX.Element {

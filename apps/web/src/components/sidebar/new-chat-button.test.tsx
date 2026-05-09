@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { NewChatButton } from './new-chat-button';
 import { useUIStore } from '@/stores/ui';
+import { NewChatButton } from './new-chat-button';
 
 // Mock useNavigate and useLocation
 const mockNavigate = vi.fn();

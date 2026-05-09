@@ -1,4 +1,3 @@
-import type { MiddlewareHandler } from 'hono';
 import { eq } from 'drizzle-orm';
 import { createDb, LOCAL_NEON_DEV_CONFIG, users } from '@hushbox/db';
 import {
@@ -17,9 +16,10 @@ import { createIronSessionMiddleware } from './iron-session.js';
 import { getAIClient } from '../services/ai/index.js';
 import { getMediaStorage } from '../services/storage/index.js';
 import { getHelcimClient } from '../services/helcim/index.js';
-import type { AppEnv } from '../types.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { LINK_PUBLIC_KEY_HEADER } from './constants.js';
+import type { AppEnv } from '../types.js';
+import type { MiddlewareHandler } from 'hono';
 
 export function dbMiddleware(): MiddlewareHandler<AppEnv> {
   // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ModelSelectorModal } from './model-selector-modal';
 import { TOTAL_FEE_RATE, formatPricePer1k, type Model } from '@hushbox/shared';
+import { ModelSelectorModal } from './model-selector-modal';
 
 // Mock the api module to break the import chain that requires VITE_API_URL
 vi.mock('@/lib/api', () => ({
@@ -430,6 +430,115 @@ describe('ModelSelectorModal', () => {
       expect(strongestItem).toHaveTextContent('Strongest');
 
       const valueItem = screen.getByTestId('model-item-openai/gpt-5-nano');
+      expect(valueItem).toHaveTextContent('Best value');
+    });
+  });
+
+  describe('per-modality pinned model labels', () => {
+    const imageModels: Model[] = [
+      {
+        id: 'google/imagen-4.0-ultra-generate-001',
+        name: 'Imagen 4 Ultra',
+        provider: 'Google',
+        modality: 'image' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0.06,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0,
+        capabilities: [],
+        description: 'Top quality image generation.',
+        supportedParameters: [],
+      },
+      {
+        id: 'google/imagen-4.0-fast-generate-001',
+        name: 'Imagen 4 Fast',
+        provider: 'Google',
+        modality: 'image' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0.02,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0,
+        capabilities: [],
+        description: 'Cheaper, faster image generation.',
+        supportedParameters: [],
+      },
+    ];
+    const videoModels: Model[] = [
+      {
+        id: 'google/veo-3.1-generate-001',
+        name: 'Veo 3.1',
+        provider: 'Google',
+        modality: 'video' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0.5,
+        capabilities: [],
+        description: 'Video generation.',
+        supportedParameters: [],
+      },
+      {
+        id: 'google/veo-3.1-fast-generate-001',
+        name: 'Veo 3.1 Fast',
+        provider: 'Google',
+        modality: 'video' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0.25,
+        capabilities: [],
+        description: 'Fast video generation.',
+        supportedParameters: [],
+      },
+    ];
+
+    it('shows "Strongest" and "Best value" pins on image models when activeModality is image', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={imageModels}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          canAccessPremium={true}
+          isAuthenticated={true}
+          activeModality="image"
+        />
+      );
+
+      const strongestItem = screen.getByTestId('model-item-google/imagen-4.0-ultra-generate-001');
+      expect(strongestItem).toHaveTextContent('Strongest');
+
+      const valueItem = screen.getByTestId('model-item-google/imagen-4.0-fast-generate-001');
+      expect(valueItem).toHaveTextContent('Best value');
+    });
+
+    it('shows "Strongest" and "Best value" pins on video models when activeModality is video', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={videoModels}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          canAccessPremium={true}
+          isAuthenticated={true}
+          activeModality="video"
+        />
+      );
+
+      const strongestItem = screen.getByTestId('model-item-google/veo-3.1-generate-001');
+      expect(strongestItem).toHaveTextContent('Strongest');
+
+      const valueItem = screen.getByTestId('model-item-google/veo-3.1-fast-generate-001');
       expect(valueItem).toHaveTextContent('Best value');
     });
   });

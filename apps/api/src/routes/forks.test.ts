@@ -15,8 +15,8 @@ import {
   conversationForks,
 } from '@hushbox/db';
 import { userFactory } from '@hushbox/db/factories';
-import type { ForkResponse } from '@hushbox/shared';
 import { forksRoute } from './forks.js';
+import type { ForkResponse } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
 

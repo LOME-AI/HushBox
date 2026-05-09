@@ -134,6 +134,7 @@ export function createApp() {
   base.use('/api/trial/*', mediaStorageMiddleware());
 
   base.use('/api/models/*', csrfProtection());
+  base.use('/api/models/*', aiClientMiddleware());
 
   base.use('/api/billing/*', csrfProtection());
   base.use('/api/billing/*', dbMiddleware());
@@ -171,6 +172,7 @@ export function createApp() {
   base.use('/api/dev/*', devOnly());
   base.use('/api/dev/*', dbMiddleware());
   base.use('/api/dev/*', redisMiddleware());
+  base.use('/api/dev/*', aiClientMiddleware());
 
   // Chain ALL routes for full AppType inference
   const app = base

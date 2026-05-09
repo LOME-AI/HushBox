@@ -6,8 +6,8 @@ vi.mock('../../hooks/use-user-search.js', () => ({
   useUserSearch: vi.fn(),
 }));
 
-import { useUserSearch } from '../../hooks/use-user-search.js';
 import { MAX_CONVERSATION_MEMBERS } from '@hushbox/shared';
+import { useUserSearch } from '../../hooks/use-user-search.js';
 import { AddMemberModal } from './add-member-modal';
 
 const mockUseUserSearch = vi.mocked(useUserSearch);

@@ -400,4 +400,58 @@ test.describe('Image Generation', () => {
     await expect(lowBalancePage).toHaveURL(/\/chat$/);
     await expect(lowBalancePage.locator('img')).toHaveCount(0);
   });
+
+  /**
+   * Lane 9 #5: when the presigned download URL fetch fails (R2 returns 5xx),
+   * the UI must surface the media-error placeholder rather than rendering a
+   * broken `<img src=""/>`. The simplest way to reproduce the failure end-to-
+   * end is to intercept GET `/api/media/:id/download-url` after the page has
+   * been reloaded — the in-memory blob URL is gone, the TanStack Query cache
+   * is cold, so the client must mint a fresh URL via that endpoint. The
+   * intercept returns the same 500 + `STORAGE_READ_FAILED` payload that the
+   * route emits when `mintDownloadUrl` throws.
+   */
+  test('R2 read failure on reload renders media-error placeholder, never a broken img', async ({
+    imageConversation,
+  }) => {
+    test.slow();
+    const page = imageConversation.page;
+    const chatPage = new ChatPage(page);
+
+    // Sanity: image rendered originally (fixture already verified this).
+    await chatPage.expectImageVisible();
+
+    // Inject a 500 response on the next download-url mint call. The route
+    // returns this exact payload when `mintDownloadUrl` throws, so the
+    // intercept matches the real failure path byte-for-byte.
+    await page.route('**/api/media/*/download-url', async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'STORAGE_READ_FAILED' }),
+      });
+    });
+
+    await page.reload();
+    await chatPage.waitForConversationLoaded();
+
+    // The error placeholder is rendered (role=status, aria-label uses the
+    // friendly STORAGE_READ_FAILED mapping: "We couldn't load this media.
+    // Please refresh the page."). The hook surfaces the API error through
+    // `error`, the MediaContentItem branches on `error` to render
+    // <MediaPlaceholder status="error">. A broken <img src=""> should never appear.
+    const errorPlaceholder = chatPage.messageList.getByRole('status', {
+      name: /couldn['’]t load this media.+refresh the page/i,
+    });
+    await expect(errorPlaceholder.first()).toBeVisible({ timeout: 15_000 });
+
+    // No `<img>` is rendered (decryption never produced a blob URL).
+    const imgs = chatPage.messageList.locator('img');
+    await expect(imgs).toHaveCount(0);
+
+    // Sanity: no img element with empty src exists either (which would render
+    // a broken-image icon in browsers and be a regression).
+    const brokenImgs = chatPage.messageList.locator('img[src=""]');
+    await expect(brokenImgs).toHaveCount(0);
+  });
 });

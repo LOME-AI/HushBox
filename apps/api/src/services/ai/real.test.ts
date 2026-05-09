@@ -193,6 +193,39 @@ describe('createRealAIClient', () => {
       ]);
     });
 
+    it('throws loudly when gateway metadata is present but generationId is missing (schema drift guard)', async () => {
+      // The Vercel AI Gateway docs declare
+      // `providerMetadata.gateway.generationId: string`. If a future SDK
+      // version renames or removes that field, our cost-lookup pipeline
+      // would silently produce a request with `id: undefined` and
+      // mis-attribute generation costs. Detect drift loudly here so
+      // upgrades cannot ship without updating the schema and resolver.
+      mockStreamText.mockReturnValue(
+        Object.assign(
+          createMockFullStream([
+            { type: 'text-delta', text: 'Hi' },
+            { type: 'finish', finishReason: 'stop' },
+          ]),
+          {
+            // gateway namespace exists, but the expected `generationId`
+            // field has been renamed (simulating SDK drift).
+            providerMetadata: Promise.resolve({
+              gateway: { generation_id: 'gen-abc-123' },
+            }),
+            totalUsage: Promise.resolve({}),
+          }
+        )
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toThrow(/generationId missing/i);
+    });
+
     it('yields a finish event with usage and generation info from providerMetadata', async () => {
       mockStreamText.mockReturnValue(
         Object.assign(
@@ -322,6 +355,48 @@ describe('createRealAIClient', () => {
         { role: 'user', content: 'Hello' },
         { role: 'assistant', content: 'Hi there' },
       ]);
+    });
+
+    it('converts image content parts using mediaType (AI SDK v6 ImagePart shape)', async () => {
+      // AI SDK v6 ImagePart (re-exported from @ai-sdk/provider-utils) declares
+      // the field as `mediaType?: string`, NOT `mimeType`. A regression that
+      // reverts to `mimeType` would silently break image inputs at runtime
+      // because the gateway would not recognize the field. This test guards
+      // against that drift by asserting the converted shape on the wire.
+      mockStreamText.mockReturnValue(
+        createMockFullStream([
+          { type: 'text-delta', text: 'Ok' },
+          { type: 'finish', finishReason: 'stop', totalUsage: {} },
+        ])
+      );
+
+      const imageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'What is in this image?' },
+              { type: 'image', data: imageBytes, mimeType: 'image/png' },
+            ],
+          },
+        ],
+      };
+
+      await collectEvents(client.stream(request));
+
+      const callArgs = mockStreamText.mock.calls[0]![0]!;
+      const userMessage = callArgs.messages[0];
+      expect(userMessage.role).toBe('user');
+      const parts = userMessage.content as { type: string; [key: string]: unknown }[];
+      const imagePart = parts.find((p) => p.type === 'image');
+      expect(imagePart).toBeDefined();
+      expect(imagePart!['image']).toEqual(imageBytes);
+      // The AI SDK v6 field is `mediaType`, not `mimeType`.
+      expect(imagePart!['mediaType']).toBe('image/png');
+      expect(imagePart!['mimeType']).toBeUndefined();
     });
   });
 
@@ -630,6 +705,16 @@ describe('createRealAIClient', () => {
         expect(args.providerOptions).toEqual(EXPECTED_ZDR);
       }
     });
+
+    it('ZDR_PROVIDER_OPTIONS shape stays paired with the mock-side `zdrEnforced` flag (consistency guard)', () => {
+      // The mock client tags every recorded request with `zdrEnforced: true`
+      // so unit-level tests can detect a regression on either side. This
+      // assertion pins the "ground truth" — if `gateway.zeroDataRetention`
+      // ever flips to `false` here, the mock's `zdrEnforced: true` would be
+      // a lie. Failing both at the same time forces the implementer to
+      // confront the discrepancy instead of silently letting one drift.
+      expect(EXPECTED_ZDR.gateway.zeroDataRetention).toBe(true);
+    });
   });
 
   describe('listModels', () => {
@@ -690,6 +775,95 @@ describe('createRealAIClient', () => {
       if (models[2]!.pricing.kind === 'video') {
         expect(models[2]!.pricing.perSecondByResolution).toEqual({ '720p': 0.4, '1080p': 0.4 });
       }
+    });
+
+    it('handles audio modality and throws on unrecognized modality (assertNever guard)', async () => {
+      // Audio modality returns audio pricing kind with perSecond 0
+      mockFetchModels.mockResolvedValue([
+        {
+          id: 'openai/whisper-1',
+          name: 'Whisper',
+          description: 'Audio',
+          modality: 'audio',
+          context_length: 0,
+          pricing: { prompt: '0', completion: '0' },
+          supported_parameters: [],
+          created: 0,
+          architecture: { input_modalities: ['audio'], output_modalities: ['audio'] },
+        },
+      ]);
+
+      const audioModels = await client.listModels();
+      expect(audioModels[0]!.modality).toBe('audio');
+      expect(audioModels[0]!.pricing.kind).toBe('audio');
+
+      // Unknown modality (cast bypasses type system): assertNever throws.
+      mockFetchModels.mockResolvedValue([
+        {
+          id: 'rogue/model',
+          name: 'Rogue',
+          description: 'Unknown',
+          modality: 'rogue' as 'text',
+          context_length: 0,
+          pricing: { prompt: '0', completion: '0' },
+          supported_parameters: [],
+          created: 0,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+      ]);
+
+      await expect(client.listModels()).rejects.toThrow(/exhaustiveness/i);
+    });
+  });
+
+  describe('listRawModels', () => {
+    it('returns the merged RawModel list straight from fetchModels', async () => {
+      const raw = [
+        {
+          id: 'anthropic/claude-sonnet-4.6',
+          name: 'Claude Sonnet 4.6',
+          description: 'Fast model',
+          modality: 'text' as const,
+          context_length: 200_000,
+          pricing: { prompt: '0.000003', completion: '0.000015' },
+          supported_parameters: [],
+          created: 0,
+          architecture: {
+            input_modalities: ['text'],
+            output_modalities: ['text'],
+          },
+        },
+      ];
+      mockFetchModels.mockResolvedValue(raw);
+
+      const result = await client.listRawModels();
+
+      expect(result).toEqual(raw);
+      expect(mockFetchModels).toHaveBeenCalledWith({
+        apiKey: 'test-api-key',
+        publicModelsUrl: 'https://test.example/v1/models',
+      });
+    });
+
+    it('listModels reuses listRawModels (single fetch path)', async () => {
+      mockFetchModels.mockResolvedValue([
+        {
+          id: 'anthropic/claude-sonnet-4.6',
+          name: 'Claude Sonnet 4.6',
+          description: 'Fast model',
+          modality: 'text',
+          context_length: 200_000,
+          pricing: { prompt: '0.000003', completion: '0.000015' },
+          supported_parameters: [],
+          created: 0,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+      ]);
+
+      mockFetchModels.mockClear();
+      await client.listModels();
+      // listModels delegates to listRawModels, which calls fetchModels exactly once.
+      expect(mockFetchModels).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -822,6 +996,23 @@ describe('createRealAIClient', () => {
 
       // Should not throw (no db to record with) and should return models normally.
       await expect(plainClient.listModels()).resolves.toEqual([]);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Exhaustiveness guard for the synchronous stream() switch — protects
+  // against a future caller losing strict typing (via `as` cast) and silently
+  // landing in a no-op branch. Mirrors the pattern in modality-strategies.test.ts.
+  // ---------------------------------------------------------------------------
+  describe('stream exhaustiveness guard', () => {
+    it('throws when given an unrecognized modality (assertNever)', () => {
+      const badRequest = {
+        modality: 'rogue',
+        model: 'rogue/model',
+        prompt: 'unused',
+      } as unknown as TextRequest;
+
+      expect(() => client.stream(badRequest)).toThrow(/exhaustiveness/i);
     });
   });
 });

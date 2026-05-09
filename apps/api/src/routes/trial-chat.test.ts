@@ -10,10 +10,10 @@ vi.mock('@ai-sdk/gateway', () => ({
 }));
 
 import { Hono } from 'hono';
-import type { AppEnv } from '../types.js';
-import { trialChatRoute } from './trial-chat.js';
-import { createMockAIClient } from '../services/ai/mock.js';
 import { clearModelCache } from '@hushbox/shared/models';
+import { trialChatRoute } from './trial-chat.js';
+import { createMockAIClientWithGatewayCatalog } from '../services/ai/mock-with-gateway-catalog.js';
+import type { AppEnv } from '../types.js';
 
 interface MockFetchResponse {
   ok: boolean;
@@ -126,7 +126,7 @@ function createTestApp(
     } as AppEnv['Bindings'];
     c.set('user', null); // Trial user
     c.set('session', null);
-    c.set('aiClient', createMockAIClient());
+    c.set('aiClient', createMockAIClientWithGatewayCatalog());
     c.set('redis', redis as unknown as AppEnv['Variables']['redis']);
     c.set('db', {} as unknown as AppEnv['Variables']['db']);
     await next();
@@ -404,7 +404,7 @@ describe('trial chat routes', () => {
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
         });
-        c.set('aiClient', createMockAIClient());
+        c.set('aiClient', createMockAIClientWithGatewayCatalog());
         c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
         c.set('db', {} as unknown as AppEnv['Variables']['db']);
         await next();

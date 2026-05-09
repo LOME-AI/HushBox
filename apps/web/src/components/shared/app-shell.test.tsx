@@ -6,9 +6,9 @@ vi.mock('@/lib/api', () => ({
   getApiUrl: () => 'http://localhost:8787',
 }));
 
-import { AppShell } from './app-shell';
 import { useUIStore } from '@/stores/ui';
 import { useModelValidation } from '@/hooks/use-model-validation';
+import { AppShell } from './app-shell';
 
 // Mock model validation hook
 vi.mock('@/hooks/use-model-validation', () => ({

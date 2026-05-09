@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
-import type { Model } from '@hushbox/shared';
 import { useUIModalsStore } from '@/stores/ui-modals';
+import type { Model } from '@hushbox/shared';
 
 /**
  * Hook for handling premium model click actions.

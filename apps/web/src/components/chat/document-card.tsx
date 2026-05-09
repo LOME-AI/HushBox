@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { cn } from '@hushbox/ui';
 import { FileCode, GitBranch, Globe, Atom, ArrowUpRight } from 'lucide-react';
+import { cn } from '@hushbox/ui';
 import { useDocumentStore } from '../../stores/document';
 import type { Document } from '../../lib/document-parser';
 

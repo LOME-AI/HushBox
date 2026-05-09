@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
+import { ROUTES, type FundingSource } from '@hushbox/shared';
 import { ChatWelcome } from '@/components/chat/chat-welcome';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
@@ -14,7 +15,6 @@ import { useChatErrorStore } from '@/stores/chat-error';
 import { useModels } from '@/hooks/models';
 import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
 import { billingKeys, useBalance } from '@/hooks/billing';
-import { ROUTES, type FundingSource } from '@hushbox/shared';
 
 export const Route = createFileRoute('/_app/chat/')({
   component: ChatIndexWithErrorBoundary,

@@ -1,13 +1,15 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { eq, and, asc, isNull } from 'drizzle-orm';
 import {
-  ERROR_CODE_FORBIDDEN,
   ERROR_CODE_INTERNAL,
   ERROR_CODE_MESSAGE_NOT_FOUND,
+  ERROR_CODE_SHARE_FORBIDDEN,
   ERROR_CODE_SHARE_NOT_FOUND,
   ERROR_CODE_STORAGE_READ_FAILED,
-  publicShareContentTypeSchema,
+  ALLOWED_MEDIA_MIME_TYPES,
+  contentTypeSchema,
   toBase64,
   fromBase64,
 } from '@hushbox/shared';
@@ -18,7 +20,6 @@ import {
   conversationMembers,
   type ContentItem,
 } from '@hushbox/db';
-import { eq, and, asc, isNull } from 'drizzle-orm';
 import { requireAuth } from '../middleware/require-auth.js';
 import { rateLimitByUser, rateLimitByIp } from '../middleware/rate-limit.js';
 import { getUser } from '../lib/get-user.js';
@@ -97,7 +98,7 @@ export const messageSharesRoute = new Hono<AppEnv>().post(
     });
 
     if (result.kind === 'forbidden') {
-      return c.json(createErrorResponse(ERROR_CODE_FORBIDDEN), 403);
+      return c.json(createErrorResponse(ERROR_CODE_SHARE_FORBIDDEN, { messageId }), 403);
     }
     if (result.kind === 'internal') {
       return c.json(createErrorResponse(ERROR_CODE_INTERNAL), 500);
@@ -119,13 +120,27 @@ async function serializePublicShareContentItem(
 ): Promise<PublicShareContentItem> {
   // DB CHECK constraint enforces the value set at write time; parsing here
   // gives us a type-narrow and a loud failure if a rogue row ever slips through.
-  const contentType = publicShareContentTypeSchema.parse(item.contentType);
+  const contentType = contentTypeSchema.parse(item.contentType);
+
+  // Defense-in-depth: media items must carry a mimeType in the platform's
+  // allowlist. The upload path (media-pipeline.ts) blocks non-conforming
+  // values before they hit the DB, but if anything ever bypasses that check
+  // we throw here so the share response never ships malformed media.
+  let validatedMimeType: PublicShareContentItem['mimeType'] = null;
+  if (item.mimeType !== null) {
+    const parsed = ALLOWED_MEDIA_MIME_TYPES.safeParse(item.mimeType);
+    if (!parsed.success) {
+      throw new Error(`Disallowed mime type in stored media: ${item.mimeType}`);
+    }
+    validatedMimeType = parsed.data;
+  }
+
   const base: Omit<PublicShareContentItem, 'downloadUrl' | 'expiresAt'> = {
     id: item.id,
     contentType,
     position: item.position,
     encryptedBlob: item.encryptedBlob ? toBase64(item.encryptedBlob) : null,
-    mimeType: item.mimeType,
+    mimeType: validatedMimeType,
     sizeBytes: item.sizeBytes,
     width: item.width,
     height: item.height,

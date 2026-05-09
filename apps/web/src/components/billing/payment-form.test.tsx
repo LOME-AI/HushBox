@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as envModule from '@/lib/env';
 import { PaymentForm } from './payment-form';
 import * as helcimLoader from '../../lib/helcim-loader';
 import * as billingHooks from '../../hooks/billing';
-import * as envModule from '@/lib/env';
 
 // Mock helcim loader
 vi.mock('../../lib/helcim-loader', () => ({

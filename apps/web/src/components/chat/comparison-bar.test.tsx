@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { Model } from '@hushbox/shared';
 import { ComparisonBar } from './comparison-bar';
+import type { Model } from '@hushbox/shared';
 
 // Mock the shared package
 vi.mock('@hushbox/shared', async () => {

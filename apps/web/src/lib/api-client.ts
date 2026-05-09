@@ -1,9 +1,9 @@
 import { hc } from 'hono/client';
-import type { AppType } from '@hushbox/api';
-import { ApiError, getApiUrl } from './api.js';
 import { useAppVersionStore } from '@/stores/app-version.js';
-import { getLinkGuestAuth } from './link-guest-auth.js';
 import { getPlatform } from '@/capacitor/platform.js';
+import { ApiError, getApiUrl } from './api.js';
+import { getLinkGuestAuth } from './link-guest-auth.js';
+import type { AppType } from '@hushbox/api';
 
 const customFetch: typeof fetch = (input, init) => {
   const headers = new Headers(init?.headers);

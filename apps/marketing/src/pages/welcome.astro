@@ -16,7 +16,6 @@ import {
   CostPieChart,
 } from '@hushbox/ui';
 import { EncryptionDemo } from '../components/encryption-demo';
-import type { Model } from '@hushbox/shared';
 import LandingLayout from '../layouts/LandingLayout.astro';
 import LandingHeader from '../components/LandingHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
@@ -27,6 +26,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 import ModelProviderStrip from '../components/ModelProviderStrip.astro';
 import { calculateMonthlyCost } from '../lib/calculate-cost';
 import { extractProviders } from '../lib/extract-providers';
+import type { Model } from '@hushbox/shared';
 
 // Fetch models from the deployed API at build time. Staleness until next
 // marketing deploy is acceptable. If the API is unreachable, the page renders

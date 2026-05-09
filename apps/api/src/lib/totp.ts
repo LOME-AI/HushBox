@@ -7,8 +7,8 @@ export {
   verifyTotpCode,
 } from '@hushbox/crypto';
 import { verifyTotpCode } from '@hushbox/crypto';
-import type { Redis } from '@upstash/redis';
 import { redisGet, redisSet } from './redis-registry.js';
+import type { Redis } from '@upstash/redis';
 
 export async function verifyTotpWithReplayProtection(
   redis: Redis,

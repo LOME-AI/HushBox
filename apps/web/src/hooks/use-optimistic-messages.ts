@@ -14,6 +14,24 @@ interface UseOptimisticMessagesResult {
   readonly setOptimisticMessageStageDone: (messageId: string, payload: StageDonePayload) => void;
   /** Clear classifying and record the stage's error code (mirrors setOptimisticMessageError). */
   readonly setOptimisticMessageStageError: (messageId: string, errorCode: string) => void;
+  /**
+   * Mark a slot as actively generating media — sourced from `model:media:start`.
+   * Emitted twice per media model: once pre-gateway with a placeholder mime,
+   * once post-gateway with the real mime. The UI uses the first to swap to a
+   * "Generating image/video/audio…" label and the second to lock in the
+   * downstream element type.
+   */
+  readonly setOptimisticMessageMediaStart: (
+    messageId: string,
+    mediaType: 'image' | 'audio' | 'video',
+    mimeType: string
+  ) => void;
+  /**
+   * Update a slot's synthetic media-progress percent — sourced from
+   * `model:media:progress`. Drives a 0-95% progress bar; `model:done` is the
+   * authoritative 100%.
+   */
+  readonly setOptimisticMessageMediaProgress: (messageId: string, percent: number) => void;
   readonly resetOptimisticMessages: () => void;
 }
 
@@ -93,6 +111,26 @@ export function useOptimisticMessages(): UseOptimisticMessagesResult {
     []
   );
 
+  const setOptimisticMessageMediaStart = React.useCallback(
+    (messageId: string, mediaType: 'image' | 'audio' | 'video', mimeType: string): void => {
+      setOptimisticMessages((previous) =>
+        previous.map((m) =>
+          m.id === messageId ? { ...m, mediaInFlight: { mediaType, mimeType } } : m
+        )
+      );
+    },
+    []
+  );
+
+  const setOptimisticMessageMediaProgress = React.useCallback(
+    (messageId: string, percent: number): void => {
+      setOptimisticMessages((previous) =>
+        previous.map((m) => (m.id === messageId ? { ...m, mediaProgress: { percent } } : m))
+      );
+    },
+    []
+  );
+
   const resetOptimisticMessages = React.useCallback((): void => {
     setOptimisticMessages([]);
   }, []);
@@ -106,6 +144,8 @@ export function useOptimisticMessages(): UseOptimisticMessagesResult {
     setOptimisticMessageStageStart,
     setOptimisticMessageStageDone,
     setOptimisticMessageStageError,
+    setOptimisticMessageMediaStart,
+    setOptimisticMessageMediaProgress,
     resetOptimisticMessages,
   };
 }

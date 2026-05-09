@@ -35,9 +35,9 @@ export const VALUE_VIDEO_MODEL_ID = 'google/veo-3.1-fast-generate-001' satisfies
 
 /**
  * Synthetic ID for HushBox's Smart Model — the classifier-based router
- * that picks the best underlying model per message.
- * Step 11 implements the full classifier pipeline; for now this is a
- * stable identifier the frontend can persist and the backend can special-case.
+ * that picks the best underlying model per message. Stable identifier the
+ * frontend persists in user prefs and the backend special-cases on its
+ * classifier path.
  */
 export const SMART_MODEL_ID = 'smart-model';
 

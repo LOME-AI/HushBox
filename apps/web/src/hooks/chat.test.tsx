@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
 import {
   chatKeys,
   conversationQueryOptions,
@@ -13,6 +12,7 @@ import {
   useUpdateConversation,
   useDecryptedConversations,
 } from './chat';
+import type { ReactNode } from 'react';
 
 // Mock auth to break transitive import chain to api.ts (env parse)
 let mockAuthState: Record<string, unknown> = { privateKey: null, user: { id: 'test-user' } };

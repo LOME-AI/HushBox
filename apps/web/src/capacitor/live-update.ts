@@ -1,8 +1,8 @@
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
-import { isNative, getPlatform } from './platform.js';
 import { getApiUrl } from '@/lib/api.js';
 import { client, fetchJson } from '@/lib/api-client.js';
 import { useAppVersionStore } from '@/stores/app-version.js';
+import { isNative, getPlatform } from './platform.js';
 
 interface CheckResult {
   updateAvailable: boolean;

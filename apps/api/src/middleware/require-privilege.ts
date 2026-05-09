@@ -1,7 +1,5 @@
-import type { Context, MiddlewareHandler, Next } from 'hono';
 import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { conversationMembers, conversations } from '@hushbox/db';
-import type { Database } from '@hushbox/db';
 import {
   ERROR_CODE_CONVERSATION_NOT_FOUND,
   ERROR_CODE_VALIDATION,
@@ -9,11 +7,13 @@ import {
   ERROR_CODE_PRIVILEGE_INSUFFICIENT,
   getPrivilegeLevel,
 } from '@hushbox/shared';
-import type { MemberPrivilege } from '@hushbox/shared';
-import type { AppEnv } from '../types.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { resolveLinkGuest } from './resolve-link-guest.js';
 import { LINK_PUBLIC_KEY_HEADER } from './constants.js';
+import type { AppEnv } from '../types.js';
+import type { MemberPrivilege } from '@hushbox/shared';
+import type { Database } from '@hushbox/db';
+import type { Context, MiddlewareHandler, Next } from 'hono';
 
 interface PrivilegeOptions {
   /** When true, allows link guests (via x-link-public-key header) when no session user is present. Only valid for single-conversation requests. */

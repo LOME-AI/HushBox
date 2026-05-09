@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { devRoute } from './dev.js';
 import { WELCOME_CREDIT_BALANCE } from '@hushbox/shared';
+import { devRoute } from './dev.js';
 import { getVersionOverride, clearVersionOverride } from '../lib/version-override.js';
 import type { DevPersonasResponse } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';

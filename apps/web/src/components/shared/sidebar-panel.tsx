@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { cn, Sheet, SheetContent } from '@hushbox/ui';
 import { X, PanelLeft, PanelRight } from 'lucide-react';
+import { cn, Sheet, SheetContent } from '@hushbox/ui';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 
 interface SidebarPanelProps {

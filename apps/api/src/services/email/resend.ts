@@ -1,5 +1,5 @@
-import type { EmailClient, EmailOptions } from './types.js';
 import { safeJsonParse } from '../../lib/safe-json.js';
+import type { EmailClient, EmailOptions } from './types.js';
 
 const DEFAULT_FROM = 'HushBox <noreply@mail.hushbox.ai>';
 const RESEND_API_URL = 'https://api.resend.com/emails';

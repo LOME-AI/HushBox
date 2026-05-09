@@ -17,10 +17,9 @@ vi.mock('@hushbox/realtime/events', () => ({
 }));
 
 import { getModelPricing } from '@hushbox/shared';
-import { broadcastFireAndForget } from './broadcast.js';
 import { createEvent } from '@hushbox/realtime/events';
-import type { RawModel as ModelInfo } from '@hushbox/shared/models';
-import type { InferenceEvent, InferenceStream } from '../services/ai/index.js';
+import { computeImageWorstCaseCents } from '@hushbox/shared';
+import { broadcastFireAndForget } from './broadcast.js';
 import {
   BATCH_INTERVAL_MS,
   lookupModelPricing,
@@ -35,7 +34,8 @@ import {
   resolveAndReserveAudioBilling,
   type BroadcastContext,
 } from './stream-pipeline.js';
-import { computeImageWorstCaseCents } from '@hushbox/shared';
+import type { RawModel as ModelInfo } from '@hushbox/shared/models';
+import type { InferenceEvent, InferenceStream } from '../services/ai/index.js';
 import type { BuildBillingResult } from '../services/billing/index.js';
 import type { AppEnv } from '../types.js';
 import type { Context } from 'hono';
@@ -260,8 +260,6 @@ describe('derivedIsSmartModel', () => {
     expect(derivedIsSmartModel([fakePromptEnhancer, smartModel])).toBe(true);
   });
 });
-
-// buildOpenRouterRequest tests removed — function deleted in Step 3 (AIClient migration)
 
 // ---------------------------------------------------------------------------
 // computeImageWorstCaseCents

@@ -1,9 +1,9 @@
-import type { Page, APIRequestContext } from '@playwright/test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { generateTotpCodeSync } from '@hushbox/crypto';
-import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
 import { isMobileWidth } from '@hushbox/shared';
+import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
 import { requireEnv } from './env.js';
+import type { Page, APIRequestContext } from '@playwright/test';
 
 const API_BASE = requireEnv('VITE_API_URL');
 

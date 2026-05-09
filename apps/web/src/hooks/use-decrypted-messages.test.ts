@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import React, { createElement, type ReactNode } from 'react';
+import { createElement, type ReactNode } from 'react';
 import { useDecryptedMessages } from './use-decrypted-messages';
 import type { MessageResponse } from '@hushbox/shared';
 import { clearEpochKeyCache, getCacheSize } from '@/lib/epoch-key-cache';
@@ -25,6 +25,7 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 import { fetchJson } from '@/lib/api-client';
+import type React from 'react';
 
 const mockFetchJson = vi.mocked(fetchJson);
 

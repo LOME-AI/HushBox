@@ -1,5 +1,5 @@
-import type { EvidenceConfig } from '@hushbox/db';
 import { createMediaStorage, type MediaStorageEnv } from './media-storage.js';
+import type { EvidenceConfig } from '@hushbox/db';
 import type { MediaStorage } from './types.js';
 
 export type { MediaStorage } from './types.js';

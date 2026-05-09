@@ -405,5 +405,27 @@ describe('createApp', () => {
       expect(body).toHaveProperty('personas');
       expect(Array.isArray(body.personas)).toBe(true);
     });
+
+    it('POST /api/dev/classifier-resolution succeeds with mock client in development', async () => {
+      const app = createApp();
+      const res = await app.request(
+        '/api/dev/classifier-resolution',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ modelId: 'anthropic/claude-sonnet-4.6' }),
+        },
+        {
+          DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+          NODE_ENV: 'development',
+          UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+          UPSTASH_REDIS_REST_TOKEN: 'test-token',
+        }
+      );
+
+      expect(res.status).toBe(200);
+      const body: { success: boolean } = await res.json();
+      expect(body.success).toBe(true);
+    });
   });
 });

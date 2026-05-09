@@ -7,8 +7,8 @@ import {
   chargeAndTrackUsage,
   updateForkTip,
 } from './message-helpers.js';
-import type { PersistedEnvelope } from './message-persistence.js';
 import { deleteMessagesAfterAnchor } from './message-deletion.js';
+import type { PersistedEnvelope } from './message-persistence.js';
 
 // ============================================================================
 // Shared billing params extracted from both exported functions

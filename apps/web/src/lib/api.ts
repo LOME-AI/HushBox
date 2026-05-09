@@ -68,6 +68,23 @@ export interface Message {
    * and decrypts on mount using the message's wrappedContentKey.
    */
   mediaItems?: MessageMediaItem[];
+  /**
+   * Live "media generation in flight" hint sourced from `model:media:start`.
+   * Drives the placeholder swap from generic "Loading…" to a media-specific
+   * label ("Generating image…" / "Generating video…" / "Generating audio…").
+   * The first emit carries a placeholder mimeType (e.g. `application/octet-stream`);
+   * the second emit carries the real mime so the UI can prepare the right
+   * `<img>`/`<video>`/`<audio>` element type once decoded.
+   */
+  mediaInFlight?: {
+    mediaType: 'image' | 'audio' | 'video';
+    mimeType: string;
+  };
+  /**
+   * 0-100 progress for long-running media generations (today: video). Sourced
+   * from `model:media:progress`; `model:done` is the authoritative 100%.
+   */
+  mediaProgress?: { percent: number };
 }
 
 /**

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import type { AppEnv } from '../types';
 import { rateLimitByUser, rateLimitByIp } from './rate-limit';
+import type { AppEnv } from '../types';
 
 interface ErrorBody {
   code: string;

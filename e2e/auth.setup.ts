@@ -1,10 +1,10 @@
 import { test as setup, expect } from '@playwright/test';
-import { TEST_PERSONAS, TEST_2FA_TOTP_SECRET } from '../scripts/seed.js';
-import { DEV_PASSWORD } from '../packages/shared/src/constants.js';
-import { clearAuthRateLimits, generateTOTPCode } from './helpers/auth.js';
 import * as fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { TEST_PERSONAS, TEST_2FA_TOTP_SECRET } from '../scripts/seed.js';
+import { DEV_PASSWORD } from '../packages/shared/src/constants.js';
+import { clearAuthRateLimits, generateTOTPCode } from './helpers/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const authDir = path.join(__dirname, '.auth');

@@ -1,5 +1,5 @@
-import type { APIRequestContext } from '@playwright/test';
 import { requireEnv } from './env.js';
+import type { APIRequestContext } from '@playwright/test';
 
 const API_BASE = requireEnv('VITE_API_URL');
 

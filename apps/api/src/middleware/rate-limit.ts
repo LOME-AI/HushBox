@@ -1,10 +1,10 @@
-import type { MiddlewareHandler } from 'hono';
 import { ERROR_CODE_NOT_AUTHENTICATED, ERROR_CODE_RATE_LIMITED } from '@hushbox/shared';
-import type { AppEnv } from '../types.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { checkRateLimit } from '../lib/rate-limit.js';
 import { getClientIp, hashIp } from '../lib/client-ip.js';
-import { REDIS_REGISTRY } from '../lib/redis-registry.js';
+import type { AppEnv } from '../types.js';
+import type { MiddlewareHandler } from 'hono';
+import type { REDIS_REGISTRY } from '../lib/redis-registry.js';
 
 type RateLimitKeyName = {
   [K in keyof typeof REDIS_REGISTRY]: (typeof REDIS_REGISTRY)[K] extends {

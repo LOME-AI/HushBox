@@ -16,8 +16,8 @@ vi.mock('../services/keys/keys.js', async (importOriginal) => {
   };
 });
 
-import { StaleEpochError, WrapSetMismatchError } from '../services/keys/keys.js';
 import { Hono } from 'hono';
+import { StaleEpochError, WrapSetMismatchError } from '../services/keys/keys.js';
 import { linksRoute } from './links.js';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';

@@ -290,6 +290,45 @@ function generateSecretsEnv(mode: EnvMode): string {
 }
 
 /**
+ * Generate the ops-env section: a job-level env block exposing all
+ * production backend secrets to the deploy job, keyed by their canonical
+ * Worker-env-var name (the env.config.ts key) — not the GitHub secret name.
+ *
+ * Ops scripts (in `ops/`) read these via `process.env.<canonical>`. The
+ * runner-env aliasing means a script reading `R2_S3_ENDPOINT` and
+ * `AI_GATEWAY_API_KEY` works identically locally and in CI.
+ *
+ * Reuses {@link DEPLOY_SECRET_OVERRIDES} so APP_VERSION (computed by the
+ * version job) resolves to the workflow output rather than a missing
+ * GitHub secret.
+ */
+function generateOpsEnv(): string {
+  const lines: string[] = ['env:'];
+
+  for (const [key, config] of Object.entries(envConfig)) {
+    const destinations = getDestinations(config as VariableConfig, Mode.Production);
+    if (!destinations.includes(Destination.Backend)) continue;
+
+    const raw = resolveRaw(config as VariableConfig, Mode.Production);
+    if (!raw) continue;
+
+    if (key in DEPLOY_SECRET_OVERRIDES) {
+      // Override: e.g. APP_VERSION uses needs.version.outputs.version, not secrets.APP_VERSION
+      lines.push(`  ${key}: ${DEPLOY_SECRET_OVERRIDES[key] ?? ''}`);
+    } else if (isSecret(raw)) {
+      // Backend secret — canonical worker key on LHS, GitHub secret name on RHS
+      lines.push(`  ${key}: \${{ secrets.${raw.name} }}`);
+    } else if (typeof raw === 'string') {
+      // Backend literal (e.g. R2_BUCKET_MEDIA = "hushbox-media") — ops scripts
+      // running on the runner need these in process.env alongside the secrets.
+      lines.push(`  ${key}: ${raw}`);
+    }
+  }
+
+  return lines.join('\n') + '\n';
+}
+
+/**
  * Generate the build-env section (production frontend values).
  * Overrides replace envConfig values for specific keys (e.g., VITE_PLATFORM, VITE_APP_VERSION).
  */
@@ -380,6 +419,7 @@ export function updateWorkflows(rootDir: string): void {
   const sections: Record<string, string> = {
     'vitest-env': generateSecretsEnv(Mode.CiVitest),
     'e2e-env': generateSecretsEnv(Mode.CiE2E),
+    'ops-env': generateOpsEnv(),
     'deploy-secrets': generateDeploySecrets(),
     'verify-secrets': generateVerifySecrets(),
     'decode-google-services': generateGoogleServicesDecode(),

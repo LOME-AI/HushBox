@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { Button } from '@hushbox/ui';
-import type { Model, Modality } from '@hushbox/shared';
 import { shortenModelName } from '@hushbox/shared';
 import { DEFAULT_MODEL_NAME } from '@/stores/model';
 import { ModelSelectorModal } from './model-selector-modal';
+import type { Model, Modality } from '@hushbox/shared';
 import type { ModelSelectorGatingProps } from './model-selector-types';
 
 function getModelDisplayText(

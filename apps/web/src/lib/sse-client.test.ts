@@ -37,6 +37,7 @@ describe('createSSEParser', () => {
       onModelDone: ReturnType<typeof vi.fn>;
       onModelError: ReturnType<typeof vi.fn>;
       onModelMediaStart: ReturnType<typeof vi.fn>;
+      onModelMediaProgress: ReturnType<typeof vi.fn>;
       onStageStart: ReturnType<typeof vi.fn>;
       onStageDone: ReturnType<typeof vi.fn>;
       onStageError: ReturnType<typeof vi.fn>;
@@ -49,6 +50,7 @@ describe('createSSEParser', () => {
     const onModelDone = vi.fn();
     const onModelError = vi.fn();
     const onModelMediaStart = vi.fn();
+    const onModelMediaProgress = vi.fn();
     const onStageStart = vi.fn();
     const onStageDone = vi.fn();
     const onStageError = vi.fn();
@@ -61,6 +63,7 @@ describe('createSSEParser', () => {
         onModelDone,
         onModelError,
         onModelMediaStart,
+        onModelMediaProgress,
         onStageStart,
         onStageDone,
         onStageError,
@@ -73,6 +76,7 @@ describe('createSSEParser', () => {
         onModelDone,
         onModelError,
         onModelMediaStart,
+        onModelMediaProgress,
         onStageStart,
         onStageDone,
         onStageError,
@@ -310,14 +314,57 @@ describe('createSSEParser', () => {
 
       parser.processChunk('event: model:media:start\n');
       parser.processChunk(
-        'data: {"modelId":"google/imagen-4","mediaType":"image","mimeType":"image/png"}\n\n'
+        'data: {"modelId":"google/imagen-4","assistantMessageId":"asst-1","mediaType":"image","mimeType":"image/png"}\n\n'
       );
 
       expect(mocks.onModelMediaStart).toHaveBeenCalledWith({
         modelId: 'google/imagen-4',
+        assistantMessageId: 'asst-1',
         mediaType: 'image',
         mimeType: 'image/png',
       });
+    });
+
+    it('emits onModelMediaProgress for model:media:progress event', () => {
+      const { handlers, mocks } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      parser.processChunk('event: model:media:progress\n');
+      parser.processChunk(
+        'data: {"modelId":"google/veo-3","assistantMessageId":"asst-2","percent":42}\n\n'
+      );
+
+      expect(mocks.onModelMediaProgress).toHaveBeenCalledWith({
+        modelId: 'google/veo-3',
+        assistantMessageId: 'asst-2',
+        percent: 42,
+      });
+    });
+
+    it('skips malformed model:media:start payload via Zod parse', () => {
+      const { handlers, mocks } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      parser.processChunk('event: model:media:start\n');
+      // Missing required `assistantMessageId` and bad mediaType.
+      parser.processChunk(
+        'data: {"modelId":"google/imagen-4","mediaType":"document","mimeType":"image/png"}\n\n'
+      );
+
+      expect(mocks.onModelMediaStart).not.toHaveBeenCalled();
+    });
+
+    it('skips malformed model:media:progress payload via Zod parse', () => {
+      const { handlers, mocks } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      parser.processChunk('event: model:media:progress\n');
+      // percent above max of 100.
+      parser.processChunk(
+        'data: {"modelId":"google/veo-3","assistantMessageId":"asst-2","percent":120}\n\n'
+      );
+
+      expect(mocks.onModelMediaProgress).not.toHaveBeenCalled();
     });
 
     it('accumulates content per model', () => {

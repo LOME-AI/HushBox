@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { X } from 'lucide-react';
 import { Button, Tooltip, TooltipTrigger, TooltipContent } from '@hushbox/ui';
-import type { Model } from '@hushbox/shared';
 import { shortenModelName } from '@hushbox/shared';
 import { getModelColor } from '../../lib/model-color';
 import { ModelInfoPanel } from './model-info-panel';
+import type { Model } from '@hushbox/shared';
 
 interface ComparisonBarProps {
   models: Model[];

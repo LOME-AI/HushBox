@@ -86,6 +86,16 @@ test.describe('Smart Model', () => {
     await chatPage.goto();
     await chatPage.waitForAppStable();
 
+    // Lane 9 #9: pin the first classifier resolution to Sonnet, then swap to
+    // Opus before regenerate. The nametag on the regenerated assistant message
+    // must reflect the new resolved model — proving the regenerate path
+    // re-runs classification (it doesn't reuse the cached resolution).
+    const setSonnet = await authenticatedPage.request.post(
+      `${apiUrl}/api/dev/classifier-resolution`,
+      { data: { modelId: SONNET_MODEL_ID } }
+    );
+    expect(setSonnet.ok()).toBe(true);
+
     await chatPage.openModelSelector();
     const modal = authenticatedPage.getByTestId('model-selector-modal');
     const clearButton = modal.getByTestId('clear-selection-button');
@@ -105,15 +115,25 @@ test.describe('Smart Model', () => {
 
     const initialAssistant = chatPage.messageList.locator('[data-role="assistant"]').first();
     await expect(initialAssistant.getByTestId('smart-model-chip')).toBeVisible();
+    await expect(initialAssistant.getByTestId('model-nametag')).toContainText(SONNET_MODEL_NAME);
+
+    // Now swap the classifier resolution before regenerate.
+    const setOpus = await authenticatedPage.request.post(
+      `${apiUrl}/api/dev/classifier-resolution`,
+      { data: { modelId: OPUS_MODEL_ID } }
+    );
+    expect(setOpus.ok()).toBe(true);
 
     // Trigger regeneration on the assistant message (index 1).
     await chatPage.clickRegenerate(1);
     await chatPage.waitForStreamComplete();
 
-    // After regeneration, the latest assistant response still shows the Smart chip.
+    // After regeneration, the latest assistant response still shows the Smart
+    // chip AND the nametag reflects the new classifier resolution (Opus).
     const refreshedAssistant = chatPage.messageList.locator('[data-role="assistant"]').last();
     await expect(refreshedAssistant.getByTestId('smart-model-chip')).toBeVisible();
     await expect(refreshedAssistant.locator('[data-testid="message-cost"]').first()).toBeVisible();
+    await expect(refreshedAssistant.getByTestId('model-nametag')).toContainText(OPUS_MODEL_NAME);
   });
 
   /**
@@ -325,5 +345,52 @@ test.describe('Smart Model', () => {
 
     // No conversation is ever created (still on /chat).
     await expect(lowBalancePage).toHaveURL(/\/chat$/);
+  });
+
+  /**
+   * Lane 9 #8: while the classifier is resolving, the assistant slot must
+   * surface a "Choosing the best model…" thinking indicator. Once the
+   * classifier resolves and the inference response begins streaming, the
+   * indicator must disappear (replaced by the actual streaming content). The
+   * test fires off a normal Smart Model send and races a quick polling
+   * window — the loading indicator needs to be visible briefly, then
+   * disappear within a reasonable timeout once the response arrives.
+   */
+  test('Smart Model shows "Choosing the best model" loading state then clears it', async ({
+    authenticatedPage,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.waitForAppStable();
+
+    await chatPage.openModelSelector();
+    const modal = authenticatedPage.getByTestId('model-selector-modal');
+    const clearButton = modal.getByTestId('clear-selection-button');
+    if (await clearButton.isVisible()) await clearButton.click();
+    const smartItem = modal.getByTestId('model-item-smart-model');
+    await expect(smartItem).toBeVisible({ timeout: 10_000 });
+    await smartItem.getByTestId('model-checkbox').click();
+    await chatPage.confirmModelSelection();
+
+    // Send the message — don't await waitForAIResponse before we start polling
+    // for the loading text, because the indicator window is brief.
+    const prompt = `Smart Model loading ${String(Date.now())}`;
+    await chatPage.sendNewChatMessage(prompt);
+
+    // The "Choosing the best model…" indicator should appear within a short
+    // window (the classifier round-trip starts as soon as the first token
+    // arrives). It is rendered by the ThinkingIndicator with stageLabel.
+    const loadingIndicator = authenticatedPage.getByText('Choosing the best model…');
+    await expect(loadingIndicator).toBeVisible({ timeout: 10_000 });
+
+    // The indicator must clear once the classifier resolves and the inference
+    // response starts streaming.
+    await expect(loadingIndicator).not.toBeVisible({ timeout: 15_000 });
+
+    // Sanity: the assistant message arrived with a real response.
+    await chatPage.waitForStreamComplete();
+    const assistant = chatPage.messageList.locator('[data-role="assistant"]').first();
+    await expect(assistant.getByTestId('smart-model-chip')).toBeVisible();
   });
 });

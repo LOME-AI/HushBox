@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
-import type { Model } from '@hushbox/shared';
 import { ModelInfoPanel } from './model-info-panel';
+import type { Model } from '@hushbox/shared';
 
 function buildModel(overrides: Partial<Model> = {}): Model {
   return {

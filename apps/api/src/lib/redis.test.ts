@@ -14,8 +14,8 @@ vi.mock('@upstash/redis', () => {
   };
 });
 
-import { createRedisClient } from './redis.js';
 import { Redis } from '@upstash/redis';
+import { createRedisClient } from './redis.js';
 
 describe('createRedisClient', () => {
   beforeEach(() => {

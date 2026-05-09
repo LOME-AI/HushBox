@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
-import { Sidebar } from './sidebar';
 import { useUIStore } from '@/stores/ui';
 
 // Mock the chat hooks
@@ -83,6 +81,8 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 import { useSession } from '@/lib/auth';
+import { Sidebar } from './sidebar';
+import type { ReactNode } from 'react';
 
 const mockUseSession = vi.mocked(useSession);
 

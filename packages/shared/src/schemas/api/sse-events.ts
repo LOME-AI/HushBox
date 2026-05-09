@@ -40,13 +40,30 @@ export const modelErrorDataSchema = z.object({
 });
 
 /**
- * `model:media:start` — surfaced from the AI client's media-start event so the
- * UI can show "Generating image…" instead of the generic loading placeholder.
+ * `model:media:start` — emitted server-side BEFORE the gateway call begins so
+ * the UI can swap the generic "Loading…" placeholder for "Generating image…"
+ * before the long wait. `assistantMessageId` lets the UI bind the event to a
+ * specific slot when multiple models stream concurrently. `mimeType` may be
+ * a placeholder (e.g. `application/octet-stream`) at this stage; the precise
+ * mime is delivered later via `model:done`.
  */
 export const modelMediaStartDataSchema = z.object({
   modelId: z.string(),
+  assistantMessageId: z.string(),
   mediaType: z.enum(['image', 'audio', 'video']),
   mimeType: z.string(),
+});
+
+/**
+ * `model:media:progress` — synthetic progress percent (0-100) for long-running
+ * media generations (today: video). Server emits up to 95% pre-completion at
+ * fixed intervals derived from an EXPECTED duration; clients should treat
+ * `model:done` as the authoritative 100%.
+ */
+export const modelMediaProgressDataSchema = z.object({
+  modelId: z.string(),
+  assistantMessageId: z.string(),
+  percent: z.number().min(0).max(100),
 });
 
 /**
@@ -151,6 +168,7 @@ export type ModelTokenDataParsed = z.infer<typeof modelTokenDataSchema>;
 export type ModelDoneDataParsed = z.infer<typeof modelDoneDataSchema>;
 export type ModelErrorDataParsed = z.infer<typeof modelErrorDataSchema>;
 export type ModelMediaStartDataParsed = z.infer<typeof modelMediaStartDataSchema>;
+export type ModelMediaProgressDataParsed = z.infer<typeof modelMediaProgressDataSchema>;
 export type SSEErrorDataParsed = z.infer<typeof sseErrorDataSchema>;
 export type DoneEventDataParsed = z.infer<typeof doneEventDataSchema>;
 export type DoneMessageEnvelopeParsed = z.infer<typeof doneMessageEnvelopeSchema>;

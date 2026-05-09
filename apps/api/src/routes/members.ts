@@ -33,12 +33,12 @@ import {
   fromBase64,
 } from '@hushbox/shared';
 import { createEvent } from '@hushbox/realtime/events';
-import type { AppEnv } from '../types.js';
 import { requirePrivilege } from '../middleware/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { findActiveMember } from '../lib/db-helpers.js';
 import { submitRotation, toRotationParams, handleRotationError } from '../services/keys/keys.js';
 import { broadcastFireAndForget } from '../lib/broadcast.js';
+import type { AppEnv } from '../types.js';
 
 export const membersRoute = new Hono<AppEnv>()
   .get(

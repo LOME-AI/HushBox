@@ -41,9 +41,9 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
   };
 });
 
-import { useCreateLink } from '../../hooks/use-conversation-links.js';
 import { createSharedLink } from '@hushbox/crypto';
 import { toBase64, MAX_CONVERSATION_MEMBERS } from '@hushbox/shared';
+import { useCreateLink } from '../../hooks/use-conversation-links.js';
 import { InviteLinkModal } from './invite-link-modal.js';
 
 const mockUseCreateLink = vi.mocked(useCreateLink);

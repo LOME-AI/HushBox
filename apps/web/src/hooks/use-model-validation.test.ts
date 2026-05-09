@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import type { Model, Modality } from '@hushbox/shared';
-import type { SelectedModelEntry } from '@/stores/model';
 import {
   createModelStoreStub,
   selectorFromState,
   type ModelStoreStub,
 } from '@/test-utils/model-store-mock';
+import { useModelStore } from '@/stores/model';
 import { useModelValidation } from './use-model-validation.js';
 
 vi.mock('@/lib/auth', () => ({
@@ -33,7 +32,8 @@ vi.mock('@/stores/model', async (importOriginal) => {
 import { useSession } from '@/lib/auth';
 import { useBalance } from './billing.js';
 import { useModels, getAccessibleModelIds } from './models.js';
-import { useModelStore } from '@/stores/model';
+import type { SelectedModelEntry } from '@/stores/model';
+import type { Model, Modality } from '@hushbox/shared';
 
 const mockedUseSession = vi.mocked(useSession);
 const mockedUseBalance = vi.mocked(useBalance);

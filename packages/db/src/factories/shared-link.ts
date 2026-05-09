@@ -1,8 +1,8 @@
 import { Factory } from 'fishery';
 import { faker } from '@faker-js/faker';
 
-import type { sharedLinks } from '../schema/shared-links';
 import { placeholderBytes } from './helpers.js';
+import type { sharedLinks } from '../schema/shared-links';
 
 type SharedLink = typeof sharedLinks.$inferSelect;
 

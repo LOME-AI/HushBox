@@ -1,10 +1,10 @@
 import * as React from 'react';
-import type { Modality } from '@hushbox/shared';
 import {
   computeImageExactCents,
   computeVideoExactCents,
   computeAudioWorstCaseCents,
 } from '@hushbox/shared';
+import type { Modality } from '@hushbox/shared';
 
 export interface ImagePricing {
   /** Pre-fee USD per image, one entry per selected model. */

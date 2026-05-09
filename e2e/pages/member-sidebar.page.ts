@@ -1,6 +1,6 @@
 import { type Page, type Locator } from '@playwright/test';
-import { expect, unsettledExpect } from '../helpers/settled-expect.js';
 import { normalizeUsername, displayUsername, isMobileWidth } from '@hushbox/shared';
+import { expect, unsettledExpect } from '../helpers/settled-expect.js';
 
 export class MemberSidebarPage {
   readonly page: Page;

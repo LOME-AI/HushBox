@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ChatItem } from './chat-item';
 import { useUIStore } from '@/stores/ui';
+import { ChatItem } from './chat-item';
 
 // Mock Link component
 vi.mock('@tanstack/react-router', () => ({

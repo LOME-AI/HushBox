@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Navigate } from '@tanstack/react-router';
+import { ROUTES, friendlyErrorMessage, customUserMessage } from '@hushbox/shared';
 import { ChatLayout } from '@/components/chat/chat-layout';
-import type { PromptInputRef } from '@/components/chat/prompt-input';
 import { createTrialMessage } from '@/lib/chat-messages';
 import { buildMessagesForRegeneration } from '@/lib/chat-regeneration';
 import { useChatPageState } from '@/hooks/use-chat-page';
@@ -13,8 +13,8 @@ import { useChatEditStore } from '@/stores/chat-edit';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useSession } from '@/lib/auth';
 import { useIsMobile } from '@/hooks/use-is-mobile';
+import type { PromptInputRef } from '@/components/chat/prompt-input';
 import type { Message } from '@/lib/api';
-import { ROUTES, friendlyErrorMessage, customUserMessage } from '@hushbox/shared';
 
 /**
  * Trial messages lack parentMessageId, so resolve assistant targets to

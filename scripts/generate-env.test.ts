@@ -598,6 +598,88 @@ old content
     });
   });
 
+  describe('ops-env section', () => {
+    it('generates env block using canonical worker keys (not GitHub secret names)', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      // Worker key (canonical) on LHS, GitHub secret name on RHS — for aliased secrets.
+      expect(content).toContain('AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY_PRODUCTION }}');
+      expect(content).toContain('HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}');
+      // Same name on both sides — for non-aliased secrets.
+      expect(content).toContain('DATABASE_URL: ${{ secrets.DATABASE_URL }}');
+      expect(content).toContain('R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}');
+      expect(content).toContain('R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}');
+      expect(content).toContain('R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}');
+    });
+
+    it('emits non-secret production literals (e.g. R2_BUCKET_MEDIA) so runner scripts have them too', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      // R2_BUCKET_MEDIA is a literal string in production mode (not a secret).
+      // It lives in wrangler.toml [vars] for the Worker AND here in the env
+      // block so ops scripts running on the GitHub runner see it via process.env.
+      expect(content).toContain('R2_BUCKET_MEDIA: hushbox-media');
+      // It must NOT use a secrets reference (no GitHub secret of this name exists).
+      expect(content).not.toContain('R2_BUCKET_MEDIA: ${{');
+    });
+
+    it('does not emit frontend-only secrets (e.g. VITE_HELCIM_JS_TOKEN)', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).not.toContain('VITE_HELCIM_JS_TOKEN');
+    });
+
+    it('overrides APP_VERSION to use the version job output (not the empty GitHub secret)', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      // APP_VERSION is computed by the version job at workflow time, not stored
+      // as a GitHub secret. The deploy job's env block uses the same override
+      // already applied in deploy-secrets so ops scripts see a real value.
+      expect(content).toContain('APP_VERSION: ${{ needs.version.outputs.version }}');
+      expect(content).not.toContain('APP_VERSION: ${{ secrets.APP_VERSION }}');
+    });
+
+    it('preserves content outside markers', () => {
+      createCiYml(`name: CI
+before
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env
+after`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).toContain('name: CI');
+      expect(content).toContain('before');
+      expect(content).toContain('after');
+    });
+  });
+
   describe('multiple sections', () => {
     it('updates all sections in a single call', () => {
       createCiYml(`name: CI

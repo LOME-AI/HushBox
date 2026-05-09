@@ -10,9 +10,9 @@ import {
   type DatabaseClient,
 } from '@hushbox/db';
 import { toBase64, fromBase64, ERROR_CODE_WRAP_SET_MISMATCH } from '@hushbox/shared';
+import { createErrorResponse } from '../../lib/error-response.js';
 import type { Context } from 'hono';
 import type { AppEnv } from '../../types.js';
-import { createErrorResponse } from '../../lib/error-response.js';
 
 export interface KeyChainWrap {
   epochNumber: number;

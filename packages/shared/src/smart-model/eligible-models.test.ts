@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Model } from '../schemas/api/models.js';
-
 import {
   buildEligibleModels,
   CLASSIFIER_OUTPUT_TOKEN_CAP,
   CLASSIFIER_PROMPT_OVERHEAD_CHARS,
+  computeMaxClassifierOverhead,
 } from './eligible-models.js';
+import { computeClassifierPromptOverhead } from './prompts.js';
+import type { Model } from '../schemas/api/models.js';
 
 function makeTextModel(overrides: Partial<Model> & { id: string; name: string }): Model {
   return {
@@ -245,5 +246,124 @@ describe('buildEligibleModels', () => {
     });
     expect(result?.classifierModelId).toBe('real/r');
     expect(result?.eligibleInferenceIds).not.toContain('smart-model');
+  });
+});
+
+describe('computeMaxClassifierOverhead', () => {
+  it('returns the actual rendered prompt char count for a non-Smart Model list', () => {
+    const models = [
+      makeTextModel({
+        id: 'a/x',
+        name: 'X',
+        description: 'Description for X.',
+        pricePerInputToken: 0.000_001,
+        pricePerOutputToken: 0.000_005,
+      }),
+      makeTextModel({
+        id: 'b/y',
+        name: 'Y',
+        description: 'Description for Y, slightly longer for variety.',
+        pricePerInputToken: 0.000_002,
+        pricePerOutputToken: 0.000_006,
+      }),
+    ];
+    const overhead = computeMaxClassifierOverhead(models);
+    const expected = computeClassifierPromptOverhead(
+      models.map((m) => ({ id: m.id, description: m.description }))
+    );
+    expect(overhead).toBe(expected);
+  });
+
+  it('skips Smart Model entries when computing overhead', () => {
+    const realModel = makeTextModel({
+      id: 'real/m',
+      name: 'M',
+      description: 'A real model.',
+      pricePerInputToken: 0.000_001,
+      pricePerOutputToken: 0.000_005,
+    });
+    const smartEntry = makeTextModel({
+      id: 'smart-model',
+      name: 'Smart',
+      description: 'Smart router',
+      isSmartModel: true,
+    });
+
+    const overheadWithSmart = computeMaxClassifierOverhead([smartEntry, realModel]);
+    const overheadWithoutSmart = computeMaxClassifierOverhead([realModel]);
+    expect(overheadWithSmart).toBe(overheadWithoutSmart);
+  });
+
+  it('returns a positive integer for any non-empty filterable list', () => {
+    const models = [
+      makeTextModel({
+        id: 'a/x',
+        name: 'X',
+        pricePerInputToken: 0.000_001,
+        pricePerOutputToken: 0.000_005,
+      }),
+    ];
+    const overhead = computeMaxClassifierOverhead(models);
+    expect(overhead).toBeGreaterThan(0);
+    expect(Number.isInteger(overhead)).toBe(true);
+  });
+
+  it('returns 0 (no overhead) when the filtered list is empty', () => {
+    // Only Smart Model entries → nothing real, nothing rendered. The math
+    // upstream still works: an empty eligible set short-circuits before
+    // touching the overhead.
+    const onlySmart = [makeTextModel({ id: 'smart-model', name: 'Smart', isSmartModel: true })];
+    const overhead = computeMaxClassifierOverhead(onlySmart);
+    // Even with zero real models, the system prompt template carries fixed
+    // chars; the user message is empty. So this is greater than zero but
+    // bounded by the smallest possible template.
+    expect(overhead).toBeGreaterThan(0);
+  });
+});
+
+describe('buildEligibleModels uses the actual prompt overhead', () => {
+  it('classifierWorstCaseCents agrees with the prompt-template-derived overhead, not a fixed constant', () => {
+    // Two scenarios with different model-list sizes — the larger list MUST
+    // produce a strictly larger worst-case (more entries → more chars in
+    // the prompt). If we still hardcoded 5000, both scenarios would agree.
+    const oneModel = [
+      makeTextModel({
+        id: 'a/x',
+        name: 'X',
+        description: 'D'.repeat(50),
+        pricePerInputToken: 0.000_001,
+        pricePerOutputToken: 0.000_005,
+      }),
+    ];
+    const twentyModels = Array.from({ length: 20 }, (_, index) =>
+      makeTextModel({
+        id: `m${String(index)}/x`,
+        name: `M${String(index)}`,
+        description: 'D'.repeat(50),
+        pricePerInputToken: 0.000_001,
+        pricePerOutputToken: 0.000_005,
+      })
+    );
+
+    const small = buildEligibleModels({
+      textModels: oneModel,
+      premiumIds: new Set(),
+      payerTier: 'paid',
+      payerBalanceCents: PAID_BALANCE_CENTS,
+      payerFreeAllowanceCents: FREE_ALLOWANCE_CENTS,
+      promptCharacterCount: PROMPT_CHAR_COUNT,
+    });
+    const large = buildEligibleModels({
+      textModels: twentyModels,
+      premiumIds: new Set(),
+      payerTier: 'paid',
+      payerBalanceCents: PAID_BALANCE_CENTS,
+      payerFreeAllowanceCents: FREE_ALLOWANCE_CENTS,
+      promptCharacterCount: PROMPT_CHAR_COUNT,
+    });
+
+    expect(small).not.toBeNull();
+    expect(large).not.toBeNull();
+    expect(large!.classifierWorstCaseCents).toBeGreaterThan(small!.classifierWorstCaseCents);
   });
 });

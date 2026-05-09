@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useState, useRef, useCallback } from 'react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { ROUTES } from '@hushbox/shared';
 import { signIn, resetPasswordViaRecovery } from '@/lib/auth';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { CheckboxField } from '@/components/shared/checkbox-field';
@@ -17,7 +18,6 @@ import {
   validateConfirmPassword,
   validateRecoveryPhrase,
 } from '@/lib/validation';
-import { ROUTES } from '@hushbox/shared';
 
 export const Route = createFileRoute('/_auth/login')({
   component: LoginPage,

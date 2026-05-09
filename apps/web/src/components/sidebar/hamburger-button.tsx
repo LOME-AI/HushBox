@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Button } from '@hushbox/ui';
 import { Menu } from 'lucide-react';
+import { Button } from '@hushbox/ui';
 import { useUIStore } from '@/stores/ui';
 
 /**

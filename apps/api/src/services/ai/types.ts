@@ -5,6 +5,14 @@
 // stays in real.ts. Nothing in this file references a specific gateway or SDK.
 // ---------------------------------------------------------------------------
 
+/**
+ * `unicorn/prefer-export-from` requires `export type … from` for re-exports;
+ * we also need `RawModel` in this file's local scope for the AIClient
+ * declarations below, so pair the re-export with a separate type import.
+ */
+export type { RawModel } from '@hushbox/shared/models';
+import type { RawModel } from '@hushbox/shared/models';
+
 /** Content modality discriminator. */
 export type Modality = 'text' | 'image' | 'audio' | 'video';
 
@@ -137,6 +145,14 @@ export interface InferenceStream {
  */
 export interface AIClientBase {
   listModels(): Promise<ModelInfo[]>;
+  /**
+   * Gateway-shaped catalog (raw, before processModels filtering / smart-model
+   * synthesis). The single funnel for any caller that needs `processModels`'s
+   * `premiumIds` or `Model[]` output. Keeping this on the AIClient is what
+   * lets `getAIClient`'s `isLocalDev || isE2E` fork stay the only env check —
+   * routes never touch `fetchModels` directly.
+   */
+  listRawModels(): Promise<RawModel[]>;
   getModel(id: string): Promise<ModelInfo>;
   stream(request: InferenceRequest): InferenceStream;
   getGenerationStats(generationId: string): Promise<{ costUsd: number }>;
@@ -146,9 +162,20 @@ export interface RealAIClient extends AIClientBase {
   readonly isMock: false;
 }
 
+/**
+ * History entry recorded by the mock client. Carries the original
+ * {@link InferenceRequest} fields plus a `zdrEnforced` flag so tests can
+ * assert that ZDR was applied on every call without having to inspect the
+ * SDK args. The mock never talks to a real gateway, so the flag is always
+ * `true` — tracking it explicitly lets a regression on `real.ts`-style
+ * paths (where ZDR is REAL provider options, not just a flag) surface at
+ * the boundary.
+ */
+export type RecordedInferenceRequest = InferenceRequest & { zdrEnforced: boolean };
+
 export interface MockAIClient extends AIClientBase {
   readonly isMock: true;
-  getRequestHistory(): InferenceRequest[];
+  getRequestHistory(): RecordedInferenceRequest[];
   clearHistory(): void;
   addFailingModel(id: string): void;
   clearFailingModels(): void;

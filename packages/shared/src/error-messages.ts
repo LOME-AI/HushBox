@@ -117,6 +117,8 @@ const ERROR_MESSAGES = {
   WEBHOOK_VERIFIER_MISSING: 'Webhook processing unavailable.',
   PREMIUM_REQUIRES_BALANCE: 'Premium models require a positive balance.',
   PREMIUM_REQUIRES_ACCOUNT: 'Premium models require a free account.',
+  MODEL_TIER_LOCKED:
+    'This model is only available for paid accounts. Top up your balance to unlock.',
   TRIAL_MESSAGE_TOO_EXPENSIVE: 'This message exceeds trial limits. Sign up for more capacity.',
   AUTHENTICATED_ON_TRIAL: 'Authenticated users should use the main chat.',
   FEATURE_REQUIRES_AUTH: 'This feature requires a free account. Please sign up to use it.',
@@ -131,6 +133,7 @@ const ERROR_MESSAGES = {
   EPOCH_NOT_FOUND: 'Current epoch not found.',
   MESSAGE_NOT_FOUND: 'Message not found.',
   SHARE_NOT_FOUND: 'Shared message not found.',
+  SHARE_FORBIDDEN: "You can't share this message.",
   WRAP_SET_MISMATCH: 'Member wrap set does not match active members.',
   ROTATION_REQUIRED: 'Epoch rotation is required for this operation.',
 
@@ -163,6 +166,7 @@ const ERROR_MESSAGES = {
   INFERENCE_FAILED: "The AI provider couldn't complete your request. Please try again in a moment.",
   EMPTY_MEDIA_RESULT:
     "The AI didn't produce any output for your request. Try rephrasing your prompt.",
+  UNKNOWN_MIME_TYPE: "The generated media couldn't be identified. Please report this.",
   MEDIA_TRIAL_BLOCKED:
     'Media generation is only available for signed-in users. Create an account to unlock.',
   MODALITY_MISMATCH: "One or more selected models don't match the requested content type.",

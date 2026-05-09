@@ -17,8 +17,11 @@ export class ChatPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.promptInput = page.getByRole('textbox', { name: 'Ask me anything...' });
-    this.messageInput = page.locator('main').getByRole('textbox', { name: /message/i });
+    // Locate the prompt textarea by stable testid — the placeholder/aria-label
+    // changes per modality (e.g. "Describe the image you want..." for image),
+    // so name-based locators silently break after switchToImageMode/Video/Audio.
+    this.promptInput = page.getByTestId('prompt-input');
+    this.messageInput = page.locator('main').getByTestId('prompt-input');
     this.sendButton = page.getByTestId('send-button');
     this.messageList = page.getByRole('log', { name: 'Chat messages' });
     this.newChatPage = page.getByTestId('new-chat-page');
@@ -367,10 +370,15 @@ export class ChatPage {
     const slider = this.page.getByRole('slider', { name: /video duration in seconds/i });
     await expect(slider).toBeVisible();
     await slider.focus();
-    // Set value directly by issuing input event on the underlying range input.
+    // Range inputs are controlled by React state; setting `input.value` alone
+    // is overwritten on the next render. Use the native HTMLInputElement value
+    // setter so React's onChange synthetic event picks up the new value.
     await slider.evaluate((el, value) => {
       const input = el as HTMLInputElement;
-      input.value = String(value);
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- descriptor.set is invoked via .call(input)
+      const setter = descriptor?.set;
+      setter?.call(input, String(value));
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
     }, seconds);

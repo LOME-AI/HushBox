@@ -1,0 +1,36 @@
+name: Sync ops script labels
+
+# Keeps the repo's `run-script:<name>` labels in sync with `ops/manifest.yml`.
+# Triggered when the manifest, the generator, or this workflow itself changes
+# on `main`. Editing any of these requires CODEOWNERS approval.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ops/manifest.yml
+      - ops/lib/generate-labels.ts
+      - .github/workflows/sync-ops-labels.yml
+  workflow_dispatch:
+
+permissions:
+  issues: write    # required for the label-sync action to create/update labels
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - name: Generate label config from ops/manifest.yml
+        run: pnpm tsx ops/lib/generate-labels.ts > /tmp/ops-labels.json
+
+      - name: Apply label config (idempotent)
+        uses: EndBug/label-sync@v2
+        with:
+          config-file: /tmp/ops-labels.json
+          # Don't delete labels that aren't in the manifest — leaves
+          # category, status, and team labels managed elsewhere untouched.
+          delete-other-labels: false

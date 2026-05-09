@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { AuthenticatedChatPage } from './authenticated-chat-page';
 import { setEpochKey, clearEpochKeyCache } from '@/lib/epoch-key-cache';
+import { AuthenticatedChatPage } from './authenticated-chat-page';
 import type { Message } from '@/lib/api';
 
 const mockNavigate = vi.fn();

@@ -8,9 +8,9 @@ import {
   ERROR_CODE_SERVICE_UNAVAILABLE,
   ERROR_CODE_CONVERSATION_NOT_FOUND,
 } from '@hushbox/shared';
-import type { AppEnv } from '../types.js';
 import { resolveLinkGuest } from '../middleware/resolve-link-guest.js';
 import { createErrorResponse } from '../lib/error-response.js';
+import type { AppEnv } from '../types.js';
 
 export const websocketRoute = new Hono<AppEnv>().get(
   '/:conversationId',

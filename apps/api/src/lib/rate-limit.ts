@@ -1,5 +1,3 @@
-import type { Redis } from '@upstash/redis';
-import type { z } from 'zod';
 import {
   REDIS_REGISTRY,
   rateLimitDataSchema,
@@ -8,6 +6,8 @@ import {
   redisSetRateLimitData,
   redisDel,
 } from './redis-registry.js';
+import type { Redis } from '@upstash/redis';
+import type { z } from 'zod';
 
 export interface RateLimitConfig {
   maxAttempts: number;

@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { usePromptBudget } from './use-prompt-budget';
 import {
   worstCaseSearchCost,
   type BudgetCalculationResult,
   type CapabilityId,
   type ResolveBillingResult,
 } from '@hushbox/shared';
+import { usePromptBudget } from './use-prompt-budget';
 
 // Hoisted mock factories
 const {

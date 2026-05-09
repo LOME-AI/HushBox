@@ -1,5 +1,5 @@
 import { createDb, LOCAL_NEON_DEV_CONFIG, type Database } from '@hushbox/db';
-import { createEnvUtilities } from '@hushbox/shared';
+import { assertNever, createEnvUtilities } from '@hushbox/shared';
 import { MIN_VIDEO_DURATION_SECONDS } from '@hushbox/shared';
 import { createMockAIClient } from './mock.js';
 import { createRealAIClient, type EvidenceConfig } from './real.js';
@@ -118,6 +118,9 @@ export async function getCheapestTestModel(
     }
     case 'audio': {
       throw new Error('Audio integration tests are not in scope.');
+    }
+    default: {
+      return assertNever(modality);
     }
   }
 

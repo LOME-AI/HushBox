@@ -26,6 +26,7 @@ import {
 import { queryClient } from '@/providers/query-provider';
 import { getApiUrl } from '@/lib/api';
 import { clearEpochKeyCache } from '@/lib/epoch-key-cache';
+import { useModelStore } from '@/stores/model';
 import {
   STORAGE_KEY,
   persistExportKey,
@@ -35,7 +36,6 @@ import {
   type MeResponse,
 } from './auth-client.js';
 import { getLinkGuestAuth } from './link-guest-auth.js';
-import { useModelStore } from '@/stores/model';
 
 // ---------------------------------------------------------------------------
 // Helpers

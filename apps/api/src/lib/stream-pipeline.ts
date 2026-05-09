@@ -1,10 +1,8 @@
 /**
- * Shared streaming pipeline used by both authenticated chat and link-guest endpoints.
- *
- * Extracted from chat.ts for reuse without code duplication. Contains:
- * - Billing resolution and reservation logic
- * - SSE streaming pipeline with multi-model support
- * - Utility functions for pricing, broadcasting, and cost computation
+ * Shared streaming pipeline used by both authenticated chat and link-guest
+ * endpoints. Owns billing resolution and reservation, the SSE multi-model
+ * fan-out, and the utility functions for pricing, broadcasting, and cost
+ * computation that those flows share.
  */
 
 import { streamSSE } from 'hono/streaming';
@@ -22,28 +20,49 @@ import {
   ERROR_CODE_PREMIUM_REQUIRES_BALANCE,
   ERROR_CODE_STREAM_ERROR,
   ERROR_CODE_BILLING_ERROR,
+  ERROR_CODE_CLASSIFIER_FAILED,
   parseTokenPrice,
   computeImageExactCents,
   computeVideoExactCents,
   computeAudioWorstCaseCents,
   worstCaseSearchCost,
+  toBase64,
 } from '@hushbox/shared';
-import type { FundingSource, DenialReason, ResolveBillingInput } from '@hushbox/shared';
-import type { AppEnv, Bindings } from '../types.js';
+import { processModels, type RawModel } from '@hushbox/shared/models';
+import { createEvent } from '@hushbox/realtime/events';
 import { buildPrompt } from '../services/prompt/builder.js';
-import type { BuildBillingResult, MemberContext } from '../services/billing/index.js';
 import {
   calculateMessageCost,
   calculateMessageCostWithStages,
   recordBillingMismatchIfExceeded,
 } from '../services/billing/index.js';
+import { buildAIMessages, saveChatTurn } from '../services/chat/index.js';
+import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createEvidenceConfig } from './evidence-config.js';
-import type { EvidenceConfig } from '@hushbox/db';
 import { executePreInferenceChain, resolveStagesForSlot } from './pre-inference/index.js';
-import type { PreInferenceBillingPersistence } from '../services/chat/message-persistence.js';
-import type { PreInferenceBilling } from '@hushbox/shared';
-import { ERROR_CODE_CLASSIFIER_FAILED } from '@hushbox/shared';
-import { fetchModels, processModels } from '@hushbox/shared/models';
+import { createErrorResponse } from './error-response.js';
+import { classifyStreamErrorCode } from './classify-stream-error.js';
+import { createSSEEventWriter } from './stream-handler.js';
+import { collectMultiModelStreams } from './multi-stream.js';
+import { executeMediaPipeline as executeMediaPipelineImpl } from './media-pipeline.js';
+import { getStrategy } from './modality-strategies.js';
+import { broadcastFireAndForget } from './broadcast.js';
+import {
+  decideFundingSource,
+  reserveGroupBudgetWithGuard,
+  reservePersonalBudgetWithGuard,
+  reserveMediaBilling,
+} from './billing-reservation.js';
+import { safeExecutionCtx } from './safe-execution-ctx.js';
+import { buildGroupBillingContext } from './billing-types.js';
+import type { Context } from 'hono';
+import type { EvidenceConfig } from '@hushbox/db';
+import type {
+  PreInferenceBilling,
+  FundingSource,
+  DenialReason,
+  ResolveBillingInput,
+} from '@hushbox/shared';
 import type {
   AIClient,
   InferenceEvent,
@@ -53,52 +72,34 @@ import type {
   VideoRequest,
   AudioRequest,
 } from '../services/ai/index.js';
-import { buildAIMessages, saveChatTurn } from '../services/chat/index.js';
-import type { SaveChatTurnResult } from '../services/chat/index.js';
-import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
-import { createErrorResponse } from './error-response.js';
-import { classifyStreamErrorCode } from './classify-stream-error.js';
-import {
-  createSSEEventWriter,
-  type DoneContentItem,
-  type DoneMessageEnvelope,
-  type DoneModelEntry,
-} from './stream-handler.js';
-import { toBase64 } from '@hushbox/shared';
+import type { BuildBillingResult, MemberContext } from '../services/billing/index.js';
+import type { PreInferenceBillingPersistence } from '../services/chat/message-persistence.js';
+import type {
+  SaveChatTurnResult,
+  PersistedEnvelope,
+  AssistantResult,
+} from '../services/chat/index.js';
 import type {
   InsertedTextContentItem,
   InsertedMediaContentItem,
 } from '../services/chat/message-helpers.js';
-import type { PersistedEnvelope, AssistantResult } from '../services/chat/index.js';
-import {
-  collectMultiModelStreams,
-  type ModelStreamEntry,
-  type MediaStreamResult,
-} from './multi-stream.js';
-import {
-  executeMediaPipeline as executeMediaPipelineImpl,
-  type MediaPipelineInput,
-} from './media-pipeline.js';
+import type { DoneContentItem, DoneMessageEnvelope, DoneModelEntry } from './stream-handler.js';
+import type { ModelStreamEntry, MediaStreamResult } from './multi-stream.js';
+import type { MediaPipelineInput } from './media-pipeline.js';
+import type { GroupBudgetReservation } from './speculative-balance.js';
+import type { ReservationResult, ReserveAfterDecisionInput } from './billing-reservation.js';
+import type {
+  AudioBillingValidationSuccess,
+  ImageBillingValidationSuccess,
+  VideoBillingValidationSuccess,
+} from './billing-types.js';
+import type { AppEnv, Bindings } from '../types.js';
 export { type MediaPersistPricing } from './media-pipeline.js';
-import {
-  audioStrategy,
-  imageStrategy,
-  textStrategy,
-  videoStrategy,
-} from './modality-strategies.js';
-import { broadcastFireAndForget } from './broadcast.js';
-import { createEvent } from '@hushbox/realtime/events';
-import { type GroupBudgetReservation } from './speculative-balance.js';
-import {
-  decideFundingSource,
-  reserveGroupBudgetWithGuard,
-  reservePersonalBudgetWithGuard,
-  reserveMediaBilling,
-  type ReservationResult,
-  type ReserveAfterDecisionInput,
-} from './billing-reservation.js';
-import type { Context } from 'hono';
-import { safeExecutionCtx } from './safe-execution-ctx.js';
+export type {
+  AudioBillingValidationSuccess,
+  ImageBillingValidationSuccess,
+  VideoBillingValidationSuccess,
+} from './billing-types.js';
 
 // ============================================================================
 // Helpers
@@ -130,7 +131,7 @@ export interface BillingValidationSuccess {
   billingInput: ResolveBillingInput;
   budgetResult: ReturnType<typeof calculateBudget>;
   safeMaxTokens: number | undefined;
-  gatewayModels: Awaited<ReturnType<typeof fetchModels>>;
+  gatewayModels: RawModel[];
   worstCaseCents: number;
   groupBudget?: GroupBudgetReservation;
   billingUserId: string;
@@ -189,7 +190,7 @@ export const BATCH_INTERVAL_MS = 100;
 // ============================================================================
 
 export function lookupModelPricing(
-  models: Awaited<ReturnType<typeof fetchModels>>,
+  models: RawModel[],
   modelId: string
 ): ReturnType<typeof getModelPricing> {
   const modelInfo = models.find((m) => m.id === modelId);
@@ -263,7 +264,7 @@ function handleBillingDenial(
 export function resolveWebSearchCost(
   webSearchEnabled: boolean,
   _model: string,
-  _gatewayModels: Awaited<ReturnType<typeof fetchModels>>
+  _gatewayModels: RawModel[]
 ): number {
   if (!webSearchEnabled) return 0;
   return worstCaseSearchCost();
@@ -498,11 +499,7 @@ export async function resolveAndReserveBilling(
   const redis = c.get('redis');
 
   // 1. Fetch models for pricing (in-memory cached with TTL)
-  const apiKey = c.env.AI_GATEWAY_API_KEY;
-  if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required for streaming');
-  const publicModelsUrl = c.env.PUBLIC_MODELS_URL;
-  if (!publicModelsUrl) throw new Error('PUBLIC_MODELS_URL required for streaming');
-  const gatewayModels = await fetchModels({ apiKey, publicModelsUrl });
+  const gatewayModels = await c.var.aiClient.listRawModels();
   const allPricing = models.map((m) => lookupModelPricing(gatewayModels, m));
 
   // 1b. Resolve web search cost — pre-flight worst case (per the search-cap
@@ -703,18 +700,6 @@ export async function resolveAndReserveBilling(
 // ============================================================================
 // resolveAndReserveImageBilling
 // ============================================================================
-
-export type {
-  AudioBillingValidationSuccess,
-  ImageBillingValidationSuccess,
-  VideoBillingValidationSuccess,
-} from './billing-types.js';
-import type {
-  AudioBillingValidationSuccess,
-  ImageBillingValidationSuccess,
-  VideoBillingValidationSuccess,
-} from './billing-types.js';
-import { buildGroupBillingContext } from './billing-types.js';
 
 export interface ResolveAndReserveImageBillingInput {
   billingResult: BuildBillingResult;
@@ -1240,7 +1225,7 @@ function buildSlotStreamEntries(args: BuildSlotStreamEntriesArgs): ModelStreamEn
   for (const modelId of args.models) {
     const meta = args.slotMetadataByModelId.get(modelId);
     if (!meta) continue;
-    const textRequest: TextRequest = textStrategy.buildRequest({
+    const textRequest: TextRequest = getStrategy('text').buildRequest({
       modelId: meta.resolvedModelId,
       messages: args.aiMessages,
       webSearchEnabled: args.webSearchEnabled,
@@ -1591,6 +1576,7 @@ export function executeImagePipeline(input: ImagePipelineInput): Response {
     aspectRatio,
   } = input;
 
+  const imageStrategy = getStrategy('image');
   return executeMediaPipeline({
     c,
     conversationId,
@@ -1604,6 +1590,7 @@ export function executeImagePipeline(input: ImagePipelineInput): Response {
     senderId,
     forkId,
     parentMessageId,
+    mediaType: imageStrategy.modality,
     pricingFor: (modelId, result) => imageStrategy.pricingFor(modelId, result, imageBilling),
     buildRequest: (modelId): ImageRequest =>
       imageStrategy.buildRequest({
@@ -1657,6 +1644,7 @@ export function executeVideoPipeline(input: VideoPipelineInput): Response {
     aspectRatio,
   } = input;
 
+  const videoStrategy = getStrategy('video');
   return executeMediaPipeline({
     c,
     conversationId,
@@ -1670,6 +1658,7 @@ export function executeVideoPipeline(input: VideoPipelineInput): Response {
     senderId,
     forkId,
     parentMessageId,
+    mediaType: videoStrategy.modality,
     pricingFor: (modelId, result) => videoStrategy.pricingFor(modelId, result, videoBilling),
     buildRequest: (modelId): VideoRequest =>
       videoStrategy.buildRequest({
@@ -1787,6 +1776,7 @@ export function executeAudioPipeline(input: AudioPipelineInput): Response {
     voice,
   } = input;
 
+  const audioStrategy = getStrategy('audio');
   return executeMediaPipeline({
     c,
     conversationId,
@@ -1800,6 +1790,7 @@ export function executeAudioPipeline(input: AudioPipelineInput): Response {
     senderId,
     forkId,
     parentMessageId,
+    mediaType: audioStrategy.modality,
     pricingFor: (modelId, result) => audioStrategy.pricingFor(modelId, result, audioBilling),
     buildRequest: (modelId): AudioRequest =>
       audioStrategy.buildRequest({

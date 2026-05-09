@@ -1,5 +1,4 @@
 import { type Database, type DatabaseClient } from '@hushbox/db';
-import type { StageId } from '@hushbox/shared';
 import {
   assignSequenceNumbers,
   fetchEpochPublicKey,
@@ -14,6 +13,7 @@ import {
   updateForkTip,
   validateParentMessageId,
 } from './message-helpers.js';
+import type { StageId } from '@hushbox/shared';
 
 /**
  * One pre-inference stage charge that the persistence layer must write

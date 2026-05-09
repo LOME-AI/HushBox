@@ -16,6 +16,8 @@
  * broadcasting that have no analogue in image/video/audio.
  */
 
+import { assertNever } from '@hushbox/shared';
+
 import type {
   AudioRequest,
   ImageRequest,
@@ -197,3 +199,49 @@ export const audioStrategy: MediaModalityStrategy<
   },
   noContentErrorMessage: 'No audio generated',
 };
+
+// ---------------------------------------------------------------------------
+// Strategy dispatcher
+// ---------------------------------------------------------------------------
+
+/**
+ * Type-narrowing return for {@link getStrategy}. Function overloads above the
+ * implementation give every modality a tightly-typed strategy at the call
+ * site so callers don't lose generic information when dispatching by modality.
+ */
+export type StrategyByModality<M extends Modality> = M extends 'text'
+  ? typeof textStrategy
+  : M extends 'image'
+    ? typeof imageStrategy
+    : M extends 'video'
+      ? typeof videoStrategy
+      : M extends 'audio'
+        ? typeof audioStrategy
+        : never;
+
+export function getStrategy(modality: 'text'): typeof textStrategy;
+export function getStrategy(modality: 'image'): typeof imageStrategy;
+export function getStrategy(modality: 'video'): typeof videoStrategy;
+export function getStrategy(modality: 'audio'): typeof audioStrategy;
+export function getStrategy<M extends Modality>(modality: M): StrategyByModality<M>;
+export function getStrategy(
+  modality: Modality
+): typeof textStrategy | typeof imageStrategy | typeof videoStrategy | typeof audioStrategy {
+  switch (modality) {
+    case 'text': {
+      return textStrategy;
+    }
+    case 'image': {
+      return imageStrategy;
+    }
+    case 'video': {
+      return videoStrategy;
+    }
+    case 'audio': {
+      return audioStrategy;
+    }
+    default: {
+      return assertNever(modality);
+    }
+  }
+}

@@ -13,36 +13,42 @@ import {
   llmCompletions as llmCompletionsTable,
   ledgerEntries as ledgerEntriesTable,
 } from '@hushbox/db';
-// Mock @ai-sdk/gateway to bypass real network calls. fetchModels uses
-// createGateway().getAvailableModels() — we mock both to return our mockModels
-// reshaped for the gateway response format.
-vi.mock('@ai-sdk/gateway', () => {
-  // Return a mock createGateway whose getAvailableModels returns our mockModels
-  // mapped to GatewayModelEntry shape. The fetchMock below handles any other
-  // code paths that still call fetch() directly.
-  return {
-    createGateway: () => ({
-      getAvailableModels: () =>
-        Promise.resolve({
-          models: (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ ?? [],
-        }),
-    }),
-  };
-});
 
-import { chatRoute } from './chat.js';
-import type { AppEnv } from '../types.js';
-import { createMockAIClient } from '../services/ai/mock.js';
-import type { InferenceEvent } from '../services/ai/types.js';
-import type { MediaStorage } from '../services/storage/index.js';
+// ---------------------------------------------------------------------------
+// Module mocks — boundary-level intercepts of the AI SDK gateway. Mirrors the
+// shape used in apps/api/src/services/ai/real.test.ts: the mock fn is hoisted
+// to module scope so tests can prime its return value via mockGetAvailableModels
+// instead of a magic globalThis side-channel. The shared `__TEST_MOCK_MODELS__`
+// fallback stays for callers that haven't been migrated.
+// ---------------------------------------------------------------------------
+
+const mockGetAvailableModels = vi.fn(() =>
+  Promise.resolve({
+    models: (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ ?? [],
+  })
+);
+
+vi.mock('@ai-sdk/gateway', () => ({
+  createGateway: vi.fn(() => ({
+    getAvailableModels: mockGetAvailableModels,
+  })),
+}));
+
 import {
   ERROR_CODE_BALANCE_RESERVED,
   ERROR_CODE_BILLING_MISMATCH,
   ERROR_CODE_PRIVILEGE_INSUFFICIENT,
   FEATURE_FLAGS,
+  createEnvUtilities,
 } from '@hushbox/shared';
 import { clearModelCache } from '@hushbox/shared/models';
 import { generateKeyPair } from '@hushbox/crypto';
+import { chatRoute, lookupMediaModels } from './chat.js';
+import { createMockAIClient } from '../services/ai/mock.js';
+import { createMockAIClientWithGatewayCatalog } from '../services/ai/mock-with-gateway-catalog.js';
+import type { AppEnv } from '../types.js';
+import type { InferenceEvent } from '../services/ai/types.js';
+import type { MediaStorage } from '../services/storage/index.js';
 
 /** Type-safe JSON response parser for test assertions. */
 async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> {
@@ -135,6 +141,7 @@ const mockModels = [
     id: 'openai/gpt-5',
     name: 'GPT-5',
     description: 'Premium model',
+    modality: 'text' as const,
     context_length: 128_000,
     pricing: { prompt: '0.00001', completion: '0.00003' },
     supported_parameters: ['temperature'],
@@ -402,7 +409,15 @@ function createMockRedis(evalReturnValue = '0') {
 function createTestApp(
   dbOptions?: Parameters<typeof createMockDb>[0],
   redisOverride?: ReturnType<typeof createMockRedis>,
-  _unused?: unknown,
+  // Pre-seeds `linkGuest` on context before requirePrivilege runs. When the
+  // session user is set (this helper's default), requirePrivilege's auth
+  // path doesn't touch the linkGuest slot, so the preset survives into the
+  // handler. Lets a focused tier-gate test exercise the
+  // `!linkGuest && callerId === ownerId` predicate without standing up the
+  // full sharedLinks → conversationMembers mock chain. Existing callers that
+  // pass `undefined` here (slot-3 was previously an unused placeholder) keep
+  // working unchanged.
+  linkGuestOverride?: { linkId: string; publicKey: Uint8Array } | null,
   aiClientOverride?: AppEnv['Variables']['aiClient']
 ) {
   const app = new Hono<AppEnv>();
@@ -461,13 +476,17 @@ function createTestApp(
     } as AppEnv['Bindings'];
     c.set('user', mockUser);
     c.set('session', mockSession);
-    c.set('aiClient', aiClientOverride ?? createMockAIClient());
+    c.set('aiClient', aiClientOverride ?? createMockAIClientWithGatewayCatalog());
     c.set('mediaStorage', stubMediaStorage());
     c.set(
       'db',
       createMockDb(dbOptions ?? defaultDbOptions) as unknown as AppEnv['Variables']['db']
     );
     c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
+    c.set('envUtils', createEnvUtilities(c.env));
+    if (linkGuestOverride !== undefined && linkGuestOverride !== null) {
+      c.set('linkGuest', linkGuestOverride);
+    }
     await next();
   });
 
@@ -488,8 +507,9 @@ function createUnauthenticatedTestApp() {
     } as AppEnv['Bindings'];
     c.set('user', null);
     c.set('session', null);
-    c.set('aiClient', createMockAIClient());
+    c.set('aiClient', createMockAIClientWithGatewayCatalog());
     c.set('db', createMockDb({}) as unknown as AppEnv['Variables']['db']);
+    c.set('envUtils', createEnvUtilities(c.env));
     await next();
   });
 
@@ -687,6 +707,7 @@ describe('chat routes', () => {
         c.set('aiClient', failingAi);
         c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
         c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
+        c.set('envUtils', createEnvUtilities(c.env));
         await next();
       });
       app.route('/', chatRoute);
@@ -742,7 +763,10 @@ describe('chat routes', () => {
       expect(body.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
-    it('returns 402 when user has zero balance', async () => {
+    it('returns 403 MODEL_TIER_LOCKED when free-tier user picks a premium model', async () => {
+      // Premium model + zero balance → free tier → MODEL_TIER_LOCKED gate
+      // fires before billing reservation. Distinct from the balance-only
+      // PREMIUM_REQUIRES_BALANCE case (which is for paid users with $0).
       const app = createTestApp({
         conversations: [
           {
@@ -769,13 +793,13 @@ describe('chat routes', () => {
         body: streamBody(),
       });
 
-      expect(res.status).toBe(402);
+      expect(res.status).toBe(403);
       const body: ErrorBody = await res.json();
-      expect(body.code).toBe('PREMIUM_REQUIRES_BALANCE');
-      expect(body.details?.['currentBalance']).toBe('0.00');
+      expect(body.code).toBe('MODEL_TIER_LOCKED');
+      expect(body.details?.['modelId']).toBe('openai/gpt-5');
     });
 
-    it('returns 402 when user has negative balance', async () => {
+    it('returns 403 MODEL_TIER_LOCKED for premium model when balance is negative', async () => {
       const app = createTestApp({
         conversations: [
           {
@@ -802,10 +826,57 @@ describe('chat routes', () => {
         body: streamBody(),
       });
 
-      expect(res.status).toBe(402);
+      expect(res.status).toBe(403);
       const body: ErrorBody = await res.json();
-      expect(body.code).toBe('PREMIUM_REQUIRES_BALANCE');
-      expect(body.details?.['currentBalance']).toBe('-5.00');
+      expect(body.code).toBe('MODEL_TIER_LOCKED');
+      expect(body.details?.['modelId']).toBe('openai/gpt-5');
+    });
+
+    it('skips MODEL_TIER_LOCKED when caller is a link guest (predicate at chat.ts:1152)', async () => {
+      // The tier gate fires only when `!linkGuest && callerId === ownerId`.
+      // With the same fixture as the free-tier test above (zero balance,
+      // premium model — which DOES return MODEL_TIER_LOCKED for a direct-
+      // billing caller), pre-seeding linkGuest on context must flip the
+      // predicate to false and let the request fall through to
+      // resolveGuestBillingContext. This pins both halves of the predicate:
+      // changing it to `callerId === ownerId` (dropping the linkGuest term)
+      // would re-fire MODEL_TIER_LOCKED here and the test catches the
+      // regression.
+      const app = createTestApp(
+        {
+          conversations: [
+            {
+              id: TEST_CONVERSATION_ID,
+              userId: TEST_USER_ID,
+              title: 'Test',
+              currentEpoch: 1,
+              nextSequence: 0,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ],
+          users: [
+            {
+              id: TEST_USER_ID,
+              balance: '0.00000000',
+            },
+          ],
+        },
+        undefined,
+        { linkId: 'link-test-1', publicKey: new Uint8Array(32) }
+      );
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: streamBody(),
+      });
+
+      // The tier gate is the assertion under test. Whatever the downstream
+      // billing path returns is irrelevant here — the predicate must NOT
+      // surface as MODEL_TIER_LOCKED for a link-guest caller.
+      const body: ErrorBody = await res.json();
+      expect(body.code).not.toBe('MODEL_TIER_LOCKED');
     });
 
     it('returns 400 when last message is not from user', async () => {
@@ -965,6 +1036,7 @@ describe('chat routes', () => {
           c.set('aiClient', createMockAIClient());
           c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
           c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
+          c.set('envUtils', createEnvUtilities(c.env));
           await next();
         });
         app.route('/', chatRoute);
@@ -1043,6 +1115,7 @@ describe('chat routes', () => {
           c.set('aiClient', createMockAIClient());
           c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
           c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
+          c.set('envUtils', createEnvUtilities(c.env));
           await next();
         });
         app.route('/', chatRoute);
@@ -1129,6 +1202,7 @@ describe('chat routes', () => {
           c.set('aiClient', createMockAIClient());
           c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
           c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
+          c.set('envUtils', createEnvUtilities(c.env));
           await next();
         });
         app.route('/', chatRoute);
@@ -1399,6 +1473,7 @@ describe('chat routes', () => {
           c.set('aiClient', createMockAIClient());
           c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
           c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
+          c.set('envUtils', createEnvUtilities(c.env));
           await next();
         });
         app.route('/', chatRoute);
@@ -1471,6 +1546,7 @@ describe('chat routes', () => {
           c.set('aiClient', createMockAIClient());
           c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
           c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
+          c.set('envUtils', createEnvUtilities(c.env));
           await next();
         });
         app.route('/', chatRoute);
@@ -1569,6 +1645,7 @@ describe('chat routes', () => {
           c.set('aiClient', options.aiClientOverride ?? createMockAIClient());
           c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
           c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
+          c.set('envUtils', createEnvUtilities(c.env));
           await next();
         });
         app.route('/', chatRoute);
@@ -1694,7 +1771,7 @@ describe('chat routes', () => {
         // Pick the cheap model from the fixture as the classifier resolution so the
         // assertion can avoid hardcoding any specific id.
         const expectedResolvedId = 'openai/gpt-4o-mini';
-        const aiClient = createMockAIClient();
+        const aiClient = createMockAIClientWithGatewayCatalog();
         aiClient.setClassifierResolution(expectedResolvedId);
 
         const { app, broadcastBodies } = createBroadcastApp({
@@ -1837,6 +1914,7 @@ describe('chat routes', () => {
           c.set('aiClient', createMockAIClient());
           c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
           c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
+          c.set('envUtils', createEnvUtilities(c.env));
           await next();
         });
         app.route('/', chatRoute);
@@ -2259,8 +2337,11 @@ describe('chat routes', () => {
         expect(text).toContain('event: done');
       });
 
-      it('returns 402 denial even when client claims approved fundingSource', async () => {
-        // Server denies (zero balance, premium model) — 402 not 409
+      it('returns 403 MODEL_TIER_LOCKED denial even when client claims approved fundingSource', async () => {
+        // Server denies (zero balance, premium model). The pre-billing tier
+        // gate fires before any billing-mismatch evaluation, so this is 403
+        // MODEL_TIER_LOCKED — backend denial still takes priority over the
+        // mismatch detection in front of resolveBilling.
         const app = createTestApp({
           conversations: [
             {
@@ -2287,8 +2368,9 @@ describe('chat routes', () => {
           body: streamBody({ fundingSource: 'personal_balance' }),
         });
 
-        // Backend denial takes priority over mismatch — returns 402 not 409
-        expect(res.status).toBe(402);
+        expect(res.status).toBe(403);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('MODEL_TIER_LOCKED');
       });
 
       it('returns 409 when member claims personal_balance but server resolves owner_balance', async () => {
@@ -2360,13 +2442,9 @@ describe('chat routes', () => {
       });
     });
 
-    // Web search plugin tests removed — OpenRouter plugins replaced by AIClient
-    // Web search in the new architecture is handled via gateway tools (Step 3)
-
-    // Web search budget reservation tests removed — per-model web_search pricing
-    // was OpenRouter-specific. AI Gateway bundles search cost into totalCost
-    // post-hoc and uses MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL pre-flight
-    // (covered by pricing.test.ts in shared).
+    // Web search behavior is now exercised via the AI Gateway tools path; the
+    // pre-flight worst-case budget for it lives in `pricing.test.ts` (shared)
+    // — `MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL`.
 
     describe('smart model', () => {
       const SMART_MODEL_TEST_ID = 'smart-model';
@@ -2431,8 +2509,6 @@ describe('chat routes', () => {
         });
       }
 
-      // auto-router plugin tests removed — OpenRouter plugins replaced by AIClient
-
       it('denies request when no models are affordable', async () => {
         stubSmartModelTestModels(fetchMock);
         const app = createTestApp({
@@ -2464,8 +2540,6 @@ describe('chat routes', () => {
 
         expect(res.status).toBe(402);
       });
-
-      // auto-router + web search plugin merge test removed — OpenRouter plugins
 
       it('reserves budget based on worst-case allowed model pricing', async () => {
         vi.useRealTimers();
@@ -2535,7 +2609,7 @@ describe('chat routes', () => {
         )?.id;
         if (expectedResolvedId === undefined)
           throw new Error('test fixture must include a real model');
-        const aiClient = createMockAIClient();
+        const aiClient = createMockAIClientWithGatewayCatalog();
         aiClient.setClassifierResolution(expectedResolvedId);
         const app = createTestApp(undefined, undefined, undefined, aiClient);
 
@@ -2577,7 +2651,7 @@ describe('chat routes', () => {
               modelType: 'language',
               pricing: { input: m.pricing.prompt, output: m.pricing.completion },
             }));
-        const aiClient = createMockAIClient();
+        const aiClient = createMockAIClientWithGatewayCatalog();
         // Configure a classifier output that won't match any eligible model.
         aiClient.setClassifierResolution('totally-unrelated-model-id-xyz');
         const app = createTestApp(undefined, undefined, undefined, aiClient);
@@ -2735,7 +2809,7 @@ describe('chat routes', () => {
     });
 
     describe('image modality', () => {
-      const IMAGE_MODEL_ID = 'google/imagen-4';
+      const IMAGE_MODEL_ID = 'google/imagen-4.0-generate-001';
       const TEXT_MODEL_ID = 'anthropic/claude-sonnet-4.6';
 
       it('returns 400 MODEL_NOT_FOUND when selected model is unknown', async () => {
@@ -2848,7 +2922,7 @@ describe('chat routes', () => {
             if (request.modality !== 'image') return baseClient.stream(request);
             // Both synthesized model IDs should use the image generation path —
             // route the canned image bytes from the underlying image model.
-            return baseClient.stream({ ...request, model: 'google/imagen-4' });
+            return baseClient.stream({ ...request, model: 'google/imagen-4.0-generate-001' });
           },
         };
         const app = createTestApp(undefined, undefined, undefined, mixedPriceClient);
@@ -2905,9 +2979,9 @@ describe('chat routes', () => {
     });
 
     describe('video modality', () => {
-      const VIDEO_MODEL_ID = 'google/veo-3.1';
+      const VIDEO_MODEL_ID = 'google/veo-3.1-generate-001';
       const TEXT_MODEL_ID = 'anthropic/claude-sonnet-4.6';
-      const IMAGE_MODEL_ID = 'google/imagen-4';
+      const IMAGE_MODEL_ID = 'google/imagen-4.0-generate-001';
       const DEFAULT_VIDEO_CONFIG = {
         aspectRatio: '16:9',
         durationSeconds: 4,
@@ -3078,7 +3152,7 @@ describe('chat routes', () => {
           },
           stream: (request) => {
             if (request.modality !== 'video') return baseClient.stream(request);
-            return baseClient.stream({ ...request, model: 'google/veo-3.1' });
+            return baseClient.stream({ ...request, model: 'google/veo-3.1-generate-001' });
           },
         };
         const app = createTestApp(undefined, undefined, undefined, mixedPriceClient);
@@ -3458,6 +3532,7 @@ describe('chat routes', () => {
         c.set('aiClient', createMockAIClient());
         c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
         c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
+        c.set('envUtils', createEnvUtilities(c.env));
         await next();
       });
       app.route('/', chatRoute);
@@ -3711,5 +3786,26 @@ describe('chat routes', () => {
         webSearchEnabled: true,
       });
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Exhaustiveness guards — exercise the `assertNever` defaults so a future
+// caller bypassing strict typing (via `as` cast) cannot silently land in a
+// no-op branch. Mirrors the pattern in modality-strategies.test.ts.
+// ---------------------------------------------------------------------------
+
+describe('lookupMediaModels exhaustiveness guard', () => {
+  it('throws when extract returns an unrecognized outcome kind', async () => {
+    const fakeAiClient = {
+      listModels: () => Promise.resolve([{ id: 'fake-model' }]),
+    } as unknown as Parameters<typeof lookupMediaModels>[0];
+
+    type Outcome = { kind: 'ok'; value: number } | { kind: 'mismatch' };
+    const maliciousExtract = (): Outcome => ({ kind: 'unrecognized' as 'ok', value: 0 }) as Outcome;
+
+    await expect(lookupMediaModels(fakeAiClient, ['fake-model'], maliciousExtract)).rejects.toThrow(
+      /Exhaustiveness check failed/
+    );
   });
 });

@@ -1,6 +1,6 @@
-import type { Page } from '@playwright/test';
 import { TOUCH_QUERY } from '@hushbox/shared';
 import { expect } from './settled-expect.js';
+import type { Page } from '@playwright/test';
 
 /**
  * Evaluates the touch device media query inside the running page.

@@ -499,6 +499,29 @@ jobs:
     needs: [lint, typecheck, duplication, unused, test, build, e2e, mobile-test, version]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: production
+    # BEGIN GENERATED: ops-env
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      NODE_ENV: production
+      API_URL: https://api.hushbox.ai
+      FRONTEND_URL: https://hushbox.ai
+      UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+      UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+      OPAQUE_MASTER_SECRET: ${{ secrets.OPAQUE_MASTER_SECRET }}
+      IRON_SESSION_SECRET: ${{ secrets.IRON_SESSION_SECRET }}
+      APP_VERSION: ${{ needs.version.outputs.version }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY_PRODUCTION }}
+      PUBLIC_MODELS_URL: https://ai-gateway.vercel.sh/v1/models
+      FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
+      FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+      HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}
+      HELCIM_WEBHOOK_VERIFIER: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_PRODUCTION }}
+      R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET_MEDIA: hushbox-media
+    # END GENERATED: ops-env
     steps:
       - uses: actions/checkout@v6
         with:
@@ -561,6 +584,33 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # Resolve any `run-script:<name>` labels on the merged PR against
+      # ops/manifest.yml, validate them, and partition by phase. Outputs
+      # JSON arrays consumed by the pre-deploy and post-deploy steps below.
+      # See ops/README.md for the trust model.
+      #
+      # Implemented as a tsx script (not actions/github-script) so the
+      # workspace's js-yaml is resolvable — pnpm doesn't hoist devDeps to
+      # the repo root.
+      - name: Resolve ops scripts from PR labels
+        id: ops
+        run: pnpm tsx ops/lib/resolve-pr-scripts.ts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+
+      - name: Run pre-deploy ops scripts
+        if: steps.ops.outputs.pre != '' && steps.ops.outputs.pre != '[]'
+        run: |
+          echo '${{ steps.ops.outputs.pre }}' | jq -c '.[]' | while read -r s; do
+            name=$(echo "$s" | jq -r '.name')
+            file=$(echo "$s" | jq -r '.file')
+            echo "::group::Pre-deploy ops script: $name ($file)"
+            pnpm tsx "$file"
+            echo "::endgroup::"
+          done
+
       - name: Run database migrations (production)
         run: pnpm --filter @hushbox/db db:migrate
         env:
@@ -579,6 +629,17 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Run post-deploy ops scripts
+        if: steps.ops.outputs.post != '' && steps.ops.outputs.post != '[]'
+        run: |
+          echo '${{ steps.ops.outputs.post }}' | jq -c '.[]' | while read -r s; do
+            name=$(echo "$s" | jq -r '.name')
+            file=$(echo "$s" | jq -r '.file')
+            echo "::group::Post-deploy ops script: $name ($file)"
+            pnpm tsx "$file"
+            echo "::endgroup::"
+          done
 
       - name: Verify API health
         run: |

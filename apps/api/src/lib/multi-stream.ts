@@ -1,6 +1,6 @@
+import { classifyStreamErrorCode } from './classify-stream-error.js';
 import type { InferenceEvent, InferenceStream } from '../services/ai/index.js';
 import type { SSEEventWriter } from './stream-handler.js';
-import { classifyStreamErrorCode } from './classify-stream-error.js';
 
 export interface ModelStreamEntry {
   modelId: string;
@@ -313,6 +313,7 @@ async function collectSingleMediaModel(
         case 'media-start': {
           await writer.writeModelMediaStart({
             modelId: entry.modelId,
+            assistantMessageId: entry.assistantMessageId,
             mediaType: event.mediaType,
             mimeType: event.mimeType,
           });

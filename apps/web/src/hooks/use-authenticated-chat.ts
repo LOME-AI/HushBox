@@ -1,7 +1,26 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import type { PromptInputRef } from '@/components/chat/prompt-input';
+import {
+  createFirstEpoch,
+  getPublicKeyFromPrivate,
+  encryptTextForEpoch,
+  decryptTextFromEpoch,
+} from '@hushbox/crypto';
+import {
+  generateChatTitle,
+  toBase64,
+  fromBase64,
+  friendlyErrorMessage,
+  ERROR_CODE_CHAT_STREAM_FAILED,
+  ROUTES,
+  type FundingSource,
+  type MemberPrivilege,
+  type Modality,
+  type ImageConfig,
+  type VideoConfig,
+  type AudioConfig,
+} from '@hushbox/shared';
 import {
   createUserMessage,
   createAssistantMessage,
@@ -18,8 +37,6 @@ import {
   type RegenerateStreamRequest,
   type ModelResult,
 } from '@/hooks/use-chat-stream';
-import type { DoneEventData, StageDoneEventData, StartEventData } from '@/lib/sse-client';
-import type { StageErrorPayload, StageStartPayload } from '@hushbox/shared';
 import { useOptimisticMessages } from '@/hooks/use-optimistic-messages';
 import {
   useConversation,
@@ -36,38 +53,27 @@ import { useChatErrorStore, createChatError } from '@/stores/chat-error';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { billingKeys } from '@/hooks/billing';
 import {
-  createFirstEpoch,
-  getPublicKeyFromPrivate,
-  encryptTextForEpoch,
-  decryptTextFromEpoch,
-} from '@hushbox/crypto';
-import {
   setEpochKey,
   getEpochKey,
   subscribe as epochCacheSubscribe,
   getSnapshot as epochCacheSnapshot,
 } from '@/lib/epoch-key-cache';
-import {
-  generateChatTitle,
-  toBase64,
-  fromBase64,
-  friendlyErrorMessage,
-  ERROR_CODE_CHAT_STREAM_FAILED,
-  ROUTES,
-  type FundingSource,
-  type MemberPrivilege,
-  type Modality,
-  type ImageConfig,
-  type VideoConfig,
-  type AudioConfig,
-} from '@hushbox/shared';
-import type { Message, MessageMediaItem } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useDecryptedMessages } from '@/hooks/use-decrypted-messages';
 import { useForks } from '@/hooks/forks';
 import { useForkMessages } from '@/hooks/use-fork-messages';
 import { client, fetchJson } from '@/lib/api-client';
+import type { Message, MessageMediaItem } from '@/lib/api';
+import type { StageErrorPayload, StageStartPayload } from '@hushbox/shared';
+import type {
+  DoneEventData,
+  ModelMediaProgressData,
+  ModelMediaStartData,
+  StageDoneEventData,
+  StartEventData,
+} from '@/lib/sse-client';
+import type { PromptInputRef } from '@/components/chat/prompt-input';
 
 interface UseAuthenticatedChatInput {
   readonly routeConversationId: string;
@@ -504,6 +510,8 @@ export function useAuthenticatedChat({
     setOptimisticMessageStageStart,
     setOptimisticMessageStageDone,
     setOptimisticMessageStageError,
+    setOptimisticMessageMediaStart,
+    setOptimisticMessageMediaProgress,
     resetOptimisticMessages,
   } = useOptimisticMessages();
 
@@ -628,6 +636,17 @@ export function useAuthenticatedChat({
           setOptimisticMessageError(msgId, data.code ?? 'STREAM_ERROR');
         }
       },
+      // `model:media:start` fires twice per media model: once pre-gateway with
+      // a placeholder mime, once post-gateway with the real mime. Both calls
+      // overwrite `mediaInFlight` so the placeholder progresses from
+      // "Generating image…" with placeholder mime to a precise mime ahead of
+      // the bytes landing.
+      onModelMediaStart: (data: ModelMediaStartData) => {
+        setOptimisticMessageMediaStart(data.assistantMessageId, data.mediaType, data.mimeType);
+      },
+      onModelMediaProgress: (data: ModelMediaProgressData) => {
+        setOptimisticMessageMediaProgress(data.assistantMessageId, data.percent);
+      },
       onStageStart: (data: StageStartPayload) => {
         setOptimisticMessageStageStart(data.assistantMessageId, data.stageId);
       },
@@ -643,6 +662,8 @@ export function useAuthenticatedChat({
       addOptimisticMessage,
       updateOptimisticMessageContent,
       setOptimisticMessageError,
+      setOptimisticMessageMediaStart,
+      setOptimisticMessageMediaProgress,
       setOptimisticMessageStageStart,
       setOptimisticMessageStageDone,
       setOptimisticMessageStageError,

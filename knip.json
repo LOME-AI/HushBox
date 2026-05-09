@@ -25,6 +25,10 @@
       "entry": ["*.ts", "!*.test.ts"],
       "project": ["**/*.ts"]
     },
+    "ops": {
+      "entry": ["**/*.ts", "!**/*.test.ts"],
+      "project": ["**/*.ts"]
+    },
     "e2e": {
       "entry": ["fixtures.ts", "auth.setup.ts", "global-teardown.ts", "**/*.spec.ts"],
       "project": ["**/*.ts"]

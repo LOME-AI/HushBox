@@ -1,0 +1,12 @@
+# Sensitive paths — require @ctf05 approval to merge changes here.
+# Without these rules a contributor could escalate privileges by adding
+# malicious entries to ops/manifest.yml or weakening the deploy workflow
+# in the same PR they apply a `run-script:` label to.
+#
+# These rules only enforce review IF branch protection on `main` has
+# "Require review from Code Owners" enabled. Verify in repo Settings →
+# Branches (or Rulesets) before relying on this protection.
+
+.github/CODEOWNERS                  @ctf05
+.github/workflows/                  @ctf05
+ops/                                @ctf05

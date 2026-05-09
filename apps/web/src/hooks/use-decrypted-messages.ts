@@ -5,13 +5,13 @@ import {
   decryptTextWithContentKey,
   type WrappedContentKey,
 } from '@hushbox/crypto';
-import { useAuthStore } from '@/lib/auth';
-import type { Message, MessageMediaItem } from '@/lib/api';
 import { fromBase64 } from '@hushbox/shared';
-import type { MessageResponse, ContentItemResponse } from '@hushbox/shared';
+import { useAuthStore } from '@/lib/auth';
 import { getEpochKey, processKeyChain } from '@/lib/epoch-key-cache';
 import { useDecryptionActivityStore } from '@/stores/decryption-activity';
 import { keyChainQueryOptions } from '@/hooks/keys';
+import type { MessageResponse, ContentItemResponse } from '@hushbox/shared';
+import type { Message, MessageMediaItem } from '@/lib/api';
 
 function mapSenderTypeToRole(senderType: 'user' | 'ai'): 'user' | 'assistant' {
   return senderType === 'ai' ? 'assistant' : 'user';

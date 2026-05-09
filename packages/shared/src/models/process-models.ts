@@ -4,7 +4,6 @@
  * Handles filtering, classification, and transformation of AI Gateway models.
  */
 
-import type { Model, ModelCapability } from '../schemas/api/models.js';
 import { SMART_MODEL_ID } from '../constants.js';
 import { parseTokenPrice } from '../pricing.js';
 
@@ -12,6 +11,7 @@ import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 
 import { isPremiumModel, PREMIUM_PRICE_PERCENTILE, exceedsTrialBudget } from './premium-check.js';
 import { isZdrModel } from './zdr.js';
+import type { Model, ModelCapability } from '../schemas/api/models.js';
 
 import type { Modality, RawModel, ProcessedModels } from './types.js';
 

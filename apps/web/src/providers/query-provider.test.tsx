@@ -16,8 +16,8 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-import { QueryProvider, shouldRetryQuery } from './query-provider';
 import { ApiError } from '@/lib/api';
+import { QueryProvider, shouldRetryQuery } from './query-provider';
 
 vi.mock('@tanstack/react-query-devtools', () => ({
   ReactQueryDevtools: () => <div data-testid="react-query-devtools" />,

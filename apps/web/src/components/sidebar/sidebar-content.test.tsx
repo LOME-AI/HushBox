@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { SidebarContent } from './sidebar-content';
 import { useUIStore } from '@/stores/ui';
+import { SidebarContent } from './sidebar-content';
 
 // Mock @hushbox/shared with feature flags (partial mock)
 vi.mock('@hushbox/shared', async (importOriginal) => {

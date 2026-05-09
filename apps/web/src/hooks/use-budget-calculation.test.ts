@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
+import { type GetBalanceResponse, LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD } from '@hushbox/shared';
 import { useBudgetCalculation } from './use-budget-calculation';
 import * as billingHooks from './billing';
 import type { UseQueryResult } from '@tanstack/react-query';
-import { type GetBalanceResponse, LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD } from '@hushbox/shared';
 
 // Hoist mock functions for vi.mock factories
 const { mockUseStability } = vi.hoisted(() => ({

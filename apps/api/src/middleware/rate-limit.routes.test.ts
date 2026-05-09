@@ -9,9 +9,9 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
+import { rateLimitByUser, rateLimitByIp } from './rate-limit';
 import type { AppEnv } from '../types';
 import type { SessionData } from '../lib/session';
-import { rateLimitByUser, rateLimitByIp } from './rate-limit';
 
 const TEST_USER_ID = 'user-rate-route-001';
 

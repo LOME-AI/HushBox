@@ -1,6 +1,6 @@
-import type { Page } from '@playwright/test';
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages';
+import type { Page } from '@playwright/test';
 
 async function setupRealtimePair(
   alicePage: Page,

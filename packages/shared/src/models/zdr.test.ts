@@ -64,4 +64,9 @@ describe('isZdrModel', () => {
   it('returns false for any audio model (audio modality empty)', () => {
     expect(isZdrModel('some/audio-model', 'audio')).toBe(false);
   });
+
+  it('throws on unrecognized modality (assertNever exhaustiveness guard)', () => {
+    // Cast bypasses TS exhaustiveness — exercises the runtime assertNever.
+    expect(() => isZdrModel('any/model', 'rogue' as 'text')).toThrow(/exhaustiveness/i);
+  });
 });

@@ -1,5 +1,5 @@
-import type { LegalSection, LegalDocumentMeta } from './types.js';
 import { PRIVACY_POLICY_EFFECTIVE_DATE, PRIVACY_CONTACT_EMAIL } from '../constants.js';
+import type { LegalSection, LegalDocumentMeta } from './types.js';
 
 export const PRIVACY_POLICY_META: LegalDocumentMeta = {
   title: 'Privacy Policy',

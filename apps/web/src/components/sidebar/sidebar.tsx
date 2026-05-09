@@ -2,13 +2,13 @@ import * as React from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
 import { Lock } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { Logo } from '@hushbox/ui';
+import { ROUTES } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { useDecryptedConversations, chatKeys } from '@/hooks/chat';
 import { useSession } from '@/lib/auth';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { SidebarPanel } from '@/components/shared/sidebar-panel';
-import { Logo } from '@hushbox/ui';
-import { ROUTES } from '@hushbox/shared';
 import { SidebarContent } from './sidebar-content';
 import { SidebarFooter } from './sidebar-footer';
 

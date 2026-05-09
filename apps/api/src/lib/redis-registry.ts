@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import type { Redis } from '@upstash/redis';
 import { SESSION_MAX_AGE_SECONDS } from './session.js';
+import type { Redis } from '@upstash/redis';
 
 export function defineKey<TSchema extends z.ZodType, TArgs extends unknown[]>(config: {
   schema: TSchema;

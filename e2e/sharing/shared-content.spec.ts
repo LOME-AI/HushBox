@@ -229,6 +229,7 @@ test.describe('Shared Content', () => {
       const body = capturedShareBody!;
       expect(body).not.toContain('"modelName"');
       expect(body).not.toContain('"cost"');
+      expect(body).not.toContain('"isSmartModel"');
     });
   });
 
@@ -280,6 +281,16 @@ test.describe('Shared Content', () => {
 
     await test.step('guest sees the rendered video at the share URL', async () => {
       const recipient = await createPage();
+
+      // Intercept the share fetch to assert sensitive fields are stripped from
+      // the public payload (parity with the image-share test).
+      let capturedShareBody: string | null = null;
+      await recipient.route('**/api/shares/*', async (route) => {
+        const response = await route.fetch();
+        capturedShareBody = await response.text();
+        await route.fulfill({ response });
+      });
+
       await recipient.goto(shareUrl, { waitUntil: 'domcontentloaded' });
 
       await expect(recipient.getByTestId('shared-message-loading')).not.toBeVisible({
@@ -290,6 +301,13 @@ test.describe('Shared Content', () => {
       await expect(videoElement).toBeVisible({ timeout: 15_000 });
 
       await expect(recipient.getByTestId('shared-message-error')).not.toBeVisible();
+
+      // Sensitive metadata must not appear in the public share payload.
+      expect(capturedShareBody, 'share response not captured').toBeTruthy();
+      const body = capturedShareBody!;
+      expect(body).not.toContain('"modelName"');
+      expect(body).not.toContain('"cost"');
+      expect(body).not.toContain('"isSmartModel"');
     });
   });
 
@@ -406,5 +424,97 @@ test.describe('Shared Content', () => {
       timeout: 15_000,
     });
     await expect(recipient.locator('img')).toHaveCount(0);
+  });
+
+  /**
+   * Lane 9 #2: a group-conversation invite link must surface generated image
+   * and video assets to a fresh, unauthenticated browser context. Owner Alice
+   * generates one image and one video inside a group conversation, then mints
+   * a public invite link with history. A guest opens the link and both media
+   * elements decode (non-zero `naturalWidth` / playable `<video>`).
+   */
+  test('group invite link surfaces generated image and video to guests', async ({
+    authenticatedPage,
+    groupConversation,
+    createPage,
+  }) => {
+    test.slow();
+
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.gotoConversation(groupConversation.id);
+    await chatPage.waitForConversationLoaded();
+
+    await test.step('owner generates an image inside the group conversation', async () => {
+      // Image modality from inside an existing conversation: same icon as the
+      // new-chat page; click it then send a follow-up message.
+      const imageIcon = authenticatedPage.getByRole('button', { name: /switch to image/i });
+      await expect(imageIcon).toBeVisible();
+      await imageIcon.click();
+      await expect(authenticatedPage.getByRole('button', { name: '1:1' })).toBeVisible();
+
+      await chatPage.sendFollowUpMessage(`Group image ${String(Date.now())}`);
+      await chatPage.expectImageVisible(30_000);
+      await chatPage.waitForStreamComplete(30_000);
+    });
+
+    await test.step('owner generates a video inside the same group conversation', async () => {
+      const videoIcon = authenticatedPage.getByRole('button', { name: /switch to video/i });
+      await expect(videoIcon).toBeVisible();
+      await videoIcon.click();
+      await expect(authenticatedPage.getByRole('button', { name: /720p/i })).toBeVisible();
+
+      await chatPage.sendFollowUpMessage(`Group video ${String(Date.now())}`);
+      await chatPage.expectVideoVisible(30_000);
+      await chatPage.waitForStreamComplete(30_000);
+    });
+
+    let inviteUrl = '';
+
+    await test.step('owner mints a public invite link with full history', async () => {
+      const sidebar = new MemberSidebarPage(authenticatedPage);
+      await sidebar.openViaFacepile();
+      await sidebar.waitForLoaded();
+
+      const result = await createInviteLink(authenticatedPage, sidebar, {
+        withHistory: true,
+        closeMethod: 'escape',
+        extractLinkId: false,
+      });
+      inviteUrl = result.url;
+      expect(inviteUrl).toContain('/share/c/');
+      expect(inviteUrl).toContain('#');
+    });
+
+    await test.step('guest sees both image and video render at the invite URL', async () => {
+      const guest = await createPage();
+      await guest.goto(inviteUrl, { waitUntil: 'domcontentloaded' });
+
+      await expect(guest.getByTestId('shared-conversation-loading')).not.toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(guest.getByTestId('shared-conversation-error')).not.toBeVisible();
+
+      const imageElement = guest.locator('img').first();
+      await expect(imageElement).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(async () => imageElement.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
+          timeout: 10_000,
+        })
+        .toBeGreaterThan(0);
+
+      const videoElement = guest.locator('video').first();
+      await expect(videoElement).toBeVisible({ timeout: 15_000 });
+      // Wait until the video reports a parseable duration (metadata loaded).
+      await expect
+        .poll(
+          async () =>
+            videoElement.evaluate((el) => {
+              const v = el as HTMLVideoElement;
+              return Number.isFinite(v.duration) ? v.duration : 0;
+            }),
+          { timeout: 15_000 }
+        )
+        .toBeGreaterThan(0);
+    });
   });
 });

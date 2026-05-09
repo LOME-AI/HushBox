@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { HamburgerButton } from './hamburger-button';
 import { useUIStore } from '@/stores/ui';
+import { HamburgerButton } from './hamburger-button';
 
 describe('HamburgerButton', () => {
   beforeEach(() => {

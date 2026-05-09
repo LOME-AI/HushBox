@@ -1,6 +1,5 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ContentKey } from '@hushbox/crypto';
 
 vi.mock('../hooks/use-shared-message.js', () => ({
   useSharedMessage: vi.fn(),
@@ -12,9 +11,9 @@ vi.mock('../components/shared/app-shell.js', () => ({
   ),
 }));
 
-// ChatLayout is mocked for safety: the page no longer uses it after Step 9, but
-// if a stale reference slips through, we want the test to fail on the assertion,
-// not on a cascade of env-parsing side effects from the real ChatLayout tree.
+// ChatLayout is mocked for safety: this page does not use it, but if a stale
+// reference slips through we want the test to fail on the assertion, not on a
+// cascade of env-parsing side effects from the real ChatLayout tree.
 vi.mock('../components/chat/chat-layout.js', () => ({
   ChatLayout: () => <div data-testid="chat-layout-should-not-render" />,
 }));
@@ -60,6 +59,7 @@ vi.mock('@tanstack/react-router', () => ({
 
 import { useSharedMessage } from '../hooks/use-shared-message.js';
 import { SharedMessagePage } from './share.m.$shareId.js';
+import type { ContentKey } from '@hushbox/crypto';
 
 const mockUseSharedMessage = vi.mocked(useSharedMessage);
 

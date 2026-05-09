@@ -4,6 +4,7 @@ import {
   ERROR_CODE_CONTEXT_LENGTH_EXCEEDED,
   ERROR_CODE_DUPLICATE_MESSAGE,
   ERROR_CODE_FORK_TIP_CONFLICT,
+  ERROR_CODE_INFERENCE_FAILED,
   ERROR_CODE_NETWORK_ERROR,
   ERROR_CODE_PROVIDER_BILLING,
   ERROR_CODE_RATE_LIMITED,
@@ -18,10 +19,36 @@ describe('classifyStreamErrorCode', () => {
     expect(classifyStreamErrorCode(42)).toBe(ERROR_CODE_STREAM_ERROR);
   });
 
-  it('returns STREAM_ERROR for an unrelated Error', () => {
+  it('returns STREAM_ERROR for a non-AI-SDK Error with no other classification', () => {
     expect(classifyStreamErrorCode(new Error('something else broke'))).toBe(
       ERROR_CODE_STREAM_ERROR
     );
+  });
+
+  describe('inference failed', () => {
+    it('classifies AI SDK errors (name prefixed with AI_) as INFERENCE_FAILED', () => {
+      const error = new Error('upstream provider returned 500');
+      error.name = 'AI_APICallError';
+      expect(classifyStreamErrorCode(error)).toBe(ERROR_CODE_INFERENCE_FAILED);
+    });
+
+    it('classifies generic AISDKError as INFERENCE_FAILED', () => {
+      const error = new Error('SDK invariant');
+      error.name = 'AISDKError';
+      expect(classifyStreamErrorCode(error)).toBe(ERROR_CODE_INFERENCE_FAILED);
+    });
+
+    it('still routes specific buckets first (rate limit beats inference failed)', () => {
+      const error = Object.assign(new Error('Provider rate limit exceeded'), { status: 429 });
+      error.name = 'AI_APICallError';
+      expect(classifyStreamErrorCode(error)).toBe(ERROR_CODE_RATE_LIMITED);
+    });
+
+    it('still routes specific buckets first (network beats inference failed)', () => {
+      const error = new TypeError('fetch failed connecting');
+      error.name = 'AI_APICallError';
+      expect(classifyStreamErrorCode(error)).toBe(ERROR_CODE_NETWORK_ERROR);
+    });
   });
 
   it('classifies context-length errors', () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import type { EmailOptions } from './types.js';
 import { createConsoleEmailClient } from './console.js';
+import type { EmailOptions } from './types.js';
 
 describe('createConsoleEmailClient', () => {
   const testEmail: EmailOptions = {

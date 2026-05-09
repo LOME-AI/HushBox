@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { x25519 } from '@noble/curves/ed25519.js';
 import { randomBytes } from '@noble/hashes/utils.js';
+import { at } from '@hushbox/shared/src/test-utilities.js';
 import {
   createAccount,
   unwrapAccountKeyWithPassword,
@@ -21,12 +22,11 @@ import {
   encryptTextWithContentKey,
   decryptTextWithContentKey,
 } from './message-encrypt.js';
-import type { WrappedContentKey } from './content-key.js';
 import { wrapEpochKeyForNewMember } from './member.js';
 import { createSharedLink, deriveKeysFromLinkSecret } from './link.js';
 import { createShare, openShare } from './message-share.js';
 import { DecryptionError } from './errors.js';
-import { at } from '@hushbox/shared/src/test-utilities.js';
+import type { WrappedContentKey } from './content-key.js';
 
 /**
  * Small test helpers that mirror the wrap-once storage model:

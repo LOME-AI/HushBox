@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { Loader2 } from 'lucide-react';
+import { ROUTES } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { ChatItem } from './chat-item';
-import { ROUTES } from '@hushbox/shared';
 
 interface Conversation {
   id: string;

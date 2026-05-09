@@ -1,9 +1,9 @@
-import type { Context, Next, MiddlewareHandler } from 'hono';
 import { ERROR_CODE_UNAUTHORIZED, ERROR_CODE_LINK_NOT_FOUND } from '@hushbox/shared';
-import type { AppEnv } from '../types.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { resolveLinkGuest } from './resolve-link-guest.js';
 import { LINK_PUBLIC_KEY_HEADER } from './constants.js';
+import type { AppEnv } from '../types.js';
+import type { Context, Next, MiddlewareHandler } from 'hono';
 
 async function linkGuestHandler(c: Context<AppEnv>, next: Next): Promise<Response | undefined> {
   const linkPublicKeyBase64 = c.req.header(LINK_PUBLIC_KEY_HEADER);

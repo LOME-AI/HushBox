@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { TrialChatPage } from './trial-chat-page';
 import { TrialRateLimitError } from '@/hooks/use-chat-stream';
+import { createModelStoreStub } from '@/test-utils/model-store-mock';
+import { TrialChatPage } from './trial-chat-page';
 import type { TrialMessage } from '@/stores/trial-chat';
 
 vi.mock('@/lib/api', () => ({
@@ -94,7 +95,6 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 import type { ModelStoreStub } from '@/test-utils/model-store-mock';
-import { createModelStoreStub } from '@/test-utils/model-store-mock';
 
 const mockUseModelStore = vi.fn<() => ModelStoreStub>();
 vi.mock('@/stores/model', async (importOriginal) => {

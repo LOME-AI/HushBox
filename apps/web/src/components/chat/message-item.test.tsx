@@ -69,6 +69,24 @@ vi.mock('./media-content-item', () => ({
   ),
 }));
 
+// Stub the epoch key cache + crypto primitives to count ECIES unwraps.
+// We assert that openMessageEnvelope is called once per message regardless of
+// how many media items the message carries (Issue #1: hoist contentKey).
+const mockOpenMessageEnvelope = vi.fn(() => new Uint8Array([1, 2, 3]));
+vi.mock('@hushbox/crypto', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@hushbox/crypto')>();
+  return {
+    ...original,
+    openMessageEnvelope: (...args: unknown[]) => mockOpenMessageEnvelope(...(args as [])),
+  };
+});
+vi.mock('@/lib/epoch-key-cache', () => ({
+  getEpochKey: vi.fn(() => new Uint8Array([9, 9, 9])),
+  setEpochKey: vi.fn(),
+  subscribe: vi.fn(() => () => {}),
+  getSnapshot: vi.fn(() => 0),
+}));
+
 const ALL_USER_ACTIONS = new Set<MessageAction>(['copy', 'retry', 'edit', 'fork']);
 const ALL_AI_ACTIONS = new Set<MessageAction>(['copy', 'regenerate', 'fork', 'share']);
 const NO_ACTIONS = new Set<MessageAction>();
@@ -1304,6 +1322,91 @@ describe('MessageItem', () => {
       const { epochNumber: _omitEpoch, ...rest } = messageWithMedia;
       render(<MessageItem message={rest} allowedActions={ALL_AI_ACTIONS} />);
       expect(screen.queryByTestId(/^mock-media-item-/)).not.toBeInTheDocument();
+    });
+
+    describe('media-in-flight placeholder', () => {
+      const inFlightMessage: Message = {
+        ...assistantMessage,
+        id: 'msg-in-flight',
+        content: '',
+      };
+
+      it('shows "Generating image…" when mediaInFlight.mediaType is image', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'image', mimeType: 'image/png' },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        expect(screen.getByRole('status', { name: /generating image/i })).toBeInTheDocument();
+      });
+
+      it('shows "Generating video…" when mediaInFlight.mediaType is video', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'video', mimeType: 'application/octet-stream' },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        expect(screen.getByRole('status', { name: /generating video/i })).toBeInTheDocument();
+      });
+
+      it('shows "Generating audio…" when mediaInFlight.mediaType is audio', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'audio', mimeType: 'audio/mpeg' },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        expect(screen.getByRole('status', { name: /generating audio/i })).toBeInTheDocument();
+      });
+
+      it('renders the progress bar when mediaProgress.percent is set', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'video', mimeType: 'application/octet-stream' },
+          mediaProgress: { percent: 42 },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        const bar = screen.getByTestId('media-progress-bar');
+        expect(bar).toBeInTheDocument();
+        const fill = bar.querySelector('div');
+        expect(fill?.getAttribute('style')).toContain('42%');
+      });
+    });
+
+    it('unwraps the message contentKey once even with multiple media items', () => {
+      // Issue #1 / Plan §15.5: the parent resolves contentKey once and passes
+      // it to each MediaContentItem, so an N-image message does ONE ECIES
+      // unwrap, not N. Asserts on `openMessageEnvelope` call count.
+      mockOpenMessageEnvelope.mockClear();
+      const msgWithThreeMedia: Message = {
+        ...messageWithMedia,
+        mediaItems: [
+          {
+            id: 'ci-a',
+            contentType: 'image',
+            position: 0,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+          {
+            id: 'ci-b',
+            contentType: 'image',
+            position: 1,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+          {
+            id: 'ci-c',
+            contentType: 'image',
+            position: 2,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+        ],
+      };
+      render(<MessageItem message={msgWithThreeMedia} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getAllByTestId(/^mock-media-item-/)).toHaveLength(3);
+      // Exactly once across all media items in this message.
+      expect(mockOpenMessageEnvelope).toHaveBeenCalledTimes(1);
     });
   });
 });

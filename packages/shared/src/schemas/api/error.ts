@@ -223,6 +223,14 @@ export const ERROR_CODE_PREMIUM_REQUIRES_BALANCE = 'PREMIUM_REQUIRES_BALANCE';
 /** Premium model requires a free account */
 export const ERROR_CODE_PREMIUM_REQUIRES_ACCOUNT = 'PREMIUM_REQUIRES_ACCOUNT';
 
+/**
+ * Selected model is gated to paid accounts and the caller is a free/trial/guest
+ * tier user. Distinct from {@link ERROR_CODE_PREMIUM_REQUIRES_BALANCE} (which
+ * covers paid users with empty balance) — this one fires when the tier itself
+ * disqualifies the user from premium models regardless of balance.
+ */
+export const ERROR_CODE_MODEL_TIER_LOCKED = 'MODEL_TIER_LOCKED';
+
 /** Trial message exceeds cost limits */
 export const ERROR_CODE_TRIAL_MESSAGE_TOO_EXPENSIVE = 'TRIAL_MESSAGE_TOO_EXPENSIVE';
 
@@ -268,6 +276,14 @@ export const ERROR_CODE_MESSAGE_NOT_FOUND = 'MESSAGE_NOT_FOUND';
 
 /** Shared message not found */
 export const ERROR_CODE_SHARE_NOT_FOUND = 'SHARE_NOT_FOUND';
+
+/**
+ * Caller cannot share the requested message because they are not (or are no
+ * longer) an active member of the message's conversation. More specific than
+ * {@link ERROR_CODE_FORBIDDEN}: the share-create endpoint uses this so the
+ * frontend can render a sharing-specific message.
+ */
+export const ERROR_CODE_SHARE_FORBIDDEN = 'SHARE_FORBIDDEN';
 
 /** Member wrap set does not match active members */
 export const ERROR_CODE_WRAP_SET_MISMATCH = 'WRAP_SET_MISMATCH';
@@ -393,6 +409,13 @@ export const ERROR_CODE_INFERENCE_FAILED = 'INFERENCE_FAILED';
 
 /** Media generation produced no output bytes (empty result from gateway). */
 export const ERROR_CODE_EMPTY_MEDIA_RESULT = 'EMPTY_MEDIA_RESULT';
+
+/**
+ * Generated media has a mime type the platform does not recognize. Surfaced
+ * during the upload step so corrupt rows never enter the DB. Validated against
+ * the mime allowlist enum in `message-shares.ts`.
+ */
+export const ERROR_CODE_UNKNOWN_MIME_TYPE = 'UNKNOWN_MIME_TYPE';
 
 /** Image/video/audio modality is not available for trial users. */
 export const ERROR_CODE_MEDIA_TRIAL_BLOCKED = 'MEDIA_TRIAL_BLOCKED';

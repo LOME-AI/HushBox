@@ -1,9 +1,9 @@
-import type { QueryClient } from '@tanstack/react-query';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StreamChatRotation } from '@hushbox/shared';
 import { client, fetchJson } from '../lib/api-client.js';
 import { budgetKeys } from './use-conversation-budgets.js';
 import { chatKeys } from './chat.js';
+import type { StreamChatRotation } from '@hushbox/shared';
+import type { QueryClient } from '@tanstack/react-query';
 
 export function useMuteConversation() {
   const queryClient = useQueryClient();

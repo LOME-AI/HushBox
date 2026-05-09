@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ResolveBillingInput } from '@hushbox/shared';
 import { buildBillingInput, buildGuestBillingInput } from './resolve.js';
+import type { AIClient } from '../ai/index.js';
 
 // ============================================================================
 // Mocks
@@ -16,7 +17,6 @@ vi.mock('../../lib/speculative-balance.js', () => ({
 }));
 
 vi.mock('@hushbox/shared/models', () => ({
-  fetchModels: vi.fn(),
   processModels: vi.fn(),
 }));
 
@@ -26,18 +26,22 @@ vi.mock('./budgets.js', () => ({
 }));
 
 // Import mocks after vi.mock
-import { getUserTierInfo } from './balance.js';
+import { processModels } from '@hushbox/shared/models';
 import { getReservedTotal, getGroupReservedTotals } from '../../lib/speculative-balance.js';
-import { fetchModels, processModels } from '@hushbox/shared/models';
+import { getUserTierInfo } from './balance.js';
 import { getConversationBudgets, computeGroupRemaining } from './budgets.js';
 
 const mockGetUserTierInfo = vi.mocked(getUserTierInfo);
 const mockGetReservedTotal = vi.mocked(getReservedTotal);
 const mockGetGroupReservedTotals = vi.mocked(getGroupReservedTotals);
-const mockFetchModels = vi.mocked(fetchModels);
+const mockListRawModels = vi.fn();
 const mockProcessModels = vi.mocked(processModels);
 const mockGetConversationBudgets = vi.mocked(getConversationBudgets);
 const mockComputeGroupRemaining = vi.mocked(computeGroupRemaining);
+
+const stubAIClient = {
+  listRawModels: mockListRawModels,
+} as unknown as AIClient;
 
 // Minimal mock objects
 const mockDb = {} as Parameters<typeof buildBillingInput>[0];
@@ -69,7 +73,7 @@ function setupPersonalMocks(overrides: {
     canAccessPremium,
   });
   mockGetReservedTotal.mockResolvedValue(reservedCents);
-  mockFetchModels.mockResolvedValue([]);
+  mockListRawModels.mockResolvedValue([]);
   mockProcessModels.mockReturnValue({ models: [], premiumIds });
 }
 
@@ -87,8 +91,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ tier: 'paid', balanceCents: 1000, reservedCents: 200 });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -106,8 +109,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ tier: 'paid', balanceCents: 500, reservedCents: 300 });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -119,8 +121,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ premiumIds: ['expensive/model'] });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['expensive/model'],
       });
@@ -132,8 +133,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ premiumIds: ['expensive/model'] });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -145,8 +145,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ tier: 'free', balanceCents: 0, freeAllowanceCents: 50 });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -158,8 +157,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({});
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -171,8 +169,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({});
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -228,8 +225,7 @@ describe('buildBillingInput', () => {
       });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -287,8 +283,7 @@ describe('buildBillingInput', () => {
       });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -347,8 +342,7 @@ describe('buildBillingInput', () => {
       });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -396,8 +390,7 @@ describe('buildBillingInput', () => {
       });
 
       await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -458,8 +451,7 @@ describe('buildBillingInput', () => {
       });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -521,8 +513,7 @@ describe('buildBillingInput', () => {
       });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -538,8 +529,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ tier: 'paid', balanceCents: 1000 });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -551,8 +541,7 @@ describe('buildBillingInput', () => {
       setupPersonalMocks({ tier: 'paid', balanceCents: 1000, reservedCents: 300 });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -571,8 +560,7 @@ describe('buildBillingInput', () => {
       });
 
       const result = await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
       });
@@ -618,8 +606,7 @@ describe('buildBillingInput', () => {
       });
 
       await buildBillingInput(mockDb, mockRedis, {
-        apiKey: 'test-key',
-        publicModelsUrl: 'https://test.example/v1/models',
+        aiClient: stubAIClient,
         userId: 'user-1',
         models: ['cheap/model'],
         memberContext: { memberId: 'member-1', ownerId: 'owner-1' },
@@ -692,7 +679,7 @@ function setupGuestMocks(overrides: {
 
   mockComputeGroupRemaining.mockReturnValue(groupRemaining);
 
-  mockFetchModels.mockResolvedValue([]);
+  mockListRawModels.mockResolvedValue([]);
   mockProcessModels.mockReturnValue({ models: [], premiumIds });
 }
 
@@ -705,8 +692,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({});
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
-      apiKey: 'test-key',
-      publicModelsUrl: 'https://test.example/v1/models',
+      aiClient: stubAIClient,
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -722,8 +708,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({});
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
-      apiKey: 'test-key',
-      publicModelsUrl: 'https://test.example/v1/models',
+      aiClient: stubAIClient,
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -746,8 +731,7 @@ describe('buildGuestBillingInput', () => {
     });
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
-      apiKey: 'test-key',
-      publicModelsUrl: 'https://test.example/v1/models',
+      aiClient: stubAIClient,
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -771,8 +755,7 @@ describe('buildGuestBillingInput', () => {
     });
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
-      apiKey: 'test-key',
-      publicModelsUrl: 'https://test.example/v1/models',
+      aiClient: stubAIClient,
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -786,8 +769,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({ premiumIds: ['expensive/model'] });
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
-      apiKey: 'test-key',
-      publicModelsUrl: 'https://test.example/v1/models',
+      aiClient: stubAIClient,
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['expensive/model'],
@@ -801,8 +783,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({ premiumIds: ['expensive/model'] });
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
-      apiKey: 'test-key',
-      publicModelsUrl: 'https://test.example/v1/models',
+      aiClient: stubAIClient,
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -823,8 +804,7 @@ describe('buildGuestBillingInput', () => {
     });
 
     await buildGuestBillingInput(mockDb, mockRedis, {
-      apiKey: 'test-key',
-      publicModelsUrl: 'https://test.example/v1/models',
+      aiClient: stubAIClient,
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -850,8 +830,7 @@ describe('buildGuestBillingInput', () => {
     });
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
-      apiKey: 'test-key',
-      publicModelsUrl: 'https://test.example/v1/models',
+      aiClient: stubAIClient,
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -871,8 +850,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({});
 
     await buildGuestBillingInput(mockDb, mockRedis, {
-      apiKey: 'test-key',
-      publicModelsUrl: 'https://test.example/v1/models',
+      aiClient: stubAIClient,
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -886,8 +864,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({});
 
     await buildGuestBillingInput(mockDb, mockRedis, {
-      apiKey: 'test-key',
-      publicModelsUrl: 'https://test.example/v1/models',
+      aiClient: stubAIClient,
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],
@@ -902,8 +879,7 @@ describe('buildGuestBillingInput', () => {
     setupGuestMocks({});
 
     const result = await buildGuestBillingInput(mockDb, mockRedis, {
-      apiKey: 'test-key',
-      publicModelsUrl: 'https://test.example/v1/models',
+      aiClient: stubAIClient,
       ownerId: 'owner-1',
       memberId: 'member-1',
       models: ['cheap/model'],

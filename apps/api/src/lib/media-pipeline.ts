@@ -7,32 +7,28 @@
  * (`saveChatTurn`), attach presigned URLs to the SSE done event, and
  * broadcast completion. Modality-specific behavior (request shape, pricing,
  * fallback message) plugs in via the `MediaModalityStrategy` descriptor.
- *
- * Lifted out of `stream-pipeline.ts` to give the orchestrator and its private
- * helpers a clean home; nothing structural changed relative to the inline
- * implementation.
  */
 
 import { eq } from 'drizzle-orm';
+import { streamSSE } from 'hono/streaming';
 import { conversations } from '@hushbox/db';
 import {
+  ALLOWED_MEDIA_MIME_TYPES,
+  DEFAULT_MIME_TYPE_BY_MODALITY,
   ERROR_CODE_BILLING_ERROR,
+  ERROR_CODE_EMPTY_MEDIA_RESULT,
+  ERROR_CODE_STORAGE_WRITE_FAILED,
+  ERROR_CODE_UNKNOWN_MIME_TYPE,
   KEEPALIVE_INTERVAL_MS,
   MEDIA_DOWNLOAD_URL_TTL_SECONDS,
+  assertNever,
   calculateMediaGenerationCost,
+  type AllowedMediaMimeType,
 } from '@hushbox/shared';
 import { beginMessageEnvelope, encryptBinaryWithContentKey } from '@hushbox/crypto';
-import { streamSSE } from 'hono/streaming';
 import { createEvent } from '@hushbox/realtime/events';
-import type { Context } from 'hono';
-import type { AppEnv } from '../types.js';
-import type { InferenceRequest } from '../services/ai/index.js';
-import type { MemberContext } from '../services/billing/index.js';
 import { fetchEpochPublicKey } from '../services/chat/message-helpers.js';
 import { saveChatTurn } from '../services/chat/index.js';
-import type { SaveChatTurnResult } from '../services/chat/index.js';
-import type { MediaAssistantMessageInput } from '../services/chat/message-persistence.js';
-import type { MediaStorage } from '../services/storage/index.js';
 import { broadcastFireAndForget } from './broadcast.js';
 import {
   collectMultiMediaModelStreams,
@@ -41,15 +37,22 @@ import {
 } from './multi-stream.js';
 import { safeExecutionCtx } from './safe-execution-ctx.js';
 import { createSSEEventWriter } from './stream-handler.js';
+import { buildGroupBillingContext } from './billing-types.js';
+import type { Context } from 'hono';
+import type { AppEnv } from '../types.js';
+import type { InferenceRequest, Modality } from '../services/ai/index.js';
+import type { MemberContext } from '../services/billing/index.js';
+import type { SaveChatTurnResult } from '../services/chat/index.js';
+import type { MediaAssistantMessageInput } from '../services/chat/message-persistence.js';
+import type { MediaStorage } from '../services/storage/index.js';
 import type { GroupBudgetReservation } from './speculative-balance.js';
+import type { MediaPersistPricing } from './billing-types.js';
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
 export type { MediaPersistPricing } from './billing-types.js';
-import type { MediaPersistPricing } from './billing-types.js';
-import { buildGroupBillingContext } from './billing-types.js';
 
 export interface MediaPipelineInput {
   c: Context<AppEnv>;
@@ -64,11 +67,20 @@ export interface MediaPipelineInput {
   senderId: string;
   forkId: string | undefined;
   parentMessageId: string | null;
+  /**
+   * Modality for the batch. Used by the orchestrator to emit modality-aware
+   * SSE events (`model:media:start` carries this directly; `model:media:
+   * progress` is video-only). Each per-modality pipeline (image / video /
+   * audio) sets this when it constructs the input — there is no mixing.
+   */
+  mediaType: MediaModality;
   pricingFor: (modelId: string, result: MediaStreamResult) => MediaPersistPricing;
   buildRequest: (modelId: string) => InferenceRequest;
   /** Message written to SSE when every model in the batch fails. */
   noContentErrorMessage: string;
 }
+
+type MediaModality = Extract<Modality, 'image' | 'audio' | 'video'>;
 
 type SSEEventWriter = ReturnType<typeof createSSEEventWriter>;
 
@@ -94,21 +106,271 @@ async function writeKeepAliveSafe(stream: {
 }
 
 // ---------------------------------------------------------------------------
+// Internal errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Signals that R2 PUT rejected during the media upload step. Caught at the
+ * top of `executeMediaPipeline` so the failure surfaces as
+ * {@link ERROR_CODE_STORAGE_WRITE_FAILED} on the SSE stream rather than
+ * propagating into billing (which would emit the generic billing error).
+ */
+class MediaStorageWriteError extends Error {
+  override readonly name = 'MediaStorageWriteError';
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    if (cause instanceof Error && cause.stack !== undefined) this.stack = cause.stack;
+  }
+}
+
+/**
+ * Signals that the gateway returned bytes with a mime type the platform does
+ * not recognize. We refuse to persist the row — surfacing a clear
+ * {@link ERROR_CODE_UNKNOWN_MIME_TYPE} is better than silently storing data
+ * the client can't decode.
+ */
+class UnknownMimeTypeError extends Error {
+  override readonly name = 'UnknownMimeTypeError';
+  readonly mimeType: string;
+  constructor(mimeType: string) {
+    super(`Disallowed mime type from gateway: ${mimeType}`);
+    this.mimeType = mimeType;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function defaultMimeType(kind: MediaPersistPricing['kind']): string {
+/**
+ * Placeholder mimeType emitted in the early `model:media:start` event. The
+ * actual mime is delivered later via `model:done` once the gateway has
+ * produced bytes.
+ */
+const PLACEHOLDER_MIME_TYPE = 'application/octet-stream';
+
+/**
+ * Multiplier applied to the requested video duration to estimate gateway
+ * generation time. AI Gateway video providers run roughly 5–10x real-time;
+ * 8 is a safe midpoint that produces tight progress steps without finishing
+ * the synthetic 0–95% sweep before the call returns.
+ */
+const VIDEO_GENERATION_MULTIPLIER = 8;
+
+/**
+ * Default expected duration in seconds when the request omits
+ * `durationSeconds` (e.g. provider-default video length). Picked at the long
+ * end of typical 5-second clips × the multiplier so progress doesn't run out
+ * before the gateway responds. Tuning this never affects correctness — only
+ * the visual cadence of the progress bar.
+ */
+const VIDEO_DEFAULT_REQUESTED_SECONDS = 5;
+
+/**
+ * Synthetic progress sweeps from 0 to {@link MAX_PROGRESS_PERCENT} during
+ * the expected window. The pipeline never emits 100% pre-completion — that
+ * value is implied by `model:done`.
+ */
+const MAX_PROGRESS_PERCENT = 95;
+
+/**
+ * Granularity of the synthetic progress sweep. Emitting every 10% keeps SSE
+ * bandwidth tiny (≈10 events per video) while still giving the UI enough
+ * resolution to animate a progress bar smoothly.
+ */
+const PROGRESS_PERCENT_STEP = 10;
+
+/**
+ * Heartbeat interval applied AFTER the synthetic sweep tops out at 95% but
+ * the actual gateway call has not yet returned. Re-emitting `percent: 95`
+ * keeps the client's "still generating" indicator from going stale.
+ */
+const PROGRESS_HEARTBEAT_INTERVAL_MS = 5000;
+
+/**
+ * Returns the default mime type for a given media pricing kind. Values come
+ * from {@link DEFAULT_MIME_TYPE_BY_MODALITY} so the schema enum is the single
+ * source of truth — adding a new modality requires updating the map and its
+ * typed signature, both of which the compiler enforces. The switch keeps the
+ * `assertNever` exhaustiveness guard observable to a focused unit test that
+ * bypasses typing with a cast.
+ */
+export function defaultMimeType(kind: MediaPersistPricing['kind']): AllowedMediaMimeType {
   switch (kind) {
-    case 'image': {
-      return 'image/png';
-    }
-    case 'video': {
-      return 'video/mp4';
-    }
+    case 'image':
+    case 'video':
     case 'audio': {
-      return 'audio/mpeg';
+      return DEFAULT_MIME_TYPE_BY_MODALITY[kind];
+    }
+    default: {
+      return assertNever(kind);
     }
   }
+}
+
+/**
+ * Exposed for unit tests in {@link media-pipeline.test.ts}. Production code
+ * should keep using the higher-level {@link executeMediaPipeline} entry
+ * point; the timer plumbing is an implementation detail.
+ */
+export interface VideoProgressTimerHandle {
+  /** Cancel both the sweep and the heartbeat timers. Safe to call multiple times. */
+  stop(): void;
+}
+
+/**
+ * Start a synthetic 0–95% progress sweep keyed off the EXPECTED video
+ * generation duration. Image and audio do not call this — image is fast
+ * enough that the loading placeholder suffices; audio is similarly short.
+ *
+ * Sweep cadence: emit `PROGRESS_PERCENT_STEP`% every
+ * `expectedDurationMs / (95 / PROGRESS_PERCENT_STEP)` milliseconds. Once the
+ * sweep tops out at 95%, switch to a slower heartbeat that re-emits 95%
+ * every {@link PROGRESS_HEARTBEAT_INTERVAL_MS} so the UI knows we're still
+ * waiting on the gateway.
+ *
+ * The caller is responsible for invoking `stop()` once `model:done` is
+ * sent (or the request is aborted).
+ */
+export function startVideoProgressTimer(
+  writer: SSEEventWriter,
+  models: string[],
+  getAssistantId: (modelId: string) => string,
+  expectedDurationMs: number
+): VideoProgressTimerHandle {
+  const stepCount = Math.floor(MAX_PROGRESS_PERCENT / PROGRESS_PERCENT_STEP);
+  const sweepIntervalMs = Math.max(1, Math.floor(expectedDurationMs / stepCount));
+
+  let percent = 0;
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  const emitForAllModels = async (value: number): Promise<void> => {
+    for (const modelId of models) {
+      await writer.writeModelMediaProgress({
+        modelId,
+        assistantMessageId: getAssistantId(modelId),
+        percent: value,
+      });
+    }
+  };
+
+  const sweepTimer = setInterval(() => {
+    percent += PROGRESS_PERCENT_STEP;
+    if (percent >= MAX_PROGRESS_PERCENT) {
+      percent = MAX_PROGRESS_PERCENT;
+      clearInterval(sweepTimer);
+      // Switch to heartbeat at 95%. The client treats `model:done` as 100%.
+      heartbeatTimer = setInterval(() => {
+        void emitForAllModels(MAX_PROGRESS_PERCENT);
+      }, PROGRESS_HEARTBEAT_INTERVAL_MS);
+    }
+    void emitForAllModels(percent);
+  }, sweepIntervalMs);
+
+  return {
+    stop(): void {
+      clearInterval(sweepTimer);
+      if (heartbeatTimer !== null) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    },
+  };
+}
+
+/**
+ * Compute the expected video generation wait-time in milliseconds from the
+ * request payload. Reads the requested `durationSeconds` from the per-model
+ * request (every entry in a video batch shares the same duration in
+ * practice) and multiplies by {@link VIDEO_GENERATION_MULTIPLIER}.
+ */
+function computeExpectedVideoDurationMs(request: InferenceRequest): number {
+  if (request.modality !== 'video') return 0;
+  const requested = request.durationSeconds ?? VIDEO_DEFAULT_REQUESTED_SECONDS;
+  return requested * VIDEO_GENERATION_MULTIPLIER * 1000;
+}
+
+/**
+ * Emit one early `model:media:start` per model — written BEFORE the gateway
+ * call so the UI can swap "Loading…" for "Generating…" before the long
+ * wait. The mimeType here is a placeholder; the precise mime arrives in
+ * `model:done`. Extracted to keep the streamSSE callback's complexity
+ * within the project lint cap.
+ */
+async function emitMediaStartEvents(
+  writer: SSEEventWriter,
+  models: readonly string[],
+  getAssistantId: (modelId: string) => string,
+  mediaType: MediaModality
+): Promise<void> {
+  for (const modelId of models) {
+    await writer.writeModelMediaStart({
+      modelId,
+      assistantMessageId: getAssistantId(modelId),
+      mediaType,
+      mimeType: PLACEHOLDER_MIME_TYPE,
+    });
+  }
+}
+
+interface BuildStreamEntriesInput {
+  models: readonly string[];
+  getAssistantId: (modelId: string) => string;
+  buildRequest: (modelId: string) => InferenceRequest;
+  aiClient: { stream: (request: InferenceRequest) => MediaModelStreamEntry['stream'] };
+}
+
+/**
+ * Build the per-model inference requests once, then materialize the streams
+ * by calling `aiClient.stream(...)`. Two-step so the requests can also be
+ * inspected later — e.g. to compute the expected video duration for
+ * progress-bar timing — without having to call `buildRequest` twice.
+ */
+function buildStreamEntries(input: BuildStreamEntriesInput): {
+  entries: MediaModelStreamEntry[];
+  requestsByModel: Map<string, InferenceRequest>;
+} {
+  const requestsByModel = new Map<string, InferenceRequest>(
+    input.models.map((modelId) => [modelId, input.buildRequest(modelId)])
+  );
+  const entries: MediaModelStreamEntry[] = input.models.map((modelId) => {
+    const request = requestsByModel.get(modelId);
+    if (request === undefined) {
+      throw new Error(`invariant: missing request for ${modelId}`);
+    }
+    return {
+      modelId,
+      assistantMessageId: input.getAssistantId(modelId),
+      stream: input.aiClient.stream(request),
+    };
+  });
+  return { entries, requestsByModel };
+}
+
+interface MaybeStartVideoProgressInput {
+  mediaType: MediaModality;
+  primaryModel: string;
+  requestsByModel: Map<string, InferenceRequest>;
+  models: readonly string[];
+  writer: SSEEventWriter;
+  getAssistantId: (modelId: string) => string;
+}
+
+/**
+ * Decide whether to start a video progress sweep and, if so, kick it off.
+ * Returns the timer handle (or null for non-video modalities) so the
+ * caller can stop it once `model:done` is sent.
+ */
+function maybeStartVideoProgress(
+  input: MaybeStartVideoProgressInput
+): VideoProgressTimerHandle | null {
+  if (input.mediaType !== 'video') return null;
+  const primaryRequest = input.requestsByModel.get(input.primaryModel);
+  const expectedMs =
+    primaryRequest === undefined
+      ? VIDEO_DEFAULT_REQUESTED_SECONDS * VIDEO_GENERATION_MULTIPLIER * 1000
+      : computeExpectedVideoDurationMs(primaryRequest);
+  return startVideoProgressTimer(input.writer, [...input.models], input.getAssistantId, expectedMs);
 }
 
 /**
@@ -240,10 +502,24 @@ async function encryptAndStoreMedia(
   const contentItemId = crypto.randomUUID();
   const storageKey = `media/${conversationId}/${assistantMsgId}/${contentItemId}.enc`;
 
+  // Validate the mime type from the gateway BEFORE encrypting / writing.
+  // Rejecting here means corrupt metadata never enters R2 or the DB; the
+  // client gets a clear UNKNOWN_MIME_TYPE error instead of a downstream
+  // billing failure or a stored row that won't decode.
+  if (mimeType !== undefined && !ALLOWED_MEDIA_MIME_TYPES.safeParse(mimeType).success) {
+    throw new UnknownMimeTypeError(mimeType);
+  }
+
   const { contentKey, wrappedContentKey } = beginMessageEnvelope(epochPublicKey);
   const ciphertext = encryptBinaryWithContentKey(contentKey, mediaBytes);
 
-  await mediaStorage.put(storageKey, ciphertext, 'application/octet-stream');
+  // Wrap R2 PUT so we can surface STORAGE_WRITE_FAILED on the SSE stream
+  // rather than letting the rejection propagate into billing.
+  try {
+    await mediaStorage.put(storageKey, ciphertext, 'application/octet-stream');
+  } catch (error) {
+    throw new MediaStorageWriteError(error);
+  }
 
   const { url: downloadUrl } = await mediaStorage.mintDownloadUrl({
     key: storageKey,
@@ -312,6 +588,97 @@ interface ProcessMediaResultsInput {
 interface ProcessMediaResultsOutput {
   assistantMessages: MediaAssistantMessageInput[];
   downloadUrls: Map<string, string>;
+}
+
+/**
+ * Writes the appropriate SSE error when no model in the batch returned usable
+ * media. If any model errored, delegates to writeFirstMediaError so the
+ * underlying classified code surfaces (RATE_LIMITED, CONTENT_POLICY,
+ * INFERENCE_FAILED, etc.). Otherwise the gateway succeeded with empty output —
+ * emit EMPTY_MEDIA_RESULT so the UI distinguishes "model failed" from "model
+ * produced nothing, try rephrasing".
+ */
+async function handleNoSuccessfulModels(
+  mediaResults: Map<string, MediaStreamResult>,
+  writer: SSEEventWriter,
+  noContentErrorMessage: string,
+  writeFirstMediaError: ExecuteMediaPipelineDeps['writeFirstMediaError']
+): Promise<void> {
+  const anyError = [...mediaResults.values()].some((r) => r.error !== null);
+  if (anyError) {
+    await writeFirstMediaError(mediaResults, writer, noContentErrorMessage);
+    return;
+  }
+  await writer.writeError({
+    message: noContentErrorMessage,
+    code: ERROR_CODE_EMPTY_MEDIA_RESULT,
+  });
+}
+
+/**
+ * Wraps processMediaResults with the SSE error mapping for known failure
+ * classes (R2 PUT failure → STORAGE_WRITE_FAILED; disallowed gateway mime →
+ * UNKNOWN_MIME_TYPE). Returns null on a handled error so the caller can
+ * short-circuit; unknown errors propagate so the outer try/finally still runs
+ * releaseReservation.
+ */
+async function processMediaResultsOrWriteError(
+  input: ProcessMediaResultsInput,
+  writer: SSEEventWriter
+): Promise<ProcessMediaResultsOutput | null> {
+  try {
+    return await processMediaResults(input);
+  } catch (error) {
+    if (error instanceof MediaStorageWriteError) {
+      await writer.writeError({
+        message: error.message,
+        code: ERROR_CODE_STORAGE_WRITE_FAILED,
+      });
+      return null;
+    }
+    if (error instanceof UnknownMimeTypeError) {
+      await writer.writeError({
+        message: error.message,
+        code: ERROR_CODE_UNKNOWN_MIME_TYPE,
+      });
+      return null;
+    }
+    throw error;
+  }
+}
+
+interface SaveChatTurnPayloadInput {
+  userMessage: { id: string; content: string };
+  conversationId: string;
+  billingUserId: string;
+  senderId: string;
+  assistantMessages: MediaAssistantMessageInput[];
+  memberContext: MemberContext | undefined;
+  groupBudget: GroupBudgetReservation | undefined;
+  parentMessageId: string | null;
+  forkId: string | undefined;
+}
+
+/**
+ * Builds the saveChatTurn input for the media pipeline. Centralizes the
+ * conditional inclusion of `groupBillingContext` and `forkId` (both must be
+ * absent rather than `undefined` under exactOptionalPropertyTypes).
+ */
+function buildSaveChatTurnPayload(
+  input: SaveChatTurnPayloadInput
+): Parameters<typeof saveChatTurn>[1] {
+  const groupBillingContext = buildGroupBillingContext(input.memberContext, input.groupBudget);
+  return {
+    userMessageId: input.userMessage.id,
+    userContent: input.userMessage.content,
+    conversationId: input.conversationId,
+    userId: input.billingUserId,
+    senderId: input.senderId,
+    assistantMessages: input.assistantMessages,
+    ...(groupBillingContext !== undefined && { groupBillingContext }),
+    parentMessageId: input.parentMessageId,
+    ...(input.forkId !== undefined && { forkId: input.forkId }),
+  };
 }
 
 /** Encrypts and stores media for all successful models, returning assistant messages and download URLs. */
@@ -410,6 +777,7 @@ export function executeMediaPipeline(
     senderId,
     forkId,
     parentMessageId,
+    mediaType,
     pricingFor,
     buildRequest,
     noContentErrorMessage,
@@ -436,12 +804,6 @@ export function executeMediaPipeline(
     safeExecutionCtx(c)
   );
 
-  const streamEntries: MediaModelStreamEntry[] = models.map((modelId) => ({
-    modelId,
-    assistantMessageId: getAssistantId(modelId),
-    stream: aiClient.stream(buildRequest(modelId)),
-  }));
-
   return streamSSE(c, async (stream) => {
     const writer = createSSEEventWriter(stream);
     // SSE keep-alive heartbeat so a slow video generation (>90s with no events
@@ -456,6 +818,7 @@ export function executeMediaPipeline(
       // observes the disconnection through the `onAbort` callback.
       void writeKeepAliveSafe(stream);
     }, KEEPALIVE_INTERVAL_MS);
+    let progressTimer: VideoProgressTimerHandle | null = null;
     try {
       await writer.writeStart({
         userMessageId: userMessage.id,
@@ -465,11 +828,50 @@ export function executeMediaPipeline(
         })),
       });
 
+      // Emit `model:media:start` BEFORE dispatching the gateway call. The
+      // brief from lane-4 calls this out for video especially: a 30-second
+      // gateway wait without any client-visible event would otherwise look
+      // like a hung connection. The mimeType is a placeholder here — the
+      // exact one is delivered later via `model:done`.
+      await emitMediaStartEvents(writer, models, getAssistantId, mediaType);
+
+      // Build per-model inference requests, then materialize the streams.
+      // Both happen INSIDE the streamSSE callback so the early-start events
+      // above land on the wire before the gateway begins working — see
+      // brief Issue 4.
+      const { entries: streamEntries, requestsByModel } = buildStreamEntries({
+        models,
+        getAssistantId,
+        buildRequest,
+        aiClient,
+      });
+
+      // For video, start a synthetic progress sweep right before invoking
+      // the gateway. Image and audio skip this — they're fast enough that
+      // the placeholder UI is sufficient.
+      progressTimer = maybeStartVideoProgress({
+        mediaType,
+        primaryModel,
+        requestsByModel,
+        models,
+        writer,
+        getAssistantId,
+      });
+
       const mediaResults = await collectMultiMediaModelStreams(streamEntries, writer);
+      // Stop progress emissions before billing runs so `model:done` carries
+      // the implicit 100%.
+      progressTimer?.stop();
+      progressTimer = null;
       const successfulModels = filterSuccessfulMediaModels(mediaResults);
 
       if (successfulModels.length === 0) {
-        await deps.writeFirstMediaError(mediaResults, writer, noContentErrorMessage);
+        await handleNoSuccessfulModels(
+          mediaResults,
+          writer,
+          noContentErrorMessage,
+          deps.writeFirstMediaError
+        );
         return;
       }
 
@@ -480,27 +882,33 @@ export function executeMediaPipeline(
       const currentEpoch = conv?.currentEpoch ?? 1;
       const { epochPublicKey } = await fetchEpochPublicKey(db, conversationId, currentEpoch);
 
-      const { assistantMessages, downloadUrls } = await processMediaResults({
-        mediaStorage,
-        epochPublicKey,
-        conversationId,
-        pricingFor,
-        getAssistantId,
-        successfulModels,
-      });
+      const stored = await processMediaResultsOrWriteError(
+        {
+          mediaStorage,
+          epochPublicKey,
+          conversationId,
+          pricingFor,
+          getAssistantId,
+          successfulModels,
+        },
+        writer
+      );
+      if (stored === null) return;
 
-      const groupBillingContext = buildGroupBillingContext(memberContext, groupBudget);
-      const billingPromise = saveChatTurn(db, {
-        userMessageId: userMessage.id,
-        userContent: userMessage.content,
-        conversationId,
-        userId: billingUserId,
-        senderId,
-        assistantMessages,
-        ...(groupBillingContext !== undefined && { groupBillingContext }),
-        parentMessageId,
-        ...(forkId !== undefined && { forkId }),
-      });
+      const billingPromise = saveChatTurn(
+        db,
+        buildSaveChatTurnPayload({
+          userMessage,
+          conversationId,
+          billingUserId,
+          senderId,
+          assistantMessages: stored.assistantMessages,
+          memberContext,
+          groupBudget,
+          parentMessageId,
+          forkId,
+        })
+      );
 
       const billingResult = await deps.handleBillingResult({
         c,
@@ -513,7 +921,7 @@ export function executeMediaPipeline(
       });
 
       if (billingResult) {
-        attachDownloadUrls(billingResult, downloadUrls);
+        attachDownloadUrls(billingResult, stored.downloadUrls);
         await deps.broadcastAndFinish({
           c,
           conversationId,
@@ -531,6 +939,9 @@ export function executeMediaPipeline(
       }
     } finally {
       clearInterval(keepAliveTimer);
+      // Defensive: if an error path skipped the explicit stop, ensure the
+      // progress timers don't outlive the request.
+      progressTimer?.stop();
       await releaseReservation();
     }
   });

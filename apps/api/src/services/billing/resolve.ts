@@ -7,12 +7,13 @@
  */
 
 import { effectiveBudgetCents, type ResolveBillingInput } from '@hushbox/shared';
-import type { Database } from '@hushbox/db';
-import type { Redis } from '@upstash/redis';
+import { processModels } from '@hushbox/shared/models';
 import { getUserTierInfo } from './balance.js';
 import { getReservedTotal, getGroupReservedTotals } from '../../lib/speculative-balance.js';
-import { fetchModels, processModels } from '@hushbox/shared/models';
 import { getConversationBudgets, computeGroupRemaining } from './budgets.js';
+import type { AIClient } from '../ai/index.js';
+import type { Database } from '@hushbox/db';
+import type { Redis } from '@upstash/redis';
 
 export interface MemberContext {
   memberId: string;
@@ -48,8 +49,7 @@ export interface BuildBillingResult {
 export interface BuildBillingInputParams {
   userId: string;
   models: string[];
-  apiKey: string;
-  publicModelsUrl: string;
+  aiClient: AIClient;
   memberContext?: MemberContext;
   conversationId?: string;
 }
@@ -58,8 +58,7 @@ export interface BuildGuestBillingInputParams {
   ownerId: string;
   memberId: string;
   models: string[];
-  apiKey: string;
-  publicModelsUrl: string;
+  aiClient: AIClient;
   conversationId: string;
 }
 
@@ -109,12 +108,12 @@ export async function buildBillingInput(
   redis: Redis,
   params: BuildBillingInputParams
 ): Promise<BuildBillingResult> {
-  const { userId, models, memberContext, conversationId, apiKey, publicModelsUrl } = params;
+  const { userId, models, memberContext, conversationId, aiClient } = params;
   // 1. User tier info + Redis reservations + model premium check (in parallel)
   const [userTierInfo, reservedCents, gatewayModels] = await Promise.all([
     getUserTierInfo(db, userId),
     getReservedTotal(redis, userId),
-    fetchModels({ apiKey, publicModelsUrl }),
+    aiClient.listRawModels(),
   ]);
 
   const { premiumIds } = processModels(gatewayModels);
@@ -185,13 +184,13 @@ export async function buildGuestBillingInput(
   redis: Redis,
   params: BuildGuestBillingInputParams
 ): Promise<BuildBillingResult> {
-  const { ownerId, memberId, models, conversationId, apiKey, publicModelsUrl } = params;
+  const { ownerId, memberId, models, conversationId, aiClient } = params;
 
   const [ownerTierInfo, reserved, budgets, gatewayModels] = await Promise.all([
     getUserTierInfo(db, ownerId),
     getGroupReservedTotals(redis, conversationId, memberId, ownerId),
     getConversationBudgets(db, conversationId),
-    fetchModels({ apiKey, publicModelsUrl }),
+    aiClient.listRawModels(),
   ]);
 
   const { premiumIds } = processModels(gatewayModels);

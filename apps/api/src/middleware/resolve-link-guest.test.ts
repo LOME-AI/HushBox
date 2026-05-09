@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import { toBase64 } from '@hushbox/shared';
-import type { AppEnv } from '../types.js';
 import { resolveLinkGuest } from './resolve-link-guest.js';
+import type { AppEnv } from '../types.js';
 
 const TEST_CONVERSATION_ID = 'conv-link-123';
 const TEST_LINK_ID = 'link-456';

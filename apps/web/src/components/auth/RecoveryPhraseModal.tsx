@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Overlay, OverlayContent, ModalActions, Input } from '@hushbox/ui';
 import { Copy, Check, AlertTriangle } from 'lucide-react';
+import { Overlay, OverlayContent, ModalActions, Input } from '@hushbox/ui';
 import { regenerateRecoveryPhrase } from '@hushbox/crypto';
 import { toBase64 } from '@hushbox/shared';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';

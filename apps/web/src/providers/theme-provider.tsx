@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { useStatusBar } from '@/capacitor/hooks/use-status-bar';
 import { triggerViewTransition } from '@hushbox/ui';
+import { useStatusBar } from '@/capacitor/hooks/use-status-bar';
 
 type ThemeMode = 'light' | 'dark';
 

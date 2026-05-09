@@ -52,7 +52,6 @@ import {
   OpaqueServerConfig,
 } from '@hushbox/crypto';
 import { createErrorResponse } from '../lib/error-response.js';
-import type { AppEnv, Bindings } from '../types.js';
 import { getSessionOptions, type SessionData } from '../lib/session.js';
 import {
   generateTotpSecret,
@@ -82,6 +81,7 @@ import {
   accountLockedEmail,
 } from '../services/email/templates/index.js';
 import { EMAIL_VERIFY_TOKEN_EXPIRY_MS } from '../constants/auth.js';
+import type { AppEnv, Bindings } from '../types.js';
 
 const PENDING_2FA_LOGIN_SECONDS = 5 * 60; // 5 minutes
 

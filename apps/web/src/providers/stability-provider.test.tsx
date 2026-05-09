@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, renderHook } from '@testing-library/react';
-import type { ReactNode } from 'react';
 
 // Unmock the stability provider (it's globally mocked in test-setup.ts)
 // so we can test the actual implementation
@@ -26,6 +25,7 @@ vi.mock('@/lib/auth-client', () => ({
 import { useSession, initAuth } from '@/lib/auth';
 import { useBalance } from '@/hooks/billing';
 import { hasStoredAuth } from '@/lib/auth-client';
+import type { ReactNode } from 'react';
 
 const mockedUseSession = vi.mocked(useSession);
 const mockedUseBalance = vi.mocked(useBalance);

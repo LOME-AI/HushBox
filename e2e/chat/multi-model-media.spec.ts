@@ -4,8 +4,11 @@ import { requireEnv } from '../helpers/env.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
 
-const IMAGE_MODELS = ['google/imagen-4', 'openai/dall-e-3'] as const;
-const VIDEO_MODELS = ['google/veo-3.1', 'runway/gen-3'] as const;
+const IMAGE_MODELS = [
+  'google/imagen-4.0-generate-001',
+  'google/imagen-4.0-fast-generate-001',
+] as const;
+const VIDEO_MODELS = ['google/veo-3.1-generate-001', 'google/veo-3.1-fast-generate-001'] as const;
 
 /**
  * Multi-model media (image + video) coverage (plan §E1-E5).
@@ -123,6 +126,40 @@ test.describe('Multi-Model Media', () => {
       // Failing model surfaced the model-error tile.
       const errorTile = authenticatedPage.getByTestId('model-error-message');
       await unsettledExpect(errorTile).toBeVisible({ timeout: 15_000 });
+
+      // Lane 9 #6: server-side persistence parity with text partial-failure.
+      // Query the conversation API: only the successful model's response has a
+      // persisted content item with `cost > 0`; the failing model never wrote
+      // any content_items rows.
+      const conversationUrl = authenticatedPage.url();
+      const conversationId = conversationUrl.split('/chat/')[1]?.split('?')[0];
+      expect(conversationId, 'conversation id should be in URL').toBeTruthy();
+
+      const apiResponse = await authenticatedPage.request.get(
+        `${apiUrl}/api/conversations/${conversationId!}`
+      );
+      expect(apiResponse.ok()).toBe(true);
+      const { messages } = (await apiResponse.json()) as {
+        messages: {
+          senderType: string;
+          contentItems: { modelName: string | null; cost: string | null }[];
+        }[];
+      };
+
+      const aiContentItems = messages
+        .filter((m) => m.senderType === 'ai')
+        .flatMap((m) => m.contentItems);
+
+      const failedItems = aiContentItems.filter((ci) => ci.modelName === failModel);
+      expect(failedItems.length).toBe(0);
+
+      const succeededItems = aiContentItems.filter((ci) => ci.modelName === IMAGE_MODELS[0]);
+      expect(succeededItems.length).toBeGreaterThan(0);
+      // Cost is a numeric string. Persisted, positive, non-zero.
+      for (const item of succeededItems) {
+        expect(item.cost).not.toBeNull();
+        expect(Number.parseFloat(item.cost ?? '0')).toBeGreaterThan(0);
+      }
     } finally {
       await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
         data: { modelId: null },
@@ -323,10 +360,95 @@ test.describe('Multi-Model Media', () => {
       // Failing model surfaced the model-error tile.
       const errorTile = authenticatedPage.getByTestId('model-error-message');
       await unsettledExpect(errorTile).toBeVisible({ timeout: 15_000 });
+
+      // Lane 9 #6 (video): same server-side persistence parity check.
+      const conversationUrl = authenticatedPage.url();
+      const conversationId = conversationUrl.split('/chat/')[1]?.split('?')[0];
+      expect(conversationId, 'conversation id should be in URL').toBeTruthy();
+
+      const apiResponse = await authenticatedPage.request.get(
+        `${apiUrl}/api/conversations/${conversationId!}`
+      );
+      expect(apiResponse.ok()).toBe(true);
+      const { messages } = (await apiResponse.json()) as {
+        messages: {
+          senderType: string;
+          contentItems: { modelName: string | null; cost: string | null }[];
+        }[];
+      };
+
+      const aiContentItems = messages
+        .filter((m) => m.senderType === 'ai')
+        .flatMap((m) => m.contentItems);
+
+      const failedItems = aiContentItems.filter((ci) => ci.modelName === failModel);
+      expect(failedItems.length).toBe(0);
+
+      const succeededItems = aiContentItems.filter((ci) => ci.modelName === VIDEO_MODELS[0]);
+      expect(succeededItems.length).toBeGreaterThan(0);
+      for (const item of succeededItems) {
+        expect(item.cost).not.toBeNull();
+        expect(Number.parseFloat(item.cost ?? '0')).toBeGreaterThan(0);
+      }
     } finally {
       await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
         data: { modelId: null },
       });
     }
+  });
+
+  /**
+   * Lane 9 #7: page reload preserves multi-model image responses, mirroring
+   * `multi-model.spec.ts` test at "page reload preserves all responses on
+   * fork". Two image models, send prompt, both `<img>` render, reload —
+   * both `<img>` survive the reload (proves persistence + decryption +
+   * presigned URL re-mint round-trip for each model's content).
+   */
+  test('multi-model image responses survive a page reload', async ({ authenticatedPage }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.expectNewChatPageVisible();
+
+    await chatPage.switchToImageMode();
+
+    await chatPage.openModelSelector();
+    const modal = authenticatedPage.getByTestId('model-selector-modal');
+    const clearButton = modal.getByTestId('clear-selection-button');
+    if (await clearButton.isVisible()) {
+      await clearButton.click();
+    }
+    for (const id of IMAGE_MODELS) {
+      const item = modal.getByTestId(`model-item-${id}`);
+      await expect(item).toBeVisible();
+      await item.getByTestId('model-checkbox').click();
+      await expect(item).toHaveAttribute('data-selected', 'true');
+    }
+    await chatPage.confirmModelSelection();
+
+    await chatPage.sendNewChatMessage(`Multi-image reload ${String(Date.now())}`);
+    await chatPage.waitForConversation();
+
+    // Both responses fully streamed and persisted.
+    await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+      timeout: 30_000,
+    });
+    await chatPage.waitForStreamComplete(30_000);
+
+    const assistantsBefore = chatPage.messageList.locator('[data-role="assistant"]');
+    await expect(assistantsBefore.nth(0).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    await expect(assistantsBefore.nth(1).locator('img').first()).toBeVisible({ timeout: 30_000 });
+
+    // Reload the page and assert both images survive — each requires a fresh
+    // download URL mint and decryption round-trip.
+    await authenticatedPage.reload();
+    await chatPage.waitForConversationLoaded();
+
+    await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+      timeout: 15_000,
+    });
+    const assistantsAfter = chatPage.messageList.locator('[data-role="assistant"]');
+    await expect(assistantsAfter.nth(0).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    await expect(assistantsAfter.nth(1).locator('img').first()).toBeVisible({ timeout: 30_000 });
   });
 });

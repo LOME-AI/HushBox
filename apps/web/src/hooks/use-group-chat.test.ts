@@ -125,11 +125,11 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: vi.fn(() => mockNavigate),
 }));
 
+import { wrapEpochKeyForNewMember } from '@hushbox/crypto';
 import { useGroupChat } from './use-group-chat.js';
 import { useConversationMembers } from './use-conversation-members.js';
 import { useConversationLinks } from './use-conversation-links.js';
 import { getCurrentEpoch, getEpochKey, getSnapshot } from '../lib/epoch-key-cache.js';
-import { wrapEpochKeyForNewMember } from '@hushbox/crypto';
 import { useRemoteStreaming } from './use-remote-streaming.js';
 import { useTypingIndicators } from './use-typing-indicators.js';
 import { useConversationWebSocket } from './use-conversation-websocket.js';

@@ -1,8 +1,8 @@
 import { Factory } from 'fishery';
 import { faker } from '@faker-js/faker';
 
-import type { epochMembers } from '../schema/epoch-members';
 import { placeholderBytes } from './helpers.js';
+import type { epochMembers } from '../schema/epoch-members';
 
 type EpochMember = typeof epochMembers.$inferSelect;
 

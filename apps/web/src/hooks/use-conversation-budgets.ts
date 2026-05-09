@@ -1,6 +1,6 @@
 import { useQuery, type UseQueryResult, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { UserTier } from '@hushbox/shared';
 import { client, fetchJson } from '../lib/api-client.js';
+import type { UserTier } from '@hushbox/shared';
 
 export interface ConversationBudgetsResponse {
   conversationBudget: string;

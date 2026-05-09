@@ -794,16 +794,11 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps({ modelSupportsSearch: false })}
         />
       );
-      // Both the wrapper span (role=button for keyboard tooltip) and the inner
-      // disabled <button> share the accessible name. We assert disablement on
-      // the actual <button> element.
-      const buttons = screen
-        .getAllByRole('button', { name: /internet search unavailable/i })
-        .filter((element) => element.tagName === 'BUTTON');
-      expect(buttons.length).toBeGreaterThan(0);
-      for (const button of buttons) {
-        expect(button).toBeDisabled();
-      }
+      // Disabled state: only the wrapper span is in the accessibility tree
+      // (inner native button is aria-hidden). aria-disabled communicates the
+      // disabled affordance to assistive tech.
+      const wrapper = screen.getByRole('button', { name: /internet search unavailable/i });
+      expect(wrapper).toHaveAttribute('aria-disabled', 'true');
     });
 
     it('shows disabled search toggle for unauthenticated users', () => {
@@ -816,13 +811,36 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps()}
         />
       );
-      const buttons = screen
-        .getAllByRole('button', { name: /internet search unavailable/i })
-        .filter((element) => element.tagName === 'BUTTON');
-      expect(buttons.length).toBeGreaterThan(0);
-      for (const button of buttons) {
-        expect(button).toBeDisabled();
-      }
+      const wrapper = screen.getByRole('button', { name: /internet search unavailable/i });
+      expect(wrapper).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('does not render the search toggle when activeModality is image (searchProps undefined)', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="image"
+        />
+      );
+      // Structural guard: chat-layout omits searchProps in image mode, so the
+      // toggle should not be rendered at all (not just disabled).
+      expect(screen.queryByRole('button', { name: /internet search/i })).not.toBeInTheDocument();
+    });
+
+    it('does not render the search toggle when activeModality is video (searchProps undefined)', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="video"
+        />
+      );
+      expect(screen.queryByRole('button', { name: /internet search/i })).not.toBeInTheDocument();
     });
   });
 
@@ -838,14 +856,11 @@ describe('PromptInput', () => {
         />
       );
 
-      // Filter to the inner <button>; the wrapper span itself has role=button
-      // for keyboard users so getByRole would match both.
-      const button = screen
-        .getAllByRole('button', { name: /internet search unavailable/i })
-        .find((element) => element.tagName === 'BUTTON');
-      expect(button).toBeDefined();
-      const wrapper = button?.closest('span[data-slot="tooltip-trigger"]');
-      expect(wrapper).not.toBeNull();
+      // The role=button entry is the wrapper span itself (inner native button
+      // is aria-hidden when disabled). Confirm it is the tooltip trigger span.
+      const wrapper = screen.getByRole('button', { name: /internet search unavailable/i });
+      expect(wrapper.tagName).toBe('SPAN');
+      expect(wrapper).toHaveAttribute('data-slot', 'tooltip-trigger');
     });
 
     it('wraps enabled search toggle in span for tooltip consistency', () => {
@@ -1233,17 +1248,13 @@ describe('PromptInput', () => {
           onSelectModality={vi.fn()}
         />
       );
-      // Icons render under a per-modality "sign up to unlock" tooltip so
-      // screen readers explain why they're disabled. We assert the underlying
-      // <button> elements are disabled (the wrapping span exposes role=button +
-      // aria-disabled for keyboard-focus tooltip discovery, which jest-dom's
-      // toBeDisabled() doesn't recognize on non-form elements).
-      const buttons = screen
-        .getAllByRole('button', { name: /sign up to unlock/i })
-        .filter((element) => element.tagName === 'BUTTON');
-      expect(buttons.length).toBeGreaterThan(0);
-      for (const button of buttons) {
-        expect(button).toBeDisabled();
+      // Disabled state: wrapping span owns role=button with aria-disabled=true,
+      // inner native button is aria-hidden so the same name isn't announced
+      // twice. Assert the wrappers communicate disabled via aria-disabled.
+      const wrappers = screen.getAllByRole('button', { name: /sign up to unlock/i });
+      expect(wrappers.length).toBeGreaterThan(0);
+      for (const wrapper of wrappers) {
+        expect(wrapper).toHaveAttribute('aria-disabled', 'true');
       }
     });
 
@@ -1293,6 +1304,32 @@ describe('PromptInput', () => {
           name: /video generation — sign up to unlock/i,
         }).length
       ).toBeGreaterThan(0);
+    });
+
+    it('disabled trial modality icon exposes exactly one accessible button per modality', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated={false}
+          activeModality="text"
+          onSelectModality={vi.fn()}
+        />
+      );
+      // Wrapper span owns the role+name when disabled; inner native button is
+      // aria-hidden so the same accessible name isn't announced twice. Assertion
+      // is one role=button per modality, not two.
+      expect(
+        screen.queryAllByRole('button', {
+          name: /image generation — sign up to unlock/i,
+        })
+      ).toHaveLength(1);
+      expect(
+        screen.queryAllByRole('button', {
+          name: /video generation — sign up to unlock/i,
+        })
+      ).toHaveLength(1);
     });
 
     it('does not invoke onSelectModality when a disabled trial icon is clicked', async () => {

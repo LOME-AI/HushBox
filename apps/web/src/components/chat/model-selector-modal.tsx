@@ -2,8 +2,6 @@ import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { Search, ChevronUp, ChevronDown, Lock, Square, CheckSquare } from 'lucide-react';
 import { Overlay, Input, Button, ModalActions, ScrollArea, cn } from '@hushbox/ui';
-import type { Model, Modality } from '@hushbox/shared';
-import type { ModelSelectorGatingProps } from './model-selector-types';
 import { ROUTES, MAX_SELECTED_MODELS, getModelCostPer1k, shortenModelName } from '@hushbox/shared';
 import { formatContextLength } from '../../lib/format';
 import { getAccessibleModelIds } from '../../hooks/models';
@@ -11,6 +9,8 @@ import { useIsMobile } from '../../hooks/use-is-mobile';
 
 import { ModelInfoPanel } from './model-info-panel';
 import { SignupModal } from '../auth/signup-modal';
+import type { ModelSelectorGatingProps } from './model-selector-types';
+import type { Model, Modality } from '@hushbox/shared';
 
 type SortField = 'price' | 'context' | null;
 type SortDirection = 'asc' | 'desc';
@@ -550,10 +550,13 @@ export function ModelSelectorModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- models is a fallback; re-running on models change would reset user's selection
   }, [open, selectedIds]);
 
-  // Calculate quick select model IDs based on user tier
+  // Calculate quick select model IDs based on user tier and active modality.
+  // Without `activeModality`, the helper defaults to 'text' and returns text-
+  // model IDs that don't match the modality-filtered list, so Strongest/Value
+  // pins disappear in image/video mode.
   const { strongestId, valueId } = React.useMemo(
-    () => getAccessibleModelIds(models, premiumIds ?? new Set(), canAccessPremium),
-    [models, premiumIds, canAccessPremium]
+    () => getAccessibleModelIds(models, premiumIds ?? new Set(), canAccessPremium, activeModality),
+    [models, premiumIds, canAccessPremium, activeModality]
   );
 
   const filteredModels = useFilteredModels({

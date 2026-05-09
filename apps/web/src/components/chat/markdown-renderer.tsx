@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { Streamdown } from 'streamdown';
-import type { Components } from 'streamdown';
 import { code } from '@streamdown/code';
 import { mermaid } from '@streamdown/mermaid';
 import { math } from '@streamdown/math';
@@ -13,6 +12,7 @@ import {
   getDocumentType,
   shouldExtractAsDocument,
 } from '../../lib/document-parser';
+import type { Components } from 'streamdown';
 import type { Document } from '../../lib/document-parser';
 
 /** Minimal HAST node types (avoids @types/hast dependency) */

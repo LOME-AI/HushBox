@@ -1,8 +1,10 @@
 import { createEnvUtilities, type EnvContext } from '@hushbox/shared';
-import type { Database } from '@hushbox/db';
-import type { AIClient } from './types.js';
 import { createMockAIClient } from './mock.js';
 import { createRealAIClient } from './real.js';
+import { requireGatewayConfig } from '../../lib/gateway-config.js';
+import type { AIClient } from './types.js';
+import type { Database } from '@hushbox/db';
+import type { Bindings } from '../../types.js';
 
 export type {
   AIClient,
@@ -19,6 +21,7 @@ export type {
   ModelInfo,
   ModelPricing,
   ProviderMetadata,
+  RecordedInferenceRequest,
   TextRequest,
   ToolDefinition,
   VideoRequest,
@@ -57,19 +60,19 @@ export function getAIClient(env: AIClientEnv, options: AIClientOptions = {}): AI
     return createMockAIClient();
   }
 
-  if (!env.AI_GATEWAY_API_KEY) {
-    throw new Error('AI_GATEWAY_API_KEY required in CI/production');
-  }
-  if (!env.PUBLIC_MODELS_URL) {
-    throw new Error('PUBLIC_MODELS_URL required in CI/production');
-  }
+  // The only non-test caller of requireGatewayConfig: every route now reads
+  // model data via aiClient.listRawModels(), so the env fork above is the
+  // single point that decides mock vs real. Missing AI_GATEWAY_API_KEY only
+  // fails the request when the runtime is past the mock branch (i.e. CI
+  // Vitest or production), which matches the env config's intent.
+  const { apiKey, publicModelsUrl } = requireGatewayConfig(env as Bindings);
 
   const evidence =
     options.db && options.isCI !== undefined ? { db: options.db, isCI: options.isCI } : undefined;
 
   return createRealAIClient({
-    apiKey: env.AI_GATEWAY_API_KEY,
-    publicModelsUrl: env.PUBLIC_MODELS_URL,
+    apiKey,
+    publicModelsUrl,
     ...(evidence !== undefined && { evidence }),
   });
 }

@@ -2,9 +2,9 @@ import * as React from 'react';
 // eslint-disable-next-line sonarjs/deprecation -- recharts v3 still uses Cell for Pie coloring
 import { PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
 import { ChartTooltipContent, ChartLegendContent } from '@hushbox/ui';
+import { CHART_COLORS, UsageChartCard } from './chart-utilities';
 import type { ChartConfig } from '@hushbox/ui';
 import type { SpendingByConversationResponse } from '@hushbox/shared';
-import { CHART_COLORS, UsageChartCard } from './chart-utilities';
 
 interface ConversationTitle {
   id: string;

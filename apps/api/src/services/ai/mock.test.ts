@@ -427,7 +427,7 @@ describe('createMockAIClient', () => {
 
       const history = client.getRequestHistory();
       expect(history).toHaveLength(1);
-      expect(history[0]).toEqual(request);
+      expect(history[0]).toMatchObject(request);
     });
 
     it('records image requests', async () => {
@@ -441,7 +441,7 @@ describe('createMockAIClient', () => {
 
       const history = client.getRequestHistory();
       expect(history).toHaveLength(1);
-      expect(history[0]).toEqual(request);
+      expect(history[0]).toMatchObject(request);
     });
 
     it('records multiple requests in order', async () => {
@@ -492,6 +492,70 @@ describe('createMockAIClient', () => {
 
       client.clearHistory();
       expect(client.getRequestHistory()).toEqual([]);
+    });
+  });
+
+  describe('zdrEnforced tracking', () => {
+    it('records zdrEnforced=true on text requests', async () => {
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Test' }],
+      };
+      await collectEvents(client.stream(request));
+      const history = client.getRequestHistory();
+      expect(history[0]?.zdrEnforced).toBe(true);
+    });
+
+    it('records zdrEnforced=true on image requests', async () => {
+      const request: ImageRequest = {
+        modality: 'image',
+        model: 'google/imagen-4',
+        prompt: 'A sunset',
+      };
+      await collectEvents(client.stream(request));
+      const history = client.getRequestHistory();
+      expect(history[0]?.zdrEnforced).toBe(true);
+    });
+
+    it('records zdrEnforced=true on video requests', async () => {
+      const request: VideoRequest = {
+        modality: 'video',
+        model: 'google/veo-3.1',
+        prompt: 'A wave',
+      };
+      await collectEvents(client.stream(request));
+      const history = client.getRequestHistory();
+      expect(history[0]?.zdrEnforced).toBe(true);
+    });
+
+    it('records zdrEnforced=true on audio requests', async () => {
+      const request: AudioRequest = {
+        modality: 'audio',
+        model: 'openai/tts-1',
+        prompt: 'Hello.',
+      };
+      await collectEvents(client.stream(request));
+      const history = client.getRequestHistory();
+      expect(history[0]?.zdrEnforced).toBe(true);
+    });
+
+    it('records zdrEnforced=true on classifier (Smart Model) calls', async () => {
+      const classifierRequest: TextRequest = {
+        modality: 'text',
+        model: 'cheap/c',
+        messages: [
+          {
+            role: 'system',
+            content: `${CLASSIFIER_SYSTEM_PROMPT_MARKER}\nPick a model.\n- a/x — A.\n- b/y — B.`,
+          },
+          { role: 'user', content: '[USER START]: hi' },
+        ],
+      };
+      await collectEvents(client.stream(classifierRequest));
+      const history = client.getRequestHistory();
+      expect(history).toHaveLength(1);
+      expect(history[0]?.zdrEnforced).toBe(true);
     });
   });
 
@@ -581,6 +645,55 @@ describe('createMockAIClient', () => {
     });
   });
 
+  describe('listRawModels', () => {
+    it('returns a non-empty RawModel array with the gateway-shaped pricing fields', async () => {
+      const raw = await client.listRawModels();
+      expect(raw.length).toBeGreaterThan(0);
+      for (const model of raw) {
+        expect(typeof model.id).toBe('string');
+        expect(typeof model.name).toBe('string');
+        expect(['text', 'image', 'audio', 'video']).toContain(model.modality);
+        expect(typeof model.context_length).toBe('number');
+        expect(typeof model.pricing.prompt).toBe('string');
+        expect(typeof model.pricing.completion).toBe('string');
+        expect(Array.isArray(model.supported_parameters)).toBe(true);
+        expect(Array.isArray(model.architecture.input_modalities)).toBe(true);
+        expect(Array.isArray(model.architecture.output_modalities)).toBe(true);
+      }
+    });
+
+    it('exposes the same id set as listModels — single source of truth', async () => {
+      const [raw, info] = await Promise.all([client.listRawModels(), client.listModels()]);
+      const rawIds = raw.map((m) => m.id).toSorted((a, b) => a.localeCompare(b));
+      const infoIds = info.map((m) => m.id).toSorted((a, b) => a.localeCompare(b));
+      expect(rawIds).toEqual(infoIds);
+    });
+
+    it('returns a defensive copy — mutating the result does not affect future calls', async () => {
+      const first = await client.listRawModels();
+      first.length = 0;
+      const second = await client.listRawModels();
+      expect(second.length).toBeGreaterThan(0);
+    });
+
+    it('feeds processModels with at least one premium text model so the tier gate has something to lock', async () => {
+      const { processModels } = await import('@hushbox/shared/models');
+      const raw = await client.listRawModels();
+      const { premiumIds } = processModels(raw);
+      expect(premiumIds.length).toBeGreaterThan(0);
+    });
+
+    it('exposes at least 5 non-premium text models so the multi-model max-selection flow has enough options', async () => {
+      const { processModels } = await import('@hushbox/shared/models');
+      const raw = await client.listRawModels();
+      const { models, premiumIds } = processModels(raw);
+      const nonPremiumText = models.filter(
+        (m) => m.modality === 'text' && !premiumIds.includes(m.id)
+      );
+      expect(nonPremiumText.length).toBeGreaterThanOrEqual(5);
+    });
+  });
+
   describe('getModel', () => {
     it('returns the model matching the given id', async () => {
       const models = await client.listModels();
@@ -599,6 +712,23 @@ describe('createMockAIClient', () => {
       const stats = await client.getGenerationStats('mock-gen-123');
       expect(typeof stats.costUsd).toBe('number');
       expect(stats.costUsd).toBeGreaterThan(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Exhaustiveness guard for the synchronous stream() switch — protects
+  // against a future caller losing strict typing (via `as` cast) and silently
+  // landing in a no-op branch. Mirrors the pattern in modality-strategies.test.ts.
+  // ---------------------------------------------------------------------------
+  describe('stream exhaustiveness guard', () => {
+    it('throws when given an unrecognized modality (assertNever)', () => {
+      const badRequest = {
+        modality: 'rogue',
+        model: 'rogue/model',
+        prompt: 'unused',
+      } as unknown as TextRequest;
+
+      expect(() => client.stream(badRequest)).toThrow(/exhaustiveness/i);
     });
   });
 });

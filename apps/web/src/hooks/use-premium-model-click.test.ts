@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { usePremiumModelClick } from './use-premium-model-click';
 import { useUIModalsStore } from '@/stores/ui-modals';
+import { usePremiumModelClick } from './use-premium-model-click';
 import type { Model } from '@hushbox/shared';
 
 vi.mock('@/stores/ui-modals', () => ({

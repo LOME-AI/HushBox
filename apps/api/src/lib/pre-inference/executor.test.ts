@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { executePreInferenceChain } from './executor.js';
 import type {
   InferenceTransformation,
   PreInferenceBilling,
@@ -8,13 +9,13 @@ import type {
 import type { AIClient } from '../../services/ai/index.js';
 import type { SSEEventWriter } from '../stream-handler.js';
 
-import { executePreInferenceChain } from './executor.js';
 import type { PreInferenceRunArgs, PreInferenceStage } from './types.js';
 
 function noopAIClient(): AIClient {
   return {
     isMock: false,
     listModels: () => Promise.resolve([]),
+    listRawModels: () => Promise.resolve([]),
     getModel: () => Promise.reject(new Error('not used')),
     stream: () => ({
       [Symbol.asyncIterator](): AsyncIterator<never> {
@@ -34,6 +35,7 @@ function noopWriter(): SSEEventWriter {
     writeStart: noop,
     writeModelToken: noop,
     writeModelMediaStart: noop,
+    writeModelMediaProgress: noop,
     writeError: noop,
     writeModelDone: noop,
     writeModelError: noop,

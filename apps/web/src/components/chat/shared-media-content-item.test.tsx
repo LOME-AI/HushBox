@@ -93,7 +93,9 @@ describe('SharedMediaContentItem', () => {
 
     render(<SharedMediaContentItem {...baseProps()} />);
 
-    expect(screen.getByRole('status', { name: /failed to load media/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('status', { name: /couldn['’]t load this media.+refresh the page/i })
+    ).toBeInTheDocument();
   });
 
   it('renders <img> with the blob URL for image content', () => {

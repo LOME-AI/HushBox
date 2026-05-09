@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { friendlyErrorMessage, customUserMessage } from './error-messages.js';
+import * as errorCodes from './schemas/api/error.js';
 
 describe('friendlyErrorMessage', () => {
   // ------------------------------------------------------------------
@@ -373,6 +374,12 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('maps MODEL_TIER_LOCKED to user-facing message', () => {
+    expect(friendlyErrorMessage('MODEL_TIER_LOCKED')).toBe(
+      'This model is only available for paid accounts. Top up your balance to unlock.'
+    );
+  });
+
   it('maps TRIAL_MESSAGE_TOO_EXPENSIVE to user-facing message', () => {
     expect(friendlyErrorMessage('TRIAL_MESSAGE_TOO_EXPENSIVE')).toBe(
       'This message exceeds trial limits. Sign up for more capacity.'
@@ -443,6 +450,10 @@ describe('friendlyErrorMessage', () => {
 
   it('maps SHARE_NOT_FOUND to user-facing message', () => {
     expect(friendlyErrorMessage('SHARE_NOT_FOUND')).toBe('Shared message not found.');
+  });
+
+  it('maps SHARE_FORBIDDEN to user-facing message', () => {
+    expect(friendlyErrorMessage('SHARE_FORBIDDEN')).toBe("You can't share this message.");
   });
 
   it('maps WRAP_SET_MISMATCH to user-facing message', () => {
@@ -608,6 +619,12 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('maps UNKNOWN_MIME_TYPE to user-facing message', () => {
+    expect(friendlyErrorMessage('UNKNOWN_MIME_TYPE')).toBe(
+      "The generated media couldn't be identified. Please report this."
+    );
+  });
+
   it('maps MEDIA_TRIAL_BLOCKED to user-facing message', () => {
     expect(friendlyErrorMessage('MEDIA_TRIAL_BLOCKED')).toBe(
       'Media generation is only available for signed-in users. Create an account to unlock.'
@@ -667,5 +684,34 @@ describe('customUserMessage', () => {
   it('preserves markdown in custom messages', () => {
     const result = customUserMessage('Please [sign up](/signup) to continue.');
     expect(result).toBe('Please [sign up](/signup) to continue.');
+  });
+});
+
+describe('error code completeness', () => {
+  /**
+   * Iterates every `ERROR_CODE_*` constant exported from the error schema and
+   * asserts that {@link friendlyErrorMessage} returns a real, non-fallback
+   * message for it. This is the guardrail that keeps "add a new code" honest:
+   * if you forget the entry in `ERROR_MESSAGES`, this test fails for the new
+   * code. The fallback string is the one returned for unknown inputs.
+   */
+  const FALLBACK_MESSAGE = 'Something went wrong. Please try again.';
+
+  function collectAllErrorCodes(): string[] {
+    return Object.entries(errorCodes)
+      .filter(([key, value]) => key.startsWith('ERROR_CODE_') && typeof value === 'string')
+      .map(([, value]) => value as string);
+  }
+
+  it('exports at least one ERROR_CODE_* constant', () => {
+    expect(collectAllErrorCodes().length).toBeGreaterThan(0);
+  });
+
+  it('has a non-fallback friendly message for every exported error code', () => {
+    const allCodes = collectAllErrorCodes();
+    const missing = allCodes.filter(
+      (code) => friendlyErrorMessage(code) === (FALLBACK_MESSAGE as unknown as string)
+    );
+    expect(missing).toEqual([]);
   });
 });

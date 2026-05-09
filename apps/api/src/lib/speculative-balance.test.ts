@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { Redis } from '@upstash/redis';
 import {
   reserveBudget,
   releaseBudget,
@@ -9,6 +8,7 @@ import {
   getGroupReservedTotals,
 } from './speculative-balance.js';
 import { REDIS_REGISTRY } from './redis-registry.js';
+import type { Redis } from '@upstash/redis';
 
 function createMockRedis(): {
   get: ReturnType<typeof vi.fn>;

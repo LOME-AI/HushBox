@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { Model } from '@hushbox/shared';
 import { calculateMonthlyCost } from './calculate-cost';
+import type { Model } from '@hushbox/shared';
 
 function makeModel(overrides: Partial<Model> = {}): Model {
   return {

@@ -18,7 +18,6 @@ import {
   type TestSetup,
 } from '../chat/media-strategy-test-helpers.js';
 import { createSmartModelStage } from '../../lib/pre-inference/smart-model-stage.js';
-import type { SSEEventWriter } from '../../lib/stream-handler.js';
 import { createMockAIClient } from './mock.js';
 import {
   clearTestModelCache,
@@ -26,6 +25,7 @@ import {
   getCheapestTestModel,
   setupIntegrationClient,
 } from './test-utilities.js';
+import type { SSEEventWriter } from '../../lib/stream-handler.js';
 import type { AIClient, ModelInfo, TextRequest } from './types.js';
 import type { Model as SharedModel } from '@hushbox/shared';
 
@@ -35,6 +35,7 @@ function createNoopWriter(): SSEEventWriter {
     writeStart: noop as SSEEventWriter['writeStart'],
     writeModelToken: noop as SSEEventWriter['writeModelToken'],
     writeModelMediaStart: noop as SSEEventWriter['writeModelMediaStart'],
+    writeModelMediaProgress: noop as SSEEventWriter['writeModelMediaProgress'],
     writeError: noop as SSEEventWriter['writeError'],
     writeModelDone: noop as SSEEventWriter['writeModelDone'],
     writeModelError: noop as SSEEventWriter['writeModelError'],
@@ -66,9 +67,18 @@ async function buildHarness(client: AIClient, eligibleCount: number): Promise<Sm
   const modelMetadataById = new Map(
     eligibleSlice.map((m) => [m.id, { name: m.name, description: m.description }])
   );
+  const eligibleIds = eligibleSlice.map((m) => m.id);
+
+  // Mock client returns a fixed classifier resolution that may not be in the
+  // eligible slice we just computed; pin it here so resolveClassifierOutput
+  // always finds a match. Real client picks from the eligible list itself.
+  if (client.isMock) {
+    client.setClassifierResolution(eligibleIds[0]!);
+  }
+
   return {
     classifierModelId,
-    eligibleIds: eligibleSlice.map((m) => m.id),
+    eligibleIds,
     modelMetadataById,
   };
 }

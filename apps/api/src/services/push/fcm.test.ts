@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, type Mock } from 'vitest';
-import type { PushNotification } from './types.js';
 import { createFcmPushClient, _resetTokenCache } from './fcm.js';
+import type { PushNotification } from './types.js';
 
 let testServiceAccountJson: string;
 const TEST_PROJECT_ID = 'hushbox-test';

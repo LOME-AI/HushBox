@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { ProjectsLink } from './projects-link';
 import { useUIStore } from '@/stores/ui';
+import { ProjectsLink } from './projects-link';
 
 // Mock Link component
 vi.mock('@tanstack/react-router', () => ({

@@ -1,7 +1,7 @@
 import { createEnvUtilities, type EnvContext } from '@hushbox/shared';
-import type { EmailClient } from './types.js';
 import { createConsoleEmailClient } from './console.js';
 import { createResendEmailClient } from './resend.js';
+import type { EmailClient } from './types.js';
 
 interface EmailEnv extends EnvContext {
   RESEND_API_KEY?: string;

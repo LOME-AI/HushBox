@@ -1,5 +1,5 @@
-import type { Model } from '../schemas/api/models.js';
 import { CAPABILITIES, type CapabilityId } from './types.js';
+import type { Model } from '../schemas/api/models.js';
 
 export function getModelCapabilities(model: Model): CapabilityId[] {
   const supportedParams = new Set(model.supportedParameters);

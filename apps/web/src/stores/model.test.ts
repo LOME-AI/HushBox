@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SMART_MODEL_ID, MAX_SELECTED_MODELS } from '@hushbox/shared';
-import type { Modality } from '@hushbox/shared';
 import { useModelStore, DEFAULT_MODEL_ID, DEFAULT_MODEL_NAME, getPrimaryModel } from './model';
+import type { Modality } from '@hushbox/shared';
 import type { SelectedModelEntry } from './model';
 
 const defaultTextEntry: SelectedModelEntry = { id: DEFAULT_MODEL_ID, name: DEFAULT_MODEL_NAME };

@@ -1,18 +1,12 @@
 /**
- * Billing reservation helpers — shared between text and media pipelines.
+ * Billing reservation gate shared between text and media pipelines.
  *
- * Each modality has its own pre-reservation logic (text computes a per-token
- * worst case from the gateway model list + Smart Model resolution; media
- * computes a flat per-output cost from the per-model price map). After that
- * upstream work, every modality lands at the same gate: resolve the funding
- * source, mismatch-check against the client, then either personal or group
- * budget reservation. This module owns that gate, lifted out of
- * `stream-pipeline.ts` so the modality-specific entrypoints (text + the three
- * media flavors) read as their domain logic instead of a 280-line orchestrator.
- *
- * No behavior change relative to the inline implementation it replaces — the
- * funding-source decision, payer resolution, post-reservation race guard, and
- * release-on-failure flow are byte-for-byte identical.
+ * Each modality computes its own pre-reservation worst case upstream (text:
+ * per-token worst case from the gateway model list + Smart Model resolution;
+ * media: a flat per-output cost from the per-model price map). All modalities
+ * then land here for the common gate: resolve the funding source, mismatch-
+ * check against the client, then either personal or group budget reservation,
+ * with a post-reservation race guard and a release-on-failure flow.
  */
 
 import {
@@ -22,11 +16,6 @@ import {
   getCushionCents,
   resolveBilling,
 } from '@hushbox/shared';
-import type { DenialReason, FundingSource, ResolveBillingInput, UserTier } from '@hushbox/shared';
-import type { Context } from 'hono';
-import type { Redis } from '@upstash/redis';
-import type { AppEnv } from '../types.js';
-import type { BuildBillingResult, MemberContext } from '../services/billing/index.js';
 import { createErrorResponse } from './error-response.js';
 import {
   reserveBudget,
@@ -35,6 +24,11 @@ import {
   releaseGroupBudget,
   type GroupBudgetReservation,
 } from './speculative-balance.js';
+import type { DenialReason, FundingSource, ResolveBillingInput, UserTier } from '@hushbox/shared';
+import type { Context } from 'hono';
+import type { Redis } from '@upstash/redis';
+import type { AppEnv } from '../types.js';
+import type { BuildBillingResult, MemberContext } from '../services/billing/index.js';
 
 /** Builds the 402 response for a billing denial. Caller-supplied so test
  * fixtures can stub error-shape generation independently. */

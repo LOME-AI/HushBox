@@ -1,5 +1,5 @@
-import type { ContentKey } from '@hushbox/crypto';
 import { useDecryptBlob } from '@/hooks/use-decrypt-blob';
+import type { ContentKey } from '@hushbox/crypto';
 
 interface UseDecryptedSharedMediaParams {
   /** Presigned GET URL minted server-side for the share response. */

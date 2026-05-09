@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { randomBytes } from '@noble/hashes/utils.js';
 import { symmetricEncrypt, symmetricDecrypt } from './symmetric.js';
 import { DecryptionError, InvalidBlobError } from './errors.js';
-import { randomBytes } from '@noble/hashes/utils.js';
 
 describe('symmetric', () => {
   const key = randomBytes(32);

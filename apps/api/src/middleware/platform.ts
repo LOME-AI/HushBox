@@ -1,5 +1,5 @@
-import type { MiddlewareHandler } from 'hono';
 import { VALID_PLATFORMS, type Platform } from '@hushbox/shared';
+import type { MiddlewareHandler } from 'hono';
 
 const validPlatformSet = new Set<string>(VALID_PLATFORMS);
 

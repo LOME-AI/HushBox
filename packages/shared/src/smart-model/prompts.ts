@@ -73,3 +73,30 @@ export function buildClassifierMessages(input: ClassifierPromptInput): Classifie
     { role: 'user', content: input.truncatedContext },
   ];
 }
+
+/**
+ * Exact character count of the classifier prompt template (system message
+ * plus user-message wrapping) when rendered against the supplied eligible
+ * model list and an EMPTY truncated context. Used by `buildEligibleModels`
+ * to size the worst-case classifier overhead in token / cost terms without
+ * relying on a guessed constant that can drift from the prompt template.
+ *
+ * Implementation: render the actual prompt with empty context and concat
+ * each role's content. This makes the helper a single source of truth — if
+ * the prompt template grows or shrinks, the overhead estimate updates with
+ * it on the next call. No memoization: callers run this once per Smart
+ * Model invocation, against a tiny model list (~tens of entries).
+ */
+export function computeClassifierPromptOverhead(
+  eligibleModels: readonly ClassifierEligibleModel[]
+): number {
+  const messages = buildClassifierMessages({
+    truncatedContext: '',
+    eligibleModels,
+  });
+  let total = 0;
+  for (const message of messages) {
+    total += message.content.length;
+  }
+  return total;
+}

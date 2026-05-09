@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import { cn } from '@hushbox/ui';
 import { FolderOpen } from 'lucide-react';
-import { useUIStore } from '@/stores/ui';
+import { cn } from '@hushbox/ui';
 import { ROUTES } from '@hushbox/shared';
+import { useUIStore } from '@/stores/ui';
 
 export function ProjectsLink(): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);

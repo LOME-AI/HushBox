@@ -25,6 +25,7 @@ function createMockWriter(): SSEEventWriter & {
     writeStart: record('writeStart'),
     writeModelToken: record('writeModelToken'),
     writeModelMediaStart: record('writeModelMediaStart'),
+    writeModelMediaProgress: record('writeModelMediaProgress'),
     writeError: record('writeError'),
     writeModelDone: record('writeModelDone'),
     writeModelError: record('writeModelError'),
@@ -277,6 +278,7 @@ describe('collectMultiModelStreams', () => {
     expect(startEvents).toHaveLength(1);
     expect(startEvents[0]!.args[0]).toEqual({
       modelId: 'google/imagen-4',
+      assistantMessageId: 'asst-1',
       mediaType: 'image',
       mimeType: 'image/png',
     });

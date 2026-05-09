@@ -1,22 +1,17 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { eq } from 'drizzle-orm';
 import {
   createConversationRequestSchema,
   updateConversationRequestSchema,
-  conversationResponseSchema,
-  messageResponseSchema,
-  contentItemResponseSchema,
   ERROR_CODE_CONVERSATION_NOT_FOUND,
   toBase64,
   fromBase64,
   contentTypeSchema,
   senderTypeSchema,
 } from '@hushbox/shared';
-import { eq } from 'drizzle-orm';
-import type { Conversation, ContentItem, Database } from '@hushbox/db';
 import { conversationForks } from '@hushbox/db';
-import type { MessageWithContent } from '../services/conversations/conversations.js';
 
 type ConversationFork = typeof conversationForks.$inferSelect;
 import { createErrorResponse } from '../lib/error-response.js';
@@ -29,6 +24,13 @@ import {
   updateConversation,
   deleteConversation,
 } from '../services/conversations/index.js';
+import type { Conversation, ContentItem, Database } from '@hushbox/db';
+import type { MessageWithContent } from '../services/conversations/conversations.js';
+import type {
+  conversationResponseSchema,
+  messageResponseSchema,
+  contentItemResponseSchema,
+} from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 
 /** Serialize a conversation entity for API responses. */
