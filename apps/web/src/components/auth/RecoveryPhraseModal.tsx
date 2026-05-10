@@ -1,11 +1,10 @@
 import * as React from 'react';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Overlay, OverlayContent, ModalActions, Input } from '@hushbox/ui';
+import { Overlay, OverlayContent, ModalActions, Input, useIsMobile } from '@hushbox/ui';
 import { Copy, Check, AlertTriangle } from 'lucide-react';
 import { regenerateRecoveryPhrase } from '@hushbox/crypto';
 import { toBase64 } from '@hushbox/shared';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
-import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { ModalSuccessStep } from '@/components/shared/modal-success-step';
 import { useAuthStore } from '@/lib/auth';

@@ -1,7 +1,8 @@
 import * as React from 'react';
-import { cn, Sheet, SheetContent } from '@hushbox/ui';
 import { X, PanelLeft, PanelRight } from 'lucide-react';
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import { cn } from '../lib/utilities';
+import { Sheet, SheetContent } from './sheet';
+import { useIsMobile } from '../hooks/use-is-mobile';
 
 interface SidebarPanelProps {
   side: 'left' | 'right';
@@ -25,7 +26,7 @@ interface SidebarPanelHeaderProps {
   testId?: string | undefined;
 }
 
-function SidebarPanelHeader({
+export function SidebarPanelHeader({
   side,
   collapsed,
   headerIcon,
@@ -134,6 +135,7 @@ export function SidebarPanel({
           side={side}
           className="bg-sidebar text-sidebar-foreground flex w-72 flex-col gap-0 p-0 pt-[env(safe-area-inset-top,0px)]"
           showCloseButton={false}
+          data-chrome=""
           {...(testId === undefined ? {} : { 'data-testid': testId })}
         >
           {content}
@@ -144,6 +146,7 @@ export function SidebarPanel({
 
   return (
     <aside
+      data-chrome=""
       {...(testId === undefined ? {} : { 'data-testid': testId })}
       className={cn(
         'bg-sidebar text-sidebar-foreground border-sidebar-border flex h-dvh flex-col overflow-hidden',

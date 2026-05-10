@@ -91,6 +91,7 @@ function ToggleButtonWithTooltip({
   return (
     <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger asChild>
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- tooltip wrapper: span exists so tooltip can show on hover/click even when the inner Button is disabled (disabled buttons swallow events). The Button itself owns keyboard semantics. */}
         <span
           className="inline-flex"
           onClick={() => {
@@ -410,6 +411,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
 
     React.useEffect(() => {
       if (!autoFocus) return;
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers focus to next frame, not motion animation
       const id = requestAnimationFrame(() => {
         textareaRef.current?.focus();
       });

@@ -14,9 +14,8 @@ import { useSearchStore } from '@/stores/search';
 import { useSelectedModelCapabilities } from '@/hooks/use-selected-model-capabilities';
 import { useResolveDefaultModel } from '@/hooks/use-resolve-default-model';
 import { useStableBalance } from '@/hooks/use-stable-balance';
-import { useVisualViewportHeight } from '@hushbox/ui';
+import { useIsMobile, useVisualViewportHeight } from '@hushbox/ui';
 import type { FundingSource, Modality } from '@hushbox/shared';
-import { useIsMobile } from '@/hooks/use-is-mobile';
 
 interface WelcomeGreetingProps {
   greeting: ReturnType<typeof getGreeting> | null;

@@ -3,6 +3,7 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import reactPlugin from 'eslint-plugin-react';
 import reactHooksPlugin from 'eslint-plugin-react-hooks';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
 import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
 import globals from 'globals';
 import noSecrets from 'eslint-plugin-no-secrets';
@@ -130,6 +131,39 @@ export function createBaseConfig(tsconfigRootDir) {
         'unicorn/filename-case': 'off',
         'unicorn/prefer-ternary': 'off',
         'sonarjs/slow-regex': 'off',
+
+        // Accessibility — force use of accessibility-aware animation hook.
+        // Raw window.requestAnimationFrame ignores prefers-reduced-motion settings,
+        // so animations keep running for users who explicitly opted out of motion.
+        'no-restricted-globals': [
+          'error',
+          {
+            name: 'requestAnimationFrame',
+            message:
+              'Use useAnimationFrame from @hushbox/ui instead — respects accessibility motion settings.',
+          },
+        ],
+
+        // Accessibility — block JS animation libraries that don't respect
+        // prefers-reduced-motion or our accessibility settings out of the box.
+        // framer-motion (project standard) honours MotionConfig + reduced-motion.
+        'no-restricted-imports': [
+          'error',
+          {
+            paths: [
+              {
+                name: 'gsap',
+                message:
+                  'Use CSS animations or framer-motion — they respect accessibility settings.',
+              },
+              { name: 'animejs', message: 'Use CSS animations or framer-motion.' },
+              {
+                name: 'motion-one',
+                message: 'Use framer-motion — same author, but framer-motion is project standard.',
+              },
+            ],
+          },
+        ],
       },
     },
   ];
@@ -217,6 +251,7 @@ export const reactConfig = [
     plugins: {
       react: reactPlugin,
       'react-hooks': reactHooksPlugin,
+      'jsx-a11y': jsxA11y,
     },
     languageOptions: {
       globals: {
@@ -237,7 +272,33 @@ export const reactConfig = [
       ...reactPlugin.configs.recommended.rules,
       ...reactPlugin.configs['jsx-runtime'].rules,
       ...reactHooksPlugin.configs.recommended.rules,
+      // Accessibility — recommended baseline. Strict adds stricter
+      // role/interaction rules that produce too many false positives in our
+      // codebase (Radix primitives, custom interactive wrappers). Recommended
+      // catches the high-signal issues without drowning real bugs.
+      ...jsxA11y.flatConfigs.recommended.rules,
       'react/prop-types': 'off',
+
+      // Accessibility — block JSX patterns that bypass user accessibility settings.
+      // 1. Inline color/font in style props can't be overridden by the global
+      //    accessibility CSS layer (contrast, font-scaling, dyslexia fonts, etc.).
+      //    Use Tailwind classes or CSS custom properties so the cascade can win.
+      // 2. Raw <img> bypasses our <Img>/<Logo> wrappers, which set
+      //    `data-no-invert` for invert-colors mode and enforce alt text typing.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "JSXAttribute[name.name='style'] ObjectExpression > Property[key.name=/^(color|backgroundColor|borderColor|fontFamily|fontSize|fill|stroke)$/]",
+          message:
+            'Do not set color/font in inline styles. Use Tailwind classes or CSS variables so accessibility settings (contrast, font scaling) can override them.',
+        },
+        {
+          selector: "JSXOpeningElement[name.name='img']",
+          message:
+            'Use <Img> from @hushbox/ui (content) or <Logo> (decorative) — never raw <img>.',
+        },
+      ],
     },
   },
 ];

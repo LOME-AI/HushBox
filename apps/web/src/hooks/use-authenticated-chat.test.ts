@@ -23,7 +23,10 @@ vi.mock('@/hooks/chat', () => ({
 vi.mock('@/hooks/use-chat-page', () => ({}));
 vi.mock('@/hooks/use-optimistic-messages', () => ({}));
 vi.mock('@/hooks/use-decrypted-messages', () => ({}));
-vi.mock('@/hooks/use-is-mobile', () => ({ useIsMobile: () => false }));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return { ...actual, useIsMobile: () => false };
+});
 vi.mock('@/hooks/forks', () => ({}));
 vi.mock('@/hooks/use-fork-messages', () => ({}));
 vi.mock('@/hooks/billing', () => ({}));

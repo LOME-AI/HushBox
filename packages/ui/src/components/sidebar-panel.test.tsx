@@ -4,17 +4,17 @@ import userEvent from '@testing-library/user-event';
 import { SidebarPanel } from './sidebar-panel';
 
 // Mock useIsMobile hook
-vi.mock('@/hooks/use-is-mobile', () => ({
+vi.mock('../hooks/use-is-mobile', () => ({
   useIsMobile: vi.fn(() => false),
 }));
 
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useIsMobile } from '../hooks/use-is-mobile';
 
 const mockUseIsMobile = vi.mocked(useIsMobile);
 
-// Mock Sheet components from @hushbox/ui
-vi.mock('@hushbox/ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+// Mock Sheet components
+vi.mock('./sheet', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./sheet')>();
   return {
     ...actual,
     Sheet: ({
@@ -27,6 +27,7 @@ vi.mock('@hushbox/ui', async (importOriginal) => {
       onOpenChange?: (open: boolean) => void;
     }) =>
       open ? (
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- test mock — div onClick is intentional to simulate Sheet outside-click closing behavior
         <div data-testid="mock-sheet" data-open={open} onClick={() => onOpenChange?.(false)}>
           {children}
         </div>
@@ -36,17 +37,19 @@ vi.mock('@hushbox/ui', async (importOriginal) => {
       side,
       className,
       showCloseButton,
+      ...rest
     }: {
       children: React.ReactNode;
       side?: string;
       className?: string;
       showCloseButton?: boolean;
-    }) => (
+    } & Record<string, unknown>) => (
       <div
         data-testid="mock-sheet-content"
         data-side={side}
         data-show-close-button={String(showCloseButton ?? true)}
         className={className}
+        {...rest}
       >
         {showCloseButton !== false && (
           <button type="button" aria-label="Close">
@@ -141,6 +144,12 @@ describe('SidebarPanel', () => {
       render(<SidebarPanel {...defaultProps} />);
       const aside = screen.getByRole('complementary');
       expect(aside).toHaveClass('transition-[width]');
+    });
+
+    it('has data-chrome attribute on desktop aside for reader-mode hiding', () => {
+      render(<SidebarPanel {...defaultProps} />);
+      const aside = screen.getByRole('complementary');
+      expect(aside).toHaveAttribute('data-chrome', '');
     });
   });
 
@@ -240,6 +249,12 @@ describe('SidebarPanel', () => {
       const closeButtons = screen.getAllByRole('button', { name: /close/i });
       expect(closeButtons).toHaveLength(1);
       expect(closeButtons[0]).toHaveAttribute('aria-label', 'Close sidebar');
+    });
+
+    it('has data-chrome attribute on mobile SheetContent for reader-mode hiding', () => {
+      render(<SidebarPanel {...defaultProps} open={true} />);
+      const sheetContent = screen.getByTestId('mock-sheet-content');
+      expect(sheetContent).toHaveAttribute('data-chrome', '');
     });
   });
 

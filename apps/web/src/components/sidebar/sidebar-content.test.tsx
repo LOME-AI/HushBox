@@ -36,9 +36,13 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 // Mock useIsMobile (used by NewChatButton)
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: () => false,
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: () => false,
+  };
+});
 
 // Mock chat hooks used by ChatItem
 vi.mock('@/hooks/chat', () => ({

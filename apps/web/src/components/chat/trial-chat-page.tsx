@@ -12,7 +12,7 @@ import { useChatErrorStore, createChatError } from '@/stores/chat-error';
 import { useChatEditStore } from '@/stores/chat-edit';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useSession } from '@/lib/auth';
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useIsMobile } from '@hushbox/ui';
 import type { Message } from '@/lib/api';
 import { ROUTES, friendlyErrorMessage, customUserMessage } from '@hushbox/shared';
 

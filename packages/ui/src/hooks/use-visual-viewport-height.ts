@@ -9,6 +9,7 @@ export function useVisualViewportHeight(): number {
 
   const updateHeight = useCallback(() => {
     if (rafRef.current !== undefined) return;
+    // eslint-disable-next-line no-restricted-globals -- viewport polling, not animation; useAnimationFrame is for motion that must respect prefers-reduced-motion
     rafRef.current = requestAnimationFrame(() => {
       const newHeight = window.visualViewport?.height ?? window.innerHeight;
       setHeight((previous) => (previous === newHeight ? previous : newHeight));

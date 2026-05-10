@@ -15,9 +15,8 @@ import { AddMemberModal } from '@/components/chat/add-member-modal';
 import { BudgetSettingsModal } from '@/components/chat/budget-settings-modal';
 import { InviteLinkModal } from '@/components/chat/invite-link-modal';
 import { ShareMessageModal } from '@/components/chat/share-message-modal';
-import { useVisualViewportHeight } from '@hushbox/ui';
+import { useIsMobile, useVisualViewportHeight } from '@hushbox/ui';
 import { useKeyboardOffset } from '@/hooks/use-keyboard-offset';
-import { useIsMobile } from '@/hooks/use-is-mobile';
 import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
 import { useTierInfo } from '@/hooks/use-tier-info';
 import { useModelStore, getPrimaryModel, type SelectedModelEntry } from '@/stores/model';
@@ -241,7 +240,9 @@ function useInputFocusManagement(
     previousInputDisabledRef.current = inputDisabled;
 
     if (wasDisabled && !inputDisabled && !isMobile) {
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers focus to next frame, not motion animation
       requestAnimationFrame(() => {
+        // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers focus to next frame, not motion animation
         requestAnimationFrame(() => {
           promptInputRef.current?.focus();
         });
@@ -265,6 +266,7 @@ function useStreamScrollEffect(
     const isFirstMessage = messagesLength <= 2;
 
     if (!wasStreaming && isNowStreaming && isFirstMessage) {
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers scroll to next frame, not motion animation
       requestAnimationFrame(() => {
         virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
       });
@@ -444,6 +446,7 @@ function ChatPromptInput({
       maxHeight="112px"
       disabled={inputDisabled}
       isProcessing={isProcessing}
+      // eslint-disable-next-line jsx-a11y/no-autofocus -- desktop-only focus management for chat composer; mobile is excluded to avoid keyboard popup
       autoFocus={!isMobile}
       isAuthenticated={isAuthenticated}
       activeModality={activeModality}
@@ -613,6 +616,7 @@ function useSubmitUserOnly(
     if (onSubmitUserOnly) {
       onSubmitUserOnly();
       virtuosoRef.current?.resetScrollBreakaway();
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers scroll to next frame, not motion animation
       requestAnimationFrame(() => {
         virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
       });
@@ -869,6 +873,7 @@ export function ChatLayout({
     (fundingSource: FundingSource): void => {
       onSubmit(fundingSource);
       virtuosoRef.current?.resetScrollBreakaway();
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers scroll to next frame, not motion animation
       requestAnimationFrame(() => {
         virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
       });
@@ -971,6 +976,7 @@ export function ChatLayout({
       <div
         ref={inputContainerRef}
         data-chat-input
+        data-chrome=""
         className="bg-background flex-shrink-0 border-t p-4"
         style={inputStyle}
       >

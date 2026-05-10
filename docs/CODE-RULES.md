@@ -107,6 +107,47 @@ Coding standards for all contributors (human and AI).
 
 ---
 
+## Accessibility-friendly Conventions
+
+These conventions keep the accessibility widget's CSS overrides effective as the codebase grows. Lint rules in `packages/config/eslint.config.js` enforce them automatically.
+
+### Use Tailwind classes or CSS variables, never inline color/font styles
+
+- ❌ `<div style={{ color: '#ff0000', fontSize: 14 }} />`
+- ✅ `<div className="text-destructive text-sm" />`
+
+Inline `style` props for `color`, `backgroundColor`, `borderColor`, `fontFamily`, `fontSize`, `fill`, `stroke` are banned by ESLint. The widget's contrast and font-scaling toggles can't override values that were hardcoded inline.
+
+**Exemptions:** native-asset generators (splash-screen, app-icon) that render to PNG. Use `eslint-disable-next-line no-restricted-syntax` with a comment explaining the exemption.
+
+### Use `<Img>` for content images and `<Logo>` for decorative branding — never raw `<img>`
+
+- ❌ `<img src="/photo.jpg" alt="..." />`
+- ✅ `<Img src="/photo.jpg" alt="..." />` (content image — auto-inverts in inverted-color mode)
+- ✅ `<Logo />` (decorative brand mark — exempt from inversion)
+
+Both are exported from `@hushbox/ui`. The `Img` wrapper requires `alt`, defaults to `loading="lazy"`, and supports a `decorative` prop that adds `data-no-invert`. Raw `<img>` in `.tsx` is banned by ESLint.
+
+### Use `useAnimationFrame` instead of `window.requestAnimationFrame`
+
+- ❌ `const id = window.requestAnimationFrame(tick)`
+- ✅ `useAnimationFrame((timestamp) => { /* tick */ })`
+
+The wrapper from `@hushbox/ui` respects `prefers-reduced-motion` and the user's "stop animations" toggle. Raw `requestAnimationFrame` is banned by ESLint.
+
+JS animation libraries (`gsap`, `anime`, `motion-one`) are also banned via `no-restricted-imports`. Use Framer Motion (already in the stack) or CSS animations.
+
+### Prefer semantic HTML over ARIA roles
+
+- ❌ `<div role="main">`, `<div role="navigation">`, `<div onClick={...}>`
+- ✅ `<main>`, `<nav>`, `<button onClick={...}>`
+
+Semantic tags imply roles, support keyboard interactions natively, and integrate with the page-structure landmarks navigator without configuration.
+
+Tag chrome wrappers (sidebar, header, footer, panels surrounding main content) with `data-chrome=""` so reader-view mode can hide them.
+
+---
+
 ## Code Organization
 
 ### Naming

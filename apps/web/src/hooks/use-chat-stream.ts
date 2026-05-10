@@ -20,6 +20,7 @@ import {
   type ModelErrorData,
   type StageDoneEventData,
 } from '../lib/sse-client';
+import { startChatTtsStream } from '../lib/chat-tts-stream';
 
 // ============================================================================
 // Types
@@ -362,13 +363,27 @@ async function executeStream(
     modelErrors: new Map(),
   };
 
+  // TTS chat-aloud: opt-in feeder built from accessibility prefs. Returns null
+  // when the user hasn't enabled `streamChatAloud` (or has muted), so the
+  // common path stays zero-cost. Fed alongside (not instead of) the caller's
+  // onToken so existing UI behavior is unaffected.
+  //
+  // Note: only the primary model's tokens are routed to TTS. With multi-model
+  // fan-out, speaking every model's text in parallel would be cacophony.
+  let primaryModelId: string | null = null;
+  const ttsFeeder = await startChatTtsStream();
+
   const parser = createSSEParser({
     onStart: (data) => {
       streamState.startData = data;
+      primaryModelId = data.models[0]?.modelId ?? null;
       options?.onStart?.(data);
     },
     onToken: (tokenData) => {
       options?.onToken?.(tokenData.content, tokenData.modelId);
+      if (ttsFeeder !== null && tokenData.modelId === primaryModelId) {
+        ttsFeeder.feed(tokenData.content);
+      }
     },
     onModelDone: (data) => {
       streamState.modelResults.set(data.modelId, { cost: data.cost });
@@ -396,10 +411,17 @@ async function executeStream(
     onDone: (doneData) => {
       streamState.done = true;
       streamState.doneData = doneData;
+      ttsFeeder?.end();
     },
   });
 
-  return await consumeSSEStream(reader, parser, streamState);
+  try {
+    return await consumeSSEStream(reader, parser, streamState);
+  } finally {
+    // Flush any buffered text on premature termination (error, abort, etc.)
+    // so users hear the partial answer instead of silence.
+    ttsFeeder?.end();
+  }
 }
 
 export function useChatStream(mode: StreamMode): ChatStreamHook {

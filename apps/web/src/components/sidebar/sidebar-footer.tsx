@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { DropdownMenuItem, DropdownMenuSeparator } from '@hushbox/ui';
 import {
+  Accessibility,
   Check,
   Database,
   ExternalLink as ExternalLinkIcon,
@@ -132,6 +133,15 @@ function AuthenticatedMenuItems({ navigate }: Readonly<MenuItemsProps>): React.J
           Settings
         </DropdownMenuItem>
       )}
+      <DropdownMenuItem
+        onClick={() => {
+          void navigate({ to: ROUTES.ACCESSIBILITY });
+        }}
+        data-testid="menu-accessibility"
+      >
+        <Accessibility className="mr-2 h-4 w-4" />
+        Accessibility
+      </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => {
           void navigate({ to: ROUTES.USAGE });

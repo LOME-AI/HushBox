@@ -1,0 +1,63 @@
+/* Contrast modes — override CSS variables defined in packages/config/tailwind/index.css */
+html.a11y-contrast-high {
+  --background: #ffffff;
+  --foreground: #000000;
+  --border: #000000;
+  --muted-foreground: #1a1a1a;
+}
+html.a11y-contrast-high.dark {
+  --background: #000000;
+  --foreground: #ffffff;
+  --border: #ffffff;
+  --muted-foreground: #f0f0f0;
+}
+
+html.a11y-contrast-low {
+  --foreground: #4a4a4a;
+  --muted-foreground: #6b6b6b;
+  --border: #ececec;
+}
+
+html.a11y-contrast-increased {
+  --muted-foreground: #2a2a2a;
+}
+
+/* Saturation modes — apply to body, NOT html (avoids stacking-context bug breaking position:fixed portals) */
+html.a11y-saturate-0 body {
+  filter: saturate(0);
+}
+html.a11y-saturate-50 body {
+  filter: saturate(0.5);
+}
+html.a11y-saturate-150 body {
+  filter: saturate(1.5);
+}
+
+/* Invert mode */
+html.a11y-invert body {
+  filter: invert(1) hue-rotate(180deg);
+}
+html.a11y-invert body img,
+html.a11y-invert body video,
+html.a11y-invert body [data-no-invert] {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Highlight links */
+html.a11y-highlight-links a,
+html.a11y-highlight-links a:visited {
+  text-decoration: underline !important;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Reader mode for the chat app — hide chrome, narrow content column */
+html[data-reader-mode] [data-chrome] {
+  display: none !important;
+}
+html[data-reader-mode] main {
+  max-width: 65ch;
+  margin-inline: auto;
+}

@@ -476,6 +476,7 @@ describe('PromptInput', () => {
   describe('autoFocus prop', () => {
     it('applies autoFocus to textarea when autoFocus is true', async () => {
       renderWithProviders(
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- test exercises autoFocus prop behavior
         <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} autoFocus />
       );
 
@@ -487,6 +488,7 @@ describe('PromptInput', () => {
 
     it('does not autoFocus textarea when autoFocus is false', () => {
       renderWithProviders(
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- test exercises autoFocus prop behavior
         <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} autoFocus={false} />
       );
 

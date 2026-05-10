@@ -9,8 +9,10 @@ import { UpgradeRequiredModal } from '@/components/shared/upgrade-required-modal
 import { OfflineOverlay } from '@/components/shared/offline-overlay';
 import { ROUTES } from '@hushbox/shared';
 import { Toaster, TouchDeviceOverrideContext } from '@hushbox/ui';
+import { MotionProvider } from '@hushbox/ui/accessibility';
 import { SettledIndicator } from '@/components/shared/settled-indicator';
 import { useTouchOverrideStore } from '@/stores/touch-override';
+import { installTtsDomObserver } from '@/lib/tts-dom-observer';
 
 function NotFoundRedirect(): React.JSX.Element {
   return <Navigate to={ROUTES.CHAT} />;
@@ -32,15 +34,22 @@ function AppShell(): React.JSX.Element {
 function RootComponent(): React.JSX.Element {
   const touchOverride = useTouchOverrideStore((state) => state.override);
 
+  // Self-applying streaming TTS — any current or future surface that wraps its
+  // streamed text in a [data-tts-stream] container gets chat-aloud automatically.
+  // Complements the explicit `chat-tts-stream.ts` wiring inside `executeStream`.
+  React.useEffect(() => installTtsDomObserver(), []);
+
   return (
     <TouchDeviceOverrideContext value={touchOverride}>
-      <ThemeProvider>
-        <QueryProvider>
-          <StabilityProvider>
-            <AppShell />
-          </StabilityProvider>
-        </QueryProvider>
-      </ThemeProvider>
+      <MotionProvider>
+        <ThemeProvider>
+          <QueryProvider>
+            <StabilityProvider>
+              <AppShell />
+            </StabilityProvider>
+          </QueryProvider>
+        </ThemeProvider>
+      </MotionProvider>
     </TouchDeviceOverrideContext>
   );
 }

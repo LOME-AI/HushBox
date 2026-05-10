@@ -82,7 +82,7 @@ export function ChatList({
   }
 
   return (
-    <ul role="list" aria-label={label} className="flex flex-col gap-1 px-2">
+    <ul aria-label={label} className="flex flex-col gap-1 px-2">
       {conversations.map((conversation) => (
         <li key={conversation.id}>
           <ChatItem conversation={conversation} isActive={conversation.id === activeId} />

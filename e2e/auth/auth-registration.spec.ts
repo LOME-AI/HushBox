@@ -7,6 +7,7 @@ import {
   uniqueEmail,
   clearAuthRateLimits,
 } from '../helpers/auth.js';
+import { expectNoA11yViolations } from '../helpers/axe.js';
 
 test.describe('Registration & Verification', () => {
   test.beforeEach(async ({ request }, testInfo) => {
@@ -42,9 +43,14 @@ test.describe('Registration & Verification', () => {
   });
 
   test.describe('Signup validation', () => {
-    test('weak password shows validation error', async ({ unauthenticatedPage }) => {
+    test('weak password shows validation error', async ({ unauthenticatedPage }, testInfo) => {
       const signupPage = new SignupPage(unauthenticatedPage);
       await signupPage.goto();
+      // axe-core scan on the unauthenticated /signup page — guards against
+      // accessibility regressions introduced by future edits to the signup
+      // form. Pre-existing violations (if any) are documented in
+      // docs/ACCESSIBILITY.md.
+      await expectNoA11yViolations(unauthenticatedPage, testInfo);
 
       await signupPage.usernameInput.fill('validuser');
       await signupPage.emailInput.fill(uniqueEmail('e2e-weak'));

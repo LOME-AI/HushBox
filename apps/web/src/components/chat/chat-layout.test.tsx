@@ -16,15 +16,11 @@ vi.mock('@tanstack/react-query', () => ({
 
 vi.mock('@hushbox/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@hushbox/ui')>();
-  return { ...actual, useVisualViewportHeight: () => 800 };
+  return { ...actual, useVisualViewportHeight: () => 800, useIsMobile: () => false };
 });
 
 vi.mock('@/hooks/use-keyboard-offset', () => ({
   useKeyboardOffset: () => ({ bottom: 0, isKeyboardVisible: false }),
-}));
-
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: () => false,
 }));
 
 vi.mock('@/hooks/use-scroll-behavior', () => ({

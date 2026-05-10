@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Overlay } from '@hushbox/ui';
+import { Img, Overlay } from '@hushbox/ui';
 
 interface MediaModalProps {
   open: boolean;
@@ -35,7 +35,7 @@ export function MediaModal({
     >
       <div className="flex max-h-[85vh] items-center justify-center overflow-auto">
         {isImage && (
-          <img
+          <Img
             src={blobUrl}
             alt={alt ?? 'Generated media'}
             className="max-h-[85vh] max-w-full object-contain"
@@ -52,6 +52,7 @@ export function MediaModal({
           </video>
         )}
         {isAudio && (
+          // eslint-disable-next-line jsx-a11y/media-has-caption -- AI-generated audio: no caption track is available; aria-label provides accessible name
           <audio src={blobUrl} controls className="w-full" aria-label={alt ?? 'Generated audio'} />
         )}
       </div>

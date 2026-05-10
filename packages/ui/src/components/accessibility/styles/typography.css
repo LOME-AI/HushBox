@@ -1,0 +1,60 @@
+/* Font scaling — root font-size; Tailwind's rem cascades */
+html.a11y-font-scale-125 {
+  font-size: 20px;
+} /* base 16px * 1.25 */
+html.a11y-font-scale-150 {
+  font-size: 24px;
+}
+html.a11y-font-scale-175 {
+  font-size: 28px;
+}
+html.a11y-font-scale-200 {
+  font-size: 32px;
+}
+
+/* Letter / line / paragraph spacing — scoped to text elements, not all */
+html.a11y-letter-spacing-loose body p,
+html.a11y-letter-spacing-loose body li,
+html.a11y-letter-spacing-loose body td,
+html.a11y-letter-spacing-loose body span {
+  letter-spacing: 0.05em;
+}
+html.a11y-letter-spacing-loosest body p,
+html.a11y-letter-spacing-loosest body li,
+html.a11y-letter-spacing-loosest body td,
+html.a11y-letter-spacing-loosest body span {
+  letter-spacing: 0.12em;
+}
+
+html.a11y-line-height-tall p,
+html.a11y-line-height-tall li,
+html.a11y-line-height-tall td {
+  line-height: 1.5 !important;
+} /* default already ~1.5 */
+html.a11y-line-height-double p,
+html.a11y-line-height-double li,
+html.a11y-line-height-double td {
+  line-height: 2 !important;
+}
+
+html.a11y-para-spacing-double p {
+  margin-bottom: 2em;
+}
+
+/* Force left-align — scoped to text blocks, NOT headings or UI chrome */
+html.a11y-force-left p,
+html.a11y-force-left li,
+html.a11y-force-left td {
+  text-align: left !important;
+}
+
+/* Font family override — applied via inline style by font-loader (sets --a11y-font-family) */
+html.a11y-font-override body * {
+  font-family: var(--a11y-font-family), system-ui, sans-serif !important;
+}
+/* Code blocks always preserve mono — accessibility fonts destroy code readability */
+html.a11y-font-override body code,
+html.a11y-font-override body pre,
+html.a11y-font-override body kbd {
+  font-family: var(--font-mono), monospace !important;
+}

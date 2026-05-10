@@ -63,9 +63,13 @@ vi.mock('@/lib/api', () => ({
   getApiUrl: vi.fn(() => 'http://localhost:8787'),
 }));
 
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: vi.fn(() => false),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: vi.fn(() => false),
+  };
+});
 
 vi.mock('@/components/settings/CustomInstructionsModal', () => ({
   CustomInstructionsModal: ({

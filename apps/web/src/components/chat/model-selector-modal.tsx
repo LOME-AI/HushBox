@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { Search, ChevronUp, ChevronDown, Lock, Square, CheckSquare } from 'lucide-react';
-import { Overlay, Input, Button, ModalActions, ScrollArea, cn } from '@hushbox/ui';
+import { Overlay, Input, Button, ModalActions, ScrollArea, cn, useIsMobile } from '@hushbox/ui';
 import type { Model, Modality } from '@hushbox/shared';
 import type { ModelSelectorGatingProps } from './model-selector-types';
 import {
@@ -13,7 +13,6 @@ import {
 } from '@hushbox/shared';
 import { formatContextLength } from '../../lib/format';
 import { getAccessibleModelIds } from '../../hooks/models';
-import { useIsMobile } from '../../hooks/use-is-mobile';
 
 import { ModelInfoPanel } from './model-info-panel';
 import { SignupModal } from '../auth/signup-modal';
@@ -204,6 +203,7 @@ function ModelItemContent({
   onDoubleClick,
 }: Readonly<ModelItemContentProps>): React.JSX.Element {
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events -- option content area: parent has role="option" and the modal-level keyboard navigation (arrows/enter) handles activation; cannot be a <button> because it contains <Link> elements
     <div
       className={cn(
         'w-0 min-w-0 flex-1 cursor-pointer rounded-l-md p-3 transition-colors',

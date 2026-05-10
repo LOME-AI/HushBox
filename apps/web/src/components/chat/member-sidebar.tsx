@@ -11,6 +11,8 @@ import {
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
+  SidebarPanel,
+  useIsMobile,
 } from '@hushbox/ui';
 import {
   canManageLinks,
@@ -32,10 +34,8 @@ import {
   DollarSign,
   Trash2,
 } from 'lucide-react';
-import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useConversationBudgets } from '@/hooks/use-conversation-budgets';
-import { SidebarPanel } from '@/components/shared/sidebar-panel';
 import { SidebarActionButton } from '@/components/shared/sidebar-action-button';
 import { SidebarFooterBase } from '@/components/shared/sidebar-footer-base';
 import { LeaveConfirmationModal } from './leave-confirmation-modal';

@@ -1,5 +1,6 @@
-import { pgTable, text, timestamp, boolean, index, varchar } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, index, varchar, jsonb } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import type { AccessibilityPreferences } from '@hushbox/shared';
 
 import { bytea } from './bytea';
 
@@ -35,6 +36,17 @@ export const users = pgTable(
     publicKey: bytea('public_key').notNull(),
     passwordWrappedPrivateKey: bytea('password_wrapped_private_key').notNull(),
     recoveryWrappedPrivateKey: bytea('recovery_wrapped_private_key').notNull(),
+
+    // Accessibility preferences (LWW-synced JSONB blob; Zod-validated at API boundary)
+    accessibilityPreferences: jsonb('accessibility_preferences')
+      .$type<AccessibilityPreferences>()
+      .notNull()
+      .default(sql`'{"version":1}'::jsonb`),
+    accessibilityPreferencesUpdatedAt: timestamp('accessibility_preferences_updated_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [index('idx_users_email_verify_token').on(table.emailVerifyToken)]
 );

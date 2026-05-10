@@ -129,6 +129,7 @@ export function MarkdownRenderer({
       }: React.AnchorHTMLAttributes<HTMLAnchorElement> & {
         children?: React.ReactNode;
       }) => (
+        // eslint-disable-next-line no-restricted-syntax -- color is set via CSS variable, which the global accessibility CSS layer can override
         <a href={href} style={{ color: 'var(--brand-red)' }} {...props}>
           {children}
         </a>

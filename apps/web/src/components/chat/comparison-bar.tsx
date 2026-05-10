@@ -74,6 +74,7 @@ export function ComparisonBar({
   return (
     <div
       data-testid="selected-models-bar"
+      data-chrome=""
       className="border-border-strong flex items-center gap-2 overflow-x-auto border-b px-4 py-2"
     >
       {selectedModels.map((model) => (

@@ -33,7 +33,7 @@ import { usePendingChatStore } from '@/stores/pending-chat';
 import { useModelStore, getPrimaryModel } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
 import { useChatErrorStore, createChatError } from '@/stores/chat-error';
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useIsMobile } from '@hushbox/ui';
 import { billingKeys } from '@/hooks/billing';
 import {
   createFirstEpoch,

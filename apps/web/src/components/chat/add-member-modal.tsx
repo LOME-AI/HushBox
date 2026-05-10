@@ -98,21 +98,22 @@ export function AddMemberModal({
           {users.length > 0 && (
             <div className="border-border bg-background absolute top-full z-10 mt-1 max-h-40 w-full overflow-y-auto rounded-md border shadow-md">
               {users.map((user) => (
-                <div
+                <button
                   key={user.id}
+                  type="button"
                   data-testid={`add-member-result-${user.id}`}
                   onClick={() => {
                     handleSelectUser(user);
                   }}
-                  className={`hover:bg-accent flex cursor-pointer items-center gap-2 px-3 py-2 transition-colors ${
+                  className={`hover:bg-accent flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition-colors ${
                     selectedUser?.id === user.id ? 'bg-accent' : ''
                   }`}
                 >
-                  <div className="bg-muted flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium uppercase">
+                  <span className="bg-muted flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium uppercase">
                     {displayUsername(user.username).charAt(0)}
-                  </div>
+                  </span>
                   <span className="text-sm">{displayUsername(user.username)}</span>
-                </div>
+                </button>
               ))}
             </div>
           )}

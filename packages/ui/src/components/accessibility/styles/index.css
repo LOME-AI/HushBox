@@ -1,0 +1,5 @@
+@import './contrast.css' layer(accessibility);
+@import './colorblind.css' layer(accessibility);
+@import './typography.css' layer(accessibility);
+@import './motion.css' layer(accessibility);
+@import './pointer.css' layer(accessibility);

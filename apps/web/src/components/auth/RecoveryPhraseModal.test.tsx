@@ -42,9 +42,13 @@ Object.defineProperty(navigator, 'clipboard', {
 });
 
 // Mock useIsMobile hook
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: vi.fn(() => false),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: vi.fn(() => false),
+  };
+});
 
 // Helper to fill verification inputs with correct words
 async function fillVerificationInputs(user: ReturnType<typeof userEvent.setup>): Promise<void> {

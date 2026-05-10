@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Download } from 'lucide-react';
-import { Button, cn } from '@hushbox/ui';
+import { Button, cn, Img } from '@hushbox/ui';
 import { buildDownloadFilename } from '@/lib/media-filename';
 import { MediaModal } from './media-modal';
 
@@ -74,7 +74,7 @@ export function MediaPreview({
           className="block cursor-zoom-in rounded-md border"
           aria-label="Open image in lightbox"
         >
-          <img src={blobUrl} alt={mediaAlt} className="max-h-96 w-full rounded-md object-contain" />
+          <Img src={blobUrl} alt={mediaAlt} className="max-h-96 w-full rounded-md object-contain" />
         </button>
       )}
       {isVideo && (
@@ -89,6 +89,7 @@ export function MediaPreview({
         </video>
       )}
       {isAudio && (
+        // eslint-disable-next-line jsx-a11y/media-has-caption -- AI-generated audio: no caption track is available; aria-label provides accessible name
         <audio
           src={blobUrl}
           controls

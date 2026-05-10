@@ -4,6 +4,7 @@ export { Button, buttonVariants } from './components/button';
 export { IconButton } from './components/icon-button';
 export { Input, type InputProps } from './components/input';
 export { Logo, type LogoProps } from './components/logo';
+export { Img, type ImgProps } from './components/img';
 export { Textarea } from './components/textarea';
 export {
   Card,
@@ -75,6 +76,10 @@ export { Toaster } from './components/sonner';
 export { toast } from 'sonner';
 export { Label } from './components/label';
 export { Checkbox } from './components/checkbox';
+export { Switch } from './components/switch';
+export { Slider } from './components/slider';
+export { RadioGroup, RadioGroupItem } from './components/radio-group';
+export { ToggleGroup, ToggleGroupItem } from './components/toggle-group';
 export { Overlay, type OverlayProps } from './components/overlay';
 export { OverlayContent, type OverlayContentProps } from './components/overlay-content';
 export { OverlayHeader, type OverlayHeaderProps } from './components/overlay-header';
@@ -84,6 +89,8 @@ export {
   type ModalActionButton,
 } from './components/modal-actions';
 export { ThemeToggle, type ThemeToggleProps } from './components/theme-toggle';
+export { SidebarPanel, SidebarPanelHeader } from './components/sidebar-panel';
+export { SettingsLayout, type SettingsNavItem } from './components/settings-layout';
 
 // CipherWall
 export { CipherWall } from './components/cipher-wall';
@@ -118,6 +125,8 @@ export {
 // Hooks
 export { useVisualViewportHeight } from './hooks/use-visual-viewport-height';
 export { useIsTouchDevice, TOUCH_QUERY } from './hooks/use-is-touch-device';
+export { useIsMobile } from './hooks/use-is-mobile';
+export { useAnimationFrame } from './hooks/use-animation-frame';
 export {
   TouchDeviceOverrideContext,
   useTouchDeviceOverride,

@@ -3,9 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DisableTwoFactorModal } from './DisableTwoFactorModal';
 
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: vi.fn(() => false),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: vi.fn(() => false),
+  };
+});
 
 const { mockDisable2FAInit, mockDisable2FAFinish } = vi.hoisted(() => ({
   mockDisable2FAInit: vi.fn(),

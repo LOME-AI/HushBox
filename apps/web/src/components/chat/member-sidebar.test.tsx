@@ -15,9 +15,13 @@ const {
   mockUseConversationBudgets: vi.fn(),
 }));
 
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: vi.fn(() => false),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: vi.fn(() => false),
+  };
+});
 
 vi.mock('@/stores/ui-modals', () => ({
   useUIModalsStore: vi.fn(() => ({
@@ -1180,7 +1184,7 @@ describe('MemberSidebar', () => {
 
   describe('mobile rendering', () => {
     it('renders inside Sheet on mobile', async () => {
-      const module_ = await import('@/hooks/use-is-mobile');
+      const module_ = await import('@hushbox/ui');
       vi.mocked(module_.useIsMobile).mockReturnValue(true);
 
       render(<MemberSidebar {...defaultProps} />);

@@ -15,6 +15,7 @@ export const ROUTES = {
   BILLING: '/billing',
   USAGE: '/usage',
   SETTINGS: '/settings',
+  ACCESSIBILITY: '/accessibility',
 
   // Auth routes
   LOGIN: '/login',

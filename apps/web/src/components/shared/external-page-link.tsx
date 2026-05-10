@@ -24,6 +24,12 @@ export const ExternalPageLink = React.forwardRef<HTMLAnchorElement, ExternalPage
             onClick?.(e);
             void openExternalPage(path);
           }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              void openExternalPage(path);
+            }
+          }}
           {...rest}
         >
           {children}

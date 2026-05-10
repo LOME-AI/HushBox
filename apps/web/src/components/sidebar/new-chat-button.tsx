@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useNavigate, useLocation } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import { useUIStore } from '@/stores/ui';
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useIsMobile } from '@hushbox/ui';
 import { ROUTES } from '@hushbox/shared';
 import { SidebarActionButton } from '@/components/shared/sidebar-action-button';
 

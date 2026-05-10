@@ -130,6 +130,7 @@ function TooltipIndicator({
     <div
       className="shrink-0 rounded-[2px]"
       style={{
+        // eslint-disable-next-line no-restricted-syntax -- Recharts library API requires inline color style for series colors
         backgroundColor: color,
         width: size.width,
         height: size.height,
@@ -257,6 +258,7 @@ export function ChartLegendContent({
 
         return (
           <div key={key} className="flex items-center gap-1.5">
+            {/* eslint-disable-next-line no-restricted-syntax -- Recharts library API requires inline color style for series colors */}
             <div className="h-2 w-2 shrink-0 rounded-[2px]" style={{ backgroundColor: color }} />
             <span className="text-foreground-muted text-xs">{label}</span>
           </div>

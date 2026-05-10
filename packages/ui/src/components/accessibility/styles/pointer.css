@@ -1,0 +1,37 @@
+/* Cursor size + color — large/x-large variants, black/white. SVG cursors hosted in /cursors/.
+ * NOTE: The SVG cursor files (e.g. /cursors/arrow-32-black.svg) are added in a follow-up task.
+ * Until then, the browser falls back to the system default cursor (the second value in each `cursor`
+ * shorthand). This is intentional and avoids breaking pages that mount this CSS before assets exist. */
+html.a11y-cursor-large {
+  cursor: url('/cursors/arrow-32-black.svg') 4 4, auto;
+}
+html.a11y-cursor-large a,
+html.a11y-cursor-large button {
+  cursor: url('/cursors/pointer-32-black.svg') 8 4, pointer;
+}
+html.a11y-cursor-xlarge {
+  cursor: url('/cursors/arrow-48-black.svg') 6 6, auto;
+}
+html.a11y-cursor-xlarge a,
+html.a11y-cursor-xlarge button {
+  cursor: url('/cursors/pointer-48-black.svg') 12 6, pointer;
+}
+html.a11y-cursor-white.a11y-cursor-large {
+  cursor: url('/cursors/arrow-32-white.svg') 4 4, auto;
+}
+html.a11y-cursor-white.a11y-cursor-large a,
+html.a11y-cursor-white.a11y-cursor-large button {
+  cursor: url('/cursors/pointer-32-white.svg') 8 4, pointer;
+}
+html.a11y-cursor-white.a11y-cursor-xlarge {
+  cursor: url('/cursors/arrow-48-white.svg') 6 6, auto;
+}
+
+/* Focus indicator — width + color + halo */
+html.a11y-focus-strong *:focus-visible {
+  outline: var(--a11y-focus-width, 2px) solid var(--a11y-focus-color, #fbbf24) !important;
+  outline-offset: 2px !important;
+}
+html.a11y-focus-strong.a11y-focus-halo *:focus-visible {
+  box-shadow: 0 0 0 calc(var(--a11y-focus-width, 2px) + 2px) rgba(0, 0, 0, 0.4) !important;
+}

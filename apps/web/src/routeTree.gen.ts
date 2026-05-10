@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as BillingPortalRouteImport } from './routes/billing-portal'
+import { Route as AccessibilityRouteImport } from './routes/accessibility'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
@@ -33,6 +34,11 @@ import { Route as AppChatIdRouteImport } from './routes/_app/chat.$id'
 const BillingPortalRoute = BillingPortalRouteImport.update({
   id: '/billing-portal',
   path: '/billing-portal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccessibilityRoute = AccessibilityRouteImport.update({
+  id: '/accessibility',
+  path: '/accessibility',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -131,6 +137,7 @@ const AppChatIdRoute = AppChatIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/accessibility': typeof AccessibilityRoute
   '/billing-portal': typeof BillingPortalRoute
   '/billing': typeof AppBillingRoute
   '/projects': typeof AppProjectsRoute
@@ -151,6 +158,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/accessibility': typeof AccessibilityRoute
   '/billing-portal': typeof BillingPortalRoute
   '/billing': typeof AppBillingRoute
   '/projects': typeof AppProjectsRoute
@@ -174,6 +182,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
+  '/accessibility': typeof AccessibilityRoute
   '/billing-portal': typeof BillingPortalRoute
   '/_app/billing': typeof AppBillingRoute
   '/_app/projects': typeof AppProjectsRoute
@@ -196,6 +205,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/accessibility'
     | '/billing-portal'
     | '/billing'
     | '/projects'
@@ -216,6 +226,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/accessibility'
     | '/billing-portal'
     | '/billing'
     | '/projects'
@@ -238,6 +249,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_app'
     | '/_auth'
+    | '/accessibility'
     | '/billing-portal'
     | '/_app/billing'
     | '/_app/projects'
@@ -261,6 +273,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
+  AccessibilityRoute: typeof AccessibilityRoute
   BillingPortalRoute: typeof BillingPortalRoute
   DevAssetsRoute: typeof DevAssetsRoute
   DevEmailsRoute: typeof DevEmailsRoute
@@ -277,6 +290,13 @@ declare module '@tanstack/react-router' {
       path: '/billing-portal'
       fullPath: '/billing-portal'
       preLoaderRoute: typeof BillingPortalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/accessibility': {
+      id: '/accessibility'
+      path: '/accessibility'
+      fullPath: '/accessibility'
+      preLoaderRoute: typeof AccessibilityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth': {
@@ -455,6 +475,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
+  AccessibilityRoute: AccessibilityRoute,
   BillingPortalRoute: BillingPortalRoute,
   DevAssetsRoute: DevAssetsRoute,
   DevEmailsRoute: DevEmailsRoute,
