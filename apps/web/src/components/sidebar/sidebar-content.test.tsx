@@ -3,7 +3,6 @@ import { render, screen } from '@testing-library/react';
 import { useUIStore } from '@/stores/ui';
 import { SidebarContent } from './sidebar-content';
 
-// Mock @hushbox/shared with feature flags (partial mock)
 vi.mock('@hushbox/shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@hushbox/shared')>();
   return {
@@ -15,7 +14,6 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
   };
 });
 
-// Mock router
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   useLocation: () => ({ pathname: '/chat/some-id' }),
@@ -35,12 +33,10 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ conversationId: undefined }),
 }));
 
-// Mock useIsMobile (used by NewChatButton)
 vi.mock('@/hooks/use-is-mobile', () => ({
   useIsMobile: () => false,
 }));
 
-// Mock chat hooks used by ChatItem
 vi.mock('@/hooks/chat', () => ({
   useDeleteConversation: () => ({
     mutate: vi.fn(),
@@ -53,7 +49,6 @@ vi.mock('@/hooks/chat', () => ({
   DECRYPTING_TITLE: 'Decrypting...',
 }));
 
-// Mock member hooks used by InboxContent
 vi.mock('@/hooks/use-conversation-members', () => ({
   useAcceptMembership: () => ({
     mutate: vi.fn(),
@@ -226,7 +221,6 @@ describe('SidebarContent', () => {
 
     it('keeps chat list in DOM during slide (both panels render)', () => {
       render(<SidebarContent conversations={mixedConvs} />);
-      // Both panels exist in the DOM simultaneously for slide animation
       expect(screen.getByText('Design Chat')).toBeInTheDocument();
       expect(screen.getByTestId('inbox-content')).toBeInTheDocument();
     });

@@ -39,7 +39,6 @@ describe('modelIdToHue', () => {
     ];
     const hues = ids.map((id) => modelIdToHue(id));
 
-    // Every pair of hues should be at least 15 degrees apart
     for (let index = 0; index < hues.length; index++) {
       for (let index_ = index + 1; index_ < hues.length; index_++) {
         const diff = Math.abs(hues[index]! - hues[index_]!);

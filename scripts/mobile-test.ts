@@ -85,7 +85,6 @@ export async function installAndroidSdk(): Promise<void> {
     });
   }
 
-  // Ensure platform-tools (adb) is in PATH
   const home = process.env['ANDROID_HOME'] ?? ANDROID_SDK_ROOT;
   process.env['PATH'] = `${home}/platform-tools:${process.env['PATH'] ?? ''}`;
 }
@@ -138,7 +137,6 @@ async function dumpBootDiagnostics(): Promise<void> {
   console.error('=== END DIAGNOSTICS ===');
 }
 
-// Attempts to connect and check boot status in a single poll iteration.
 async function pollEmulatorBoot(
   adbPort: string,
   connected: boolean,
@@ -437,7 +435,6 @@ export async function runMaestro(smoke: boolean): Promise<void> {
 
   if (result.exitCode === 0) return;
 
-  // Find which flows failed by matching names from output to YAML files
   const failedPaths = getFailedFlowPaths(result.stdout);
   if (failedPaths.length === 0) {
     // Can't identify individual failures — fail without retry
@@ -600,7 +597,6 @@ export async function main(): Promise<void> {
   }
 }
 
-// CLI entry point
 /* v8 ignore start */
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;
 if (isMain) {

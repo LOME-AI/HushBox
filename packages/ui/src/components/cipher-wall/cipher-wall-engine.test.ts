@@ -32,8 +32,6 @@ import {
 } from './cipher-wall-engine';
 import type { Cell, CipherWallState, ThemeColors } from './cipher-wall-engine';
 
-// --- Helpers ---
-
 const longestMessage = Math.max(...MESSAGES.map((m) => m.length));
 
 function wideGrid(): CipherWallState {
@@ -86,8 +84,6 @@ function resetCells(state: CipherWallState): void {
     cell.color = '';
   }
 }
-
-// --- Tests ---
 
 describe('constants', () => {
   it('has non-empty CIPHER_CHARS array', () => {
@@ -410,7 +406,6 @@ describe('pruneExcludedReveals', () => {
     triggerReveal(state);
     const reveal = state.reveals[0]!;
 
-    // Verify cells are not in cipher state before prune
     for (let index = 0; index < reveal.text.length; index++) {
       expect(state.cells[reveal.startIndex + index]!.state).not.toBe('cipher');
     }
@@ -426,7 +421,6 @@ describe('pruneExcludedReveals', () => {
     state.exclusionZone = zone;
     pruneExcludedReveals(state);
 
-    // Cells should be reset to cipher
     for (let index = 0; index < reveal.text.length; index++) {
       expect(state.cells[reveal.startIndex + index]!.state).toBe('cipher');
     }

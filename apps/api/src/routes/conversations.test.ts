@@ -31,7 +31,6 @@ interface ErrorResponse {
   details?: Record<string, unknown>;
 }
 
-// Type aliases for backward compatibility with existing test code
 type ConversationsListResponse = ListConversationsResponse;
 type ConversationDetailResponse = GetConversationResponse;
 
@@ -99,7 +98,6 @@ async function insertTestMessageWithContent(
   });
 }
 
-// Store for mocking user/session per request - keyed by user ID
 const mockUserStore = new Map<string, { email: string; username: string; publicKey: Uint8Array }>();
 
 function createTestAppWithAuth(db: ReturnType<typeof createDb>): Hono<AppEnv> {
@@ -191,7 +189,6 @@ describe('conversations routes', () => {
 
     testUserId = await createTestUser({ db, email: TEST_EMAIL, username: TEST_USERNAME });
 
-    // Create test conversations with encrypted (bytea) title and epoch infrastructure
     const conv1Id = `test-conv-1-${String(Date.now())}`;
     const [conv1] = await db
       .insert(conversations)
@@ -209,7 +206,6 @@ describe('conversations routes', () => {
     if (conv1) {
       createdConversationIds.push(conv1.id);
 
-      // Create epoch #1 for conv1
       const [epoch1] = await db
         .insert(epochs)
         .values({
@@ -222,7 +218,6 @@ describe('conversations routes', () => {
         .returning();
 
       if (epoch1) {
-        // Create epoch member for the owner
         const userInfo = mockUserStore.get(testUserId);
         if (userInfo) {
           await db.insert(epochMembers).values({
@@ -280,7 +275,6 @@ describe('conversations routes', () => {
     if (conv2) {
       createdConversationIds.push(conv2.id);
 
-      // Create epoch #1 for conv2
       await db.insert(epochs).values({
         conversationId: conv2.id,
         epochNumber: 1,
@@ -337,12 +331,10 @@ describe('conversations routes', () => {
       expect(titles).toContain('First conversation');
       expect(titles).toContain('Second conversation');
 
-      // Verify conversations are ordered by updatedAt DESC
       const conv1Index = titles.indexOf('First conversation');
       const conv2Index = titles.indexOf('Second conversation');
       expect(conv2Index).toBeLessThan(conv1Index);
 
-      // Verify epoch fields are present
       const firstConv = json.conversations.find(
         (c) => fromBase64(c.title) === 'First conversation'
       );
@@ -350,11 +342,9 @@ describe('conversations routes', () => {
       expect(firstConv?.titleEpochNumber).toBe(1);
       expect(firstConv?.nextSequence).toBe(3);
 
-      // Verify acceptance fields are present (owner = auto-accepted)
       expect(firstConv?.accepted).toBe(true);
       expect(firstConv?.invitedByUsername).toBeNull();
 
-      // Verify privilege field is present (owner's own conversation)
       expect(firstConv?.privilege).toBe('owner');
     });
   });
@@ -460,7 +450,6 @@ describe('conversations routes', () => {
       verifyConversationFields(json, convId);
       verifyMessageStructure(json, testUserId);
 
-      // Verify acceptance fields (owner = auto-accepted)
       expect(json.accepted).toBe(true);
       expect(json.invitedByUsername).toBeNull();
     });
@@ -527,7 +516,6 @@ describe('conversations routes', () => {
       expect(json.conversation.userId).toBe(testUserId);
       expect(json.isNew).toBe(true);
 
-      // Verify epoch fields
       expect(json.conversation.currentEpoch).toBe(1);
       expect(json.conversation.titleEpochNumber).toBe(1);
       expect(json.conversation.nextSequence).toBe(1);
@@ -576,7 +564,6 @@ describe('conversations routes', () => {
       const confirmationHash = bytesToBase64(placeholderBytes(32));
       const memberWrap = bytesToBase64(placeholderBytes(48));
 
-      // First call creates
       const res1 = await app.request('/conversations', {
         method: 'POST',
         headers: {
@@ -597,7 +584,6 @@ describe('conversations routes', () => {
       expect(json1.isNew).toBe(true);
       createdConversationIds.push(json1.conversation.id);
 
-      // Second call returns existing
       const res2 = await app.request('/conversations', {
         method: 'POST',
         headers: {
@@ -616,7 +602,6 @@ describe('conversations routes', () => {
       expect(res2.status).toBe(200);
       const json2 = (await res2.json()) as CreateConversationResponse;
       expect(json2.isNew).toBe(false);
-      // Original title preserved
       expect(fromBase64(json2.conversation.title)).toBe('Idempotent Conv');
     });
 
@@ -692,7 +677,6 @@ describe('conversations routes', () => {
       const json = (await res.json()) as DeleteConversationResponse;
       expect(json.deleted).toBe(true);
 
-      // Verify it's gone
       const getRes = await app.request(`/conversations/${convId}`, {
         headers: { ...getAuthHeaders(testUserId) },
       });
@@ -763,11 +747,9 @@ describe('conversations routes', () => {
       expect(fromBase64(json.conversation.title)).toBe('Updated title');
       expect(json.conversation.id).toBe(convId);
 
-      // Verify epoch fields still present
       expect(json.conversation.currentEpoch).toBe(1);
       expect(json.conversation.titleEpochNumber).toBe(1);
 
-      // Updater (owner) is always accepted
       expect(json.accepted).toBe(true);
       expect(json.invitedByUsername).toBeNull();
     });
@@ -837,7 +819,6 @@ describe('conversations routes', () => {
     });
 
     it('returns 404 when user B tries to POST with user A conversation ID', async () => {
-      // Create a conversation as user A via the API (valid UUID)
       const conversationId = crypto.randomUUID();
       const epochPublicKey = bytesToBase64(placeholderBytes(32));
       const confirmationHash = bytesToBase64(placeholderBytes(32));
@@ -854,7 +835,6 @@ describe('conversations routes', () => {
       expect(createRes.status).toBe(201);
       createdConversationIds.push(conversationId);
 
-      // User B tries to create/get with the same ID
       const res = await app.request('/conversations', {
         method: 'POST',
         headers: {
@@ -927,7 +907,6 @@ describe('conversations routes', () => {
       expect(conv?.accepted).toBe(false);
       expect(conv?.invitedByUsername).toBeNull();
 
-      // Verify privilege field reflects member's privilege
       expect(conv?.privilege).toBe('write');
     });
 
@@ -943,7 +922,6 @@ describe('conversations routes', () => {
     });
 
     it('GET /conversations/:conversationId filters messages by member visibleFromEpoch', async () => {
-      // Create a new conversation with messages in multiple epochs
       const epochConvId = `test-epoch-filter-${String(Date.now())}`;
       const [epochConv] = await db
         .insert(conversations)
@@ -966,7 +944,6 @@ describe('conversations routes', () => {
         confirmationHash: placeholderBytes(32),
       });
 
-      // Owner member row
       await db.insert(conversationMembers).values({
         conversationId: epochConv.id,
         userId: testUserId,
@@ -1001,7 +978,6 @@ describe('conversations routes', () => {
         modelName: 'test-model',
       });
 
-      // Member should only see epoch 2 messages
       const res = await app.request(`/conversations/${epochConv.id}`, {
         headers: { ...getAuthHeaders(memberUserId) },
       });
@@ -1013,7 +989,6 @@ describe('conversations routes', () => {
     });
 
     it('GET /conversations/:conversationId returns 404 for ex-member', async () => {
-      // Create a conversation and add member, then set leftAt
       const exConvId = `test-ex-member-${String(Date.now())}`;
       const [exConv] = await db
         .insert(conversations)
@@ -1036,7 +1011,6 @@ describe('conversations routes', () => {
         confirmationHash: placeholderBytes(32),
       });
 
-      // Owner member row
       await db.insert(conversationMembers).values({
         conversationId: exConv.id,
         userId: testUserId,

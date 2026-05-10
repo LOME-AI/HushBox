@@ -3,10 +3,6 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ContentKey } from '@hushbox/crypto';
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 const mockUseDecryptedSharedMedia = vi.fn<
   (params: { downloadUrl: string | null; contentKey: Uint8Array | null; mimeType: string }) => {
     blobUrl: string | null;
@@ -21,10 +17,6 @@ vi.mock('@/hooks/use-decrypted-shared-media', () => ({
 }));
 
 import { SharedMediaContentItem } from './shared-media-content-item';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 interface SharedMediaItemProps extends Omit<
   Parameters<typeof SharedMediaContentItem>[0],
@@ -61,10 +53,6 @@ function baseProps(
     ...overrides,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('SharedMediaContentItem', () => {
   beforeEach(() => {

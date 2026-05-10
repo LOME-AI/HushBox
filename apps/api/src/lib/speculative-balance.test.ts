@@ -185,7 +185,6 @@ describe('reserveGroupBudget', () => {
 
     const groupPayerKey = (mockRedis.eval.mock.calls[2] as [string, string[], string[]])[1][0];
 
-    // Reset and call reserveBudget to get the key it uses
     mockRedis.eval.mockClear();
     mockRedis.eval.mockResolvedValueOnce('10');
 

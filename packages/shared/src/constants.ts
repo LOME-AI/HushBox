@@ -1,4 +1,3 @@
-// MESSAGE_ROLES moved to enums.ts - re-export for backwards compatibility
 export { MESSAGE_ROLES, type MessageRole } from './enums.js';
 
 import type { ZdrTextModelId, ZdrImageModelId, ZdrVideoModelId } from './models/zdr.js';
@@ -99,10 +98,6 @@ export const STORAGE_COST_PER_1K_CHARS = STORAGE_COST_PER_CHARACTER * 1000;
 /** Payment expiration time in milliseconds (30 minutes) */
 export const PAYMENT_EXPIRATION_MS = 30 * 60 * 1000;
 
-// ============================================================================
-// Media Storage Constants
-// ============================================================================
-
 /** R2 actual ($0.015) + 3x markup for backup/ops/margin */
 export const MEDIA_MONTHLY_COST_PER_GB = 0.04;
 
@@ -130,10 +125,6 @@ export const MEDIA_DOWNLOAD_URL_TTL_SECONDS = 300;
 /** Maximum bytes for a single-PUT R2 upload via the Worker. Multipart is not supported. */
 export const MAX_MEDIA_OBJECT_BYTES = 250_000_000; // 250 MB
 
-// ============================================================================
-// Video Generation Constants
-// ============================================================================
-
 /** Minimum video duration users can request, in seconds. */
 export const MIN_VIDEO_DURATION_SECONDS = 1;
 
@@ -156,10 +147,6 @@ export const VIDEO_RESOLUTIONS = ['720p', '1080p'] as const;
 /** Aspect ratios offered in the image config picker. Single source of truth — request schema derives from this. */
 export const IMAGE_ASPECT_RATIOS = ['1:1', '3:2', '16:9', '9:16', '4:3'] as const;
 
-// ============================================================================
-// Audio Generation Constants
-// ============================================================================
-
 /**
  * Maximum audio duration the user can cap a TTS generation at, in seconds.
  * Unlike video (deterministic duration in the request), TTS duration emerges
@@ -177,10 +164,6 @@ export const ESTIMATED_AUDIO_BYTES_PER_SECOND = 32_000;
 
 /** Audio output formats offered in the audio config picker. Single source of truth — request schema derives from this. */
 export const AUDIO_FORMATS = ['mp3', 'wav', 'ogg'] as const;
-
-// ============================================================================
-// Budget Protection Constants
-// ============================================================================
 
 /**
  * Maximum allowed negative balance in cents for paid users.
@@ -208,10 +191,6 @@ export const MINIMUM_OUTPUT_TOKENS = 1000;
  */
 export const LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD = 10_000;
 
-// ============================================================================
-// Token Estimation Constants
-// ============================================================================
-
 /**
  * Conservative character-per-token ratio for free/trial users.
  * Lower value = more tokens estimated = more conservative cost estimate.
@@ -224,10 +203,6 @@ export const CHARS_PER_TOKEN_CONSERVATIVE = 2;
  * This is the typical approximation (~4 chars/token for most models).
  */
 export const CHARS_PER_TOKEN_STANDARD = 4;
-
-// ============================================================================
-// Capacity UI Thresholds
-// ============================================================================
 
 /**
  * Capacity threshold for red zone (warning).
@@ -298,10 +273,6 @@ export const STREAM_TIMEOUT_MS = 90_000;
  * heartbeats never miss the timeout window.
  */
 export const KEEPALIVE_INTERVAL_MS = 30_000;
-
-// ============================================================================
-// Legal Constants
-// ============================================================================
 
 /** Effective date for the Privacy Policy (YYYY-MM-DD) */
 export const PRIVACY_POLICY_EFFECTIVE_DATE = '2026-03-15';

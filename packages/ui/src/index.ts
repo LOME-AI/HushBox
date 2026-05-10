@@ -1,4 +1,3 @@
-// UI Components
 export { Alert, alertVariants } from './components/alert';
 export { Button, buttonVariants } from './components/button';
 export { IconButton } from './components/icon-button';
@@ -85,12 +84,10 @@ export {
 } from './components/modal-actions';
 export { ThemeToggle, type ThemeToggleProps } from './components/theme-toggle';
 
-// CipherWall
 export { CipherWall } from './components/cipher-wall';
 export { useCipherWall, readThemeColors } from './components/cipher-wall';
 export type { CipherWallOptions, ThemeColors, CipherWallState } from './components/cipher-wall';
 
-// Marketing Components
 export { Hero, type HeroProps } from './components/marketing/hero';
 export { ContentSection, type ContentSectionProps } from './components/marketing/content-section';
 export { Callout, type CalloutProps } from './components/marketing/callout';
@@ -106,7 +103,6 @@ export {
 export { FeeBreakdown, type FeeBreakdownProps } from './components/marketing/fee-breakdown';
 export { CostPieChart, type CostPieChartProps } from './components/marketing/cost-pie-chart';
 
-// Chart Components
 export {
   ChartContainer,
   ChartTooltipContent,
@@ -115,7 +111,6 @@ export {
   type ChartConfig,
 } from './components/chart';
 
-// Hooks
 export { useVisualViewportHeight } from './hooks/use-visual-viewport-height';
 export { useIsTouchDevice, TOUCH_QUERY } from './hooks/use-is-touch-device';
 export {
@@ -123,6 +118,5 @@ export {
   useTouchDeviceOverride,
 } from './hooks/touch-device-override-context';
 
-// Utilities
 export { cn } from './lib/utilities';
 export { triggerViewTransition } from './lib/trigger-view-transition';

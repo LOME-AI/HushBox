@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { ref, secret, Destination, Mode, type VariableConfig } from './env-types.js';
 import { VALID_PLATFORMS } from './platform.js';
 
-// Re-export everything from env-types for convenience
 export * from './env-types.js';
 
 /**

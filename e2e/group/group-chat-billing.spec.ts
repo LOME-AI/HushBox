@@ -57,7 +57,6 @@ test.describe('Group Chat Billing', () => {
     });
 
     await test.step('verify owner-funded billing', async () => {
-      // Message cost is visible
       const chatPage = new ChatPage(testBobPage);
       await chatPage.expectMessageCostVisible();
 
@@ -356,7 +355,6 @@ test.describe('Group Chat Billing', () => {
       // Owner sees editable inputs
       await expect(authenticatedPage.getByTestId('budget-conversation-input')).toBeVisible();
 
-      // Total spent is visible
       const totalSpent = authenticatedPage.getByTestId('budget-total-spent');
       await expect(totalSpent).toBeVisible();
 

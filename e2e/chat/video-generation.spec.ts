@@ -22,7 +22,6 @@ test.describe('Video Generation', () => {
 
     await chatPage.switchToVideoMode();
 
-    // Aspect ratio + duration controls are visible.
     await expect(authenticatedPage.getByRole('button', { name: '16:9' })).toBeVisible();
     await expect(authenticatedPage.getByRole('button', { name: '9:16' })).toBeVisible();
     const durationSlider = authenticatedPage.getByRole('slider', {
@@ -245,12 +244,10 @@ test.describe('Video Generation', () => {
     await chatPage.expectNewChatPageVisible();
 
     await chatPage.switchToVideoMode();
-    // Default duration: read from the slider.
     const slider = authenticatedPage.getByRole('slider', { name: /video duration in seconds/i });
     const initialValue = await slider.inputValue();
     expect(Number(initialValue)).toBeGreaterThanOrEqual(1);
 
-    // Capture the initial cost line text (rendered as `≈ $X.YYY`).
     const costLine = authenticatedPage.locator(String.raw`text=/^≈\s+\$\d+\.\d{3}$/`).first();
     await expect(costLine).toBeVisible({ timeout: 10_000 });
     const initialCost = await costLine.textContent();
@@ -258,7 +255,6 @@ test.describe('Video Generation', () => {
     // Bump duration up to its max (8 seconds for video on the mock).
     await chatPage.setVideoDuration(8);
 
-    // The cost preview must change.
     await expect(async () => {
       const updatedCost = await costLine.textContent();
       expect(updatedCost).not.toBe(initialCost);

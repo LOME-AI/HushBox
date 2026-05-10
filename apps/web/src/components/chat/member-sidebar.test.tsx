@@ -93,7 +93,6 @@ describe('MemberSidebar', () => {
     mockMemberSidebarOpen.value = true;
     mockUseConversationBudgets.mockReturnValue({ data: undefined, isLoading: false });
 
-    // Create portal target for right sidebar
     let portalTarget = document.querySelector('#right-sidebar-portal');
     if (!portalTarget) {
       portalTarget = document.createElement('div');
@@ -286,9 +285,7 @@ describe('MemberSidebar', () => {
     it('hides three-dots for other members when user is not admin', () => {
       render(<MemberSidebar {...defaultProps} currentUserId="u3" currentUserPrivilege="write" />);
 
-      // Current user (charlie, m3) should still have a button for Leave
       expect(screen.getByTestId('member-actions-m3')).toBeInTheDocument();
-      // Other members should not
       expect(screen.queryByTestId('member-actions-m1')).not.toBeInTheDocument();
       expect(screen.queryByTestId('member-actions-m2')).not.toBeInTheDocument();
       expect(screen.queryByTestId('member-actions-m4')).not.toBeInTheDocument();
@@ -304,7 +301,6 @@ describe('MemberSidebar', () => {
         />
       );
 
-      // Current user should NOT have actions (no leave available, not admin)
       expect(screen.queryByTestId('member-actions-m3')).not.toBeInTheDocument();
     });
 
@@ -1112,7 +1108,6 @@ describe('MemberSidebar', () => {
     it('shows online indicator on collapsed avatars', () => {
       render(<MemberSidebar {...defaultProps} />);
 
-      // alice (u1) and bob (u2) are online
       expect(screen.getByTestId('member-avatar-online-m1')).toBeInTheDocument();
       expect(screen.getByTestId('member-avatar-online-m2')).toBeInTheDocument();
       expect(screen.queryByTestId('member-avatar-online-m3')).not.toBeInTheDocument();
@@ -1185,7 +1180,6 @@ describe('MemberSidebar', () => {
 
       render(<MemberSidebar {...defaultProps} />);
 
-      // On mobile, the sidebar content should be inside a Sheet
       expect(screen.getByTestId('member-sidebar-content')).toBeInTheDocument();
     });
   });

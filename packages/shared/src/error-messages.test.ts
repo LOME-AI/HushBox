@@ -3,9 +3,6 @@ import { friendlyErrorMessage, customUserMessage } from './error-messages.js';
 import * as errorCodes from './schemas/api/error.js';
 
 describe('friendlyErrorMessage', () => {
-  // ------------------------------------------------------------------
-  // General codes
-  // ------------------------------------------------------------------
   it('maps UNAUTHORIZED to user-facing message', () => {
     expect(friendlyErrorMessage('UNAUTHORIZED')).toBe(
       'You are not logged in. Please log in and try again.'
@@ -90,9 +87,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Auth codes
-  // ------------------------------------------------------------------
   it('maps AUTH_FAILED to user-facing message', () => {
     expect(friendlyErrorMessage('AUTH_FAILED')).toBe('Invalid credentials.');
   });
@@ -201,9 +195,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // 2FA codes
-  // ------------------------------------------------------------------
   it('maps 2FA_VERIFICATION_FAILED to user-facing message', () => {
     expect(friendlyErrorMessage('2FA_VERIFICATION_FAILED')).toBe(
       'Two-factor verification failed. Please try again.'
@@ -268,9 +259,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Infrastructure codes
-  // ------------------------------------------------------------------
   it('maps USER_NOT_FOUND to user-facing message', () => {
     expect(friendlyErrorMessage('USER_NOT_FOUND')).toBe('Account not found.');
   });
@@ -293,9 +281,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Domain codes
-  // ------------------------------------------------------------------
   it('maps CONVERSATION_NOT_FOUND to user-facing message', () => {
     expect(friendlyErrorMessage('CONVERSATION_NOT_FOUND')).toBe('Conversation not found.');
   });
@@ -468,9 +453,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Regeneration & Fork codes
-  // ------------------------------------------------------------------
   it('maps REGENERATION_BLOCKED_BY_OTHER_USER to user-facing message', () => {
     expect(friendlyErrorMessage('REGENERATION_BLOCKED_BY_OTHER_USER')).toBe(
       'Cannot regenerate — another user has replied after this message.'
@@ -513,9 +495,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Mobile codes
-  // ------------------------------------------------------------------
   it('maps UPGRADE_REQUIRED to user-facing message', () => {
     expect(friendlyErrorMessage('UPGRADE_REQUIRED')).toBe(
       'A new version is available. Please update to continue.'
@@ -582,9 +561,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Media / storage codes
-  // ------------------------------------------------------------------
   it('maps STORAGE_WRITE_FAILED to user-facing message', () => {
     expect(friendlyErrorMessage('STORAGE_WRITE_FAILED')).toBe(
       "We couldn't save the generated media. Please try again."
@@ -661,9 +637,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Unknown code fallback
-  // ------------------------------------------------------------------
   it('returns generic fallback for unknown codes', () => {
     expect(friendlyErrorMessage('TOTALLY_UNKNOWN_CODE')).toBe(
       'Something went wrong. Please try again.'

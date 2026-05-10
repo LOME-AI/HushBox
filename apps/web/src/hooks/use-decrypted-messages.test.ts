@@ -7,10 +7,6 @@ import type { MessageResponse } from '@hushbox/shared';
 import { clearEpochKeyCache, getCacheSize } from '@/lib/epoch-key-cache';
 import { useDecryptionActivityStore } from '@/stores/decryption-activity';
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 vi.mock('@/lib/api-client', () => ({
   client: {
     api: {
@@ -73,10 +69,6 @@ vi.mock('@/lib/auth', () => {
   );
   return { useAuthStore: store };
 });
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
   const queryClient = new QueryClient({
@@ -141,20 +133,12 @@ function createMessageResponse(overrides: MessageResponseOverrides = {}): Messag
   };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe('useDecryptedMessages', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearEpochKeyCache();
     mockPrivateKey = new Uint8Array([99, 98, 97]);
-    // Default fromBase64 implementation: return a Uint8Array with a simple marker
     mockFromBase64.mockImplementation((b64: string) => new TextEncoder().encode(b64));
-    // Default envelope/content-key mocks. openMessageEnvelope threads the epoch
-    // key through as the "content key" so tests that distinguish epochs via the
-    // key passed to decryptTextWithContentKey continue to work.
     mockOpenMessageEnvelope.mockImplementation(
       (epochPriv: Uint8Array, _wrapped: Uint8Array) => epochPriv
     );
@@ -364,17 +348,14 @@ describe('useDecryptedMessages', () => {
       expect(result.current).toHaveLength(2);
     });
 
-    // Epoch 1 message decrypted with traversed key
     const oldMsg = result.current[0];
     if (!oldMsg) throw new Error('Expected old message');
     expect(oldMsg.content).toBe('epoch1-msg');
 
-    // Epoch 2 message decrypted with unwrapped key
     const newMsg = result.current[1];
     if (!newMsg) throw new Error('Expected new message');
     expect(newMsg.content).toBe('epoch2-msg');
 
-    // traverseChainLink was called with epoch2Key and chainLink bytes
     expect(mockTraverseChainLink).toHaveBeenCalledTimes(1);
     const [calledWithKey] = mockTraverseChainLink.mock.calls[0] as [Uint8Array, Uint8Array];
     expect(calledWithKey).toBe(epoch2Key);
@@ -416,7 +397,6 @@ describe('useDecryptedMessages', () => {
 
     expect(mockUnwrapEpochKey).toHaveBeenCalledTimes(1);
 
-    // Rerender with same messages
     rerender({ convId: 'conv-1', msgs: messages });
 
     // unwrapEpochKey should NOT be called again (cache hit)
@@ -459,7 +439,6 @@ describe('useDecryptedMessages', () => {
 
     const firstResult = result.current;
 
-    // Rerender with same references
     rerender({ convId: 'conv-1', msgs: messages });
 
     expect(result.current).toBe(firstResult);
@@ -924,7 +903,6 @@ describe('useDecryptedMessages', () => {
       mockUnwrapEpochKey.mockReturnValue(new Uint8Array([10]));
       mockDecryptTextWithContentKey.mockReturnValue('decrypted-content');
 
-      // First response: stale, only knows about epoch 1
       mockFetchJson
         .mockResolvedValueOnce({
           wraps: [
@@ -939,7 +917,6 @@ describe('useDecryptedMessages', () => {
           chainLinks: [],
           currentEpoch: 1,
         })
-        // Second response: fresh, knows about epoch 2
         .mockResolvedValueOnce({
           wraps: [
             {
@@ -970,13 +947,11 @@ describe('useDecryptedMessages', () => {
         wrapper: createWrapper(),
       });
 
-      // After refetch, both messages should be decrypted
       await waitFor(() => {
         const msg2 = result.current.find((m) => m.id === 'msg-2');
         expect(msg2?.content).toBe('decrypted-content');
       });
 
-      // fetchJson called twice: initial fetch + refetch after detecting stale epoch
       expect(mockFetchJson).toHaveBeenCalledTimes(2);
     });
 

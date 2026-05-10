@@ -20,7 +20,6 @@ vi.mock('@/hooks/models', () => ({
   }),
 }));
 
-// Mock Link and useNavigate used by ModelSelectorModal and SignupModal
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to, ...props }: { children: React.ReactNode; to: string }) => (
     <a href={to} {...props}>
@@ -94,7 +93,6 @@ describe('ModelSelectorButton', () => {
 
     await user.click(screen.getByRole('button'));
 
-    // Modal should be open - look for the search input (appears twice for mobile/desktop)
     await waitFor(() => {
       expect(screen.getAllByPlaceholderText('Search models').length).toBeGreaterThan(0);
     });
@@ -118,13 +116,10 @@ describe('ModelSelectorButton', () => {
       expect(screen.getAllByPlaceholderText('Search models').length).toBeGreaterThan(0);
     });
 
-    // Double-click to toggle Claude into selection
     await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
 
-    // Click confirm button to trigger onSelect and close modal
     await user.click(screen.getByRole('button', { name: /select.*model/i }));
 
-    // Modal should close
     await waitFor(() => {
       expect(screen.queryByPlaceholderText('Search models')).not.toBeInTheDocument();
     });
@@ -163,7 +158,6 @@ describe('ModelSelectorButton', () => {
 
     await user.click(screen.getByRole('button'));
 
-    // Modal should not open
     expect(screen.queryByPlaceholderText('Search models')).not.toBeInTheDocument();
   });
 

@@ -14,8 +14,6 @@ import {
 
 const IMAGE_MODEL = 'google/imagen-4';
 const IMAGE_MIME = 'image/jpeg';
-// Aligned with the canned image dimensions emitted by mock.ts so DB rows
-// reflect the same metadata the runtime advertises.
 const IMAGE_WIDTH = CANNED_IMAGE_WIDTH;
 const IMAGE_HEIGHT = CANNED_IMAGE_HEIGHT;
 const IMAGE_COST_DOLLARS = 0.046;

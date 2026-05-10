@@ -4,7 +4,6 @@ import * as React from 'react';
 
 const mockNavigate = vi.fn();
 
-// Mock all hooks — capture arguments to verify wiring
 vi.mock('./hooks/use-back-button.js', () => ({
   useBackButton: vi.fn(),
 }));
@@ -153,7 +152,6 @@ describe('CapacitorProvider', () => {
       )
     );
 
-    // All hooks should have been activated during render
     expect(useBackButton).toHaveBeenCalled();
     expect(useDeepLinks).toHaveBeenCalledWith(expect.any(Function));
     expect(useAppLifecycle).toHaveBeenCalled();

@@ -87,10 +87,6 @@ export interface BuildTextRequestInput {
   maxOutputTokens?: number;
 }
 
-// ---------------------------------------------------------------------------
-// Per-modality build-time extras (caller-driven request fields)
-// ---------------------------------------------------------------------------
-
 export interface ImageBuildExtras {
   prompt: string;
   aspectRatio?: string;
@@ -106,10 +102,6 @@ export interface AudioBuildExtras {
   format: 'mp3' | 'wav' | 'ogg';
   voice?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Concrete strategies
-// ---------------------------------------------------------------------------
 
 export const textStrategy: TextModalityStrategy = {
   modality: 'text',
@@ -199,10 +191,6 @@ export const audioStrategy: MediaModalityStrategy<
   },
   noContentErrorMessage: 'No audio generated',
 };
-
-// ---------------------------------------------------------------------------
-// Strategy dispatcher
-// ---------------------------------------------------------------------------
 
 /**
  * Type-narrowing return for {@link getStrategy}. Function overloads above the

@@ -41,7 +41,6 @@ test.describe('Auth User Using Link', () => {
 
       await expectSharedConversationLoaded(testBobPage);
 
-      // Messages should decrypt without errors (Bug 2 fix: credentials omit)
       await expect(testBobPage.getByText('Hello from Alice').first()).toBeVisible({
         timeout: 10_000,
       });
@@ -69,14 +68,12 @@ test.describe('Auth User Using Link', () => {
 
       await expectSharedConversationLoaded(testBobPage);
 
-      // Messages decrypt correctly
       await expect(testBobPage.getByText('Hello from Alice').first()).toBeVisible({
         timeout: 10_000,
       });
 
       await expectNoDecryptionErrors(testBobPage);
 
-      // Can send a message
       await sendMessageAsGuest(testBobPage, `Bob via link ${String(Date.now())}`, /message/i);
     });
   });
@@ -115,10 +112,8 @@ test.describe('Auth User Using Link', () => {
 
       await expectSharedConversationLoaded(testBobPage);
 
-      // Should NOT see pre-rotation messages
       await expect(testBobPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
-      // Should see post-rotation message
       await expect(testBobPage.getByText('Post no-history link').first()).toBeVisible({
         timeout: 10_000,
       });
@@ -151,17 +146,14 @@ test.describe('Auth User Using Link', () => {
 
       await expectSharedConversationLoaded(testBobPage);
 
-      // Should NOT see old messages
       await expect(testBobPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
-      // Should see latest message
       await expect(testBobPage.getByText('Latest for write link').first()).toBeVisible({
         timeout: 10_000,
       });
 
       await expectNoDecryptionErrors(testBobPage);
 
-      // Can send a message
       await sendMessageAsGuest(
         testBobPage,
         `Bob no-history write ${String(Date.now())}`,

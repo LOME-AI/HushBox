@@ -325,8 +325,6 @@ export class ChatPage {
     await unsettledExpect(costBadge).toBeVisible({ timeout });
   }
 
-  // --- Modality switching helpers (image / video / audio) ---
-
   /** Switch the prompt input to image generation modality. Click the image icon button. */
   async switchToImageMode(): Promise<void> {
     await this.waitForAppStable();
@@ -408,8 +406,6 @@ export class ChatPage {
     const downloadLink = this.messageList.getByRole('link', { name: /download media/i }).first();
     return downloadLink.getAttribute('href');
   }
-
-  // --- Group chat locators ---
 
   getSenderLabels(): Locator {
     return this.messageList.locator('[data-testid="sender-label"]');
@@ -509,8 +505,6 @@ export class ChatPage {
     return data.messages.length;
   }
 
-  // --- Message action buttons ---
-
   /** Get the nth message item (0-indexed). */
   getMessage(index: number): Locator {
     return this.messageList.locator('[data-testid="message-item"]').nth(index);
@@ -597,8 +591,6 @@ export class ChatPage {
     await this.getLastMessageActionButton('Fork').click();
   }
 
-  // --- Fork tabs ---
-
   getForkTabList(): Locator {
     return this.page.getByRole('tablist', { name: 'Conversation forks' });
   }
@@ -632,8 +624,6 @@ export class ChatPage {
     await this.page.getByRole('menuitem', { name: action }).click();
   }
 
-  // --- Edit mode ---
-
   async expectEditModeActive(): Promise<void> {
     await expect(this.page.getByText('Editing message')).toBeVisible();
   }
@@ -645,8 +635,6 @@ export class ChatPage {
   async cancelEdit(): Promise<void> {
     await this.page.getByRole('button', { name: 'Cancel' }).click();
   }
-
-  // --- Fork URL helpers ---
 
   getForkIdFromUrl(): string | null {
     const url = new URL(this.page.url());
@@ -669,8 +657,6 @@ export class ChatPage {
     await this.page.getByTestId('confirm-delete-button').click();
     await expect(this.page.getByText('Delete conversation?')).not.toBeVisible();
   }
-
-  // --- Multi-model selection ---
 
   /** Open the model selector modal by clicking the header button. */
   async openModelSelector(): Promise<void> {
@@ -705,7 +691,6 @@ export class ChatPage {
     await this.openModelSelector();
     const modal = this.page.getByTestId('model-selector-modal');
 
-    // Find all non-premium model items (no lock icon)
     const nonPremiumItems = modal.locator(
       '[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))'
     );
@@ -717,7 +702,6 @@ export class ChatPage {
       await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
     }
 
-    // Select exactly `count` non-premium models
     const available = await nonPremiumItems.count();
     const toSelect = Math.min(count, available);
     for (let index = 0; index < toSelect; index++) {
@@ -754,7 +738,6 @@ export class ChatPage {
 
     const available = await nonPremiumItems.count();
 
-    // Select first model (success target)
     const firstItem = nonPremiumItems.nth(0);
     await firstItem.getByTestId('model-checkbox').click();
     await expect(firstItem).toHaveAttribute('data-selected', 'true');
@@ -777,8 +760,6 @@ export class ChatPage {
     const modal = this.page.getByTestId('model-selector-modal');
     return modal.locator('[data-testid^="model-item-"][data-selected="true"]').count();
   }
-
-  // --- Comparison bar ---
 
   /** Assert the comparison bar (multi-model pill bar) is visible. */
   async expectComparisonBarVisible(): Promise<void> {
@@ -803,8 +784,6 @@ export class ChatPage {
       .getByRole('button', { name: `Remove ${modelName}` })
       .click();
   }
-
-  // --- Model nametag ---
 
   /** Assert the nametag text on the nth message item (0-indexed). */
   async expectModelNametag(messageIndex: number, expectedName: string): Promise<void> {
@@ -834,8 +813,6 @@ export class ChatPage {
       throw new Error('expectAllAIMessagesHaveNametag: no assistant messages rendered');
     }
   }
-
-  // --- Multi-model streaming ---
 
   /**
    * Wait for N AI response messages to appear after sending.

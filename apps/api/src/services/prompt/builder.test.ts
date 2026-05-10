@@ -4,7 +4,6 @@ import type { CapabilityId } from '@hushbox/shared';
 
 describe('buildPrompt', () => {
   beforeEach(() => {
-    // Mock Date to ensure consistent output
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-15'));
   });
@@ -145,7 +144,6 @@ describe('buildPrompt', () => {
         supportedCapabilities: ['python-execution'],
       });
 
-      // Base and Python sections should be separated by double newline
       expect(result.systemPrompt).toMatch(/HushBox[\s\S]*\n\n[\s\S]*Python/);
     });
   });

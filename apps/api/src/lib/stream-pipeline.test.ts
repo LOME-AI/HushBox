@@ -40,13 +40,6 @@ import type { BuildBillingResult } from '../services/billing/index.js';
 import type { AppEnv } from '../types.js';
 import type { Context } from 'hono';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// Stub envelope/content-item used by billingResult fixtures. Uses the fishery
-// factories would complicate the pure unit test setup, so inline a minimal
-// shape matching the InsertedTextContentItem type.
 const stubUserEnvelope = {
   messageId: 'user-msg-stub',
   wrappedContentKey: new Uint8Array([0, 1, 2, 3]),
@@ -88,19 +81,12 @@ function createMockContext(): {
   };
 }
 
-// ---------------------------------------------------------------------------
-// BATCH_INTERVAL_MS
-// ---------------------------------------------------------------------------
-
 describe('BATCH_INTERVAL_MS', () => {
   it('equals 100', () => {
     expect(BATCH_INTERVAL_MS).toBe(100);
   });
 });
 
-// ---------------------------------------------------------------------------
-// lookupModelPricing
-// ---------------------------------------------------------------------------
 
 describe('lookupModelPricing', () => {
   beforeEach(() => {
@@ -165,10 +151,6 @@ describe('lookupModelPricing', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// computeWorstCaseCents
-// ---------------------------------------------------------------------------
-
 describe('computeWorstCaseCents', () => {
   it('computes (estimatedInputCost + maxOutput * outputCost) * 100', () => {
     // (0.50 + 1000 * 0.001) * 100 = (0.50 + 1.0) * 100 = 150
@@ -204,10 +186,6 @@ describe('computeWorstCaseCents', () => {
     expect(result).toBe(100);
   });
 });
-
-// ---------------------------------------------------------------------------
-// derivedIsSmartModel
-// ---------------------------------------------------------------------------
 
 describe('derivedIsSmartModel', () => {
   it('returns false for an empty billing list', () => {
@@ -261,10 +239,6 @@ describe('derivedIsSmartModel', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// computeImageWorstCaseCents
-// ---------------------------------------------------------------------------
-
 describe('computeImageWorstCaseCents', () => {
   it('computes worst-case cents for a single image model', () => {
     const result = computeImageWorstCaseCents(0.04, 1);
@@ -288,10 +262,6 @@ describe('computeImageWorstCaseCents', () => {
     expect(result).toBeGreaterThan(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// resolveWebSearchCost
-// ---------------------------------------------------------------------------
 
 describe('resolveWebSearchCost', () => {
   it('returns 0 when webSearchEnabled is false', () => {
@@ -378,10 +348,6 @@ describe('resolveWebSearchCost', () => {
     );
   });
 });
-
-// ---------------------------------------------------------------------------
-// handleBillingResult
-// ---------------------------------------------------------------------------
 
 describe('handleBillingResult', () => {
   beforeEach(() => {
@@ -512,10 +478,6 @@ describe('handleBillingResult', () => {
     expect(result).toEqual(billingResult);
   });
 });
-
-// ---------------------------------------------------------------------------
-// withBroadcast
-// ---------------------------------------------------------------------------
 
 describe('withBroadcast', () => {
   beforeEach(() => {
@@ -655,10 +617,6 @@ describe('withBroadcast', () => {
     expect(broadcastFireAndForget).not.toHaveBeenCalled();
   });
 });
-
-// ---------------------------------------------------------------------------
-// broadcastAndFinish
-// ---------------------------------------------------------------------------
 
 describe('broadcastAndFinish', () => {
   const stubTextContentItem = (overrides: {
@@ -962,10 +920,6 @@ describe('broadcastAndFinish', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// resolveAndReserveImageBilling
-// ---------------------------------------------------------------------------
-
 interface MockRedisForBilling {
   get: ReturnType<typeof vi.fn>;
   eval: ReturnType<typeof vi.fn>;
@@ -1098,25 +1052,12 @@ describe('resolveAndReserveImageBilling', () => {
     // Redis eval was NOT called because denial happens before reservation
     expect(redis.eval).not.toHaveBeenCalled();
   });
-
-  // Additional coverage (deferred — exercised indirectly via chat.test.ts route tests):
-  // - 409 BILLING_MISMATCH when clientFundingSource disagrees with server
-  // - Group billing happy path (memberContext + conversationId + groupBudgetContext)
-  // - Race-guard release path (reserveBudget returns total > availableCents → release + 402)
-  // These require more elaborate billingResult fixtures (groupBudgetContext) and
-  // additional redis.eval call scripting.
 });
-
-// ---------------------------------------------------------------------------
-// resolveAndReserveVideoBilling
-// ---------------------------------------------------------------------------
 
 describe('resolveAndReserveVideoBilling', () => {
   type MockRedis = MockRedisForBilling;
   const createMockVideoBillingContext = createMockBillingContext;
 
-  // Shares the same shape as the audio billing fixture; centralized at module
-  // scope (`buildPaidMediaBillingResult`) — $1000 default balance covers video.
   const makeBillingResult = buildPaidMediaBillingResult;
 
   it('happy path: paid tier reserves worst-case cents and returns success', async () => {
@@ -1264,8 +1205,6 @@ describe('resolveAndReserveAudioBilling', () => {
   type MockRedis = MockRedisForBilling;
   const createMockAudioBillingContext = createMockBillingContext;
 
-  // Shares the same shape as the video billing fixture; centralized at module
-  // scope (`buildPaidMediaBillingResult`) to keep duplication in check.
   const makeBillingResult = buildPaidMediaBillingResult;
 
   it('happy path: paid tier reserves worst-case cents and returns success', async () => {

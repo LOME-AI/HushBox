@@ -148,7 +148,6 @@ export function RecoveryPhraseModal({
   const [error, setError] = useState<string | null>(null);
   const recoveryWrappedPrivateKeyRef = useRef<Uint8Array | null>(null);
 
-  // Generate phrase and wrapped key when modal opens
   useEffect(() => {
     if (!open) return;
 

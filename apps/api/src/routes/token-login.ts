@@ -26,7 +26,6 @@ export const tokenLoginRoute = new Hono<AppEnv>().post(
     const redis = c.get('redis');
     const db = c.get('db');
 
-    // 1. Redeem token from Redis (one-time use)
     const tokenData = await redisGet(redis, 'billingLoginToken', token);
     if (!tokenData) {
       return c.json(createErrorResponse(ERROR_CODE_LOGIN_TOKEN_INVALID), 401);
@@ -36,7 +35,6 @@ export const tokenLoginRoute = new Hono<AppEnv>().post(
     // This makes the endpoint idempotent: retries from StrictMode double-fire,
     // page reloads, or network retries all succeed within the TTL window.
 
-    // 2. Look up user in DB
     const [user] = await db
       .select({
         id: users.id,
@@ -53,7 +51,6 @@ export const tokenLoginRoute = new Hono<AppEnv>().post(
       return c.json(createErrorResponse(ERROR_CODE_LOGIN_TOKEN_INVALID), 401);
     }
 
-    // 3. Create billing-scoped session
     const { isProduction } = c.get('envUtils');
     const session = await getIronSession<SessionData>(
       c.req.raw,
@@ -81,7 +78,6 @@ export const tokenLoginRoute = new Hono<AppEnv>().post(
 
     await session.save();
 
-    // 4. Track session in Redis
     await redisSet(redis, 'sessionActive', '1', user.id, session.sessionId);
 
     return c.json({ success: true }, 200);

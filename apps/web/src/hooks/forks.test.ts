@@ -18,7 +18,6 @@ vi.mock('./chat', () => ({
   },
 }));
 
-// Mock api-client
 vi.mock('@/lib/api-client', () => ({
   client: {
     api: {

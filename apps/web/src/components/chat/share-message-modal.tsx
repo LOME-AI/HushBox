@@ -39,12 +39,10 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
   if (input.generatedUrl === null) {
     return (
       <>
-        {/* Message preview */}
         <div data-testid="share-message-preview" className="border-border rounded-md border p-3">
           <p className="line-clamp-4 text-sm">{input.messageContent}</p>
         </div>
 
-        {/* Isolation info */}
         <Alert variant="default" data-testid="share-message-isolation-info">
           <Lock />
           <span>
@@ -52,7 +50,6 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
           </span>
         </Alert>
 
-        {/* Action buttons */}
         <ModalActions
           cancel={{
             label: 'Cancel',
@@ -84,7 +81,6 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
         <span>Share link created!</span>
       </div>
 
-      {/* Generated URL */}
       <div
         data-testid="share-message-url"
         className="bg-muted overflow-hidden rounded-md p-3 text-xs break-all"
@@ -123,7 +119,6 @@ export function ShareMessageModal({
   const mutateAsync = share.mutateAsync;
   const isPending = share.isPending;
 
-  // Reset state when modal reopens
   const [previousOpen, setPreviousOpen] = useState(open);
   if (open !== previousOpen) {
     setPreviousOpen(open);

@@ -27,19 +27,16 @@ describe('PasswordStrength', () => {
   });
 
   it('shows medium strength for 8+ chars with 1 criteria', () => {
-    // Mixed case only
     render(<PasswordStrength password="Abcdefgh" />);
     expect(screen.getByText(/medium/i)).toBeInTheDocument();
   });
 
   it('shows medium strength for 10+ chars with 1 criteria', () => {
-    // 10+ chars but only 1 criteria - should be medium
     render(<PasswordStrength password="Abcdefghij" />);
     expect(screen.getByText(/medium/i)).toBeInTheDocument();
   });
 
   it('shows strong strength for 10+ chars with 2+ criteria', () => {
-    // 10+ chars with mixed case and digit = strong
     render(<PasswordStrength password="Password12" />);
     expect(screen.getByText(/strong/i)).toBeInTheDocument();
   });

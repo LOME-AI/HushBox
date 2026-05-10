@@ -94,9 +94,7 @@ const mockPersonas: DevPersona[] = [
 describe('PersonasPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default to no query param (dev personas)
     mockUseSearch.mockReturnValue({});
-    // Default to successful load
     mockUseDevPersonas.mockReturnValue({
       data: { personas: mockPersonas },
       isLoading: false,
@@ -188,7 +186,6 @@ describe('PersonasPage', () => {
       const { PersonasPage } = await import('./dev.personas');
       render(<PersonasPage />);
 
-      // Alice has 3 conversations
       const aliceCard = screen.getByTestId('persona-card-alice');
       expect(aliceCard).toHaveTextContent('3 conversations');
     });
@@ -197,7 +194,6 @@ describe('PersonasPage', () => {
       const { PersonasPage } = await import('./dev.personas');
       render(<PersonasPage />);
 
-      // Alice has 12 messages
       const aliceCard = screen.getByTestId('persona-card-alice');
       expect(aliceCard).toHaveTextContent('12 messages');
     });
@@ -206,7 +202,6 @@ describe('PersonasPage', () => {
       const { PersonasPage } = await import('./dev.personas');
       render(<PersonasPage />);
 
-      // Alice has 2 projects
       const aliceCard = screen.getByTestId('persona-card-alice');
       expect(aliceCard).toHaveTextContent('2 projects');
     });
@@ -215,7 +210,6 @@ describe('PersonasPage', () => {
       const { PersonasPage } = await import('./dev.personas');
       render(<PersonasPage />);
 
-      // All personas show $0.00
       const creditElements = screen.getAllByText('$0.00');
       expect(creditElements).toHaveLength(mockPersonas.length);
     });
@@ -257,14 +251,12 @@ describe('PersonasPage', () => {
 
       await user.click(screen.getByTestId('persona-card-alice'));
 
-      // Verify signOutAndClearCache is called first
       expect(mockSignOutAndClearCache).toHaveBeenCalled();
       expect(signIn.email).toHaveBeenCalledWith({
         identifier: 'alice@dev.hushbox.ai',
         password: DEV_PASSWORD,
         keepSignedIn: true,
       });
-      // Verify order: signOutAndClearCache before signIn
       const signOutCallOrder = mockSignOutAndClearCache.mock.invocationCallOrder[0];
       const signInCallOrder = vi.mocked(signIn.email).mock.invocationCallOrder[0];
       if (signOutCallOrder === undefined || signInCallOrder === undefined) {

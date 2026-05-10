@@ -48,7 +48,6 @@ describe('Input', () => {
 
   it('renders without explicit type attribute (browser defaults to text)', () => {
     render(<Input />);
-    // Input doesn't set explicit type, browser defaults to text behavior
     const input = screen.getByRole('textbox');
     expect(input.tagName).toBe('INPUT');
   });

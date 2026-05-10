@@ -3,9 +3,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CustomInstructionsModal } from './CustomInstructionsModal';
 
-// ---------------------------------------------------------------------------
-// Hoisted mocks
-// ---------------------------------------------------------------------------
 const { mockGetState, mockEncryptMessageForStorage, mockGetPublicKeyFromPrivate, mockFetchJson } =
   vi.hoisted(() => ({
     mockGetState: vi.fn(),
@@ -47,9 +44,6 @@ vi.mock('@hushbox/shared', async (importOriginal) => ({
   friendlyErrorMessage: (code: string) => `Error: ${code}`,
 }));
 
-// ---------------------------------------------------------------------------
-// Test setup
-// ---------------------------------------------------------------------------
 describe('CustomInstructionsModal', () => {
   const defaultProps = {
     open: true,
@@ -67,9 +61,6 @@ describe('CustomInstructionsModal', () => {
     mockFetchJson.mockResolvedValue({ success: true });
   });
 
-  // =========================================================================
-  // Rendering
-  // =========================================================================
   describe('rendering', () => {
     it('renders nothing when open is false', () => {
       render(<CustomInstructionsModal {...defaultProps} open={false} />);
@@ -116,9 +107,6 @@ describe('CustomInstructionsModal', () => {
     });
   });
 
-  // =========================================================================
-  // Character limit
-  // =========================================================================
   describe('character limit', () => {
     it('updates character count as user types', async () => {
       render(<CustomInstructionsModal {...defaultProps} />);
@@ -137,9 +125,6 @@ describe('CustomInstructionsModal', () => {
     });
   });
 
-  // =========================================================================
-  // Save flow
-  // =========================================================================
   describe('save flow', () => {
     it('encrypts and saves instructions on submit', async () => {
       render(<CustomInstructionsModal {...defaultProps} />);
@@ -200,7 +185,6 @@ describe('CustomInstructionsModal', () => {
         expect(mockFetchJson).toHaveBeenCalled();
       });
 
-      // Should NOT encrypt when clearing
       expect(mockEncryptMessageForStorage).not.toHaveBeenCalled();
     });
 
@@ -220,9 +204,6 @@ describe('CustomInstructionsModal', () => {
     });
   });
 
-  // =========================================================================
-  // State reset
-  // =========================================================================
   describe('state reset', () => {
     it('resets textarea to stored value when modal reopens', () => {
       mockGetState.mockReturnValue({

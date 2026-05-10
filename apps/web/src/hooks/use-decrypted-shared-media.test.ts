@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ContentKey } from '@hushbox/crypto';
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 const mockDecryptBinaryWithContentKey =
   vi.fn<(contentKey: Uint8Array, ciphertext: Uint8Array) => Uint8Array>();
 
@@ -19,10 +15,6 @@ const mockRevokeObjectURL = vi.fn<(url: string) => void>();
 const mockFetch = vi.fn<(input: RequestInfo | URL) => Promise<Response>>();
 
 import { useDecryptedSharedMedia } from './use-decrypted-shared-media';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function defaultParams(
   overrides: Partial<Parameters<typeof useDecryptedSharedMedia>[0]> = {}
@@ -42,10 +34,6 @@ function createFetchResponse(bytes: Uint8Array, ok = true, status = 200): Respon
     arrayBuffer: () => Promise.resolve(bytes.buffer as ArrayBuffer),
   } as Response;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('useDecryptedSharedMedia', () => {
   let urlCounter: number;
@@ -85,7 +73,6 @@ describe('useDecryptedSharedMedia', () => {
     expect(result.current.error).toBeNull();
     expect(mockFetch).toHaveBeenCalledWith('https://signed.example/img?sig=a');
     expect(mockDecryptBinaryWithContentKey).toHaveBeenCalledTimes(1);
-    // decryptBinaryWithContentKey must be called with the exact contentKey we passed in.
     expect(mockDecryptBinaryWithContentKey.mock.calls[0]![0]).toBe(contentKey);
     expect(mockCreateObjectURL).toHaveBeenCalledTimes(1);
   });

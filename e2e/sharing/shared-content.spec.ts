@@ -12,7 +12,6 @@ test.describe('Shared Content', () => {
     groupConversation,
     createPage,
   }) => {
-    // Setup: navigate Alice to group conversation and open member sidebar
     const chatPage = new ChatPage(authenticatedPage);
     await chatPage.gotoConversation(groupConversation.id);
     await chatPage.waitForConversationLoaded();
@@ -38,18 +37,15 @@ test.describe('Shared Content', () => {
     await test.step('unauthenticated user sees decrypted messages', async () => {
       await unauthenticatedPage.goto(inviteUrl, { waitUntil: 'domcontentloaded' });
 
-      // Wait for loading to finish
       await expect(unauthenticatedPage.getByTestId('shared-conversation-loading')).not.toBeVisible({
         timeout: 15_000,
       });
 
-      // Verify decrypted conversation content is visible
       await expect(unauthenticatedPage.getByText('Hello from Alice').first()).toBeVisible({
         timeout: 10_000,
       });
       await expect(unauthenticatedPage.getByText('Hi from Bob').first()).toBeVisible();
 
-      // Error state should NOT be visible
       await expect(unauthenticatedPage.getByTestId('shared-conversation-error')).not.toBeVisible();
     });
 
@@ -111,17 +107,14 @@ test.describe('Shared Content', () => {
     await test.step('unauthenticated user sees decrypted message', async () => {
       await unauthenticatedPage.goto(shareUrl, { waitUntil: 'domcontentloaded' });
 
-      // Wait for loading to finish
       await expect(unauthenticatedPage.getByTestId('shared-message-loading')).not.toBeVisible({
         timeout: 15_000,
       });
 
-      // Verify decrypted message content (AI echo response)
       await expect(unauthenticatedPage.getByText('Echo:').first()).toBeVisible({
         timeout: 10_000,
       });
 
-      // Error state should NOT be visible
       await expect(unauthenticatedPage.getByTestId('shared-message-error')).not.toBeVisible();
     });
   });
@@ -168,7 +161,6 @@ test.describe('Shared Content', () => {
     await chatPage.goto();
     await chatPage.expectNewChatPageVisible();
 
-    // Generate an image first.
     await chatPage.switchToImageMode();
     const prompt = `Share this image ${String(Date.now())}`;
     await chatPage.sendNewChatMessage(prompt);
@@ -406,7 +398,6 @@ test.describe('Shared Content', () => {
 
     await authenticatedPage.keyboard.press('Escape');
 
-    // Revoke the share via the dev endpoint.
     const revoke = await authenticatedPage.request.post(`${apiUrl}/api/dev/revoke-message-share`, {
       data: { shareId },
     });
@@ -414,11 +405,9 @@ test.describe('Shared Content', () => {
 
     const recipient = await createPage();
 
-    // Direct API fetch returns 404.
     const fetchAfterRevoke = await recipient.request.get(`${apiUrl}/api/shares/${shareId}`);
     expect(fetchAfterRevoke.status()).toBe(404);
 
-    // The share view shows the error state, not the image.
     await recipient.goto(shareUrl, { waitUntil: 'domcontentloaded' });
     await expect(recipient.getByTestId('shared-message-error')).toBeVisible({
       timeout: 15_000,
@@ -445,8 +434,6 @@ test.describe('Shared Content', () => {
     await chatPage.waitForConversationLoaded();
 
     await test.step('owner generates an image inside the group conversation', async () => {
-      // Image modality from inside an existing conversation: same icon as the
-      // new-chat page; click it then send a follow-up message.
       const imageIcon = authenticatedPage.getByRole('button', { name: /switch to image/i });
       await expect(imageIcon).toBeVisible();
       await imageIcon.click();

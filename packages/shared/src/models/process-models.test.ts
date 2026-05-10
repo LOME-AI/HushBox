@@ -18,10 +18,6 @@ function realModelIds(result: ReturnType<typeof processModels>): string[] {
   return result.models.filter((m) => m.id !== SMART_MODEL_ID).map((m) => m.id);
 }
 
-// ============================================================
-// Test Fixtures
-// ============================================================
-
 const now = Date.now();
 const twoYearsAgo = now - 2 * 365 * 24 * 60 * 60 * 1000;
 const threeYearsAgo = now - 3 * 365 * 24 * 60 * 60 * 1000;

@@ -47,7 +47,6 @@ export function DisableTwoFactorModal({
   useFormEnterNav(formRef);
   const handleOpenAutoFocus = useMobileAutoFocus();
 
-  // Reset state when modal opens
   React.useEffect(() => {
     if (open) {
       setStep('password');

@@ -29,6 +29,7 @@ import { beginMessageEnvelope, encryptBinaryWithContentKey } from '@hushbox/cryp
 import { createEvent } from '@hushbox/realtime/events';
 import { fetchEpochPublicKey } from '../services/chat/message-helpers.js';
 import { saveChatTurn } from '../services/chat/index.js';
+import { treeActionUserMessageId, type TreeAction } from '../services/chat/tree-action.js';
 import { broadcastFireAndForget } from './broadcast.js';
 import {
   collectMultiMediaModelStreams,
@@ -36,6 +37,8 @@ import {
   type MediaStreamResult,
 } from './multi-stream.js';
 import { safeExecutionCtx } from './safe-execution-ctx.js';
+import { fireAndForget } from './fire-and-forget.js';
+import { getPushClient, sendPushForNewMessage } from '../services/push/index.js';
 import { createSSEEventWriter } from './stream-handler.js';
 import { buildGroupBillingContext } from './billing-types.js';
 import type { Context } from 'hono';
@@ -48,17 +51,13 @@ import type { MediaStorage } from '../services/storage/index.js';
 import type { GroupBudgetReservation } from './speculative-balance.js';
 import type { MediaPersistPricing } from './billing-types.js';
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
 export type { MediaPersistPricing } from './billing-types.js';
 
 export interface MediaPipelineInput {
   c: Context<AppEnv>;
   conversationId: string;
   models: string[];
-  userMessage: { id: string; content: string };
+  treeAction: TreeAction;
   prompt: string;
   billingUserId: string;
   groupBudget: GroupBudgetReservation | undefined;
@@ -66,7 +65,6 @@ export interface MediaPipelineInput {
   releaseReservation: () => Promise<void>;
   senderId: string;
   forkId: string | undefined;
-  parentMessageId: string | null;
   /**
    * Modality for the batch. Used by the orchestrator to emit modality-aware
    * SSE events (`model:media:start` carries this directly; `model:media:
@@ -105,10 +103,6 @@ async function writeKeepAliveSafe(stream: {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Internal errors
-// ---------------------------------------------------------------------------
-
 /**
  * Signals that R2 PUT rejected during the media upload step. Caught at the
  * top of `executeMediaPipeline` so the failure surfaces as
@@ -137,10 +131,6 @@ class UnknownMimeTypeError extends Error {
     this.mimeType = mimeType;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Placeholder mimeType emitted in the early `model:media:start` event. The
@@ -648,14 +638,13 @@ async function processMediaResultsOrWriteError(
 }
 
 interface SaveChatTurnPayloadInput {
-  userMessage: { id: string; content: string };
+  treeAction: TreeAction;
   conversationId: string;
   billingUserId: string;
   senderId: string;
   assistantMessages: MediaAssistantMessageInput[];
   memberContext: MemberContext | undefined;
   groupBudget: GroupBudgetReservation | undefined;
-  parentMessageId: string | null;
   forkId: string | undefined;
 }
 
@@ -669,14 +658,12 @@ function buildSaveChatTurnPayload(
 ): Parameters<typeof saveChatTurn>[1] {
   const groupBillingContext = buildGroupBillingContext(input.memberContext, input.groupBudget);
   return {
-    userMessageId: input.userMessage.id,
-    userContent: input.userMessage.content,
+    treeAction: input.treeAction,
     conversationId: input.conversationId,
     userId: input.billingUserId,
     senderId: input.senderId,
     assistantMessages: input.assistantMessages,
     ...(groupBillingContext !== undefined && { groupBillingContext }),
-    parentMessageId: input.parentMessageId,
     ...(input.forkId !== undefined && { forkId: input.forkId }),
   };
 }
@@ -718,10 +705,6 @@ async function processMediaResults(
 
   return { assistantMessages, downloadUrls };
 }
-
-// ---------------------------------------------------------------------------
-// executeMediaPipeline — shared image/video/audio orchestrator
-// ---------------------------------------------------------------------------
 
 interface ExecuteMediaPipelineDeps {
   /**
@@ -768,7 +751,7 @@ export function executeMediaPipeline(
     c,
     conversationId,
     models,
-    userMessage,
+    treeAction,
     prompt,
     billingUserId,
     groupBudget,
@@ -776,7 +759,6 @@ export function executeMediaPipeline(
     releaseReservation,
     senderId,
     forkId,
-    parentMessageId,
     mediaType,
     pricingFor,
     buildRequest,
@@ -785,24 +767,27 @@ export function executeMediaPipeline(
   const db = c.get('db');
   const aiClient = c.get('aiClient');
   const mediaStorage: MediaStorage = c.get('mediaStorage');
+  const userMessageId = treeActionUserMessageId(treeAction);
 
   const getAssistantId = deps.createAssistantIdLookup(models);
 
   const primaryModel = models[0];
   if (!primaryModel) throw new Error('invariant: models must have at least one entry');
 
-  broadcastFireAndForget(
-    c.env,
-    conversationId,
-    createEvent('message:new', {
-      messageId: userMessage.id,
+  if (treeAction.kind === 'fresh-send') {
+    broadcastFireAndForget(
+      c.env,
       conversationId,
-      senderType: 'user',
-      senderId,
-      content: prompt,
-    }),
-    safeExecutionCtx(c)
-  );
+      createEvent('message:new', {
+        messageId: userMessageId,
+        conversationId,
+        senderType: 'user',
+        senderId,
+        content: prompt,
+      }),
+      safeExecutionCtx(c)
+    );
+  }
 
   return streamSSE(c, async (stream) => {
     const writer = createSSEEventWriter(stream);
@@ -821,24 +806,15 @@ export function executeMediaPipeline(
     let progressTimer: VideoProgressTimerHandle | null = null;
     try {
       await writer.writeStart({
-        userMessageId: userMessage.id,
+        userMessageId,
         models: models.map((modelId) => ({
           modelId,
           assistantMessageId: getAssistantId(modelId),
         })),
       });
 
-      // Emit `model:media:start` BEFORE dispatching the gateway call. The
-      // brief from lane-4 calls this out for video especially: a 30-second
-      // gateway wait without any client-visible event would otherwise look
-      // like a hung connection. The mimeType is a placeholder here — the
-      // exact one is delivered later via `model:done`.
       await emitMediaStartEvents(writer, models, getAssistantId, mediaType);
 
-      // Build per-model inference requests, then materialize the streams.
-      // Both happen INSIDE the streamSSE callback so the early-start events
-      // above land on the wire before the gateway begins working — see
-      // brief Issue 4.
       const { entries: streamEntries, requestsByModel } = buildStreamEntries({
         models,
         getAssistantId,
@@ -898,14 +874,13 @@ export function executeMediaPipeline(
       const billingPromise = saveChatTurn(
         db,
         buildSaveChatTurnPayload({
-          userMessage,
+          treeAction,
           conversationId,
           billingUserId,
           senderId,
           assistantMessages: stored.assistantMessages,
           memberContext,
           groupBudget,
-          parentMessageId,
           forkId,
         })
       );
@@ -925,12 +900,24 @@ export function executeMediaPipeline(
         await deps.broadcastAndFinish({
           c,
           conversationId,
-          userMessageId: userMessage.id,
+          userMessageId,
           assistantMessageId: getAssistantId(primaryModel),
           billingResult,
           writer,
           modelName: primaryModel,
         });
+        fireAndForget(
+          sendPushForNewMessage({
+            db,
+            pushClient: getPushClient(c.env),
+            conversationId,
+            senderUserId: senderId,
+            title: 'New Message',
+            body: 'You have a new message',
+          }),
+          'send push notifications for AI response',
+          safeExecutionCtx(c)
+        );
       } else {
         await writer.writeError({
           message: 'Failed to save message',

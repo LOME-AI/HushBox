@@ -3,10 +3,6 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { useDecryptedMedia, useMessageContentKey } from './use-decrypted-media';
 import type { ContentKey } from '@hushbox/crypto';
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 const mockUseMediaDownloadUrl = vi.fn<
   (contentItemId: string | null) => {
     downloadUrl: string | undefined;
@@ -46,16 +42,10 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
   };
 });
 
-// Stub URL.createObjectURL and URL.revokeObjectURL
 const mockCreateObjectURL = vi.fn<(blob: Blob) => string>();
 const mockRevokeObjectURL = vi.fn<(url: string) => void>();
 
-// Stub global fetch
 const mockFetch = vi.fn<(input: RequestInfo | URL) => Promise<Response>>();
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function defaultParams(
   overrides: Partial<Parameters<typeof useDecryptedMedia>[0]> = {}
@@ -75,10 +65,6 @@ function createFetchResponse(bytes: Uint8Array, ok = true, status = 200): Respon
     arrayBuffer: () => Promise.resolve(bytes.buffer as ArrayBuffer),
   } as Response;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('useDecryptedMedia', () => {
   let urlCounter: number;
@@ -124,7 +110,6 @@ describe('useDecryptedMedia', () => {
     expect(result.current.isLoading).toBe(false);
     expect(result.current.error).toBeNull();
     expect(mockFetch).toHaveBeenCalledWith('https://r2.example.com/encrypted-bytes');
-    // The hook no longer unwraps the message envelope; the parent does.
     expect(mockOpenMessageEnvelope).not.toHaveBeenCalled();
     expect(mockDecryptBinaryWithContentKey).toHaveBeenCalledTimes(1);
     expect(mockCreateObjectURL).toHaveBeenCalledTimes(1);
@@ -166,7 +151,6 @@ describe('useDecryptedMedia', () => {
 
     const { result } = renderHook(() => useDecryptedMedia(defaultParams({ contentKey: null })));
 
-    // No decrypt-blob fetch fires when contentKey is null.
     expect(mockFetch).not.toHaveBeenCalled();
     expect(result.current.blobUrl).toBeNull();
   });

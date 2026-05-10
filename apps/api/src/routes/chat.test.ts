@@ -194,7 +194,6 @@ function createMockDb(options: {
   const memberBudgetRows = options.memberBudgetRows ?? [];
   const conversationSpendingRows = options.conversationSpendingRows ?? [];
 
-  // Auto-generate wallets from users if not explicitly provided
   const wallets: MockWallet[] =
     options.wallets ??
     users.map((u) => ({
@@ -204,7 +203,6 @@ function createMockDb(options: {
       balance: u.balance,
     }));
 
-  // Track conversation sequence for saveChatTurn updates
   let nextSequence = conversations[0]?.nextSequence ?? 0;
   const currentEpoch = conversations[0]?.currentEpoch ?? 1;
 
@@ -466,9 +464,7 @@ function createTestApp(
 
   const mockRedis = redisOverride ?? createMockRedis();
 
-  // Mock dependencies middleware
   app.use('*', async (c, next) => {
-    // Set env bindings for tests
     c.env = {
       NODE_ENV: 'test',
       AI_GATEWAY_API_KEY: 'test-key',
@@ -497,9 +493,7 @@ function createTestApp(
 function createUnauthenticatedTestApp() {
   const app = new Hono<AppEnv>();
 
-  // Mock dependencies middleware without user
   app.use('*', async (c, next) => {
-    // Set env bindings for tests
     c.env = {
       NODE_ENV: 'test',
       AI_GATEWAY_API_KEY: 'test-key',
@@ -527,7 +521,6 @@ describe('chat routes', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-15T12:00:00.000Z'));
 
-    // Inject mockModels into the @ai-sdk/gateway mock (in gateway response shape)
     (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ = mockModels.map(
       (m) => ({
         id: m.id,
@@ -538,7 +531,6 @@ describe('chat routes', () => {
       })
     );
 
-    // Default mock for any remaining fetch() calls (legacy paths)
     fetchMock.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
@@ -1041,7 +1033,6 @@ describe('chat routes', () => {
         });
         app.route('/', chatRoute);
 
-        // No NODE_ENV set (defaults to development/test behavior)
         const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1050,7 +1041,6 @@ describe('chat routes', () => {
 
         const body = await res.text();
 
-        // Stream completes with inline cost — no separate API call needed
         expect(res.status).toBe(200);
         expect(body).toContain('event: done');
       });
@@ -3741,7 +3731,7 @@ describe('chat routes', () => {
       expect(res.status).toBe(200); // SSE streams always return 200
       const text = await res.text();
       expect(text).toContain('event: error');
-      expect(text).toContain('"code":"STREAM_ERROR"');
+      expect(text).toContain('"code":"BILLING_ERROR"');
     });
 
     it('returns SSE events with start, token, and done sequence', async () => {

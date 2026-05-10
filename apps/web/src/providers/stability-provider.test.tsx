@@ -8,7 +8,6 @@ vi.unmock('@/providers/stability-provider');
 // Must import after unmock
 import { StabilityProvider, useStability } from './stability-provider';
 
-// Mock dependencies
 vi.mock('@/lib/auth', () => ({
   useSession: vi.fn(),
   initAuth: vi.fn().mockImplementation(() => Promise.resolve()),
@@ -180,7 +179,6 @@ describe('useStability', () => {
     });
 
     it('returns true for trial users even while balance is pending', () => {
-      // Trial users don't need to wait for balance
       mockedUseSession.mockReturnValue({
         data: null,
         isPending: false,
@@ -246,7 +244,6 @@ describe('useStability', () => {
         wrapper: createWrapper(),
       });
 
-      // Has cached data, so considered stable
       expect(result.current.isBalanceStable).toBe(true);
     });
   });

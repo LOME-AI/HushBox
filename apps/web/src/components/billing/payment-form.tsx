@@ -22,7 +22,6 @@ import {
 import { usePaymentForm } from '../../hooks/use-payment-form.js';
 import { MIN_DEPOSIT_AMOUNT, MAX_DEPOSIT_AMOUNT } from '../../lib/payment-validation.js';
 
-// Declare Helcim global functions
 declare global {
   interface Window {
     helcimProcess?: () => void;
@@ -359,7 +358,6 @@ export function PaymentForm({
   onCancel,
 }: Readonly<PaymentFormProps>): React.JSX.Element {
   const jsToken = import.meta.env['VITE_HELCIM_JS_TOKEN'] as string | undefined;
-  // Use shared env utility for mock mode detection
   const isDevMode = env.isLocalDev;
 
   const form = usePaymentForm();
@@ -382,7 +380,6 @@ export function PaymentForm({
   const createPayment = useCreatePayment();
   const processPayment = useProcessPayment();
 
-  // Poll payment status when awaiting webhook
   const { data: paymentStatus } = usePaymentStatus(paymentId, {
     enabled: isPolling,
     refetchInterval: isPolling ? 2000 : false,
@@ -503,7 +500,6 @@ export function PaymentForm({
     };
   }, []);
 
-  // Set up MutationObserver to detect Helcim response
   useEffect(() => {
     if (!scriptLoaded) return;
 
@@ -511,7 +507,6 @@ export function PaymentForm({
     if (!resultsDiv) return;
 
     observerRef.current = new MutationObserver(() => {
-      // Only process results when we're actively expecting tokenization
       if (!expectingTokenizationRef.current) return;
 
       const responseEl = document.querySelector<HTMLInputElement>('#response');

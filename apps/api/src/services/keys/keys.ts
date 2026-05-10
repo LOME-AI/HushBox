@@ -51,7 +51,6 @@ export async function getKeyChain(
   conversationId: string,
   userPublicKey: Uint8Array
 ): Promise<KeyChainResult | null> {
-  // Query wraps: JOIN epochs ON epochMembers.epochId = epochs.id
   const wrapsRows = await db
     .select({
       epochNumber: epochs.epochNumber,
@@ -73,7 +72,6 @@ export async function getKeyChain(
     return null;
   }
 
-  // Query chain links: epochs with non-null chainLink for this conversation
   const chainLinksRows = await db
     .select({
       epochNumber: epochs.epochNumber,
@@ -84,7 +82,6 @@ export async function getKeyChain(
     .where(and(eq(epochs.conversationId, conversationId), isNotNull(epochs.chainLink)))
     .orderBy(asc(epochs.epochNumber));
 
-  // Query currentEpoch from the conversation row
   const [conversation] = await db
     .select({ currentEpoch: conversations.currentEpoch })
     .from(conversations)
@@ -134,7 +131,6 @@ export async function getKeyChainBatch(
 ): Promise<Map<string, KeyChainResult>> {
   if (conversationIds.length === 0) return new Map();
 
-  // Query 1: All wraps for the user across all requested conversations
   const allWraps = await db
     .select({
       conversationId: epochs.conversationId,
@@ -153,7 +149,6 @@ export async function getKeyChainBatch(
     )
     .orderBy(asc(epochs.conversationId), asc(epochs.epochNumber));
 
-  // Query 2: All chain links across all requested conversations
   const allChainLinks = await db
     .select({
       conversationId: epochs.conversationId,
@@ -165,7 +160,6 @@ export async function getKeyChainBatch(
     .where(and(inArray(epochs.conversationId, conversationIds), isNotNull(epochs.chainLink)))
     .orderBy(asc(epochs.conversationId), asc(epochs.epochNumber));
 
-  // Query 3: Current epoch for all requested conversations
   const allConversations = await db
     .select({ id: conversations.id, currentEpoch: conversations.currentEpoch })
     .from(conversations)
@@ -195,7 +189,6 @@ export async function getKeyChainBatch(
  * Ordered by joinedAt ASC.
  */
 export async function getMemberKeys(db: Database, conversationId: string): Promise<MemberKey[]> {
-  // User members: join on users table for publicKey
   const userMembers = await db
     .select({
       memberId: conversationMembers.id,
@@ -215,7 +208,6 @@ export async function getMemberKeys(db: Database, conversationId: string): Promi
       )
     );
 
-  // Link members: join on sharedLinks table for linkPublicKey
   const linkMembers = await db
     .select({
       memberId: conversationMembers.id,
@@ -235,7 +227,6 @@ export async function getMemberKeys(db: Database, conversationId: string): Promi
       )
     );
 
-  // Merge and sort by joinedAt
   const all: ((typeof userMembers)[number] | (typeof linkMembers)[number])[] = [
     ...userMembers,
     ...linkMembers,
@@ -316,7 +307,6 @@ export interface SubmitRotationResult {
 
 /**
  * Converts a Zod-parsed rotation schema (base64 strings) to SubmitRotationParams (Uint8Arrays).
- * Replaces 4 identical fromBase64 mapping blocks across route handlers.
  */
 export function toRotationParams(
   conversationId: string,
@@ -367,7 +357,6 @@ function validateWrapSet(
 
 /**
  * Handles rotation-related errors in route catch blocks.
- * Replaces 4 identical catch blocks across route handlers.
  */
 export function handleRotationError(error: unknown, c: Context<AppEnv>): Response {
   if (error instanceof StaleEpochError) {
@@ -414,7 +403,6 @@ export async function submitRotation(
     throw new StaleEpochError(current?.currentEpoch ?? expectedEpoch);
   }
 
-  // Step 2: Insert new epoch row
   const [newEpoch] = await tx
     .insert(epochs)
     .values({
@@ -466,7 +454,6 @@ export async function submitRotation(
     visibilityByKey.set(toBase64(row.publicKey), row.visibleFromEpoch);
   }
 
-  // Step 3.5: Validate wrap set matches active members exactly
   validateWrapSet(visibilityByKey, params.memberWraps);
 
   // Step 4: Insert new epochMembers rows with server-enforced visibleFromEpoch
@@ -483,7 +470,6 @@ export async function submitRotation(
     })
   );
 
-  // Step 5: Delete old epoch's epochMembers wraps
   const [oldEpoch] = await tx
     .select({ id: epochs.id })
     .from(epochs)
@@ -493,7 +479,6 @@ export async function submitRotation(
     await tx.delete(epochMembers).where(eq(epochMembers.epochId, oldEpoch.id));
   }
 
-  // Step 6: Update title on conversation
   await tx
     .update(conversations)
     .set({
@@ -502,6 +487,5 @@ export async function submitRotation(
     })
     .where(eq(conversations.id, conversationId));
 
-  // Step 7: Return result
   return { newEpochNumber, newEpochId };
 }

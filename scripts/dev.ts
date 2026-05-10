@@ -67,7 +67,6 @@ export async function main(): Promise<void> {
   config({ path: path.resolve(process.cwd(), '.env.development') });
   config({ path: path.resolve(process.cwd(), '.env.scripts') });
 
-  // Log worktree configuration
   if (worktree.isWorktree) {
     console.log(`Worktree: slot ${String(worktree.slot)} (${worktree.projectName})`);
   }
@@ -84,7 +83,6 @@ export async function main(): Promise<void> {
   await startTurbo();
 }
 
-// Only run main if this is the entry point
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;
 if (isMain) {
   void (async () => {

@@ -10,7 +10,6 @@ export function buildSystemPrompt(
 ): string {
   const sections: string[] = [];
 
-  // Base module (always included)
   const isoDate = new Date().toISOString();
   const currentDate = isoDate.slice(0, Math.max(0, isoDate.indexOf('T')));
   sections.push(`You are a helpful AI assistant powered by HushBox.
@@ -19,7 +18,6 @@ All conversations are encrypted. Messages are encrypted before storage, and only
 You provide accurate, helpful responses while being concise and clear.
 Current date: ${currentDate}`);
 
-  // Capability modules
   if (capabilities.includes('python-execution')) {
     sections.push(`## Python Code Execution
 You can execute Python code using the execute_python tool.

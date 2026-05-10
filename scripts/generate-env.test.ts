@@ -11,14 +11,12 @@ const TEST_DIR_EDGE = path.resolve(__dirname, '__test-fixtures-edge__');
 
 describe('generateEnvFiles', () => {
   beforeEach(() => {
-    // Create test directory structure
     mkdirSync(TEST_DIR_ENV, { recursive: true });
     mkdirSync(path.join(TEST_DIR_ENV, 'apps/api'), { recursive: true });
 
     // Simulate main repo (.git as directory) for worktree detection
     mkdirSync(path.join(TEST_DIR_ENV, '.git'), { recursive: true });
 
-    // Create minimal wrangler.toml
     writeFileSync(
       path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'),
       `# Wrangler configuration
@@ -30,12 +28,10 @@ local_protocol = "http"
 `
     );
 
-    // Suppress console output during tests
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
-    // Clean up test directory
     rmSync(TEST_DIR_ENV, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
@@ -251,7 +247,6 @@ local_protocol = "http"
 
   describe('e2e mode', () => {
     beforeEach(() => {
-      // Set up mock CI secrets in process.env
       process.env['RESEND_API_KEY'] = 'test-resend-key';
       process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test-helcim-token';
       process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test-helcim-verifier';
@@ -731,7 +726,6 @@ describe('updateWorkflows edge cases', () => {
   it('handles file with no markers gracefully', () => {
     writeFileSync(path.join(TEST_DIR_EDGE, '.github/workflows/ci.yml'), 'name: CI\njobs: {}');
 
-    // Should not throw
     updateWorkflows(TEST_DIR_EDGE);
 
     const content = readFileSync(path.join(TEST_DIR_EDGE, '.github/workflows/ci.yml'), 'utf8');
@@ -741,9 +735,7 @@ describe('updateWorkflows edge cases', () => {
   it('does nothing if ci.yml does not exist', () => {
     rmSync(path.join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true, force: true });
     mkdirSync(path.join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true });
-    // ci.yml doesn't exist
 
-    // Should not throw
     expect(() => {
       updateWorkflows(TEST_DIR_EDGE);
     }).not.toThrow();
@@ -915,7 +907,6 @@ local_protocol = "http"
       generateEnvFiles(TEST_DIR_WT);
 
       const content = readFileSync(path.join(TEST_DIR_WT, 'apps/api/.dev.vars'), 'utf8');
-      // Should NOT contain base ports
       expect(content).not.toContain('localhost:8787');
       expect(content).not.toContain('localhost:5173');
       expect(content).not.toContain('localhost:4444');
@@ -947,7 +938,6 @@ local_protocol = "http"
     });
 
     it('does not offset ports in CI modes', () => {
-      // Set up required CI secrets
       process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test';
       process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test';
       process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'] = 'test';

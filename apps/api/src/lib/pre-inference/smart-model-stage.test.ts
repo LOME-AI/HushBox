@@ -128,9 +128,6 @@ describe('SmartModelStage', () => {
     );
   });
 
-  // Failure paths are now graceful fallbacks to the value model — see the
-  // `classifier failure falls back to value model` describe block below.
-
   it('falls back to the model id when name metadata is missing', async () => {
     const aiClient = createMockAIClient();
     aiClient.setClassifierResolution('cheap/c');

@@ -3,7 +3,6 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useUIStore } from '@/stores/ui';
 
-// Mock the chat hooks
 vi.mock('@/hooks/chat', () => ({
   useDecryptedConversations: vi.fn(),
   useDeleteConversation: () => ({
@@ -41,7 +40,6 @@ function mockConversationsHook(
   });
 }
 
-// Mock member hooks used by ChatItem
 vi.mock('@/hooks/use-conversation-members', () => ({
   useLeaveConversation: () => ({
     mutate: vi.fn(),
@@ -57,7 +55,6 @@ vi.mock('@/hooks/use-conversation-members', () => ({
   }),
 }));
 
-// Mock @hushbox/shared with feature flags (partial mock)
 vi.mock('@hushbox/shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@hushbox/shared')>();
   return {
@@ -68,7 +65,6 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
   };
 });
 
-// Mock auth to return authenticated user
 vi.mock('@/lib/auth', () => ({
   useSession: vi.fn(() => ({
     data: {
@@ -86,7 +82,6 @@ import type { ReactNode } from 'react';
 
 const mockUseSession = vi.mocked(useSession);
 
-// Mock router for SidebarContent children
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   useLocation: () => ({ pathname: '/' }),
@@ -106,7 +101,6 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ conversationId: undefined }),
 }));
 
-// Mock stability hooks for SidebarFooter
 vi.mock('@/hooks/use-stable-balance', () => ({
   useStableBalance: () => ({
     displayBalance: '10.00',
@@ -122,7 +116,6 @@ vi.mock('@/providers/stability-provider', () => ({
   }),
 }));
 
-// Mock useIsMobile to return false (desktop mode)
 vi.mock('@/hooks/use-is-mobile', () => ({
   useIsMobile: vi.fn(() => false),
 }));
@@ -217,7 +210,6 @@ describe('Sidebar', () => {
     it('uses sidebar border color', () => {
       render(<Sidebar />, { wrapper: createWrapper() });
       const aside = screen.getByRole('complementary');
-      // SidebarPanel uses border-r for left side
       expect(aside.className).toContain('border-r');
     });
 
@@ -365,7 +357,6 @@ describe('Sidebar', () => {
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false } },
       });
-      // Pre-populate the cache with stale conversation data
       queryClient.setQueryData(
         ['chat', 'conversations'],
         [
@@ -400,7 +391,6 @@ describe('Sidebar', () => {
 
       render(<Sidebar />, { wrapper: Wrapper });
 
-      // The conversations query cache should have been removed
       const cachedData = queryClient.getQueryData(['chat', 'conversations']);
       expect(cachedData).toBeUndefined();
     });

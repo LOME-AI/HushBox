@@ -447,7 +447,6 @@ function MemberSidebarBody({
       data-testid="member-sidebar-content"
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
-      {/* Action buttons */}
       {isAdmin && (
         <div className="mb-3 flex flex-col gap-2">
           <AdminActionButtons
@@ -458,7 +457,6 @@ function MemberSidebarBody({
         </div>
       )}
 
-      {/* Search */}
       <div className="mb-3">
         <Input
           icon={<Search className="h-4 w-4" />}
@@ -473,7 +471,6 @@ function MemberSidebarBody({
 
       <Separator className="bg-sidebar-border mb-3" />
 
-      {/* Scrollable member/link list grouped by privilege */}
       <div className="scrollbar-hide min-h-0 flex-1 overflow-y-auto">
         {PRIVILEGE_ORDER.map((privilege) => {
           const memberGroup = membersByPrivilege[privilege];

@@ -1,6 +1,5 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { conversationForks } from '@hushbox/db';
@@ -11,7 +10,6 @@ import {
   ERROR_CODE_LAST_MESSAGE_NOT_USER,
   ERROR_CODE_REGENERATION_BLOCKED_BY_OTHER_USER,
   ERROR_CODE_FORK_NOT_FOUND,
-  ERROR_CODE_STREAM_ERROR,
   ERROR_CODE_MEDIA_TRIAL_BLOCKED,
   ERROR_CODE_MODEL_NOT_FOUND,
   ERROR_CODE_MODALITY_MISMATCH,
@@ -21,32 +19,16 @@ import {
   ERROR_CODE_DUPLICATE_MESSAGE,
   ERROR_CODE_FORK_TIP_CONFLICT,
   FEATURE_FLAGS,
-  estimateTokenCount,
   assertNever,
 } from '@hushbox/shared';
-import { processModels, type RawModel } from '@hushbox/shared/models';
+import { processModels, type Modality } from '@hushbox/shared/models';
 import { createEvent } from '@hushbox/realtime/events';
-import { collectSingleSlot } from '../lib/multi-stream.js';
-import {
-  validateLastMessageIsFromUser,
-  buildAIMessages,
-  saveUserOnlyMessage,
-} from '../services/chat/index.js';
+import { validateLastMessageIsFromUser, saveUserOnlyMessage } from '../services/chat/index.js';
 import { canRegenerate } from '../services/chat/regeneration-guard.js';
-import {
-  saveRegeneratedResponse,
-  saveEditedChatTurn,
-} from '../services/chat/regeneration-persistence.js';
 import { createErrorResponse } from '../lib/error-response.js';
-import { createSSEEventWriter } from '../lib/stream-handler.js';
 import { requirePrivilege, rateLimitByUser } from '../middleware/index.js';
 import { broadcastFireAndForget } from '../lib/broadcast.js';
-import {
-  buildBillingInput,
-  buildGuestBillingInput,
-  calculateMessageCost,
-} from '../services/billing/index.js';
-import { buildPrompt } from '../services/prompt/builder.js';
+import { buildBillingInput, buildGuestBillingInput } from '../services/billing/index.js';
 import { getUserTierInfo } from '../services/billing/balance.js';
 import { resolveParentMessageId, ForkTipConflictError } from '../services/chat/message-helpers.js';
 import {
@@ -63,28 +45,16 @@ import {
   executeImagePipeline,
   executeVideoPipeline,
   executeAudioPipeline,
-  resolveWebSearchCost,
-  BATCH_INTERVAL_MS,
 } from '../lib/stream-pipeline.js';
-import { classifyStreamErrorCode } from '../lib/classify-stream-error.js';
 import { getStrategy } from '../lib/modality-strategies.js';
-import { buildGroupBillingContext } from '../lib/billing-types.js';
 import { getPushClient, sendPushForNewMessage } from '../services/push/index.js';
 import { fireAndForget } from '../lib/fire-and-forget.js';
 import { safeExecutionCtx } from '../lib/safe-execution-ctx.js';
-import type { TextRequest } from '../services/ai/index.js';
+import type { TreeAction } from '../services/chat/tree-action.js';
 import type { MemberContext } from '../services/billing/index.js';
-import type { AppEnv, Bindings } from '../types.js';
-import type {
-  FundingSource,
-  RegenerateRequest,
-  ImageConfig,
-  VideoConfig,
-  AudioConfig,
-} from '@hushbox/shared';
-import type { BroadcastContext, StreamResult } from '../lib/stream-pipeline.js';
+import type { AppEnv } from '../types.js';
+import type { FundingSource, ImageConfig, VideoConfig, AudioConfig } from '@hushbox/shared';
 
-// Re-export for existing test imports
 export { computeWorstCaseCents } from '../lib/stream-pipeline.js';
 
 interface InferenceMessage {
@@ -135,63 +105,6 @@ function resolveReleaseReservation(
     return (): Promise<void> => releaseBudget(redis, user.id, worstCaseCents);
   }
   return noOpRelease;
-}
-
-type SSEEventWriter = ReturnType<typeof createSSEEventWriter>;
-
-interface BroadcastAndWriteCompletionParams {
-  writer: SSEEventWriter;
-  env: Bindings | undefined;
-  conversationId: string;
-  assistantMessageId: string;
-  model: string;
-  aiSequence: number;
-  epochNumber: number;
-  cost: string;
-  userMessageId: string;
-  userSequence?: number;
-}
-
-/**
- * Broadcasts a message:complete event to the room and writes the SSE done event.
- * Shared between the edit and regenerate branches.
- */
-async function broadcastAndWriteCompletion(
-  params: BroadcastAndWriteCompletionParams
-): Promise<void> {
-  broadcastFireAndForget(
-    params.env,
-    params.conversationId,
-    createEvent('message:complete', {
-      messageId: params.assistantMessageId,
-      conversationId: params.conversationId,
-      sequenceNumber: params.aiSequence,
-      epochNumber: params.epochNumber,
-      modelName: params.model,
-    })
-  );
-
-  await params.writer.writeDone({
-    userMessageId: params.userMessageId,
-    assistantMessageId: params.assistantMessageId,
-    ...(params.userSequence !== undefined && { userSequence: params.userSequence }),
-    aiSequence: params.aiSequence,
-    epochNumber: params.epochNumber,
-    cost: params.cost,
-  });
-}
-
-/** Sends a buffered broadcast token to the room. */
-function flushBroadcastBuffer(broadcast: BroadcastContext, tokenBuffer: string): void {
-  broadcastFireAndForget(
-    broadcast.env,
-    broadcast.conversationId,
-    createEvent('message:stream', {
-      messageId: broadcast.assistantMessageId,
-      token: tokenBuffer,
-      ...(broadcast.modelName !== undefined && { modelName: broadcast.modelName }),
-    })
-  );
 }
 
 /**
@@ -324,8 +237,8 @@ interface MediaBranchInputBase {
   user: AppEnv['Variables']['user'];
   billingContext: BillingContext;
   models: string[];
-  userMessage: { id: string; content: string };
-  parentMessageId: string | null;
+  prompt: string;
+  treeAction: TreeAction;
   forkId: string | undefined;
 }
 
@@ -427,14 +340,13 @@ async function handleImageStreamRequest(input: ImageBranchInput): Promise<Respon
         c: input.c,
         conversationId: input.conversationId,
         models: input.models,
-        userMessage: input.userMessage,
-        prompt: input.userMessage.content,
+        treeAction: input.treeAction,
+        prompt: input.prompt,
         imageBilling,
         ...(memberContext !== undefined && { memberContext }),
         releaseReservation,
         senderId: input.callerId,
         ...(input.forkId !== undefined && { forkId: input.forkId }),
-        parentMessageId: input.parentMessageId,
         ...(input.imageConfig?.aspectRatio !== undefined && {
           aspectRatio: input.imageConfig.aspectRatio,
         }),
@@ -478,14 +390,13 @@ async function handleVideoStreamRequest(input: VideoBranchInput): Promise<Respon
         c: input.c,
         conversationId: input.conversationId,
         models: input.models,
-        userMessage: input.userMessage,
-        prompt: input.userMessage.content,
+        treeAction: input.treeAction,
+        prompt: input.prompt,
         videoBilling,
         ...(memberContext !== undefined && { memberContext }),
         releaseReservation,
         senderId: input.callerId,
         ...(input.forkId !== undefined && { forkId: input.forkId }),
-        parentMessageId: input.parentMessageId,
         aspectRatio: input.videoConfig.aspectRatio,
       }),
   });
@@ -539,14 +450,13 @@ async function handleAudioStreamRequest(input: AudioBranchInput): Promise<Respon
         c: input.c,
         conversationId: input.conversationId,
         models: input.models,
-        userMessage: input.userMessage,
-        prompt: input.userMessage.content,
+        treeAction: input.treeAction,
+        prompt: input.prompt,
         audioBilling,
         ...(memberContext !== undefined && { memberContext }),
         releaseReservation,
         senderId: input.callerId,
         ...(input.forkId !== undefined && { forkId: input.forkId }),
-        parentMessageId: input.parentMessageId,
         format: input.audioConfig.format,
         ...(input.audioConfig.voice !== undefined && { voice: input.audioConfig.voice }),
       }),
@@ -574,9 +484,8 @@ interface TextBranchInput {
   user: AppEnv['Variables']['user'];
   billingContext: BillingContext;
   models: string[];
-  userMessage: { id: string; content: string };
+  treeAction: TreeAction;
   messagesForInference: InferenceMessage[];
-  parentMessageId: string | null;
   forkId: string | undefined;
   webSearchEnabled: boolean;
   customInstructions: string | undefined;
@@ -590,9 +499,8 @@ async function handleTextStreamRequest(input: TextBranchInput): Promise<Response
     user,
     billingContext,
     models,
-    userMessage,
+    treeAction,
     messagesForInference,
-    parentMessageId,
     forkId,
     webSearchEnabled,
     customInstructions,
@@ -622,7 +530,7 @@ async function handleTextStreamRequest(input: TextBranchInput): Promise<Response
     c,
     conversationId,
     models,
-    userMessage,
+    treeAction,
     messagesForInference,
     billingValidation,
     ...(memberContext !== undefined && { memberContext }),
@@ -631,7 +539,6 @@ async function handleTextStreamRequest(input: TextBranchInput): Promise<Response
     releaseReservation,
     senderId: callerId,
     ...(forkId !== undefined && { forkId }),
-    parentMessageId,
   });
 }
 
@@ -700,145 +607,6 @@ async function resolveUserBillingContext(
   };
 }
 
-interface PersistAndBroadcastRegenerationParams {
-  db: AppEnv['Variables']['db'];
-  writer: SSEEventWriter;
-  env: Bindings | undefined;
-  conversationId: string;
-  model: string;
-  assistantMessageId: string;
-  result: StreamResult;
-  aiClient: AppEnv['Variables']['aiClient'];
-  lastInferenceMessage: { role: string; content: string } | undefined;
-  memberContext: MemberContext | undefined;
-  billingValidation: { groupBudget?: GroupBudgetReservation };
-  billingUserId: string;
-  user: { id: string };
-  targetMessageId: string;
-  userMessage: { id: string; content: string };
-  action: 'edit' | 'regenerate';
-  forkId?: string | undefined;
-  forkTipMessageId?: string | undefined;
-}
-
-/** Builds the optional spread fields shared between edit and regenerate persistence. */
-function buildOptionalPersistenceFields(
-  groupBillingContext: { memberId: string } | undefined,
-  forkId: string | undefined,
-  forkTipMessageId: string | undefined
-): Record<string, unknown> {
-  return {
-    ...(groupBillingContext !== undefined && { groupBillingContext }),
-    ...(forkId !== undefined && { forkId }),
-    ...(forkTipMessageId !== undefined && { forkTipMessageId }),
-  };
-}
-
-/** Persists the regeneration result (edit or regenerate) and broadcasts completion. */
-async function persistAndBroadcastRegeneration(
-  params: PersistAndBroadcastRegenerationParams
-): Promise<void> {
-  const {
-    db,
-    writer,
-    env,
-    conversationId,
-    model,
-    assistantMessageId,
-    result,
-    aiClient,
-    lastInferenceMessage,
-    memberContext,
-    billingValidation,
-    billingUserId,
-    user,
-    targetMessageId,
-    userMessage,
-    action,
-    forkId,
-    forkTipMessageId,
-  } = params;
-
-  const totalCost = result.generationId
-    ? await calculateMessageCost({
-        aiClient,
-        generationId: result.generationId,
-        inputContent: lastInferenceMessage?.content ?? '',
-        outputContent: result.fullContent,
-      })
-    : 0;
-
-  const inputTokens = estimateTokenCount(lastInferenceMessage?.content ?? '');
-  const outputTokens = estimateTokenCount(result.fullContent);
-
-  const groupBillingContext = buildGroupBillingContext(
-    memberContext,
-    billingValidation.groupBudget
-  );
-
-  const optionalFields = buildOptionalPersistenceFields(
-    groupBillingContext,
-    forkId,
-    forkTipMessageId
-  );
-
-  if (action === 'edit') {
-    const editResult = await saveEditedChatTurn(db, {
-      conversationId,
-      userId: billingUserId,
-      senderId: user.id,
-      targetMessageId,
-      newUserMessageId: userMessage.id,
-      newUserContent: userMessage.content,
-      assistantMessageId,
-      assistantContent: result.fullContent,
-      model,
-      totalCost,
-      inputTokens,
-      outputTokens,
-      ...optionalFields,
-    });
-
-    await broadcastAndWriteCompletion({
-      writer,
-      env,
-      conversationId,
-      assistantMessageId,
-      model,
-      aiSequence: editResult.aiSequence,
-      epochNumber: editResult.epochNumber,
-      cost: editResult.cost,
-      userMessageId: userMessage.id,
-      userSequence: editResult.userSequence,
-    });
-  } else {
-    const regenResult = await saveRegeneratedResponse(db, {
-      conversationId,
-      userId: billingUserId,
-      anchorMessageId: targetMessageId,
-      assistantMessageId,
-      assistantContent: result.fullContent,
-      model,
-      totalCost,
-      inputTokens,
-      outputTokens,
-      ...optionalFields,
-    });
-
-    await broadcastAndWriteCompletion({
-      writer,
-      env,
-      conversationId,
-      assistantMessageId,
-      model,
-      aiSequence: regenResult.aiSequence,
-      epochNumber: regenResult.epochNumber,
-      cost: regenResult.cost,
-      userMessageId: targetMessageId,
-    });
-  }
-}
-
 /** Resolves fork tip message ID. Returns null if fork doesn't exist, undefined if no forkId. */
 async function resolveForkTipMessageId(
   db: AppEnv['Variables']['db'],
@@ -855,149 +623,17 @@ async function resolveForkTipMessageId(
   return fork.tipMessageId ?? undefined;
 }
 
-/** Checks stream result for errors or empty content, writes error to writer if found. Returns true if error was handled. */
-async function handleStreamResultError(
-  result: StreamResult,
-  writer: SSEEventWriter
-): Promise<boolean> {
-  if (result.error) {
-    await writer.writeError({
-      message: result.error.message,
-      code: classifyStreamErrorCode(result.error),
-    });
-    return true;
-  }
-  if (result.fullContent.length === 0) {
-    await writer.writeError({
-      message: 'No content generated',
-      code: ERROR_CODE_STREAM_ERROR,
-    });
-    return true;
-  }
-  return false;
-}
-
-interface RegenerateValidationParams {
-  db: AppEnv['Variables']['db'];
-  redis: AppEnv['Variables']['redis'];
-  conversationId: string;
-  userId: string;
-  targetMessageId: string;
-  forkId: string | undefined;
-  model: string;
-  messagesForInference: RegenerateRequest['messagesForInference'];
-  memberContext: MemberContext | undefined;
-  fundingSource: FundingSource;
-  webSearchEnabled: boolean;
-  customInstructions: string | undefined;
-}
-
-type RegenerateValidationResult =
-  | { ok: false; response: Response }
-  | {
-      ok: true;
-      forkTipMessageId: string | undefined;
-      billingValidation: Awaited<ReturnType<typeof resolveAndReserveBilling>> & { success: true };
-      billingUserId: string;
-      safeMaxTokens: number | undefined;
-      gatewayModels: RawModel[];
-      worstCaseCents: number;
-      groupBudget: GroupBudgetReservation | undefined;
-      webSearchCost: number;
-    };
-
-/** Validates regeneration preconditions (fork, guard, billing) and returns prepared billing context. */
-async function validateRegenerationRequest(
-  c: Context<AppEnv>,
-  params: RegenerateValidationParams
-): Promise<RegenerateValidationResult> {
-  const {
-    db,
-    redis,
-    conversationId,
-    userId,
-    targetMessageId,
-    forkId,
-    model,
-    messagesForInference,
-    memberContext,
-    fundingSource,
-    webSearchEnabled,
-    customInstructions,
-  } = params;
-
-  if (!validateLastMessageIsFromUser(messagesForInference)) {
-    return {
-      ok: false,
-      response: c.json(createErrorResponse(ERROR_CODE_LAST_MESSAGE_NOT_USER), 400),
-    };
-  }
-
-  const forkTipMessageId = await resolveForkTipMessageId(db, forkId);
-  if (forkTipMessageId === null) {
-    return { ok: false, response: c.json(createErrorResponse(ERROR_CODE_FORK_NOT_FOUND), 404) };
-  }
-
-  const allowed = await canRegenerate(db, {
-    conversationId,
-    targetMessageId,
-    userId,
-    ...(forkTipMessageId !== undefined && { forkTipMessageId }),
-  });
-  if (!allowed) {
-    return {
-      ok: false,
-      response: c.json(createErrorResponse(ERROR_CODE_REGENERATION_BLOCKED_BY_OTHER_USER), 403),
-    };
-  }
-
-  const billingInput = await buildBillingInput(db, redis, {
-    userId,
-    models: [model],
-    aiClient: c.var.aiClient,
-    ...(memberContext !== undefined && { memberContext }),
-    conversationId,
-  });
-
-  const billingValidation = await resolveAndReserveBilling(c, {
-    billingResult: billingInput,
-    userId,
-    models: [model],
-    messagesForInference,
-    clientFundingSource: fundingSource,
-    ...(memberContext !== undefined && { memberContext }),
-    conversationId,
-    webSearchEnabled,
-    ...(customInstructions !== undefined && { customInstructions }),
-  });
-  if (!billingValidation.success) {
-    return { ok: false, response: billingValidation.response };
-  }
-
-  return {
-    ok: true,
-    forkTipMessageId,
-    billingValidation,
-    billingUserId: billingValidation.billingUserId,
-    safeMaxTokens: billingValidation.safeMaxTokens,
-    gatewayModels: billingValidation.gatewayModels,
-    worstCaseCents: billingValidation.worstCaseCents,
-    groupBudget: billingValidation.groupBudget,
-    webSearchCost: resolveWebSearchCost(webSearchEnabled, model, billingValidation.gatewayModels),
-  };
-}
-
 interface DispatchModalityInput {
-  modality: 'text' | 'image' | 'video' | 'audio';
+  modality: Modality;
   c: Context<AppEnv>;
   conversationId: string;
   callerId: string;
   user: AppEnv['Variables']['user'];
   billingContext: BillingContext;
   models: string[];
-  userMessage: { id: string; content: string };
+  treeAction: TreeAction;
+  prompt: string;
   messagesForInference: InferenceMessage[];
-  parentMessageId: string | null;
   forkId: string | undefined;
   webSearchEnabled: boolean;
   customInstructions: string | undefined;
@@ -1023,8 +659,8 @@ export async function dispatchModalityRequest(input: DispatchModalityInput): Pro
         user: input.user,
         billingContext: input.billingContext,
         models: input.models,
-        userMessage: input.userMessage,
-        parentMessageId: input.parentMessageId,
+        treeAction: input.treeAction,
+        prompt: input.prompt,
         forkId: input.forkId,
         imageConfig: input.imageConfig,
       });
@@ -1040,8 +676,8 @@ export async function dispatchModalityRequest(input: DispatchModalityInput): Pro
         user: input.user,
         billingContext: input.billingContext,
         models: input.models,
-        userMessage: input.userMessage,
-        parentMessageId: input.parentMessageId,
+        treeAction: input.treeAction,
+        prompt: input.prompt,
         forkId: input.forkId,
         videoConfig: input.videoConfig,
       });
@@ -1057,8 +693,8 @@ export async function dispatchModalityRequest(input: DispatchModalityInput): Pro
         user: input.user,
         billingContext: input.billingContext,
         models: input.models,
-        userMessage: input.userMessage,
-        parentMessageId: input.parentMessageId,
+        treeAction: input.treeAction,
+        prompt: input.prompt,
         forkId: input.forkId,
         audioConfig: input.audioConfig,
       });
@@ -1071,9 +707,8 @@ export async function dispatchModalityRequest(input: DispatchModalityInput): Pro
         user: input.user,
         billingContext: input.billingContext,
         models: input.models,
-        userMessage: input.userMessage,
+        treeAction: input.treeAction,
         messagesForInference: input.messagesForInference,
-        parentMessageId: input.parentMessageId,
         forkId: input.forkId,
         webSearchEnabled: input.webSearchEnabled,
         customInstructions: input.customInstructions,
@@ -1203,7 +838,6 @@ export const chatRoute = new Hono<AppEnv>()
       });
       if (gateError) return gateError;
 
-      // --- Resolve billing (focused branch) ---
       const billingContext = linkGuest
         ? await resolveGuestBillingContext(db, redis, {
             member,
@@ -1223,7 +857,6 @@ export const chatRoute = new Hono<AppEnv>()
           });
       const user = c.get('user');
 
-      // Resolve parentMessageId: fork tip when in a fork, latest message otherwise
       const parentMessageId = await resolveParentMessageId(db, conversationId, forkId);
 
       return dispatchModalityRequest({
@@ -1234,9 +867,9 @@ export const chatRoute = new Hono<AppEnv>()
         user,
         billingContext,
         models,
-        userMessage,
+        treeAction: { kind: 'fresh-send', userMessage, parentMessageId },
+        prompt: userMessage.content,
         messagesForInference,
-        parentMessageId,
         forkId,
         webSearchEnabled,
         customInstructions,
@@ -1258,7 +891,6 @@ export const chatRoute = new Hono<AppEnv>()
       const { messageId, content } = c.req.valid('json');
       const db = c.get('db');
 
-      // Resolve parentMessageId from latest message in the conversation
       const parentMessageId = await resolveParentMessageId(db, conversationId);
 
       // Save message — free, no billing. A retry that hits the same messageId
@@ -1285,7 +917,6 @@ export const chatRoute = new Hono<AppEnv>()
         throw error;
       }
 
-      // Broadcast to group chat members
       broadcastFireAndForget(
         c.env,
         conversationId,
@@ -1298,7 +929,6 @@ export const chatRoute = new Hono<AppEnv>()
         safeExecutionCtx(c)
       );
 
-      // Fire-and-forget push notifications to other conversation members
       fireAndForget(
         sendPushForNewMessage({
           db,
@@ -1332,14 +962,13 @@ export const chatRoute = new Hono<AppEnv>()
       const { conversationId } = c.req.param();
       const ownerId = c.get('conversationOwnerId');
       const member = getMember(c, conversationId);
-      const isOwner = user.id === ownerId;
-      const memberContext: MemberContext | undefined = isOwner
-        ? undefined
-        : { memberId: member.id, ownerId };
+      const db = c.get('db');
+      const redis = c.get('redis');
 
       const {
         targetMessageId,
         action,
+        modality,
         model,
         userMessage,
         messagesForInference,
@@ -1347,138 +976,103 @@ export const chatRoute = new Hono<AppEnv>()
         forkId,
         webSearchEnabled = false,
         customInstructions,
+        imageConfig,
+        videoConfig,
+        audioConfig,
       } = c.req.valid('json');
-      const db = c.get('db');
-      const aiClient = c.get('aiClient');
-      const redis = c.get('redis');
 
-      const validation = await validateRegenerationRequest(c, {
-        db,
-        redis,
-        conversationId,
-        userId: user.id,
-        targetMessageId,
-        forkId,
-        model,
+      const gateError = validateRegenerateGates({
+        c,
+        modality,
+        models: [model],
         messagesForInference,
-        memberContext,
+      });
+      if (gateError) return gateError;
+
+      const forkTipMessageId = await resolveForkTipMessageId(db, forkId);
+      if (forkTipMessageId === null) {
+        return c.json(createErrorResponse(ERROR_CODE_FORK_NOT_FOUND), 404);
+      }
+      const allowed = await canRegenerate(db, {
+        conversationId,
+        targetMessageId,
+        userId: user.id,
+        ...(forkTipMessageId !== undefined && { forkTipMessageId }),
+      });
+      if (!allowed) {
+        return c.json(createErrorResponse(ERROR_CODE_REGENERATION_BLOCKED_BY_OTHER_USER), 403);
+      }
+
+      // 'retry' and 'regenerate' map to the same backend kind — both keep the
+      // anchor user message and swap the AI reply. 'edit' replaces the user
+      // message too.
+      const treeAction: TreeAction =
+        action === 'edit'
+          ? {
+              kind: 'edit',
+              anchorUserMessageId: targetMessageId,
+              newUserMessage: userMessage,
+              ...(forkTipMessageId !== undefined && { forkTipMessageId }),
+            }
+          : {
+              kind: 'regenerate',
+              anchorUserMessageId: targetMessageId,
+              ...(forkTipMessageId !== undefined && { forkTipMessageId }),
+            };
+
+      const billingContext = await resolveUserBillingContext(db, redis, {
+        callerId: user.id,
+        ownerId,
+        member,
+        models: [model],
+        conversationId,
         fundingSource,
+        aiClient: c.var.aiClient,
+      });
+
+      return dispatchModalityRequest({
+        modality,
+        c,
+        conversationId,
+        callerId: user.id,
+        user,
+        billingContext,
+        models: [model],
+        treeAction,
+        prompt: userMessage.content,
+        messagesForInference,
+        forkId,
         webSearchEnabled,
         customInstructions,
-      });
-      if (!validation.ok) return validation.response;
-
-      const {
-        forkTipMessageId,
-        billingValidation,
-        billingUserId,
-        safeMaxTokens,
-        worstCaseCents,
-        groupBudget,
-      } = validation;
-
-      const releaseReservation = groupBudget
-        ? (): Promise<void> => releaseGroupBudget(redis, groupBudget)
-        : (): Promise<void> => releaseBudget(redis, user.id, worstCaseCents);
-
-      const assistantMessageId = crypto.randomUUID();
-
-      const { systemPrompt } = buildPrompt({
-        modelId: model,
-        supportedCapabilities: [],
-        ...(customInstructions !== undefined && { customInstructions }),
-      });
-
-      const aiMessages = buildAIMessages(systemPrompt, messagesForInference);
-      const lastInferenceMessage = messagesForInference.at(-1);
-
-      const textRequest: TextRequest = getStrategy('text').buildRequest({
-        modelId: model,
-        messages: aiMessages,
-        webSearchEnabled,
-        ...(safeMaxTokens !== undefined && { maxOutputTokens: safeMaxTokens }),
-      });
-
-      return streamSSE(c, async (stream) => {
-        const writer = createSSEEventWriter(stream);
-        try {
-          await writer.writeStart({
-            userMessageId: action === 'edit' ? userMessage.id : targetMessageId,
-            models: [{ modelId: model, assistantMessageId }],
-          });
-
-          const inferenceStream = aiClient.stream(textRequest);
-
-          const broadcast: BroadcastContext = {
-            env: c.env,
-            conversationId,
-            assistantMessageId,
-            modelName: model,
-          };
-
-          const slotResult = await collectSingleSlot({
-            modelId: model,
-            assistantMessageId,
-            stream: inferenceStream,
-            writer,
-            onTokenBatch: (_modelId, content) => {
-              flushBroadcastBuffer(broadcast, content);
-            },
-            batchIntervalMs: BATCH_INTERVAL_MS,
-            // Regenerate writes its own top-level error event below; suppress
-            // the per-slot model:error so the SSE error sequence stays the
-            // same as before this refactor.
-            emitErrorEvent: false,
-          });
-
-          const result: StreamResult = {
-            fullContent: slotResult.content,
-            generationId: slotResult.generationId,
-            error: slotResult.error,
-          };
-
-          if (await handleStreamResultError(result, writer)) return;
-
-          await persistAndBroadcastRegeneration({
-            db,
-            writer,
-            env: c.env,
-            conversationId,
-            model,
-            assistantMessageId,
-            result,
-            aiClient,
-            lastInferenceMessage,
-            memberContext,
-            billingValidation,
-            billingUserId,
-            user,
-            targetMessageId,
-            userMessage,
-            action: action === 'retry' ? 'regenerate' : action,
-            forkId,
-            forkTipMessageId,
-          });
-
-          // Fire-and-forget push notifications to other conversation members
-          fireAndForget(
-            sendPushForNewMessage({
-              db,
-              pushClient: getPushClient(c.env),
-              conversationId,
-              senderUserId: user.id,
-              title: 'New Message',
-              body: 'You have a new message',
-            }),
-            'send push notifications for AI response',
-            safeExecutionCtx(c)
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Unknown error';
-          await writer.writeError({ message, code: classifyStreamErrorCode(error) });
-        } finally {
-          await releaseReservation();
-        }
+        imageConfig,
+        videoConfig,
+        audioConfig,
       });
     }
   );
+
+interface RegenerateGatesParams {
+  c: Context<AppEnv>;
+  modality: Modality;
+  models: string[];
+  messagesForInference: InferenceMessage[];
+}
+
+/**
+ * Mirrors {@link validateStreamRequestGates} but skips the premium tier
+ * lock — the user already chose this model when the original message was
+ * sent, so re-blocking on tier here would be surprising.
+ */
+function validateRegenerateGates(params: RegenerateGatesParams): Response | null {
+  const { c, modality, messagesForInference } = params;
+
+  if (modality === 'text' && !validateLastMessageIsFromUser(messagesForInference)) {
+    return c.json(createErrorResponse(ERROR_CODE_LAST_MESSAGE_NOT_USER), 400);
+  }
+
+  if (modality === 'audio' && !FEATURE_FLAGS.AUDIO_ENABLED) {
+    return c.json(createErrorResponse(ERROR_CODE_AUDIO_DISABLED), 503);
+  }
+
+  return null;
+}

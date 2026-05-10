@@ -7,8 +7,6 @@ import { useCipherWall, readThemeColors } from './use-cipher-wall';
 import type { CipherWallOptions } from './use-cipher-wall';
 import type { ThemeColors } from './cipher-wall-engine';
 
-// --- Test components that wire the hook to a real canvas ---
-
 function TestCanvas(props: Readonly<CipherWallOptions>): React.JSX.Element {
   const ref = useCipherWall(props);
   return (
@@ -24,8 +22,6 @@ const DARK_THEME: ThemeColors = {
   brandRed: '#ec4755',
   foregroundMuted: '#888888',
 };
-
-// --- Mock browser APIs ---
 
 let mutationCallbacks: MutationCallback[];
 let mutationObserveArgs: { target: Node; options: MutationObserverInit }[];
@@ -341,7 +337,6 @@ describe('useCipherWall exclusionZone', () => {
 
     const { rerender } = render(<TestExclusionPrune zone={null} />);
 
-    // Change exclusion zone from null to a Set
     const zone = new Set([3 * EXCLUSION_STRIDE + 5]);
     rerender(<TestExclusionPrune zone={zone} />);
 

@@ -5,7 +5,6 @@ const STORAGE_KEY = 'hushbox-ui-modals-storage';
 
 describe('useUIModalsStore', () => {
   beforeEach(() => {
-    // Reset store between tests
     useUIModalsStore.setState({
       signupModalOpen: false,
       paymentModalOpen: false,
@@ -290,7 +289,6 @@ describe('useUIModalsStore', () => {
 
       expect(useUIModalsStore.getState().memberSidebarOpen).toBe(true);
 
-      // Restore default mock behavior
       getItemMock.mockImplementation(() => null);
     });
   });

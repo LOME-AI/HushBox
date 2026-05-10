@@ -15,10 +15,6 @@ import type { Model, ModelCapability } from '../schemas/api/models.js';
 
 import type { Modality, RawModel, ProcessedModels } from './types.js';
 
-// ============================================================
-// Constants
-// ============================================================
-
 /** Percentile threshold for top context (0.95 = top 5%) */
 const TOP_CONTEXT_PERCENTILE = 0.95;
 
@@ -42,10 +38,6 @@ export const PROVIDER_MAP: Record<string, string> = {
   perplexity: 'Perplexity',
   deepseek: 'DeepSeek',
 };
-
-// ============================================================
-// Shared helpers
-// ============================================================
 
 function getCombinedPrice(model: RawModel): number {
   return parseTokenPrice(model.pricing.prompt) + parseTokenPrice(model.pricing.completion);
@@ -74,10 +66,6 @@ function deriveCapabilities(params: string[]): ModelCapability[] {
   if (params.includes('web_search_options')) caps.push('internet-search');
   return caps;
 }
-
-// ============================================================
-// Text processing (existing logic preserved)
-// ============================================================
 
 function isExcludedAlways(model: RawModel): boolean {
   if (getCombinedPrice(model) === 0) return true;
@@ -195,10 +183,6 @@ function buildSmartModelEntry(pool: RawModel[]): Model {
   };
 }
 
-// ============================================================
-// Image processing
-// ============================================================
-
 function transformImage(model: RawModel): Model {
   const { provider, displayName } = extractProvider(model);
   const perImageRaw = model.pricing.per_image;
@@ -238,10 +222,6 @@ function processImageModels(raws: RawModel[]): MediaProcessingResult {
   return { models, premiumIds: models.map((m) => m.id) };
 }
 
-// ============================================================
-// Video processing
-// ============================================================
-
 function transformVideo(model: RawModel): Model {
   const { provider, displayName } = extractProvider(model);
   const rawByResolution = model.pricing.per_second_by_resolution ?? {};
@@ -278,10 +258,6 @@ function processVideoModels(raws: RawModel[]): MediaProcessingResult {
   const models = priced.map((m) => transformVideo(m));
   return { models, premiumIds: models.map((m) => m.id) };
 }
-
-// ============================================================
-// Audio processing
-// ============================================================
 
 function transformAudio(model: RawModel): Model {
   const { provider, displayName } = extractProvider(model);
@@ -322,10 +298,6 @@ function processAudioModels(raws: RawModel[]): MediaProcessingResult {
   const models = priced.map((m) => transformAudio(m));
   return { models, premiumIds: models.map((m) => m.id) };
 }
-
-// ============================================================
-// Entry point
-// ============================================================
 
 function groupByModality(rawModels: RawModel[]): Record<Modality, RawModel[]> {
   const groups: Record<Modality, RawModel[]> = { text: [], image: [], audio: [], video: [] };

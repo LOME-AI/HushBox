@@ -6,7 +6,6 @@ vi.unmock('@/providers/stability-provider');
 
 import { useStableBalance } from './use-stable-balance';
 
-// Mock dependencies
 vi.mock('./billing', () => ({
   useBalance: vi.fn(),
 }));

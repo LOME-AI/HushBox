@@ -24,7 +24,6 @@ import {
 } from '../schema/index';
 import type { z } from 'zod';
 
-// --- Users ---
 export const selectUserSchema = createSelectSchema(users, {
   opaqueRegistration: () => zodInstance.instanceof(Uint8Array),
   publicKey: () => zodInstance.instanceof(Uint8Array),
@@ -33,7 +32,6 @@ export const selectUserSchema = createSelectSchema(users, {
 });
 export const insertUserSchema = createInsertSchema(users);
 
-// --- Conversations ---
 export const selectConversationSchema = createSelectSchema(conversations, {
   title: () => zodInstance.instanceof(Uint8Array),
 });
@@ -41,7 +39,6 @@ export const insertConversationSchema = createInsertSchema(conversations, {
   title: () => zodInstance.instanceof(Uint8Array),
 });
 
-// --- Messages ---
 export const selectMessageSchema = createSelectSchema(messages, {
   wrappedContentKey: () => zodInstance.instanceof(Uint8Array),
 });
@@ -49,8 +46,6 @@ export const insertMessageSchema = createInsertSchema(messages, {
   wrappedContentKey: () => zodInstance.instanceof(Uint8Array),
 });
 
-// --- Content Items ---
-//
 // Mirrors the `content_items_type_consistency` CHECK constraint at the Zod
 // boundary as a discriminated union. Validation rejects mixed text + media
 // payloads BEFORE they reach Postgres, so the constraint stays a defense in
@@ -98,7 +93,6 @@ export const insertContentItemSchema = zodInstance.discriminatedUnion('contentTy
   insertMediaContentItemSchema,
 ]);
 
-// --- Projects ---
 export const selectProjectSchema = createSelectSchema(projects, {
   encryptedName: () => zodInstance.instanceof(Uint8Array),
   encryptedDescription: () => zodInstance.instanceof(Uint8Array).nullable(),
@@ -108,35 +102,27 @@ export const insertProjectSchema = createInsertSchema(projects, {
   encryptedDescription: () => zodInstance.instanceof(Uint8Array).nullable(),
 });
 
-// --- Payments ---
 export const selectPaymentSchema = createSelectSchema(payments);
 export const insertPaymentSchema = createInsertSchema(payments);
 
-// --- Service Evidence ---
 export const selectServiceEvidenceSchema = createSelectSchema(serviceEvidence);
 export const insertServiceEvidenceSchema = createInsertSchema(serviceEvidence);
 
-// --- Wallets ---
 export const selectWalletSchema = createSelectSchema(wallets);
 export const insertWalletSchema = createInsertSchema(wallets);
 
-// --- Usage Records ---
 export const selectUsageRecordSchema = createSelectSchema(usageRecords);
 export const insertUsageRecordSchema = createInsertSchema(usageRecords);
 
-// --- LLM Completions ---
 export const selectLlmCompletionSchema = createSelectSchema(llmCompletions);
 export const insertLlmCompletionSchema = createInsertSchema(llmCompletions);
 
-// --- Media Generations ---
 export const selectMediaGenerationSchema = createSelectSchema(mediaGenerations);
 export const insertMediaGenerationSchema = createInsertSchema(mediaGenerations);
 
-// --- Ledger Entries ---
 export const selectLedgerEntrySchema = createSelectSchema(ledgerEntries);
 export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries);
 
-// --- Shared Links ---
 export const selectSharedLinkSchema = createSelectSchema(sharedLinks, {
   linkPublicKey: () => zodInstance.instanceof(Uint8Array),
 });
@@ -144,11 +130,9 @@ export const insertSharedLinkSchema = createInsertSchema(sharedLinks, {
   linkPublicKey: () => zodInstance.instanceof(Uint8Array),
 });
 
-// --- Conversation Members ---
 export const selectConversationMemberSchema = createSelectSchema(conversationMembers);
 export const insertConversationMemberSchema = createInsertSchema(conversationMembers);
 
-// --- Epochs ---
 export const selectEpochSchema = createSelectSchema(epochs, {
   epochPublicKey: () => zodInstance.instanceof(Uint8Array),
   confirmationHash: () => zodInstance.instanceof(Uint8Array),
@@ -160,7 +144,6 @@ export const insertEpochSchema = createInsertSchema(epochs, {
   chainLink: () => zodInstance.instanceof(Uint8Array).nullable(),
 });
 
-// --- Epoch Members ---
 export const selectEpochMemberSchema = createSelectSchema(epochMembers, {
   memberPublicKey: () => zodInstance.instanceof(Uint8Array),
   wrap: () => zodInstance.instanceof(Uint8Array),
@@ -170,7 +153,6 @@ export const insertEpochMemberSchema = createInsertSchema(epochMembers, {
   wrap: () => zodInstance.instanceof(Uint8Array),
 });
 
-// --- Shared Messages ---
 export const selectSharedMessageSchema = createSelectSchema(sharedMessages, {
   wrappedContentKey: () => zodInstance.instanceof(Uint8Array),
 });
@@ -178,15 +160,12 @@ export const insertSharedMessageSchema = createInsertSchema(sharedMessages, {
   wrappedContentKey: () => zodInstance.instanceof(Uint8Array),
 });
 
-// --- Member Budgets ---
 export const selectMemberBudgetSchema = createSelectSchema(memberBudgets);
 export const insertMemberBudgetSchema = createInsertSchema(memberBudgets);
 
-// --- Conversation Spending ---
 export const selectConversationSpendingSchema = createSelectSchema(conversationSpending);
 export const insertConversationSpendingSchema = createInsertSchema(conversationSpending);
 
-// --- Type Exports ---
 export type User = typeof users.$inferSelect;
 export type NewUser = z.infer<typeof insertUserSchema>;
 export type Conversation = typeof conversations.$inferSelect;

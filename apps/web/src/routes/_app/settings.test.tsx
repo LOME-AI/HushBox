@@ -350,18 +350,15 @@ describe('SettingsPage', () => {
       const user = userEvent.setup();
       render(<SettingsPage />);
 
-      // Open 2FA modal
       await user.click(screen.getByRole('button', { name: /two-factor authentication.*extra/i }));
 
       // Click "Get Started" to trigger TOTP fetch and transition to scan step
       await user.click(await screen.findByRole('button', { name: /get started/i }));
 
-      // Wait for scan step
       await waitFor(() => {
         expect(screen.getByText('Scan QR Code')).toBeInTheDocument();
       });
 
-      // Continue to verify
       await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Enter code (auto-submits on complete)
@@ -369,15 +366,12 @@ describe('SettingsPage', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Wait for success step
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument();
       });
 
-      // Click Done
       await user.click(screen.getByRole('button', { name: /done/i }));
 
-      // Verify user state was updated with totpEnabled: true
       await waitFor(() => {
         expect(useAuthStoreMock.getState().setUser).toHaveBeenCalledWith(
           expect.objectContaining({ totpEnabled: true })
@@ -402,18 +396,15 @@ describe('SettingsPage', () => {
       const user = userEvent.setup();
       render(<SettingsPage />);
 
-      // Open 2FA disable modal
       await user.click(screen.getByRole('button', { name: /two-factor authentication.*manage/i }));
 
       await waitFor(() => {
         expect(screen.getByTestId('disable-two-factor-modal')).toBeInTheDocument();
       });
 
-      // Enter password and submit
       await user.type(screen.getByLabelText(/current password/i), 'mypassword');
       await user.click(screen.getByRole('button', { name: /continue/i }));
 
-      // Wait for code step
       await waitFor(() => {
         expect(screen.getByText('Enter Verification Code')).toBeInTheDocument();
       });
@@ -423,7 +414,6 @@ describe('SettingsPage', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Verify user state was updated with totpEnabled: false
       await waitFor(() => {
         expect(useAuthStoreMock.getState().setUser).toHaveBeenCalledWith(
           expect.objectContaining({ totpEnabled: false })
@@ -547,7 +537,6 @@ describe('SettingsPage', () => {
         }
       );
 
-      // Mock fetch for recovery save endpoint
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true }),
@@ -557,18 +546,14 @@ describe('SettingsPage', () => {
       const user = userEvent.setup();
       render(<SettingsPage />);
 
-      // Open recovery phrase modal
       await user.click(screen.getByRole('button', { name: /recovery phrase.*protect/i }));
 
-      // Wait for phrase to be displayed
       await waitFor(() => {
         expect(screen.getByTestId('word-grid')).toBeInTheDocument();
       });
 
-      // Click "I've saved it"
       await user.click(screen.getByRole('button', { name: /i've saved it/i }));
 
-      // Wait for verify step
       await waitFor(() => {
         expect(screen.getByText('Verify Your Phrase')).toBeInTheDocument();
       });
@@ -579,18 +564,14 @@ describe('SettingsPage', () => {
       await user.type(inputs[1]!, 'brave');
       await user.type(inputs[2]!, 'candy');
 
-      // Click Verify
       await user.click(screen.getByRole('button', { name: /verify/i }));
 
-      // Wait for success step
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument();
       });
 
-      // Click Done
       await user.click(screen.getByRole('button', { name: /done/i }));
 
-      // Verify user state was updated with hasAcknowledgedPhrase: true
       await waitFor(() => {
         expect(useAuthStoreMock.getState().setUser).toHaveBeenCalledWith(
           expect.objectContaining({ hasAcknowledgedPhrase: true })

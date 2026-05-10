@@ -16,7 +16,6 @@ describe('CapacityBar', () => {
 
     it('rounds percentage to whole number', () => {
       render(<CapacityBar currentUsage={3333} maxCapacity={10_000} />);
-      // 3333/10000 = 33.33% -> rounds to 33%
       expect(screen.getByText('Model 33% filled')).toBeInTheDocument();
     });
 
@@ -29,14 +28,12 @@ describe('CapacityBar', () => {
   describe('color zones', () => {
     it('shows green fill when below 33%', () => {
       render(<CapacityBar currentUsage={3200} maxCapacity={10_000} />);
-      // 32% should be green
       const fill = screen.getByTestId('capacity-bar-fill');
       expect(fill).toHaveClass('bg-green-500');
     });
 
     it('shows yellow fill when between 33-66%', () => {
       render(<CapacityBar currentUsage={5000} maxCapacity={10_000} />);
-      // 50% should be yellow
       const fill = screen.getByTestId('capacity-bar-fill');
       expect(fill).toHaveClass('bg-yellow-500');
     });
@@ -49,14 +46,12 @@ describe('CapacityBar', () => {
 
     it('shows red fill when at or above 67%', () => {
       render(<CapacityBar currentUsage={6700} maxCapacity={10_000} />);
-      // 67% should be red
       const fill = screen.getByTestId('capacity-bar-fill');
       expect(fill).toHaveClass('bg-red-500');
     });
 
     it('shows red fill when over 100%', () => {
       render(<CapacityBar currentUsage={15_000} maxCapacity={10_000} />);
-      // 150% should be red
       const fill = screen.getByTestId('capacity-bar-fill');
       expect(fill).toHaveClass('bg-red-500');
     });
@@ -72,7 +67,6 @@ describe('CapacityBar', () => {
     it('caps fill scale at 1 when over capacity', () => {
       render(<CapacityBar currentUsage={15_000} maxCapacity={10_000} />);
       const fill = screen.getByTestId('capacity-bar-fill');
-      // Should not exceed scaleX(1)
       expect(fill).toHaveStyle({ transform: 'scaleX(1)' });
     });
 
@@ -91,7 +85,6 @@ describe('CapacityBar', () => {
 
     it('handles large capacity values', () => {
       render(<CapacityBar currentUsage={128_000} maxCapacity={1_000_000} />);
-      // 12.8% rounds to 13%
       expect(screen.getByText('Model 13% filled')).toBeInTheDocument();
     });
 
@@ -135,7 +128,6 @@ describe('CapacityBar', () => {
     it('has correct bar structure', () => {
       render(<CapacityBar currentUsage={5000} maxCapacity={10_000} />);
 
-      // Background track
       const track = screen.getByTestId('capacity-bar-track');
       expect(track).toHaveClass('bg-muted');
       expect(track).toHaveClass('h-2'); // 8px height

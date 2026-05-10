@@ -222,7 +222,6 @@ describe('webhooks routes', () => {
 
       expect(webhookRes.status).toBe(200);
 
-      // Check balance was updated
       const balanceRes2 = await app.request('/billing/balance', {
         headers: getAuthHeaders(testUserId),
       });
@@ -348,7 +347,6 @@ describe('webhooks routes', () => {
 
       expect(webhookRes.status).toBe(200);
 
-      // Check balance was NOT updated
       const balanceRes2 = await app.request('/billing/balance', {
         headers: getAuthHeaders(testUserId),
       });

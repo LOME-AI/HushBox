@@ -43,7 +43,6 @@ describe('totp', () => {
 
       expect(typeof secret).toBe('string');
       expect(secret.length).toBeGreaterThan(0);
-      // Base32 characters only
       expect(secret).toMatch(/^[A-Z2-7]+$/);
     });
 
@@ -189,7 +188,6 @@ describe('totp', () => {
       const code1 = generateTotpCodeSync(secret1);
       const code2 = generateTotpCodeSync(secret2);
 
-      // Different secrets should produce different codes (extremely high probability)
       expect(code1).not.toBe(code2);
     });
   });

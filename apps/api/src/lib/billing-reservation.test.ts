@@ -234,7 +234,6 @@ describe('reservePersonalBudgetWithGuard', () => {
       expect(result.worstCaseCents).toBe(1000);
       expect(result.billingUserId).toBe('user-1');
     }
-    // reserve called once, no release
     expect(redis.eval).toHaveBeenCalledTimes(1);
   });
 
@@ -257,7 +256,6 @@ describe('reservePersonalBudgetWithGuard', () => {
       expect.objectContaining({ code: 'BALANCE_RESERVED' }),
       402
     );
-    // reserve + release => 2 eval calls
     expect(redis.eval).toHaveBeenCalledTimes(2);
   });
 
@@ -272,7 +270,6 @@ describe('reservePersonalBudgetWithGuard', () => {
       freeAllowanceCents: 100,
     });
     const { ctx } = createReservationCtx({ ...redis }, billingResult, 50);
-    // Override payerTier to free for free allowance
     ctx.payerTier = 'free';
 
     const result = await reservePersonalBudgetWithGuard(ctx, 'user-1', 'free_allowance');
@@ -351,11 +348,9 @@ describe('reserveGroupBudgetWithGuard', () => {
       // Reservation returns totals that exceed conversation budget
       eval: vi
         .fn()
-        // Forward reservation
         .mockResolvedValueOnce(60_000) // member total exceeds budget by far
         .mockResolvedValueOnce(60_000) // conversation total
         .mockResolvedValueOnce(60_000) // payer total
-        // Release path (3 negative incrs)
         .mockResolvedValueOnce(0)
         .mockResolvedValueOnce(0)
         .mockResolvedValueOnce(0),
@@ -376,7 +371,6 @@ describe('reserveGroupBudgetWithGuard', () => {
       expect.objectContaining({ code: 'BALANCE_RESERVED' }),
       402
     );
-    // 3 reserves + 3 releases
     expect(redis.eval).toHaveBeenCalledTimes(6);
   });
 
@@ -418,7 +412,6 @@ describe('reserveMediaBilling (orchestrator)', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.billingUserId).toBe('user-1');
-      // Personal reservation: no groupBudget assigned
       expect(result.groupBudget).toBeUndefined();
     }
   });

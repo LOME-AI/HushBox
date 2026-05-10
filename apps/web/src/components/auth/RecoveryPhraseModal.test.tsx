@@ -12,13 +12,11 @@ const mockToBase64 = vi
   .fn()
   .mockImplementation((data: Uint8Array) => btoa(String.fromCodePoint(...data)));
 
-// Mock the crypto package
 vi.mock('@hushbox/crypto', () => ({
   regenerateRecoveryPhrase: (...args: unknown[]) => mockRegenerateRecoveryPhrase(...args),
   toBase64: (...args: unknown[]) => mockToBase64(...args),
 }));
 
-// Mock the auth store
 const mockPrivateKey = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
 vi.mock('@/lib/auth', () => ({
   useAuthStore: {
@@ -26,12 +24,10 @@ vi.mock('@/lib/auth', () => ({
   },
 }));
 
-// Mock getApiUrl
 vi.mock('@/lib/api', () => ({
   getApiUrl: vi.fn(() => 'http://localhost:8787'),
 }));
 
-// Mock the clipboard API
 const mockClipboardWrite = vi.fn().mockImplementation(() => Promise.resolve());
 Object.defineProperty(navigator, 'clipboard', {
   value: {
@@ -41,12 +37,10 @@ Object.defineProperty(navigator, 'clipboard', {
   configurable: true,
 });
 
-// Mock useIsMobile hook
 vi.mock('@/hooks/use-is-mobile', () => ({
   useIsMobile: vi.fn(() => false),
 }));
 
-// Helper to fill verification inputs with correct words
 async function fillVerificationInputs(user: ReturnType<typeof userEvent.setup>): Promise<void> {
   const labels = screen.getAllByText(/word #\d+/i);
   const inputs = screen.getAllByRole('textbox');
@@ -75,7 +69,6 @@ async function fillVerificationInputs(user: ReturnType<typeof userEvent.setup>):
   }
 }
 
-// Shared helper for navigating to step 3
 async function navigateToStep3WithDefaults(
   user: ReturnType<typeof userEvent.setup>
 ): Promise<void> {
@@ -93,12 +86,10 @@ describe('RecoveryPhraseModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Re-setup the default mock return value after clearAllMocks
     mockRegenerateRecoveryPhrase.mockResolvedValue({
       recoveryPhrase: 'apple brave candy delta eagle frost globe happy ivory joker kite lemon',
       recoveryWrappedPrivateKey: mockRecoveryWrappedPrivateKey,
     });
-    // Mock fetch for recovery save API call
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       Response.json(
         { success: true },
@@ -184,7 +175,6 @@ describe('RecoveryPhraseModal', () => {
       });
       await user.click(screen.getByRole('button', { name: /copy to clipboard/i }));
 
-      // The state change to "Copied" proves clipboard.writeText succeeded
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument();
       });
@@ -268,12 +258,10 @@ describe('RecoveryPhraseModal', () => {
     it('shows checkmark when word is correct', async () => {
       const user = await goToStep2();
 
-      // Get the first input and its label to find out which word is expected
       const labels = screen.getAllByText(/word #\d+/i);
       const firstLabel = labels[0];
       if (!firstLabel?.textContent) throw new Error('Label not found');
 
-      // Extract the word number from the label (e.g., "Word #2" -> 2)
       const wordNumber = Number.parseInt(/\d+/.exec(firstLabel.textContent)?.[0] ?? '0', 10);
       const words = [
         'apple',
@@ -296,14 +284,12 @@ describe('RecoveryPhraseModal', () => {
       if (!firstInput) throw new Error('Expected first input');
       await user.type(firstInput, expectedWord ?? '');
 
-      // Should show checkmark
       expect(screen.getByTestId('word-check-0')).toBeInTheDocument();
     });
 
     it('enables verify button when all 3 words are correct', async () => {
       const user = await goToStep2();
 
-      // Find all word labels
       const labels = screen.getAllByText(/word #\d+/i);
       const inputs = screen.getAllByRole('textbox');
       const words = [
@@ -321,7 +307,6 @@ describe('RecoveryPhraseModal', () => {
         'lemon',
       ];
 
-      // Fill in each input with the correct word
       for (const [index, label] of labels.entries()) {
         if (!label.textContent) continue;
         const wordNumber = Number.parseInt(/\d+/.exec(label.textContent)?.[0] ?? '0', 10);
@@ -349,7 +334,6 @@ describe('RecoveryPhraseModal', () => {
       const user = await goToStep2();
       await fillVerificationInputs(user);
 
-      // Focus should be on the last input after filling
       const inputs = screen.getAllByRole('textbox');
       await user.click(inputs[2]!);
       await user.keyboard('{Enter}');
@@ -469,7 +453,6 @@ describe('RecoveryPhraseModal', () => {
   });
 
   describe('Recovery crypto material save', () => {
-    // Setup helper for crypto tests - directly navigates to step 3 inline
     async function setupForCryptoSaveTest(): Promise<ReturnType<typeof userEvent.setup>> {
       const user = userEvent.setup();
       render(<RecoveryPhraseModal {...defaultProps} />);
@@ -477,7 +460,6 @@ describe('RecoveryPhraseModal', () => {
         expect(screen.getByRole('button', { name: /i've saved it/i })).toBeInTheDocument();
       });
       await navigateToStep3WithDefaults(user);
-      // Wait for success step to ensure crypto save completed
       await waitFor(() => {
         expect(screen.getByText('Recovery Phrase Saved')).toBeInTheDocument();
       });
@@ -500,7 +482,6 @@ describe('RecoveryPhraseModal', () => {
         );
       });
 
-      // Verify the body contains recoveryWrappedPrivateKey
       const fetchCall = vi
         .mocked(globalThis.fetch)
         .mock.calls.find((call) => call[0] === 'http://localhost:8787/api/auth/recovery/save');
@@ -509,7 +490,6 @@ describe('RecoveryPhraseModal', () => {
       if (!fetchCallArgs) throw new Error('Expected fetch call to have arguments');
       const body = JSON.parse(fetchCallArgs.body as string) as Record<string, unknown>;
       expect(body).toHaveProperty('recoveryWrappedPrivateKey');
-      // Should NOT have old fields
       expect(body).not.toHaveProperty('phraseSalt');
       expect(body).not.toHaveProperty('phraseVerifier');
       expect(body).not.toHaveProperty('encryptedDekPhrase');
@@ -604,8 +584,6 @@ describe('RecoveryPhraseModal', () => {
 
       render(<RecoveryPhraseModal {...defaultProps} />);
 
-      // When privateKey is null, regenerateRecoveryPhrase is not called,
-      // so the modal should show an error state
       await waitFor(() => {
         expect(screen.getByText(/failed to save recovery/i)).toBeInTheDocument();
       });

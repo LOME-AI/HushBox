@@ -111,10 +111,6 @@ export interface ModelTokenData {
   content: string;
 }
 
-/**
- * After M-Z1, `model:done` no longer carries cost — final spend lives only on
- * the closing `done` event's `models[].cost`.
- */
 export interface ModelDoneData {
   modelId: string;
   assistantMessageId: string;
@@ -123,7 +119,6 @@ export interface ModelDoneData {
 export interface ModelErrorData {
   modelId: string;
   message: string;
-  /** Required after M-Z (minor): every per-model error carries a classified code. */
   code: string;
 }
 
@@ -356,10 +351,6 @@ export function createSSEParser(handlers: SSEHandlers): SSEParser {
     getModelContent: (modelId: string) => state.modelContent.get(modelId) ?? '',
   };
 }
-
-// ---------------------------------------------------------------------------
-// Stream timeout (M-Z3, no reconnection)
-// ---------------------------------------------------------------------------
 
 /**
  * Wraps a `reader.read()` so the consumer surfaces a synthetic timeout error

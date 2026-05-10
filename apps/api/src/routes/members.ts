@@ -118,7 +118,6 @@ export const membersRoute = new Hono<AppEnv>()
         rotation,
       } = c.req.valid('json');
 
-      // 1. Verify target user exists and has a publicKey
       const targetUser = await db
         .select({
           id: users.id,
@@ -134,7 +133,6 @@ export const membersRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_NOT_FOUND), 404);
       }
 
-      // 2. Look up conversation and current epoch
       const convEpoch = await db
         .select({
           conversation: { id: conversations.id, currentEpoch: conversations.currentEpoch },
@@ -164,7 +162,6 @@ export const membersRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_MEMBER_LIMIT_REACHED), 400);
       }
 
-      // 3. Compute visibleFromEpoch server-side
       let visibleFromEpoch: number;
       if (giveFullHistory) {
         visibleFromEpoch = 1;
@@ -175,7 +172,6 @@ export const membersRoute = new Hono<AppEnv>()
         visibleFromEpoch = rotation.expectedEpoch + 1;
       }
 
-      // 4. Atomically insert conversationMembers + (epochMembers wrap OR epoch rotation)
       try {
         const newMember = await db.transaction(async (tx) => {
           const [memberRow] = await tx
@@ -224,7 +220,6 @@ export const membersRoute = new Hono<AppEnv>()
           return c.json(createErrorResponse(ERROR_CODE_ALREADY_MEMBER), 409);
         }
 
-        // 5. Broadcast member:added event (fire-and-forget)
         broadcastFireAndForget(
           c.env,
           conversationId,
@@ -236,7 +231,6 @@ export const membersRoute = new Hono<AppEnv>()
           })
         );
 
-        // 6. Broadcast rotation:complete if epoch rotated (no rotation for full history)
         if (!giveFullHistory && rotation) {
           broadcastFireAndForget(
             c.env,
@@ -286,29 +280,24 @@ export const membersRoute = new Hono<AppEnv>()
       const requesterMember = c.get('members').get(conversationId);
       if (!requesterMember) throw new Error('Member required after requirePrivilege');
 
-      // 1. Look up target membership by memberId
       const targetMember = await findActiveMember(db, memberId, conversationId);
 
       if (!targetMember) {
         return c.json(createErrorResponse(ERROR_CODE_MEMBER_NOT_FOUND), 404);
       }
 
-      // 2. Cannot remove self (use /leave instead)
       if (targetMember.userId === user.id) {
         return c.json(createErrorResponse(ERROR_CODE_CANNOT_REMOVE_SELF), 400);
       }
 
-      // 3. Cannot remove the owner
       if (isOwner(targetMember.privilege)) {
         return c.json(createErrorResponse(ERROR_CODE_CANNOT_REMOVE_OWNER), 403);
       }
 
-      // 4. Validate privilege hierarchy
       if (!canRemoveMember(requesterMember.privilege, targetMember.privilege)) {
         return c.json(createErrorResponse(ERROR_CODE_PRIVILEGE_INSUFFICIENT), 403);
       }
 
-      // 5. Atomic transaction: set leftAt + rotate epoch
       try {
         await db.transaction(async (tx) => {
           await tx
@@ -325,7 +314,6 @@ export const membersRoute = new Hono<AppEnv>()
         return handleRotationError(error, c);
       }
 
-      // 6. Broadcast member:removed event (fire-and-forget)
       broadcastFireAndForget(
         c.env,
         conversationId,
@@ -336,7 +324,6 @@ export const membersRoute = new Hono<AppEnv>()
         })
       );
 
-      // 7. Broadcast rotation:complete (fire-and-forget)
       broadcastFireAndForget(
         c.env,
         conversationId,
@@ -369,30 +356,25 @@ export const membersRoute = new Hono<AppEnv>()
       const requesterMember = c.get('members').get(conversationId);
       if (!requesterMember) throw new Error('Member required after requirePrivilege');
 
-      // 1. Look up target membership by memberId
       const targetMember = await findActiveMember(db, memberId, conversationId);
 
       if (!targetMember) {
         return c.json(createErrorResponse(ERROR_CODE_MEMBER_NOT_FOUND), 404);
       }
 
-      // 2. Cannot change own privilege
       if (targetMember.userId === user.id) {
         return c.json(createErrorResponse(ERROR_CODE_CANNOT_CHANGE_OWN_PRIVILEGE), 403);
       }
 
-      // 3. Validate privilege hierarchy
       if (!canChangePrivilege(requesterMember.privilege, targetMember.privilege, newPrivilege)) {
         return c.json(createErrorResponse(ERROR_CODE_PRIVILEGE_INSUFFICIENT), 403);
       }
 
-      // 4. Update privilege
       await db
         .update(conversationMembers)
         .set({ privilege: newPrivilege })
         .where(eq(conversationMembers.id, memberId));
 
-      // 5. Broadcast privilege change (fire-and-forget)
       broadcastFireAndForget(
         c.env,
         conversationId,
@@ -443,7 +425,6 @@ export const membersRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_ROTATION_REQUIRED), 400);
       }
 
-      // Non-owner: atomic transaction to leave + rotate epoch
       try {
         await db.transaction(async (tx) => {
           await tx
@@ -460,7 +441,6 @@ export const membersRoute = new Hono<AppEnv>()
         return handleRotationError(error, c);
       }
 
-      // Broadcast member:removed event (fire-and-forget)
       broadcastFireAndForget(
         c.env,
         conversationId,
@@ -471,7 +451,6 @@ export const membersRoute = new Hono<AppEnv>()
         })
       );
 
-      // Broadcast rotation:complete (fire-and-forget)
       broadcastFireAndForget(
         c.env,
         conversationId,

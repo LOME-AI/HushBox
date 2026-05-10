@@ -49,7 +49,6 @@ export function SplashScreen({ variant }: Readonly<SplashScreenProps>): React.JS
         overflow: 'hidden',
       }}
     >
-      {/* Frozen cipher wall background at reduced opacity */}
       <div style={{ position: 'absolute', inset: 0, transform: 'scale(1.5)' }}>
         <CipherWall
           frozen
@@ -59,7 +58,6 @@ export function SplashScreen({ variant }: Readonly<SplashScreenProps>): React.JS
         />
       </div>
 
-      {/* Centered logo overlay */}
       <div
         style={{
           position: 'absolute',

@@ -201,12 +201,10 @@ export const conversationsRoute = new Hono<AppEnv>()
       userPublicKey: user.publicKey,
     });
 
-    // Service returns null = ID exists but belongs to different user
     if (!result) {
       return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
     }
 
-    // Fetch forks (empty for new conversations, may exist for idempotent returns)
     const existingForks = result.isNew ? [] : await fetchForks(db, result.conversation.id);
 
     const response = {
@@ -218,7 +216,6 @@ export const conversationsRoute = new Hono<AppEnv>()
       invitedByUsername: null as string | null,
     };
 
-    // HTTP status based on whether new or existing
     const status = result.isNew ? 201 : 200;
     return c.json(response, status);
   })

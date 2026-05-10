@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { z } from 'zod';
 
-// Will import from redis-registry once created
 import {
   REDIS_REGISTRY,
   redisGet,

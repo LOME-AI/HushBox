@@ -32,10 +32,6 @@ import type {
   TextRequest,
 } from './types.js';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 /** Deterministic mock cost returned by getGenerationStats (USD). */
 const MOCK_GENERATION_STATS_COST = 0.001;
 
@@ -48,16 +44,6 @@ const MOCK_GENERATION_STATS_COST = 0.001;
  */
 const DEFAULT_CLASSIFIER_RESOLUTION = 'anthropic/claude-haiku-4.5';
 
-// ---------------------------------------------------------------------------
-// Canned media buffers
-//
-// Bytes are loaded from `./mock-fixtures/` — real CC0 sample media so that
-// dev/E2E surfaces show actual playable content instead of header-only
-// placeholders. See `mock-fixtures/README.md` for source URLs and license.
-// Re-exported so tests round-tripping raw bytes (encrypt → decrypt → compare)
-// can pull the canonical values.
-// ---------------------------------------------------------------------------
-
 export {
   TEST_IMAGE_BYTES as CANNED_IMAGE,
   TEST_VIDEO_BYTES as CANNED_VIDEO,
@@ -69,10 +55,6 @@ export {
   TEST_VIDEO_HEIGHT as CANNED_VIDEO_HEIGHT,
   TEST_AUDIO_DURATION_MS as CANNED_AUDIO_DURATION_MS,
 } from './mock-fixtures/index.js';
-
-// ---------------------------------------------------------------------------
-// Mock model catalogue
-// ---------------------------------------------------------------------------
 
 /**
  * Single source of truth for the mock model catalog.
@@ -236,10 +218,6 @@ const MOCK_MODELS: ModelInfo[] = MOCK_RAW_MODELS.map((m) => {
   return info;
 });
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function extractLastUserContent(messages: AIMessage[]): string {
   const lastUser = messages.findLast((m) => m.role === 'user');
   if (!lastUser) return 'No message';
@@ -250,10 +228,6 @@ function extractLastUserContent(messages: AIMessage[]): string {
         .map((p) => p.text)
         .join('');
 }
-
-// ---------------------------------------------------------------------------
-// Stream generators
-// ---------------------------------------------------------------------------
 
 /** Wrap a sync generator into an InferenceStream (AsyncIterator). */
 function syncStream(generate: () => Generator<InferenceEvent>): InferenceStream {
@@ -402,10 +376,6 @@ function createAudioStream(): InferenceStream {
     };
   });
 }
-
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
 
 export function createMockAIClient(): MockAIClient {
   const history: RecordedInferenceRequest[] = [];

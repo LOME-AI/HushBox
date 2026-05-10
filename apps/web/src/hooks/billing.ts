@@ -119,7 +119,6 @@ export function useProcessPayment(): ReturnType<
         })
       ),
     onSuccess: async (data) => {
-      // Invalidate balance when payment is completed
       if (data.status === 'completed') {
         await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
         await queryClient.invalidateQueries({ queryKey: billingKeys.transactions() });

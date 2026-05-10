@@ -19,10 +19,6 @@ import { applyFees } from './pricing.js';
 import type { UserTier } from './tiers.js';
 import type { FundingSource, ResolveBillingResult, DenialReason } from './resolve-billing.js';
 
-// ============================================================================
-// Types
-// ============================================================================
-
 export interface NotificationInput {
   billingResult: ResolveBillingResult;
   capacityPercent: number;
@@ -92,10 +88,6 @@ export interface BudgetError {
   segments?: MessageSegment[];
 }
 
-// ============================================================================
-// Cost Manifest Types
-// ============================================================================
-
 /**
  * A fixed cost item known before generation starts.
  * Examples: input tokens, input storage, web search, image input.
@@ -138,10 +130,6 @@ export interface CostManifest {
   variableItems: VariableCostItem[];
 }
 
-// ============================================================================
-// Token Estimation
-// ============================================================================
-
 /**
  * Characters-per-token ratio for a given tier.
  * Single source of truth for token↔character conversion.
@@ -161,10 +149,6 @@ export function estimateTokensForTier(tier: UserTier, characterCount: number): n
   if (characterCount === 0) return 0;
   return Math.ceil(characterCount / charsPerTokenForTier(tier));
 }
-
-// ============================================================================
-// Effective Balance
-// ============================================================================
 
 /**
  * Negative-balance cushion by tier. Only paid users get the $0.50 cushion.
@@ -201,10 +185,6 @@ export function getEffectiveBalance(
     }
   }
 }
-
-// ============================================================================
-// Notification Generation (new — driven by resolveBilling() result)
-// ============================================================================
 
 const DENIAL_NOTIFICATIONS: Record<DenialReason, BudgetError> = {
   premium_requires_balance: {
@@ -406,10 +386,6 @@ export function generateNotifications(input: NotificationInput): BudgetError[] {
   return notifications;
 }
 
-// ============================================================================
-// Cost Manifest Builder
-// ============================================================================
-
 export interface ManifestModelPricing {
   /** Model's input price per token (with fees already applied) */
   modelInputPricePerToken: number;
@@ -493,10 +469,6 @@ export function buildCostManifest(input: BuildCostManifestInput): CostManifest {
   return { fixedItems, variableItems };
 }
 
-// ============================================================================
-// Cost Manifest Calculator
-// ============================================================================
-
 export interface ManifestBudgetResult {
   /** Total fixed cost (input tokens + storage + search) in dollars */
   totalFixedCost: number;
@@ -544,10 +516,6 @@ export function calculateBudgetFromManifest(
 
   return { totalFixedCost, variableCostPerToken, estimatedMinimumCost, maxOutputTokens };
 }
-
-// ============================================================================
-// Can Afford Model
-// ============================================================================
 
 export interface CanAffordModelInput {
   /** User's tier */
@@ -620,10 +588,6 @@ export function canAffordModel(input: CanAffordModelInput): CanAffordModelResult
   };
 }
 
-// ============================================================================
-// Main Calculation
-// ============================================================================
-
 /**
  * Calculate budget math for a message.
  * Pure math only — no billing decisions or notifications.
@@ -681,10 +645,6 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
   };
 }
 
-// ============================================================================
-// Safe Max Tokens
-// ============================================================================
-
 export interface ComputeMaxTokensParams {
   /** Max output tokens based on user's budget */
   budgetMaxTokens: number;
@@ -712,10 +672,6 @@ export function computeSafeMaxTokens(params: ComputeMaxTokensParams): number | u
 
   return params.budgetMaxTokens;
 }
-
-// ============================================================================
-// Effective Budget (multi-constraint)
-// ============================================================================
 
 export interface EffectiveBudgetParams {
   /** conversationBudget - conversationSpent - conversationReserved. */

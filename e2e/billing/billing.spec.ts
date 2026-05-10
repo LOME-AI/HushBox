@@ -36,13 +36,10 @@ test.describe('Billing & Payments', () => {
       await billingPage.openPaymentModal();
       await billingPage.enterAmount('25');
 
-      // Click simulate success
       await billingPage.simulateSuccessButton.click();
 
-      // Wait for success heading to appear
       await billingPage.expectPaymentSuccess();
 
-      // Close the modal
       await billingPage.closeSuccessAndReset();
 
       // Wait for balance to update (cache invalidation and refetch)
@@ -59,7 +56,6 @@ test.describe('Billing & Payments', () => {
 
       await billingPage.simulateFailedPayment('10');
 
-      // Balance should not change
       await billingPage.closeErrorAndRetry();
       await billingFailurePage.keyboard.press('Escape');
 
@@ -74,7 +70,6 @@ test.describe('Billing & Payments', () => {
       await billingPage.openPaymentModal();
       await billingPage.enterAmount('2'); // Below $5 minimum
 
-      // Purchase button should be disabled or show validation error
       const amountInput = billingPage.amountInput;
       await expect(amountInput).toHaveAttribute('aria-invalid', 'true');
     });
@@ -147,7 +142,6 @@ test.describe('Billing & Payments', () => {
         throw error;
       }
 
-      // Navigate to billing page to check balance
       await billingPage.goto();
 
       // Poll for balance update (webhook may take a few seconds)
@@ -303,7 +297,6 @@ test.describe('Billing & Payments', () => {
           unauthenticatedPage.getByRole('button', { name: 'Add Credits' })
         ).toBeVisible();
 
-        // No sidebar or app navigation
         await expect(unauthenticatedPage.getByTestId('sidebar-trigger')).not.toBeVisible();
       });
 

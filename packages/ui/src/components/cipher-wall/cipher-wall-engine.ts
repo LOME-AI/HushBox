@@ -1,7 +1,5 @@
 import { getSecureRandomIndex, getSecureRandomElement } from '@hushbox/shared';
 
-// --- Interfaces ---
-
 export interface Cell {
   cipherChar: string;
   targetChar: string;
@@ -37,8 +35,6 @@ export interface ThemeColors {
   brandRed: string;
   foregroundMuted: string;
 }
-
-// --- Constants ---
 
 export const CELL_WIDTH = 12;
 export const CELL_HEIGHT = 22;
@@ -121,8 +117,6 @@ export const CIPHER_CHARS: readonly string[] = [
   '?',
 ];
 
-// --- Helpers ---
-
 /** Strict cell lookup — throws if out of bounds. */
 function getCell(cells: Cell[], index: number): Cell {
   const cell = cells[index];
@@ -142,8 +136,6 @@ function createCipherCell(): Cell {
     color: '',
   };
 }
-
-// --- Grid Creation ---
 
 export function randomCipherChar(): string {
   return getSecureRandomElement(CIPHER_CHARS);
@@ -222,8 +214,6 @@ export function seedInitialReveals(state: CipherWallState): void {
   }
 }
 
-// --- Color Interpolation ---
-
 function parseHex(hex: string): [number, number, number] {
   const r = Number.parseInt(hex.slice(1, 3), 16);
   const g = Number.parseInt(hex.slice(3, 5), 16);
@@ -243,8 +233,6 @@ export function interpolateColor(colorA: string, colorB: string, progress: numbe
   const [rB, gB, bB] = parseHex(colorB);
   return toHex(rA + (rB - rA) * t, gA + (gB - gA) * t, bA + (bB - bA) * t);
 }
-
-// --- Cell Display Helpers ---
 
 export function getDisplayChar(cell: Cell): string {
   switch (cell.state) {
@@ -277,8 +265,6 @@ export function getCellColor(cell: Cell, colors: ThemeColors): string {
     }
   }
 }
-
-// --- State Update ---
 
 function overlapsExclusionZone(
   excluded: Set<number> | null,
@@ -469,8 +455,6 @@ export function pruneExcludedReveals(state: CipherWallState): void {
   });
 }
 
-// --- Rendering ---
-
 const CIPHER_BASE_OPACITY = 0.8;
 const READABLE_OPACITY = 1;
 
@@ -534,8 +518,6 @@ export function renderFrame(input: Readonly<RenderFrameInput>): void {
     ctx.restore();
   }
 }
-
-// --- Reduced Motion ---
 
 interface FrozenPlacement {
   state: CipherWallState;

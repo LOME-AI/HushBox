@@ -1,8 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ---- mocks ----
-
 const mockMembers = [
   { id: 'm1', userId: 'u1', username: 'alice', privilege: 'owner' },
   { id: 'm2', userId: 'u2', username: 'bob', privilege: 'write' },
@@ -137,7 +135,6 @@ import { useConversationWebSocket } from './use-conversation-websocket.js';
 describe('useGroupChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Restore defaults after clearAllMocks
     vi.mocked(getCurrentEpoch).mockReturnValue(3);
     vi.mocked(getEpochKey).mockReturnValue(new Uint8Array(32).fill(7));
     mockExecuteWithRotation.mockResolvedValue({

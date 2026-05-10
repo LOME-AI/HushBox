@@ -127,7 +127,6 @@ test.describe('Trial Chat', () => {
       await chatPage.messageInput.fill(rateLimitMessage);
       await chatPage.messageInput.press('Enter');
 
-      // Rate limit message appears inline and input is disabled
       await expect(unauthenticatedPage.getByText(/You've used all 5 free messages/i)).toBeVisible({
         timeout: 10_000,
       });
@@ -151,7 +150,6 @@ test.describe('Trial Chat', () => {
       const modal = unauthenticatedPage.getByTestId('model-selector-modal');
       await expect(modal).toBeVisible({ timeout: 5000 });
 
-      // Wait for models to load (at least one premium model with lock icon)
       const premiumModel = modal
         .locator('[data-testid^="model-item-"]:has([data-testid="lock-icon"])')
         .first();

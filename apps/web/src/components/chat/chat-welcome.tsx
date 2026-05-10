@@ -114,7 +114,6 @@ export function ChatWelcome({
     removeModel(current, modelId);
   }, []);
 
-  // Premium access requires authentication AND positive balance
   const { displayBalance } = useStableBalance();
   const balance = Number.parseFloat(displayBalance);
   const canAccessPremium = isAuthenticated && balance > 0;

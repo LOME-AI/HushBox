@@ -28,7 +28,6 @@ describe('useSearchStore', () => {
 
   it('persists search state across store calls', () => {
     useSearchStore.getState().toggleWebSearch();
-    // Get fresh state
     const { webSearchEnabled } = useSearchStore.getState();
     expect(webSearchEnabled).toBe(true);
   });

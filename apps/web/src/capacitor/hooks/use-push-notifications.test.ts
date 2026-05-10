@@ -65,7 +65,6 @@ describe('usePushNotifications', () => {
     });
 
     expect(PushNotifications.requestPermissions).toHaveBeenCalled();
-    // register is called after permissions resolve
     await vi.waitFor(() => {
       expect(PushNotifications.register).toHaveBeenCalled();
     });
@@ -128,7 +127,6 @@ describe('usePushNotifications', () => {
       usePushNotifications();
     });
 
-    // Wait for the async permission check to resolve
     await vi.waitFor(() => {
       expect(PushNotifications.requestPermissions).toHaveBeenCalled();
     });

@@ -17,8 +17,6 @@ interface EmailEnv extends EnvContext {
 export function getEmailClient(env: EmailEnv): EmailClient {
   const { isLocalDev, isCI } = createEnvUtilities(env);
 
-  // Local dev uses console for dev UX (shows verification links)
-  // CI uses console to avoid real email sending during tests
   if (isLocalDev || isCI) {
     return createConsoleEmailClient();
   }

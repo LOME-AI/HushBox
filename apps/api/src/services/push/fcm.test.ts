@@ -131,13 +131,11 @@ describe('createFcmPushClient', () => {
       const parts = jwt.split('.');
       expect(parts).toHaveLength(3);
 
-      // Decode JWT header
       const header = JSON.parse(
         atob(parts[0]!.replaceAll('-', '+').replaceAll('_', '/'))
       ) as Record<string, unknown>;
       expect(header).toEqual({ alg: 'RS256', typ: 'JWT' });
 
-      // Decode JWT payload
       const payload = JSON.parse(
         atob(parts[1]!.replaceAll('-', '+').replaceAll('_', '/'))
       ) as Record<string, unknown>;

@@ -1,10 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
-// ---------------------------------------------------------------------------
-// Mocks — break transitive import chain: chat.js → auth.ts → api.ts (env parse)
-// ---------------------------------------------------------------------------
-
 // Mock auth to prevent api.ts env parse
 vi.mock('../lib/auth', () => ({
   useAuthStore: vi.fn((selector: (s: { privateKey: null }) => unknown) =>
@@ -59,20 +55,12 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: vi.fn(() => mockNavigate),
 }));
 
-// ---------------------------------------------------------------------------
-// Imports (after mocks)
-// ---------------------------------------------------------------------------
-
 import { useRealtimeSync } from './use-realtime-sync.js';
 import { chatKeys } from './chat.js';
 import { memberKeys } from './use-conversation-members.js';
 import { budgetKeys } from './use-conversation-budgets.js';
 import { billingKeys } from './billing.js';
 import type { ConversationWebSocket } from '../lib/ws-client.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 interface MockWs {
   on: ReturnType<typeof vi.fn>;
@@ -113,18 +101,10 @@ const CONV_ID = 'conv-1';
 const USER_ID = 'user-self';
 const OTHER_USER = 'user-other';
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe('useRealtimeSync', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
-
-  // -------------------------------------------------------------------------
-  // Null guards
-  // -------------------------------------------------------------------------
 
   it('does nothing with null ws', () => {
     renderHook(() => {
@@ -143,10 +123,6 @@ describe('useRealtimeSync', () => {
 
     expect(mockWs.on).not.toHaveBeenCalled();
   });
-
-  // -------------------------------------------------------------------------
-  // message:new
-  // -------------------------------------------------------------------------
 
   it('message:new from other user (no content) invalidates messages', () => {
     const mockWs = createMockWs();
@@ -212,10 +188,6 @@ describe('useRealtimeSync', () => {
     expect(mockInvalidateQueries).not.toHaveBeenCalled();
   });
 
-  // -------------------------------------------------------------------------
-  // message:complete
-  // -------------------------------------------------------------------------
-
   it('message:complete invalidates messages, budgets, and balance', () => {
     const mockWs = createMockWs();
 
@@ -244,10 +216,6 @@ describe('useRealtimeSync', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // member:added
-  // -------------------------------------------------------------------------
-
   it('member:added invalidates members and budgets', () => {
     const mockWs = createMockWs();
 
@@ -272,10 +240,6 @@ describe('useRealtimeSync', () => {
       queryKey: budgetKeys.conversation(CONV_ID),
     });
   });
-
-  // -------------------------------------------------------------------------
-  // member:removed
-  // -------------------------------------------------------------------------
 
   it('member:removed (other user) invalidates members, budgets, and conversations', () => {
     const mockWs = createMockWs();
@@ -332,10 +296,6 @@ describe('useRealtimeSync', () => {
     expect(mockNavigate).toHaveBeenCalledWith({ to: '/chat' });
   });
 
-  // -------------------------------------------------------------------------
-  // member:privilege-changed
-  // -------------------------------------------------------------------------
-
   it('member:privilege-changed invalidates members and budgets', () => {
     const mockWs = createMockWs();
 
@@ -359,10 +319,6 @@ describe('useRealtimeSync', () => {
       queryKey: budgetKeys.conversation(CONV_ID),
     });
   });
-
-  // -------------------------------------------------------------------------
-  // rotation:complete
-  // -------------------------------------------------------------------------
 
   it('rotation:complete invalidates keys and messages', () => {
     const mockWs = createMockWs();
@@ -438,12 +394,10 @@ describe('useRealtimeSync', () => {
     // Re-render with new ws
     rerender({ ws: mockWs2 as unknown as ConversationWebSocket });
 
-    // Old ws listeners removed
     for (const [, set] of mockWs1.listeners) {
       expect(set.size).toBe(0);
     }
 
-    // New ws listeners registered
     for (const [, set] of mockWs2.listeners) {
       expect(set.size).toBe(1);
     }

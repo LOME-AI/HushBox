@@ -7,13 +7,11 @@ import { PaymentForm } from './payment-form';
 import * as helcimLoader from '../../lib/helcim-loader';
 import * as billingHooks from '../../hooks/billing';
 
-// Mock helcim loader
 vi.mock('../../lib/helcim-loader', () => ({
   loadHelcimScript: vi.fn(),
   readHelcimResult: vi.fn(),
 }));
 
-// Mock billing hooks
 vi.mock('../../hooks/billing', () => ({
   useCreatePayment: vi.fn(),
   useProcessPayment: vi.fn(),
@@ -28,18 +26,16 @@ vi.mock('../../hooks/billing', () => ({
   },
 }));
 
-// Mock env module
 vi.mock('@/lib/env', () => ({
   env: {
     isDev: true,
-    isLocalDev: false, // Default to non-local dev (like CI) for most tests
+    isLocalDev: false,
     isProduction: false,
     isCI: false,
     requiresRealServices: false,
   },
 }));
 
-// Mock FormInput to avoid full component tree
 vi.mock('@/components/shared/form-input', () => ({
   FormInput: ({
     label,
@@ -125,7 +121,6 @@ describe('PaymentForm', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Reset env mock to default (non-local dev) for most tests
     vi.mocked(envModule).env = {
       isDev: true,
       isLocalDev: false,
@@ -145,13 +140,11 @@ describe('PaymentForm', () => {
       typeof billingHooks.usePaymentStatus
     >);
     vi.mocked(helcimLoader.loadHelcimScript).mockResolvedValue();
-    // Default mock for readHelcimResult - prevents undefined errors
     vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
       success: false,
       errorMessage: 'No card data',
     });
 
-    // Mock window function
     globalThis.helcimProcess = vi.fn();
   });
 
@@ -206,14 +199,12 @@ describe('PaymentForm', () => {
       const user = userEvent.setup();
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load so button is enabled
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
       });
 
       await user.click(screen.getByRole('button', { name: /purchase/i }));
 
-      // Submit touches all fields, so multiple alerts appear
       await waitFor(() => {
         expect(screen.getByText(/please enter an amount/i)).toBeInTheDocument();
       });
@@ -223,7 +214,6 @@ describe('PaymentForm', () => {
       const user = userEvent.setup();
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load so button is enabled
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
       });
@@ -231,7 +221,6 @@ describe('PaymentForm', () => {
       await user.type(screen.getByLabelText(/amount/i), '3');
       await user.click(screen.getByRole('button', { name: /purchase/i }));
 
-      // Submit touches all fields, so multiple alerts appear
       await waitFor(() => {
         expect(screen.getByText(/minimum deposit is \$5/i)).toBeInTheDocument();
       });
@@ -241,7 +230,6 @@ describe('PaymentForm', () => {
       const user = userEvent.setup();
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load so button is enabled
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
       });
@@ -249,7 +237,6 @@ describe('PaymentForm', () => {
       await user.type(screen.getByLabelText(/amount/i), '1500');
       await user.click(screen.getByRole('button', { name: /purchase/i }));
 
-      // Submit touches all fields, so multiple alerts appear
       await waitFor(() => {
         expect(screen.getByText(/maximum deposit is \$1000/i)).toBeInTheDocument();
       });
@@ -259,7 +246,6 @@ describe('PaymentForm', () => {
       const user = userEvent.setup();
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load
       await waitFor(() => {
         expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
       });
@@ -275,7 +261,6 @@ describe('PaymentForm', () => {
       const user = userEvent.setup();
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load
       await waitFor(() => {
         expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
       });
@@ -424,7 +409,6 @@ describe('PaymentForm', () => {
 
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
       });
@@ -444,14 +428,11 @@ describe('PaymentForm', () => {
       const user = userEvent.setup();
       mockCreatePayment.mutateAsync.mockImplementation(
         () =>
-          new Promise(() => {
-            // Intentionally never resolves to test loading state
-          })
+          new Promise(() => {})
       );
 
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
       });
@@ -471,7 +452,6 @@ describe('PaymentForm', () => {
 
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
       });
@@ -495,7 +475,6 @@ describe('PaymentForm', () => {
       const onCancel = vi.fn();
       renderWithProviders(<PaymentForm onCancel={onCancel} />);
 
-      // Wait for form to render
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
       });
@@ -513,7 +492,6 @@ describe('PaymentForm', () => {
 
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
       });
@@ -533,7 +511,6 @@ describe('PaymentForm', () => {
 
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
       });
@@ -548,7 +525,6 @@ describe('PaymentForm', () => {
 
       await user.click(screen.getByRole('button', { name: /try again/i }));
 
-      // After reset, form should show again
       await waitFor(() => {
         expect(screen.getByLabelText(/amount/i)).toHaveValue(null);
         expect(screen.getByRole('button', { name: /purchase/i })).toBeInTheDocument();
@@ -560,9 +536,7 @@ describe('PaymentForm', () => {
     it('shows loading state while helcim script loads', () => {
       vi.mocked(helcimLoader.loadHelcimScript).mockImplementation(
         () =>
-          new Promise(() => {
-            // Intentionally never resolves to test loading state
-          })
+          new Promise(() => {})
       );
 
       renderWithProviders(<PaymentForm />);
@@ -595,7 +569,6 @@ describe('PaymentForm', () => {
     it('has accessible form labels', async () => {
       renderWithProviders(<PaymentForm />);
 
-      // Wait for form to render
       await waitFor(() => {
         expect(screen.getByLabelText(/amount/i)).toBeInTheDocument();
       });
@@ -605,7 +578,6 @@ describe('PaymentForm', () => {
       const user = userEvent.setup();
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
       });
@@ -623,19 +595,16 @@ describe('PaymentForm', () => {
     it('displays helcim logo', async () => {
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load
       await waitFor(() => {
         expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
       });
 
-      // HelcimLogo renders with aria-label "Powered by Helcim"
       expect(screen.getByLabelText('Powered by Helcim')).toBeInTheDocument();
     });
 
     it('displays helcim branding container', async () => {
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load
       await waitFor(() => {
         expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
       });
@@ -649,7 +618,6 @@ describe('PaymentForm', () => {
       const user = userEvent.setup();
       renderWithProviders(<PaymentForm />);
 
-      // Wait for script to load so card fields are rendered
       await waitFor(() => {
         expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
       });
@@ -664,7 +632,6 @@ describe('PaymentForm', () => {
 
   describe('dev simulation buttons', () => {
     it('does not show simulation buttons in production mode', async () => {
-      // Mock env as production mode (isDev = false)
       vi.mocked(envModule).env = {
         isDev: false,
         isLocalDev: false,
@@ -676,7 +643,6 @@ describe('PaymentForm', () => {
 
       renderWithProviders(<PaymentForm />);
 
-      // Wait for form to load
       await waitFor(() => {
         expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
       });
@@ -687,7 +653,6 @@ describe('PaymentForm', () => {
     });
 
     it('shows simulation buttons in local dev mode', async () => {
-      // Mock env as local dev mode
       vi.mocked(envModule).env = {
         isDev: true,
         isLocalDev: true,
@@ -699,7 +664,6 @@ describe('PaymentForm', () => {
 
       renderWithProviders(<PaymentForm />);
 
-      // Wait for form to load
       await waitFor(() => {
         expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
       });
@@ -736,7 +700,6 @@ describe('PaymentForm', () => {
 
       await user.click(screen.getByTestId('simulate-success-btn'));
 
-      // Wait for form fields to be populated
       await waitFor(() => {
         const cardNumberInput = screen.getByLabelText<HTMLInputElement>(/card number/i);
         expect(cardNumberInput.value).toBe('4111 1111 1111 1111');
@@ -776,7 +739,6 @@ describe('PaymentForm', () => {
 
       await user.click(screen.getByTestId('simulate-failure-btn'));
 
-      // Wait for form fields to be populated
       await waitFor(() => {
         const cardNumberInput = screen.getByLabelText<HTMLInputElement>(/card number/i);
         expect(cardNumberInput.value).toBe('4111 1111 1111 1111');
@@ -1437,7 +1399,6 @@ describe('PaymentForm', () => {
 
       await user.click(screen.getByRole('button', { name: /purchase/i }));
 
-      // Wait a tick for any observer firings.
       await new Promise((resolve) => {
         setTimeout(resolve, 100);
       });
@@ -1462,7 +1423,6 @@ describe('PaymentForm', () => {
       if (responseEl) responseEl.value = '1';
       if (results) results.append(document.createElement('span'));
 
-      // Wait a tick for any observer to fire.
       await new Promise((resolve) => {
         setTimeout(resolve, 50);
       });
@@ -1825,7 +1785,6 @@ describe('PaymentForm', () => {
 
       await user.click(screen.getByTestId('simulate-success-btn'));
 
-      // Amount should remain '25' (not be overwritten with '100').
       expect(screen.getByLabelText<HTMLInputElement>(/amount/i).value).toBe('25');
     });
   });
@@ -1882,7 +1841,6 @@ describe('PaymentForm', () => {
         expect(calls.some((c) => c[1]?.enabled === true)).toBe(true);
       });
 
-      // No success or error card should appear since status is 'pending'.
       expect(screen.queryByText(/payment successful/i)).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument();
     });

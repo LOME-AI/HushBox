@@ -203,7 +203,6 @@ export function SidebarContent({
   const [searchQuery, setSearchQuery] = React.useState('');
   const [activeTab, setActiveTab] = React.useState<SidebarTab>('chats');
 
-  // Split conversations by acceptance status
   const accepted = conversations.filter((c) => c.accepted !== false);
   const unaccepted = conversations.filter((c) => c.accepted === false);
 
@@ -216,7 +215,6 @@ export function SidebarContent({
     previousUnacceptedCount.current = unaccepted.length;
   }, [unaccepted.length, activeTab]);
 
-  // Filter by search (applies to active tab's content)
   const { filteredAccepted, filteredUnaccepted } = filterConversationsBySearch(
     accepted,
     unaccepted,

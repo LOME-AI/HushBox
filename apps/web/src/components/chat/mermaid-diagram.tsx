@@ -7,7 +7,6 @@ interface MermaidDiagramProps {
   className?: string;
 }
 
-// Track if mermaid has been initialized
 let mermaidInitialized = false;
 
 function initializeMermaid(): void {

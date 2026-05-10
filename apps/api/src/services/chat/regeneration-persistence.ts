@@ -10,10 +10,6 @@ import {
 import { deleteMessagesAfterAnchor } from './message-deletion.js';
 import type { PersistedEnvelope } from './message-persistence.js';
 
-// ============================================================================
-// Shared billing params extracted from both exported functions
-// ============================================================================
-
 interface SharedBillingParams {
   conversationId: string;
   userId: string;
@@ -33,10 +29,6 @@ interface SharedBillingParams {
    */
   forkTipExpectedMessageId?: string;
 }
-
-// ============================================================================
-// Private helpers: insert AI message + charge + update fork tip
-// ============================================================================
 
 interface InsertChargeAndFinalizeForkParams extends SharedBillingParams {
   epochPublicKey: Uint8Array;
@@ -111,10 +103,6 @@ async function insertChargeAndFinalizeFork(
   };
 }
 
-// ============================================================================
-// Private helper: build charge params from shared billing fields + epoch data
-// ============================================================================
-
 interface BuildChargeParamsInput {
   params: SharedBillingParams;
   epochPublicKey: Uint8Array;
@@ -149,10 +137,6 @@ function buildChargeParams(input: BuildChargeParamsInput): InsertChargeAndFinali
   };
 }
 
-// ============================================================================
-// Private helper: assign sequence numbers + fetch epoch key
-// ============================================================================
-
 interface SequenceAndEpochResult {
   sequences: number[];
   epochPublicKey: Uint8Array;
@@ -176,10 +160,6 @@ async function assignSequencesAndFetchEpoch(
   );
   return { sequences, epochPublicKey, epochNumber };
 }
-
-// ============================================================================
-// saveRegeneratedResponse
-// ============================================================================
 
 export interface SaveRegeneratedResponseParams extends SharedBillingParams {
   anchorMessageId: string;
@@ -247,10 +227,6 @@ export async function saveRegeneratedResponse(
   });
 }
 
-// ============================================================================
-// saveEditedChatTurn
-// ============================================================================
-
 export interface SaveEditedChatTurnParams extends SharedBillingParams {
   senderId: string;
   targetMessageId: string;
@@ -292,7 +268,6 @@ export async function saveEditedChatTurn(
   return db.transaction(async (tx) => {
     const txDb = tx;
 
-    // Look up the target message's parentMessageId
     const [targetMsg] = await txDb
       .select({ parentMessageId: messages.parentMessageId })
       .from(messages)
@@ -304,7 +279,6 @@ export async function saveEditedChatTurn(
 
     const targetParentId = targetMsg.parentMessageId;
 
-    // Delete from the target's parent onward (the target itself and everything after it)
     const forkTipSpread = forkTipMessageId === undefined ? {} : { forkTipMessageId };
     if (targetParentId) {
       await deleteMessagesAfterAnchor(txDb, {
@@ -313,13 +287,11 @@ export async function saveEditedChatTurn(
         ...forkTipSpread,
       });
     } else {
-      // Target is the root message — delete the target and everything after it
       await deleteMessagesAfterAnchor(txDb, {
         conversationId,
         anchorMessageId: targetMessageId,
         ...forkTipSpread,
       });
-      // Also delete the target itself since we're replacing it
       await txDb.delete(messages).where(eq(messages.id, targetMessageId));
     }
 

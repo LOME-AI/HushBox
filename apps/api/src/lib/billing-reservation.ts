@@ -38,10 +38,6 @@ export type HandleBillingDenialFunction = (
   billingInput: ResolveBillingInput
 ) => Response;
 
-// ---------------------------------------------------------------------------
-// Shared shapes
-// ---------------------------------------------------------------------------
-
 export interface ReservationFailure {
   success: false;
   response: Response;
@@ -63,14 +59,6 @@ interface ReservationContext {
   worstCaseCents: number;
   payerTier: UserTier;
 }
-
-// ---------------------------------------------------------------------------
-// Group + personal budget helpers
-//
-// These run after the funding-source decision; they reserve the worst-case
-// cents in Redis and re-check the post-reservation effective balance to catch
-// TOCTOU races between resolveBilling() and the actual reservation.
-// ---------------------------------------------------------------------------
 
 export async function reserveGroupBudgetWithGuard(
   ctx: ReservationContext,
@@ -140,17 +128,6 @@ export async function reservePersonalBudgetWithGuard(
     billingUserId: userId,
   };
 }
-
-// ---------------------------------------------------------------------------
-// reserveAfterDecision
-//
-// Resolves the billing decision (deny / mismatch / proceed), picks personal vs
-// group reservation, and runs the appropriate guarded reservation. Used by
-// every media reservation; the text path runs the same shape inline because it
-// also needs to forward `billingDecision.fundingSource` to the personal
-// reservation alongside Smart Model resolution. Lifting the media flavor here
-// trims the duplicated orchestration from four functions to one.
-// ---------------------------------------------------------------------------
 
 export interface ReserveAfterDecisionInput {
   billingResult: BuildBillingResult;

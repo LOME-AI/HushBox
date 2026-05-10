@@ -7,7 +7,6 @@ import { closeOverlay } from '../helpers/overlay.js';
 test.describe('Group Chat Admin', () => {
   test.describe.configure({ mode: 'serial' });
 
-  // Test 1: Consolidates old sender labels + message grouping + AI toggle tests
   test('displays sender labels, groups consecutive messages, and AI toggle works', async ({
     authenticatedPage,
     testBobPage,
@@ -27,14 +26,11 @@ test.describe('Group Chat Admin', () => {
       await aliceChatPage.waitForConversationLoaded();
       await aliceChatPage.expectMessageVisible('Hello from Alice');
 
-      // Alice sees her messages labeled "You"
       const aliceLabels = aliceChatPage.getSenderLabels();
       await expect(aliceLabels.first()).toHaveText('You');
 
-      // Alice sees bob's messages labeled with bob's username
       await expect(aliceLabels.getByText(bobMember!.username)).toBeVisible();
 
-      // AI message has no sender label
       const aiMessage = aliceChatPage.messageList.locator('[data-role="assistant"]').first();
       await expect(aiMessage).toBeVisible();
       const aiLabels = aiMessage.locator('[data-testid="sender-label"]');
@@ -63,7 +59,6 @@ test.describe('Group Chat Admin', () => {
 
     await test.step('1:1 chat has no sender labels or AI toggle', async () => {
       const aliceChatPage = new ChatPage(authenticatedPage);
-      // Send a message to create a 1:1 conversation
       await aliceChatPage.goto();
       await aliceChatPage.sendNewChatMessage(`Solo test ${String(Date.now())}`);
       await aliceChatPage.waitForConversation();
@@ -109,7 +104,6 @@ test.describe('Group Chat Admin', () => {
     });
   });
 
-  // Test 2: Member sidebar display verification
   test('member sidebar displays correctly with sections, badges, and search', async ({
     authenticatedPage,
     testBobPage,
@@ -197,7 +191,6 @@ test.describe('Group Chat Admin', () => {
     });
   });
 
-  // Test 3: Member lifecycle — add, change privilege, remove
   test('member lifecycle: add, change privilege, remove', async ({
     authenticatedPage,
     testDavePage,
@@ -214,8 +207,6 @@ test.describe('Group Chat Admin', () => {
     await sidebar.openViaFacepile();
     await sidebar.waitForLoaded();
 
-    // --- Add Dave ---
-
     await test.step('open add member modal and search for Dave', async () => {
       await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
     });
@@ -229,7 +220,6 @@ test.describe('Group Chat Admin', () => {
 
       await authenticatedPage.getByTestId('add-member-submit-button').click();
 
-      // Modal closes
       await unsettledExpect(authenticatedPage.getByTestId('add-member-modal')).not.toBeVisible();
     });
 
@@ -247,8 +237,6 @@ test.describe('Group Chat Admin', () => {
       await daveChatPage.expectMessageVisible('Hi from Bob');
     });
 
-    // --- Change privilege ---
-
     const daveMemberId = await sidebar.getMemberIdByUsername('test dave');
 
     await test.step('change Dave to read privilege', async () => {
@@ -265,7 +253,6 @@ test.describe('Group Chat Admin', () => {
       );
       await changeTrigger.click();
 
-      // Verify admin, write, read exist
       const adminOption = authenticatedPage.getByTestId(`privilege-option-${daveMemberId}-admin`);
       await expect(adminOption).toBeVisible();
       await expect(
@@ -275,7 +262,6 @@ test.describe('Group Chat Admin', () => {
         authenticatedPage.getByTestId(`privilege-option-${daveMemberId}-read`)
       ).toBeVisible();
 
-      // Verify owner does NOT exist
       await expect(
         authenticatedPage.getByTestId(`privilege-option-${daveMemberId}-owner`)
       ).not.toBeVisible();
@@ -284,8 +270,6 @@ test.describe('Group Chat Admin', () => {
       await adminOption.click();
       await sidebar.expectMemberInSection(daveMemberId, 'admin');
     });
-
-    // --- Remove member ---
 
     const bobMemberId = await sidebar.getMemberIdByUsername('test bob');
 
@@ -299,7 +283,6 @@ test.describe('Group Chat Admin', () => {
       await authenticatedPage.getByTestId('remove-member-cancel').click();
       await unsettledExpect(modal).not.toBeVisible();
 
-      // Bob still in sidebar
       await expect(sidebar.memberRow(bobMemberId)).toBeVisible();
     });
 
@@ -310,13 +293,11 @@ test.describe('Group Chat Admin', () => {
       const modal = authenticatedPage.getByTestId('remove-member-modal');
       await expect(modal).toBeVisible();
 
-      // Warning text
       await expect(authenticatedPage.getByTestId('remove-member-warning')).toBeVisible();
 
       await authenticatedPage.getByTestId('remove-member-confirm').click();
       await expect(modal).not.toBeVisible();
 
-      // Dave removed from sidebar
       await expect(sidebar.memberRow(daveMemberId)).not.toBeVisible();
     });
 
@@ -325,7 +306,6 @@ test.describe('Group Chat Admin', () => {
     });
   });
 
-  // Test 4: Invite link lifecycle
   test('invite link lifecycle: create, rename, change privilege, revoke', async ({
     authenticatedPage,
     groupConversation,
@@ -345,22 +325,17 @@ test.describe('Group Chat Admin', () => {
       const modal = authenticatedPage.getByTestId('invite-link-modal');
       await expect(modal).toBeVisible();
 
-      // Warning about link sharing
       await expect(authenticatedPage.getByTestId('invite-link-warning')).toBeVisible();
 
-      // Set name
       await authenticatedPage.getByTestId('invite-link-name-input').fill('Guest Reader');
 
-      // Generate
       await authenticatedPage.getByTestId('invite-link-generate-button').click();
 
-      // URL appears
       const urlEl = authenticatedPage.getByTestId('invite-link-url');
       await expect(urlEl).toBeVisible();
       const url = await urlEl.textContent();
       expect(url).toContain('/share/c/');
 
-      // Copy button appears
       await expect(authenticatedPage.getByTestId('invite-link-copy-button')).toBeVisible();
 
       // Close modal via X button (Escape would also close the sidebar Sheet on tablet)
@@ -368,7 +343,6 @@ test.describe('Group Chat Admin', () => {
     });
 
     await test.step('read link appears in sidebar', async () => {
-      // Find the link by its name in the read section
       const linkRow = sidebar.content
         .locator('[data-testid^="link-item-"]')
         .filter({ hasText: 'Guest Reader' });
@@ -383,10 +357,8 @@ test.describe('Group Chat Admin', () => {
       const modal = authenticatedPage.getByTestId('invite-link-modal');
       await expect(modal).toBeVisible();
 
-      // Select write privilege
       await authenticatedPage.getByTestId('invite-link-privilege-select').selectOption('write');
 
-      // Set name
       await authenticatedPage.getByTestId('invite-link-name-input').fill('Guest Writer');
       await authenticatedPage.getByTestId('invite-link-generate-button').click();
 
@@ -402,7 +374,6 @@ test.describe('Group Chat Admin', () => {
       await sidebar.clickChangeLinkName(readLinkId);
       await sidebar.editLinkNameInline(readLinkId, 'Renamed Guest');
 
-      // Verify name updated
       const linkRow = sidebar.linkRow(readLinkId);
       await expect(linkRow.getByText('Renamed Guest')).toBeVisible();
     });
@@ -410,7 +381,6 @@ test.describe('Group Chat Admin', () => {
     await test.step('change link privilege', async () => {
       await sidebar.openLinkActions(readLinkId);
       await sidebar.clickChangeLinkPrivilege(readLinkId, 'write');
-      // Verify link moved to the "write" privilege section
       await expect(
         authenticatedPage.getByTestId('member-section-write').getByTestId(`link-item-${readLinkId}`)
       ).toBeVisible();
@@ -420,7 +390,6 @@ test.describe('Group Chat Admin', () => {
       await sidebar.openLinkActions(readLinkId);
       await sidebar.clickRevokeLinkAction(readLinkId);
 
-      // Confirmation modal
       const modal = authenticatedPage.getByTestId('revoke-link-modal');
       await expect(modal).toBeVisible();
 
@@ -429,12 +398,10 @@ test.describe('Group Chat Admin', () => {
 
       await authenticatedPage.getByTestId('revoke-link-confirm').click();
 
-      // Link removed from sidebar
       await sidebar.expectLinkNotVisible(readLinkId);
     });
   });
 
-  // Test 5: Budget settings modal
   test('budget settings: owner editable, non-owner read-only', async ({
     authenticatedPage,
     testBobPage,
@@ -453,10 +420,8 @@ test.describe('Group Chat Admin', () => {
       const modal = authenticatedPage.getByTestId('budget-settings-modal');
       await expect(modal).toBeVisible();
 
-      // Conversation budget is an input (owner can edit)
       await expect(authenticatedPage.getByTestId('budget-conversation-input')).toBeVisible();
 
-      // Save button exists but is disabled (no changes yet)
       const saveButton = authenticatedPage.getByTestId('budget-save-button');
       await expect(saveButton).toBeVisible();
       await expect(saveButton).toBeDisabled();
@@ -467,7 +432,6 @@ test.describe('Group Chat Admin', () => {
       await convInput.clear();
       await convInput.fill('10.00');
 
-      // If there are member budget inputs, set one
       const memberInputs = authenticatedPage.locator('[data-testid^="budget-input-"]');
       const memberCount = await memberInputs.count();
       if (memberCount > 0) {
@@ -479,7 +443,6 @@ test.describe('Group Chat Admin', () => {
       await expect(saveButton).toBeEnabled();
       await saveButton.click();
 
-      // Modal closes after save
       await unsettledExpect(
         authenticatedPage.getByTestId('budget-settings-modal')
       ).not.toBeVisible();
@@ -498,19 +461,15 @@ test.describe('Group Chat Admin', () => {
       const modal = testBobPage.getByTestId('budget-settings-modal');
       await expect(modal).toBeVisible();
 
-      // Values displayed as text, not inputs
       await expect(testBobPage.getByTestId('budget-conversation-value')).toBeVisible();
       await expect(testBobPage.getByTestId('budget-conversation-input')).not.toBeVisible();
 
-      // No Save button for non-owner
       await expect(testBobPage.getByTestId('budget-save-button')).not.toBeVisible();
 
-      // Close
       await testBobPage.getByTestId('budget-cancel-button').click();
     });
 
     await test.step('cancel discards edits', async () => {
-      // Re-open sidebar on Alice's page
       await sidebar.clickBudgetSettings();
       const modal = authenticatedPage.getByTestId('budget-settings-modal');
       await expect(modal).toBeVisible();
@@ -519,11 +478,9 @@ test.describe('Group Chat Admin', () => {
       await convInput.clear();
       await convInput.fill('999.00');
 
-      // Cancel
       await authenticatedPage.getByTestId('budget-cancel-button').click();
       await unsettledExpect(modal).not.toBeVisible();
 
-      // Reopen — value should NOT be 999.00
       await sidebar.clickBudgetSettings();
       await expect(authenticatedPage.getByTestId('budget-settings-modal')).toBeVisible();
       const currentValue = await authenticatedPage
@@ -535,7 +492,6 @@ test.describe('Group Chat Admin', () => {
     });
   });
 
-  // Test 6: Share AI message
   test('share AI message creates shareable link', async ({
     authenticatedPage,
     groupConversation,
@@ -557,30 +513,23 @@ test.describe('Group Chat Admin', () => {
       const modal = authenticatedPage.getByTestId('share-message-modal');
       await expect(modal).toBeVisible();
 
-      // Preview shows message content
       await expect(authenticatedPage.getByTestId('share-message-preview')).toBeVisible();
 
-      // Isolation info
       await expect(authenticatedPage.getByTestId('share-message-isolation-info')).toBeVisible();
 
-      // Create link
       await authenticatedPage.getByTestId('share-message-create-button').click();
 
-      // URL appears
       const urlEl = authenticatedPage.getByTestId('share-message-url');
       await expect(urlEl).toBeVisible();
       const url = await urlEl.textContent();
       expect(url).toContain('/share/m/');
 
-      // Copy button appears
       await expect(authenticatedPage.getByTestId('share-message-copy-button')).toBeVisible();
 
-      // Close
       await authenticatedPage.keyboard.press('Escape');
     });
 
     await test.step('cancel share does not create link', async () => {
-      // Hover and click share on a different message
       const userMessages = chatPage.messageList.locator('[data-role="user"]');
       const firstUserMessage = userMessages.first();
       await firstUserMessage.hover();
@@ -596,7 +545,6 @@ test.describe('Group Chat Admin', () => {
     });
   });
 
-  // Test 6: Add member without history — adder can still read old messages after refresh
   test('add member without history: adder retains access to old messages after page refresh', async ({
     authenticatedPage,
     testDavePage,
@@ -645,7 +593,6 @@ test.describe('Group Chat Admin', () => {
       await daveChatPage.gotoConversation(groupConversation.id);
       await daveChatPage.waitForConversationLoaded();
 
-      // Dave should NOT see Alice's old message (added without history) anywhere
       await daveChatPage.assertMessageNotVisible('Hello from Alice', { exact: true });
     });
   });

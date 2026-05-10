@@ -2,7 +2,6 @@ import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-// Mock TanStack Router
 const redirectError = new Error('REDIRECT');
 const useParamsMock = vi.fn();
 const useSearchMock = vi.fn();
@@ -19,20 +18,17 @@ vi.mock('@tanstack/react-router', () => ({
   }),
 }));
 
-// Mock auth
 const mockRequireAuth = vi.fn();
 vi.mock('@/lib/auth', () => ({
   requireAuth: (...args: unknown[]) => mockRequireAuth(...args),
 }));
 
-// Mock error boundary
 vi.mock('@/components/shared/error-boundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="error-boundary">{children}</div>
   ),
 }));
 
-// Mock authenticated chat page
 const authenticatedChatPageMock = vi.fn(
   ({
     routeConversationId,
@@ -58,7 +54,6 @@ vi.mock('@/components/chat/authenticated-chat-page', () => ({
   }) => authenticatedChatPageMock(props),
 }));
 
-// Mock query options
 const mockConversationOptions = {
   queryKey: ['chat', 'conversations', 'test-id'],
   queryFn: vi.fn(),

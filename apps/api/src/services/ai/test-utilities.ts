@@ -53,10 +53,6 @@ export function setupIntegrationClient(): IntegrationClientSetup {
   return { client, db, isMock: false };
 }
 
-// ---------------------------------------------------------------------------
-// Cheapest-model resolution per modality
-// ---------------------------------------------------------------------------
-
 export interface TextTestParameters {
   kind: 'text';
   maxOutputTokens: number;
@@ -203,10 +199,6 @@ function pickCheapestVideoModel(candidates: readonly ModelInfo[]): TestModelSpec
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Stream consumption + media verification
-// ---------------------------------------------------------------------------
 
 export interface ConsumedStream {
   events: InferenceEvent[];

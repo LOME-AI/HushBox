@@ -104,7 +104,7 @@ describe('sendPushForNewMessage', () => {
     const pushClient = createMockPushClient();
     const db = createMockDb(
       [{ userId: 'user-2', muted: false }],
-      [] // no device tokens
+      []
     ) as Database;
 
     await sendPushForNewMessage({
@@ -123,7 +123,7 @@ describe('sendPushForNewMessage', () => {
     const pushClient = createMockPushClient();
     const db = createMockDb(
       [{ userId: 'user-2', muted: true }],
-      [] // no tokens because all muted
+      []
     ) as Database;
 
     await sendPushForNewMessage({
@@ -162,7 +162,6 @@ describe('sendPushForNewMessage', () => {
       [{ userId: 'user-2', token: 'fcm-token-2', platform: 'android' }]
     ) as Database;
 
-    // Should not throw
     await sendPushForNewMessage({
       db,
       pushClient,

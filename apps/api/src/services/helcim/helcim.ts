@@ -40,7 +40,6 @@ function extractHelcimErrors(errors: Record<string, HelcimErrorDetail[]>): strin
 }
 
 export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
-  // Validate API token
   if (!config.apiToken) {
     throw new Error('Helcim API token is not configured');
   }
@@ -51,7 +50,6 @@ export function createHelcimClient(config: HelcimClientConfig): HelcimClient {
     throw new Error('Helcim API token appears invalid (too short)');
   }
 
-  // Validate webhook verifier
   if (!config.webhookVerifier) {
     throw new Error('Helcim webhook verifier is not configured');
   }

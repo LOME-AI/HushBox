@@ -53,7 +53,6 @@ test.describe('Real-time media broadcast', () => {
       (await bobChatPage.messageList.getAttribute('data-assistant-count')) ?? '0'
     );
 
-    // Alice flips to image modality and sends a generation prompt.
     const aliceImageIcon = authenticatedPage.getByRole('button', { name: /switch to image/i });
     await expect(aliceImageIcon).toBeVisible();
     await aliceImageIcon.click();
@@ -71,7 +70,6 @@ test.describe('Real-time media broadcast', () => {
       { timeout: 20_000 }
     );
 
-    // Bob also sees Alice's user prompt arrive.
     await unsettledExpect(bobChatPage.messageList.getByText(prompt).first()).toBeVisible({
       timeout: 15_000,
     });

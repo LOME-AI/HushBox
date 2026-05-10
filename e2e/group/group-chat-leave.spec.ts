@@ -94,15 +94,12 @@ test.describe('Group Chat Leave', () => {
     const modal = testBobPage.getByTestId('leave-confirmation-modal');
     await expect(modal).toBeVisible();
 
-    // Cancel
     await testBobPage.getByTestId('leave-confirmation-cancel').click();
     await expect(modal).not.toBeVisible();
 
     // Close sidebar so message list is accessible on mobile
     await sidebar.closeSidebar();
 
-    // Still on conversation page with messages visible (the new helper
-    // auto-scrolls through virtualised items — no manual scrollToTop needed)
     await expect(testBobPage).toHaveURL(new RegExp(groupConversation.id));
     await chatPage.assertMessageVisible('Hello from Alice');
   });

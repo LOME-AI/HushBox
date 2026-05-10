@@ -10,12 +10,10 @@ import { useUIStore } from '@/stores/ui';
 import { useModelValidation } from '@/hooks/use-model-validation';
 import { AppShell } from './app-shell';
 
-// Mock model validation hook
 vi.mock('@/hooks/use-model-validation', () => ({
   useModelValidation: vi.fn(),
 }));
 
-// Mock the chat hooks
 vi.mock('@/hooks/chat', () => ({
   useDecryptedConversations: vi.fn(() => ({
     data: [],
@@ -32,7 +30,6 @@ vi.mock('@/hooks/chat', () => ({
   DECRYPTING_TITLE: 'Decrypting...',
 }));
 
-// Mock router for Sidebar children
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   useLocation: () => ({ pathname: '/' }),
@@ -52,7 +49,6 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ conversationId: undefined }),
 }));
 
-// Mock stability hooks for SidebarFooter
 vi.mock('@/hooks/use-stable-balance', () => ({
   useStableBalance: () => ({
     displayBalance: '10.00',

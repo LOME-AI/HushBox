@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TwoFactorInput } from './TwoFactorInput';
 
-// Mock useIsMobile hook
 vi.mock('@/hooks/use-is-mobile', () => ({
   useIsMobile: vi.fn(() => false),
 }));
@@ -84,7 +83,6 @@ describe('TwoFactorInput', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Auto-submit triggers onVerify without needing a button click
       await waitFor(() => {
         expect(onVerify).toHaveBeenCalledWith('123456');
       });
@@ -134,12 +132,10 @@ describe('TwoFactorInput', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Auto-submit triggers loading state
       await waitFor(() => {
         expect(screen.getByText(/verifying/i)).toBeInTheDocument();
       });
 
-      // Resolve the verification
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- assigned in async mock callback
       if (!resolveVerify) throw new Error('Expected resolveVerify');
       resolveVerify({ success: true });
@@ -177,7 +173,6 @@ describe('TwoFactorInput', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Wait for verification to complete and input to clear
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /verify/i })).toBeDisabled();
       });
@@ -198,17 +193,14 @@ describe('TwoFactorInput', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Auto-submit fires, now try clicking the button while verifying
       await waitFor(() => {
         expect(onVerify).toHaveBeenCalledTimes(1);
       });
 
       await user.click(screen.getByRole('button', { name: /verifying/i }));
 
-      // Should still only have been called once
       expect(onVerify).toHaveBeenCalledTimes(1);
 
-      // Clean up
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- assigned in async mock callback
       if (!resolveVerify) throw new Error('Expected resolveVerify');
       resolveVerify({ success: true });

@@ -209,11 +209,8 @@ describe('createSSEParser', () => {
     const { handlers, mocks } = createMockHandlers();
     const parser = createSSEParser(handlers);
 
-    // Send event type in one chunk
     parser.processChunk('event: token\n');
-    // Send partial data
     parser.processChunk('data: {"modelId":"openai/gpt-4o","content":"Hel');
-    // Complete the data
     parser.processChunk('lo"}\n\n');
 
     expect(mocks.onToken).toHaveBeenCalledWith({

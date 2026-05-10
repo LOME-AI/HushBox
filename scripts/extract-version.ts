@@ -69,7 +69,6 @@ function main(): void {
   }
 }
 
-// Only run CLI when executed directly (not imported by tests)
 const scriptPath = process.argv[1] ?? '';
 const isDirectExecution =
   scriptPath.endsWith('extract-version.ts') || scriptPath.endsWith('extract-version.js');

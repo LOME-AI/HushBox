@@ -1,11 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { searchUsers } from './user-search.js';
 
-/**
- * Mock DB builder chain factory for user-search service unit tests.
- * Follows the same pattern as links.test.ts:
- * mock Drizzle query builder chain methods.
- */
 function createMockDb() {
   const mockSelect = vi.fn();
 
@@ -16,10 +11,6 @@ function createMockDb() {
   return { db, mockSelect };
 }
 
-/**
- * Helper to set up a select chain:
- * db.select(cols).from(table).where(cond).limit(n) -> rows
- */
 function mockSelectChain(mockSelect: ReturnType<typeof vi.fn>, rows: unknown[]): void {
   mockSelect.mockReturnValueOnce({
     from: vi.fn().mockReturnValue({
@@ -30,10 +21,6 @@ function mockSelectChain(mockSelect: ReturnType<typeof vi.fn>, rows: unknown[]):
   });
 }
 
-/**
- * Helper to set up a select chain with leftJoin (for excludeConversationId):
- * db.select(cols).from(table).leftJoin(...).where(cond).limit(n) -> rows
- */
 function mockSelectChainWithJoin(mockSelect: ReturnType<typeof vi.fn>, rows: unknown[]): void {
   mockSelect.mockReturnValueOnce({
     from: vi.fn().mockReturnValue({
@@ -100,7 +87,6 @@ describe('searchUsers', () => {
 
     await searchUsers(db as never, 'test', 'requester-id');
 
-    // Verify limit was called in the chain
     const firstResult = mockSelect.mock.results[0];
     if (!firstResult) throw new Error('Expected at least one select call');
     const fromFunction = firstResult.value.from;
@@ -145,7 +131,6 @@ describe('searchUsers', () => {
   });
 
   it('returns publicKey as base64 string', async () => {
-    // Uint8Array [1, 2, 3] -> base64 via toBase64
     const fakeUsers = [{ id: 'user-1', username: 'bob', publicKey: new Uint8Array([1, 2, 3]) }];
     mockSelectChain(mockSelect, fakeUsers);
 
@@ -153,7 +138,6 @@ describe('searchUsers', () => {
 
     expect(result).toHaveLength(1);
     expect(typeof result[0]?.publicKey).toBe('string');
-    // The value should be a valid base64 encoding
     expect(result[0]?.publicKey.length).toBeGreaterThan(0);
   });
 

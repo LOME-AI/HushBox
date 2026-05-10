@@ -20,7 +20,6 @@ test.describe('Image Generation', () => {
     await chatPage.expectNewChatPageVisible();
 
     await chatPage.switchToImageMode();
-    // Sanity: 16:9 pill also renders.
     await expect(authenticatedPage.getByRole('button', { name: '16:9' })).toBeVisible();
 
     const prompt = `A photo of a sunset over mountains ${String(Date.now())}`;
@@ -79,12 +78,10 @@ test.describe('Image Generation', () => {
     await chatPage.expectImageVisible();
     await chatPage.waitForStreamComplete();
 
-    // Cost badge: at least one $... visible on the assistant message.
     const costBadge = chatPage.messageList.locator('[data-testid="message-cost"]').first();
     await expect(costBadge).toBeVisible();
     await expect(costBadge).toContainText(/\$/);
 
-    // Model nametag visible on the assistant message — assert via the existing helper.
     await chatPage.expectAllAIMessagesHaveNametag();
   });
 
@@ -105,7 +102,6 @@ test.describe('Image Generation', () => {
     await imageConversation.page.reload();
     await chatPage.waitForConversationLoaded();
 
-    // Image still renders after reload.
     await chatPage.expectImageVisible();
     await chatPage.expectDownloadLinkVisible();
   });
@@ -124,7 +120,6 @@ test.describe('Image Generation', () => {
     await chatPage.expectImageVisible();
     await chatPage.waitForStreamComplete();
 
-    // Trigger regenerate on the assistant message (index 1).
     await chatPage.clickRegenerate(1);
 
     // After regenerate, the new image renders. Re-assert that the message
@@ -153,7 +148,6 @@ test.describe('Image Generation', () => {
     await chatPage.expectImageVisible();
     await chatPage.waitForStreamComplete();
 
-    // Capture the original blob src so we can assert it gets replaced.
     const originalSource = await chatPage.messageList.locator('img').first().getAttribute('src');
     expect(originalSource).toMatch(/^blob:/);
 
@@ -170,7 +164,6 @@ test.describe('Image Generation', () => {
     await chatPage.waitForStreamComplete();
     await chatPage.expectImageVisible();
 
-    // After regen, the rendered <img> has a new blob URL.
     await expect
       .poll(async () => chatPage.messageList.locator('img').first().getAttribute('src'), {
         timeout: 10_000,
@@ -204,7 +197,6 @@ test.describe('Image Generation', () => {
     await chatPage.waitForStreamComplete();
     await chatPage.expectImageVisible();
 
-    // Same user prompt remains; new image rendered.
     await chatPage.expectMessageVisible(prompt);
     await expect
       .poll(async () => chatPage.messageList.locator('img').first().getAttribute('src'), {
@@ -265,7 +257,6 @@ test.describe('Image Generation', () => {
     await chatPage.sendNewChatMessage(prompt);
     await chatPage.waitForConversation();
 
-    // Sanity: the request fired and we captured a payload that mentions 16:9.
     await expect.poll(() => chatPayload, { timeout: 10_000 }).toBeDefined();
     expect(JSON.stringify(chatPayload)).toContain('16:9');
   });
@@ -317,10 +308,8 @@ test.describe('Image Generation', () => {
     await chatPage.expectNewChatPageVisible();
 
     await chatPage.switchToImageMode();
-    // Empty input — send button must be disabled.
     await expect(chatPage.sendButton).toBeDisabled();
 
-    // Whitespace-only must also be disabled.
     await chatPage.promptInput.fill('   ');
     await expect(chatPage.sendButton).toBeDisabled();
   });
@@ -346,7 +335,6 @@ test.describe('Image Generation', () => {
     expect(imgBox).not.toBeNull();
     expect(imgBox!.width).toBeLessThanOrEqual(viewportWidth);
 
-    // The <img> sits inside an assistant message bubble (data-role="assistant").
     const bubble = chatPage.messageList.locator('[data-role="assistant"]').first();
     const bubbleBox = await bubble.boundingBox();
     expect(bubbleBox).not.toBeNull();
@@ -390,7 +378,6 @@ test.describe('Image Generation', () => {
 
     await chatPage.switchToImageMode();
 
-    // Type a prompt; the budget banner should render in the prompt input region.
     await chatPage.promptInput.fill(`Insufficient image ${String(Date.now())}`);
 
     await unsettledExpect(lowBalancePage.getByTestId('budget-messages')).toBeVisible({
@@ -448,7 +435,6 @@ test.describe('Image Generation', () => {
     });
     await expect(errorPlaceholder.first()).toBeVisible({ timeout: 15_000 });
 
-    // No `<img>` is rendered (decryption never produced a blob URL).
     const imgs = chatPage.messageList.locator('img');
     await expect(imgs).toHaveCount(0);
 

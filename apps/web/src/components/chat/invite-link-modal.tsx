@@ -40,7 +40,6 @@ export function InviteLinkModal({
 
   const { mutateAsync, isPending } = useCreateLink();
 
-  // Reset state when modal reopens
   const [previousOpen, setPreviousOpen] = useState(open);
   if (open !== previousOpen) {
     setPreviousOpen(open);
@@ -133,7 +132,6 @@ export function InviteLinkModal({
                 </Alert>
               )}
 
-              {/* Warning */}
               <Alert data-testid="invite-link-warning">
                 <AlertTriangle />
                 <span>
@@ -142,7 +140,6 @@ export function InviteLinkModal({
                 </span>
               </Alert>
 
-              {/* Permission selector */}
               <div>
                 <label
                   htmlFor="invite-privilege-select"
@@ -164,7 +161,6 @@ export function InviteLinkModal({
                 </select>
               </div>
 
-              {/* History checkbox */}
               <div>
                 <CheckboxField
                   id="invite-history-checkbox"
@@ -176,7 +172,6 @@ export function InviteLinkModal({
                 />
               </div>
 
-              {/* Guest name input */}
               <div>
                 <label
                   htmlFor="invite-name-input"
@@ -203,7 +198,6 @@ export function InviteLinkModal({
               )}
             </form>
 
-            {/* Action buttons */}
             <ModalActions
               cancel={{
                 label: 'Cancel',
@@ -228,7 +222,6 @@ export function InviteLinkModal({
               <span>Link created! You can manage or revoke it from the member list.</span>
             </div>
 
-            {/* Generated URL */}
             <div
               data-testid="invite-link-url"
               className="bg-muted overflow-hidden rounded-md p-3 text-xs break-all"

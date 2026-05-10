@@ -971,10 +971,6 @@ describe('selectConversationSpendingSchema', () => {
   });
 });
 
-// ============================================================================
-// Content Items — discriminated union enforces text vs media XOR.
-// ============================================================================
-
 describe('insertContentItemSchema', () => {
   it('accepts a text item with encryptedBlob and no media fields', () => {
     const result = insertContentItemSchema.safeParse({

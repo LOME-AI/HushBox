@@ -3,7 +3,6 @@
 @source '../../../../packages/ui/src/components/marketing/**/*.tsx';
 @source '../../../../packages/ui/src/components/cipher-wall/**/*.tsx';
 
-/* Blog prose typography overrides */
 .prose-blog {
   @apply text-foreground leading-relaxed;
 }
@@ -84,12 +83,10 @@
   @apply border-border border-b py-2;
 }
 
-/* Sources section: colored clickable links */
 .prose-blog :where(h2#sources ~ ol a, h2#sources ~ ul a):not(:where([class~='not-prose'] *)) {
   @apply text-brand-red hover:text-brand-red-hover underline underline-offset-2 transition-colors;
 }
 
-/* ScrollReveal animations */
 [data-slot='scroll-reveal'][data-visible='false'] {
   opacity: 0;
 }
@@ -116,7 +113,6 @@
   transition-delay: var(--reveal-delay, 0ms);
 }
 
-/* DataGrid row stagger */
 [data-slot='data-grid'][data-animated][data-visible='false'] tbody tr {
   opacity: 0;
   transform: translateY(1rem);
@@ -127,7 +123,6 @@
   animation-delay: var(--row-delay, 0ms);
 }
 
-/* StepFlow connecting lines */
 [data-slot='step-flow'][data-connected] [data-slot='step-item'] {
   position: relative;
 }
@@ -142,14 +137,12 @@
   background: var(--color-border);
 }
 
-/* StepFlow animated lines */
 [data-slot='step-flow'][data-animated][data-visible='true'] [data-slot='step-item']::after {
   animation: lineGrow 0.4s ease-out forwards;
   animation-delay: calc(var(--step-delay, 0ms) + 0.3s);
   transform-origin: top;
 }
 
-/* StepFlow step stagger */
 [data-slot='step-flow'][data-animated][data-visible='false'] [data-slot='step-item'] {
   opacity: 0;
   transform: translateY(1rem);
@@ -180,7 +173,6 @@
   }
 }
 
-/* CipherWall fade-in on load */
 [data-cipher-bg] {
   animation: cipherFadeIn 2.5s ease-in forwards;
 }

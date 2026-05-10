@@ -56,7 +56,6 @@ export async function runCapTestUpdate(
 ): Promise<void> {
   const { $ } = await import('execa');
 
-  // 1. Query current version
   console.log('Querying current server version...');
   const res = await fetch(getUpdatesCurrentUrl());
   if (!res.ok) {
@@ -65,11 +64,9 @@ export async function runCapTestUpdate(
   const { version: currentVersion } = (await res.json()) as { version: string };
   console.log(`  Current version: ${currentVersion}`);
 
-  // 2. Generate new version
   const newVersion = generateVersionString();
   console.log(`  New version: ${newVersion}`);
 
-  // 3. Build with new version
   console.log('Building web with new version...');
   const webDir = path.join(rootDir, 'apps', 'web');
   await $({
@@ -78,13 +75,11 @@ export async function runCapTestUpdate(
     env: { ...process.env, VITE_APP_VERSION: newVersion, VITE_PLATFORM: platform },
   })`pnpm exec vite build`;
 
-  // 4. Zip dist
   const distributionDir = getDistributionZipPath(rootDir);
   const zipPath = path.join(rootDir, 'web-dist.zip');
   console.log('Zipping dist...');
   await $({ cwd: distributionDir, stdio: 'inherit' })`zip -r ${zipPath} .`;
 
-  // 5. Upload to local R2
   const r2Key = getR2ObjectKey(platform, newVersion);
   console.log(`Uploading to R2: ${r2Key}`);
   const apiDir = path.join(rootDir, 'apps', 'api');
@@ -93,7 +88,6 @@ export async function runCapTestUpdate(
     stdio: 'inherit',
   })`pnpm exec wrangler r2 object put ${r2Key} --file ${zipPath}`;
 
-  // 6. Set version override
   console.log('Setting version override...');
   const setRes = await fetch(getSetVersionUrl(), {
     method: 'POST',
@@ -104,7 +98,6 @@ export async function runCapTestUpdate(
     throw new Error(`Failed to set version: ${String(setRes.status)}`);
   }
 
-  // 7. Done
   console.log('');
   console.log('Version updated successfully!');
   console.log(`  Old: ${currentVersion}`);
@@ -120,7 +113,6 @@ export function parsePlatformArgument(args: string[]): MobilePlatform | undefine
   return args[index + 1] as MobilePlatform;
 }
 
-// CLI entry point
 /* v8 ignore next 2 */
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;
 if (isMain) {

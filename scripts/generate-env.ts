@@ -141,16 +141,13 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
     return val;
   };
 
-  // Helper to generate lines for a destination
   const generateLines = (destination: Destination): string[] =>
     Object.entries(envConfig)
       .filter(([, config]) => getDestinations(config as VariableConfig, mode).includes(destination))
       .map(([key, config]) => {
         let val = resolveValue(config as VariableConfig, mode, getSecret);
-        // Return null if val is null (defensive, filtered out by subsequent .filter())
         /* istanbul ignore next -- @preserve defensive check */
         if (val === null) return null;
-        // Apply worktree port offsets in development mode
         if (worktree) {
           val = applyWorktreePorts(val, worktree);
         }
@@ -158,23 +155,19 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
       })
       .filter((line): line is string => line !== null);
 
-  // Generate lines for each destination
   const backendLines = generateLines(Destination.Backend);
   const frontendLines = generateLines(Destination.Frontend);
   const scriptsLines = generateLines(Destination.Scripts);
 
-  // Check for missing secrets
   if (missing.length > 0) {
     throw new Error(`Missing required secrets in process.env: ${missing.join(', ')}`);
   }
 
-  // Write .dev.vars (Backend)
   const devVariablesContent =
     ['# Auto-generated - do not edit', '', ...backendLines].join('\n') + '\n';
   writeFileSync(path.resolve(rootDir, 'apps/api/.dev.vars'), devVariablesContent);
   console.log('  Generated apps/api/.dev.vars');
 
-  // Write .env.development (Frontend)
   const envDevContent =
     [
       '# Auto-generated from packages/shared/src/env.config.ts',
@@ -185,7 +178,6 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
   writeFileSync(path.resolve(rootDir, '.env.development'), envDevContent);
   console.log('  Generated .env.development');
 
-  // Write .env.scripts (Scripts) — includes port vars for all modes
   const ports = worktree?.ports ?? BASE_PORTS;
   const portLines = generatePortLines(ports, worktree);
   const envScriptsContent =
@@ -193,10 +185,8 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
   writeFileSync(path.resolve(rootDir, '.env.scripts'), envScriptsContent);
   console.log('  Generated .env.scripts');
 
-  // Update wrangler.toml [vars] with production values
   updateWranglerToml(rootDir);
 
-  // Update workflow files with generated env sections
   updateWorkflows(rootDir);
 
   console.log('✓ All environment files generated');
@@ -209,7 +199,6 @@ function updateWranglerToml(rootDir: string): void {
   const tomlPath = path.resolve(rootDir, 'apps/api/wrangler.toml');
   let content = readFileSync(tomlPath, 'utf8');
 
-  // Remove existing [vars] section if present
   content = content.replace(/\n?\[vars\][\s\S]*?(?=\n\[[^\]]+\]|$)/, '');
 
   // Build new [vars] section with production non-secret values from backend
@@ -225,7 +214,6 @@ function updateWranglerToml(rootDir: string): void {
     }
   }
 
-  // Add comment about secrets (always has secrets with current envConfig)
   const secretKeys = getBackendSecretKeys();
   /* istanbul ignore next -- @preserve always true with current config */
   if (secretKeys.length > 0) {
@@ -415,7 +403,6 @@ function generateGoogleServicesDecode(): string {
  * replaceSection is a no-op when a marker doesn't exist in a file.
  */
 export function updateWorkflows(rootDir: string): void {
-  // Build all section generators
   const sections: Record<string, string> = {
     'vitest-env': generateSecretsEnv(Mode.CiVitest),
     'e2e-env': generateSecretsEnv(Mode.CiE2E),
@@ -456,7 +443,6 @@ export function parseArgs(args: string[]): EnvMode {
   return Mode.Development;
 }
 
-// CLI entry point
 /* v8 ignore start */
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;
 if (isMain) {

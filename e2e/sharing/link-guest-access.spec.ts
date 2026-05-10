@@ -75,7 +75,6 @@ test.describe('Link Guest Access', () => {
 
       await expectSharedConversationLoaded(freshPage);
 
-      // Sees pre-existing messages
       await expect(freshPage.getByText('Hello from Alice').first()).toBeVisible({
         timeout: 10_000,
       });
@@ -85,7 +84,6 @@ test.describe('Link Guest Access', () => {
       // Sidebar budget should not show $0.00 for a guest with budget
       await expect(freshPage.getByText('/ $0.00 budget')).not.toBeVisible();
 
-      // Can send a message
       const guestInput = freshPage.getByRole('textbox', { name: /message/i });
       await expect(guestInput).toBeVisible({ timeout: 5000 });
 
@@ -98,7 +96,6 @@ test.describe('Link Guest Access', () => {
 
       await expect(freshPage.getByText(guestMessage).first()).toBeVisible({ timeout: 10_000 });
 
-      // AI Echo response appears
       await expect(
         freshPage.getByRole('log', { name: 'Chat messages' }).getByText('Echo:').first()
       ).toBeVisible({ timeout: 15_000 });
@@ -140,7 +137,6 @@ test.describe('Link Guest Access', () => {
 
       await expectSharedConversationLoaded(unauthenticatedPage);
 
-      // Should NOT see pre-rotation messages
       await expect(
         unauthenticatedPage.getByText('Hello from Alice', { exact: true })
       ).not.toBeVisible();
@@ -180,17 +176,14 @@ test.describe('Link Guest Access', () => {
 
       await expectSharedConversationLoaded(freshPage);
 
-      // Should NOT see pre-rotation messages
       await expect(freshPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
-      // Should see latest epoch message
       await expect(freshPage.getByText('Latest epoch message').first()).toBeVisible({
         timeout: 10_000,
       });
 
       await expectDelegatedBudgetNotice(freshPage);
 
-      // Can send a message
       const guestInput = freshPage.getByRole('textbox', { name: /message/i });
       await expect(guestInput).toBeVisible({ timeout: 5000 });
 
@@ -265,11 +258,9 @@ test.describe('Link Guest Access', () => {
       await guestSidebar.openViaFacepile();
       await guestSidebar.waitForLoaded();
 
-      // Guest should see their own link entry with (you) badge
       const youBadge = unauthenticatedPage.getByTestId('link-you-badge');
       await expect(youBadge).toBeVisible({ timeout: 5000 });
 
-      // Guest should NOT have the three-dots actions button on their row
       const memberLeaveAction = unauthenticatedPage.getByTestId('member-leave-action');
       await expect(memberLeaveAction).not.toBeVisible();
     });

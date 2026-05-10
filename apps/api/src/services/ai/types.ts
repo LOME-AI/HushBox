@@ -1,10 +1,3 @@
-// ---------------------------------------------------------------------------
-// AIClient — provider-agnostic inference interface
-//
-// The real implementation uses the Vercel AI SDK + AI Gateway, but that detail
-// stays in real.ts. Nothing in this file references a specific gateway or SDK.
-// ---------------------------------------------------------------------------
-
 /**
  * `unicorn/prefer-export-from` requires `export type … from` for re-exports;
  * we also need `RawModel` in this file's local scope for the AIClient
@@ -18,10 +11,6 @@ export type Modality = 'text' | 'image' | 'audio' | 'video';
 
 /** Capability tag advertised by a model (beyond its base modality). */
 export type ModelCapability = 'aspect-ratio' | 'duration';
-
-// ---------------------------------------------------------------------------
-// Model metadata
-// ---------------------------------------------------------------------------
 
 export type ModelPricing =
   | { kind: 'token'; inputPerToken: number; outputPerToken: number; webSearchPerCall?: number }
@@ -41,10 +30,6 @@ export interface ModelInfo {
   isZdr: boolean;
   created?: number;
 }
-
-// ---------------------------------------------------------------------------
-// Request types — discriminated by modality
-// ---------------------------------------------------------------------------
 
 export interface AIMessage {
   role: 'system' | 'user' | 'assistant';
@@ -100,10 +85,6 @@ export interface VideoRequest {
 
 export type InferenceRequest = TextRequest | ImageRequest | AudioRequest | VideoRequest;
 
-// ---------------------------------------------------------------------------
-// Streaming events — yielded by AIClient.stream()
-// ---------------------------------------------------------------------------
-
 export type InferenceEvent =
   | { kind: 'text-delta'; content: string }
   | { kind: 'media-start'; mediaType: 'image' | 'audio' | 'video'; mimeType: string }
@@ -127,17 +108,9 @@ export interface ProviderMetadata {
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 
-// ---------------------------------------------------------------------------
-// Stream interface
-// ---------------------------------------------------------------------------
-
 export interface InferenceStream {
   [Symbol.asyncIterator](): AsyncIterator<InferenceEvent>;
 }
-
-// ---------------------------------------------------------------------------
-// Client interfaces
-// ---------------------------------------------------------------------------
 
 /**
  * Shared methods for any AIClient. Concrete clients narrow `isMock` to a

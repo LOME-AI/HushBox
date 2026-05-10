@@ -758,7 +758,6 @@ describe('TrialChatPage', () => {
       let capturedOnToken: ((token: string) => void) | undefined;
       mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
         capturedOnToken = options?.onToken;
-        // Simulate calling onToken during stream
         if (streamingMessageIdsRef.current.size > 0) {
           options?.onToken?.('test-token');
         }
@@ -790,7 +789,6 @@ describe('TrialChatPage', () => {
     it('skips onToken callback during submit when no streaming id', async () => {
       const user = userEvent.setup();
       mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
-        // Call onToken but with no streaming id set
         options?.onToken?.('test-token');
         return Promise.resolve({ userMessageId: 'user-1', models: [] });
       });
@@ -1096,7 +1094,6 @@ describe('TrialChatPage', () => {
         expect(mockTrialChatStore.removeMessagesAfter).toHaveBeenCalledWith('m1');
       });
 
-      // Should send only the user message for regeneration
       expect(mockStartStream).toHaveBeenCalledWith(
         {
           messages: [{ role: 'user', content: 'Hello' }],

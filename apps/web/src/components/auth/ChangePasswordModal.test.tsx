@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ChangePasswordModal } from './ChangePasswordModal';
 
-// Mock useIsMobile hook
 vi.mock('@/hooks/use-is-mobile', () => ({
   useIsMobile: vi.fn(() => false),
 }));
@@ -217,7 +216,6 @@ describe('ChangePasswordModal', () => {
       await user.type(screen.getByLabelText(/^new password$/i), 'newpassword123');
       await user.type(screen.getByLabelText(/confirm.*password/i), 'newpassword123');
 
-      // Press Enter on the last input to trigger submit
       await user.keyboard('{Enter}');
 
       await waitFor(() => {

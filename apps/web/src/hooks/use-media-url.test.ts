@@ -3,10 +3,6 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, type ReactNode } from 'react';
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 vi.mock('@/lib/api-client', () => ({
   client: {
     api: {
@@ -28,10 +24,6 @@ import { useMediaDownloadUrl, mediaKeys } from './use-media-url';
 const mockFetchJson = vi.mocked(fetchJson);
 const mockGet = vi.mocked(client.api.media[':contentItemId']['download-url'].$get);
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -44,10 +36,6 @@ function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
   Wrapper.displayName = 'TestWrapper';
   return Wrapper;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('useMediaDownloadUrl', () => {
   beforeEach(() => {

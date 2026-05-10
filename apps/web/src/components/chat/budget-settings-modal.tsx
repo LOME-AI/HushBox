@@ -326,7 +326,6 @@ export function BudgetSettingsModal({
                 },
               })}
             >
-              {/* Conversation */}
               <div
                 data-testid="budget-conversation-section"
                 className="overflow-y-auto pr-2 [scrollbar-gutter:stable]"
@@ -349,7 +348,6 @@ export function BudgetSettingsModal({
 
               {budgetData.memberBudgets.length > 0 && (
                 <>
-                  {/* Members */}
                   <div>
                     <span className="text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase">
                       Members
@@ -378,7 +376,6 @@ export function BudgetSettingsModal({
                     </div>
                   </div>
 
-                  {/* Allocated */}
                   <div className="border-border overflow-y-auto border-t pt-3 pr-2 [scrollbar-gutter:stable]">
                     <BudgetRow
                       label="Allocated"
@@ -392,7 +389,6 @@ export function BudgetSettingsModal({
               )}
             </BudgetContent>
 
-            {/* Action buttons */}
             {isOwner ? (
               <ModalActions
                 cancel={{

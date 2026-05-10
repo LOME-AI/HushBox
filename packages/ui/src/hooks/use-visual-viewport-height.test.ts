@@ -35,7 +35,6 @@ describe('useVisualViewportHeight', () => {
     resizeHandler = null;
     windowResizeHandler = null;
 
-    // Reset mock viewport height
     mockVisualViewport.height = 800;
 
     // Mock window.addEventListener to capture resize handler
@@ -78,7 +77,6 @@ describe('useVisualViewportHeight', () => {
       configurable: true,
     });
 
-    // Restore original event listeners
     window.addEventListener = originalAddEventListener;
     window.removeEventListener = originalRemoveEventListener;
 
@@ -122,7 +120,6 @@ describe('useVisualViewportHeight', () => {
 
     act(() => {
       if (resizeHandler) resizeHandler();
-      // Run requestAnimationFrame
       vi.runAllTimers();
     });
 
@@ -132,7 +129,6 @@ describe('useVisualViewportHeight', () => {
   it('handles iOS Safari delayed viewport reporting with 300ms timeout', () => {
     const { result } = renderHook(() => useVisualViewportHeight());
 
-    // Initial resize triggers immediate update with height 500
     mockVisualViewport.height = 500;
 
     act(() => {
@@ -164,7 +160,6 @@ describe('useVisualViewportHeight', () => {
       vi.runAllTimers();
     });
 
-    // Height should remain the same object reference if unchanged
     expect(result.current).toBe(initialHeight);
   });
 
@@ -198,7 +193,6 @@ describe('useVisualViewportHeight', () => {
 
     unmount();
 
-    // Should attempt to cancel any pending RAF
     expect(cancelSpy).toHaveBeenCalled();
   });
 
@@ -254,7 +248,6 @@ describe('useVisualViewportHeight', () => {
 
     expect(result.current).toBe(800);
 
-    // Simulate window resize
     Object.defineProperty(globalThis, 'innerHeight', {
       value: 500,
       writable: true,

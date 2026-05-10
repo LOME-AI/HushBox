@@ -6,7 +6,6 @@ import type { MessageGroup } from '@/lib/chat-sender';
 import type { Message } from '@/lib/api';
 import type { MessageAction } from '@/lib/message-actions';
 
-// Mock document store used by DocumentCard (rendered inside MarkdownRenderer)
 vi.mock('../../stores/document', () => ({
   useDocumentStore: () => ({
     activeDocumentId: null,
@@ -111,7 +110,6 @@ describe('MessageItem', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    // Mock clipboard API
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: vi.fn(() => Promise.resolve()) },
       writable: true,
@@ -186,18 +184,14 @@ describe('MessageItem', () => {
     it('copies message content to clipboard when clicked', async () => {
       render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
 
-      // Click the copy button
       fireEvent.click(screen.getByRole('button', { name: /copy/i }));
 
-      // Flush the async clipboard operation
       await act(async () => {
         await Promise.resolve();
       });
 
-      // The state change to "Copied" proves clipboard.writeText succeeded
       expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument();
 
-      // Verify the message content that was copied matches
       expect(assistantMessage.content).toBe('I am doing well, thank you!');
     });
 
@@ -206,7 +200,6 @@ describe('MessageItem', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /copy/i }));
 
-      // Flush the async clipboard operation
       await act(async () => {
         await Promise.resolve();
       });
@@ -219,15 +212,12 @@ describe('MessageItem', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /copy/i }));
 
-      // Flush the async clipboard operation
       await act(async () => {
         await Promise.resolve();
       });
 
-      // Should show "Copied"
       expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument();
 
-      // Wait for the 2 second timeout to reset
       act(() => {
         vi.advanceTimersByTime(2500);
       });
@@ -238,7 +228,6 @@ describe('MessageItem', () => {
     it('copy button has ghost variant styling', () => {
       render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
       const button = screen.getByRole('button', { name: /copy/i });
-      // Ghost buttons typically have these classes or no background
       expect(button).toHaveClass('h-6', 'w-6');
     });
   });
@@ -409,7 +398,6 @@ describe('MessageItem', () => {
     it('does not mark non-streaming AI message text with aria-live', () => {
       render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
       const region = screen.queryByTestId('ai-message-live-region');
-      // When not streaming, the announce region must be absent or have aria-live="off"
       if (region) expect(region.getAttribute('aria-live')).toBe('off');
     });
   });
@@ -667,7 +655,6 @@ describe('MessageItem', () => {
 
       expect(screen.getByText('First message')).toBeInTheDocument();
       expect(screen.getByText('Second message')).toBeInTheDocument();
-      // Only one sender label
       expect(screen.getAllByTestId('sender-label')).toHaveLength(1);
     });
 
@@ -850,7 +837,6 @@ describe('MessageItem', () => {
     });
 
     it('renders the Smart chip when isSmartModel is true', () => {
-      // Use a model that's in the mockModelsData fixture so its name resolves cleanly.
       const knownModel = mockModelsData.data.models[0];
       if (!knownModel) throw new Error('test fixture must include at least one model');
       const aiMsg = {
@@ -904,7 +890,6 @@ describe('MessageItem', () => {
       );
       const indicator = screen.getByTestId('thinking-indicator');
       expect(indicator).toHaveTextContent('Choosing the best model');
-      // Model name is suppressed during classifying.
       expect(indicator).not.toHaveTextContent('Smart Model is thinking');
     });
 
@@ -1430,7 +1415,6 @@ describe('MessageItem', () => {
       };
       render(<MessageItem message={msgWithThreeMedia} allowedActions={ALL_AI_ACTIONS} />);
       expect(screen.getAllByTestId(/^mock-media-item-/)).toHaveLength(3);
-      // Exactly once across all media items in this message.
       expect(mockOpenMessageEnvelope).toHaveBeenCalledTimes(1);
     });
   });

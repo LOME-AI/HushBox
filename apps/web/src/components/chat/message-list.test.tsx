@@ -46,7 +46,6 @@ vi.mock('@/hooks/models', () => ({
   }),
 }));
 
-// Capture Virtuoso props for scroll behavior testing
 let capturedVirtuosoProps: Record<string, unknown> = {};
 
 // Mock Virtuoso to render items directly (virtualization doesn't work in jsdom)
@@ -240,10 +239,8 @@ describe('MessageList', () => {
           onRegenerate={onRegenerate}
         />
       );
-      // While streaming, regenerate button should not be present on the AI message
       expect(screen.queryByLabelText('Regenerate')).not.toBeInTheDocument();
 
-      // Clear streaming WITHOUT changing the messages array reference
       rerender(
         <MessageList
           messages={singleAssistant}
@@ -251,7 +248,6 @@ describe('MessageList', () => {
           onRegenerate={onRegenerate}
         />
       );
-      // Now the regenerate button should appear
       expect(screen.getByLabelText('Regenerate')).toBeInTheDocument();
     });
   });
@@ -261,7 +257,6 @@ describe('MessageList', () => {
       const ref = React.createRef<MessageListHandle>();
       render(<MessageList ref={ref} messages={messages} />);
 
-      // MessageListHandle extends VirtuosoHandle with additional methods
       expect(ref.current).toBeDefined();
     });
   });
@@ -314,7 +309,6 @@ describe('MessageList', () => {
       const onRegenerate = vi.fn();
       render(<MessageList messages={messages} onRegenerate={onRegenerate} />);
 
-      // User messages should have a "Retry" button when onRegenerate is provided
       const retryButtons = screen.getAllByLabelText('Retry');
       expect(retryButtons.length).toBeGreaterThan(0);
     });
@@ -378,7 +372,6 @@ describe('MessageList', () => {
       const onRegenerate = vi.fn();
       render(<MessageList messages={multiModelMessages} onRegenerate={onRegenerate} />);
 
-      // Regenerate buttons should not render for multi-model responses
       expect(screen.queryByLabelText('Regenerate')).not.toBeInTheDocument();
     });
 
@@ -389,7 +382,6 @@ describe('MessageList', () => {
         <MessageList messages={multiModelMessages} onRegenerate={onRegenerate} onEdit={onEdit} />
       );
 
-      // The user message's retry/edit should be hidden
       expect(screen.queryByLabelText('Retry')).not.toBeInTheDocument();
       expect(screen.queryByLabelText('Edit')).not.toBeInTheDocument();
     });
@@ -497,7 +489,6 @@ describe('MessageList', () => {
     it('does not group messages when not in group chat mode', () => {
       render(<MessageList messages={groupMessages} />);
 
-      // Without group chat mode, each message is a separate row
       const messageItems = screen.getAllByTestId('message-item');
       expect(messageItems).toHaveLength(4);
     });
@@ -512,7 +503,6 @@ describe('MessageList', () => {
         />
       );
 
-      // Both alice messages should be visible
       expect(screen.getByText('Hello from Alice')).toBeInTheDocument();
       expect(screen.getByText('Second from Alice')).toBeInTheDocument();
     });
@@ -554,7 +544,6 @@ describe('MessageList', () => {
         atBottom: boolean
       ) => void;
 
-      // User scrolls away
       atBottomStateChange(false);
 
       // Even if Virtuoso reports isAtBottom=true (e.g. smooth scroll animation),
@@ -572,11 +561,9 @@ describe('MessageList', () => {
       ) => void;
       const isScrolling = capturedVirtuosoProps['isScrolling'] as (scrolling: boolean) => void;
 
-      // User scrolls away
       atBottomStateChange(false);
       expect(followOutput(true)).toBe(false);
 
-      // User actively scrolls back to bottom
       isScrolling(true);
       atBottomStateChange(true);
       isScrolling(false);
@@ -592,7 +579,6 @@ describe('MessageList', () => {
         atBottom: boolean
       ) => void;
 
-      // User scrolls away
       atBottomStateChange(false);
       expect(followOutput(true)).toBe(false);
 
@@ -619,11 +605,9 @@ describe('MessageList', () => {
         atBottom: boolean
       ) => void;
 
-      // User scrolls away
       atBottomStateChange(false);
       expect(followOutput(true)).toBe(false);
 
-      // Parent resets breakaway (e.g. user sent a message)
       ref.current?.resetScrollBreakaway();
       expect(followOutput(true)).toBe(true);
     });

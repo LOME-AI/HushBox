@@ -6,10 +6,6 @@ import {
 } from './resolve-billing.js';
 import { MAX_ALLOWED_NEGATIVE_BALANCE_CENTS, MAX_TRIAL_MESSAGE_COST_CENTS } from './constants.js';
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
 /** Build a personal (non-group) input with sensible defaults */
 function personalInput(overrides: Partial<ResolveBillingInput> = {}): ResolveBillingInput {
   return {
@@ -43,15 +39,7 @@ function groupInput(
   };
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
-
 describe('resolveBilling', () => {
-  // --------------------------------------------------------------------------
-  // Personal: Happy Paths
-  // --------------------------------------------------------------------------
-
   describe('personal: happy paths', () => {
     it('returns personal_balance for paid tier with sufficient balance and non-premium model', () => {
       const result = resolveBilling(
@@ -137,10 +125,6 @@ describe('resolveBilling', () => {
       expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'owner_balance' });
     });
   });
-
-  // --------------------------------------------------------------------------
-  // Personal: Denials
-  // --------------------------------------------------------------------------
 
   describe('personal: denials', () => {
     it('denies free tier user attempting premium model', () => {
@@ -278,10 +262,6 @@ describe('resolveBilling', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
-  // Group: Paths
-  // --------------------------------------------------------------------------
-
   describe('group paths', () => {
     it('returns owner_balance when group has budget and owner can afford non-premium', () => {
       const result = resolveBilling(
@@ -377,10 +357,6 @@ describe('resolveBilling', () => {
       expect(result).toEqual<ResolveBillingResult>({ fundingSource: 'personal_balance' });
     });
   });
-
-  // --------------------------------------------------------------------------
-  // Edge Cases
-  // --------------------------------------------------------------------------
 
   describe('edge cases', () => {
     it('paid tier with zero balance: cushion covers cheap messages', () => {

@@ -13,10 +13,6 @@ import { ERROR_CODE_FORK_TIP_CONFLICT, ERROR_CODE_INVALID_PARENT_MESSAGE } from 
 import { chargeForUsage, chargeForMediaGeneration } from '../billing/transaction-writer.js';
 import { updateGroupSpending } from '../billing/budgets.js';
 
-// ============================================================================
-// Parent Message Validation
-// ============================================================================
-
 export class InvalidParentMessageError extends Error {
   constructor(
     public readonly code: string,
@@ -69,10 +65,6 @@ export async function validateParentMessageId(
   }
 }
 
-// ============================================================================
-// Sequence Number Assignment
-// ============================================================================
-
 export interface AssignSequenceNumbersResult {
   sequences: number[];
   currentEpoch: number;
@@ -114,10 +106,6 @@ export async function assignSequenceNumbers(
   return { sequences, currentEpoch: updated.currentEpoch };
 }
 
-// ============================================================================
-// Epoch Public Key Fetch
-// ============================================================================
-
 export interface EpochKeyResult {
   epochPublicKey: Uint8Array;
   epochNumber: number;
@@ -146,10 +134,6 @@ export async function fetchEpochPublicKey(
 
   return { epochPublicKey: epoch.epochPublicKey, epochNumber: currentEpoch };
 }
-
-// ============================================================================
-// Envelope Message Insertion (wrap-once)
-// ============================================================================
 
 export interface InsertEnvelopeTextMessageParams {
   id: string;
@@ -240,10 +224,6 @@ export async function insertEnvelopeTextMessage(
   };
 }
 
-// ============================================================================
-// Billing: Charge and Track Usage
-// ============================================================================
-
 export interface ChargeAndTrackUsageParams {
   userId: string;
   cost: string;
@@ -289,10 +269,6 @@ export async function chargeAndTrackUsage(
 
   return { usageRecordId: chargeResult.usageRecordId };
 }
-
-// ============================================================================
-// Envelope Media Message Insertion
-// ============================================================================
 
 export type MediaContentType = 'image' | 'audio' | 'video';
 
@@ -408,10 +384,6 @@ export async function insertEnvelopeMediaMessage(
   return { wrappedContentKey, contentItems: insertedItems };
 }
 
-// ============================================================================
-// Billing: Charge and Track Media Usage
-// ============================================================================
-
 export interface ChargeAndTrackMediaUsageParams {
   userId: string;
   cost: string;
@@ -460,10 +432,6 @@ export async function chargeAndTrackMediaUsage(
   return { usageRecordId: chargeResult.usageRecordId };
 }
 
-// ============================================================================
-// Resolve Parent Message ID
-// ============================================================================
-
 /**
  * Resolves the parentMessageId for a new user message.
  *
@@ -492,10 +460,6 @@ export async function resolveParentMessageId(
     .limit(1);
   return lastMsg?.id ?? null;
 }
-
-// ============================================================================
-// Fork Tip Update
-// ============================================================================
 
 export class ForkTipConflictError extends Error {
   constructor(

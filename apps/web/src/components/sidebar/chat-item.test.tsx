@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { useUIStore } from '@/stores/ui';
 import { ChatItem } from './chat-item';
 
-// Mock Link component
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,
@@ -31,7 +30,6 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-// Mock crypto — encryptTextForEpoch returns a known Uint8Array
 const MOCK_ENCRYPTED_BYTES = new Uint8Array([1, 2, 3, 4]);
 vi.mock('@hushbox/crypto', () => ({
   encryptTextForEpoch: vi.fn(() => MOCK_ENCRYPTED_BYTES),
@@ -46,13 +44,11 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
   };
 });
 
-// Mock epoch-key-cache — return a fake epoch private key
 const MOCK_EPOCH_KEY = new Uint8Array([99, 88, 77]);
 vi.mock('@/lib/epoch-key-cache', () => ({
   getEpochKey: vi.fn(() => MOCK_EPOCH_KEY),
 }));
 
-// Mock chat hooks
 const mockDeleteMutate = vi.fn();
 const mockUpdateMutate = vi.fn();
 
@@ -68,7 +64,6 @@ vi.mock('@/hooks/chat', () => ({
   DECRYPTING_TITLE: 'Decrypting...',
 }));
 
-// Mock leave conversation hook
 const mockLeaveMutate = vi.fn();
 const mockMuteMutate = vi.fn();
 const mockPinMutate = vi.fn();
@@ -145,7 +140,6 @@ describe('ChatItem', () => {
     it('highlights when active', () => {
       render(<ChatItem conversation={mockConversation} isActive />);
       const link = screen.getByTestId('chat-link');
-      // The active styling is on the parent wrapper div, not the link
       expect(link.parentElement).toHaveClass('bg-sidebar-border');
     });
   });
@@ -190,7 +184,6 @@ describe('ChatItem', () => {
       const moreButton = screen.getByTestId('chat-item-more-button');
       await user.click(moreButton);
 
-      // Dropdown should be open, link navigation should not have occurred
       expect(screen.getByText('Rename')).toBeInTheDocument();
     });
   });

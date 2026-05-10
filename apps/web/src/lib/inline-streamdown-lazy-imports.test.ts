@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { transformStreamdownSource } from './inline-streamdown-lazy-imports';
 
-// Real patterns extracted from streamdown@2.4.0 dist/chunk-FRKYWMV7.js
 const LAZY_CODE_BLOCK = `lazy(()=>import('./highlighted-body-TPN3WLV5.js').then(e=>({default:e.HighlightedCodeBlockBody})))`;
 const LAZY_MERMAID = `lazy(()=>import('./mermaid-O7DHMXV3.js').then(e=>({default:e.Mermaid})))`;
 

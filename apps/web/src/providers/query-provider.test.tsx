@@ -27,8 +27,6 @@ vi.mock('@/lib/env', () => ({
   env: { isLocalDev: true },
 }));
 
-// Test component that uses useQuery to verify context is available
-
 function TestQueryConsumer(): React.ReactNode {
   const { isLoading } = useQuery({
     queryKey: ['test'],

@@ -305,10 +305,6 @@ describe('collectMultiModelStreams', () => {
   });
 });
 
-// ============================================================================
-// Media stream helpers
-// ============================================================================
-
 function createMediaStream(
   mediaBytes: Uint8Array,
   mimeType: string,
@@ -444,11 +440,6 @@ describe('collectMultiMediaModelStreams', () => {
     expect(errorEvents).toHaveLength(1);
   });
 });
-
-// ============================================================================
-// collectSingleSlot — shared per-slot text collector (used by multi-stream
-// fan-out and the single-model regenerate path).
-// ============================================================================
 
 describe('collectSingleSlot', () => {
   it('returns content, generationId, and null error on success', async () => {
@@ -661,7 +652,6 @@ describe('collectSingleSlot', () => {
     });
 
     expect(result.error).toBeNull();
-    // Just verify no exception and the basic SSE writes still happen.
     expect(writer.events.filter((e) => e.method === 'writeModelToken')).toHaveLength(1);
   });
 });

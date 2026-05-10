@@ -3,10 +3,6 @@ import type { ResolveBillingInput } from '@hushbox/shared';
 import { buildBillingInput, buildGuestBillingInput } from './resolve.js';
 import type { AIClient } from '../ai/index.js';
 
-// ============================================================================
-// Mocks
-// ============================================================================
-
 vi.mock('./balance.js', () => ({
   getUserTierInfo: vi.fn(),
 }));
@@ -25,7 +21,6 @@ vi.mock('./budgets.js', () => ({
   computeGroupRemaining: vi.fn(),
 }));
 
-// Import mocks after vi.mock
 import { processModels } from '@hushbox/shared/models';
 import { getReservedTotal, getGroupReservedTotals } from '../../lib/speculative-balance.js';
 import { getUserTierInfo } from './balance.js';
@@ -43,13 +38,8 @@ const stubAIClient = {
   listRawModels: mockListRawModels,
 } as unknown as AIClient;
 
-// Minimal mock objects
 const mockDb = {} as Parameters<typeof buildBillingInput>[0];
 const mockRedis = {} as Parameters<typeof buildBillingInput>[1];
-
-// ============================================================================
-// Helper: set up default mocks for personal path
-// ============================================================================
 
 function setupPersonalMocks(overrides: {
   tier?: 'paid' | 'free' | 'trial' | 'guest';
@@ -76,10 +66,6 @@ function setupPersonalMocks(overrides: {
   mockListRawModels.mockResolvedValue([]);
   mockProcessModels.mockReturnValue({ models: [], premiumIds });
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 describe('buildBillingInput', () => {
   beforeEach(() => {
@@ -619,10 +605,6 @@ describe('buildBillingInput', () => {
     });
   });
 });
-
-// ============================================================================
-// buildGuestBillingInput
-// ============================================================================
 
 function setupGuestMocks(overrides: {
   ownerTier?: 'paid' | 'free';

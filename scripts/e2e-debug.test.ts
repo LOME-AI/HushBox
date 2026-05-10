@@ -553,7 +553,6 @@ describe('e2e-debug', () => {
       suites: [],
     });
 
-    // Helper to create a spec with the new nested structure
     const createSpec = (
       title: string,
       file: string,
@@ -564,14 +563,12 @@ describe('e2e-debug', () => {
       tests,
     });
 
-    // Helper to create a test with results array
     const createTest = (projectName: string, results: PlaywrightTestResult[]): PlaywrightTest => ({
       projectName,
       status: 'expected',
       results,
     });
 
-    // Helper to create a test result
     const createResult = (overrides: Partial<PlaywrightTestResult> = {}): PlaywrightTestResult => ({
       status: 'passed',
       retry: 0,
@@ -1021,7 +1018,6 @@ describe('e2e-debug', () => {
 
       const md = generateMarkdownReport(report);
 
-      // chat.spec.ts should appear once as a heading, with both tests under it
       const chatHeadingCount = (md.match(/### `e2e\/chat\/chat\.spec\.ts`/g) ?? []).length;
       expect(chatHeadingCount).toBe(1);
       expect(md).toContain('#### test A [chromium]');

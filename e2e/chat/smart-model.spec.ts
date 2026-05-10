@@ -117,19 +117,15 @@ test.describe('Smart Model', () => {
     await expect(initialAssistant.getByTestId('smart-model-chip')).toBeVisible();
     await expect(initialAssistant.getByTestId('model-nametag')).toContainText(SONNET_MODEL_NAME);
 
-    // Now swap the classifier resolution before regenerate.
     const setOpus = await authenticatedPage.request.post(
       `${apiUrl}/api/dev/classifier-resolution`,
       { data: { modelId: OPUS_MODEL_ID } }
     );
     expect(setOpus.ok()).toBe(true);
 
-    // Trigger regeneration on the assistant message (index 1).
     await chatPage.clickRegenerate(1);
     await chatPage.waitForStreamComplete();
 
-    // After regeneration, the latest assistant response still shows the Smart
-    // chip AND the nametag reflects the new classifier resolution (Opus).
     const refreshedAssistant = chatPage.messageList.locator('[data-role="assistant"]').last();
     await expect(refreshedAssistant.getByTestId('smart-model-chip')).toBeVisible();
     await expect(refreshedAssistant.locator('[data-testid="message-cost"]').first()).toBeVisible();
@@ -221,7 +217,6 @@ test.describe('Smart Model', () => {
   }) => {
     test.slow();
 
-    // Force classifier failure for this test only.
     const failureResponse = await authenticatedPage.request.post(
       `${apiUrl}/api/dev/classifier-failure`,
       { data: { enabled: true } }
@@ -332,7 +327,6 @@ test.describe('Smart Model', () => {
       await chatPage.confirmModelSelection();
     });
 
-    // Type a prompt; the budget banner ought to render before/while typing.
     await chatPage.promptInput.fill(`Smart Model insufficient ${String(Date.now())}`);
 
     // budget-messages renders the friendly insufficient-balance string from

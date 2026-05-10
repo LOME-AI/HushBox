@@ -3,7 +3,6 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { redirect } from '@tanstack/react-router';
 import { authClient } from '@/lib/auth';
 
-// Mock TanStack Router
 const redirectError = new Error('REDIRECT');
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: vi.fn(() => (config: { beforeLoad?: () => Promise<void> }) => config),
@@ -18,7 +17,6 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }));
 
-// Mock auth client
 vi.mock('@/lib/auth', () => ({
   authClient: {
     getSession: vi.fn(),

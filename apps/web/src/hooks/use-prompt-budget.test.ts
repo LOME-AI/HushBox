@@ -8,7 +8,6 @@ import {
 } from '@hushbox/shared';
 import { usePromptBudget } from './use-prompt-budget';
 
-// Hoisted mock factories
 const {
   mockUseBudgetCalculation,
   mockUseConversationBudgets,

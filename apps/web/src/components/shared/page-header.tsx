@@ -67,7 +67,6 @@ export function PageHeader({
         className="grid h-full content-center items-center gap-y-0.5"
         style={gridStyles[rows]}
       >
-        {/* Left: hamburger (mobile) + title + custom left content */}
         <div
           ref={leftRef}
           className={cn(
@@ -89,7 +88,6 @@ export function PageHeader({
           {left}
         </div>
 
-        {/* Center content */}
         <div
           ref={centerRef}
           className="inline-flex justify-self-center"
@@ -98,7 +96,6 @@ export function PageHeader({
           {center}
         </div>
 
-        {/* Right content */}
         <div
           ref={rightRef}
           className={cn(

@@ -3,10 +3,6 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, type ReactNode } from 'react';
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 vi.mock('@/lib/api-client', () => ({
   client: {
     api: {
@@ -42,10 +38,6 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
     fromBase64: (b64: string) => mockFromBase64(b64),
   };
 });
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
   const queryClient = new QueryClient({
@@ -105,10 +97,6 @@ function sharePayload(overrides: SharePayloadOverrides = {}): Record<string, unk
     createdAt: overrides.createdAt ?? '2026-01-15T10:00:00Z',
   };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('useSharedMessage', () => {
   beforeEach(() => {
@@ -201,24 +189,20 @@ describe('useSharedMessage', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    // openShare called once with the shareSecret from the URL fragment
     expect(mockOpenShare).toHaveBeenCalledTimes(1);
     const [openSecret] = mockOpenShare.mock.calls[0] as [Uint8Array, Uint8Array];
     expect(openSecret).toBe(shareSecret);
 
-    // decryptTextWithContentKey called once per content item with the same contentKey
     expect(mockDecryptTextWithContentKey).toHaveBeenCalledTimes(3);
     const firstCallKey = mockDecryptTextWithContentKey.mock.calls[0]![0];
     expect(firstCallKey).toBe(contentKey);
 
-    // Structured output, ordered by `position`, using each item's decrypted text.
     expect(result.current.data?.createdAt).toBe('2026-02-01T00:00:00Z');
     expect(result.current.data?.contentItems).toEqual([
       { type: 'text', position: 0, content: 'first' },
       { type: 'text', position: 1, content: 'second' },
       { type: 'text', position: 2, content: 'third' },
     ]);
-    // contentKey exposed so downstream components can decrypt media with it.
     expect(result.current.data?.contentKey).toBe(contentKey);
   });
 
@@ -304,7 +288,6 @@ describe('useSharedMessage', () => {
         expiresAt: '2026-04-19T00:05:00.000Z',
       },
     ]);
-    // Text decrypt runs; media items are not symmetric-decrypted in the hook.
     expect(mockDecryptTextWithContentKey).toHaveBeenCalledTimes(1);
   });
 

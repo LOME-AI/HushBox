@@ -386,7 +386,6 @@ describe('Smart Model full DB persistence integration', () => {
       const setup = await createTestSetup(dbInstance);
       setupsToCleanup.push(setup);
 
-      // Phase 1 — classifier call
       const harness = await buildHarness(smartClient, 3);
       const classifierRequest = buildClassifierRequest(
         harness,
@@ -398,7 +397,6 @@ describe('Smart Model full DB persistence integration', () => {
       expect(resolvedId).not.toBeNull();
       expect(classifier.generationId).toBeDefined();
 
-      // Phase 2 — inference call on resolved model
       const inferenceSpec = await getCheapestTestModel(smartClient, 'text');
       if (inferenceSpec.parameters.kind !== 'text') throw new Error('expected text spec');
       const inferenceRequest: TextRequest = {
@@ -411,7 +409,6 @@ describe('Smart Model full DB persistence integration', () => {
       expect(inference.textContent.length).toBeGreaterThan(0);
       expect(inference.generationId).toBeDefined();
 
-      // Phase 3 — fetch real costs
       const [classifierStats, inferenceStats] = await Promise.all([
         smartClient.getGenerationStats(classifier.generationId!),
         smartClient.getGenerationStats(inference.generationId!),
@@ -419,7 +416,6 @@ describe('Smart Model full DB persistence integration', () => {
       expect(classifierStats.costUsd).toBeGreaterThan(0);
       expect(inferenceStats.costUsd).toBeGreaterThan(0);
 
-      // Phase 4 — persist via saveChatTurn with classifier as a pre-inference stage
       const userMsgId = crypto.randomUUID();
       const assistantMsgId = crypto.randomUUID();
       const inferenceCostDollars = applyFees(inferenceStats.costUsd);
@@ -512,7 +508,6 @@ describe('Smart Model full DB persistence integration', () => {
       const setup = await createTestSetup(dbInstance);
       setupsToCleanup.push(setup);
 
-      // Phase 1 — force the classifier to throw via the mock (mock-only API).
       const mockClassifierClient = createMockAIClient();
       mockClassifierClient.setClassifierFailure(new Error('upstream classifier exploded'));
 
@@ -547,7 +542,6 @@ describe('Smart Model full DB persistence integration', () => {
       const resolvedId = outcome.transformation.resolvedModelId;
       if (resolvedId === undefined) throw new Error('invariant: fallback must resolve a model id');
 
-      // Phase 2 — run inference via the integration client (mock locally, real in CI).
       const inferenceSpec = await getCheapestTestModel(smartClient, 'text');
       if (inferenceSpec.parameters.kind !== 'text') throw new Error('expected text spec');
       const inferenceRequest: TextRequest = {
@@ -560,11 +554,9 @@ describe('Smart Model full DB persistence integration', () => {
       expect(inference.textContent.length).toBeGreaterThan(0);
       expect(inference.generationId).toBeDefined();
 
-      // Phase 3 — fetch real cost (only inference is billable; classifier threw).
       const inferenceStats = await smartClient.getGenerationStats(inference.generationId!);
       expect(inferenceStats.costUsd).toBeGreaterThan(0);
 
-      // Phase 4 — persist via saveChatTurn with NO preInferenceBillings.
       // billing: null from the throw-fallback ⇒ persistence writes only the
       // inference row. The slot is still a Smart Model slot (isSmartModel=true)
       // and the resolved model id is what gets stored on content_items.

@@ -37,6 +37,7 @@ import {
   recordBillingMismatchIfExceeded,
 } from '../services/billing/index.js';
 import { buildAIMessages, saveChatTurn } from '../services/chat/index.js';
+import { treeActionUserMessageId, type TreeAction } from '../services/chat/tree-action.js';
 import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createEvidenceConfig } from './evidence-config.js';
 import { executePreInferenceChain, resolveStagesForSlot } from './pre-inference/index.js';
@@ -54,6 +55,8 @@ import {
   reserveMediaBilling,
 } from './billing-reservation.js';
 import { safeExecutionCtx } from './safe-execution-ctx.js';
+import { fireAndForget } from './fire-and-forget.js';
+import { getPushClient, sendPushForNewMessage } from '../services/push/index.js';
 import { buildGroupBillingContext } from './billing-types.js';
 import type { Context } from 'hono';
 import type { EvidenceConfig } from '@hushbox/db';
@@ -101,10 +104,6 @@ export type {
   VideoBillingValidationSuccess,
 } from './billing-types.js';
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
 function createAssistantIdLookup(models: string[]): (modelId: string) => string {
   const idMap = new Map<string, string>();
   for (const m of models) {
@@ -116,10 +115,6 @@ function createAssistantIdLookup(models: string[]): (modelId: string) => string 
     return id;
   };
 }
-
-// ============================================================================
-// Types
-// ============================================================================
 
 export interface MessageForInference {
   role: 'user' | 'assistant' | 'system';
@@ -184,10 +179,6 @@ export interface StreamResult {
 type SSEEventWriter = ReturnType<typeof createSSEEventWriter>;
 
 export const BATCH_INTERVAL_MS = 100;
-
-// ============================================================================
-// Utility Functions
-// ============================================================================
 
 export function lookupModelPricing(
   models: RawModel[],
@@ -341,7 +332,6 @@ export async function handleBillingResult(
 ): Promise<SaveChatTurnResult | null> {
   const { c, billingPromise, assistantMessageId, userId, senderId, model, generationId } = options;
 
-  // Ensure billing completes even if client disconnects (Workers only)
   try {
     // eslint-disable-next-line promise/prefer-await-to-then -- waitUntil requires a non-awaited promise; catch prevents unhandled rejection
     c.executionCtx.waitUntil(billingPromise.catch(() => null));
@@ -450,18 +440,16 @@ export async function broadcastAndFinish(options: BroadcastAndFinishOptions): Pr
   await writer.writeDone({
     userMessageId,
     assistantMessageId,
-    userSequence: billingResult.userSequence,
+    ...(billingResult.userSequence !== undefined && { userSequence: billingResult.userSequence }),
     aiSequence: billingResult.aiSequence,
     epochNumber: billingResult.epochNumber,
     cost: billingResult.cost,
-    userEnvelope: serializeEnvelope(billingResult.userEnvelope),
+    ...(billingResult.userEnvelope !== undefined && {
+      userEnvelope: serializeEnvelope(billingResult.userEnvelope),
+    }),
     models: billingResult.assistantResults.map((r) => serializeAssistantResult(r)),
   });
 }
-
-// ============================================================================
-// resolveAndReserveBilling
-// ============================================================================
 
 export interface ResolveAndReserveBillingInput {
   billingResult: BuildBillingResult;
@@ -498,25 +486,18 @@ export async function resolveAndReserveBilling(
   } = input;
   const redis = c.get('redis');
 
-  // 1. Fetch models for pricing (in-memory cached with TTL)
   const gatewayModels = await c.var.aiClient.listRawModels();
   const allPricing = models.map((m) => lookupModelPricing(gatewayModels, m));
 
-  // 1b. Resolve web search cost — pre-flight worst case (per the search-cap
-  // reservation policy). Sum the worst case across all models so multi-model
-  // turns reserve enough to cover the search cap once per model. Gateway's
-  // post-inference `totalCost` already includes actual search usage.
   let webSearchCostDollars = 0;
   if (input.webSearchEnabled) {
     webSearchCostDollars = worstCaseSearchCost() * models.length;
   }
 
-  // 2. Character count for budget computation
   const systemPromptForBudget = buildSystemPrompt([], input.customInstructions);
   const historyCharacters = messagesForInference.reduce((sum, m) => sum + m.content.length, 0);
   const promptCharacterCount = systemPromptForBudget.length + historyCharacters;
 
-  // 3. Compute estimated minimum cost via CostManifest (single source of truth)
   const minCostManifest = buildCostManifest({
     tier: billingResult.input.tier,
     promptCharacterCount,
@@ -529,9 +510,6 @@ export async function resolveAndReserveBilling(
   const estimatedMinimumCostCents =
     calculateBudgetFromManifest(minCostManifest, 0).estimatedMinimumCost * 100;
 
-  // 4-5. Funding-source decision (denial → 402, mismatch → 409, otherwise
-  //      resolved fundingSource + payerTier + isGroupBilling). Shared with
-  //      every media reservation flavor; see billing-reservation.ts.
   const decision = decideFundingSource({
     c,
     billingResult,
@@ -542,10 +520,6 @@ export async function resolveAndReserveBilling(
   if (!decision.success) return decision;
   const { fundingSource: resolvedFundingSource, isGroupBilling, payerTier } = decision;
 
-  // 6. Resolve effective payer — determines balance, tier, and free allowance
-  //    for all downstream steps (Smart Model filtering, budget, reservation).
-  //    For group billing, constrain by group budget limits so the worst-case
-  //    reservation doesn't exceed conversation/member budgets.
   const group = billingResult.input.group;
   const rawPayerBalanceCents =
     isGroupBilling && group ? group.ownerBalanceCents : billingResult.input.balanceCents;
@@ -633,7 +607,6 @@ export async function resolveAndReserveBilling(
     };
   }
 
-  // 8. Compute budget for maxOutputTokens based on payer
   const budgetResult = calculateBudget({
     tier: payerTier,
     balanceCents: payerBalanceCents,
@@ -697,10 +670,6 @@ export async function resolveAndReserveBilling(
   };
 }
 
-// ============================================================================
-// resolveAndReserveImageBilling
-// ============================================================================
-
 export interface ResolveAndReserveImageBillingInput {
   billingResult: BuildBillingResult;
   userId: string;
@@ -761,10 +730,6 @@ export async function resolveAndReserveImageBilling(
   };
 }
 
-// ============================================================================
-// resolveAndReserveVideoBilling
-// ============================================================================
-
 export interface ResolveAndReserveVideoBillingInput {
   billingResult: BuildBillingResult;
   userId: string;
@@ -817,15 +782,11 @@ export async function resolveAndReserveVideoBilling(
   };
 }
 
-// ============================================================================
-// executeStreamPipeline
-// ============================================================================
-
 export interface StreamPipelineInput {
   c: Context<AppEnv>;
   conversationId: string;
   models: string[];
-  userMessage: { id: string; content: string };
+  treeAction: TreeAction;
   messagesForInference: MessageForInference[];
   billingValidation: BillingValidationSuccess;
   memberContext?: MemberContext;
@@ -834,7 +795,6 @@ export interface StreamPipelineInput {
   releaseReservation: () => Promise<void>;
   senderId: string;
   forkId?: string;
-  parentMessageId: string | null;
 }
 
 /**
@@ -1258,7 +1218,7 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
     c,
     conversationId,
     models,
-    userMessage,
+    treeAction,
     messagesForInference,
     billingValidation,
     memberContext,
@@ -1267,13 +1227,13 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
     releaseReservation,
     senderId,
     forkId,
-    parentMessageId,
   } = input;
   const { safeMaxTokens, billingUserId, smartModelResolution } = billingValidation;
   const model = models[0];
   if (!model) throw new Error('invariant: models must have at least one entry');
   const db = c.get('db');
   const aiClient = c.get('aiClient');
+  const userMessageId = treeActionUserMessageId(treeAction);
 
   const getAssistantId = createAssistantIdLookup(models);
 
@@ -1287,20 +1247,24 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
   const lastInferenceMessage = messagesForInference.at(-1);
   const conversationContext = extractConversationContextForClassifier(messagesForInference);
 
-  // Early broadcast: notify other group members of user's message
-  const lastContent = lastInferenceMessage?.content ?? '';
-  broadcastFireAndForget(
-    c.env,
-    conversationId,
-    createEvent('message:new', {
-      messageId: userMessage.id,
+  // Regenerate / edit don't broadcast `message:new` — the user message
+  // already exists (regenerate) or the client optimistically prunes and
+  // re-renders (edit). Group viewers learn about it via `message:complete`.
+  if (treeAction.kind === 'fresh-send') {
+    const lastContent = lastInferenceMessage?.content ?? '';
+    broadcastFireAndForget(
+      c.env,
       conversationId,
-      senderType: 'user',
-      senderId,
-      content: lastContent,
-    }),
-    safeExecutionCtx(c)
-  );
+      createEvent('message:new', {
+        messageId: userMessageId,
+        conversationId,
+        senderType: 'user',
+        senderId,
+        content: lastContent,
+      }),
+      safeExecutionCtx(c)
+    );
+  }
 
   return streamSSE(c, async (stream) => {
     const writer = createSSEEventWriter(stream);
@@ -1318,10 +1282,10 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
         aiClient,
         db,
         c,
-        userMessage,
+        treeAction,
+        userMessageId,
         billingValidation,
         memberContext,
-        parentMessageId,
         forkId,
         senderId,
         conversationId,
@@ -1347,10 +1311,11 @@ interface RunStreamingTurnArgs {
   aiClient: AIClient;
   db: AppEnv['Variables']['db'];
   c: Context<AppEnv>;
-  userMessage: { id: string; content: string };
+  treeAction: TreeAction;
+  /** Pre-resolved from {@link treeAction} so the helpers don't re-derive it. */
+  userMessageId: string;
   billingValidation: BillingValidationSuccess;
   memberContext: MemberContext | undefined;
-  parentMessageId: string | null;
   forkId: string | undefined;
   senderId: string;
   conversationId: string;
@@ -1365,10 +1330,10 @@ interface RunStreamingTurnArgs {
  * collection, persistence, and broadcast.
  */
 async function runStreamingTurn(args: RunStreamingTurnArgs): Promise<void> {
-  const { writer, models, getAssistantId, userMessage } = args;
+  const { writer, models, getAssistantId, userMessageId } = args;
 
   await writer.writeStart({
-    userMessageId: userMessage.id,
+    userMessageId,
     models: models.map((modelId) => ({
       modelId,
       assistantMessageId: getAssistantId(modelId),
@@ -1450,14 +1415,12 @@ async function persistAndBroadcastTurn(args: PersistAndBroadcastArgs): Promise<v
     args.billingValidation.groupBudget
   );
   const billingPromise = saveChatTurn(args.db, {
-    userMessageId: args.userMessage.id,
-    userContent: args.userMessage.content,
+    treeAction: args.treeAction,
     conversationId: args.conversationId,
     userId: args.billingUserId,
     senderId: args.senderId,
     assistantMessages,
     ...(groupBillingContext !== undefined && { groupBillingContext }),
-    parentMessageId: args.parentMessageId,
     ...(args.forkId !== undefined && { forkId: args.forkId }),
   });
 
@@ -1488,7 +1451,7 @@ async function persistAndBroadcastTurn(args: PersistAndBroadcastArgs): Promise<v
   await broadcastAndFinish({
     c: args.c,
     conversationId: args.conversationId,
-    userMessageId: args.userMessage.id,
+    userMessageId: args.userMessageId,
     assistantMessageId: args.getAssistantId(args.primaryModel),
     billingResult,
     writer: args.writer,
@@ -1509,24 +1472,32 @@ async function persistAndBroadcastTurn(args: PersistAndBroadcastArgs): Promise<v
       })
     );
   }
-}
 
-// ============================================================================
-// executeImagePipeline
-// ============================================================================
+  fireAndForget(
+    sendPushForNewMessage({
+      db: args.db,
+      pushClient: getPushClient(args.c.env),
+      conversationId: args.conversationId,
+      senderUserId: args.senderId,
+      title: 'New Message',
+      body: 'You have a new message',
+    }),
+    'send push notifications for AI response',
+    safeExecutionCtx(args.c)
+  );
+}
 
 export interface ImagePipelineInput {
   c: Context<AppEnv>;
   conversationId: string;
   models: string[];
-  userMessage: { id: string; content: string };
+  treeAction: TreeAction;
   prompt: string;
   imageBilling: ImageBillingValidationSuccess;
   memberContext?: MemberContext;
   releaseReservation: () => Promise<void>;
   senderId: string;
   forkId?: string;
-  parentMessageId: string | null;
   aspectRatio?: string;
 }
 
@@ -1565,14 +1536,13 @@ export function executeImagePipeline(input: ImagePipelineInput): Response {
     c,
     conversationId,
     models,
-    userMessage,
+    treeAction,
     prompt,
     imageBilling,
     memberContext,
     releaseReservation,
     senderId,
     forkId,
-    parentMessageId,
     aspectRatio,
   } = input;
 
@@ -1581,7 +1551,7 @@ export function executeImagePipeline(input: ImagePipelineInput): Response {
     c,
     conversationId,
     models,
-    userMessage,
+    treeAction,
     prompt,
     billingUserId: imageBilling.billingUserId,
     groupBudget: imageBilling.groupBudget,
@@ -1589,7 +1559,6 @@ export function executeImagePipeline(input: ImagePipelineInput): Response {
     releaseReservation,
     senderId,
     forkId,
-    parentMessageId,
     mediaType: imageStrategy.modality,
     pricingFor: (modelId, result) => imageStrategy.pricingFor(modelId, result, imageBilling),
     buildRequest: (modelId): ImageRequest =>
@@ -1605,22 +1574,17 @@ export function executeImagePipeline(input: ImagePipelineInput): Response {
   });
 }
 
-// ============================================================================
-// executeVideoPipeline
-// ============================================================================
-
 export interface VideoPipelineInput {
   c: Context<AppEnv>;
   conversationId: string;
   models: string[];
-  userMessage: { id: string; content: string };
+  treeAction: TreeAction;
   prompt: string;
   videoBilling: VideoBillingValidationSuccess;
   memberContext?: MemberContext;
   releaseReservation: () => Promise<void>;
   senderId: string;
   forkId?: string;
-  parentMessageId: string | null;
   aspectRatio: string;
 }
 
@@ -1633,14 +1597,13 @@ export function executeVideoPipeline(input: VideoPipelineInput): Response {
     c,
     conversationId,
     models,
-    userMessage,
+    treeAction,
     prompt,
     videoBilling,
     memberContext,
     releaseReservation,
     senderId,
     forkId,
-    parentMessageId,
     aspectRatio,
   } = input;
 
@@ -1649,7 +1612,7 @@ export function executeVideoPipeline(input: VideoPipelineInput): Response {
     c,
     conversationId,
     models,
-    userMessage,
+    treeAction,
     prompt,
     billingUserId: videoBilling.billingUserId,
     groupBudget: videoBilling.groupBudget,
@@ -1657,7 +1620,6 @@ export function executeVideoPipeline(input: VideoPipelineInput): Response {
     releaseReservation,
     senderId,
     forkId,
-    parentMessageId,
     mediaType: videoStrategy.modality,
     pricingFor: (modelId, result) => videoStrategy.pricingFor(modelId, result, videoBilling),
     buildRequest: (modelId): VideoRequest =>
@@ -1669,10 +1631,6 @@ export function executeVideoPipeline(input: VideoPipelineInput): Response {
     noContentErrorMessage: videoStrategy.noContentErrorMessage,
   });
 }
-
-// ============================================================================
-// resolveAndReserveAudioBilling
-// ============================================================================
 
 export interface ResolveAndReserveAudioBillingInput {
   billingResult: BuildBillingResult;
@@ -1731,22 +1689,17 @@ export async function resolveAndReserveAudioBilling(
   };
 }
 
-// ============================================================================
-// executeAudioPipeline
-// ============================================================================
-
 export interface AudioPipelineInput {
   c: Context<AppEnv>;
   conversationId: string;
   models: string[];
-  userMessage: { id: string; content: string };
+  treeAction: TreeAction;
   prompt: string;
   audioBilling: AudioBillingValidationSuccess;
   memberContext?: MemberContext;
   releaseReservation: () => Promise<void>;
   senderId: string;
   forkId?: string;
-  parentMessageId: string | null;
   format: 'mp3' | 'wav' | 'ogg';
   voice?: string;
 }
@@ -1764,14 +1717,13 @@ export function executeAudioPipeline(input: AudioPipelineInput): Response {
     c,
     conversationId,
     models,
-    userMessage,
+    treeAction,
     prompt,
     audioBilling,
     memberContext,
     releaseReservation,
     senderId,
     forkId,
-    parentMessageId,
     format,
     voice,
   } = input;
@@ -1781,7 +1733,7 @@ export function executeAudioPipeline(input: AudioPipelineInput): Response {
     c,
     conversationId,
     models,
-    userMessage,
+    treeAction,
     prompt,
     billingUserId: audioBilling.billingUserId,
     groupBudget: audioBilling.groupBudget,
@@ -1789,7 +1741,6 @@ export function executeAudioPipeline(input: AudioPipelineInput): Response {
     releaseReservation,
     senderId,
     forkId,
-    parentMessageId,
     mediaType: audioStrategy.modality,
     pricingFor: (modelId, result) => audioStrategy.pricingFor(modelId, result, audioBilling),
     buildRequest: (modelId): AudioRequest =>

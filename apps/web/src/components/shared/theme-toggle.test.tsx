@@ -3,7 +3,6 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeToggle } from './theme-toggle';
 
-// Mock the theme provider
 const mockTriggerTransition = vi.fn();
 vi.mock('@/providers/theme-provider', () => ({
   useTheme: () => ({
@@ -43,7 +42,6 @@ describe('ThemeToggle wrapper', () => {
     document.documentElement.classList.remove('dark');
     render(<ThemeToggle />);
     await user.click(screen.getByRole('button'));
-    // The wrapper uses onToggle, so default toggle behavior is skipped
     expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 });

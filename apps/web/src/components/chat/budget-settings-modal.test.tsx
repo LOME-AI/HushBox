@@ -191,7 +191,6 @@ describe('BudgetSettingsModal', () => {
 
     await userEvent.click(screen.getByTestId('budget-save-button'));
 
-    // Only mem-2 changed, not mem-1 or mem-3
     expect(mockMutateAsync).toHaveBeenCalledTimes(1);
     expect(mockMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ memberId: 'mem-2' }));
   });
@@ -396,7 +395,6 @@ describe('BudgetSettingsModal', () => {
     await userEvent.clear(input);
     await userEvent.type(input, '30.00');
 
-    // Focus the last input (mem-3) and press Enter to trigger submit
     const lastInput = screen.getByTestId('budget-input-mem-3');
     lastInput.focus();
 
@@ -427,7 +425,6 @@ describe('BudgetSettingsModal', () => {
 
     expect(screen.queryByText('Members')).not.toBeInTheDocument();
     expect(screen.queryByTestId('budget-total-allocated')).not.toBeInTheDocument();
-    // Conversation budget and total spent should still show
     expect(screen.getByTestId('budget-conversation-section')).toBeInTheDocument();
     expect(screen.getByTestId('budget-total-spent')).toBeInTheDocument();
   });

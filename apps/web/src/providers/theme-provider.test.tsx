@@ -8,7 +8,6 @@ vi.mock('@/capacitor/hooks/use-status-bar', () => ({
 
 import { ThemeProvider, useTheme } from './theme-provider';
 
-// Mock localStorage
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
   return {
@@ -29,7 +28,6 @@ const localStorageMock = (() => {
 
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 
-// Test component that uses the theme context
 function TestConsumer(): React.JSX.Element {
   const { mode, triggerTransition } = useTheme();
   return (
@@ -132,7 +130,6 @@ describe('ThemeProvider', () => {
 
     expect(screen.getByTestId('mode')).toHaveTextContent('light');
 
-    // Click toggle button
     fireEvent.click(screen.getByTestId('toggle'));
 
     // Since View Transitions API is not available in jsdom, it should toggle instantly

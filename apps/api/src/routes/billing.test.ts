@@ -16,7 +16,6 @@ import { createMockHelcimClient } from '../services/helcim/index.js';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
 
-// Response types for type-safe JSON parsing
 interface ErrorResponse {
   code: string;
 }
@@ -88,7 +87,6 @@ describe('billing routes', () => {
   const TEST_EMAIL = `test-billing-${testSuffix}@example.com`;
   const TEST_USERNAME = `tb_${testSuffix}`;
 
-  // Track created IDs for cleanup
   const createdPaymentIds: string[] = [];
   const createdLedgerEntryIds: string[] = [];
   let testWalletId: string;
@@ -100,7 +98,6 @@ describe('billing routes', () => {
       webhookVerifier: 'dGVzdC12ZXJpZmllcg==', // gitleaks:allow
     });
 
-    // Create test user using factory (provides all required bytea columns)
     const userData = userFactory.build({
       email: TEST_EMAIL,
       username: TEST_USERNAME,
@@ -123,10 +120,7 @@ describe('billing routes', () => {
     if (!createdWallet) throw new Error('Failed to create test wallet');
     testWalletId = createdWallet.id;
 
-    // Create the app with billing routes
     app = new Hono<AppEnv>();
-    // OPAQUE-MIGRATION: Remove X-Test-User-Id mock auth once OPAQUE auth is implemented (Phase 9)
-    // Currently using header-based auth mock because Better Auth is stubbed during migration
     app.use('*', async (c, next) => {
       c.set('db', db);
       c.set('helcim', helcimClient);
@@ -138,7 +132,6 @@ describe('billing routes', () => {
         isProduction: false,
         requiresRealServices: false,
       });
-      // Only set user/session when X-Test-User-Id header is present
       const testUserIdHeader = c.req.header('X-Test-User-Id');
       if (testUserIdHeader) {
         const sessionData: SessionData = {
@@ -184,7 +177,6 @@ describe('billing routes', () => {
       await db.delete(wallets).where(eq(wallets.id, testWalletId));
     }
 
-    // Clean up test user
     if (testUserId) {
       await db.delete(users).where(eq(users.id, testUserId));
     }
@@ -217,7 +209,6 @@ describe('billing routes', () => {
 
       expect(res.status).toBe(200);
       const data = (await res.json()) as BalanceResponse;
-      // Balance is returned with 8 decimal precision
       expect(Number.parseFloat(data.balance)).toBeGreaterThanOrEqual(0);
       expect(data.balance).toMatch(/^\d+(\.\d+)?$/);
     });
@@ -320,7 +311,6 @@ describe('billing routes', () => {
     });
 
     it('processes payment successfully with mock client', async () => {
-      // First create a payment
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
@@ -334,7 +324,6 @@ describe('billing routes', () => {
       const createData = (await createRes.json()) as CreatePaymentResponse;
       createdPaymentIds.push(createData.paymentId);
 
-      // Now process it
       const processRes = await app.request(`/billing/payments/${createData.paymentId}/process`, {
         method: 'POST',
         headers: {
@@ -352,13 +341,11 @@ describe('billing routes', () => {
     });
 
     it('rejects payment with declined card', async () => {
-      // Set mock to decline
       helcimClient.setNextResponse({
         status: 'declined',
         errorMessage: 'Card declined',
       });
 
-      // Create payment
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
@@ -371,7 +358,6 @@ describe('billing routes', () => {
       const createData = (await createRes.json()) as CreatePaymentResponse;
       createdPaymentIds.push(createData.paymentId);
 
-      // Process it - should fail
       const processRes = await app.request(`/billing/payments/${createData.paymentId}/process`, {
         method: 'POST',
         headers: {
@@ -385,7 +371,6 @@ describe('billing routes', () => {
       const errorData = (await processRes.json()) as ErrorResponse;
       expect(errorData.code).toBe('PAYMENT_DECLINED');
 
-      // Reset mock to approved for other tests
       helcimClient.setNextResponse({
         status: 'approved',
         transactionId: 'mock-txn',
@@ -484,7 +469,6 @@ describe('billing routes', () => {
     });
 
     it('rejects processing already processed payment', async () => {
-      // Create and process a payment
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
@@ -497,7 +481,6 @@ describe('billing routes', () => {
       const createData = (await createRes.json()) as CreatePaymentResponse;
       createdPaymentIds.push(createData.paymentId);
 
-      // First process
       await app.request(`/billing/payments/${createData.paymentId}/process`, {
         method: 'POST',
         headers: {
@@ -507,7 +490,6 @@ describe('billing routes', () => {
         body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
       });
 
-      // Try to process again
       const secondProcessRes = await app.request(
         `/billing/payments/${createData.paymentId}/process`,
         {
@@ -526,7 +508,6 @@ describe('billing routes', () => {
     });
 
     it('does not overwrite completed payment with failed status', async () => {
-      // Create payment
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
@@ -545,13 +526,11 @@ describe('billing routes', () => {
         .set({ status: 'completed', updatedAt: new Date() })
         .where(eq(payments.id, createData.paymentId));
 
-      // Set mock to decline
       helcimClient.setNextResponse({
         status: 'declined',
         errorMessage: 'Card declined',
       });
 
-      // Try to process - should not overwrite completed status
       const processRes = await app.request(`/billing/payments/${createData.paymentId}/process`, {
         method: 'POST',
         headers: {
@@ -561,17 +540,14 @@ describe('billing routes', () => {
         body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
       });
 
-      // Should reject because status is not 'pending'
       expect(processRes.status).toBe(400);
 
-      // Verify payment is still completed
       const [payment] = await db
         .select()
         .from(payments)
         .where(eq(payments.id, createData.paymentId));
       expect(payment?.status).toBe('completed');
 
-      // Reset mock
       helcimClient.setNextResponse({
         status: 'approved',
         transactionId: 'mock-txn',
@@ -581,7 +557,6 @@ describe('billing routes', () => {
     });
 
     it('does not overwrite completed payment with expired status', async () => {
-      // Create payment
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
@@ -605,7 +580,6 @@ describe('billing routes', () => {
         })
         .where(eq(payments.id, createData.paymentId));
 
-      // Try to process - should not overwrite completed with expired/failed
       const processRes = await app.request(`/billing/payments/${createData.paymentId}/process`, {
         method: 'POST',
         headers: {
@@ -615,10 +589,8 @@ describe('billing routes', () => {
         body: JSON.stringify({ cardToken: 'test-token', customerCode: 'CST1234' }),
       });
 
-      // Should reject because status is not 'pending'
       expect(processRes.status).toBe(400);
 
-      // Verify payment is still completed (not overwritten to 'failed')
       const [payment] = await db
         .select()
         .from(payments)
@@ -643,7 +615,6 @@ describe('billing routes', () => {
     });
 
     it('returns payment status', async () => {
-      // Create a payment
       const createRes = await app.request('/billing/payments', {
         method: 'POST',
         headers: {
@@ -656,7 +627,6 @@ describe('billing routes', () => {
       const createData = (await createRes.json()) as CreatePaymentResponse;
       createdPaymentIds.push(createData.paymentId);
 
-      // Get its status
       const statusRes = await app.request(`/billing/payments/${createData.paymentId}`, {
         headers: getAuthHeaders(testUserId),
       });
@@ -695,7 +665,6 @@ describe('billing routes', () => {
     });
 
     it('filters by type=deposit to return only deposits', async () => {
-      // Create a deposit ledger entry directly in DB
       const [depositEntry] = await db
         .insert(ledgerEntries)
         .values({
@@ -710,7 +679,6 @@ describe('billing routes', () => {
         createdLedgerEntryIds.push(depositEntry.id);
       }
 
-      // Create a usage_charge ledger entry directly in DB
       const [usageEntry] = await db
         .insert(ledgerEntries)
         .values({
@@ -725,7 +693,6 @@ describe('billing routes', () => {
         createdLedgerEntryIds.push(usageEntry.id);
       }
 
-      // Query with type=deposit
       const res = await app.request('/billing/transactions?type=deposit', {
         headers: getAuthHeaders(testUserId),
       });
@@ -733,7 +700,6 @@ describe('billing routes', () => {
       expect(res.status).toBe(200);
       const data = (await res.json()) as TransactionsResponse;
 
-      // All returned transactions should be deposits
       expect(data.transactions.length).toBeGreaterThan(0);
       for (const tx of data.transactions) {
         expect(tx.type).toBe('deposit');
@@ -741,7 +707,6 @@ describe('billing routes', () => {
     });
 
     it('filters by type=usage_charge to return only usage transactions', async () => {
-      // Create a usage_charge ledger entry directly in DB
       const [usageEntry] = await db
         .insert(ledgerEntries)
         .values({
@@ -756,7 +721,6 @@ describe('billing routes', () => {
         createdLedgerEntryIds.push(usageEntry.id);
       }
 
-      // Query with type=usage_charge
       const res = await app.request('/billing/transactions?type=usage_charge', {
         headers: getAuthHeaders(testUserId),
       });
@@ -764,7 +728,6 @@ describe('billing routes', () => {
       expect(res.status).toBe(200);
       const data = (await res.json()) as TransactionsResponse;
 
-      // All returned transactions should be usage_charge
       expect(data.transactions.length).toBeGreaterThan(0);
       for (const tx of data.transactions) {
         expect(tx.type).toBe('usage_charge');
@@ -772,7 +735,6 @@ describe('billing routes', () => {
     });
 
     it('returns all transaction types when no type filter is provided', async () => {
-      // Query without type filter
       const res = await app.request('/billing/transactions', {
         headers: getAuthHeaders(testUserId),
       });
@@ -780,13 +742,11 @@ describe('billing routes', () => {
       expect(res.status).toBe(200);
       const data = (await res.json()) as TransactionsResponse;
 
-      // Should have both deposit and usage transactions from previous tests
       const types = new Set(data.transactions.map((tx) => tx.type));
       expect(types.size).toBeGreaterThanOrEqual(1);
     });
 
     it('supports offset-based pagination with type filter', async () => {
-      // Query first page with type=deposit
       const firstPageRes = await app.request(
         '/billing/transactions?type=deposit&limit=2&offset=0',
         {
@@ -797,7 +757,6 @@ describe('billing routes', () => {
       expect(firstPageRes.status).toBe(200);
       const firstPage = (await firstPageRes.json()) as TransactionsResponse;
 
-      // Query second page
       const secondPageRes = await app.request(
         '/billing/transactions?type=deposit&limit=2&offset=2',
         {
@@ -808,7 +767,6 @@ describe('billing routes', () => {
       expect(secondPageRes.status).toBe(200);
       const secondPage = (await secondPageRes.json()) as TransactionsResponse;
 
-      // If there are transactions on both pages, they should be different
       if (firstPage.transactions.length > 0 && secondPage.transactions.length > 0) {
         const firstIds = firstPage.transactions.map((tx) => tx.id);
         const secondIds = new Set(secondPage.transactions.map((tx) => tx.id));
@@ -818,10 +776,6 @@ describe('billing routes', () => {
     });
   });
 });
-
-// ─── POST /billing/login-link ───────────────────────────────────────────────
-// Lightweight test setup — only needs Redis, no real DB
-// ─────────────────────────────────────────────────────────────────────────────
 
 interface LoginLinkResponse {
   token: string;

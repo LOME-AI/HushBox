@@ -48,7 +48,6 @@ export type { Bindings } from './types.js';
 export function createApp() {
   const base = new Hono<AppEnv>();
 
-  // Global middleware
   base.use('*', cors());
   base.use('*', securityHeaders());
   base.use('*', platformMiddleware());
@@ -56,7 +55,6 @@ export function createApp() {
   base.use('*', versionCheck());
   base.onError(errorHandler);
 
-  // Per-route middleware (all on base, before chaining)
   base.use('/api/auth/*', csrfProtection());
   base.use('/api/auth/*', dbMiddleware());
   base.use('/api/auth/*', redisMiddleware());
@@ -174,7 +172,6 @@ export function createApp() {
   base.use('/api/dev/*', redisMiddleware());
   base.use('/api/dev/*', aiClientMiddleware());
 
-  // Chain ALL routes for full AppType inference
   const app = base
     .route('/api/health', healthRoute)
     .route('/api/auth', opaqueAuthRoute)

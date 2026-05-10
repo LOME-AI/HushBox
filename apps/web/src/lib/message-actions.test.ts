@@ -137,8 +137,6 @@ describe('buildChatContext', () => {
 });
 
 describe('resolveMessageActions', () => {
-  // ─── Solo Chat ─────────────────────────────────────────────
-
   describe('solo chat', () => {
     const soloCtx: ChatContext = {
       mode: 'solo',
@@ -247,8 +245,6 @@ describe('resolveMessageActions', () => {
     });
   });
 
-  // ─── Group Chat (write+) ──────────────────────────────────
-
   describe('group chat (write privilege)', () => {
     const groupWriteCtx: ChatContext = {
       mode: 'group',
@@ -329,8 +325,6 @@ describe('resolveMessageActions', () => {
     });
   });
 
-  // ─── Group Chat (read) ────────────────────────────────────
-
   describe('group chat (read privilege)', () => {
     const groupReadCtx: ChatContext = {
       mode: 'group',
@@ -375,8 +369,6 @@ describe('resolveMessageActions', () => {
       expect(actions.size).toBe(0);
     });
   });
-
-  // ─── Trial Chat ────────────────────────────────────────────
 
   describe('trial chat', () => {
     const trialCtx: ChatContext = {
@@ -440,8 +432,6 @@ describe('resolveMessageActions', () => {
     });
   });
 
-  // ─── Link Guest (write) ───────────────────────────────────
-
   describe('link-guest (write privilege)', () => {
     const linkWriteCtx: ChatContext = {
       mode: 'link-guest',
@@ -483,8 +473,6 @@ describe('resolveMessageActions', () => {
       expect(actions.has('retry-error')).toBe(true);
     });
   });
-
-  // ─── Link Guest (read) ────────────────────────────────────
 
   describe('link-guest (read privilege)', () => {
     const linkReadCtx: ChatContext = {
@@ -530,8 +518,6 @@ describe('resolveMessageActions', () => {
       expect(actions.size).toBe(0);
     });
   });
-
-  // ─── Edge Cases ────────────────────────────────────────────
 
   describe('edge cases', () => {
     it('returns empty set for unknown privilege', () => {

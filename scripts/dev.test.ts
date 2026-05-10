@@ -228,10 +228,8 @@ describe('dev script', () => {
     it('continues startup when cleanup fails (non-fatal)', async () => {
       mockCleanup.mockRejectedValueOnce(new Error('git not found'));
 
-      // Should not throw — cleanup failure is caught
       await main();
 
-      // Docker should still have been called
       expect(mockExeca).toHaveBeenCalledWith(
         'docker',
         expect.arrayContaining(['compose', 'up']),
@@ -247,7 +245,6 @@ describe('dev script', () => {
 
       await expect(main()).rejects.toThrow('Docker failed');
 
-      // Should only have called docker, not migrations or turbo
       expect(mockExeca).toHaveBeenCalledTimes(1);
     });
 

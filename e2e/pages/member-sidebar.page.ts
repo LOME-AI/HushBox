@@ -23,8 +23,6 @@ export class MemberSidebarPage {
     this.budgetFooter = page.getByTestId('member-budget-trigger');
   }
 
-  // --- Navigation ---
-
   async openViaFacepile(): Promise<void> {
     const isExpanded = await this.searchInput.isVisible().catch(() => false);
     if (!isExpanded) await this.facepile.click();
@@ -34,8 +32,6 @@ export class MemberSidebarPage {
   async waitForLoaded(timeout = 10_000): Promise<void> {
     await this.content.waitFor({ state: 'visible', timeout });
   }
-
-  // --- Assertions ---
 
   async expectMemberCount(n: number): Promise<void> {
     await expect(this.sidebar.getByText(`MEMBERS (${String(n)})`)).toBeVisible();
@@ -86,8 +82,6 @@ export class MemberSidebarPage {
     await expect(this.linkRow(linkId)).not.toBeVisible();
   }
 
-  // --- Member actions ---
-
   async openMemberActions(memberId: string): Promise<void> {
     await this.page.getByTestId(`member-actions-${memberId}`).click();
   }
@@ -104,8 +98,6 @@ export class MemberSidebarPage {
   async clickLeave(): Promise<void> {
     await this.page.getByTestId('member-leave-action').click();
   }
-
-  // --- Link actions ---
 
   async openLinkActions(linkId: string): Promise<void> {
     await this.page.getByTestId(`link-actions-${linkId}`).click();
@@ -130,8 +122,6 @@ export class MemberSidebarPage {
     await this.page.getByTestId(`link-privilege-option-${linkId}-${priv}`).click();
   }
 
-  // --- Admin buttons ---
-
   async clickNewMember(): Promise<void> {
     await this.newMemberButton.click();
   }
@@ -140,8 +130,6 @@ export class MemberSidebarPage {
     await this.inviteLinkButton.click();
   }
 
-  // --- Search ---
-
   async searchMembers(query: string): Promise<void> {
     await this.searchInput.fill(query);
   }
@@ -149,8 +137,6 @@ export class MemberSidebarPage {
   async clearSearch(): Promise<void> {
     await this.searchInput.clear();
   }
-
-  // --- Close ---
 
   async closeSidebar(): Promise<void> {
     await this.sidebar.getByRole('button', { name: 'Close sidebar' }).click();
@@ -176,8 +162,6 @@ export class MemberSidebarPage {
     await this.content.waitFor({ state: 'hidden', timeout: 5000 });
   }
 
-  // --- Budget ---
-
   async clickBudgetSettings(): Promise<void> {
     await this.budgetFooter.click();
   }
@@ -185,8 +169,6 @@ export class MemberSidebarPage {
   async getBudgetText(): Promise<string> {
     return (await this.page.getByTestId('member-budget-footer').textContent()) ?? '';
   }
-
-  // --- Username-based helpers ---
 
   /**
    * Find a member row by username text. Useful when you don't know the

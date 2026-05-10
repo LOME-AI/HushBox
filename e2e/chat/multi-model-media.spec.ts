@@ -58,7 +58,6 @@ test.describe('Multi-Model Media', () => {
     await expect(assistantMessages.nth(0).locator('img').first()).toBeVisible({ timeout: 30_000 });
     await expect(assistantMessages.nth(1).locator('img').first()).toBeVisible({ timeout: 30_000 });
 
-    // Distinct nametags on the two responses.
     const tag1 = await assistantMessages.nth(0).getByTestId('model-nametag').textContent();
     const tag2 = await assistantMessages.nth(1).getByTestId('model-nametag').textContent();
     expect(tag1).not.toBe(tag2);
@@ -119,11 +118,9 @@ test.describe('Multi-Model Media', () => {
       await chatPage.waitForConversation();
       await chatPage.waitForStreamComplete(30_000);
 
-      // Successful model rendered an image.
       const successImage = chatPage.messageList.locator('[data-role="assistant"] img');
       await expect(successImage.first()).toBeVisible({ timeout: 15_000 });
 
-      // Failing model surfaced the model-error tile.
       const errorTile = authenticatedPage.getByTestId('model-error-message');
       await unsettledExpect(errorTile).toBeVisible({ timeout: 15_000 });
 
@@ -185,7 +182,6 @@ test.describe('Multi-Model Media', () => {
         await clearButton.click();
       }
 
-      // First non-premium text model.
       const textItem = modal
         .locator('[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))')
         .first();
@@ -250,7 +246,6 @@ test.describe('Multi-Model Media', () => {
     await chatPage.expectForkTabCount(2);
     await chatPage.expectActiveForkTab('Fork 1');
 
-    // Switch back to the original tab and verify both image responses persisted.
     await chatPage.clickForkTab('Main');
     await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
       timeout: 15_000,
@@ -353,11 +348,9 @@ test.describe('Multi-Model Media', () => {
       await chatPage.waitForConversation();
       await chatPage.waitForStreamComplete(30_000);
 
-      // Successful model rendered a video.
       const successVideo = chatPage.messageList.locator('[data-role="assistant"] video');
       await expect(successVideo.first()).toBeVisible({ timeout: 15_000 });
 
-      // Failing model surfaced the model-error tile.
       const errorTile = authenticatedPage.getByTestId('model-error-message');
       await unsettledExpect(errorTile).toBeVisible({ timeout: 15_000 });
 

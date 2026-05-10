@@ -46,7 +46,6 @@ export function Sidebar(): React.JSX.Element {
   const isAuthenticated = !isSessionPending && Boolean(session?.user);
   const collapsed = !isMobile && !sidebarOpen;
 
-  // Clear stale conversation cache when session expires
   const queryClient = useQueryClient();
   React.useEffect(() => {
     if (!isAuthenticated && !isSessionPending) {
@@ -54,7 +53,6 @@ export function Sidebar(): React.JSX.Element {
     }
   }, [isAuthenticated, isSessionPending, queryClient]);
 
-  // Auto-close mobile sidebar on navigation
   const { pathname } = useLocation();
   const previousPathnameRef = React.useRef(pathname);
   React.useEffect(() => {

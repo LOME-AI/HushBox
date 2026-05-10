@@ -85,7 +85,6 @@ function buildEnvContext(variables: Record<string, string>): EnvContext {
 export async function parseWranglerToml(filePath: string): Promise<EnvContext> {
   const content = await readFile(filePath, 'utf8');
 
-  // Simple TOML parsing for [vars] section
   const variablesMatch = /\[vars\]([\s\S]*?)(?:\[|$)/.exec(content);
   if (!variablesMatch?.[1]) {
     return {};
@@ -414,7 +413,6 @@ async function main(): Promise<void> {
   console.log('\n✓ All environment verifications passed');
 }
 
-// Only run main when executed directly (not when imported for testing)
 if (import.meta.url === `file://${process.argv[1] ?? ''}`) {
   void (async () => {
     try {

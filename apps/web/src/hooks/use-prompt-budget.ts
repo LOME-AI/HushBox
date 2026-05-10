@@ -18,10 +18,6 @@ import { useSearchStore } from '@/stores/search';
 import { useModels } from '@/hooks/models';
 import { useSession, useAuthStore } from '@/lib/auth';
 
-// ============================================================================
-// Types
-// ============================================================================
-
 interface PromptBudgetInput {
   value: string;
   historyCharacters: number;
@@ -178,10 +174,6 @@ function buildMediaPriceArrays(
     pricesPerAudioSecond: selectedModels.map((sm) => findModel(sm.id)?.pricePerSecond ?? 0),
   };
 }
-
-// ============================================================================
-// Hook
-// ============================================================================
 
 interface PromptBudgetDisplayInputs {
   capacityPercent: number;

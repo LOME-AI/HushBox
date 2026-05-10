@@ -27,7 +27,7 @@ import {
   appendTokenToMessage,
 } from '@/lib/chat-messages';
 import { processStartEvent } from '@/lib/multi-model-stream';
-import { buildMessagesForRegeneration } from '@/lib/chat-regeneration';
+import { buildMessagesForRegeneration, inferRegenerateModality } from '@/lib/chat-regeneration';
 import { useChatPageState } from '@/hooks/use-chat-page';
 import {
   useChatStream,
@@ -1068,10 +1068,13 @@ export function useAuthenticatedChat({
         pruneMessagesAfterTarget(allMsgs, targetMessageId, setLocalMessages);
       }
 
+      const modality = inferRegenerateModality(targetMessageId, allMsgs);
+
       const request: RegenerateStreamRequest = {
         conversationId: realConversationId,
         targetMessageId,
         action,
+        modality,
         model: getPrimaryModel(selectedModels).id,
         userMessage: { id: userMessageId, content: userContent },
         messagesForInference,
@@ -1079,6 +1082,7 @@ export function useAuthenticatedChat({
         ...(activeForkId != null && { forkId: activeForkId }),
         ...(webSearchEnabled && { webSearchEnabled }),
         ...(customInstructions != null && { customInstructions }),
+        ...buildModalityConfigPayload(modality, imageConfig, videoConfig, audioConfig),
       };
 
       const assistantMsgId = crypto.randomUUID();
@@ -1100,7 +1104,7 @@ export function useAuthenticatedChat({
             onToken: (token) => {
               updateOptimisticMessageContent(assistantMsgId, token);
             },
-            // Smart Model regeneration re-routes through the classifier (Q3),
+            // Smart Model regeneration re-routes through the classifier,
             // so the same stage events fire here. Stage payloads carry
             // assistantMessageId — match it against this regeneration's slot.
             onStageStart: (data) => {
@@ -1156,6 +1160,9 @@ export function useAuthenticatedChat({
       selectedModels,
       webSearchEnabled,
       customInstructions,
+      imageConfig,
+      videoConfig,
+      audioConfig,
       startRegenerateStream,
       addOptimisticMessage,
       removeOptimisticMessage,
@@ -1233,10 +1240,8 @@ export function useAuthenticatedChat({
     }
   }, [renderState.type, navigate]);
 
-  // Subscribe to epoch key cache for title decryption reactivity
   const epochCacheVersion = React.useSyncExternalStore(epochCacheSubscribe, epochCacheSnapshot);
 
-  // Decrypt conversation title from API (base64 ECIES blob) using cached epoch key
   const displayTitle = React.useMemo(
     () => computeDisplayTitle(localTitle, conversation, realConversationId),
     [conversation, realConversationId, localTitle, epochCacheVersion]

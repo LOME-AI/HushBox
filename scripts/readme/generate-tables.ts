@@ -44,8 +44,6 @@ function sectionLabel(parameters: SectionLabelParameters): string {
   return `<text x="${String(x)}" y="${String(y)}" font-family='${FONT_STACK}' font-size="${String(fontSize)}" font-weight="600" fill="${color}" letter-spacing="0.08em">${label}</text>`;
 }
 
-// --- Comparison Table ---
-
 export function generateComparisonSvg(options: TableOptions): string {
   const { width, theme } = options;
   const rowCount = COMPARISON_ROWS.length;
@@ -85,8 +83,6 @@ export function generateComparisonSvg(options: TableOptions): string {
   ${rows}
 </svg>`;
 }
-
-// --- Pricing Table ---
 
 export function generatePricingSvg(options: TableOptions): string {
   const { width, theme } = options;
@@ -141,8 +137,6 @@ export function generatePricingSvg(options: TableOptions): string {
   ${body}
 </svg>`;
 }
-
-// --- Tiers Table ---
 
 export function generateTiersSvg(options: TableOptions): string {
   const { width, theme } = options;
@@ -214,8 +208,6 @@ function escapeXml(text: string): string {
     .replaceAll('"', '&quot;');
 }
 
-// --- Technical Details ---
-
 const TECH_DETAILS: readonly { component: string; implementation: string }[] = [
   {
     component: 'Message encryption',
@@ -269,8 +261,6 @@ export function generateTechnicalDetailsSvg(options: TableOptions): string {
   ${rows}
 </svg>`;
 }
-
-// --- Feature Cards ---
 
 /** Extract the inner elements (paths, circles, etc) from a lucide-static SVG string. */
 function extractIconInner(lucideIconName: string): string {
@@ -486,7 +476,6 @@ export function generateTables(outputDir: string, repoRoot?: string): void {
   );
 }
 
-// CLI entry point
 const DEFAULT_OUTPUT = path.resolve(import.meta.dirname, '../../.github/readme');
 
 /* v8 ignore next 2 */

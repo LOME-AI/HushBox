@@ -1,10 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 
-// ---------------------------------------------------------------------------
-// Module mocks (boundary level — keep state controllable per test)
-// ---------------------------------------------------------------------------
-
 const mockCollectMultiMediaModelStreams = vi.fn();
 vi.mock('./multi-stream.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./multi-stream.js')>();
@@ -51,10 +47,6 @@ import type { MediaPersistPricing } from './billing-types.js';
 import type { AppEnv } from '../types.js';
 import type { Context } from 'hono';
 import type { SaveChatTurnResult } from '../services/chat/index.js';
-
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
 
 interface PutCall {
   key: string;
@@ -168,7 +160,11 @@ function createPipelineInput(overrides: Partial<MediaPipelineInput> = {}): Media
     c: {} as unknown as Context<AppEnv>,
     conversationId: 'conv-1',
     models: ['model-a'],
-    userMessage: { id: 'user-msg-1', content: 'Hello' },
+    treeAction: {
+      kind: 'fresh-send',
+      userMessage: { id: 'user-msg-1', content: 'Hello' },
+      parentMessageId: null,
+    },
     prompt: 'Hello',
     billingUserId: 'user-1',
     groupBudget: undefined,
@@ -176,7 +172,6 @@ function createPipelineInput(overrides: Partial<MediaPipelineInput> = {}): Media
     releaseReservation: vi.fn(() => Promise.resolve()),
     senderId: 'user-1',
     forkId: undefined,
-    parentMessageId: null,
     mediaType: 'image' as const,
     pricingFor: () => ({ kind: 'image', perImage: 0.04 }) as MediaPersistPricing,
     buildRequest: (modelId: string) => ({
@@ -313,10 +308,6 @@ function buildAppWithPipeline(options: {
   return { app, mediaStorage, db };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe('defaultMimeType', () => {
   it('returns image/png for image kind', () => {
     expect(defaultMimeType('image')).toBe('image/png');
@@ -349,7 +340,6 @@ describe('executeMediaPipeline', () => {
   });
 
   it('throws invariant error when models array is empty', () => {
-    // Wire a mock context that returns the necessary services without going through Hono.
     const c = {
       get: vi.fn((key: string) => {
         if (key === 'db') return createDbMock();
@@ -401,28 +391,21 @@ describe('executeMediaPipeline', () => {
     expect(res.status).toBe(200);
     const text = await res.text();
 
-    // SSE start, then a model:done-style flow ending in done — the deps spy emits writeDone.
     expect(text).toContain('event: start');
     expect(text).toContain('event: done');
 
-    // mediaStorage.put was called with a key under media/conv-1/...
     expect(mediaStorage.put).toHaveBeenCalledOnce();
     expect(mediaStorage.putCalls[0]!.key).toMatch(/^media\/conv-1\/assistant-0\/.+\.enc$/);
 
-    // mintDownloadUrl was called once per successful model
     expect(mediaStorage.mintDownloadUrl).toHaveBeenCalledOnce();
 
-    // saveChatTurn was invoked
     expect(mockSaveChatTurn).toHaveBeenCalledOnce();
 
-    // handleBillingResult got the right primary model + generationId
     expect(log.handleBillingResult).toHaveLength(1);
     expect(log.handleBillingResult[0]!.generationId).toBe('gen-test-1');
 
-    // broadcastAndFinish ran
     expect(log.broadcastAndFinish).toHaveLength(1);
 
-    // releaseReservation always runs in the finally
     expect(release).toHaveBeenCalledOnce();
   });
 
@@ -452,7 +435,6 @@ describe('executeMediaPipeline', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // No persistence when zero successful results.
     expect(mediaStorage.put).not.toHaveBeenCalled();
     expect(mockSaveChatTurn).not.toHaveBeenCalled();
     expect(log.writeFirstMediaError).toHaveLength(1);
@@ -460,7 +442,6 @@ describe('executeMediaPipeline', () => {
     expect(log.handleBillingResult).toHaveLength(0);
     expect(log.broadcastAndFinish).toHaveLength(0);
 
-    // Release still runs in the finally.
     expect(release).toHaveBeenCalledOnce();
   });
 
@@ -480,7 +461,6 @@ describe('executeMediaPipeline', () => {
           },
         ],
       ]);
-      // No mediaBytes, no error — gateway returned nothing useful
       return Promise.resolve(map);
     });
 
@@ -511,7 +491,6 @@ describe('executeMediaPipeline', () => {
   it('emits UNKNOWN_MIME_TYPE when gateway result has a disallowed mime type', async () => {
     mockCollectMultiMediaModelStreams.mockImplementation(() => {
       const map = new Map<string, MediaStreamResult>([
-        // Gateway returned bytes but the mime type isn't in the allowlist.
         ['model-a', buildSuccessfulMediaResult({ mimeType: 'image/gif' as unknown as string })],
       ]);
       return Promise.resolve(map);
@@ -537,7 +516,6 @@ describe('executeMediaPipeline', () => {
 
     expect(text).toContain('event: error');
     expect(text).toContain('"code":"UNKNOWN_MIME_TYPE"');
-    // Storage write must NOT happen for disallowed mime — we reject before R2.
     expect(mediaStorage.put).not.toHaveBeenCalled();
     expect(mockSaveChatTurn).not.toHaveBeenCalled();
     expect(log.broadcastAndFinish).toHaveLength(0);
@@ -607,10 +585,8 @@ describe('executeMediaPipeline', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Only one put — only the successful model's bytes were stored.
     expect(mediaStorage.put).toHaveBeenCalledOnce();
     expect(log.writeFirstMediaError).toHaveLength(0);
-    // Primary model is model-a (index 0); handleBillingResult sees its generationId.
     expect(log.handleBillingResult[0]!.generationId).toBe('gen-A');
   });
 
@@ -627,7 +603,6 @@ describe('executeMediaPipeline', () => {
       broadcastAndFinish: [],
       createAssistantIdLookup: 0,
     };
-    // billingResult: null tells the pipeline that persistence failed.
     const deps = createDeps({ billingResult: null, log });
 
     const release = vi.fn(() => Promise.resolve());
@@ -672,15 +647,11 @@ describe('executeMediaPipeline', () => {
       mediaStorage: failingStorage,
     });
 
-    // streamSSE catches errors; the response is still 200 but the underlying try/finally
-    // will run the release callback.
     const res = await app.request('/run', { method: 'POST' });
     await res.text();
 
-    // saveChatTurn must NOT have been called — encryption/storage failed first.
     expect(mockSaveChatTurn).not.toHaveBeenCalled();
     expect(log.broadcastAndFinish).toHaveLength(0);
-    // Release always runs.
     expect(release).toHaveBeenCalledOnce();
   });
 
@@ -692,7 +663,6 @@ describe('executeMediaPipeline', () => {
       return Promise.resolve(map);
     });
 
-    // saveChatTurn never resolves while we tick the timer, so the keep-alive loop runs.
     const { promise: saveChatTurnPromise, resolve: resolveSaveChatTurn } =
       Promise.withResolvers<SaveChatTurnResult>();
     mockSaveChatTurn.mockImplementation(() => saveChatTurnPromise);
@@ -704,8 +674,6 @@ describe('executeMediaPipeline', () => {
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: createBillingResult(), log });
-    // Make handleBillingResult await the gated save promise so the pipeline parks
-    // inside the try block while keep-alive timers fire.
     deps.handleBillingResult = vi.fn(async (options) => {
       await options.billingPromise;
       log.handleBillingResult.push({
@@ -722,24 +690,18 @@ describe('executeMediaPipeline', () => {
       deps,
     });
 
-    // Kick off the request without awaiting it
     const reqPromise = app.request('/run', { method: 'POST' });
 
-    // Allow the pipeline to reach the saveChatTurn await, then advance time
-    // past one keep-alive interval. KEEPALIVE_INTERVAL_MS = 30_000ms.
     await Promise.resolve();
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(30_000);
 
-    // Now release the saveChatTurn promise so the pipeline can finish.
     resolveSaveChatTurn(createBillingResult());
 
-    // Use real timers to allow the pending micro/macro tasks to flush.
     vi.useRealTimers();
     const res = await reqPromise;
     await res.text();
 
-    // Pipeline reached the broadcast step.
     expect(log.broadcastAndFinish.length).toBeGreaterThan(0);
   });
 
@@ -937,9 +899,6 @@ describe('executeMediaPipeline', () => {
     };
     const deps = createDeps({ billingResult: createBillingResult(), log });
 
-    // Replace db.select().from(...).where(...) to return no rows for the
-    // conversations lookup. The pipeline should fall back to epoch=1.
-
     const emptyDb = {
       select: vi.fn(() => ({
         from: () => ({
@@ -962,18 +921,9 @@ describe('executeMediaPipeline', () => {
   });
 
   it('skips a result when filterSuccessfulMediaModels surfaces it but mediaBytes is later undefined', async () => {
-    // Edge case: filterSuccessfulMediaModels guards that mediaBytes is non-empty,
-    // but the inner processMediaResults loop double-checks and silently skips when
-    // mediaBytes becomes undefined. We exercise that defensive branch by having
-    // filterSuccessfulMediaModels see the bytes (length > 0) but then the
-    // success entry passed downstream has mediaBytes via the same MediaStreamResult
-    // shape. The branch is still useful as a last line of defense, so we skip
-    // a focused unit on it — covered transitively below.
     mockCollectMultiMediaModelStreams.mockImplementation(() => {
       const map = new Map<string, MediaStreamResult>([
-        // mediaBytes empty array → filtered out by filterSuccessfulMediaModels (length > 0 check)
         ['model-a', buildSuccessfulMediaResult({ mediaBytes: new Uint8Array() })],
-        // The successful one
         ['model-b', buildSuccessfulMediaResult({ mediaBytes: new Uint8Array([0x42]) })],
       ]);
       return Promise.resolve(map);
@@ -998,7 +948,6 @@ describe('executeMediaPipeline', () => {
     const res = await app.request('/run', { method: 'POST' });
     await res.text();
 
-    // Only one put call — the empty-bytes result was filtered out.
     expect(mediaStorage.put).toHaveBeenCalledOnce();
   });
 
@@ -1009,9 +958,6 @@ describe('executeMediaPipeline', () => {
     });
     mockSaveChatTurn.mockImplementation(() => Promise.resolve(createBillingResult()));
 
-    // Build a billing result whose assistant envelope is text-shaped (has
-    // `contentItem`, not `contentItems`) — covers the `continue` branch in
-    // attachDownloadUrls.
     const textShapedBillingResult: SaveChatTurnResult = {
       ...createBillingResult(),
       assistantResults: [
@@ -1024,7 +970,6 @@ describe('executeMediaPipeline', () => {
           envelope: {
             messageId: 'assistant-0',
             wrappedContentKey: new Uint8Array(32),
-            // text envelope shape — single contentItem, NOT contentItems[]
             contentItem: {
               id: 'ci-text',
               contentType: 'text',
@@ -1055,7 +1000,6 @@ describe('executeMediaPipeline', () => {
     const res = await app.request('/run', { method: 'POST' });
     await res.text();
 
-    // The pipeline still completes broadcast even with the text-shaped envelope.
     expect(log.broadcastAndFinish).toHaveLength(1);
   });
 
@@ -1123,14 +1067,9 @@ describe('executeMediaPipeline', () => {
       const res = await app.request('/run', { method: 'POST' });
       const text = await res.text();
 
-      // Two `model:media:start` events emitted server-side (one per slot).
       const startMatches = text.match(/event: model:media:start/g) ?? [];
       expect(startMatches.length).toBe(2);
 
-      // The first `model:media:start` line in the SSE body must appear
-      // BEFORE the final `event: done` — which is sent only AFTER the
-      // gateway batch fan-out completes. Together these pin the ordering:
-      // start is written before any gateway work begins.
       const startIndex = text.indexOf('event: model:media:start');
       const doneIndex = text.indexOf('event: done');
       expect(startIndex).toBeGreaterThan(-1);
@@ -1162,8 +1101,6 @@ describe('executeMediaPipeline', () => {
       const res = await app.request('/run', { method: 'POST' });
       const text = await res.text();
 
-      // The first `model:media:start` event carries the placeholder mime
-      // — the actual mime is delivered later via `model:done`.
       expect(text).toContain('"mimeType":"application/octet-stream"');
       expect(text).toContain('"mediaType":"image"');
     });
@@ -1255,13 +1192,6 @@ describe('executeMediaPipeline', () => {
   });
 
   describe('model:media:progress (video only)', () => {
-    // Direct unit test of the timer. The pipeline-level test would require
-    // tearing through Hono's streamSSE buffering with fake timers, which is
-    // brittle; testing the timer in isolation against a recording writer
-    // pins the contract more precisely. The end-to-end emission for video
-    // is covered by the "does NOT emit ... for image/audio" inverse
-    // assertions below plus the explicit `mediaType: 'video'` wiring in
-    // the per-modality stream-pipeline call sites.
     interface RecordedProgress {
       modelId: string;
       assistantMessageId: string;
@@ -1299,7 +1229,6 @@ describe('executeMediaPipeline', () => {
       const { writer, records } = makeRecordingWriter();
       const handle = startVideoProgressTimer(writer, ['model-a'], () => 'asst-a', 40_000);
 
-      // First tick at ~40_000 / 9 ≈ 4_444ms. Advance well past 9 ticks.
       await vi.advanceTimersByTimeAsync(45_000);
       handle.stop();
       vi.useRealTimers();
@@ -1312,7 +1241,6 @@ describe('executeMediaPipeline', () => {
       for (const p of percents) {
         expect(p).toBeLessThanOrEqual(95);
       }
-      // The sweep tops out at 95%, so the last emission should be 95%.
       expect(percents.at(-1)).toBe(95);
     });
 
@@ -1326,7 +1254,6 @@ describe('executeMediaPipeline', () => {
         40_000
       );
 
-      // Advance past one tick interval (~4_444ms).
       await vi.advanceTimersByTimeAsync(5000);
       handle.stop();
       vi.useRealTimers();
@@ -1342,18 +1269,14 @@ describe('executeMediaPipeline', () => {
       const { writer, records } = makeRecordingWriter();
       const handle = startVideoProgressTimer(writer, ['model-a'], () => 'asst-a', 40_000);
 
-      // Advance well past the sweep so percent has saturated at 95.
       await vi.advanceTimersByTimeAsync(45_000);
       const beforeHeartbeat = records.length;
-      // Heartbeat fires every 5s.
       await vi.advanceTimersByTimeAsync(11_000);
       handle.stop();
       vi.useRealTimers();
 
       const afterHeartbeat = records.length;
-      // Two heartbeats fired in 11s (one at 5s, one at 10s).
       expect(afterHeartbeat - beforeHeartbeat).toBeGreaterThanOrEqual(2);
-      // All heartbeat values are 95%.
       const heartbeats = records.slice(beforeHeartbeat);
       for (const r of heartbeats) {
         expect(r.percent).toBe(95);
@@ -1368,7 +1291,6 @@ describe('executeMediaPipeline', () => {
       await vi.advanceTimersByTimeAsync(5000);
       const seen = records.length;
       handle.stop();
-      // Calling stop again should be safe.
       handle.stop();
       await vi.advanceTimersByTimeAsync(60_000);
       vi.useRealTimers();

@@ -120,7 +120,6 @@ export async function cleanupTestData(db: Database): Promise<CleanupResult> {
   const msgResult = await db.delete(messages).where(inArray(messages.conversationId, convIds));
   const deletedMessages = msgResult.rowCount ?? 0;
 
-  // Delete conversations
   const convResult = await db.delete(conversations).where(inArray(conversations.id, convIds));
   const deletedConversations = convResult.rowCount ?? 0;
 
@@ -248,7 +247,6 @@ export async function createDevConversation(
     throw new Error('Failed to create conversation');
   }
 
-  // Seed messages using production services
   if (params.messages && params.messages.length > 0) {
     let lastMessageId: string | null = null;
 
@@ -265,7 +263,6 @@ export async function createDevConversation(
           parentMessageId: lastMessageId,
         });
       } else {
-        // AI messages: use production helpers directly in a transaction
         await db.transaction(async (tx) => {
           const txDb = tx;
           const { sequences, currentEpoch } = await assignSequenceNumbers(
@@ -311,7 +308,6 @@ interface InsertGroupChatMessagesParams {
   orderedUsers: { id: string; email: string | null }[];
 }
 
-/** Insert dev group-chat messages inside a transaction (extracted for complexity). */
 async function insertGroupChatMessages(params: InsertGroupChatMessagesParams): Promise<void> {
   const { txDb, conversationId, epochPublicKey, msgs, orderedUsers } = params;
   const messageIds = msgs.map(() => crypto.randomUUID());
@@ -413,14 +409,12 @@ export async function createDevGroupChat(
   const epochId = crypto.randomUUID();
 
   await db.transaction(async (tx) => {
-    // Insert conversation
     await tx.insert(conversations).values({
       id: conversationId,
       userId: owner.id,
       title: encryptTextForEpoch(epochResult.epochPublicKey, ''),
     });
 
-    // Insert epoch
     await tx.insert(epochs).values({
       id: epochId,
       conversationId,
@@ -430,7 +424,6 @@ export async function createDevGroupChat(
       chainLink: null,
     });
 
-    // Insert epoch members (one per user with their wrap)
     await tx.insert(epochMembers).values(
       orderedUsers.map((user, index) => {
         const memberWrap = epochResult.memberWraps[index];

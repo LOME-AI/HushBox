@@ -24,7 +24,6 @@ export function CustomInstructionsModal({
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Reset state when modal opens
   React.useEffect(() => {
     if (open) {
       setValue(currentInstructions ?? '');

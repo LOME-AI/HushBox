@@ -37,7 +37,6 @@ vi.mock('@/hooks/use-prompt-budget', () => ({
   usePromptBudget: (...args: unknown[]) => mockUsePromptBudget(...args),
 }));
 
-// Mock stability hooks - configurable via mockUseStability
 const defaultStabilityState = {
   isAuthStable: true,
   isBalanceStable: true,
@@ -49,13 +48,11 @@ vi.mock('@/providers/stability-provider', () => ({
   useStability: () => mockUseStability(),
 }));
 
-// Mock StableContent — passthrough children when stable
 vi.mock('@/components/shared/stable-content', () => ({
   StableContent: ({ isStable, children }: { isStable: boolean; children: React.ReactNode }) =>
     isStable ? children : null,
 }));
 
-// Default budget result — approved, no notifications, not over capacity
 const defaultBudget: PromptBudgetResult = {
   fundingSource: 'personal_balance',
   notifications: [],
@@ -104,7 +101,6 @@ describe('PromptInput', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    // Default: derive hasContent from input value
     mockUsePromptBudget.mockImplementation((input: { value: string }) => ({
       ...defaultBudget,
       hasContent: input.value.trim().length > 0,
@@ -311,7 +307,6 @@ describe('PromptInput', () => {
     });
 
     it('hides budget messages while app is not stable (balance loading)', () => {
-      // App is not stable (isAppStable: false)
       mockUseStability.mockReturnValue({
         isAuthStable: true,
         isBalanceStable: false,
@@ -330,13 +325,11 @@ describe('PromptInput', () => {
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
-      // Budget messages should be hidden while app is not stable
       expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
       expect(screen.queryByText('Free preview. Sign up for full access.')).not.toBeInTheDocument();
     });
 
     it('hides budget messages while app is not stable (session loading)', () => {
-      // Session is loading - stability reflects this
       mockUseStability.mockReturnValue({
         isAuthStable: false,
         isBalanceStable: true,
@@ -355,7 +348,6 @@ describe('PromptInput', () => {
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
-      // Budget messages should be hidden while app is not stable
       expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
       expect(screen.queryByText('Free preview. Sign up for full access.')).not.toBeInTheDocument();
     });
@@ -424,7 +416,6 @@ describe('PromptInput', () => {
       );
       const button = screen.getByRole('button', { name: /cannot send/i });
       expect(button).toBeDisabled();
-      // Button contains Square icon (stop), not Send icon
       expect(button.querySelector('svg')).toBeInTheDocument();
     });
 
@@ -583,9 +574,7 @@ describe('PromptInput', () => {
           isGroupChat
         />
       );
-      // Toggle AI off
       await user.click(screen.getByRole('button', { name: /AI response on/i }));
-      // Submit
       await user.click(screen.getByRole('button', { name: /send/i }));
       expect(mockSubmitUserOnly).toHaveBeenCalled();
       expect(mockOnSubmit).not.toHaveBeenCalled();
@@ -604,7 +593,6 @@ describe('PromptInput', () => {
           isGroupChat
         />
       );
-      // AI is on by default, submit normally
       await user.click(screen.getByRole('button', { name: /send/i }));
       expect(mockOnSubmit).toHaveBeenCalled();
       expect(mockSubmitUserOnly).not.toHaveBeenCalled();
@@ -623,9 +611,7 @@ describe('PromptInput', () => {
           isGroupChat
         />
       );
-      // Toggle AI off
       await user.click(screen.getByRole('button', { name: /AI response on/i }));
-      // Submit via Enter key
       const textarea = screen.getByRole('textbox');
       fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
       expect(mockSubmitUserOnly).toHaveBeenCalled();
@@ -676,15 +662,12 @@ describe('PromptInput', () => {
       );
       const textarea = screen.getByRole('textbox');
 
-      // First change triggers immediately
       fireEvent.change(textarea, { target: { value: 'H' } });
       expect(mockOnTypingChange).toHaveBeenCalledTimes(1);
 
-      // Second change within 3s is throttled
       fireEvent.change(textarea, { target: { value: 'He' } });
       expect(mockOnTypingChange).toHaveBeenCalledTimes(1);
 
-      // After 3s, next change triggers again
       vi.advanceTimersByTime(3000);
       fireEvent.change(textarea, { target: { value: 'Hel' } });
       expect(mockOnTypingChange).toHaveBeenCalledTimes(2);
@@ -702,7 +685,6 @@ describe('PromptInput', () => {
       );
       const textarea = screen.getByRole('textbox');
 
-      // Clear the input
       fireEvent.change(textarea, { target: { value: '' } });
       expect(mockOnTypingChange).toHaveBeenCalledWith(false);
     });
@@ -726,7 +708,6 @@ describe('PromptInput', () => {
     it('does not error when onTypingChange is not provided', () => {
       renderWithProviders(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
       const textarea = screen.getByRole('textbox');
-      // Should not throw
       expect(() => {
         fireEvent.change(textarea, { target: { value: 'H' } });
       }).not.toThrow();
@@ -958,7 +939,6 @@ describe('PromptInput', () => {
       const tooltip = await screen.findByRole('tooltip');
       expect(tooltip).toHaveTextContent('Internet search off');
 
-      // Click to toggle search on — tooltip should stay visible with updated text
       await user.click(button);
 
       expect(screen.getByRole('button', { name: /internet search on/i })).toBeInTheDocument();

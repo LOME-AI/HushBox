@@ -106,7 +106,6 @@ test.describe('Fork and Regeneration Interaction', () => {
     test.slow();
     const chatPage = new ChatPage(authenticatedPage);
 
-    // Start fresh conversation
     await chatPage.goto();
     const msg = `Nested fork test ${String(Date.now())}`;
     await chatPage.sendNewChatMessage(msg);
@@ -126,7 +125,6 @@ test.describe('Fork and Regeneration Interaction', () => {
     });
 
     await test.step('fork from a message on Fork 1 to create Fork 2', async () => {
-      // Fork from the latest AI message on Fork 1
       const aiMessages = chatPage.messageList.locator('[data-role="assistant"]');
       const lastAi = aiMessages.last();
       await lastAi.hover();
@@ -144,10 +142,8 @@ test.describe('Fork and Regeneration Interaction', () => {
       await chatPage.sendFollowUpMessage(fork2Msg);
       await chatPage.waitForAIResponse(fork2Msg);
 
-      // Fork 2 has its own messages
       await chatPage.expectMessageVisible(fork2Msg);
 
-      // Switch to Fork 1 — Fork 2's message not visible
       await chatPage.clickForkTab('Fork 1');
       await expect(chatPage.messageList.getByText(fork2Msg, { exact: true })).not.toBeVisible();
     });
@@ -160,7 +156,6 @@ test.describe('Fork and Regeneration Interaction', () => {
     test.slow();
     const chatPage = new ChatPage(authenticatedPage);
 
-    // Start fresh conversation
     await chatPage.goto();
     const msg = `Delete fork test ${String(Date.now())}`;
     await chatPage.sendNewChatMessage(msg);

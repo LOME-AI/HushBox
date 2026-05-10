@@ -11,7 +11,6 @@ import {
 } from './use-chat-stream';
 import * as trialTokenModule from '../lib/trial-token';
 
-// Mock modules
 vi.mock('../lib/api', () => ({
   getApiUrl: () => 'http://localhost:8787',
 }));
@@ -20,7 +19,6 @@ vi.mock('../lib/trial-token', () => ({
   getTrialToken: vi.fn(() => 'test-trial-token'),
 }));
 
-// Mock fetch
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
@@ -968,6 +966,7 @@ describe('useChatStream', () => {
           conversationId: 'conv-123',
           targetMessageId: 'msg-target',
           action: 'retry',
+          modality: 'text',
           model: 'gpt-4',
           userMessage: { id: 'msg-1', content: 'Hello' },
           messagesForInference: [{ role: 'user', content: 'Hello' }],
@@ -986,6 +985,7 @@ describe('useChatStream', () => {
           body: JSON.stringify({
             targetMessageId: 'msg-target',
             action: 'retry',
+            modality: 'text',
             model: 'gpt-4',
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
@@ -1025,6 +1025,7 @@ describe('useChatStream', () => {
           conversationId: 'conv-123',
           targetMessageId: 'msg-target',
           action: 'regenerate',
+          modality: 'text',
           model: 'gpt-4',
           userMessage: { id: 'msg-1', content: 'Hello' },
           messagesForInference: [{ role: 'user', content: 'Hello' }],
@@ -1424,6 +1425,7 @@ describe('useChatStream', () => {
           conversationId: 'conv-123',
           targetMessageId: 'msg-target',
           action: 'retry',
+          modality: 'text',
           model: 'gpt-4',
           userMessage: { id: 'msg-1', content: 'Hello' },
           messagesForInference: [{ role: 'user', content: 'Hello' }],

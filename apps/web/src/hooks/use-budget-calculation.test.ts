@@ -5,17 +5,14 @@ import { useBudgetCalculation } from './use-budget-calculation';
 import * as billingHooks from './billing';
 import type { UseQueryResult } from '@tanstack/react-query';
 
-// Hoist mock functions for vi.mock factories
 const { mockUseStability } = vi.hoisted(() => ({
   mockUseStability: vi.fn(),
 }));
 
-// Mock the billing hooks module
 vi.mock('./billing', () => ({
   useBalance: vi.fn(),
 }));
 
-// Mock stability provider
 vi.mock('@/providers/stability-provider', () => ({
   useStability: mockUseStability,
 }));
@@ -246,12 +243,10 @@ describe('useBudgetCalculation', () => {
       // Result should still be initial values (debounce not complete)
       expect(result.current).toStrictEqual(initialResult);
 
-      // Advance past debounce time
       act(() => {
         vi.advanceTimersByTime(200);
       });
 
-      // Now result should be updated
       expect(result.current.estimatedInputTokens).toBeGreaterThan(0);
     });
 
@@ -273,12 +268,10 @@ describe('useBudgetCalculation', () => {
       // Without advancing timer, result should NOT have updated (debounce in effect)
       expect(result.current.estimatedInputTokens).toBe(initialTokens);
 
-      // Advance past debounce
       act(() => {
         vi.advanceTimersByTime(200);
       });
 
-      // Now it should update
       expect(result.current.estimatedInputTokens).toBeGreaterThan(initialTokens);
     });
   });

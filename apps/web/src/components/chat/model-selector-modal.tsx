@@ -539,7 +539,6 @@ export function ModelSelectorModal({
   const [localSelectedIds, setLocalSelectedIds] = React.useState<Set<string>>(new Set(selectedIds));
   const [showMultiModelSignup, setShowMultiModelSignup] = React.useState(false);
 
-  // Reset state when modal opens
   React.useEffect(() => {
     if (open) {
       setShowMultiModelSignup(false);
@@ -606,7 +605,6 @@ export function ModelSelectorModal({
         return;
       }
 
-      // Block multi-model selection for unauthenticated users
       if (!isAuthenticated && !localSelectedIds.has(modelId) && localSelectedIds.size > 0) {
         setShowMultiModelSignup(true);
         return;
@@ -714,7 +712,6 @@ export function ModelSelectorModal({
                 </ScrollArea>
               </div>
 
-              {/* Right panel: Model details - takes 60% on mobile, constrained on desktop */}
               <ScrollArea
                 data-testid="model-details-panel"
                 className="min-h-0 flex-[11] sm:max-w-sm sm:flex-1"

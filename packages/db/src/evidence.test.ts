@@ -27,7 +27,6 @@ describe('evidence', () => {
   });
 
   afterAll(async () => {
-    // Clean up test evidence records
     await db.delete(serviceEvidence).where(eq(serviceEvidence.service, `${testRunId}-ai-gateway`));
     await db.delete(serviceEvidence).where(eq(serviceEvidence.service, `${testRunId}-hookdeck`));
   });
@@ -112,7 +111,6 @@ describe('evidence', () => {
 
   describe('verifyServiceEvidence', () => {
     beforeEach(async () => {
-      // Ensure test records exist
       await recordServiceEvidence(db, true, `${testRunId}-ai-gateway` as ServiceName);
     });
 

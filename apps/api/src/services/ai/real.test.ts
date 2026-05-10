@@ -7,10 +7,6 @@ import type {
   AudioRequest,
 } from './types.js';
 
-// ---------------------------------------------------------------------------
-// Module mocks — intercept ai + @ai-sdk/gateway at the module boundary
-// ---------------------------------------------------------------------------
-
 const mockStreamText = vi.fn();
 const mockGenerateImage = vi.fn();
 const mockGenerateVideo = vi.fn();
@@ -55,12 +51,7 @@ vi.mock('@hushbox/shared/models', async (importOriginal) => {
   };
 });
 
-// Import after mocks are defined
 const { createRealAIClient } = await import('./real.js');
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 async function collectEvents(stream: AsyncIterable<InferenceEvent>): Promise<InferenceEvent[]> {
   const events: InferenceEvent[] = [];
@@ -100,10 +91,6 @@ function createMockFullStream(parts: MockStreamPart[]): MockStreamResult {
     totalUsage: Promise.resolve({}),
   };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('createRealAIClient', () => {
   let client: ReturnType<typeof createRealAIClient>;
@@ -576,7 +563,6 @@ describe('createRealAIClient', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // ZDR enforcement — generic boundary check
   //
   // The whole point of `real.ts` over `mock.ts` is that ZDR is enforced at the
@@ -584,7 +570,6 @@ describe('createRealAIClient', () => {
   // per-modality cases above use, but asserts ZDR generically — adding a new
   // modality and forgetting `providerOptions: ZDR_PROVIDER_OPTIONS` should
   // immediately fail this test.
-  // ---------------------------------------------------------------------------
   describe('ZDR enforcement at the SDK boundary', () => {
     const EXPECTED_ZDR = { gateway: { zeroDataRetention: true } };
 
@@ -999,11 +984,6 @@ describe('createRealAIClient', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Exhaustiveness guard for the synchronous stream() switch — protects
-  // against a future caller losing strict typing (via `as` cast) and silently
-  // landing in a no-op branch. Mirrors the pattern in modality-strategies.test.ts.
-  // ---------------------------------------------------------------------------
   describe('stream exhaustiveness guard', () => {
     it('throws when given an unrecognized modality (assertNever)', () => {
       const badRequest = {

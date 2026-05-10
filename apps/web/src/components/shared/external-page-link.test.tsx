@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-// Mock capacitor modules
 const mockIsNative = vi.fn<() => boolean>(() => false);
 vi.mock('@/capacitor/platform', () => ({
   isNative: (): boolean => mockIsNative(),

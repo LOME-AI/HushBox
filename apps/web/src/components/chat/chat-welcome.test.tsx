@@ -6,7 +6,6 @@ import userEvent from '@testing-library/user-event';
 import { ChatWelcome } from './chat-welcome';
 import type { PromptBudgetResult } from '@/hooks/use-prompt-budget';
 
-// Mock the api module — `api` object was removed; module now exports getApiUrl + ApiError
 vi.mock('@/lib/api', () => ({
   getApiUrl: vi.fn(() => 'http://localhost:8787'),
   ApiError: class ApiError extends Error {
@@ -21,7 +20,6 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-// Mock hooks used by PromptInput (which is rendered inside ChatWelcome)
 import { createModelStoreStub, type ModelStoreStub } from '@/test-utils/model-store-mock';
 
 const modelStoreStubRef: { current: ModelStoreStub } = { current: createModelStoreStub() };
@@ -78,7 +76,6 @@ vi.mock('@/lib/auth', () => ({
   })),
 }));
 
-// Mock stable balance hook
 vi.mock('@/hooks/use-stable-balance', () => ({
   useStableBalance: vi.fn(() => ({
     displayBalance: '10.00',
@@ -121,7 +118,6 @@ vi.mock('framer-motion', async () => {
     );
   };
 
-  // AnimatePresence just renders children
   const AnimatePresence = ({ children }: { children?: React.ReactNode }) => {
     return react.createElement(react.Fragment, null, children);
   };
@@ -217,9 +213,7 @@ describe('ChatWelcome', () => {
     const codeChip = screen.getByText(/help me write code/i);
     await user.click(codeChip);
 
-    // Should populate the textarea instead of calling onSend directly
     const textarea = screen.getByRole('textbox');
-    // The prompt should be non-empty (randomly selected from the code category)
     expect((textarea as HTMLTextAreaElement).value.length).toBeGreaterThan(0);
     expect(mockOnSend).not.toHaveBeenCalled();
   });
@@ -247,7 +241,6 @@ describe('ChatWelcome', () => {
     render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
-    // Subtitle should exist somewhere in the page
     const page = screen.getByTestId('chat-welcome');
     expect(page.textContent).toBeTruthy();
   });

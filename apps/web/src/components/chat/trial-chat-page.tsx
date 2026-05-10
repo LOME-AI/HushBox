@@ -202,7 +202,6 @@ export function TrialChatPage(): React.JSX.Element {
     const content = state.inputValue.trim();
     if (!content || isStreaming || isRateLimited) return;
 
-    // Handle edit submission
     if (editingMessageId) {
       void handleTrialRegenerate(editingMessageId, content);
       clearEditing();

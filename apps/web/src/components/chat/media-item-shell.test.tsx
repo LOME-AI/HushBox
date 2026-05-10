@@ -1,15 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from '@testing-library/react';
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-//
 // MediaPreview and MediaPlaceholder are spied so each test asserts the shell
 // chose the right child + forwarded the right props. The shell itself is a
 // pure conditional renderer; mocking the leaves keeps these tests focused on
 // the branching logic that this file owns.
-//
 
 const mockMediaPlaceholder = vi.fn();
 const mockMediaPreview = vi.fn();
@@ -26,10 +21,6 @@ vi.mock('./media-preview', () => ({
 }));
 
 import { MediaItemShell } from './media-item-shell';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 interface ShellProps {
   blobUrl: string | null;
@@ -56,10 +47,6 @@ function defaultProps(overrides: Partial<ShellProps> = {}): ShellProps {
     ...overrides,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('MediaItemShell', () => {
   beforeEach(() => {

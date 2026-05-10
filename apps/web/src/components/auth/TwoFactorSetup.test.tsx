@@ -3,16 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TwoFactorSetup } from './TwoFactorSetup';
 
-// Mock the fetch for 2FA setup API
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
-// Mock getApiUrl
 vi.mock('@/lib/api', () => ({
   getApiUrl: () => 'http://localhost:8787',
 }));
 
-// Mock useIsMobile hook
 vi.mock('@/hooks/use-is-mobile', () => ({
   useIsMobile: vi.fn(() => false),
 }));
@@ -26,7 +23,6 @@ vi.mock('react-qrcode-logo', () => ({
   ),
 }));
 
-// Mock clipboard API
 const mockClipboardWrite = vi.fn().mockImplementation(() => Promise.resolve());
 Object.defineProperty(navigator, 'clipboard', {
   value: { writeText: mockClipboardWrite },
@@ -173,7 +169,6 @@ describe('TwoFactorSetup', () => {
 
       expect(screen.getByText('Set Up Two-Factor Authentication')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /get started/i })).toBeInTheDocument();
-      // Should NOT have re-fetched — only 1 call from the original Get Started click
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
   });
@@ -208,7 +203,6 @@ describe('TwoFactorSetup', () => {
     });
 
     it('shows loading state when 6 digits are entered', async () => {
-      // Use a hanging promise so auto-submit stays in loading state
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
@@ -244,7 +238,6 @@ describe('TwoFactorSetup', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Auto-submit triggers verification
       await waitFor(() => {
         expect(screen.getByText(/invalid code|verification failed/i)).toBeInTheDocument();
       });
@@ -267,7 +260,6 @@ describe('TwoFactorSetup', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Auto-submit triggers verification
       await waitFor(() => {
         expect(screen.getByText('Two-Factor Authentication Enabled')).toBeInTheDocument();
       });
@@ -290,7 +282,6 @@ describe('TwoFactorSetup', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Should auto-submit without clicking the button
       await waitFor(() => {
         expect(mockFetch).toHaveBeenCalledWith(
           'http://localhost:8787/api/auth/2fa/verify',
@@ -319,7 +310,6 @@ describe('TwoFactorSetup', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // After failure, verify button should be disabled (input cleared)
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /verify/i })).toBeDisabled();
       });
@@ -341,23 +331,18 @@ describe('TwoFactorSetup', () => {
       const user = userEvent.setup();
       render(<TwoFactorSetup {...defaultProps} />);
 
-      // Click Get Started
       await user.click(screen.getByRole('button', { name: /get started/i }));
 
-      // Wait for QR step
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /continue/i })).toBeInTheDocument();
       });
 
-      // Go to verify step
       await user.click(screen.getByRole('button', { name: /continue/i }));
 
-      // Enter code (auto-submits on complete)
       const otpInput = screen.getByTestId('otp-input');
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Wait for success
       await waitFor(() => {
         expect(screen.getByText('Two-Factor Authentication Enabled')).toBeInTheDocument();
       });
@@ -393,7 +378,6 @@ describe('TwoFactorSetup', () => {
       const user = userEvent.setup();
       render(<TwoFactorSetup {...defaultProps} onSuccess={onSuccess} />);
 
-      // Click Get Started
       await user.click(screen.getByRole('button', { name: /get started/i }));
 
       await waitFor(() => {
@@ -406,7 +390,6 @@ describe('TwoFactorSetup', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Auto-submit triggers verification
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument();
       });
@@ -444,7 +427,6 @@ describe('TwoFactorSetup', () => {
       const user = userEvent.setup();
       render(<TwoFactorSetup {...defaultProps} />);
 
-      // Click Get Started
       await user.click(screen.getByRole('button', { name: /get started/i }));
 
       await waitFor(() => {
@@ -457,7 +439,6 @@ describe('TwoFactorSetup', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Auto-submit triggers verification
       await waitFor(() => {
         expect(mockFetch).toHaveBeenCalledWith(
           'http://localhost:8787/api/auth/2fa/verify',

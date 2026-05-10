@@ -157,7 +157,6 @@ export async function generateSingleAsset(rootDir: string, assetName: string): P
   console.log(`Generated ${config.filename}`);
 }
 
-// CLI entry point
 /* v8 ignore next 2 */
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;
 if (isMain) {

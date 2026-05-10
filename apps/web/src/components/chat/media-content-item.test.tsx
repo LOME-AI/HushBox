@@ -4,10 +4,6 @@ import userEvent from '@testing-library/user-event';
 import type { ContentKey } from '@hushbox/crypto';
 import type { MessageMediaItem } from '@/lib/api';
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 const mockUseDecryptedMedia = vi.fn<
   (params: { contentItemId: string; contentKey: ContentKey | null; mimeType: string }) => {
     blobUrl: string | null;
@@ -22,10 +18,6 @@ vi.mock('@/hooks/use-decrypted-media', () => ({
 }));
 
 import { MediaContentItem } from './media-content-item';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function defaultItem(overrides: Partial<MessageMediaItem> = {}): MessageMediaItem {
   return {
@@ -44,10 +36,6 @@ const baseContentKey = new Uint8Array([1, 2, 3]) as ContentKey;
 const baseProps = {
   contentKey: baseContentKey,
 };
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('MediaContentItem', () => {
   beforeEach(() => {

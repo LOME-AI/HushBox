@@ -27,7 +27,6 @@ const ogImage = image ?? `${String(Astro.site ?? 'https://hushbox.ai')}og-defaul
     <meta name="description" content={description} />
     <link rel="canonical" href={canonicalUrl} />
 
-    <!-- Open Graph -->
     <meta property="og:title" content={`${title} | HushBox Blog`} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content={date ? 'article' : 'website'} />
@@ -38,13 +37,11 @@ const ogImage = image ?? `${String(Astro.site ?? 'https://hushbox.ai')}og-defaul
     {author && <meta property="article:author" content={author} />}
     {tags?.map((tag) => <meta property="article:tag" content={tag} />)}
 
-    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
 
-    <!-- RSS -->
     <link rel="alternate" type="application/rss+xml" title="HushBox Blog" href="/rss.xml" />
 
     <link rel="icon" type="image/x-icon" href={faviconUrl} />

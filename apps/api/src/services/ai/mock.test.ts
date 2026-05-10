@@ -697,11 +697,6 @@ describe('createMockAIClient', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Exhaustiveness guard for the synchronous stream() switch — protects
-  // against a future caller losing strict typing (via `as` cast) and silently
-  // landing in a no-op branch. Mirrors the pattern in modality-strategies.test.ts.
-  // ---------------------------------------------------------------------------
   describe('stream exhaustiveness guard', () => {
     it('throws when given an unrecognized modality (assertNever)', () => {
       const badRequest = {

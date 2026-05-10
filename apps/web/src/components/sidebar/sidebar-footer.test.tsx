@@ -208,9 +208,7 @@ describe('SidebarFooter', () => {
       render(<SidebarFooter />);
 
       const trigger = screen.getByTestId('sidebar-trigger');
-      // ChevronUp is rendered as an svg inside the trigger
       const svgs = trigger.querySelectorAll('svg');
-      // Should have at least 2 svgs: User icon + ChevronUp
       expect(svgs.length).toBeGreaterThanOrEqual(2);
     });
   });

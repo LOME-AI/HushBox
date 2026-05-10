@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { ComparisonBar } from './comparison-bar';
 import type { Model } from '@hushbox/shared';
 
-// Mock the shared package
 vi.mock('@hushbox/shared', async () => {
   const actual = await vi.importActual<typeof import('@hushbox/shared')>('@hushbox/shared');
   return {

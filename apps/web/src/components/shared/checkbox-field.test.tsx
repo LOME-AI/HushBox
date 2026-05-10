@@ -78,7 +78,6 @@ describe('CheckboxField', () => {
 
     await userEvent.click(screen.getByRole('checkbox'));
 
-    // Should cast to boolean, not pass indeterminate
     expect(onCheckedChange).toHaveBeenCalledWith(false);
     expect(typeof onCheckedChange.mock.calls[0]![0]).toBe('boolean');
   });
@@ -146,7 +145,6 @@ describe('CheckboxField', () => {
 
     const label = screen.getByText('Accept terms');
     const description = screen.getByText('Helpful note');
-    // Both should share the same parent wrapper (indents description under label)
     expect(label.parentElement).toBe(description.parentElement);
   });
 });

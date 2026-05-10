@@ -171,7 +171,6 @@ export function TwoFactorSetup({
     onSuccess: handleVerifySuccess,
   });
 
-  // Reset state when modal opens
   useEffect(() => {
     if (open) {
       setStep('loading');

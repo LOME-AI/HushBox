@@ -106,7 +106,6 @@ function VideoConfigControls(): React.JSX.Element {
       ] ?? 0
   );
 
-  // If the current resolution isn't supported by the primary model, move to the first supported one.
   React.useEffect(() => {
     const first = supportedResolutions[0];
     if (first === undefined) return;

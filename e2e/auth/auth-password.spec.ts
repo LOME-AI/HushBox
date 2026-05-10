@@ -37,7 +37,6 @@ test.describe('Password Change', () => {
       const modal = new ChangePasswordModal(unauthenticatedPage);
       await modal.fillAndSubmit(originalPassword, newPassword);
 
-      // Modal closes on success
       await expect(modal.modal).not.toBeVisible({ timeout: 15_000 });
     });
 

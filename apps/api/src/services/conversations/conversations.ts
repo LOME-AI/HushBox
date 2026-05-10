@@ -95,7 +95,7 @@ export interface UpdateConversationParams {
 }
 
 export interface CreateOrGetConversationParams {
-  id: string; // REQUIRED - client must provide UUID
+  id: string;
   title?: Uint8Array | undefined; // encrypted title from client
   epochPublicKey: Uint8Array;
   confirmationHash: Uint8Array;
@@ -277,7 +277,7 @@ export async function createOrGetConversation(
   userId: string,
   params: CreateOrGetConversationParams
 ): Promise<CreateOrGetConversationResult | null> {
-  const conversationId = params.id; // Required - no fallback
+  const conversationId = params.id;
   const title = params.title ?? new Uint8Array(0);
 
   return db.transaction(async (tx) => {
@@ -304,13 +304,11 @@ export async function createOrGetConversation(
     const isNew = row.is_new;
 
     if (!isNew) {
-      // Existing conversation - fetch all messages with their content items
       const existingMessages = await fetchMessagesWithContent(tx, conversation.id);
 
       return { conversation, messages: existingMessages, isNew: false };
     }
 
-    // New conversation — create epoch infrastructure
     const [epoch] = await tx
       .insert(epochs)
       .values({
@@ -326,7 +324,6 @@ export async function createOrGetConversation(
       throw new Error('Failed to create epoch');
     }
 
-    // Create epoch member for the owner
     await tx.insert(epochMembers).values({
       epochId: epoch.id,
       memberPublicKey: params.userPublicKey,
@@ -334,7 +331,6 @@ export async function createOrGetConversation(
       visibleFromEpoch: 1,
     });
 
-    // Create conversation member for the owner
     await tx.insert(conversationMembers).values({
       conversationId,
       userId,
@@ -390,7 +386,6 @@ export async function getConversationForMember(
     };
   }
 
-  // Query membership for acceptance data
   const inviter = alias(users, 'inviter');
   const memberRows = await db
     .select({

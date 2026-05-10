@@ -124,7 +124,6 @@ export async function createLink(
       throw new StaleEpochError(conv.currentEpoch);
     }
 
-    // 1. Resolve display name
     const displayName = await resolveDisplayName(txDb, params.conversationId, params.displayName);
 
     // 2. Upsert sharedLinks row — idempotent on duplicate linkPublicKey
@@ -145,7 +144,6 @@ export async function createLink(
       throw new Error('Failed to insert shared link');
     }
 
-    // 3. Upsert conversationMembers row
     const [member] = await tx
       .insert(conversationMembers)
       .values({
@@ -167,7 +165,6 @@ export async function createLink(
       throw new Error('Failed to insert conversation member');
     }
 
-    // 4. Either rotate epoch or insert epochMembers wrap
     if (params.rotation) {
       await submitRotation(txDb, params.rotation);
     } else {
@@ -198,7 +195,6 @@ export async function changeLinkPrivilege(
   db: Database,
   params: ChangeLinkPrivilegeParams
 ): Promise<ChangeLinkPrivilegeResult> {
-  // Verify the link exists and is active
   const [link] = await db
     .select({ id: sharedLinks.id })
     .from(sharedLinks)
@@ -255,7 +251,6 @@ export async function revokeLink(
       return { revoked: false, memberId: null };
     }
 
-    // Step 2: Find the active conversation member for this link
     const [member] = await tx
       .select()
       .from(conversationMembers)
@@ -265,7 +260,6 @@ export async function revokeLink(
       return { revoked: true, memberId: null };
     }
 
-    // Step 3: Set leftAt on the conversation member
     await tx
       .update(conversationMembers)
       .set({ leftAt: now })

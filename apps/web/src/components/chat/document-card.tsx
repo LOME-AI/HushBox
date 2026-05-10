@@ -71,10 +71,8 @@ export function DocumentCard({
         className
       )}
     >
-      {/* Document type icon */}
       <div className="text-muted-foreground flex-shrink-0">{getDocumentIcon(document.type)}</div>
 
-      {/* Document info */}
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{document.title}</div>
         <div className="text-muted-foreground text-xs">
@@ -82,7 +80,6 @@ export function DocumentCard({
         </div>
       </div>
 
-      {/* Open arrow */}
       <ArrowUpRight
         className="text-muted-foreground group-hover:text-foreground h-4 w-4 flex-shrink-0 transition-colors"
         data-testid="open-icon"

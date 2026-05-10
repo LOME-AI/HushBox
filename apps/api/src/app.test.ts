@@ -8,7 +8,6 @@ vi.mock('@ai-sdk/gateway', () => ({
 
 import { createApp } from './app.js';
 
-// Mock the database module for dev routes testing
 const mockDbFrom = {
   where: vi.fn(() => Promise.resolve([])),
   innerJoin: vi.fn(() => ({
@@ -65,9 +64,7 @@ describe('createApp', () => {
   describe('auth routes', () => {
     it('responds to /api/auth/* requests', async () => {
       const app = createApp();
-      // Without proper env vars, auth routes will error, but they're mounted
       const res = await app.request('/api/auth/me');
-      // OPAQUE auth should respond (even if with an error due to missing session)
       expect(res.status).toBeDefined();
     });
   });
@@ -340,7 +337,6 @@ describe('createApp', () => {
         .spyOn(globalThis, 'fetch')
         .mockImplementation((input: string | URL | Request) => {
           const url = input instanceof Request ? input.url : String(input);
-          // Upstash Redis REST endpoints (single command or pipeline)
           if (url.startsWith(trialEnv.UPSTASH_REDIS_REST_URL)) {
             // Pipeline: array of `{result, error}`. We claim every rate-limit
             // hit returns null (under cap) so the middleware lets the request
@@ -378,7 +374,6 @@ describe('createApp', () => {
           trialEnv
         );
 
-        // Should not crash with 500 due to missing redis middleware
         expect(res.status).not.toBe(500);
       } finally {
         fetchSpy.mockRestore();

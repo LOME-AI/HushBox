@@ -3,7 +3,6 @@ import { render, screen } from '@testing-library/react';
 import { useUIStore } from '@/stores/ui';
 import { ProjectsLink } from './projects-link';
 
-// Mock Link component
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,

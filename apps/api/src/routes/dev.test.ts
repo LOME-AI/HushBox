@@ -356,7 +356,6 @@ describe('devRoute', () => {
       const res = await app.request('/dev/personas');
 
       expect(res.status).toBe(200);
-      // Default behavior should query dev domain
       expect(mockDb.select).toHaveBeenCalled();
     });
 

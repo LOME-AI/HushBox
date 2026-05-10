@@ -23,11 +23,6 @@ export const modelTokenDataSchema = z.object({
   content: z.string(),
 });
 
-/**
- * `model:done` payload after M-Z1: cost is no longer carried per-model on
- * intermediate dones — the final `done` event carries `models[].cost` once
- * post-flight billing has computed exact spend.
- */
 export const modelDoneDataSchema = z.object({
   modelId: z.string(),
   assistantMessageId: z.string(),

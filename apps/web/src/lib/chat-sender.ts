@@ -1,9 +1,5 @@
 import type { Message } from '@/lib/api';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export interface MessageGroup {
   /** First message's id — used as stable Virtuoso key */
   id: string;
@@ -21,10 +17,6 @@ export interface LinkInfo {
   id: string;
   displayName: string | null;
 }
-
-// ---------------------------------------------------------------------------
-// Functions
-// ---------------------------------------------------------------------------
 
 export interface SenderLabelInput {
   senderId: string | undefined;
@@ -66,9 +58,6 @@ export function getSenderLabel(input: SenderLabelInput): string | undefined {
   return 'This user has left the conversation';
 }
 
-/**
- * Check if a message was sent by the current user.
- */
 export function isOwnMessage(senderId: string | undefined, currentUserId: string): boolean {
   return senderId !== undefined && senderId === currentUserId;
 }

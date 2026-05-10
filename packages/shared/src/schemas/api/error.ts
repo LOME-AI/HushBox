@@ -1,9 +1,5 @@
 import { z } from 'zod';
 
-// ============================================================
-// Error Codes — General
-// ============================================================
-
 /** Unauthorized - authentication required or invalid */
 export const ERROR_CODE_UNAUTHORIZED = 'UNAUTHORIZED';
 
@@ -45,10 +41,6 @@ export const ERROR_CODE_BILLING_MISMATCH = 'BILLING_MISMATCH';
 
 /** CSRF rejected - cross-site request forgery protection triggered */
 export const ERROR_CODE_CSRF_REJECTED = 'CSRF_REJECTED';
-
-// ============================================================
-// Error Codes — Auth
-// ============================================================
 
 /** Authentication failed - invalid credentials */
 export const ERROR_CODE_AUTH_FAILED = 'AUTH_FAILED';
@@ -118,10 +110,6 @@ export const ERROR_CODE_VERIFICATION_FAILED = 'VERIFICATION_FAILED';
 /** Invalid or expired verification token */
 export const ERROR_CODE_INVALID_OR_EXPIRED_TOKEN = 'INVALID_OR_EXPIRED_TOKEN';
 
-// ============================================================
-// Error Codes — 2FA
-// ============================================================
-
 /** 2FA verification failed - generic client-side error */
 export const ERROR_CODE_2FA_VERIFICATION_FAILED = '2FA_VERIFICATION_FAILED';
 
@@ -155,10 +143,6 @@ export const ERROR_CODE_NO_PENDING_DISABLE = 'NO_PENDING_DISABLE';
 /** Disable 2FA init failed */
 export const ERROR_CODE_DISABLE_2FA_INIT_FAILED = 'DISABLE_2FA_INIT_FAILED';
 
-// ============================================================
-// Error Codes — Infrastructure
-// ============================================================
-
 /** User not found in database */
 export const ERROR_CODE_USER_NOT_FOUND = 'USER_NOT_FOUND';
 
@@ -170,10 +154,6 @@ export const ERROR_CODE_INVALID_BASE64 = 'INVALID_BASE64';
 
 /** Too many attempts - account temporarily locked */
 export const ERROR_CODE_TOO_MANY_ATTEMPTS = 'TOO_MANY_ATTEMPTS';
-
-// ============================================================
-// Error Codes — Domain
-// ============================================================
 
 /** Conversation not found */
 export const ERROR_CODE_CONVERSATION_NOT_FOUND = 'CONVERSATION_NOT_FOUND';
@@ -291,10 +271,6 @@ export const ERROR_CODE_WRAP_SET_MISMATCH = 'WRAP_SET_MISMATCH';
 /** Epoch rotation required */
 export const ERROR_CODE_ROTATION_REQUIRED = 'ROTATION_REQUIRED';
 
-// ============================================================
-// Error Codes — Regeneration & Forks
-// ============================================================
-
 /** Regeneration blocked because another user replied after target message */
 export const ERROR_CODE_REGENERATION_BLOCKED_BY_OTHER_USER = 'REGENERATION_BLOCKED_BY_OTHER_USER';
 
@@ -324,10 +300,6 @@ export const ERROR_CODE_FORK_TIP_CONFLICT = 'FORK_TIP_CONFLICT';
 
 /** Duplicate user message — same conversation/sequence already persisted (retry hit a PK race). */
 export const ERROR_CODE_DUPLICATE_MESSAGE = 'DUPLICATE_MESSAGE';
-
-// ============================================================
-// Error Codes — SSE Streaming
-// ============================================================
 
 /** Context length exceeded — conversation too long for the model */
 export const ERROR_CODE_CONTEXT_LENGTH_EXCEEDED = 'CONTEXT_LENGTH_EXCEEDED';
@@ -369,10 +341,6 @@ export const ERROR_CODE_PROVIDER_BILLING = 'PROVIDER_BILLING';
  */
 export const ERROR_CODE_NETWORK_ERROR = 'NETWORK_ERROR';
 
-// ============================================================
-// Error Codes — Mobile
-// ============================================================
-
 /** App version outdated - client must update before continuing */
 export const ERROR_CODE_UPGRADE_REQUIRED = 'UPGRADE_REQUIRED';
 
@@ -384,10 +352,6 @@ export const ERROR_CODE_BILLING_SESSION_RESTRICTED = 'BILLING_SESSION_RESTRICTED
 
 /** Requested build version not found in R2 storage */
 export const ERROR_CODE_BUILD_NOT_FOUND = 'BUILD_NOT_FOUND';
-
-// ============================================================
-// Error Codes — Media Storage
-// ============================================================
 
 /** Media storage write failed — R2 PUT returned an error. */
 export const ERROR_CODE_STORAGE_WRITE_FAILED = 'STORAGE_WRITE_FAILED';
@@ -448,10 +412,6 @@ export const ERROR_CODE_AUDIO_DISABLED = 'AUDIO_DISABLED';
  * message is aborted; sibling slots (explicit selections) keep streaming.
  */
 export const ERROR_CODE_CLASSIFIER_FAILED = 'CLASSIFIER_FAILED';
-
-// ============================================================
-// Error Response Schema
-// ============================================================
 
 /**
  * Standard error response schema.

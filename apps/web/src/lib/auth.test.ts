@@ -33,13 +33,11 @@ import {
   type UserData,
 } from './auth';
 
-/** Runtime non-null assertion for test values captured by mocks. */
 function defined<T>(value: T | null | undefined, label = 'value'): NonNullable<T> {
   if (value == null) throw new Error(`Expected ${label} to be defined`);
   return value;
 }
 
-// Test user data
 const testUser: UserData = {
   id: 'user-123',
   email: 'test@example.com',
@@ -54,7 +52,6 @@ const testUser2FA: UserData = {
   totpEnabled: true,
 };
 
-// Mock modules
 vi.mock('@tanstack/react-router', () => ({
   redirect: vi.fn((options) => options),
 }));
@@ -132,7 +129,6 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
   };
 });
 
-// Import mocked modules for type safety
 import { persistExportKey, getStoredAuth, clearStoredAuth, restoreSession } from './auth-client.js';
 import { getLinkGuestAuth } from './link-guest-auth.js';
 
@@ -140,7 +136,6 @@ const mockedGetLinkGuestAuth = vi.mocked(getLinkGuestAuth);
 
 describe('auth', () => {
   beforeEach(() => {
-    // Reset store state
     useAuthStore.setState({
       user: null,
       privateKey: null,
@@ -150,7 +145,6 @@ describe('auth', () => {
     resetInitPromise();
     vi.clearAllMocks();
 
-    // Setup default fetch mock
     globalThis.fetch = vi.fn();
   });
 
@@ -210,10 +204,8 @@ describe('auth', () => {
     });
 
     it('should clear user and set isAuthenticated to false when user is null', () => {
-      // First set a user
       useAuthStore.setState({ user: testUser, isAuthenticated: true });
 
-      // Then clear it
       useAuthStore.getState().setUser(null);
 
       const state = useAuthStore.getState();
@@ -428,7 +420,6 @@ describe('auth', () => {
 
       await signIn.email({ identifier: 'John Smith', password: 'password123' });
 
-      // Verify the API received normalized "john_smith", not raw "John Smith"
       expect(capturedInitBody).toContain('john_smith');
       expect(capturedInitBody).not.toContain('John Smith');
       expect(capturedFinishBody).toContain('john_smith');
@@ -476,7 +467,6 @@ describe('auth', () => {
 
       await signIn.email({ identifier: 'User@Example.com', password: 'password123' });
 
-      // Email should be preserved as-is (not normalized)
       expect(capturedInitBody).toContain('User@Example.com');
     });
 
@@ -1191,7 +1181,6 @@ describe('auth', () => {
     const newPassword = 'newPassword456';
 
     beforeEach(() => {
-      // Set privateKey in store for password change tests
       const mockPrivateKey = new Uint8Array([60, 61, 62]);
       useAuthStore.setState({ privateKey: mockPrivateKey });
     });
@@ -1246,7 +1235,6 @@ describe('auth', () => {
         kek: new Uint8Array([19, 20, 21]),
       });
 
-      // Mock localStorage to simulate keepSignedIn = true
       Object.defineProperty(globalThis, 'localStorage', {
         value: {
           getItem: vi.fn((key) => (key === 'hushbox_auth_kek' ? 'some_value' : null)),
@@ -1393,7 +1381,6 @@ describe('auth', () => {
       const result = await changePassword(currentPassword, newPassword);
 
       expect(result.success).toBe(false);
-      // Password zeroing is tested implicitly through the error handling
     });
 
     it('should zero both password bytes when rewrapAccountKeyForPasswordChange throws error', async () => {
@@ -1627,12 +1614,10 @@ describe('auth', () => {
 
       vi.mocked(getStoredAuth).mockReturnValue({ userId: 'user-123', kek: mockKEK });
 
-      // First call: restoreSession returns null (transient failure)
       vi.mocked(restoreSession).mockResolvedValue(null);
       await initAuth();
       expect(useAuthStore.getState().user).toBeNull();
 
-      // Second call: restoreSession succeeds — should retry, not return cached failure
       vi.mocked(restoreSession).mockResolvedValue({
         privateKey: mockPrivateKey,
         userId: 'user-123',
@@ -1652,12 +1637,10 @@ describe('auth', () => {
 
       vi.mocked(getStoredAuth).mockReturnValue({ userId: 'user-123', kek: mockKEK });
 
-      // First call: restoreSession throws (network error)
       vi.mocked(restoreSession).mockRejectedValue(new Error('Network error'));
       await initAuth();
       expect(useAuthStore.getState().user).toBeNull();
 
-      // Second call: restoreSession succeeds — should retry
       vi.mocked(restoreSession).mockResolvedValue({
         privateKey: mockPrivateKey,
         userId: 'user-123',
@@ -1682,11 +1665,9 @@ describe('auth', () => {
         customInstructionsEncrypted: null,
       });
 
-      // First call: succeeds
       await initAuth();
       expect(useAuthStore.getState().user).toEqual(testUser);
 
-      // Second call: should return cached result, not call restoreSession again
       await initAuth();
 
       expect(restoreSession).toHaveBeenCalledTimes(1);
@@ -2001,7 +1982,6 @@ describe('auth', () => {
 
       await resetPasswordViaRecovery('user@example.com', recoveryPhrase, newPassword);
 
-      // Verify get-wrapped-key sends identifier (not email)
       const getKeyCall = vi
         .mocked(fetch)
         .mock.calls.find(
@@ -2039,7 +2019,6 @@ describe('auth', () => {
 
       await resetPasswordViaRecovery('Test User', recoveryPhrase, newPassword);
 
-      // Username should be normalized: lowercased, spaces→underscores
       const getKeyCall = vi
         .mocked(fetch)
         .mock.calls.find(

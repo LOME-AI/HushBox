@@ -6,13 +6,7 @@
  * - guest: Accessing via shared link (delegated budget from owner)
  * - free: Authenticated user with zero balance (daily allowance, basic models only)
  * - paid: Authenticated user with positive balance (all models)
- *
- * See docs/BILLING.md for full documentation.
  */
-
-// ============================================================
-// Constants
-// ============================================================
 
 /** Daily free allowance in cents ($0.05 = 5 cents) - numeric value for calculations */
 export const FREE_ALLOWANCE_CENTS_VALUE = 5;
@@ -29,10 +23,6 @@ export const WELCOME_CREDIT_CENTS = 20;
 /** Welcome credit as decimal string for numeric column (derived from WELCOME_CREDIT_CENTS) */
 export const WELCOME_CREDIT_BALANCE = (WELCOME_CREDIT_CENTS / 100).toFixed(8);
 
-// ============================================================
-// Types
-// ============================================================
-
 export type UserTier = 'trial' | 'guest' | 'free' | 'paid';
 
 export interface UserTierInfo {
@@ -46,10 +36,6 @@ export interface UserBalanceState {
   balanceCents: number;
   freeAllowanceCents: number;
 }
-
-// ============================================================
-// Functions
-// ============================================================
 
 /**
  * Derive user tier from balance state.

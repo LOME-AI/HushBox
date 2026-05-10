@@ -482,7 +482,6 @@ describe('OPAQUE auth routes', () => {
       const client = createOpaqueClient();
       const { serialized } = await startRegistration(client, 'secure-password-123');
 
-      // Step 1: Init
       const initRes = await app.request('/api/auth/register/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -497,7 +496,6 @@ describe('OPAQUE auth routes', () => {
       const initBody = await jsonBody<RegistrationInitResponse>(initRes);
       expect(initBody.registrationResponse).toBeDefined();
 
-      // Step 2: Finish (client-side would derive keys here)
       const { record } = await finishRegistration(client, initBody.registrationResponse);
 
       const finishRes = await app.request('/api/auth/register/finish', {
@@ -523,7 +521,6 @@ describe('OPAQUE auth routes', () => {
     });
 
     it('returns 201 but does not create user when email already exists', async () => {
-      // Setup mock to return existing user in DB query
       mockDb.where = vi.fn().mockImplementation(() => [{ id: 'existing-user-id' }]);
       const insertSpy = vi.fn().mockReturnThis();
       mockDb.insert = insertSpy;
@@ -531,7 +528,6 @@ describe('OPAQUE auth routes', () => {
       const client = createOpaqueClient();
       const { serialized } = await startRegistration(client, 'secure-password-123');
 
-      // Step 1: Init (should succeed and set existing flag)
       const initRes = await app.request('/api/auth/register/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -546,7 +542,6 @@ describe('OPAQUE auth routes', () => {
       const initBody = await jsonBody<RegistrationInitResponse>(initRes);
       expect(initBody.registrationResponse).toBeDefined();
 
-      // Step 2: Finish (should return 201 but NOT insert into DB)
       const { record } = await finishRegistration(client, initBody.registrationResponse);
 
       const finishRes = await app.request('/api/auth/register/finish', {
@@ -723,7 +718,6 @@ describe('OPAQUE auth routes', () => {
       const email = 'unverified@example.com';
       const password = 'secure-password-123';
 
-      // === Step 1: Register user (full OPAQUE flow) ===
       const regClient = createOpaqueClient();
       const { serialized: regRequest } = await startRegistration(regClient, password);
 
@@ -763,7 +757,6 @@ describe('OPAQUE auth routes', () => {
       const storedOpaqueRegistration = valuesCall['opaqueRegistration'] as Uint8Array;
       const registeredUserId = valuesCall['id'] as string;
 
-      // === Step 2: Login init ===
       // Mock DB to return user with opaqueRegistration but emailVerified: false
       // Must use registeredUserId — OPAQUE credential identifier was bound to this ID during registration
       mockDb.where = vi.fn().mockImplementation(() => [
@@ -792,7 +785,6 @@ describe('OPAQUE auth routes', () => {
       expect(loginInitRes.status).toBe(200);
       const loginInitBody = await jsonBody<LoginInitResponse>(loginInitRes);
 
-      // === Step 3: Login finish - should be rejected ===
       const { ke3 } = await finishLogin(loginClient, loginInitBody.ke2, OPAQUE_SERVER_IDENTIFIER);
 
       const loginFinishRes = await app.request('/api/auth/login/finish', {
@@ -811,7 +803,6 @@ describe('OPAQUE auth routes', () => {
       const username = 'loginbyname';
       const password = 'secure-password-456';
 
-      // === Step 1: Register user ===
       const regClient = createOpaqueClient();
       const { serialized: regRequest } = await startRegistration(regClient, password);
 
@@ -851,7 +842,6 @@ describe('OPAQUE auth routes', () => {
       const storedOpaqueRegistration = valuesCall['opaqueRegistration'] as Uint8Array;
       const registeredUserId = valuesCall['id'] as string;
 
-      // === Step 2: Login init using username (not email) ===
       mockDb.where = vi.fn().mockImplementation(() => [
         {
           id: registeredUserId,
@@ -878,7 +868,6 @@ describe('OPAQUE auth routes', () => {
       expect(loginInitRes.status).toBe(200);
       const loginInitBody = await jsonBody<LoginInitResponse>(loginInitRes);
 
-      // === Step 3: Login finish - should succeed ===
       const { ke3 } = await finishLogin(loginClient, loginInitBody.ke2, OPAQUE_SERVER_IDENTIFIER);
 
       const loginFinishRes = await app.request('/api/auth/login/finish', {
@@ -897,7 +886,6 @@ describe('OPAQUE auth routes', () => {
       const email = 'noemail-reg@example.com';
       const password = 'secure-password-789';
 
-      // === Step 1: Register (using email for now, but simulate no-email at login) ===
       const regClient = createOpaqueClient();
       const { serialized: regRequest } = await startRegistration(regClient, password);
 
@@ -937,7 +925,6 @@ describe('OPAQUE auth routes', () => {
       const storedOpaqueRegistration = valuesCall['opaqueRegistration'] as Uint8Array;
       const registeredUserId = valuesCall['id'] as string;
 
-      // === Step 2: Login with email: null (simulates future no-email user) ===
       // emailVerified is false, but email is null — should skip verification
       mockDb.where = vi.fn().mockImplementation(() => [
         {
@@ -965,7 +952,6 @@ describe('OPAQUE auth routes', () => {
       expect(loginInitRes.status).toBe(200);
       const loginInitBody = await jsonBody<LoginInitResponse>(loginInitRes);
 
-      // === Step 3: Login finish - should succeed despite emailVerified: false ===
       const { ke3 } = await finishLogin(loginClient, loginInitBody.ke2, OPAQUE_SERVER_IDENTIFIER);
 
       const loginFinishRes = await app.request('/api/auth/login/finish', {

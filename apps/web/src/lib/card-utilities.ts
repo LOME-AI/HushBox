@@ -1,14 +1,6 @@
 /**
- * Card validation and formatting utilities.
- * Used for credit card input validation in payment forms.
- */
-
-/**
  * Validates a card number using the Luhn algorithm.
  * Handles card numbers with spaces or other separators.
- *
- * @param cardNumber - The card number to validate
- * @returns true if the card number passes Luhn validation
  */
 export function isValidLuhn(cardNumber: string): boolean {
   const digits = cardNumber.replaceAll(/\D/g, '');
@@ -36,24 +28,12 @@ export function isValidLuhn(cardNumber: string): boolean {
   return sum % 10 === 0;
 }
 
-/**
- * Formats a card number with spaces every 4 digits: "1234 5678 9012 3456"
- *
- * @param value - Raw card number input
- * @returns Formatted card number (max 19 characters)
- */
 export function formatCardNumber(value: string): string {
   const cleaned = value.replaceAll(/\D/g, '');
   const groups = cleaned.match(/.{1,4}/g);
   return groups ? groups.join(' ').slice(0, 19) : '';
 }
 
-/**
- * Formats expiry date: "MM / YY"
- *
- * @param value - Raw expiry input
- * @returns Formatted expiry date
- */
 export function formatExpiry(value: string): string {
   const cleaned = value.replaceAll(/\D/g, '');
   if (cleaned.length >= 3) {
@@ -62,12 +42,6 @@ export function formatExpiry(value: string): string {
   return cleaned;
 }
 
-/**
- * Formats CVV: digits only, max 4
- *
- * @param value - Raw CVV input
- * @returns Formatted CVV (max 4 digits)
- */
 export function formatCvv(value: string): string {
   return value.replaceAll(/\D/g, '').slice(0, 4);
 }
@@ -75,20 +49,11 @@ export function formatCvv(value: string): string {
 /**
  * Formats ZIP code: alphanumeric only, max 10 characters.
  * Supports US ZIP codes and Canadian postal codes.
- *
- * @param value - Raw ZIP input
- * @returns Formatted ZIP code
  */
 export function formatZip(value: string): string {
   return value.replaceAll(/[^a-zA-Z0-9]/g, '').slice(0, 10);
 }
 
-/**
- * Validates a card number.
- *
- * @param cardNumber - The card number to validate
- * @returns Error message or null if valid
- */
 export function validateCardNumber(cardNumber: string): string | null {
   const cleaned = cardNumber.replaceAll(/\s/g, '');
   if (cleaned.length === 0) return 'Card number is required';
@@ -99,12 +64,6 @@ export function validateCardNumber(cardNumber: string): string | null {
   return null;
 }
 
-/**
- * Validates an expiry date (MM / YY format).
- *
- * @param expiry - The expiry date to validate
- * @returns Error message or null if valid
- */
 export function validateExpiry(expiry: string): string | null {
   if (expiry.length === 0) return 'Expiry date is required';
   if (!/^\d{2}\s\/\s\d{2}$/.test(expiry)) return 'Format: MM / YY';
@@ -128,12 +87,6 @@ export function validateExpiry(expiry: string): string | null {
   return null;
 }
 
-/**
- * Validates a CVV code.
- *
- * @param cvv - The CVV to validate
- * @returns Error message or null if valid
- */
 export function validateCvv(cvv: string): string | null {
   if (cvv.length === 0) return 'CVV is required';
   if (cvv.length < 3) return 'CVV must be 3-4 digits';
@@ -141,12 +94,6 @@ export function validateCvv(cvv: string): string | null {
   return null;
 }
 
-/**
- * Validates a ZIP code.
- *
- * @param zip - The ZIP code to validate
- * @returns Error message or null if valid
- */
 export function validateZip(zip: string): string | null {
   if (zip.length === 0) return 'ZIP code is required';
   if (zip.length < 5) return 'ZIP code must be 5 digits';

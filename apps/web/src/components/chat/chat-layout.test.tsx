@@ -365,7 +365,6 @@ describe('ChatLayout', () => {
 
     expect(screen.getByTestId('shared-conversation-loading')).toBeInTheDocument();
     expect(screen.getByText('Decrypting your conversation...')).toBeInTheDocument();
-    // Header and input should still be visible
     expect(screen.getByTestId('chat-header')).toBeInTheDocument();
     expect(screen.getByTestId('prompt-input')).toBeInTheDocument();
   });
@@ -542,7 +541,6 @@ describe('ChatLayout', () => {
         <ChatLayout {...defaultProps} conversationId="conv-123" groupChat={groupChatWithLinks} />
       );
 
-      // 2 members + 2 links = 4
       expect(screen.getByTestId('add-member-modal')).toHaveAttribute('data-member-count', '4');
       expect(screen.getByTestId('invite-link-modal')).toHaveAttribute('data-member-count', '4');
     });

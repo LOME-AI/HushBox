@@ -13,10 +13,6 @@ import { describe, it, expect } from 'vitest';
 import { resolveBilling, type ResolveBillingInput } from './resolve-billing.js';
 import { generateNotifications, type NotificationInput } from './budget.js';
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
 /** IDs of notifications that are billing-denial errors (block send) */
 const DENIAL_NOTIFICATION_IDS = new Set([
   'premium_requires_balance',
@@ -60,10 +56,6 @@ function assertConsistency(
     expect(hasDenialError).toBe(false);
   }
 }
-
-// ============================================================================
-// Parameterized Tests
-// ============================================================================
 
 describe('resolveBilling ↔ generateNotifications consistency', () => {
   describe('personal: paid tier', () => {

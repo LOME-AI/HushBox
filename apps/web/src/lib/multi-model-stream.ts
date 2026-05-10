@@ -8,7 +8,6 @@ export interface ProcessStartEventResult {
   assistantMessageIds: string[];
 }
 
-/** Build model→message map and create assistant messages from a stream start event. */
 export function processStartEvent(
   data: StartEventData,
   conversationId: string,

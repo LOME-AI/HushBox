@@ -279,10 +279,6 @@ export async function collectMultiModelStreams(
   return results;
 }
 
-// ============================================================================
-// Media stream collection
-// ============================================================================
-
 interface MediaCollectorState {
   mediaBytes: Uint8Array | undefined;
   mimeType: string | undefined;

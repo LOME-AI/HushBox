@@ -649,11 +649,6 @@ describe('helcimMiddleware', () => {
     vi.resetAllMocks();
   });
 
-  /**
-   * helcimMiddleware now reads `db` and `envUtils` from context (via
-   * createEvidenceConfig) so it can pass evidence config to the factory.
-   * Stub both before invoking helcimMiddleware in tests.
-   */
   function setupHelcimContext(): MiddlewareHandler<AppEnv> {
     return async (c, next) => {
       c.set('db', {} as never);

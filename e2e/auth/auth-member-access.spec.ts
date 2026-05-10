@@ -25,10 +25,8 @@ test.describe('Auth Member Access', () => {
 
       await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
 
-      // Set read privilege
       await authenticatedPage.getByTestId('add-member-privilege-select').selectOption('read');
 
-      // Check history checkbox
       await authenticatedPage
         .getByTestId('add-member-history-checkbox')
         .getByRole('checkbox')
@@ -43,15 +41,12 @@ test.describe('Auth Member Access', () => {
       await daveChatPage.gotoConversation(groupConversation.id);
       await daveChatPage.waitForConversationLoaded();
 
-      // Sees all history
       await daveChatPage.expectMessageVisible('Hello from Alice');
       await daveChatPage.expectMessageVisible('Hi from Bob');
 
-      // Read privilege: send input should be disabled or hidden
       const sendInput = testDavePage.getByRole('textbox', { name: 'Ask me anything...' });
       const sendVisible = await sendInput.isVisible().catch(() => false);
       if (sendVisible) {
-        // If visible, it should be disabled
         await expect(sendInput).toBeDisabled();
       }
     });
@@ -86,7 +81,6 @@ test.describe('Auth Member Access', () => {
 
       await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
 
-      // Set read privilege
       await authenticatedPage.getByTestId('add-member-privilege-select').selectOption('read');
 
       // Explicitly uncheck history (may retain state from previous modal use)
@@ -98,7 +92,6 @@ test.describe('Auth Member Access', () => {
       await authenticatedPage.getByTestId('add-member-submit-button').click();
       await expect(authenticatedPage.getByTestId('add-member-modal')).not.toBeVisible();
 
-      // Verify Dave was actually added before proceeding
       await unsettledExpect(sidebar.findMemberByUsername('test dave')).toBeVisible({
         timeout: 10_000,
       });
@@ -121,13 +114,11 @@ test.describe('Auth Member Access', () => {
       await daveChatPage.gotoConversation(groupConversation.id);
       await daveChatPage.waitForConversationLoaded();
 
-      // Should NOT see pre-rotation messages anywhere in the conversation
       await daveChatPage.assertMessageNotVisible('Hello from Alice', { exact: true });
 
       // Should see post-rotation message (helper auto-scrolls if virtualised)
       await daveChatPage.assertMessageVisible('Post-rotation for Dave');
 
-      // Read privilege: send input should be disabled or hidden
       const sendInput = testDavePage.getByRole('textbox', { name: 'Ask me anything...' });
       const sendVisible = await sendInput.isVisible().catch(() => false);
       if (sendVisible) {

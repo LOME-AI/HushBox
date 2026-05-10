@@ -27,10 +27,6 @@ import type {
 
 export { StreamTimeoutError } from '../lib/sse-client';
 
-// ============================================================================
-// Types
-// ============================================================================
-
 export type StreamMode = 'authenticated' | 'trial';
 
 interface AuthenticatedStreamRequest {
@@ -65,6 +61,7 @@ export interface RegenerateStreamRequest {
   conversationId: string;
   targetMessageId: string;
   action: 'retry' | 'edit' | 'regenerate';
+  modality: 'text' | 'image' | 'video' | 'audio';
   model: string;
   userMessage: {
     id: string;
@@ -75,6 +72,9 @@ export interface RegenerateStreamRequest {
   forkId?: string;
   webSearchEnabled?: boolean;
   customInstructions?: string;
+  imageConfig?: ImageConfig;
+  videoConfig?: VideoConfig;
+  audioConfig?: AudioConfig;
 }
 
 export type StreamRequest = AuthenticatedStreamRequest | TrialStreamRequest;
@@ -297,8 +297,7 @@ interface StreamState {
   startData: StartEventData | null;
   /**
    * Cost map sourced exclusively from the final `done` event's `models[].cost`.
-   * Per-model `model:done` no longer carries cost (M-Z1) — final spend is only
-   * known after the post-flight billing pass on the server.
+   * Final spend is only known after the post-flight billing pass on the server.
    */
   modelCosts: Map<string, string>;
   modelErrors: Map<string, string>;
@@ -386,8 +385,6 @@ async function executeStream(
       options?.onToken?.(tokenData.content, tokenData.modelId);
     },
     onModelDone: (data) => {
-      // Per-model dones no longer carry cost — `done.models[].cost` is the
-      // sole source of truth (M-Z1).
       options?.onModelDone?.(data);
     },
     onModelError: (data) => {

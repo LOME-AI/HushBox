@@ -209,7 +209,6 @@ test.describe('Fork Lifecycle', () => {
       await chatPage.hoverMessage(1);
       await chatPage.getForkButton(1).click();
 
-      // Should show an error (toast or similar) rather than creating a 6th tab
       await chatPage.expectForkTabCount(5);
     });
   });
@@ -301,7 +300,6 @@ test.describe('Group Chat Forking', () => {
       await aliceChatPage.gotoConversation(groupConversation.id);
       await aliceChatPage.waitForConversationLoaded();
 
-      // Fork from the AI message
       const aiMessage = aliceChatPage.messageList.locator('[data-role="assistant"]').first();
       await aiMessage.hover();
       await aiMessage.getByRole('button', { name: 'Fork' }).click();
@@ -439,9 +437,7 @@ test.describe('Fork History Preservation', () => {
     await chatPage.goto();
     await chatPage.waitForAppStable();
 
-    // Generate an image first.
     await test.step('generate an image then fork from the assistant message', async () => {
-      // Switch to image modality (re-uses ChatPage helper).
       const imageIcon = authenticatedPage.getByRole('button', { name: /switch to image/i });
       await expect(imageIcon).toBeVisible();
       await imageIcon.click();
@@ -490,7 +486,6 @@ test.describe('Fork History Preservation', () => {
     const totalMessages = await chatPage.getMessageCountViaAPI();
     expect(totalMessages).toBe(3); // 1 user + 2 AI
 
-    // Capture the first AI message's model nametag before forking
     const firstAiNametag = await chatPage.getMessage(1).getByTestId('model-nametag').textContent();
 
     await test.step('fork from first AI message', async () => {

@@ -44,7 +44,6 @@ vi.mock('../lib/epoch-key-cache', () => ({
   getSnapshot: vi.fn(() => 0),
 }));
 
-// Mock the api-client module
 const mockFetchJson = vi.fn();
 vi.mock('../lib/api-client', () => ({
   client: {

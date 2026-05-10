@@ -190,7 +190,6 @@ describe('ThemeToggle', () => {
       expect(document.documentElement.classList.contains('dark')).toBe(true);
     });
 
-    // Clean up
     delete documentRecord['startViewTransition'];
   });
 
@@ -208,7 +207,6 @@ describe('ThemeToggle', () => {
     expect(mockStartViewTransition).not.toHaveBeenCalled();
     expect(onToggle).toHaveBeenCalledOnce();
 
-    // Clean up
     delete documentRecord['startViewTransition'];
   });
 

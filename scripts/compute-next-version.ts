@@ -3,10 +3,6 @@ import { execSync } from 'node:child_process';
 
 import { semverToCode } from './extract-version.js';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 interface Semver {
   major: number;
   minor: number;
@@ -25,10 +21,6 @@ interface ComputeVersionResult {
   versionName: string;
   versionCode: number;
 }
-
-// ---------------------------------------------------------------------------
-// Pure functions
-// ---------------------------------------------------------------------------
 
 const STRICT_SEMVER = /^v?(\d+)\.(\d+)\.(\d+)$/;
 
@@ -82,10 +74,6 @@ export function computeNextVersion(input: ComputeVersionInput): ComputeVersionRe
   return { version, versionName: version, versionCode: semverToCode(version) };
 }
 
-// ---------------------------------------------------------------------------
-// IO functions (side-effectful — tested with mocks)
-// ---------------------------------------------------------------------------
-
 /** Find the latest stable git tag matching vX.Y.Z (no pre-release). */
 export function findLatestStableTag(): string | null {
   // eslint-disable-next-line sonarjs/no-os-command-from-path -- git is a standard tool in CI runners
@@ -128,10 +116,6 @@ export async function findMergedPrLabels(
 
   return (pulls[0]?.labels ?? []).map((l) => l.name);
 }
-
-// ---------------------------------------------------------------------------
-// CLI entrypoint
-// ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
   const token = process.env['GITHUB_TOKEN'];

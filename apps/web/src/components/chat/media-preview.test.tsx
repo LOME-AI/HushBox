@@ -63,7 +63,6 @@ describe('MediaPlaceholder', () => {
     render(<MediaPlaceholder width={null} height={null} status="loading" progressPercent={42} />);
     const bar = screen.getByTestId('media-progress-bar');
     expect(bar).toBeInTheDocument();
-    // Inner fill width matches the percent.
     const fill = bar.querySelector('div');
     expect(fill?.getAttribute('style')).toContain('42%');
   });

@@ -6,10 +6,6 @@
  * to get the human-readable string displayed to users.
  */
 
-// ============================================================================
-// Branded type for user-facing messages
-// ============================================================================
-
 declare const __brand: unique symbol;
 
 /**
@@ -23,12 +19,7 @@ declare const __brand: unique symbol;
  */
 export type UserFacingMessage = string & { readonly [__brand]: 'UserFacingMessage' };
 
-// ============================================================================
-// Error code → message map
-// ============================================================================
-
 const ERROR_MESSAGES = {
-  // General codes
   UNAUTHORIZED: 'You are not logged in. Please log in and try again.',
   NOT_FOUND: "The item you're looking for doesn't exist.",
   VALIDATION: 'Invalid input. Please check your data and try again.',
@@ -44,7 +35,6 @@ const ERROR_MESSAGES = {
   BILLING_MISMATCH: 'Billing state has changed. Please retry.',
   CSRF_REJECTED: 'Request rejected for security reasons. Please refresh and try again.',
 
-  // Auth codes
   AUTH_FAILED: 'Invalid credentials.',
   LOGIN_FAILED: 'Login failed. Please check your credentials and try again.',
   LOGIN_INIT_FAILED: 'Login failed. Please try again.',
@@ -70,7 +60,6 @@ const ERROR_MESSAGES = {
   VERIFICATION_FAILED: 'Email verification failed. Please try again or request a new link.',
   INVALID_OR_EXPIRED_TOKEN: 'This link has expired. Please request a new verification email.',
 
-  // 2FA codes
   '2FA_VERIFICATION_FAILED': 'Two-factor verification failed. Please try again.',
   '2FA_REQUIRED': 'Two-factor authentication is required.',
   '2FA_EXPIRED': 'Your two-factor session expired. Please log in again.',
@@ -83,13 +72,11 @@ const ERROR_MESSAGES = {
   NO_PENDING_DISABLE: 'Your two-factor disable session expired. Please start over.',
   DISABLE_2FA_INIT_FAILED: 'Failed to start two-factor disable. Please try again.',
 
-  // Infrastructure codes
   USER_NOT_FOUND: 'Account not found.',
   SERVER_MISCONFIGURED: 'Something went wrong on our end. Please try again later.',
   INVALID_BASE64: 'Something went wrong with your request. Please try again.',
   TOO_MANY_ATTEMPTS: 'Too many attempts. Your account has been temporarily locked.',
 
-  // Domain codes
   CONVERSATION_NOT_FOUND: 'Conversation not found.',
   MODEL_NOT_FOUND: 'Model not found.',
   LAST_MESSAGE_NOT_USER: 'Last message must be from you.',
@@ -137,7 +124,6 @@ const ERROR_MESSAGES = {
   WRAP_SET_MISMATCH: 'Member wrap set does not match active members.',
   ROTATION_REQUIRED: 'Epoch rotation is required for this operation.',
 
-  // Regeneration & Fork codes
   REGENERATION_BLOCKED_BY_OTHER_USER:
     'Cannot regenerate — another user has replied after this message.',
   FORK_NOT_FOUND: 'Fork not found.',
@@ -150,14 +136,12 @@ const ERROR_MESSAGES = {
   FORK_TIP_CONFLICT: 'Another reply landed at the same time. Please retry.',
   DUPLICATE_MESSAGE: 'This message was already sent. Refresh to see the latest state.',
 
-  // Mobile codes
   UPGRADE_REQUIRED: 'A new version is available. Please update to continue.',
   LOGIN_TOKEN_INVALID: 'This login link has expired or already been used.',
   BILLING_SESSION_RESTRICTED:
     'This session can only access billing. Please log in normally for full access.',
   BUILD_NOT_FOUND: 'The requested app version was not found.',
 
-  // Media storage codes
   STORAGE_WRITE_FAILED: "We couldn't save the generated media. Please try again.",
   MEDIA_TOO_LARGE: 'Generated media is too large to store. Please try a smaller request.',
   STORAGE_READ_FAILED: "We couldn't load this media. Please refresh the page.",

@@ -40,17 +40,9 @@ import type {
  */
 export type EvidenceConfig = SharedEvidenceConfig;
 
-// ---------------------------------------------------------------------------
-// ZDR options applied to every AI SDK call
-// ---------------------------------------------------------------------------
-
 const ZDR_PROVIDER_OPTIONS = {
   gateway: { zeroDataRetention: true },
 } as const;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Provider-metadata Zod schema for the `gateway` namespace. The AI Gateway
@@ -123,10 +115,6 @@ function convertContentPart(
   return { type: 'image', image: part.data, mediaType: part.mimeType };
 }
 
-// ---------------------------------------------------------------------------
-// Text streaming
-// ---------------------------------------------------------------------------
-
 function streamTextRequest(
   gateway: ReturnType<typeof createGateway>,
   request: TextRequest
@@ -195,10 +183,6 @@ function streamTextRequest(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Image generation
-// ---------------------------------------------------------------------------
-
 function streamImageRequest(
   gateway: ReturnType<typeof createGateway>,
   request: ImageRequest
@@ -229,10 +213,6 @@ function streamImageRequest(
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Video generation
-// ---------------------------------------------------------------------------
 
 function streamVideoRequest(
   gateway: ReturnType<typeof createGateway>,
@@ -267,10 +247,6 @@ function streamVideoRequest(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Audio generation
-// ---------------------------------------------------------------------------
-
 /**
  * Audio output is not yet supported by the Vercel AI Gateway. This function
  * is dead-coded behind `FEATURE_FLAGS.AUDIO_ENABLED`. When the gateway adds
@@ -294,10 +270,6 @@ function streamAudioRequest(_request: AudioRequest): InferenceStream {
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
 
 export interface CreateRealAIClientOptions {
   apiKey: string;

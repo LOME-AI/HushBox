@@ -30,7 +30,6 @@ export const budgetsRoute = new Hono<AppEnv>()
 
       const result = await getConversationBudgets(db, conversationId);
 
-      // Query conversation owner
       const convRow = await db
         .select({ userId: conversations.userId })
         .from(conversations)
@@ -43,13 +42,11 @@ export const budgetsRoute = new Hono<AppEnv>()
       }
       const ownerId = convRow.userId;
 
-      // Get owner balance and Redis reservation totals
       const [ownerTierInfo, reserved] = await Promise.all([
         getUserTierInfo(db, ownerId),
         getGroupReservedTotals(redis, conversationId, member.id, ownerId),
       ]);
 
-      // Find the current member's budget
       const currentMemberBudget = result.memberBudgets.find((mb) => mb.memberId === member.id);
 
       // Exclude the conversation owner from the member budgets response —

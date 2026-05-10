@@ -15,10 +15,6 @@
 import type { MemberContext } from '../services/billing/index.js';
 import type { GroupBudgetReservation } from './speculative-balance.js';
 
-// ---------------------------------------------------------------------------
-// Group billing context helper
-// ---------------------------------------------------------------------------
-
 /**
  * Persist-time group billing context: present only when a group reservation
  * was made (member is not the owner AND a group budget was reserved). Three
@@ -33,10 +29,6 @@ export function buildGroupBillingContext(
   if (memberContext === undefined || groupBudget === undefined) return undefined;
   return { memberId: memberContext.memberId };
 }
-
-// ---------------------------------------------------------------------------
-// Per-modality billing validation success shapes
-// ---------------------------------------------------------------------------
 
 export interface ImageBillingValidationSuccess {
   success: true;
@@ -75,10 +67,6 @@ export interface AudioBillingValidationSuccess {
   /** Upper bound the user picked for worst-case reservation. */
   maxDurationSeconds: number;
 }
-
-// ---------------------------------------------------------------------------
-// Media persistence pricing
-// ---------------------------------------------------------------------------
 
 /**
  * Per-kind pricing and output metadata for the shared media persistence helper.

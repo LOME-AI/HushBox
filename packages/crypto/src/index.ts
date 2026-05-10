@@ -1,7 +1,5 @@
-// Errors
 export { CryptoError, DecryptionError, InvalidBlobError, KeyDerivationError } from './errors.js';
 
-// Account lifecycle
 export {
   createAccount,
   unwrapAccountKeyWithPassword,
@@ -11,7 +9,6 @@ export {
 } from './account.js';
 export type { CreateAccountResult, RegenerateRecoveryResult } from './account.js';
 
-// Epoch management
 export {
   createFirstEpoch,
   performEpochRotation,
@@ -21,7 +18,6 @@ export {
 } from './epoch.js';
 export type { EpochMemberWrap, CreateEpochResult, EpochRotationResult } from './epoch.js';
 
-// Content key envelope
 export {
   generateContentKey,
   wrapContentKeyForEpoch,
@@ -33,7 +29,6 @@ export {
 } from './content-key.js';
 export type { ContentKey, WrappedContentKey } from './content-key.js';
 
-// Message envelope encryption (wrap-once)
 export {
   beginMessageEnvelope,
   openMessageEnvelope,
@@ -46,18 +41,14 @@ export {
 } from './message-encrypt.js';
 export type { MessageEnvelope } from './message-encrypt.js';
 
-// Member management
 export { wrapEpochKeyForNewMember } from './member.js';
 
-// Shared links
 export { createSharedLink, deriveKeysFromLinkSecret } from './link.js';
 export type { CreateSharedLinkResult } from './link.js';
 
-// Message sharing (wrap-once)
 export { createShare, openShare } from './message-share.js';
 export type { CreateShareResult } from './message-share.js';
 
-// TOTP (two-factor authentication)
 export {
   deriveTotpEncryptionKey,
   encryptTotpSecret,
@@ -68,14 +59,11 @@ export {
   generateTotpCodeSync,
 } from './totp.js';
 
-// Key pairs (domain-agnostic but needed externally)
 export { generateKeyPair, getPublicKeyFromPrivate } from './sharing.js';
 export type { KeyPair } from './sharing.js';
 
-// Recovery phrases
 export { generateRecoveryPhrase, validatePhrase, phraseToSeed } from './recovery-phrase.js';
 
-// OPAQUE client
 export {
   createOpaqueClient,
   startRegistration,
@@ -92,7 +80,6 @@ export type {
   LoginResult,
 } from './opaque-client.js';
 
-// OPAQUE server
 export {
   OpaqueServerConfig,
   deriveServerCredentials,
@@ -107,6 +94,5 @@ export {
   OpaqueExpectedAuthResult,
 } from './opaque-server.js';
 
-// Webhook verification (HMAC-SHA256)
 export { verifyHmacSha256Webhook, signHmacSha256Webhook } from './webhook.js';
 export type { HmacWebhookSignParams, HmacWebhookVerifyParams } from './webhook.js';

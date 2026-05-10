@@ -124,16 +124,13 @@ interface CustomFixtures {
   /** Authenticated low-balance user (~$0.01) for affordability error testing. */
   lowBalancePage: Page;
   authenticatedRequest: APIRequestContext;
-  // 2FA test user (has TOTP enabled)
   test2FAPage: Page;
-  // Dedicated billing test users (isolated balance state)
   billingSuccessPage: Page;
   billingSuccessPage2: Page;
   billingFailurePage: Page;
   billingValidationPage: Page;
   billingDevModePage: Page;
   billingTokenRequest: APIRequestContext;
-  // Group chat fixtures
   groupConversation: GroupConversation;
   testBobPage: Page;
   testDavePage: Page;
@@ -186,8 +183,6 @@ export const test = base.extend<CustomFixtures>({
   // Explicitly clear storage state to override project-level default auth
   unauthenticatedPage: createPageFixture({ cookies: [], origins: [] }, 'unauthenticatedPage'),
 
-  // Factory for creating fresh, instrumented pages on demand.
-  // Each page gets the same HAR/console-error/snapshot capture as named fixtures.
   createPage: async ({ browser }, use, testInfo) => {
     const pages: {
       page: Page;
@@ -234,10 +229,8 @@ export const test = base.extend<CustomFixtures>({
     await context.dispose();
   },
 
-  // 2FA test user (has TOTP enabled)
   test2FAPage: createPageFixture('e2e/.auth/test-2fa.json', 'test2FAPage'),
 
-  // Dedicated billing test users (isolated balance state between tests)
   billingSuccessPage: createPageFixture(
     'e2e/.auth/test-billing-success.json',
     'billingSuccessPage'
@@ -259,7 +252,6 @@ export const test = base.extend<CustomFixtures>({
     'billingDevModePage'
   ),
 
-  // Billing token test user (isolated balance for token-login billing portal tests)
   billingTokenRequest: async ({ playwright }, use) => {
     const context = await playwright.request.newContext({
       baseURL: apiUrl,
@@ -269,7 +261,6 @@ export const test = base.extend<CustomFixtures>({
     await context.dispose();
   },
 
-  // Group chat: creates conversation with seeded messages via dev endpoint
   groupConversation: async (
     { authenticatedPage: _authenticatedPage, authenticatedRequest },
     use
@@ -311,13 +302,10 @@ export const test = base.extend<CustomFixtures>({
     // saveChatTurn() running via Wrangler's waitUntil(), producing billing_failed errors.
   },
 
-  // Second browser context logged in as test-bob
   testBobPage: createPageFixture('e2e/.auth/test-bob.json', 'testBobPage'),
 
-  // Browser context logged in as test-dave (verified, no group membership by default)
   testDavePage: createPageFixture('e2e/.auth/test-dave.json', 'testDavePage'),
 
-  // API request context for test-bob (used for owner-privilege budget operations)
   testBobRequest: async ({ playwright }, use) => {
     const context = await playwright.request.newContext({
       baseURL: apiUrl,
@@ -333,11 +321,9 @@ export const test = base.extend<CustomFixtures>({
       await chatPage.goto();
       await chatPage.waitForAppStable();
 
-      // Select 2 non-premium models
       await chatPage.selectModels(2);
       await chatPage.expectComparisonBarVisible();
 
-      // Send first message and wait for both responses
       const testMessage = `Multi-model fixture ${String(Date.now())}`;
       await chatPage.sendNewChatMessage(testMessage);
       await chatPage.waitForConversation();
@@ -368,7 +354,6 @@ export const test = base.extend<CustomFixtures>({
       const url = new URL(authenticatedPage.url());
       const conversationId = url.pathname.split('/').pop() ?? '';
 
-      // The assistant is the second message in the conversation.
       const assistantMessageId =
         (await authenticatedPage
           .locator('[data-role="assistant"]')
@@ -470,7 +455,6 @@ export const test = base.extend<CustomFixtures>({
       });
     }
 
-    // Reset balance after the test.
     await requestContext.post('/api/dev/wallet-balance', {
       data: { email: lowBalanceEmail, walletType: 'purchased', balance: '0.00000000' },
     });

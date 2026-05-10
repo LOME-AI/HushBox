@@ -18,7 +18,6 @@ const standardPersonas = verifiedPersonas.filter((p) => !p.totpSecret);
 // 2FA personas need login page + TOTP code
 const twoFactorPersonas = verifiedPersonas.filter((p) => p.totpSecret);
 
-// Ensure auth directory exists
 setup.beforeAll(() => {
   if (!fs.existsSync(authDir)) {
     fs.mkdirSync(authDir, { recursive: true });
@@ -79,7 +78,6 @@ for (const persona of twoFactorPersonas) {
     await page.getByLabel('Keep me signed in').check();
     await page.getByRole('button', { name: 'Log in' }).click();
 
-    // Wait for 2FA modal
     const otpModal = page.getByTestId('two-factor-input-modal');
     await expect(otpModal).toBeVisible({ timeout: 30_000 });
 

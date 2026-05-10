@@ -123,7 +123,6 @@ export async function main(): Promise<void> {
   await cleanupOrphanedProjects(options);
 }
 
-// Only run main if this is the entry point
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;
 if (isMain) {
   void (async () => {

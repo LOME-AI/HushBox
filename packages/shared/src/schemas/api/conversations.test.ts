@@ -18,10 +18,6 @@ import {
   regenerateRequestSchema,
 } from './conversations.js';
 
-// ============================================================
-// Deleted schemas — verify they no longer exist
-// ============================================================
-
 describe('deleted schemas', () => {
   it('createMessageRequestSchema is not exported', async () => {
     const module_ = await import('./conversations.js');
@@ -53,10 +49,6 @@ describe('deleted schemas', () => {
     expect('CreateMessageResponse' in module_).toBe(false);
   });
 });
-
-// ============================================================
-// createConversationRequestSchema — epoch fields
-// ============================================================
 
 describe('createConversationRequestSchema', () => {
   const validId = '550e8400-e29b-41d4-a716-446655440000';
@@ -171,10 +163,6 @@ describe('createConversationRequestSchema', () => {
   });
 });
 
-// ============================================================
-// updateConversationRequestSchema — unchanged
-// ============================================================
-
 describe('updateConversationRequestSchema', () => {
   it('accepts valid encrypted title with titleEpochNumber', () => {
     const result = updateConversationRequestSchema.parse({
@@ -205,10 +193,6 @@ describe('updateConversationRequestSchema', () => {
     ).toThrow();
   });
 });
-
-// ============================================================
-// rotationSchema — epoch rotation data
-// ============================================================
 
 describe('rotationSchema', () => {
   const validRotation = {
@@ -270,10 +254,6 @@ describe('rotationSchema', () => {
     expect('visibleFromEpoch' in result.memberWraps[0]!).toBe(false);
   });
 });
-
-// ============================================================
-// streamChatRequestSchema — plaintext user message
-// ============================================================
 
 describe('streamChatRequestSchema', () => {
   const validMsgId = '550e8400-e29b-41d4-a716-446655440001';
@@ -837,10 +817,6 @@ describe('streamChatRequestSchema', () => {
   });
 });
 
-// ============================================================
-// Response Schema Tests
-// ============================================================
-
 describe('conversationResponseSchema', () => {
   it('accepts valid conversation with epoch fields', () => {
     const result = conversationResponseSchema.parse({
@@ -1123,10 +1099,6 @@ describe('messageResponseSchema', () => {
     expect('pendingReEncryption' in result).toBe(false);
   });
 });
-
-// ============================================================
-// Response wrapper schemas
-// ============================================================
 
 describe('conversationListItemSchema', () => {
   it('accepts conversation with accepted true and null inviter', () => {
@@ -1706,10 +1678,6 @@ describe('deleteConversationResponseSchema', () => {
   });
 });
 
-// ============================================================
-// Fork Schemas
-// ============================================================
-
 describe('forkResponseSchema', () => {
   it('accepts valid fork response', () => {
     const result = forkResponseSchema.parse({
@@ -1828,10 +1796,6 @@ describe('renameForkRequestSchema', () => {
   });
 });
 
-// ============================================================
-// Regeneration Schema
-// ============================================================
-
 describe('regenerateRequestSchema', () => {
   const validMsgId = '550e8400-e29b-41d4-a716-446655440001';
   const validTargetId = '550e8400-e29b-41d4-a716-446655440002';
@@ -1927,11 +1891,64 @@ describe('regenerateRequestSchema', () => {
       })
     ).toThrow();
   });
-});
 
-// ============================================================
-// Response schemas include forks
-// ============================================================
+  it('defaults modality to "text" when omitted', () => {
+    const result = regenerateRequestSchema.parse(validRequest);
+    expect(result.modality).toBe('text');
+  });
+
+  it('accepts modality: image with imageConfig', () => {
+    const result = regenerateRequestSchema.parse({
+      ...validRequest,
+      modality: 'image',
+      imageConfig: { aspectRatio: '16:9' },
+    });
+    expect(result.modality).toBe('image');
+    expect(result.imageConfig?.aspectRatio).toBe('16:9');
+  });
+
+  it('rejects modality: video without videoConfig', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({
+        ...validRequest,
+        modality: 'video',
+      })
+    ).toThrow();
+  });
+
+  it('accepts modality: video with videoConfig', () => {
+    const result = regenerateRequestSchema.parse({
+      ...validRequest,
+      modality: 'video',
+      videoConfig: {
+        aspectRatio: '16:9',
+        durationSeconds: 5,
+        resolution: '720p',
+      },
+    });
+    expect(result.modality).toBe('video');
+    expect(result.videoConfig?.durationSeconds).toBe(5);
+  });
+
+  it('rejects modality: audio without audioConfig', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({
+        ...validRequest,
+        modality: 'audio',
+      })
+    ).toThrow();
+  });
+
+  it('accepts modality: audio with audioConfig', () => {
+    const result = regenerateRequestSchema.parse({
+      ...validRequest,
+      modality: 'audio',
+      audioConfig: { format: 'mp3', maxDurationSeconds: 30 },
+    });
+    expect(result.modality).toBe('audio');
+    expect(result.audioConfig?.format).toBe('mp3');
+  });
+});
 
 describe('getConversationResponseSchema with forks', () => {
   it('accepts response with forks array', () => {

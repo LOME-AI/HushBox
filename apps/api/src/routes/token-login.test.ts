@@ -151,7 +151,6 @@ describe('POST /auth/token-login', () => {
     const data = await jsonBody<{ success: boolean }>(res);
     expect(data.success).toBe(true);
 
-    // Iron-session should set a cookie
     const setCookie = res.headers.get('set-cookie');
     expect(setCookie).toBeTruthy();
     expect(setCookie).toContain('hushbox_session');
@@ -220,7 +219,6 @@ describe('POST /auth/token-login', () => {
     });
     const { app } = createTestApp({ redis });
 
-    // First use — succeeds
     const res1 = await app.request('/auth/token-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

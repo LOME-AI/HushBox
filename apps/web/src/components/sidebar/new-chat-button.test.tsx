@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { useUIStore } from '@/stores/ui';
 import { NewChatButton } from './new-chat-button';
 
-// Mock useNavigate and useLocation
 const mockNavigate = vi.fn();
 const mockLocation = { pathname: '/chat/some-id' };
 vi.mock('@tanstack/react-router', () => ({
@@ -12,7 +11,6 @@ vi.mock('@tanstack/react-router', () => ({
   useLocation: () => mockLocation,
 }));
 
-// Mock useIsMobile
 const mockUseIsMobile = vi.fn(() => false);
 vi.mock('@/hooks/use-is-mobile', () => ({
   useIsMobile: () => mockUseIsMobile(),

@@ -3,10 +3,6 @@ import { renderHook, act } from '@testing-library/react';
 import { usePresence } from './use-presence.js';
 import type { ConversationWebSocket } from '../lib/ws-client.js';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 interface MockWs {
   on: ReturnType<typeof vi.fn>;
   listeners: Map<string, Set<(event: unknown) => void>>;
@@ -23,7 +19,6 @@ function createMockWs(): MockWs {
     const set = listeners.get(type);
     if (set) set.add(handler);
 
-    // Return unsubscribe function matching ConversationWebSocket.on()
     return (): void => {
       listeners.get(type)?.delete(handler);
     };
@@ -42,10 +37,6 @@ function createMockWs(): MockWs {
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('usePresence', () => {
   beforeEach(() => {

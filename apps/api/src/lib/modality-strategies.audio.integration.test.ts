@@ -14,10 +14,6 @@ import {
 } from '../services/chat/media-strategy-test-helpers.js';
 import type { InferenceEvent } from '../services/ai/types.js';
 
-// Audio constants — these mirror what the MockAIClient emits for audio
-// requests. Numbers come from `createAudioStream()` in services/ai/mock.ts:
-//   media-start mediaType=audio mimeType=audio/mpeg
-//   media-done bytes=<canned MP3>, durationMs=3000
 const AUDIO_MODEL = 'openai/tts-1';
 const AUDIO_MIME = 'audio/mpeg';
 const AUDIO_DURATION_MS = 3000;

@@ -3,7 +3,6 @@ import { render, screen } from '@testing-library/react';
 import { useUIStore } from '@/stores/ui';
 import { ChatList } from './chat-list';
 
-// Mock Link component
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,
@@ -22,7 +21,6 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-// Mock member hooks used by ChatItem
 vi.mock('@/hooks/use-conversation-members', () => ({
   useLeaveConversation: () => ({
     mutate: vi.fn(),
@@ -38,7 +36,6 @@ vi.mock('@/hooks/use-conversation-members', () => ({
   }),
 }));
 
-// Mock chat hooks used by ChatItem
 vi.mock('@/hooks/chat', () => ({
   useDeleteConversation: () => ({
     mutate: vi.fn(),
@@ -133,7 +130,6 @@ describe('ChatList', () => {
   it('highlights active conversation', () => {
     render(<ChatList conversations={mockConversations} activeId="conv-2" />);
     const links = screen.getAllByTestId('chat-link');
-    // The active styling is on the parent wrapper div, not the link
 
     const activeLink = links[1]!;
     expect(activeLink.parentElement).toHaveClass('bg-sidebar-border');

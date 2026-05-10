@@ -332,7 +332,6 @@ export async function redisSet<K extends keyof Registry>(
 ): Promise<void> {
   const entry = REDIS_REGISTRY[keyName];
 
-  // Extract options from the end of args if present
   const lastArgument = args.at(-1);
   const hasOptions = typeof lastArgument === 'object' && 'ttlOverride' in lastArgument;
   const options = hasOptions ? lastArgument : undefined;

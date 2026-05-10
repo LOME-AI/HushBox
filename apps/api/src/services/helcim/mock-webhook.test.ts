@@ -18,10 +18,8 @@ describe('mock-webhook', () => {
         webhookId,
       });
 
-      // Signature should be in versioned format "v1,base64signature"
       expect(signature).toMatch(/^v1,.+$/);
 
-      // Signature should be verifiable
       const isValid = await verifyWebhookSignatureAsync({
         webhookVerifier,
         payload,

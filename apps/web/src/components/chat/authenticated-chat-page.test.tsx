@@ -1215,7 +1215,6 @@ describe('AuthenticatedChatPage', () => {
 
       const { rerender } = render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
-      // Navigate to different conversation
       setupMocks({
         conversationData: { id: 'conv-789', title: 'encrypted-2', titleEpochNumber: 1 },
         messagesData: [
@@ -1231,7 +1230,6 @@ describe('AuthenticatedChatPage', () => {
 
       rerender(<AuthenticatedChatPage routeConversationId="conv-789" />);
 
-      // Should show decrypted title for new conversation
       expect(screen.getByTestId('title')).toHaveTextContent('Decrypted Title');
     });
   });
@@ -1543,7 +1541,6 @@ describe('AuthenticatedChatPage', () => {
         expect(mockFetchJson).toHaveBeenCalled();
       });
 
-      // No streaming should be triggered
       expect(mockStartStream).not.toHaveBeenCalled();
     });
 
@@ -1646,13 +1643,10 @@ describe('AuthenticatedChatPage', () => {
 
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
-      // Initially no dialog
       expect(screen.queryByTestId('rename-fork-dialog')).not.toBeInTheDocument();
 
-      // Trigger fork rename
       await user.click(screen.getByTestId('trigger-fork-rename'));
 
-      // Dialog should now be visible with the current fork name
       expect(screen.getByTestId('rename-fork-dialog')).toBeInTheDocument();
       expect(screen.getByTestId('rename-fork-dialog')).toHaveAttribute('data-value', 'Fork 1');
     });
@@ -1666,13 +1660,10 @@ describe('AuthenticatedChatPage', () => {
 
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
-      // Initially no dialog
       expect(screen.queryByTestId('delete-fork-dialog')).not.toBeInTheDocument();
 
-      // Trigger fork delete
       await user.click(screen.getByTestId('trigger-fork-delete'));
 
-      // Dialog should now be visible
       expect(screen.getByTestId('delete-fork-dialog')).toBeInTheDocument();
     });
   });

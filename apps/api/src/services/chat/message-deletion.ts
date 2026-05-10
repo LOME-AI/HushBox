@@ -1,10 +1,6 @@
 import { eq, gt, and, inArray } from 'drizzle-orm';
 import { messages, type DatabaseClient } from '@hushbox/db';
 
-// ============================================================================
-// Types
-// ============================================================================
-
 export interface DeleteMessagesAfterAnchorParams {
   conversationId: string;
   anchorMessageId: string;
@@ -14,10 +10,6 @@ export interface DeleteMessagesAfterAnchorParams {
 export interface DeleteMessagesAfterAnchorResult {
   deletedIds: string[];
 }
-
-// ============================================================================
-// Implementation
-// ============================================================================
 
 /**
  * Deletes messages after an anchor point.
@@ -48,16 +40,11 @@ export async function deleteMessagesAfterAnchor(
   );
 }
 
-// ============================================================================
-// No-fork (linear) deletion
-// ============================================================================
-
 async function deleteLinear(
   tx: DatabaseClient,
   conversationId: string,
   anchorMessageId: string
 ): Promise<DeleteMessagesAfterAnchorResult> {
-  // Get the anchor's sequence number
   const [anchor] = await tx
     .select({ sequenceNumber: messages.sequenceNumber })
     .from(messages)
@@ -79,10 +66,6 @@ async function deleteLinear(
 
   return { deletedIds: deleted.map((d) => d.id) };
 }
-
-// ============================================================================
-// Fork-aware deletion
-// ============================================================================
 
 /** Walks from tip to anchor, collecting candidate message IDs (excluding anchor). */
 function collectCandidates(

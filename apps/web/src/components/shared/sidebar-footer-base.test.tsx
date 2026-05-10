@@ -15,7 +15,6 @@ describe('SidebarFooterBase', () => {
 
     const icon = screen.getByTestId('test-icon');
     expect(icon).toBeInTheDocument();
-    // Icon should be inside the avatar circle
     expect(icon.closest('.rounded-full')).not.toBeNull();
   });
 
@@ -109,7 +108,6 @@ describe('SidebarFooterBase', () => {
   it('does not render sublabel when undefined', () => {
     render(<SidebarFooterBase icon={<span>I</span>} label="Test User" testId="test" />);
 
-    // Only the label text should be present, no sublabel
     expect(screen.getByText('Test User')).toBeInTheDocument();
   });
 

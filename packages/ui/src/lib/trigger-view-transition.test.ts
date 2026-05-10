@@ -10,7 +10,6 @@ describe('triggerViewTransition', () => {
 
   beforeEach(() => {
     originalStartViewTransition = getDocumentRecord()['startViewTransition'];
-    // Clean up any CSS custom properties
     document.documentElement.style.removeProperty('--transition-x');
     document.documentElement.style.removeProperty('--transition-y');
     document.documentElement.style.removeProperty('--transition-radius');
@@ -82,10 +81,8 @@ describe('triggerViewTransition', () => {
 
     triggerViewTransition({ x: 100, y: 200 }, vi.fn());
 
-    // Properties are set initially
     expect(document.documentElement.style.getPropertyValue('--transition-x')).toBe('100px');
 
-    // Wait for cleanup
     await finishedPromise;
     // Allow microtask to complete
     await new Promise((resolve) => {
@@ -104,7 +101,6 @@ describe('triggerViewTransition', () => {
 
     triggerViewTransition({ x: 50, y: 75 }, vi.fn());
 
-    // Wait for cleanup after rejection
     await new Promise((resolve) => {
       setTimeout(resolve, 10);
     });
