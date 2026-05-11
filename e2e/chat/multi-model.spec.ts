@@ -355,9 +355,7 @@ test.describe('Multi-Model Chat', () => {
       const { successModelId, failModelId } = await chatPage.selectModelsWithFailTarget();
       await chatPage.expectComparisonBarVisible();
 
-      await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
-        data: { modelId: failModelId },
-      });
+      await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-failing-models': failModelId });
 
       try {
         await chatPage.sendNewChatMessage(`Partial failure test ${String(Date.now())}`);
@@ -385,22 +383,27 @@ test.describe('Multi-Model Chat', () => {
         );
         expect(apiResponse.ok()).toBe(true);
         const { messages } = (await apiResponse.json()) as {
-          messages: { senderType: string; modelName: string | null; cost: string | null }[];
+          messages: {
+            senderType: string;
+            contentItems: { modelName: string | null; cost: string | null }[];
+          }[];
         };
 
-        const aiMessages = messages.filter((m) => m.senderType === 'ai');
-        const successfulAiMessages = aiMessages.filter((m) => m.cost !== null && m.cost !== '0');
-        expect(successfulAiMessages.length).toBe(1);
-        expect(successfulAiMessages[0]!.modelName).toBe(successModelId);
+        const aiContentItems = messages
+          .filter((m) => m.senderType === 'ai')
+          .flatMap((m) => m.contentItems);
 
-        const failedModelMessages = aiMessages.filter((m) => m.modelName === failModelId);
-        expect(failedModelMessages.length).toBe(0);
+        const succeededItems = aiContentItems.filter((ci) => ci.modelName === successModelId);
+        expect(succeededItems.length).toBe(1);
+        expect(succeededItems[0]!.cost).not.toBeNull();
+        expect(Number.parseFloat(succeededItems[0]!.cost ?? '0')).toBeGreaterThan(0);
+
+        const failedItems = aiContentItems.filter((ci) => ci.modelName === failModelId);
+        expect(failedItems.length).toBe(0);
 
         await expect(chatPage.messageInput).toBeVisible();
       } finally {
-        await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
-          data: { modelId: null },
-        });
+        await authenticatedPage.setExtraHTTPHeaders({});
       }
     });
   });

@@ -646,8 +646,7 @@ describe('chat routes', () => {
       vi.useRealTimers();
 
       const app = new Hono<AppEnv>();
-      const failingAi = createMockAIClient();
-      failingAi.addFailingModel('openai/gpt-5');
+      const failingAi = createMockAIClient({ failingModels: ['openai/gpt-5'] });
 
       const mockDb = createMockDb({
         conversations: [
@@ -1761,8 +1760,9 @@ describe('chat routes', () => {
         // Pick the cheap model from the fixture as the classifier resolution so the
         // assertion can avoid hardcoding any specific id.
         const expectedResolvedId = 'openai/gpt-4o-mini';
-        const aiClient = createMockAIClientWithGatewayCatalog();
-        aiClient.setClassifierResolution(expectedResolvedId);
+        const aiClient = createMockAIClientWithGatewayCatalog({
+          classifierResolution: expectedResolvedId,
+        });
 
         const { app, broadcastBodies } = createBroadcastApp({
           conversations: [
@@ -1828,7 +1828,7 @@ describe('chat routes', () => {
         const allTokens = streamEvents
           .map((e) => (e as Record<string, unknown>)['token'] as string)
           .join('');
-        expect(allTokens).toBe('Echo: Hello');
+        expect(allTokens).toBe('Echo:\nHello');
       });
 
       it('does not broadcast message:stream when no DO binding is present', async () => {
@@ -2415,8 +2415,7 @@ describe('chat routes', () => {
       it('sends STREAM_ERROR code when AIClient model fails', async () => {
         vi.useRealTimers();
 
-        const failingAi = createMockAIClient();
-        failingAi.addFailingModel('openai/gpt-5');
+        const failingAi = createMockAIClient({ failingModels: ['openai/gpt-5'] });
         const app = createTestApp(undefined, undefined, undefined, failingAi);
 
         const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
@@ -2599,8 +2598,9 @@ describe('chat routes', () => {
         )?.id;
         if (expectedResolvedId === undefined)
           throw new Error('test fixture must include a real model');
-        const aiClient = createMockAIClientWithGatewayCatalog();
-        aiClient.setClassifierResolution(expectedResolvedId);
+        const aiClient = createMockAIClientWithGatewayCatalog({
+          classifierResolution: expectedResolvedId,
+        });
         const app = createTestApp(undefined, undefined, undefined, aiClient);
 
         const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
@@ -2641,9 +2641,10 @@ describe('chat routes', () => {
               modelType: 'language',
               pricing: { input: m.pricing.prompt, output: m.pricing.completion },
             }));
-        const aiClient = createMockAIClientWithGatewayCatalog();
         // Configure a classifier output that won't match any eligible model.
-        aiClient.setClassifierResolution('totally-unrelated-model-id-xyz');
+        const aiClient = createMockAIClientWithGatewayCatalog({
+          classifierResolution: 'totally-unrelated-model-id-xyz',
+        });
         const app = createTestApp(undefined, undefined, undefined, aiClient);
 
         const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {

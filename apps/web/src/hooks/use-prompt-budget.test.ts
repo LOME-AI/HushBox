@@ -158,6 +158,7 @@ describe('usePromptBudget', () => {
     currentUsage: 1100,
     capacityPercent: 1,
     outputCostPerToken: 0.000_001,
+    preReservedCents: 0,
     isBalanceLoading: false,
   };
 

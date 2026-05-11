@@ -4,11 +4,7 @@ import { z } from 'zod';
 import { eq, sql } from 'drizzle-orm';
 import { getIronSession } from 'iron-session';
 import { users, sharedMessages, llmCompletions, messages, usageRecords } from '@hushbox/db';
-import {
-  ERROR_CODE_NOT_FOUND,
-  ERROR_CODE_SERVER_MISCONFIGURED,
-  ERROR_CODE_INVALID_OPERATION,
-} from '@hushbox/shared';
+import { ERROR_CODE_NOT_FOUND, ERROR_CODE_SERVER_MISCONFIGURED } from '@hushbox/shared';
 import {
   listDevPersonas,
   cleanupTestData,
@@ -219,61 +215,6 @@ export const devRoute = new Hono<AppEnv>()
     );
     session.destroy();
 
-    return c.json({ success: true });
-  })
-  .post('/fail-model', zValidator('json', z.object({ modelId: z.string().nullable() })), (c) => {
-    const { modelId } = c.req.valid('json');
-    const aiClient = c.get('aiClient');
-    if (!aiClient.isMock) {
-      return c.json(
-        createErrorResponse(ERROR_CODE_INVALID_OPERATION, {
-          reason: 'fail-model only works with mock client',
-        }),
-        400
-      );
-    }
-    // Discriminated union narrows: `aiClient` is now `MockAIClient`.
-    if (modelId) {
-      aiClient.addFailingModel(modelId);
-    } else {
-      aiClient.clearFailingModels();
-    }
-    return c.json({ success: true });
-  })
-  // Configures the model id that the mock classifier resolves to. Used by the
-  // smart-model E2E tests to drive deterministic resolution per scenario.
-  .post(
-    '/classifier-resolution',
-    zValidator('json', z.object({ modelId: z.string().min(1) })),
-    (c) => {
-      const { modelId } = c.req.valid('json');
-      const aiClient = c.get('aiClient');
-      if (!aiClient.isMock) {
-        return c.json(
-          createErrorResponse(ERROR_CODE_INVALID_OPERATION, {
-            reason: 'classifier-resolution only works with mock client',
-          }),
-          400
-        );
-      }
-      aiClient.setClassifierResolution(modelId);
-      return c.json({ success: true });
-    }
-  )
-  // Toggles classifier failure on the mock AI client. Setting `enabled: true`
-  // makes the next classifier call reject; `enabled: false` clears the failure.
-  .post('/classifier-failure', zValidator('json', z.object({ enabled: z.boolean() })), (c) => {
-    const { enabled } = c.req.valid('json');
-    const aiClient = c.get('aiClient');
-    if (!aiClient.isMock) {
-      return c.json(
-        createErrorResponse(ERROR_CODE_INVALID_OPERATION, {
-          reason: 'classifier-failure only works with mock client',
-        }),
-        400
-      );
-    }
-    aiClient.setClassifierFailure(enabled ? new Error('Classifier unavailable (test)') : null);
     return c.json({ success: true });
   })
   // Counts llm_completions rows for a given conversation. Used by smart-model

@@ -13,22 +13,16 @@ const SONNET_MODEL_NAME = 'Claude Sonnet 4.6';
  * Smart Model end-to-end coverage (plan §F1-F4).
  *
  * The mock AIClient resolves Smart Model classifier calls to a deterministic
- * model id (overridable per scenario via the `setClassifierResolution` mock
- * helper, exposed at `/api/dev/classifier-resolution` in dev mode). Every
- * Smart Model response should:
+ * model id, configurable per request via the `x-mock-classifier-resolution`
+ * HTTP header. Tests install the header via `page.setExtraHTTPHeaders`
+ * before triggering the chat request; teardown is automatic when the page
+ * is disposed, so no afterEach cleanup is required.
+ *
+ * Every Smart Model response should:
  *   - render with a cost badge and a model nametag (the resolved model name);
  *   - show the "Smart" chip next to the nametag (`data-testid="smart-model-chip"`).
  */
 test.describe('Smart Model', () => {
-  test.afterEach(async ({ authenticatedPage }) => {
-    // Reset classifier overrides between tests so cross-test bleed doesn't poison results.
-    await authenticatedPage.request.post(`${apiUrl}/api/dev/classifier-resolution`, {
-      data: { modelId: SONNET_MODEL_ID },
-    });
-    await authenticatedPage.request.post(`${apiUrl}/api/dev/classifier-failure`, {
-      data: { enabled: false },
-    });
-  });
   /** F1: select Smart Model entry, send prompt, response renders with cost + nametag + Smart chip. */
   test('selects Smart Model, sends prompt, renders response with cost and Smart chip', async ({
     authenticatedPage,
@@ -90,11 +84,9 @@ test.describe('Smart Model', () => {
     // Opus before regenerate. The nametag on the regenerated assistant message
     // must reflect the new resolved model — proving the regenerate path
     // re-runs classification (it doesn't reuse the cached resolution).
-    const setSonnet = await authenticatedPage.request.post(
-      `${apiUrl}/api/dev/classifier-resolution`,
-      { data: { modelId: SONNET_MODEL_ID } }
-    );
-    expect(setSonnet.ok()).toBe(true);
+    await authenticatedPage.setExtraHTTPHeaders({
+      'x-mock-classifier-resolution': SONNET_MODEL_ID,
+    });
 
     await chatPage.openModelSelector();
     const modal = authenticatedPage.getByTestId('model-selector-modal');
@@ -117,11 +109,9 @@ test.describe('Smart Model', () => {
     await expect(initialAssistant.getByTestId('smart-model-chip')).toBeVisible();
     await expect(initialAssistant.getByTestId('model-nametag')).toContainText(SONNET_MODEL_NAME);
 
-    const setOpus = await authenticatedPage.request.post(
-      `${apiUrl}/api/dev/classifier-resolution`,
-      { data: { modelId: OPUS_MODEL_ID } }
-    );
-    expect(setOpus.ok()).toBe(true);
+    await authenticatedPage.setExtraHTTPHeaders({
+      'x-mock-classifier-resolution': OPUS_MODEL_ID,
+    });
 
     await chatPage.clickRegenerate(1);
     await chatPage.waitForStreamComplete();
@@ -142,11 +132,9 @@ test.describe('Smart Model', () => {
     test.slow();
 
     // Override the mock classifier to deterministically resolve to Opus.
-    const overrideResponse = await authenticatedPage.request.post(
-      `${apiUrl}/api/dev/classifier-resolution`,
-      { data: { modelId: OPUS_MODEL_ID } }
-    );
-    expect(overrideResponse.ok()).toBe(true);
+    await authenticatedPage.setExtraHTTPHeaders({
+      'x-mock-classifier-resolution': OPUS_MODEL_ID,
+    });
 
     const chatPage = new ChatPage(authenticatedPage);
     await chatPage.goto();
@@ -178,11 +166,9 @@ test.describe('Smart Model', () => {
   }) => {
     test.slow();
 
-    const overrideResponse = await authenticatedPage.request.post(
-      `${apiUrl}/api/dev/classifier-resolution`,
-      { data: { modelId: SONNET_MODEL_ID } }
-    );
-    expect(overrideResponse.ok()).toBe(true);
+    await authenticatedPage.setExtraHTTPHeaders({
+      'x-mock-classifier-resolution': SONNET_MODEL_ID,
+    });
 
     const chatPage = new ChatPage(authenticatedPage);
     await chatPage.goto();
@@ -217,11 +203,9 @@ test.describe('Smart Model', () => {
   }) => {
     test.slow();
 
-    const failureResponse = await authenticatedPage.request.post(
-      `${apiUrl}/api/dev/classifier-failure`,
-      { data: { enabled: true } }
-    );
-    expect(failureResponse.ok()).toBe(true);
+    await authenticatedPage.setExtraHTTPHeaders({
+      'x-mock-classifier-failure': 'true',
+    });
 
     const chatPage = new ChatPage(authenticatedPage);
     await chatPage.goto();
@@ -329,12 +313,14 @@ test.describe('Smart Model', () => {
 
     await chatPage.promptInput.fill(`Smart Model insufficient ${String(Date.now())}`);
 
-    // budget-messages renders the friendly insufficient-balance string from
+    // budget-messages renders the friendly insufficient-allowance string from
     // generateNotifications. The send button must be disabled.
     await unsettledExpect(lowBalancePage.getByTestId('budget-messages')).toBeVisible({
       timeout: 10_000,
     });
-    await expect(lowBalancePage.getByText(/Insufficient balance\./i)).toBeVisible();
+    await expect(
+      lowBalancePage.getByText(/Your free daily usage can't cover this message/i)
+    ).toBeVisible();
     await expect(chatPage.sendButton).toBeDisabled();
 
     // No conversation is ever created (still on /chat).

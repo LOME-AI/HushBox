@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
-import { rateLimitByUser, rateLimitByIp } from './rate-limit';
+import { rateLimitByCaller, rateLimitByIp } from './rate-limit';
 import type { AppEnv } from '../types';
 import type { SessionData } from '../lib/session';
 
@@ -91,12 +91,13 @@ describe('rate-limit on cost-amplification routes', () => {
       app.use('*', async (c, next) => {
         c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
         c.set('user', createMockUser());
+        c.set('callerId', createMockUser().id);
         c.set('session', createMockSession());
         c.set('sessionData', createMockSession());
         c.set('redis', redis as unknown as AppEnv['Variables']['redis']);
         await next();
       });
-      app.use('*', rateLimitByUser('chatStreamUserRateLimit'));
+      app.use('*', rateLimitByCaller('chatStreamUserRateLimit'));
       app.post('/stream', (c) => c.json({ ok: true }));
       return app;
     }
@@ -134,12 +135,13 @@ describe('rate-limit on cost-amplification routes', () => {
       app.use('*', async (c, next) => {
         c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
         c.set('user', createMockUser());
+        c.set('callerId', createMockUser().id);
         c.set('session', createMockSession());
         c.set('sessionData', createMockSession());
         c.set('redis', redis as unknown as AppEnv['Variables']['redis']);
         await next();
       });
-      app.use('*', rateLimitByUser('mediaDownloadUserRateLimit'));
+      app.use('*', rateLimitByCaller('mediaDownloadUserRateLimit'));
       app.get('/download-url', (c) => c.json({ url: 'https://signed.example/x' }));
       return app;
     }
@@ -177,12 +179,13 @@ describe('rate-limit on cost-amplification routes', () => {
       app.use('*', async (c, next) => {
         c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
         c.set('user', createMockUser());
+        c.set('callerId', createMockUser().id);
         c.set('session', createMockSession());
         c.set('sessionData', createMockSession());
         c.set('redis', redis as unknown as AppEnv['Variables']['redis']);
         await next();
       });
-      app.use('*', rateLimitByUser('shareCreateUserRateLimit'));
+      app.use('*', rateLimitByCaller('shareCreateUserRateLimit'));
       app.post('/share', (c) => c.json({ shareId: 'sh-1' }, 201));
       return app;
     }

@@ -1,4 +1,4 @@
-import { ERROR_CODE_NOT_AUTHENTICATED, ERROR_CODE_RATE_LIMITED } from '@hushbox/shared';
+import { ERROR_CODE_RATE_LIMITED } from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
 import { checkRateLimit } from '../lib/rate-limit.js';
 import { getClientIp, hashIp } from '../lib/client-ip.js';
@@ -15,24 +15,29 @@ type RateLimitKeyName = {
 }[keyof typeof REDIS_REGISTRY];
 
 /**
- * Per-user rate limit middleware.
+ * Per-caller rate limit middleware.
  *
- * Caps requests per authenticated user per window. Use for endpoints where
- * the cost-amplification target is bound to the user (chat streaming →
- * AI gateway calls, share creation → DB writes, media presign → signing path).
+ * Caps requests per principal per window using `c.var.callerId` — the
+ * principal id set by `requirePrivilege` (user.id for session users, linkId
+ * for link guests). Use for endpoints where the cost-amplification target is
+ * bound to the caller (chat streaming → AI gateway calls, share creation →
+ * DB writes, media presign → signing path).
  *
- * Returns 401 if no user is set on context — per-user limiting is impossible
- * without an authenticated principal, and silently ignoring would let a
- * misconfigured route bypass the cap.
+ * Must be mounted AFTER `requirePrivilege` on every route so `callerId` is
+ * populated for both authenticated users and link guests. Throws an internal
+ * error if `callerId` is missing — that signals a misconfigured route, not a
+ * client problem.
  */
-export function rateLimitByUser(keyName: RateLimitKeyName): MiddlewareHandler<AppEnv> {
+export function rateLimitByCaller(keyName: RateLimitKeyName): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
+    const callerId = c.get('callerId');
+    if (!callerId) {
+      throw new Error(
+        'rateLimitByCaller requires callerId — mount requirePrivilege before this middleware'
+      );
     }
     const redis = c.get('redis');
-    const result = await checkRateLimit(redis, keyName, user.id);
+    const result = await checkRateLimit(redis, keyName, callerId);
     if (!result.allowed) {
       return c.json(
         createErrorResponse(ERROR_CODE_RATE_LIMITED, {

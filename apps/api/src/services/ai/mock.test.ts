@@ -23,8 +23,6 @@ describe('createMockAIClient', () => {
 
   beforeEach(() => {
     client = createMockAIClient();
-    client.clearHistory();
-    client.clearFailingModels();
   });
 
   describe('factory', () => {
@@ -39,13 +37,9 @@ describe('createMockAIClient', () => {
       expect(typeof client.getGenerationStats).toBe('function');
     });
 
-    it('exposes all MockAIClient test helpers', () => {
+    it('exposes request-history helpers', () => {
       expect(typeof client.getRequestHistory).toBe('function');
       expect(typeof client.clearHistory).toBe('function');
-      expect(typeof client.addFailingModel).toBe('function');
-      expect(typeof client.clearFailingModels).toBe('function');
-      expect(typeof client.setClassifierResolution).toBe('function');
-      expect(typeof client.setClassifierFailure).toBe('function');
     });
   });
 
@@ -65,8 +59,10 @@ describe('createMockAIClient', () => {
     }
 
     it('emits the configured resolution as text-deltas plus a finish event', async () => {
-      client.setClassifierResolution('anthropic/claude-opus-4.6');
-      const events = await collectEvents(client.stream(classifierRequest()));
+      const configured = createMockAIClient({
+        classifierResolution: 'anthropic/claude-opus-4.6',
+      });
+      const events = await collectEvents(configured.stream(classifierRequest()));
       const text = events
         .filter(
           (e): e is Extract<InferenceEvent, { kind: 'text-delta' }> => e.kind === 'text-delta'
@@ -88,22 +84,17 @@ describe('createMockAIClient', () => {
       expect(text.length).toBeGreaterThan(0);
     });
 
-    it('rejects the stream when classifier failure is set', async () => {
-      client.setClassifierFailure(new Error('classifier dead'));
-      await expect(collectEvents(client.stream(classifierRequest()))).rejects.toThrow(
-        'classifier dead'
+    it('rejects the stream when classifier failure is configured', async () => {
+      const failing = createMockAIClient({ classifierFailure: true });
+      await expect(collectEvents(failing.stream(classifierRequest()))).rejects.toThrow(
+        'Classifier unavailable (test)'
       );
     });
 
-    it('clears classifier failure when set to null', async () => {
-      client.setClassifierFailure(new Error('classifier dead'));
-      client.setClassifierFailure(null);
-      const events = await collectEvents(client.stream(classifierRequest()));
-      expect(events.length).toBeGreaterThan(0);
-    });
-
     it('does not classify when system prompt lacks the marker', async () => {
-      // Plain text request — should echo the user message, not return a model id
+      const configured = createMockAIClient({
+        classifierResolution: 'classifier/should-not-fire',
+      });
       const request: TextRequest = {
         modality: 'text',
         model: 'm/a',
@@ -112,15 +103,14 @@ describe('createMockAIClient', () => {
           { role: 'user', content: 'Hello, world!' },
         ],
       };
-      client.setClassifierResolution('classifier/should-not-fire');
-      const events = await collectEvents(client.stream(request));
+      const events = await collectEvents(configured.stream(request));
       const text = events
         .filter(
           (e): e is Extract<InferenceEvent, { kind: 'text-delta' }> => e.kind === 'text-delta'
         )
         .map((e) => e.content)
         .join('');
-      expect(text).toBe('Echo: Hello, world!');
+      expect(text).toBe('Echo:\nHello, world!');
     });
   });
 
@@ -143,7 +133,7 @@ describe('createMockAIClient', () => {
         .map((e) => e.content)
         .join('');
 
-      expect(textContent).toBe('Echo: Hello, world!');
+      expect(textContent).toBe('Echo:\nHello, world!');
     });
 
     it('yields individual characters as text-delta events', async () => {
@@ -159,7 +149,7 @@ describe('createMockAIClient', () => {
       );
 
       // Each character is a separate event
-      expect(deltas.length).toBe('Echo: Hi'.length);
+      expect(deltas.length).toBe('Echo:\nHi'.length);
       for (const delta of deltas) {
         expect(delta.content.length).toBe(1);
       }
@@ -197,7 +187,7 @@ describe('createMockAIClient', () => {
         .map((e) => e.content)
         .join('');
 
-      expect(textContent).toBe('Echo: No message');
+      expect(textContent).toBe('Echo:\nNo message');
     });
 
     it('uses the last user message when multiple exist', async () => {
@@ -219,7 +209,7 @@ describe('createMockAIClient', () => {
         .map((e) => e.content)
         .join('');
 
-      expect(textContent).toBe('Echo: Second');
+      expect(textContent).toBe('Echo:\nSecond');
     });
   });
 
@@ -274,8 +264,6 @@ describe('createMockAIClient', () => {
     });
 
     it('canned image bytes start with the JPEG SOI marker', () => {
-      // JPEG files always begin with FF D8 FF — guards the fixture import
-      // against accidental corruption / wrong file type.
       expect(CANNED_IMAGE.length).toBeGreaterThan(0);
       expect(CANNED_IMAGE[0]).toBe(0xff);
       expect(CANNED_IMAGE[1]).toBe(0xd8);
@@ -350,8 +338,6 @@ describe('createMockAIClient', () => {
     });
 
     it('canned video bytes carry the ISO BMFF ftyp box at offset 4', () => {
-      // ISO BMFF: bytes [0..3] = box size (big-endian); bytes [4..7] = box type.
-      // For any valid MP4 the first box must be `ftyp` (= 66 74 79 70).
       expect(CANNED_VIDEO.length).toBeGreaterThan(0);
       expect(CANNED_VIDEO[4]).toBe(0x66); // f
       expect(CANNED_VIDEO[5]).toBe(0x74); // t
@@ -542,8 +528,8 @@ describe('createMockAIClient', () => {
   });
 
   describe('failing models', () => {
-    it('throws for a model added to the failing set', async () => {
-      client.addFailingModel('bad/model');
+    it('throws for a model in the configured failing set', async () => {
+      const configured = createMockAIClient({ failingModels: ['bad/model'] });
 
       const request: TextRequest = {
         modality: 'text',
@@ -551,13 +537,13 @@ describe('createMockAIClient', () => {
         messages: [{ role: 'user', content: 'Test' }],
       };
 
-      await expect(collectEvents(client.stream(request))).rejects.toThrow(
+      await expect(collectEvents(configured.stream(request))).rejects.toThrow(
         'Model bad/model is unavailable'
       );
     });
 
     it('does not throw for models not in the failing set', async () => {
-      client.addFailingModel('bad/model');
+      const configured = createMockAIClient({ failingModels: ['bad/model'] });
 
       const request: TextRequest = {
         modality: 'text',
@@ -565,26 +551,24 @@ describe('createMockAIClient', () => {
         messages: [{ role: 'user', content: 'Test' }],
       };
 
-      const events = await collectEvents(client.stream(request));
+      const events = await collectEvents(configured.stream(request));
       expect(events.length).toBeGreaterThan(0);
     });
 
-    it('clears failing models', async () => {
-      client.addFailingModel('bad/model');
-      client.clearFailingModels();
-
+    it('fresh client with no failing config accepts any model', async () => {
+      const fresh = createMockAIClient();
       const request: TextRequest = {
         modality: 'text',
         model: 'bad/model',
         messages: [{ role: 'user', content: 'Test' }],
       };
 
-      const events = await collectEvents(client.stream(request));
+      const events = await collectEvents(fresh.stream(request));
       expect(events.length).toBeGreaterThan(0);
     });
 
     it('throws for image requests to failing models', async () => {
-      client.addFailingModel('bad/image-model');
+      const configured = createMockAIClient({ failingModels: ['bad/image-model'] });
 
       const request: ImageRequest = {
         modality: 'image',
@@ -592,7 +576,7 @@ describe('createMockAIClient', () => {
         prompt: 'Test',
       };
 
-      await expect(collectEvents(client.stream(request))).rejects.toThrow(
+      await expect(collectEvents(configured.stream(request))).rejects.toThrow(
         'Model bad/image-model is unavailable'
       );
     });

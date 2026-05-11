@@ -120,6 +120,9 @@ test.describe('Image Generation', () => {
     await chatPage.expectImageVisible();
     await chatPage.waitForStreamComplete();
 
+    // Tall media on a mobile viewport pushes the user message above the top of
+    // Virtuoso's rendered window. Scroll to top so `nth(1)` resolves.
+    await chatPage.scrollToTop();
     await chatPage.clickRegenerate(1);
 
     // After regenerate, the new image renders. Re-assert that the message
@@ -151,6 +154,7 @@ test.describe('Image Generation', () => {
     const originalSource = await chatPage.messageList.locator('img').first().getAttribute('src');
     expect(originalSource).toMatch(/^blob:/);
 
+    await chatPage.scrollToTop();
     await chatPage.clickEdit(0);
     await chatPage.expectEditModeActive();
 
@@ -193,6 +197,7 @@ test.describe('Image Generation', () => {
     const originalSource = await chatPage.messageList.locator('img').first().getAttribute('src');
     expect(originalSource).toMatch(/^blob:/);
 
+    await chatPage.scrollToTop();
     await chatPage.clickRetry(0);
     await chatPage.waitForStreamComplete();
     await chatPage.expectImageVisible();
@@ -383,7 +388,9 @@ test.describe('Image Generation', () => {
     await unsettledExpect(lowBalancePage.getByTestId('budget-messages')).toBeVisible({
       timeout: 10_000,
     });
-    await expect(lowBalancePage.getByText(/Insufficient balance\./i)).toBeVisible();
+    await expect(
+      lowBalancePage.getByText(/Your free daily usage can't cover this message/i)
+    ).toBeVisible();
     await expect(chatPage.sendButton).toBeDisabled();
 
     // No conversation was ever created — still on /chat (no /:id segment).

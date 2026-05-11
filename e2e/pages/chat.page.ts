@@ -692,7 +692,7 @@ export class ChatPage {
     const modal = this.page.getByTestId('model-selector-modal');
 
     const nonPremiumItems = modal.locator(
-      '[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))'
+      '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
     );
 
     // Clear all selections using the UI button (bypasses the min-1 checkbox guard)
@@ -727,7 +727,7 @@ export class ChatPage {
     await this.openModelSelector();
     const modal = this.page.getByTestId('model-selector-modal');
     const nonPremiumItems = modal.locator(
-      '[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))'
+      '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
     );
 
     const clearButton = modal.getByTestId('clear-selection-button');

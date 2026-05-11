@@ -53,6 +53,13 @@ interface SmartModelHarness {
   classifierModelId: string;
   eligibleIds: string[];
   modelMetadataById: Map<string, { name: string; description: string }>;
+  /**
+   * Client to use for subsequent stream calls. For the mock branch this is
+   * a NEW mock configured to resolve the classifier to the first eligible
+   * id; for real-client integration runs it's the input client passed
+   * through unchanged.
+   */
+  client: AIClient;
 }
 
 async function buildHarness(client: AIClient, eligibleCount: number): Promise<SmartModelHarness> {
@@ -69,17 +76,19 @@ async function buildHarness(client: AIClient, eligibleCount: number): Promise<Sm
   );
   const eligibleIds = eligibleSlice.map((m) => m.id);
 
-  // Mock client returns a fixed classifier resolution that may not be in the
-  // eligible slice we just computed; pin it here so resolveClassifierOutput
-  // always finds a match. Real client picks from the eligible list itself.
-  if (client.isMock) {
-    client.setClassifierResolution(eligibleIds[0]!);
-  }
+  // For the mock branch we need the classifier to resolve to a value the
+  // harness just discovered. Mock state is constructor-only, so we build a
+  // fresh mock pinned to the first eligible id. Real client picks from the
+  // eligible list on its own.
+  const harnessClient: AIClient = client.isMock
+    ? createMockAIClient({ classifierResolution: eligibleIds[0]! })
+    : client;
 
   return {
     classifierModelId,
     eligibleIds,
     modelMetadataById,
+    client: harnessClient,
   };
 }
 
@@ -131,7 +140,7 @@ describe('Smart Model integration', () => {
         'Help me write a short greeting.',
         ''
       );
-      const classifierResult = await consumeStream(client.stream(classifierRequest));
+      const classifierResult = await consumeStream(harness.client.stream(classifierRequest));
       expect(classifierResult.generationId).toBeDefined();
 
       const resolvedId = resolveClassifierOutput(classifierResult.textContent, harness.eligibleIds);
@@ -146,7 +155,7 @@ describe('Smart Model integration', () => {
         messages: [{ role: 'user', content: 'Reply with a single short word.' }],
         maxOutputTokens: inferenceSpec.parameters.maxOutputTokens,
       };
-      const inferenceResult = await consumeStream(client.stream(inferenceRequest));
+      const inferenceResult = await consumeStream(harness.client.stream(inferenceRequest));
       expect(inferenceResult.textContent.length).toBeGreaterThan(0);
       expect(inferenceResult.generationId).toBeDefined();
     },
@@ -162,12 +171,12 @@ describe('Smart Model integration', () => {
         'Pick a model for a short answer.',
         ''
       );
-      const classifier = await consumeStream(client.stream(classifierRequest));
+      const classifier = await consumeStream(harness.client.stream(classifierRequest));
       const resolvedId = resolveClassifierOutput(classifier.textContent, harness.eligibleIds);
       expect(resolvedId).not.toBeNull();
 
       const inference = await consumeStream(
-        client.stream({
+        harness.client.stream({
           modality: 'text',
           model: resolvedId!,
           messages: [{ role: 'user', content: 'Say yes.' }],
@@ -176,8 +185,8 @@ describe('Smart Model integration', () => {
       );
 
       const [classifierStats, inferenceStats] = await Promise.all([
-        client.getGenerationStats(classifier.generationId!),
-        client.getGenerationStats(inference.generationId!),
+        harness.client.getGenerationStats(classifier.generationId!),
+        harness.client.getGenerationStats(inference.generationId!),
       ]);
       expect(classifierStats.costUsd).toBeGreaterThan(0);
       expect(inferenceStats.costUsd).toBeGreaterThan(0);
@@ -196,7 +205,7 @@ describe('Smart Model integration', () => {
         'Pick the best model for code review.',
         ''
       );
-      const result = await consumeStream(client.stream(classifierRequest));
+      const result = await consumeStream(harness.client.stream(classifierRequest));
       const resolvedId = resolveClassifierOutput(result.textContent, harness.eligibleIds);
       expect(resolvedId).not.toBeNull();
       expect(harness.eligibleIds).toContain(resolvedId!);
@@ -210,7 +219,7 @@ describe('Smart Model integration', () => {
       const harness = await buildHarness(client, 1);
       expect(harness.eligibleIds).toHaveLength(1);
       const classifierRequest = buildClassifierRequest(harness, 'Choose a model.', '');
-      const result = await consumeStream(client.stream(classifierRequest));
+      const result = await consumeStream(harness.client.stream(classifierRequest));
       const resolvedId = resolveClassifierOutput(result.textContent, harness.eligibleIds);
       expect(resolvedId).toBe(harness.eligibleIds[0]);
     },
@@ -222,7 +231,7 @@ describe('Smart Model integration', () => {
     async () => {
       const harness = await buildHarness(client, 3);
       const result = await consumeStream(
-        client.stream(buildClassifierRequest(harness, 'Choose a model.', ''))
+        harness.client.stream(buildClassifierRequest(harness, 'Choose a model.', ''))
       );
       expect(result.events.at(-1)?.kind).toBe('finish');
       expect(result.generationId).toBeDefined();
@@ -508,8 +517,7 @@ describe('Smart Model full DB persistence integration', () => {
       const setup = await createTestSetup(dbInstance);
       setupsToCleanup.push(setup);
 
-      const mockClassifierClient = createMockAIClient();
-      mockClassifierClient.setClassifierFailure(new Error('upstream classifier exploded'));
+      const mockClassifierClient = createMockAIClient({ classifierFailure: true });
 
       const eligibleIds = ['anthropic/claude-opus-4.6', 'anthropic/claude-sonnet-4.6'];
       const fallbackModelId = 'anthropic/claude-sonnet-4.6';

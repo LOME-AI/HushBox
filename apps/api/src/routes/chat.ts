@@ -26,7 +26,7 @@ import { createEvent } from '@hushbox/realtime/events';
 import { validateLastMessageIsFromUser, saveUserOnlyMessage } from '../services/chat/index.js';
 import { canRegenerate } from '../services/chat/regeneration-guard.js';
 import { createErrorResponse } from '../lib/error-response.js';
-import { requirePrivilege, rateLimitByUser } from '../middleware/index.js';
+import { requirePrivilege, rateLimitByCaller } from '../middleware/index.js';
 import { broadcastFireAndForget } from '../lib/broadcast.js';
 import { buildBillingInput, buildGuestBillingInput } from '../services/billing/index.js';
 import { getUserTierInfo } from '../services/billing/balance.js';
@@ -800,9 +800,9 @@ export const chatRoute = new Hono<AppEnv>()
   .post(
     '/:conversationId/stream',
     zValidator('param', conversationIdParameterSchema),
-    rateLimitByUser('chatStreamUserRateLimit'),
     zValidator('json', streamChatRequestSchema),
     requirePrivilege('write', { allowLinkGuest: true, includeOwnerId: true }),
+    rateLimitByCaller('chatStreamUserRateLimit'),
 
     async (c) => {
       const { conversationId } = c.req.param();
@@ -953,9 +953,9 @@ export const chatRoute = new Hono<AppEnv>()
   .post(
     '/:conversationId/regenerate',
     zValidator('param', conversationIdParameterSchema),
-    rateLimitByUser('chatStreamUserRateLimit'),
     zValidator('json', regenerateRequestSchema),
     requirePrivilege('write', { includeOwnerId: true }),
+    rateLimitByCaller('chatStreamUserRateLimit'),
     async (c) => {
       const user = c.get('user');
       if (!user) throw new Error('User required after requirePrivilege');

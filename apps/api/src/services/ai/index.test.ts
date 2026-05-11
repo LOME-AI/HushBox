@@ -51,14 +51,39 @@ describe('getAIClient', () => {
     );
   });
 
-  it('returns the same mock instance across calls so test-only state persists', () => {
-    // E2E and unit tests rely on `setClassifierResolution` / `setClassifierFailure`
-    // / `addFailingModel` carrying across requests within the same Worker isolate.
-    // Returning a fresh MockAIClient per call wipes that state — every middleware
-    // invocation gets a default-state client, breaking smart-model and
-    // fail-model E2E setups.
+  it('returns a fresh mock instance on every call (no module-level cache)', () => {
+    // Mock state is per-request: every aiClientMiddleware invocation builds
+    // a new mock from request headers, so there is no cross-request bleed.
     const first = getAIClient({ NODE_ENV: 'development' });
     const second = getAIClient({ NODE_ENV: 'development' });
-    expect(first).toBe(second);
+    expect(first).not.toBe(second);
+  });
+
+  it('threads mockConfig into the mock — classifierResolution drives the classifier output', async () => {
+    const client = getAIClient(
+      { NODE_ENV: 'development' },
+      { mockConfig: { classifierResolution: 'anthropic/claude-opus-4.6' } }
+    );
+    expect(client.isMock).toBe(true);
+    const { CLASSIFIER_SYSTEM_PROMPT_MARKER } = await import('@hushbox/shared');
+    const events: unknown[] = [];
+    for await (const event of client.stream({
+      modality: 'text',
+      model: 'cheap/c',
+      messages: [
+        { role: 'system', content: `${CLASSIFIER_SYSTEM_PROMPT_MARKER}\nPick.\n- a/x\n- b/y` },
+        { role: 'user', content: '[USER START]: hi' },
+      ],
+    })) {
+      events.push(event);
+    }
+    const text = events
+      .filter((e): e is { kind: 'text-delta'; content: string } =>
+        typeof (e as { kind?: unknown }).kind === 'string' &&
+        (e as { kind: string }).kind === 'text-delta'
+      )
+      .map((e) => e.content)
+      .join('');
+    expect(text).toBe('anthropic/claude-opus-4.6');
   });
 });

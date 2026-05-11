@@ -45,6 +45,13 @@ export interface BudgetCalculationInput {
   models: ModelPricingWithContext[];
   /** Per-search cost in USD (with fees applied). 0 or omitted if search disabled. */
   webSearchCost?: number;
+  /**
+   * Worst-case cents reserved for pre-inference stages (e.g., Smart Model
+   * classifier) that bill separately. The inference budget is sized against
+   * `balance - preReservedCents` so the sum `inferenceWorstCase +
+   * preReservedCents` fits within the user's effective balance.
+   */
+  preReservedCents?: number;
 }
 
 export interface BudgetCalculationResult {
@@ -65,6 +72,12 @@ export interface BudgetCalculationResult {
   currentUsage: number;
   /** Capacity percentage (currentUsage / modelContextLength * 100) */
   capacityPercent: number;
+  /**
+   * Pre-reserved cents (e.g., Smart Model classifier) deducted from balance
+   * before sizing inference. Echoed back from input — callers reading
+   * `totalWorstCaseCents` rely on this for the sum.
+   */
+  preReservedCents: number;
 }
 
 /**
@@ -610,7 +623,16 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
     promptCharacterCount,
     models,
     webSearchCost = 0,
+    preReservedCents = 0,
   } = input;
+
+  // Stage reservations (e.g., Smart Model classifier) get deducted FIRST so
+  // the inference budget below can never sum past the user's balance when
+  // worst-case is added back: `worstCase = inferenceWorstCase +
+  // preReservedCents ≤ balance`. Without this, the post-reservation cushion
+  // guard fails by exactly `preReservedCents`.
+  const stageBalanceCents = Math.max(0, balanceCents - preReservedCents);
+  const stageFreeAllowanceCents = Math.max(0, freeAllowanceCents - preReservedCents);
 
   // 1. Build manifest and calculate
   const manifest = buildCostManifest({
@@ -620,7 +642,7 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
     webSearchCost,
   });
 
-  const effectiveBalance = getEffectiveBalance(tier, balanceCents, freeAllowanceCents);
+  const effectiveBalance = getEffectiveBalance(tier, stageBalanceCents, stageFreeAllowanceCents);
   const manifestResult = calculateBudgetFromManifest(manifest, effectiveBalance);
 
   // 2. Extract estimatedInputTokens from the manifest's text-input-tokens item
@@ -642,6 +664,7 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
     outputCostPerToken: manifestResult.variableCostPerToken,
     currentUsage,
     capacityPercent,
+    preReservedCents,
   };
 }
 

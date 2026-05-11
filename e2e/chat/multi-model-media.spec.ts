@@ -107,10 +107,7 @@ test.describe('Multi-Model Media', () => {
       }
       await chatPage.confirmModelSelection();
 
-      const response = await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
-        data: { modelId: failModel },
-      });
-      expect(response.ok()).toBe(true);
+      await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-failing-models': failModel });
     });
 
     try {
@@ -158,9 +155,7 @@ test.describe('Multi-Model Media', () => {
         expect(Number.parseFloat(item.cost ?? '0')).toBeGreaterThan(0);
       }
     } finally {
-      await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
-        data: { modelId: null },
-      });
+      await authenticatedPage.setExtraHTTPHeaders({});
     }
   });
 
@@ -242,6 +237,7 @@ test.describe('Multi-Model Media', () => {
     await chatPage.waitForStreamComplete(30_000);
 
     // Fork on the first assistant message (index 1 in DOM order: [user, ai1, ai2]).
+    await chatPage.scrollToTop();
     await chatPage.clickFork(1);
     await chatPage.expectForkTabCount(2);
     await chatPage.expectActiveForkTab('Fork 1');
@@ -337,10 +333,7 @@ test.describe('Multi-Model Media', () => {
       }
       await chatPage.confirmModelSelection();
 
-      const response = await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
-        data: { modelId: failModel },
-      });
-      expect(response.ok()).toBe(true);
+      await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-failing-models': failModel });
     });
 
     try {
@@ -384,9 +377,7 @@ test.describe('Multi-Model Media', () => {
         expect(Number.parseFloat(item.cost ?? '0')).toBeGreaterThan(0);
       }
     } finally {
-      await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
-        data: { modelId: null },
-      });
+      await authenticatedPage.setExtraHTTPHeaders({});
     }
   });
 

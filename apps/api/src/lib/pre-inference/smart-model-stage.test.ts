@@ -66,8 +66,7 @@ describe('SmartModelStage', () => {
   });
 
   it('emits stage:start, runs the classifier, and emits stage:done with the resolved model', async () => {
-    const aiClient = createMockAIClient();
-    aiClient.setClassifierResolution('anthropic/claude-opus-4.6');
+    const aiClient = createMockAIClient({ classifierResolution: 'anthropic/claude-opus-4.6' });
     const writer = createRecordingWriter();
     const stage = makeStage();
 
@@ -105,8 +104,7 @@ describe('SmartModelStage', () => {
   });
 
   it('passes a TextRequest to aiClient.stream with the classifier model and capped output tokens', async () => {
-    const aiClient = createMockAIClient();
-    aiClient.setClassifierResolution('cheap/c');
+    const aiClient = createMockAIClient({ classifierResolution: 'cheap/c' });
     const streamSpy = vi.spyOn(aiClient, 'stream');
     const writer = createRecordingWriter();
 
@@ -129,8 +127,7 @@ describe('SmartModelStage', () => {
   });
 
   it('falls back to the model id when name metadata is missing', async () => {
-    const aiClient = createMockAIClient();
-    aiClient.setClassifierResolution('cheap/c');
+    const aiClient = createMockAIClient({ classifierResolution: 'cheap/c' });
     const writer = createRecordingWriter();
 
     const stage = makeStage({ modelMetadataById: new Map() });
@@ -207,9 +204,7 @@ describe('SmartModelStage', () => {
 
   describe('classifier failure falls back to value model', () => {
     it('falls back to the cheapest eligible model when the classifier throws', async () => {
-      const aiClient = createMockAIClient();
-      const upstreamError = new Error('upstream gone');
-      aiClient.setClassifierFailure(upstreamError);
+      const aiClient = createMockAIClient({ classifierFailure: true });
       const writer = createRecordingWriter();
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -238,13 +233,17 @@ describe('SmartModelStage', () => {
       // No stage:error on fallback — we degraded gracefully.
       expect(writer.events.find((e) => e.method === 'writeStageError')).toBeUndefined();
       // Upstream cause must be logged (via console.error) so Sentry/dev see the chain.
-      expect(errorSpy).toHaveBeenCalledWith('Smart Model classifier failed', upstreamError);
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Smart Model classifier failed',
+        expect.objectContaining({ message: 'Classifier unavailable (test)' })
+      );
       errorSpy.mockRestore();
     });
 
     it('falls back to the cheapest eligible model when the classifier output cannot be resolved', async () => {
-      const aiClient = createMockAIClient();
-      aiClient.setClassifierResolution('totally-unrelated-id-not-in-eligible');
+      const aiClient = createMockAIClient({
+        classifierResolution: 'totally-unrelated-id-not-in-eligible',
+      });
       const writer = createRecordingWriter();
 
       const outcome = await makeStage().run({

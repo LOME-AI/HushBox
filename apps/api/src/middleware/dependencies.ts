@@ -14,6 +14,7 @@ import { createRedisClient } from '../lib/redis.js';
 import { createEvidenceConfig } from '../lib/evidence-config.js';
 import { createIronSessionMiddleware } from './iron-session.js';
 import { getAIClient } from '../services/ai/index.js';
+import type { MockAIClientConfig } from '../services/ai/index.js';
 import { getMediaStorage } from '../services/storage/index.js';
 import { getHelcimClient } from '../services/helcim/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
@@ -141,7 +142,29 @@ export function aiClientMiddleware(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     // dbMiddleware + envMiddleware run before this on every route prefix
     // that uses aiClientMiddleware — so `db` and `envUtils` are always set.
-    c.set('aiClient', getAIClient(c.env, createEvidenceConfig(c)));
+    //
+    // Mock overrides ride on three request headers and are only consulted in
+    // dev / E2E builds (getAIClient gates on env). Production reads of these
+    // headers are ignored at the env fork.
+    const mockConfig: MockAIClientConfig = {};
+    const classifierResolution = c.req.header('x-mock-classifier-resolution');
+    if (classifierResolution !== undefined) {
+      mockConfig.classifierResolution = classifierResolution;
+    }
+    if (c.req.header('x-mock-classifier-failure') === 'true') {
+      mockConfig.classifierFailure = true;
+    }
+    const failingModelsHeader = c.req.header('x-mock-failing-models');
+    if (failingModelsHeader) {
+      const failingModels = failingModelsHeader
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (failingModels.length > 0) {
+        mockConfig.failingModels = failingModels;
+      }
+    }
+    c.set('aiClient', getAIClient(c.env, { ...createEvidenceConfig(c), mockConfig }));
     await next();
   };
 }

@@ -449,6 +449,7 @@ test.describe('Fork History Preservation', () => {
       await expect(chatPage.messageList.locator('img').first()).toBeVisible({ timeout: 30_000 });
       await chatPage.waitForStreamComplete();
 
+      await chatPage.scrollToTop();
       await chatPage.clickFork(1);
       await chatPage.expectForkTabCount(2);
       await chatPage.expectActiveForkTab('Fork 1');

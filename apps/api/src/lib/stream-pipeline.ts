@@ -451,6 +451,93 @@ export async function broadcastAndFinish(options: BroadcastAndFinishOptions): Pr
   });
 }
 
+/**
+ * Post-persistence finalize for a streaming turn. Shared by text
+ * (`stream-pipeline.ts`) and media (`media-pipeline.ts`):
+ *   1. Optional `mutateBillingResult` hook (media uses it to attach presigned
+ *      download URLs before serialization).
+ *   2. Primary `broadcastAndFinish` — broadcasts `message:complete` AND
+ *      writes the consolidated SSE `done` event.
+ *   3. Per-non-primary `message:complete` broadcasts so other group members'
+ *      WebSocket subscribers see every slot's result, not just the primary's.
+ *   4. Fire-and-forget push notification.
+ *
+ * `resolveBroadcastModelName(modelId)` lets text return the Smart Model
+ * classifier-resolved id; media passes the raw modelId.
+ */
+export interface FinalizeTurnOptions {
+  c: Context<AppEnv>;
+  conversationId: string;
+  userMessageId: string;
+  successfulModelIds: readonly string[];
+  primaryModelId: string;
+  getAssistantId: (modelId: string) => string;
+  billingResult: SaveChatTurnResult;
+  writer: SSEEventWriter;
+  resolveBroadcastModelName: (modelId: string) => string;
+  senderId: string;
+  db: AppEnv['Variables']['db'];
+  mutateBillingResult?: (result: SaveChatTurnResult) => void;
+}
+
+export async function finalizeTurn(options: FinalizeTurnOptions): Promise<void> {
+  const {
+    c,
+    conversationId,
+    userMessageId,
+    successfulModelIds,
+    primaryModelId,
+    getAssistantId,
+    billingResult,
+    writer,
+    resolveBroadcastModelName,
+    senderId,
+    db,
+    mutateBillingResult,
+  } = options;
+
+  if (mutateBillingResult) mutateBillingResult(billingResult);
+
+  await broadcastAndFinish({
+    c,
+    conversationId,
+    userMessageId,
+    assistantMessageId: getAssistantId(primaryModelId),
+    billingResult,
+    writer,
+    modelName: resolveBroadcastModelName(primaryModelId),
+  });
+
+  for (const modelId of successfulModelIds) {
+    if (modelId === primaryModelId) continue;
+    broadcastFireAndForget(
+      c.env,
+      conversationId,
+      createEvent('message:complete', {
+        messageId: getAssistantId(modelId),
+        conversationId,
+        sequenceNumber: billingResult.aiSequence,
+        epochNumber: billingResult.epochNumber,
+        modelName: resolveBroadcastModelName(modelId),
+      }),
+      safeExecutionCtx(c)
+    );
+  }
+
+  fireAndForget(
+    sendPushForNewMessage({
+      db,
+      pushClient: getPushClient(c.env),
+      conversationId,
+      senderUserId: senderId,
+      title: 'New Message',
+      body: 'You have a new message',
+    }),
+    'send push notifications for AI response',
+    safeExecutionCtx(c)
+  );
+}
+
 export interface ResolveAndReserveBillingInput {
   billingResult: BuildBillingResult;
   userId: string;
@@ -607,6 +694,12 @@ export async function resolveAndReserveBilling(
     };
   }
 
+  // Pre-inference stages (Smart Model classifier today) reserve their worst-
+  // case cents inside `calculateBudget` so the inference budget already sizes
+  // tokens against `balance - stageReservation`. The primitive owns the math;
+  // we only own the input list.
+  const stageReservationCents = smartModelResolution?.classifierWorstCaseCents ?? 0;
+
   const budgetResult = calculateBudget({
     tier: payerTier,
     balanceCents: payerBalanceCents,
@@ -618,6 +711,7 @@ export async function resolveAndReserveBilling(
       contextLength: p.contextLength,
     })),
     webSearchCost: webSearchCostDollars,
+    preReservedCents: stageReservationCents,
   });
 
   const minContextLength = Math.min(...allPricing.map((p) => p.contextLength));
@@ -627,10 +721,10 @@ export async function resolveAndReserveBilling(
     estimatedInputTokens: budgetResult.estimatedInputTokens,
   });
 
-  // 8. Calculate worst case cost for reservation (derived from budget — single source of truth).
-  //    Add per-stage worst-case cents to cover any pre-inference stages
-  //    (Smart Model classifier, future prompt enhancers, etc.) that haven't
-  //    run yet but will be billed as separate usage_records.
+  // 8. Calculate worst case cost for reservation. Adding back the stage
+  //    reservation is safe because the inference token sizing inside
+  //    `calculateBudget` already excluded `preReservedCents` from the
+  //    balance — the sum is structurally ≤ payer's effective balance.
   const effectiveMaxOutputTokens =
     safeMaxTokens ?? minContextLength - budgetResult.estimatedInputTokens;
   const inferenceWorstCaseCents = computeWorstCaseCents(
@@ -638,7 +732,6 @@ export async function resolveAndReserveBilling(
     effectiveMaxOutputTokens,
     budgetResult.outputCostPerToken
   );
-  const stageReservationCents = smartModelResolution?.classifierWorstCaseCents ?? 0;
   const worstCaseCents = inferenceWorstCaseCents + stageReservationCents;
 
   // 9. Reserve budget — same group/personal race-guard flow as media; the
@@ -1448,43 +1541,19 @@ async function persistAndBroadcastTurn(args: PersistAndBroadcastArgs): Promise<v
   const resolveBroadcastModelName = (modelId: string): string =>
     args.slotMetadataByModelId.get(modelId)?.resolvedModelId ?? modelId;
 
-  await broadcastAndFinish({
+  await finalizeTurn({
     c: args.c,
     conversationId: args.conversationId,
     userMessageId: args.userMessageId,
-    assistantMessageId: args.getAssistantId(args.primaryModel),
+    successfulModelIds: args.successfulModels.map(([modelId]) => modelId),
+    primaryModelId: args.primaryModel,
+    getAssistantId: args.getAssistantId,
     billingResult,
     writer: args.writer,
-    modelName: resolveBroadcastModelName(args.primaryModel),
+    resolveBroadcastModelName,
+    senderId: args.senderId,
+    db: args.db,
   });
-
-  for (const [modelId] of args.successfulModels) {
-    if (modelId === args.primaryModel) continue;
-    broadcastFireAndForget(
-      args.c.env,
-      args.conversationId,
-      createEvent('message:complete', {
-        messageId: args.getAssistantId(modelId),
-        conversationId: args.conversationId,
-        sequenceNumber: billingResult.aiSequence,
-        epochNumber: billingResult.epochNumber,
-        modelName: resolveBroadcastModelName(modelId),
-      })
-    );
-  }
-
-  fireAndForget(
-    sendPushForNewMessage({
-      db: args.db,
-      pushClient: getPushClient(args.c.env),
-      conversationId: args.conversationId,
-      senderUserId: args.senderId,
-      title: 'New Message',
-      body: 'You have a new message',
-    }),
-    'send push notifications for AI response',
-    safeExecutionCtx(args.c)
-  );
 }
 
 export interface ImagePipelineInput {
@@ -1504,14 +1573,14 @@ export interface ImagePipelineInput {
 /**
  * Shared pipeline for image/video/audio generation. Lives in
  * `media-pipeline.ts`; this module wires the modality-agnostic dependencies
- * (writeFirstMediaError, handleBillingResult, broadcastAndFinish,
+ * (writeFirstMediaError, handleBillingResult, finalizeTurn,
  * createAssistantIdLookup) and forwards the per-modality input through.
  */
 function executeMediaPipeline(input: MediaPipelineInput): Response {
   return executeMediaPipelineImpl(input, {
     writeFirstMediaError,
     handleBillingResult,
-    broadcastAndFinish,
+    finalizeTurn,
     createAssistantIdLookup,
   });
 }

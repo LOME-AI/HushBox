@@ -27,6 +27,7 @@ import type {
   InferenceStream,
   MessageContentPart,
   MockAIClient,
+  MockAIClientConfig,
   ModelInfo,
   RecordedInferenceRequest,
   TextRequest,
@@ -298,7 +299,7 @@ function createFailingClassifierStream(error: Error): InferenceStream {
 }
 
 function createTextStream(request: TextRequest): InferenceStream {
-  const echoContent = `Echo: ${extractLastUserContent(request.messages)}`;
+  const echoContent = `Echo:\n${extractLastUserContent(request.messages)}`;
 
   return syncStream(function* (): Generator<InferenceEvent> {
     for (const char of echoContent) {
@@ -377,11 +378,13 @@ function createAudioStream(): InferenceStream {
   });
 }
 
-export function createMockAIClient(): MockAIClient {
+export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClient {
   const history: RecordedInferenceRequest[] = [];
-  const failingModels = new Set<string>();
-  let classifierResolution = DEFAULT_CLASSIFIER_RESOLUTION;
-  let classifierFailure: Error | null = null;
+  const failingModels = new Set(config.failingModels ?? []);
+  const classifierResolution = config.classifierResolution ?? DEFAULT_CLASSIFIER_RESOLUTION;
+  const classifierFailure = config.classifierFailure === true
+    ? new Error('Classifier unavailable (test)')
+    : null;
 
   return {
     isMock: true,
@@ -391,7 +394,6 @@ export function createMockAIClient(): MockAIClient {
     },
 
     listRawModels(): Promise<RawModel[]> {
-      // structuredClone so callers can't mutate the shared catalog array.
       return Promise.resolve(MOCK_RAW_MODELS.map((m) => structuredClone(m)));
     },
 
@@ -418,9 +420,7 @@ export function createMockAIClient(): MockAIClient {
       // The mock never reaches a real gateway, so ZDR is moot in practice;
       // we tag every recorded request with `zdrEnforced: true` so test
       // assertions can detect a future regression on the real-client path
-      // (where ZDR_PROVIDER_OPTIONS must be set on EVERY SDK call). Mock
-      // stays a faithful stand-in: if real.ts loses ZDR, integration tests
-      // fail; if mock loses the flag, this assertion fails.
+      // (where ZDR_PROVIDER_OPTIONS must be set on EVERY SDK call).
       const recorded: RecordedInferenceRequest = {
         ...structuredClone(request),
         zdrEnforced: true,
@@ -462,22 +462,6 @@ export function createMockAIClient(): MockAIClient {
 
     clearHistory(): void {
       history.length = 0;
-    },
-
-    addFailingModel(id: string): void {
-      failingModels.add(id);
-    },
-
-    clearFailingModels(): void {
-      failingModels.clear();
-    },
-
-    setClassifierResolution(modelId: string): void {
-      classifierResolution = modelId;
-    },
-
-    setClassifierFailure(error: Error | null): void {
-      classifierFailure = error;
     },
   };
 }

@@ -1,8 +1,8 @@
 import { fetchModels } from '@hushbox/shared/models';
 import { createMockAIClient } from './mock.js';
-import type { MockAIClient, RawModel } from './types.js';
+import type { MockAIClient, MockAIClientConfig, RawModel } from './types.js';
 
-interface GatewayCatalogOptions {
+interface GatewayCatalogOptions extends MockAIClientConfig {
   /**
    * AI Gateway API key forwarded to `fetchModels`. Tests that mock
    * `@ai-sdk/gateway` ignore the value, but the in-memory model cache is
@@ -40,7 +40,8 @@ export function createMockAIClientWithGatewayCatalog(
 ): MockAIClient {
   const apiKey = options.apiKey ?? DEFAULT_API_KEY;
   const publicModelsUrl = options.publicModelsUrl ?? DEFAULT_PUBLIC_MODELS_URL;
-  const base = createMockAIClient();
+  const { apiKey: _a, publicModelsUrl: _p, ...mockConfig } = options;
+  const base = createMockAIClient(mockConfig);
   return {
     ...base,
     listRawModels: (): Promise<RawModel[]> => fetchModels({ apiKey, publicModelsUrl }),

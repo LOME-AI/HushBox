@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { rateLimitByUser, rateLimitByIp } from './rate-limit';
+import { rateLimitByCaller, rateLimitByIp } from './rate-limit';
 import type { AppEnv } from '../types';
 
 interface ErrorBody {
@@ -43,7 +43,7 @@ function createMockUser(): NonNullable<AppEnv['Variables']['user']> {
   };
 }
 
-describe('rateLimitByUser middleware', () => {
+describe('rateLimitByCaller middleware', () => {
   let mockRedis: ReturnType<typeof createMockRedis>;
 
   beforeEach(() => {
@@ -56,16 +56,21 @@ describe('rateLimitByUser middleware', () => {
     vi.useRealTimers();
   });
 
-  function createApp(unauthenticated = false): Hono<AppEnv> {
+  function createApp(options: { callerId?: string | null } = {}): Hono<AppEnv> {
     const app = new Hono<AppEnv>();
     app.use('*', async (c, next) => {
       c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
-      c.set('user', unauthenticated ? null : createMockUser());
+      c.set('user', createMockUser());
+      const id = options.callerId === undefined ? TEST_USER_ID : options.callerId;
+      if (id !== null) c.set('callerId', id);
       c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
       await next();
     });
-    app.use('/protected/*', rateLimitByUser('chatStreamUserRateLimit'));
+    app.use('/protected/*', rateLimitByCaller('chatStreamUserRateLimit'));
     app.post('/protected/foo', (c) => c.json({ ok: true }));
+    app.onError((error, c) => {
+      return c.json({ code: 'INTERNAL', message: error.message }, 500);
+    });
     return app;
   }
 
@@ -75,12 +80,10 @@ describe('rateLimitByUser middleware', () => {
     expect(res.status).toBe(200);
   });
 
-  it('returns 401 when user is missing (cannot per-user-rate-limit)', async () => {
-    const app = createApp(true);
+  it('throws (500) when callerId is missing — signals misconfigured middleware chain', async () => {
+    const app = createApp({ callerId: null });
     const res = await app.request('/protected/foo', { method: 'POST' });
-    expect(res.status).toBe(401);
-    const body: ErrorBody = await res.json();
-    expect(body.code).toBe('NOT_AUTHENTICATED');
+    expect(res.status).toBe(500);
   });
 
   it('returns 429 with RATE_LIMITED on the (N+1)th request within the window', async () => {

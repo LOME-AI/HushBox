@@ -150,20 +150,22 @@ export interface MockAIClient extends AIClientBase {
   readonly isMock: true;
   getRequestHistory(): RecordedInferenceRequest[];
   clearHistory(): void;
-  addFailingModel(id: string): void;
-  clearFailingModels(): void;
-  /**
-   * Configure the model id the mock returns for classifier calls (any text
-   * stream whose system message starts with `CLASSIFIER_SYSTEM_PROMPT_MARKER`).
-   * Defaults to a stable mock id; tests override per scenario.
-   */
-  setClassifierResolution(modelId: string): void;
-  /**
-   * Make the next classifier call fail by rejecting the stream's iterator.
-   * Pass `null` to clear. Failure mode: rejection from the async iterator;
-   * passing `null` after the test is good practice.
-   */
-  setClassifierFailure(error: Error | null): void;
+}
+
+/**
+ * Per-request configuration for the mock AI client. Set by
+ * `aiClientMiddleware` from request headers (`x-mock-classifier-resolution`,
+ * `x-mock-classifier-failure`, `x-mock-failing-models`). E2E tests drive
+ * deterministic scenarios via `page.setExtraHTTPHeaders` — no shared mutable
+ * state, no afterEach cleanup, no cross-test bleed.
+ */
+export interface MockAIClientConfig {
+  /** Model id the classifier resolves to. Defaults to a stable mock id when omitted. */
+  classifierResolution?: string;
+  /** Force classifier failures (rejection from the async iterator). */
+  classifierFailure?: boolean;
+  /** Model ids whose inference stream rejects immediately. */
+  failingModels?: readonly string[];
 }
 
 /** Discriminated union — narrows on `client.isMock` without casts. */

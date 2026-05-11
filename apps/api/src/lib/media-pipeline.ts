@@ -37,8 +37,6 @@ import {
   type MediaStreamResult,
 } from './multi-stream.js';
 import { safeExecutionCtx } from './safe-execution-ctx.js';
-import { fireAndForget } from './fire-and-forget.js';
-import { getPushClient, sendPushForNewMessage } from '../services/push/index.js';
 import { createSSEEventWriter } from './stream-handler.js';
 import { buildGroupBillingContext } from './billing-types.js';
 import type { Context } from 'hono';
@@ -726,14 +724,19 @@ interface ExecuteMediaPipelineDeps {
     model: string;
     generationId: string | undefined;
   }) => Promise<SaveChatTurnResult | null>;
-  broadcastAndFinish: (options: {
+  finalizeTurn: (options: {
     c: Context<AppEnv>;
     conversationId: string;
     userMessageId: string;
-    assistantMessageId: string;
+    successfulModelIds: readonly string[];
+    primaryModelId: string;
+    getAssistantId: (modelId: string) => string;
     billingResult: SaveChatTurnResult;
     writer: SSEEventWriter;
-    modelName?: string;
+    resolveBroadcastModelName: (modelId: string) => string;
+    senderId: string;
+    db: AppEnv['Variables']['db'];
+    mutateBillingResult?: (result: SaveChatTurnResult) => void;
   }) => Promise<void>;
   createAssistantIdLookup: (models: string[]) => (modelId: string) => string;
 }
@@ -896,28 +899,20 @@ export function executeMediaPipeline(
       });
 
       if (billingResult) {
-        attachDownloadUrls(billingResult, stored.downloadUrls);
-        await deps.broadcastAndFinish({
+        await deps.finalizeTurn({
           c,
           conversationId,
           userMessageId,
-          assistantMessageId: getAssistantId(primaryModel),
+          successfulModelIds: successfulModels.map(([modelId]) => modelId),
+          primaryModelId: primaryModel,
+          getAssistantId,
           billingResult,
           writer,
-          modelName: primaryModel,
+          resolveBroadcastModelName: (modelId) => modelId,
+          senderId,
+          db,
+          mutateBillingResult: (result) => attachDownloadUrls(result, stored.downloadUrls),
         });
-        fireAndForget(
-          sendPushForNewMessage({
-            db,
-            pushClient: getPushClient(c.env),
-            conversationId,
-            senderUserId: senderId,
-            title: 'New Message',
-            body: 'You have a new message',
-          }),
-          'send push notifications for AI response',
-          safeExecutionCtx(c)
-        );
       } else {
         await writer.writeError({
           message: 'Failed to save message',

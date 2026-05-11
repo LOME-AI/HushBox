@@ -395,8 +395,10 @@ export const test = base.extend<CustomFixtures>({
   ],
 
   // Low-balance page: authenticated as test-billing-validation (zero starting balance);
-  // wallet is set to $0.01 via the dev endpoint before the test runs so any
-  // image/video generation triggers the insufficient-balance preflight error.
+  // both wallets are zeroed via the dev endpoint before the test runs so the
+  // user lands on free tier with no allowance — any preflight cost denies with
+  // `insufficient_free_allowance`. The "paid + $0.01" route doesn't work here:
+  // the $0.50 paid-tier cushion always covers image/Smart-Model preflight costs.
   // Reset to $0 after the test to avoid bleed.
   lowBalancePage: async ({ browser, playwright }, use, testInfo) => {
     const lowBalanceEmail = 'test-billing-validation@test.hushbox.ai';
@@ -405,9 +407,10 @@ export const test = base.extend<CustomFixtures>({
       storageState: 'e2e/.auth/test-billing-validation.json',
     });
 
-    // Set free-tier balance to a tiny amount so the preflight rejects media generation.
+    // Zero both wallets so the user is on the free tier with no allowance —
+    // every preflight cost trips `insufficient_free_allowance` denial.
     await requestContext.post('/api/dev/wallet-balance', {
-      data: { email: lowBalanceEmail, walletType: 'purchased', balance: '0.01000000' },
+      data: { email: lowBalanceEmail, walletType: 'purchased', balance: '0.00000000' },
     });
     await requestContext.post('/api/dev/wallet-balance', {
       data: { email: lowBalanceEmail, walletType: 'free_tier', balance: '0.00000000' },

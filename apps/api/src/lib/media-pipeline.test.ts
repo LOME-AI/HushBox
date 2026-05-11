@@ -187,7 +187,11 @@ function createPipelineInput(overrides: Partial<MediaPipelineInput> = {}): Media
 interface DepsCallLog {
   writeFirstMediaError: { mediaResults: Map<string, MediaStreamResult>; message: string }[];
   handleBillingResult: { assistantMessageId: string; generationId: string | undefined }[];
-  broadcastAndFinish: { assistantMessageId: string; modelName?: string }[];
+  finalizeTurn: {
+    primaryModelId: string;
+    successfulModelIds: readonly string[];
+    primaryAssistantId: string;
+  }[];
   createAssistantIdLookup: number;
 }
 
@@ -207,14 +211,16 @@ function createDeps(options_: {
       });
       return Promise.resolve(options_.billingResult);
     }),
-    broadcastAndFinish: vi.fn((options) => {
-      options_.log.broadcastAndFinish.push({
-        assistantMessageId: options.assistantMessageId,
-        modelName: options.modelName,
+    finalizeTurn: vi.fn((options) => {
+      options_.log.finalizeTurn.push({
+        primaryModelId: options.primaryModelId,
+        successfulModelIds: options.successfulModelIds,
+        primaryAssistantId: options.getAssistantId(options.primaryModelId),
       });
+      if (options.mutateBillingResult) options.mutateBillingResult(options.billingResult);
       return options.writer.writeDone({
         userMessageId: options.userMessageId,
-        assistantMessageId: options.assistantMessageId,
+        assistantMessageId: options.getAssistantId(options.primaryModelId),
         aiSequence: 1,
         epochNumber: 1,
         cost: '0.04',
@@ -353,7 +359,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: null, log });
@@ -373,7 +379,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const billingResult = createBillingResult();
@@ -404,7 +410,7 @@ describe('executeMediaPipeline', () => {
     expect(log.handleBillingResult).toHaveLength(1);
     expect(log.handleBillingResult[0]!.generationId).toBe('gen-test-1');
 
-    expect(log.broadcastAndFinish).toHaveLength(1);
+    expect(log.finalizeTurn).toHaveLength(1);
 
     expect(release).toHaveBeenCalledOnce();
   });
@@ -418,7 +424,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: null, log });
@@ -440,7 +446,7 @@ describe('executeMediaPipeline', () => {
     expect(log.writeFirstMediaError).toHaveLength(1);
     expect(log.writeFirstMediaError[0]!.message).toBe('No image generated');
     expect(log.handleBillingResult).toHaveLength(0);
-    expect(log.broadcastAndFinish).toHaveLength(0);
+    expect(log.finalizeTurn).toHaveLength(0);
 
     expect(release).toHaveBeenCalledOnce();
   });
@@ -467,7 +473,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: null, log });
@@ -484,7 +490,7 @@ describe('executeMediaPipeline', () => {
     expect(text).toContain('event: error');
     expect(text).toContain('"code":"EMPTY_MEDIA_RESULT"');
     expect(mockSaveChatTurn).not.toHaveBeenCalled();
-    expect(log.broadcastAndFinish).toHaveLength(0);
+    expect(log.finalizeTurn).toHaveLength(0);
     expect(release).toHaveBeenCalledOnce();
   });
 
@@ -499,7 +505,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: null, log });
@@ -518,7 +524,7 @@ describe('executeMediaPipeline', () => {
     expect(text).toContain('"code":"UNKNOWN_MIME_TYPE"');
     expect(mediaStorage.put).not.toHaveBeenCalled();
     expect(mockSaveChatTurn).not.toHaveBeenCalled();
-    expect(log.broadcastAndFinish).toHaveLength(0);
+    expect(log.finalizeTurn).toHaveLength(0);
     expect(release).toHaveBeenCalledOnce();
   });
 
@@ -531,7 +537,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: null, log });
@@ -552,7 +558,7 @@ describe('executeMediaPipeline', () => {
     expect(text).toContain('event: error');
     expect(text).toContain('"code":"STORAGE_WRITE_FAILED"');
     expect(mockSaveChatTurn).not.toHaveBeenCalled();
-    expect(log.broadcastAndFinish).toHaveLength(0);
+    expect(log.finalizeTurn).toHaveLength(0);
     expect(release).toHaveBeenCalledOnce();
   });
 
@@ -569,7 +575,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -600,7 +606,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: null, log });
@@ -618,7 +624,7 @@ describe('executeMediaPipeline', () => {
 
     expect(text).toContain('event: error');
     expect(text).toContain('"code":"BILLING_ERROR"');
-    expect(log.broadcastAndFinish).toHaveLength(0);
+    expect(log.finalizeTurn).toHaveLength(0);
     expect(release).toHaveBeenCalledOnce();
   });
 
@@ -631,7 +637,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: null, log });
@@ -651,7 +657,7 @@ describe('executeMediaPipeline', () => {
     await res.text();
 
     expect(mockSaveChatTurn).not.toHaveBeenCalled();
-    expect(log.broadcastAndFinish).toHaveLength(0);
+    expect(log.finalizeTurn).toHaveLength(0);
     expect(release).toHaveBeenCalledOnce();
   });
 
@@ -670,7 +676,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -702,7 +708,7 @@ describe('executeMediaPipeline', () => {
     const res = await reqPromise;
     await res.text();
 
-    expect(log.broadcastAndFinish.length).toBeGreaterThan(0);
+    expect(log.finalizeTurn.length).toBeGreaterThan(0);
   });
 
   it('passes group billing context to saveChatTurn when memberContext + groupBudget present', async () => {
@@ -715,7 +721,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -753,7 +759,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -784,7 +790,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -819,7 +825,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -860,7 +866,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -894,7 +900,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -933,7 +939,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -987,7 +993,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: textShapedBillingResult, log });
@@ -1000,7 +1006,7 @@ describe('executeMediaPipeline', () => {
     const res = await app.request('/run', { method: 'POST' });
     await res.text();
 
-    expect(log.broadcastAndFinish).toHaveLength(1);
+    expect(log.finalizeTurn).toHaveLength(1);
   });
 
   it('passes pricingFor result into computeMediaCost (image kind)', async () => {
@@ -1013,7 +1019,7 @@ describe('executeMediaPipeline', () => {
     const log: DepsCallLog = {
       writeFirstMediaError: [],
       handleBillingResult: [],
-      broadcastAndFinish: [],
+      finalizeTurn: [],
       createAssistantIdLookup: 0,
     };
     const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -1049,7 +1055,7 @@ describe('executeMediaPipeline', () => {
       const log: DepsCallLog = {
         writeFirstMediaError: [],
         handleBillingResult: [],
-        broadcastAndFinish: [],
+        finalizeTurn: [],
         createAssistantIdLookup: 0,
       };
       const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -1086,7 +1092,7 @@ describe('executeMediaPipeline', () => {
       const log: DepsCallLog = {
         writeFirstMediaError: [],
         handleBillingResult: [],
-        broadcastAndFinish: [],
+        finalizeTurn: [],
         createAssistantIdLookup: 0,
       };
       const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -1117,7 +1123,7 @@ describe('executeMediaPipeline', () => {
       const log: DepsCallLog = {
         writeFirstMediaError: [],
         handleBillingResult: [],
-        broadcastAndFinish: [],
+        finalizeTurn: [],
         createAssistantIdLookup: 0,
       };
       const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -1162,7 +1168,7 @@ describe('executeMediaPipeline', () => {
       const log: DepsCallLog = {
         writeFirstMediaError: [],
         handleBillingResult: [],
-        broadcastAndFinish: [],
+        finalizeTurn: [],
         createAssistantIdLookup: 0,
       };
       const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -1308,7 +1314,7 @@ describe('executeMediaPipeline', () => {
       const log: DepsCallLog = {
         writeFirstMediaError: [],
         handleBillingResult: [],
-        broadcastAndFinish: [],
+        finalizeTurn: [],
         createAssistantIdLookup: 0,
       };
       const deps = createDeps({ billingResult: createBillingResult(), log });
@@ -1336,7 +1342,7 @@ describe('executeMediaPipeline', () => {
       const log: DepsCallLog = {
         writeFirstMediaError: [],
         handleBillingResult: [],
-        broadcastAndFinish: [],
+        finalizeTurn: [],
         createAssistantIdLookup: 0,
       };
       const deps = createDeps({ billingResult: createBillingResult(), log });

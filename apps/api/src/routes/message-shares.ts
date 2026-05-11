@@ -21,7 +21,7 @@ import {
   type ContentItem,
 } from '@hushbox/db';
 import { requireAuth } from '../middleware/require-auth.js';
-import { rateLimitByUser, rateLimitByIp } from '../middleware/rate-limit.js';
+import { rateLimitByCaller, rateLimitByIp } from '../middleware/rate-limit.js';
 import { getUser } from '../lib/get-user.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import type { AppEnv } from '../types.js';
@@ -43,7 +43,7 @@ const createShareSchema = z.object({
 export const messageSharesRoute = new Hono<AppEnv>().post(
   '/share',
   requireAuth(),
-  rateLimitByUser('shareCreateUserRateLimit'),
+  rateLimitByCaller('shareCreateUserRateLimit'),
   zValidator('json', createShareSchema),
   async (c) => {
     const user = getUser(c);
