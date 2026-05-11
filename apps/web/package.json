@@ -43,7 +43,7 @@
     "hono": "^4.12.6",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.577.0",
-    "mermaid": "^11.13.0",
+    "mermaid": "^11.15.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-qrcode-logo": "^4.0.0",
