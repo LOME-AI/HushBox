@@ -7,7 +7,7 @@ import {
 
 describe('accessibility schema re-exports', () => {
   it('re-exports the parsed defaults from @hushbox/shared', () => {
-    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.theme).toBe('system');
+    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.contrast).toBe('normal');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.version).toBe(1);
   });
 

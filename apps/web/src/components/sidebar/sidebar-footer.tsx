@@ -114,6 +114,22 @@ interface MenuItemsProps {
   navigate: ReturnType<typeof useNavigate>;
 }
 
+function AccessibilityMenuItem({
+  navigate,
+}: Readonly<{ navigate: ReturnType<typeof useNavigate> }>): React.JSX.Element {
+  return (
+    <DropdownMenuItem
+      onClick={() => {
+        void navigate({ to: ROUTES.ACCESSIBILITY });
+      }}
+      data-testid="menu-accessibility"
+    >
+      <Accessibility className="mr-2 h-4 w-4" />
+      Accessibility
+    </DropdownMenuItem>
+  );
+}
+
 function AuthenticatedMenuItems({ navigate }: Readonly<MenuItemsProps>): React.JSX.Element {
   const handleLogout = async (): Promise<void> => {
     await signOutAndClearCache();
@@ -133,15 +149,7 @@ function AuthenticatedMenuItems({ navigate }: Readonly<MenuItemsProps>): React.J
           Settings
         </DropdownMenuItem>
       )}
-      <DropdownMenuItem
-        onClick={() => {
-          void navigate({ to: ROUTES.ACCESSIBILITY });
-        }}
-        data-testid="menu-accessibility"
-      >
-        <Accessibility className="mr-2 h-4 w-4" />
-        Accessibility
-      </DropdownMenuItem>
+      <AccessibilityMenuItem navigate={navigate} />
       <DropdownMenuItem
         onClick={() => {
           void navigate({ to: ROUTES.USAGE });
@@ -181,6 +189,8 @@ function AuthenticatedMenuItems({ navigate }: Readonly<MenuItemsProps>): React.J
 function TrialMenuItems({ navigate }: Readonly<MenuItemsProps>): React.JSX.Element {
   return (
     <>
+      <AccessibilityMenuItem navigate={navigate} />
+      <DropdownMenuSeparator />
       <GitHubMenuItem />
       <MarketingMenuItem />
       <DropdownMenuSeparator />

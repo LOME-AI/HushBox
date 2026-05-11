@@ -10,7 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as BillingPortalRouteImport } from './routes/billing-portal'
-import { Route as AccessibilityRouteImport } from './routes/accessibility'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
@@ -24,6 +23,7 @@ import { Route as AppUsageRouteImport } from './routes/_app/usage'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppProjectsRouteImport } from './routes/_app/projects'
 import { Route as AppBillingRouteImport } from './routes/_app/billing'
+import { Route as AppAccessibilityRouteImport } from './routes/_app/accessibility'
 import { Route as AppChatIndexRouteImport } from './routes/_app/chat.index'
 import { Route as ShareMShareIdRouteImport } from './routes/share.m.$shareId'
 import { Route as ShareCConversationIdRouteImport } from './routes/share.c.$conversationId'
@@ -34,11 +34,6 @@ import { Route as AppChatIdRouteImport } from './routes/_app/chat.$id'
 const BillingPortalRoute = BillingPortalRouteImport.update({
   id: '/billing-portal',
   path: '/billing-portal',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AccessibilityRoute = AccessibilityRouteImport.update({
-  id: '/accessibility',
-  path: '/accessibility',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -104,6 +99,11 @@ const AppBillingRoute = AppBillingRouteImport.update({
   path: '/billing',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAccessibilityRoute = AppAccessibilityRouteImport.update({
+  id: '/accessibility',
+  path: '/accessibility',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppChatIndexRoute = AppChatIndexRouteImport.update({
   id: '/chat/',
   path: '/chat/',
@@ -137,8 +137,8 @@ const AppChatIdRoute = AppChatIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/accessibility': typeof AccessibilityRoute
   '/billing-portal': typeof BillingPortalRoute
+  '/accessibility': typeof AppAccessibilityRoute
   '/billing': typeof AppBillingRoute
   '/projects': typeof AppProjectsRoute
   '/settings': typeof AppSettingsRoute
@@ -158,8 +158,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/accessibility': typeof AccessibilityRoute
   '/billing-portal': typeof BillingPortalRoute
+  '/accessibility': typeof AppAccessibilityRoute
   '/billing': typeof AppBillingRoute
   '/projects': typeof AppProjectsRoute
   '/settings': typeof AppSettingsRoute
@@ -182,8 +182,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
-  '/accessibility': typeof AccessibilityRoute
   '/billing-portal': typeof BillingPortalRoute
+  '/_app/accessibility': typeof AppAccessibilityRoute
   '/_app/billing': typeof AppBillingRoute
   '/_app/projects': typeof AppProjectsRoute
   '/_app/settings': typeof AppSettingsRoute
@@ -205,8 +205,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/accessibility'
     | '/billing-portal'
+    | '/accessibility'
     | '/billing'
     | '/projects'
     | '/settings'
@@ -226,8 +226,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/accessibility'
     | '/billing-portal'
+    | '/accessibility'
     | '/billing'
     | '/projects'
     | '/settings'
@@ -249,8 +249,8 @@ export interface FileRouteTypes {
     | '/'
     | '/_app'
     | '/_auth'
-    | '/accessibility'
     | '/billing-portal'
+    | '/_app/accessibility'
     | '/_app/billing'
     | '/_app/projects'
     | '/_app/settings'
@@ -273,7 +273,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
-  AccessibilityRoute: typeof AccessibilityRoute
   BillingPortalRoute: typeof BillingPortalRoute
   DevAssetsRoute: typeof DevAssetsRoute
   DevEmailsRoute: typeof DevEmailsRoute
@@ -290,13 +289,6 @@ declare module '@tanstack/react-router' {
       path: '/billing-portal'
       fullPath: '/billing-portal'
       preLoaderRoute: typeof BillingPortalRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/accessibility': {
-      id: '/accessibility'
-      path: '/accessibility'
-      fullPath: '/accessibility'
-      preLoaderRoute: typeof AccessibilityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth': {
@@ -390,6 +382,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppBillingRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/accessibility': {
+      id: '/_app/accessibility'
+      path: '/accessibility'
+      fullPath: '/accessibility'
+      preLoaderRoute: typeof AppAccessibilityRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/chat/': {
       id: '/_app/chat/'
       path: '/chat'
@@ -436,6 +435,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppAccessibilityRoute: typeof AppAccessibilityRoute
   AppBillingRoute: typeof AppBillingRoute
   AppProjectsRoute: typeof AppProjectsRoute
   AppSettingsRoute: typeof AppSettingsRoute
@@ -446,6 +446,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAccessibilityRoute: AppAccessibilityRoute,
   AppBillingRoute: AppBillingRoute,
   AppProjectsRoute: AppProjectsRoute,
   AppSettingsRoute: AppSettingsRoute,
@@ -475,7 +476,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
-  AccessibilityRoute: AccessibilityRoute,
   BillingPortalRoute: BillingPortalRoute,
   DevAssetsRoute: DevAssetsRoute,
   DevEmailsRoute: DevEmailsRoute,

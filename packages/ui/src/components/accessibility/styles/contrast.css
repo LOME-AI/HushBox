@@ -52,12 +52,3 @@ html.a11y-highlight-links a:visited {
   outline: 1px solid currentColor;
   outline-offset: 2px;
 }
-
-/* Reader mode for the chat app — hide chrome, narrow content column */
-html[data-reader-mode] [data-chrome] {
-  display: none !important;
-}
-html[data-reader-mode] main {
-  max-width: 65ch;
-  margin-inline: auto;
-}

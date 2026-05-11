@@ -1,26 +1,18 @@
 import * as React from 'react';
-import { SettingsLayout } from '../settings-layout';
 import { AccessibilityPanel } from './accessibility-panel';
 
-const NAV_ITEMS = [{ value: 'accessibility', label: 'Accessibility' }] as const;
-
 /**
- * Authenticated `/accessibility` page. Wraps the shared {@link AccessibilityPanel}
- * in a {@link SettingsLayout} so the page renders the standard nav landmark plus
- * the "Accessibility" heading. The nav has a single item today; `onChange` is a
- * deliberate no-op until additional sections (e.g. `/settings/general`) are added.
+ * `/accessibility` page body. Drop this inside the host app's chrome — it
+ * renders the heading + panel without owning the page chrome itself, so the
+ * authenticated-app sidebar persists.
  */
 export function AccessibilityPage(): React.JSX.Element {
   return (
-    <SettingsLayout
-      navItems={[...NAV_ITEMS]}
-      activeValue="accessibility"
-      onChange={() => {
-        /* single-item nav, no-op */
-      }}
-      pageTitle="Accessibility"
-    >
-      <AccessibilityPanel />
-    </SettingsLayout>
+    <div className="flex h-full flex-col overflow-auto">
+      <div className="mx-auto w-full max-w-3xl px-4 py-6">
+        <h1 className="mb-4 text-2xl font-semibold">Accessibility</h1>
+        <AccessibilityPanel />
+      </div>
+    </div>
   );
 }

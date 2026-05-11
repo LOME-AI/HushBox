@@ -4,7 +4,6 @@ import { createA11yStore, useA11yStore, A11Y_STORAGE_KEY, type A11yStore } from 
 import type { A11yStorageAdapter } from './storage-adapter';
 import { ACCESSIBILITY_PREFERENCES_DEFAULTS, type AccessibilityPreferences } from './schema';
 
-/** Build an in-memory adapter we can introspect during tests. */
 function createMemoryAdapter(initial: Record<string, string> = {}): A11yStorageAdapter & {
   store: Map<string, string>;
   setCallCount: number;
@@ -62,22 +61,22 @@ describe('createA11yStore', () => {
   describe('update', () => {
     it('applies a partial update to state', () => {
       const store = createA11yStore(createMemoryAdapter());
-      store.getState().update({ theme: 'dark' });
-      expect(store.getState().theme).toBe('dark');
+      store.getState().update({ contrast: 'high' });
+      expect(store.getState().contrast).toBe('high');
     });
 
     it('only changes specified fields, leaving others untouched', () => {
       const store = createA11yStore(createMemoryAdapter());
-      store.getState().update({ theme: 'dark', fontSize: '150' });
+      store.getState().update({ contrast: 'high', fontSize: '150' });
       const state = store.getState();
-      expect(state.theme).toBe('dark');
+      expect(state.contrast).toBe('high');
       expect(state.fontSize).toBe('150');
-      expect(state.contrast).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.contrast);
+      expect(state.invert).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.invert);
     });
 
     it('preserves the action handlers across updates', () => {
       const store = createA11yStore(createMemoryAdapter());
-      store.getState().update({ theme: 'dark' });
+      store.getState().update({ contrast: 'high' });
       expect(typeof store.getState().update).toBe('function');
       expect(typeof store.getState().reset).toBe('function');
     });
@@ -87,13 +86,13 @@ describe('createA11yStore', () => {
     it('restores all settings to schema defaults', () => {
       const store = createA11yStore(createMemoryAdapter());
       store.getState().update({
-        theme: 'dark',
+        contrast: 'high',
         fontSize: '200',
         invert: true,
       });
       store.getState().reset();
       const state = store.getState();
-      expect(state.theme).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.theme);
+      expect(state.contrast).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.contrast);
       expect(state.fontSize).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.fontSize);
       expect(state.invert).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.invert);
     });
@@ -104,37 +103,36 @@ describe('createA11yStore', () => {
       const adapter = createMemoryAdapter();
       const store = createA11yStore(adapter);
       const initialSetCalls = adapter.setCallCount;
-      store.getState().update({ theme: 'dark' });
+      store.getState().update({ contrast: 'high' });
       expect(adapter.setCallCount).toBeGreaterThan(initialSetCalls);
       const stored = adapter.store.get(A11Y_STORAGE_KEY);
       expect(stored).toBeDefined();
       const parsed = JSON.parse(stored!) as StorageValue<AccessibilityPreferences>;
-      expect(parsed.state.theme).toBe('dark');
+      expect(parsed.state.contrast).toBe('high');
     });
 
     it('uses the supplied adapter rather than the default web adapter', () => {
       const adapter = createMemoryAdapter();
       const store = createA11yStore(adapter);
-      store.getState().update({ theme: 'light' });
-      // Confirms our adapter (not localStorage) received the write.
+      store.getState().update({ contrast: 'low' });
       expect(adapter.store.has(A11Y_STORAGE_KEY)).toBe(true);
       expect(globalThis.window.localStorage.getItem(A11Y_STORAGE_KEY)).toBeNull();
     });
 
     it('uses the web localStorage adapter by default', () => {
       const store = createA11yStore();
-      store.getState().update({ theme: 'dark' });
+      store.getState().update({ contrast: 'high' });
       const raw = globalThis.window.localStorage.getItem(A11Y_STORAGE_KEY);
       expect(raw).not.toBeNull();
       const parsed = JSON.parse(raw!) as StorageValue<AccessibilityPreferences>;
-      expect(parsed.state.theme).toBe('dark');
+      expect(parsed.state.contrast).toBe('high');
     });
   });
 
   describe('hydration', () => {
     it('hydrates from a partial persisted state, filling missing keys with defaults', () => {
       const partialPersisted: StorageValue<Partial<AccessibilityPreferences>> = {
-        state: { theme: 'dark' },
+        state: { contrast: 'high' },
         version: 0,
       };
       const adapter = createMemoryAdapter({
@@ -142,30 +140,28 @@ describe('createA11yStore', () => {
       });
       const store = createA11yStore(adapter);
       const state = store.getState();
-      expect(state.theme).toBe('dark');
-      expect(state.contrast).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.contrast);
+      expect(state.contrast).toBe('high');
       expect(state.fontSize).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.fontSize);
     });
 
     it('falls back to defaults when persisted state contains an invalid value', () => {
       const corruptPersisted: StorageValue<Record<string, unknown>> = {
-        state: { theme: 'neon-pink' as unknown as 'dark' },
+        state: { contrast: 'neon-pink' as unknown as 'high' },
         version: 0,
       };
       const adapter = createMemoryAdapter({
         [A11Y_STORAGE_KEY]: JSON.stringify(corruptPersisted),
       });
-      // Constructing should not throw — the merge step should swallow Zod errors and use defaults.
       const store = createA11yStore(adapter);
       const state = store.getState();
-      expect(state.theme).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.theme);
+      expect(state.contrast).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.contrast);
     });
 
     it('hydrates correctly when the persisted blob is fully valid', () => {
       const fullPersisted: StorageValue<AccessibilityPreferences> = {
         state: {
           ...ACCESSIBILITY_PREFERENCES_DEFAULTS,
-          theme: 'light',
+          contrast: 'low',
           fontSize: '125',
         },
         version: 0,
@@ -175,7 +171,7 @@ describe('createA11yStore', () => {
       });
       const store = createA11yStore(adapter);
       const state = store.getState();
-      expect(state.theme).toBe('light');
+      expect(state.contrast).toBe('low');
       expect(state.fontSize).toBe('125');
     });
   });
@@ -197,16 +193,16 @@ describe('useA11yStore (default singleton)', () => {
 
   it('exposes the same shape as createA11yStore', () => {
     const state = useA11yStore.getState();
-    expect(state.theme).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.theme);
+    expect(state.contrast).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.contrast);
     expect(typeof state.update).toBe('function');
     expect(typeof state.reset).toBe('function');
   });
 
   it('persists updates to globalThis.window.localStorage by default', () => {
-    useA11yStore.getState().update({ theme: 'dark' });
+    useA11yStore.getState().update({ contrast: 'high' });
     const raw = globalThis.window.localStorage.getItem(A11Y_STORAGE_KEY);
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw!) as StorageValue<AccessibilityPreferences>;
-    expect(parsed.state.theme).toBe('dark');
+    expect(parsed.state.contrast).toBe('high');
   });
 });

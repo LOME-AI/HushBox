@@ -44,6 +44,14 @@ const FOCUSABLE_TAGS = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA']);
 
 const DEBOUNCE_MS = 150;
 
+const MAX_LABEL_CHARS = 60;
+
+const LANDMARK_NAMES: Record<string, string> = {
+  MAIN: 'Main content',
+  NAV: 'Navigation',
+  ASIDE: 'Sidebar',
+};
+
 function levelFor(element: HTMLElement): number {
   const tag = element.tagName;
   if (!HEADING_TAGS.has(tag)) return 0;
@@ -58,11 +66,31 @@ function isInsideOwnWidget(element: HTMLElement): boolean {
   return element.closest('[data-a11y-page-structure]') !== null;
 }
 
+function truncate(text: string): string {
+  const trimmed = text.trim().replaceAll(/\s+/g, ' ');
+  return trimmed.length > MAX_LABEL_CHARS ? `${trimmed.slice(0, MAX_LABEL_CHARS - 1)}…` : trimmed;
+}
+
 function labelFor(element: HTMLElement): string {
   const ariaLabel = element.getAttribute('aria-label');
-  if (ariaLabel !== null && ariaLabel.length > 0) return ariaLabel;
-  const trimmed = element.textContent.trim();
-  if (trimmed.length > 0) return trimmed;
+  if (ariaLabel !== null && ariaLabel.length > 0) return truncate(ariaLabel);
+
+  // For headings, the text content IS the label (and is short).
+  if (HEADING_TAGS.has(element.tagName)) {
+    const text = truncate(element.textContent);
+    if (text.length > 0) return text;
+  }
+
+  // For landmarks, use a friendly name — never the full textContent (which would
+  // include the entire region's text).
+  const friendly = LANDMARK_NAMES[element.tagName];
+  if (friendly !== undefined) return friendly;
+
+  const role = element.getAttribute('role');
+  if (role !== null && role.length > 0) {
+    return role.charAt(0).toUpperCase() + role.slice(1);
+  }
+
   return element.tagName.toLowerCase();
 }
 
@@ -196,9 +224,17 @@ export function PageStructure({
 
   if (!enabled) return null;
 
+  const navClasses = [
+    'bg-background text-foreground border-border fixed top-4 right-4 z-[9998] max-h-[calc(100dvh-2rem)] w-72 overflow-y-auto rounded-lg border p-2 text-sm leading-tight shadow-lg',
+    className,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <nav aria-label="Page structure" data-a11y-page-structure="" className={className}>
-      <ul>
+    <nav aria-label="Page outline" data-a11y-page-structure="" className={navClasses}>
+      <div className="text-foreground/60 px-2 pb-2 text-xs font-semibold">Page outline</div>
+      <ul className="m-0 list-none p-0">
         {items.map((item) => (
           <li key={item.key}>
             <button
@@ -208,11 +244,16 @@ export function PageStructure({
               onClick={() => {
                 activateItem(item.element);
               }}
+              className="hover:bg-accent block w-full rounded px-2 py-1 text-left"
+              style={{ paddingLeft: `${String(8 + Math.max(0, item.level - 1) * 12)}px` }}
             >
               {item.label}
             </button>
           </li>
         ))}
+        {items.length === 0 && (
+          <li className="text-foreground/50 px-2 py-1">No headings or landmarks found.</li>
+        )}
       </ul>
     </nav>
   );

@@ -22,11 +22,18 @@ vi.mock('@hushbox/ui/accessibility/lib/tts-engine', () => ({
 }));
 
 // Reset store + mocks between tests so state doesn't leak.
-beforeEach(() => {
+beforeEach(async () => {
   speakMock.mockReset();
   speakMock.mockResolvedValue();
   useA11yStore.getState().reset();
   document.body.innerHTML = '';
+  // Drain any pending speak promises from a prior test so they can't resolve
+  // mid-assertion in the next test and falsely trip `not.toHaveBeenCalled()`.
+  for (let index = 0; index < 5; index++) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+  speakMock.mockReset();
+  speakMock.mockResolvedValue();
 });
 
 afterEach(() => {

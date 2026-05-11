@@ -211,7 +211,7 @@ describe('user-preferences routes', () => {
       await db
         .update(users)
         .set({
-          accessibilityPreferences: { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, theme: 'dark' },
+          accessibilityPreferences: { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, contrast: 'high' },
           accessibilityPreferencesUpdatedAt: dbTs,
         })
         .where(eq(users.id, userId));
@@ -220,7 +220,7 @@ describe('user-preferences routes', () => {
       const olderTs = new Date(dbTs.getTime() - 60_000).toISOString();
       const stalePrefs: AccessibilityPreferences = {
         ...ACCESSIBILITY_PREFERENCES_DEFAULTS,
-        theme: 'light',
+        contrast: 'low',
       };
 
       const res = await app.request('/user-preferences/accessibility', {
@@ -242,7 +242,7 @@ describe('user-preferences routes', () => {
         .from(users)
         .where(eq(users.id, userId))
         .then((r) => r[0]);
-      expect(row?.prefs.theme).toBe('dark');
+      expect(row?.prefs.contrast).toBe('high');
       expect(row?.updatedAt.toISOString()).toBe(dbTs.toISOString());
     });
 
@@ -253,7 +253,7 @@ describe('user-preferences routes', () => {
         method: 'PUT',
         headers: authHeaders(userId),
         body: JSON.stringify({
-          preferences: { version: 1, theme: 'mauve' }, // theme is not a valid enum value
+          preferences: { version: 1, contrast: 'mauve' }, // contrast is not a valid enum value
           updatedAt: new Date().toISOString(),
         }),
       });

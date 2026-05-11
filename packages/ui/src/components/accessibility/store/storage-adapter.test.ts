@@ -4,7 +4,7 @@ import { createWebStorageAdapter } from './storage-adapter';
 import type { AccessibilityPreferences } from './schema';
 
 const FAKE_VALUE: StorageValue<AccessibilityPreferences> = {
-  state: { theme: 'dark' } as unknown as AccessibilityPreferences,
+  state: { contrast: 'high' } as unknown as AccessibilityPreferences,
   version: 0,
 };
 

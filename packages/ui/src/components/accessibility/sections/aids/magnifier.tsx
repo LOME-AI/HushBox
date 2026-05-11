@@ -1,33 +1,19 @@
 import * as React from 'react';
 
 export interface MagnifierProps {
-  /** When true, mounts the magnifier; when false, renders nothing. */
   enabled: boolean;
-  /** Magnification factor. Defaults to 2. Recommended range 1.5–3. */
   zoom?: number;
-  /** Lens diameter in pixels. Defaults to 200. */
   size?: number;
 }
 
 const DEBOUNCE_MS = 100;
 
 /**
- * Magnifier — purely decorative cursor-tracking magnifier lens.
- *
- * Approach: a circular fixed-position lens follows the cursor. Inside the lens we
- * mount a snapshot of `document.body.outerHTML` rendered by `dangerouslySetInnerHTML`,
- * scaled with `transform: scale(zoom)` and re-anchored via `transform-origin` to the
- * cursor's viewport position. The clone is refreshed on a 100ms-debounced
- * `MutationObserver` tick so DOM changes propagate without re-cloning every keystroke.
- *
- * Why this approach: it actually magnifies the *visible* text content (the primary
- * use case for low-vision users) and works deterministically in jsdom — no
- * `Range.cloneContents`, no iframe `srcdoc`, no off-screen canvas dependencies.
- * Trade-off: dynamic state (input values, focus rings) is not preserved in the clone,
- * which is acceptable for v1 of a "see what's under my cursor more clearly" tool.
- *
- * The lens itself is `aria-hidden` and `pointer-events: none`, so screen readers
- * never encounter it and clicks pass straight through.
+ * Cursor-tracking magnifier lens. Renders a circular fixed-position viewport that
+ * follows the cursor. Inside the viewport we mount a clone of `document.body.innerHTML`
+ * shifted so its (0,0) maps to screen (0,0), then `transform: scale(zoom)` is applied
+ * with `transform-origin` at the cursor's screen position. The result: the area under
+ * the cursor stays anchored under the cursor while everything around it is enlarged.
  */
 export function Magnifier({
   enabled,
@@ -72,6 +58,8 @@ export function Magnifier({
   if (!enabled) return null;
 
   const half = size / 2;
+  const lensLeft = cursor.x - half;
+  const lensTop = cursor.y - half;
 
   return (
     <div
@@ -89,19 +77,20 @@ export function Magnifier({
         zIndex: 9999,
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)',
         border: '2px solid rgba(0, 0, 0, 0.6)',
-        transform: `translate(${String(cursor.x - half)}px, ${String(cursor.y - half)}px)`,
+        transform: `translate(${String(lensLeft)}px, ${String(lensTop)}px)`,
       }}
     >
       <div
         data-a11y-magnifier-content=""
         style={{
           position: 'absolute',
-          inset: 0,
-          transform: `scale(${String(zoom)})`,
-          transformOrigin: `${String(cursor.x)}px ${String(cursor.y)}px`,
+          top: `${String(-lensTop)}px`,
+          left: `${String(-lensLeft)}px`,
           width: '100vw',
           height: '100vh',
           pointerEvents: 'none',
+          transform: `scale(${String(zoom)})`,
+          transformOrigin: `${String(cursor.x)}px ${String(cursor.y)}px`,
         }}
         dangerouslySetInnerHTML={{ __html: bodyHtml }}
       />

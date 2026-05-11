@@ -2,17 +2,11 @@ import * as React from 'react';
 
 import { Button } from '../../button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../select';
-import { BooleanSwitchRow } from '../controls/boolean-switch-row';
+import { SettingCard } from '../controls/setting-card';
 import { TTS_VOICES, getTtsService, type TtsVoice } from '../lib/tts-engine';
 import { useA11yStore } from '../store';
+import { ON_OFF_OPTIONS } from './_constants';
 
-/**
- * Best-effort persisted-storage request. Browsers without the Storage API and
- * environments where the user denies the request both fall through silently —
- * the model is still cached, just at higher eviction risk. The `storage` and
- * `persist` fields are typed as required in lib.dom but are absent in older
- * Safari and most WebViews, so we runtime-check via an unknown cast.
- */
 async function requestPersistentStorage(): Promise<void> {
   const nav = globalThis.navigator as unknown as {
     storage?: { persist?: () => Promise<boolean> };
@@ -65,7 +59,7 @@ function TtsGate({ onEnabled }: Readonly<TtsGateProps>): React.JSX.Element {
           void handleClick();
         }}
       >
-        Enable read-aloud — ~100 MB one-time download
+        Turn on read-aloud — about 80 MB, one-time download
       </Button>
       <p className="text-muted-foreground text-xs">
         Runs entirely on your device. No audio or text ever leaves this device.
@@ -106,28 +100,14 @@ function ReadAloudControls(): React.JSX.Element {
   const streamChatAloud = useA11yStore((s) => s.streamChatAloud);
   const update = useA11yStore((s) => s.update);
 
-  // Page-reader and selection-reader hookups land in a future task; the
-  // buttons exist now so the gate can reveal them and the user knows they're
-  // coming.
-  const handlePlaceholder = React.useCallback((): void => {
-    // Intentional no-op; wired up in a follow-up task.
-  }, []);
-
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" onClick={handlePlaceholder}>
-          Read page
-        </Button>
-        <Button type="button" variant="outline" onClick={handlePlaceholder}>
-          Read selection
-        </Button>
-      </div>
-      <BooleanSwitchRow
-        label="Stream chat aloud"
-        checked={streamChatAloud}
-        onCheckedChange={(checked) => {
-          update({ streamChatAloud: checked });
+      <SettingCard
+        title="Read chat replies aloud"
+        options={ON_OFF_OPTIONS}
+        value={streamChatAloud ? 'on' : 'off'}
+        onChange={(v) => {
+          update({ streamChatAloud: v === 'on' });
         }}
       />
       <div className="flex items-center justify-between gap-2 px-1 py-1 text-sm">
@@ -160,10 +140,18 @@ export function AudioSection(): React.JSX.Element {
   const update = useA11yStore((s) => s.update);
 
   return (
-    <section aria-labelledby="a11y-audio-heading" className="flex flex-col gap-2">
-      <h2 id="a11y-audio-heading" className="mb-2 text-lg font-semibold">
-        Audio
+    <section aria-labelledby="a11y-audio-heading" className="flex flex-col gap-3">
+      <h2 id="a11y-audio-heading" className="text-lg font-semibold">
+        Sound
       </h2>
+      <SettingCard
+        title="Mute all sounds"
+        options={ON_OFF_OPTIONS}
+        value={muteSounds ? 'on' : 'off'}
+        onChange={(v) => {
+          update({ muteSounds: v === 'on' });
+        }}
+      />
       {ttsEnabled ? (
         <ReadAloudControls />
       ) : (
@@ -173,13 +161,6 @@ export function AudioSection(): React.JSX.Element {
           }}
         />
       )}
-      <BooleanSwitchRow
-        label="Mute all sounds"
-        checked={muteSounds}
-        onCheckedChange={(checked) => {
-          update({ muteSounds: checked });
-        }}
-      />
     </section>
   );
 }

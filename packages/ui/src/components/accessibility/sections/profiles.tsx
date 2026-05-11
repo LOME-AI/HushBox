@@ -30,19 +30,24 @@ function ProfileButton({ profile, onApply }: Readonly<ProfileButtonProps>): Reac
 
 export function ProfilesSection(): React.JSX.Element {
   const update = useA11yStore((s) => s.update);
+  const reset = useA11yStore((s) => s.reset);
 
   const applyProfile = React.useCallback(
     (profile: AccessibilityProfile): void => {
+      reset();
       update(profile.preset);
     },
-    [update]
+    [update, reset]
   );
 
   return (
     <section aria-labelledby="a11y-profiles-heading" className="flex flex-col gap-2">
-      <h2 id="a11y-profiles-heading" className="mb-2 text-lg font-semibold">
-        Profiles
+      <h2 id="a11y-profiles-heading" className="text-lg font-semibold">
+        Quick starts
       </h2>
+      <p className="text-muted-foreground text-xs">
+        One click replaces every setting with this profile&apos;s opinion.
+      </p>
       <div className="flex flex-col gap-1.5">
         {ACCESSIBILITY_PROFILES.map((profile) => (
           <ProfileButton key={profile.id} profile={profile} onApply={applyProfile} />

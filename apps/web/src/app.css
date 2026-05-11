@@ -123,7 +123,15 @@
     U+A720-A7FF;
 }
 
+@layer base, components, utilities, accessibility;
+
 @import '@hushbox/config/tailwind';
+
+/* Accessibility class-based overrides — must be imported AFTER Tailwind so
+   the `accessibility` layer sits at the top of the cascade. */
+@import '@hushbox/ui/accessibility/styles';
+
+@source '../../../packages/ui/src/components/accessibility/**/*.tsx';
 
 /* Streamdown uses Tailwind classes in its dist files — tell Tailwind to scan them */
 @source '../node_modules/streamdown/dist/*.js';

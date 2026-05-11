@@ -6,6 +6,6 @@ function AccessibilityRoute(): React.JSX.Element {
   return <AccessibilityPage />;
 }
 
-export const Route = createFileRoute('/accessibility')({
+export const Route = createFileRoute('/_app/accessibility')({
   component: AccessibilityRoute,
 });

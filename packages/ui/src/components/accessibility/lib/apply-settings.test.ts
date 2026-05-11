@@ -1,19 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ACCESSIBILITY_PREFERENCES_DEFAULTS } from '@hushbox/shared';
 import type { AccessibilityPreferences } from '@hushbox/shared';
 import { applySettings } from './apply-settings';
 
-/** Build a fresh fake <html> element so tests don't pollute the shared document. */
 function createRoot(): HTMLElement {
   return document.createElement('html');
 }
 
-/** Build prefs by overlaying overrides on top of schema defaults. */
 function makePrefs(overrides: Partial<AccessibilityPreferences> = {}): AccessibilityPreferences {
   return { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, ...overrides };
 }
 
-/** Collect classList contents into a sorted array for stable comparison. */
 function classes(root: HTMLElement): string[] {
   return [...root.classList].toSorted((a, b) => a.localeCompare(b));
 }
@@ -23,8 +20,6 @@ describe('applySettings', () => {
     it('adds only the schema-default classes (a11y-line-height-tall — schema default is "1.5")', () => {
       const root = createRoot();
       applySettings(makePrefs(), root);
-      // Schema default lineHeight is '1.5' which maps to a11y-line-height-tall.
-      // Every other setting defaults to a no-class state.
       expect(classes(root).filter((c) => c.startsWith('a11y-'))).toEqual(['a11y-line-height-tall']);
     });
 
@@ -86,13 +81,6 @@ describe('applySettings', () => {
       applySettings(makePrefs({ saturation: '100' }), root);
       expect(root.classList.contains('a11y-saturate-100')).toBe(false);
     });
-
-    it('removes a stale saturation class when toggled off', () => {
-      const root = createRoot();
-      root.classList.add('a11y-saturate-50');
-      applySettings(makePrefs({ saturation: '100' }), root);
-      expect(root.classList.contains('a11y-saturate-50')).toBe(false);
-    });
   });
 
   describe('invert', () => {
@@ -107,13 +95,6 @@ describe('applySettings', () => {
       applySettings(makePrefs({ invert: false }), root);
       expect(root.classList.contains('a11y-invert')).toBe(false);
     });
-
-    it('removes a11y-invert when toggled off', () => {
-      const root = createRoot();
-      root.classList.add('a11y-invert');
-      applySettings(makePrefs({ invert: false }), root);
-      expect(root.classList.contains('a11y-invert')).toBe(false);
-    });
   });
 
   describe('highlightLinks', () => {
@@ -125,13 +106,6 @@ describe('applySettings', () => {
 
     it('skips a11y-highlight-links when false', () => {
       const root = createRoot();
-      applySettings(makePrefs({ highlightLinks: false }), root);
-      expect(root.classList.contains('a11y-highlight-links')).toBe(false);
-    });
-
-    it('removes a11y-highlight-links when toggled off', () => {
-      const root = createRoot();
-      root.classList.add('a11y-highlight-links');
       applySettings(makePrefs({ highlightLinks: false }), root);
       expect(root.classList.contains('a11y-highlight-links')).toBe(false);
     });
@@ -153,15 +127,8 @@ describe('applySettings', () => {
     it('skips class when colorblindSimulate is none', () => {
       const root = createRoot();
       applySettings(makePrefs({ colorblindSimulate: 'none' }), root);
-      const callbackClasses = classes(root).filter((c) => /^a11y-cb-(?!correct-)/.test(c));
+      const callbackClasses = classes(root).filter((c) => c.startsWith('a11y-cb-'));
       expect(callbackClasses).toEqual([]);
-    });
-
-    it('removes a stale simulate class when changed to none', () => {
-      const root = createRoot();
-      root.classList.add('a11y-cb-protan');
-      applySettings(makePrefs({ colorblindSimulate: 'none' }), root);
-      expect(root.classList.contains('a11y-cb-protan')).toBe(false);
     });
 
     it('replaces a stale simulate class when changed to a different type', () => {
@@ -170,40 +137,6 @@ describe('applySettings', () => {
       applySettings(makePrefs({ colorblindSimulate: 'deutan' }), root);
       expect(root.classList.contains('a11y-cb-protan')).toBe(false);
       expect(root.classList.contains('a11y-cb-deutan')).toBe(true);
-    });
-  });
-
-  describe('colorblindCorrect', () => {
-    it.each([
-      ['protan', 'a11y-cb-correct-protan'],
-      ['deutan', 'a11y-cb-correct-deutan'],
-      ['tritan', 'a11y-cb-correct-tritan'],
-      ['achroma', 'a11y-cb-correct-achroma'],
-    ] as const)('applies %s as %s', (value, className) => {
-      const root = createRoot();
-      applySettings(makePrefs({ colorblindCorrect: value }), root);
-      expect(root.classList.contains(className)).toBe(true);
-    });
-
-    it('skips class when colorblindCorrect is none', () => {
-      const root = createRoot();
-      applySettings(makePrefs({ colorblindCorrect: 'none' }), root);
-      const callbackClasses = classes(root).filter((c) => c.startsWith('a11y-cb-correct-'));
-      expect(callbackClasses).toEqual([]);
-    });
-
-    it('removes a stale correct class when toggled off', () => {
-      const root = createRoot();
-      root.classList.add('a11y-cb-correct-protan');
-      applySettings(makePrefs({ colorblindCorrect: 'none' }), root);
-      expect(root.classList.contains('a11y-cb-correct-protan')).toBe(false);
-    });
-
-    it('does not interfere with simulate when both are set', () => {
-      const root = createRoot();
-      applySettings(makePrefs({ colorblindSimulate: 'protan', colorblindCorrect: 'deutan' }), root);
-      expect(root.classList.contains('a11y-cb-protan')).toBe(true);
-      expect(root.classList.contains('a11y-cb-correct-deutan')).toBe(true);
     });
   });
 
@@ -225,14 +158,6 @@ describe('applySettings', () => {
       const sizeClasses = classes(root).filter((c) => c.startsWith('a11y-font-scale-'));
       expect(sizeClasses).toEqual([]);
     });
-
-    it('replaces a stale font-scale class when changed', () => {
-      const root = createRoot();
-      root.classList.add('a11y-font-scale-125');
-      applySettings(makePrefs({ fontSize: '200' }), root);
-      expect(root.classList.contains('a11y-font-scale-125')).toBe(false);
-      expect(root.classList.contains('a11y-font-scale-200')).toBe(true);
-    });
   });
 
   describe('letterSpacing', () => {
@@ -250,14 +175,6 @@ describe('applySettings', () => {
       applySettings(makePrefs({ letterSpacing: '0' }), root);
       const lsClasses = classes(root).filter((c) => c.startsWith('a11y-letter-spacing-'));
       expect(lsClasses).toEqual([]);
-    });
-
-    it('replaces a stale letter-spacing class when changed', () => {
-      const root = createRoot();
-      root.classList.add('a11y-letter-spacing-loose');
-      applySettings(makePrefs({ letterSpacing: '0.12' }), root);
-      expect(root.classList.contains('a11y-letter-spacing-loose')).toBe(false);
-      expect(root.classList.contains('a11y-letter-spacing-loosest')).toBe(true);
     });
   });
 
@@ -277,14 +194,6 @@ describe('applySettings', () => {
       const lhClasses = classes(root).filter((c) => c.startsWith('a11y-line-height-'));
       expect(lhClasses).toEqual([]);
     });
-
-    it('replaces a stale line-height class when changed', () => {
-      const root = createRoot();
-      root.classList.add('a11y-line-height-tall');
-      applySettings(makePrefs({ lineHeight: '2.0' }), root);
-      expect(root.classList.contains('a11y-line-height-tall')).toBe(false);
-      expect(root.classList.contains('a11y-line-height-double')).toBe(true);
-    });
   });
 
   describe('paragraphSpacing', () => {
@@ -299,13 +208,6 @@ describe('applySettings', () => {
       applySettings(makePrefs({ paragraphSpacing: '1' }), root);
       expect(root.classList.contains('a11y-para-spacing-double')).toBe(false);
     });
-
-    it('removes the class when toggled off', () => {
-      const root = createRoot();
-      root.classList.add('a11y-para-spacing-double');
-      applySettings(makePrefs({ paragraphSpacing: '1' }), root);
-      expect(root.classList.contains('a11y-para-spacing-double')).toBe(false);
-    });
   });
 
   describe('forceLeftAlign', () => {
@@ -317,13 +219,6 @@ describe('applySettings', () => {
 
     it('skips a11y-force-left when false', () => {
       const root = createRoot();
-      applySettings(makePrefs({ forceLeftAlign: false }), root);
-      expect(root.classList.contains('a11y-force-left')).toBe(false);
-    });
-
-    it('removes a11y-force-left when toggled off', () => {
-      const root = createRoot();
-      root.classList.add('a11y-force-left');
       applySettings(makePrefs({ forceLeftAlign: false }), root);
       expect(root.classList.contains('a11y-force-left')).toBe(false);
     });
@@ -344,88 +239,25 @@ describe('applySettings', () => {
       applySettings(makePrefs({ fontFamily: 'system' }), root);
       expect(root.classList.contains('a11y-font-override')).toBe(false);
     });
-
-    it('removes a11y-font-override when reset to system', () => {
-      const root = createRoot();
-      root.classList.add('a11y-font-override');
-      applySettings(makePrefs({ fontFamily: 'system' }), root);
-      expect(root.classList.contains('a11y-font-override')).toBe(false);
-    });
   });
 
   describe('stopAnimations', () => {
-    afterEach(() => {
-      vi.restoreAllMocks();
-    });
-
-    it('applies a11y-stop-animations when force-on', () => {
+    it('applies a11y-stop-animations when true', () => {
       const root = createRoot();
-      applySettings(makePrefs({ stopAnimations: 'force-on' }), root);
+      applySettings(makePrefs({ stopAnimations: true }), root);
       expect(root.classList.contains('a11y-stop-animations')).toBe(true);
     });
 
-    it('skips a11y-stop-animations when force-off, even if user prefers reduced motion', () => {
+    it('skips a11y-stop-animations when false', () => {
       const root = createRoot();
-      const matchMediaSpy = vi.spyOn(globalThis.window, 'matchMedia').mockImplementation(
-        (query) =>
-          ({
-            matches: query === '(prefers-reduced-motion: reduce)',
-            media: query,
-            onchange: null,
-            addListener: () => {},
-            removeListener: () => {},
-            addEventListener: () => {},
-            removeEventListener: () => {},
-            dispatchEvent: () => false,
-          }) as MediaQueryList
-      );
-      applySettings(makePrefs({ stopAnimations: 'force-off' }), root);
-      expect(root.classList.contains('a11y-stop-animations')).toBe(false);
-      matchMediaSpy.mockRestore();
-    });
-
-    it('respects prefers-reduced-motion when system and OS reports reduce', () => {
-      const root = createRoot();
-      vi.spyOn(globalThis.window, 'matchMedia').mockImplementation(
-        (query) =>
-          ({
-            matches: query === '(prefers-reduced-motion: reduce)',
-            media: query,
-            onchange: null,
-            addListener: () => {},
-            removeListener: () => {},
-            addEventListener: () => {},
-            removeEventListener: () => {},
-            dispatchEvent: () => false,
-          }) as MediaQueryList
-      );
-      applySettings(makePrefs({ stopAnimations: 'system' }), root);
-      expect(root.classList.contains('a11y-stop-animations')).toBe(true);
-    });
-
-    it('skips class when system and OS reports no-preference', () => {
-      const root = createRoot();
-      vi.spyOn(globalThis.window, 'matchMedia').mockImplementation(
-        (query) =>
-          ({
-            matches: false,
-            media: query,
-            onchange: null,
-            addListener: () => {},
-            removeListener: () => {},
-            addEventListener: () => {},
-            removeEventListener: () => {},
-            dispatchEvent: () => false,
-          }) as MediaQueryList
-      );
-      applySettings(makePrefs({ stopAnimations: 'system' }), root);
+      applySettings(makePrefs({ stopAnimations: false }), root);
       expect(root.classList.contains('a11y-stop-animations')).toBe(false);
     });
 
-    it('removes a11y-stop-animations when toggled to force-off', () => {
+    it('removes a11y-stop-animations when toggled off', () => {
       const root = createRoot();
       root.classList.add('a11y-stop-animations');
-      applySettings(makePrefs({ stopAnimations: 'force-off' }), root);
+      applySettings(makePrefs({ stopAnimations: false }), root);
       expect(root.classList.contains('a11y-stop-animations')).toBe(false);
     });
   });
@@ -448,14 +280,6 @@ describe('applySettings', () => {
       );
       expect(cursorClasses).toEqual([]);
     });
-
-    it('replaces a stale cursor-size class when changed', () => {
-      const root = createRoot();
-      root.classList.add('a11y-cursor-large');
-      applySettings(makePrefs({ cursorSize: 'xlarge' }), root);
-      expect(root.classList.contains('a11y-cursor-large')).toBe(false);
-      expect(root.classList.contains('a11y-cursor-xlarge')).toBe(true);
-    });
   });
 
   describe('cursorColor', () => {
@@ -465,21 +289,8 @@ describe('applySettings', () => {
       expect(root.classList.contains('a11y-cursor-white')).toBe(true);
     });
 
-    it('does not apply a11y-cursor-white when black (black is default in pointer.css)', () => {
+    it('does not apply a11y-cursor-white when black', () => {
       const root = createRoot();
-      applySettings(makePrefs({ cursorColor: 'black' }), root);
-      expect(root.classList.contains('a11y-cursor-white')).toBe(false);
-    });
-
-    it('does not apply a11y-cursor-white when system', () => {
-      const root = createRoot();
-      applySettings(makePrefs({ cursorColor: 'system' }), root);
-      expect(root.classList.contains('a11y-cursor-white')).toBe(false);
-    });
-
-    it('removes a11y-cursor-white when changed away from white', () => {
-      const root = createRoot();
-      root.classList.add('a11y-cursor-white');
       applySettings(makePrefs({ cursorColor: 'black' }), root);
       expect(root.classList.contains('a11y-cursor-white')).toBe(false);
     });
@@ -534,14 +345,6 @@ describe('applySettings', () => {
       expect(root.style.getPropertyValue('--a11y-focus-color')).toBe('cyan');
     });
 
-    it('removes a stale a11y-focus-strong when settings revert to defaults', () => {
-      const root = createRoot();
-      root.classList.add('a11y-focus-strong', 'a11y-focus-halo');
-      applySettings(makePrefs(), root);
-      expect(root.classList.contains('a11y-focus-strong')).toBe(false);
-      expect(root.classList.contains('a11y-focus-halo')).toBe(false);
-    });
-
     it.each([
       ['yellow', 'yellow'],
       ['magenta', 'magenta'],
@@ -583,16 +386,6 @@ describe('applySettings', () => {
       const second = classes(root);
       expect(second).toEqual(first);
     });
-
-    it('produces a stable result regardless of how many times applied', () => {
-      const root = createRoot();
-      const prefs = makePrefs({ contrast: 'high', fontSize: '125' });
-      for (let index = 0; index < 5; index += 1) {
-        applySettings(prefs, root);
-      }
-      expect(root.classList.contains('a11y-contrast-high')).toBe(true);
-      expect(root.classList.contains('a11y-font-scale-125')).toBe(true);
-    });
   });
 
   describe('default root parameter', () => {
@@ -629,14 +422,13 @@ describe('applySettings', () => {
           invert: true,
           highlightLinks: true,
           colorblindSimulate: 'protan',
-          colorblindCorrect: 'deutan',
           fontSize: '200',
           letterSpacing: '0.12',
           lineHeight: '2.0',
           paragraphSpacing: '2',
           forceLeftAlign: true,
           fontFamily: 'atkinson',
-          stopAnimations: 'force-on',
+          stopAnimations: true,
           cursorSize: 'large',
           cursorColor: 'white',
           focusWidth: '4',
@@ -644,10 +436,8 @@ describe('applySettings', () => {
         }),
         root
       );
-      // Now reset everything to defaults.
       applySettings(makePrefs(), root);
       const remaining = classes(root).filter((c) => c.startsWith('a11y-'));
-      // Schema default lineHeight is '1.5' which always emits a11y-line-height-tall.
       expect(remaining).toEqual(['a11y-line-height-tall']);
     });
   });

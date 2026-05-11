@@ -163,17 +163,6 @@ describe('A11Y_INIT_SCRIPT', () => {
       runInitScript();
       expect(document.documentElement.classList.contains(className)).toBe(true);
     });
-
-    it.each([
-      ['protan', 'a11y-cb-correct-protan'],
-      ['deutan', 'a11y-cb-correct-deutan'],
-      ['tritan', 'a11y-cb-correct-tritan'],
-      ['achroma', 'a11y-cb-correct-achroma'],
-    ] as const)('colorblindCorrect %s applies %s', (value, className) => {
-      setStoredPrefs({ colorblindCorrect: value });
-      runInitScript();
-      expect(document.documentElement.classList.contains(className)).toBe(true);
-    });
   });
 
   describe('class application — typography (non-font)', () => {
@@ -286,46 +275,15 @@ describe('A11Y_INIT_SCRIPT', () => {
     });
   });
 
-  describe('class application — motion (tri-state)', () => {
-    function mockReducedMotion(prefersReduce: boolean): void {
-      vi.spyOn(globalThis.window, 'matchMedia').mockImplementation(
-        (query) =>
-          ({
-            matches: query === '(prefers-reduced-motion: reduce)' && prefersReduce,
-            media: query,
-            onchange: null,
-            addListener: () => {},
-            removeListener: () => {},
-            addEventListener: () => {},
-            removeEventListener: () => {},
-            dispatchEvent: () => false,
-          }) as MediaQueryList
-      );
-    }
-
-    it('force-on applies a11y-stop-animations', () => {
-      setStoredPrefs({ stopAnimations: 'force-on' });
+  describe('class application — motion (boolean)', () => {
+    it('true applies a11y-stop-animations', () => {
+      setStoredPrefs({ stopAnimations: true });
       runInitScript();
       expect(document.documentElement.classList.contains('a11y-stop-animations')).toBe(true);
     });
 
-    it('force-off skips a11y-stop-animations even when OS prefers reduce', () => {
-      mockReducedMotion(true);
-      setStoredPrefs({ stopAnimations: 'force-off' });
-      runInitScript();
-      expect(document.documentElement.classList.contains('a11y-stop-animations')).toBe(false);
-    });
-
-    it('system applies a11y-stop-animations when OS prefers reduce', () => {
-      mockReducedMotion(true);
-      setStoredPrefs({ stopAnimations: 'system' });
-      runInitScript();
-      expect(document.documentElement.classList.contains('a11y-stop-animations')).toBe(true);
-    });
-
-    it('system skips a11y-stop-animations when OS reports no preference', () => {
-      mockReducedMotion(false);
-      setStoredPrefs({ stopAnimations: 'system' });
+    it('false skips a11y-stop-animations', () => {
+      setStoredPrefs({ stopAnimations: false });
       runInitScript();
       expect(document.documentElement.classList.contains('a11y-stop-animations')).toBe(false);
     });
@@ -407,14 +365,13 @@ describe('A11Y_INIT_SCRIPT', () => {
         invert: true,
         highlightLinks: true,
         colorblindSimulate: 'protan',
-        colorblindCorrect: 'deutan',
         fontSize: '150',
         letterSpacing: '0.12',
         lineHeight: '2.0',
         paragraphSpacing: '2',
         forceLeftAlign: true,
         fontFamily: 'lexend',
-        stopAnimations: 'force-on',
+        stopAnimations: true,
         cursorSize: 'xlarge',
         cursorColor: 'white',
         focusWidth: '6',
@@ -423,7 +380,6 @@ describe('A11Y_INIT_SCRIPT', () => {
       });
       runInitScript();
       const expected = [
-        'a11y-cb-correct-deutan',
         'a11y-cb-protan',
         'a11y-contrast-high',
         'a11y-cursor-white',

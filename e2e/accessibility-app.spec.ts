@@ -1,9 +1,6 @@
 import { test, expect } from './fixtures.js';
 import { expectNoA11yViolations } from './helpers/axe.js';
-import {
-  expectAllTogglesPersisted,
-  walkAccessibilityToggles,
-} from './helpers/accessibility.js';
+import { expectAllTogglesPersisted, walkAccessibilityToggles } from './helpers/accessibility.js';
 
 /**
  * Authenticated in-app accessibility page walkthrough.

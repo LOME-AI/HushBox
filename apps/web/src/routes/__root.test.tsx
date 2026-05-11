@@ -40,8 +40,22 @@ vi.mock('@/components/shared/offline-overlay', () => ({
   OfflineOverlay: () => <div data-testid="offline-overlay" />,
 }));
 
-vi.mock('@hushbox/shared', () => ({
-  ROUTES: { CHAT: '/chat' },
+vi.mock('@hushbox/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/shared')>();
+  return { ...actual, ROUTES: { CHAT: '/chat' } };
+});
+
+vi.mock('@hushbox/ui/accessibility', () => ({
+  A11yProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  MotionProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  AccessibilityWidget: () => null,
+  AccessibilityPanel: () => null,
+  AccessibilityPage: () => null,
+  SvgColorblindDefs: () => null,
+}));
+
+vi.mock('@/lib/tts-dom-observer', () => ({
+  installTtsDomObserver: () => () => {},
 }));
 
 vi.mock('@/components/shared/settled-indicator', () => ({

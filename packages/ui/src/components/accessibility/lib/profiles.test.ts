@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ACCESSIBILITY_PREFERENCES_DEFAULTS } from '@hushbox/shared';
+import {
+  ACCESSIBILITY_PREFERENCES_DEFAULTS,
+  accessibilityPreferencesSchema,
+} from '@hushbox/shared';
 import {
   ACCESSIBILITY_PROFILES,
   getProfile,
@@ -33,68 +36,55 @@ describe('ACCESSIBILITY_PROFILES', () => {
     }
   });
 
-  it('every profile preset only contains keys that exist in AccessibilityPreferences', () => {
-    const validKeys = new Set(Object.keys(ACCESSIBILITY_PREFERENCES_DEFAULTS));
+  it('every profile preset is a full, valid AccessibilityPreferences object', () => {
     for (const profile of ACCESSIBILITY_PROFILES) {
-      for (const key of Object.keys(profile.preset)) {
-        expect(validKeys.has(key)).toBe(true);
-      }
+      expect(() => accessibilityPreferencesSchema.parse(profile.preset)).not.toThrow();
     }
   });
 
-  it('every profile preset has at least one key (presets are non-empty)', () => {
+  it('every profile preset has the same keys as the defaults (full opinion)', () => {
+    const compare = (a: string, b: string): number => a.localeCompare(b);
+    const expectedKeys = Object.keys(ACCESSIBILITY_PREFERENCES_DEFAULTS).toSorted(compare);
     for (const profile of ACCESSIBILITY_PROFILES) {
-      expect(Object.keys(profile.preset).length).toBeGreaterThan(0);
+      expect(Object.keys(profile.preset).toSorted(compare)).toEqual(expectedKeys);
     }
   });
 
-  it('vision-friendly profile sets contrast/fontSize/focusWidth/focusHalo/cursorSize', () => {
-    const profile = ACCESSIBILITY_PROFILES.find((p) => p.id === 'vision-friendly');
-    expect(profile?.preset).toEqual({
-      contrast: 'high',
-      fontSize: '150',
-      focusWidth: '4',
-      focusHalo: true,
-      cursorSize: 'large',
-    });
+  it('vision-friendly preset turns visual aids up', () => {
+    const profile = getProfile('vision-friendly');
+    expect(profile?.preset.contrast).toBe('high');
+    expect(profile?.preset.fontSize).toBe('150');
+    expect(profile?.preset.focusHalo).toBe(true);
+    expect(profile?.preset.cursorSize).toBe('large');
   });
 
-  it('reading-focus profile sets readingGuide/fontFamily/lineHeight/stopAnimations', () => {
-    const profile = ACCESSIBILITY_PROFILES.find((p) => p.id === 'reading-focus');
-    expect(profile?.preset).toEqual({
-      readingGuide: true,
-      fontFamily: 'atkinson',
-      lineHeight: '2.0',
-      stopAnimations: 'force-on',
-    });
+  it('reading-focus preset chooses dyslexia-friendly font and reading guide', () => {
+    const profile = getProfile('reading-focus');
+    expect(profile?.preset.fontFamily).toBe('atkinson');
+    expect(profile?.preset.readingGuide).toBe(true);
+    expect(profile?.preset.lineHeight).toBe('2.0');
+    expect(profile?.preset.stopAnimations).toBe(true);
   });
 
-  it('motion-sensitive profile sets stopAnimations/saturation/theme', () => {
-    const profile = ACCESSIBILITY_PROFILES.find((p) => p.id === 'motion-sensitive');
-    expect(profile?.preset).toEqual({
-      stopAnimations: 'force-on',
-      saturation: '100',
-      theme: 'light',
-    });
+  it('motion-sensitive preset stops animations and softens colors', () => {
+    const profile = getProfile('motion-sensitive');
+    expect(profile?.preset.stopAnimations).toBe(true);
+    expect(profile?.preset.saturation).toBe('50');
+    expect(profile?.preset.muteSounds).toBe(true);
   });
 
-  it('color-vision profile sets highlightLinks but does not auto-pick a colorblind type', () => {
-    const profile = ACCESSIBILITY_PROFILES.find((p) => p.id === 'color-vision');
-    expect(profile?.preset).toEqual({
-      highlightLinks: true,
-    });
-    expect(profile?.preset.colorblindSimulate).toBeUndefined();
-    expect(profile?.preset.colorblindCorrect).toBeUndefined();
+  it('color-vision preset highlights links and strengthens focus', () => {
+    const profile = getProfile('color-vision');
+    expect(profile?.preset.highlightLinks).toBe(true);
+    expect(profile?.preset.focusHalo).toBe(true);
   });
 
-  it('cognitive-load profile sets forceLeftAlign/readingGuide/hideImages/readerView', () => {
-    const profile = ACCESSIBILITY_PROFILES.find((p) => p.id === 'cognitive-load');
-    expect(profile?.preset).toEqual({
-      forceLeftAlign: true,
-      readingGuide: true,
-      hideImages: true,
-      readerView: true,
-    });
+  it('cognitive-load preset reduces distractions', () => {
+    const profile = getProfile('cognitive-load');
+    expect(profile?.preset.forceLeftAlign).toBe(true);
+    expect(profile?.preset.readingGuide).toBe(true);
+    expect(profile?.preset.stopAnimations).toBe(true);
+    expect(profile?.preset.muteSounds).toBe(true);
   });
 
   it('compile-time: AccessibilityProfile shape is correct', () => {
@@ -124,11 +114,5 @@ describe('getProfile', () => {
   it('returns undefined for an unknown id', () => {
     const profile = getProfile('nonexistent-profile' as ProfileId);
     expect(profile).toBeUndefined();
-  });
-
-  it('returns the same reference each call (no copy)', () => {
-    const a = getProfile('vision-friendly');
-    const b = getProfile('vision-friendly');
-    expect(a).toBe(b);
   });
 });

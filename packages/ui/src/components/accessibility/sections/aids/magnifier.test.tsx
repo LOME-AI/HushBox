@@ -117,6 +117,19 @@ describe('Magnifier', () => {
     expect(inner?.style.transformOrigin).toBe('250px 175px');
   });
 
+  it('offsets the inner clone so screen coordinates map to clone coordinates', () => {
+    const { container } = render(<Magnifier enabled size={200} />);
+
+    fireEvent.mouseMove(win, { clientX: 500, clientY: 400 });
+
+    const inner = container.querySelector<HTMLElement>('[data-a11y-magnifier-content]');
+    // Lens top-left = (500 - 100, 400 - 100) = (400, 300). For the clone's local
+    // (cursor.x, cursor.y) point to correspond to the screen cursor position, the
+    // clone must be shifted by -lensLeft / -lensTop relative to the lens.
+    expect(inner?.style.top).toBe('-300px');
+    expect(inner?.style.left).toBe('-400px');
+  });
+
   it('observes document.body when mounted', () => {
     render(<Magnifier enabled />);
     expect(lastObserver?.observe).toHaveBeenCalled();

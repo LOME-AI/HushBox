@@ -241,7 +241,7 @@ describe('KokoroTtsService', () => {
     expect(fromPretrainedMock).toHaveBeenCalledTimes(1);
     const [modelId, options] = fromPretrainedMock.mock.calls[0]!;
     expect(modelId).toBe('onnx-community/Kokoro-82M-v1.0-ONNX');
-    expect(options.dtype).toBe('q8f16');
+    expect(options.dtype).toBe('q8');
     expect(['wasm', 'webgpu']).toContain(options.device);
     expect(service.isLoaded()).toBe(true);
   });

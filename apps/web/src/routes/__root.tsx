@@ -9,7 +9,7 @@ import { UpgradeRequiredModal } from '@/components/shared/upgrade-required-modal
 import { OfflineOverlay } from '@/components/shared/offline-overlay';
 import { ROUTES } from '@hushbox/shared';
 import { Toaster, TouchDeviceOverrideContext } from '@hushbox/ui';
-import { MotionProvider } from '@hushbox/ui/accessibility';
+import { A11yProvider, MotionProvider } from '@hushbox/ui/accessibility';
 import { SettledIndicator } from '@/components/shared/settled-indicator';
 import { useTouchOverrideStore } from '@/stores/touch-override';
 import { installTtsDomObserver } from '@/lib/tts-dom-observer';
@@ -45,7 +45,9 @@ function RootComponent(): React.JSX.Element {
         <ThemeProvider>
           <QueryProvider>
             <StabilityProvider>
-              <AppShell />
+              <A11yProvider>
+                <AppShell />
+              </A11yProvider>
             </StabilityProvider>
           </QueryProvider>
         </ThemeProvider>

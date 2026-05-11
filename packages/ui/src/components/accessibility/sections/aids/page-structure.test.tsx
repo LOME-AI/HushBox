@@ -93,8 +93,29 @@ describe('PageStructure', () => {
   it('renders a navigation landmark with the expected aria-label when enabled', () => {
     document.body.innerHTML = '<h1>Hello</h1>';
     render(<PageStructure enabled />);
-    const nav = screen.getByRole('navigation', { name: 'Page structure' });
+    const nav = screen.getByRole('navigation', { name: 'Page outline' });
     expect(nav.tagName).toBe('NAV');
+  });
+
+  it('uses a short friendly label for landmarks instead of the full textContent', () => {
+    document.body.innerHTML = `
+      <main>
+        <p>A really long paragraph that should never become the label for the main landmark because that would render an entire page of raw text inside the outline.</p>
+      </main>
+    `;
+    render(<PageStructure enabled />);
+    const button = screen.getByRole('button', { name: 'Main content' });
+    expect(button).toBeInTheDocument();
+    expect(button.textContent).toBe('Main content');
+  });
+
+  it('truncates long heading labels to keep the outline readable', () => {
+    const longText = 'A'.repeat(200);
+    document.body.innerHTML = `<h1>${longText}</h1>`;
+    render(<PageStructure enabled />);
+    const button = screen.getByRole('button');
+    expect(button.textContent.length).toBeLessThanOrEqual(70);
+    expect(button.textContent.endsWith('…')).toBe(true);
   });
 
   it('lists every heading found in the document', () => {
@@ -320,27 +341,27 @@ describe('PageStructure', () => {
   it('forwards className to the nav element', () => {
     document.body.innerHTML = '<h1>Heading</h1>';
     render(<PageStructure enabled className="custom-class" />);
-    const nav = screen.getByRole('navigation', { name: 'Page structure' });
+    const nav = screen.getByRole('navigation', { name: 'Page outline' });
     expect(nav).toHaveClass('custom-class');
   });
 
   it('renders items inside an unordered list', () => {
     document.body.innerHTML = '<h1>Heading</h1>';
     render(<PageStructure enabled />);
-    const nav = screen.getByRole('navigation', { name: 'Page structure' });
+    const nav = screen.getByRole('navigation', { name: 'Page outline' });
     const list = nav.querySelector('ul');
     expect(list).not.toBeNull();
     const items = list?.querySelectorAll('li');
     expect(items?.length).toBeGreaterThan(0);
   });
 
-  it('falls back to the tag name as label when an unlabelled main lacks text content', () => {
+  it('falls back to the friendly landmark name when an unlabelled main lacks text content', () => {
     document.body.innerHTML = '<main></main>';
     render(<PageStructure enabled />);
-    const nav = screen.getByRole('navigation', { name: 'Page structure' });
+    const nav = screen.getByRole('navigation', { name: 'Page outline' });
     const items = nav.querySelectorAll('button');
     expect(items.length).toBe(1);
-    expect(items[0]?.textContent).toBe('main');
+    expect(items[0]?.textContent).toBe('Main content');
   });
 
   it('does not list a region without an aria-label', () => {
@@ -349,18 +370,19 @@ describe('PageStructure', () => {
       <div role="region"></div>
     `;
     render(<PageStructure enabled />);
-    const nav = screen.getByRole('navigation', { name: 'Page structure' });
+    const nav = screen.getByRole('navigation', { name: 'Page outline' });
     const items = nav.querySelectorAll('button');
     // Only the heading should be listed; the unlabelled region is excluded by the selector.
     expect(items.length).toBe(1);
     expect(items[0]?.textContent).toBe('Heading');
   });
 
-  it('returns an empty list inside the nav when no qualifying elements exist', () => {
+  it('shows an empty-state message when no qualifying elements exist', () => {
     document.body.innerHTML = '<p>No structure here</p>';
     render(<PageStructure enabled />);
-    const nav = screen.getByRole('navigation', { name: 'Page structure' });
+    const nav = screen.getByRole('navigation', { name: 'Page outline' });
     const items = nav.querySelectorAll('button');
     expect(items.length).toBe(0);
+    expect(nav.textContent).toContain('No headings or landmarks found');
   });
 });

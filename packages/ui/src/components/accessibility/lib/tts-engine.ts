@@ -42,7 +42,10 @@ export interface TtsService {
 }
 
 const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
-const MODEL_DTYPE = 'q8f16';
+// q8 is universally supported by onnxruntime-web. `q8f16` (mixed precision 8-bit
+// weights + fp16 activations) was removed from the supported dtype list, which
+// caused "Invalid dtype" errors at load time.
+const MODEL_DTYPE = 'q8';
 
 interface WindowWithCapacitor extends Window {
   Capacitor?: { isNativePlatform?: () => boolean };

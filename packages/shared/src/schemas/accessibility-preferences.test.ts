@@ -13,13 +13,11 @@ describe('ACCESSIBILITY_PREFERENCES_DEFAULTS', () => {
 
   it('has the correct default values for all visual fields', () => {
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.version).toBe(1);
-    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.theme).toBe('system');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.contrast).toBe('normal');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.saturation).toBe('100');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.invert).toBe(false);
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.highlightLinks).toBe(false);
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.colorblindSimulate).toBe('none');
-    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.colorblindCorrect).toBe('none');
   });
 
   it('has the correct default values for all typography fields', () => {
@@ -34,9 +32,7 @@ describe('ACCESSIBILITY_PREFERENCES_DEFAULTS', () => {
   it('has the correct default values for all reading aids fields', () => {
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.magnifier).toBe(false);
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.readingGuide).toBe(false);
-    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.readerView).toBe(false);
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.pageStructure).toBe(false);
-    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.hideImages).toBe(false);
   });
 
   it('has the correct default values for all audio fields', () => {
@@ -46,13 +42,13 @@ describe('ACCESSIBILITY_PREFERENCES_DEFAULTS', () => {
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.muteSounds).toBe(false);
   });
 
-  it('has the correct default values for motion fields', () => {
-    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.stopAnimations).toBe('system');
+  it('has the correct default value for motion field', () => {
+    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.stopAnimations).toBe(false);
   });
 
   it('has the correct default values for pointer & focus fields', () => {
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.cursorSize).toBe('normal');
-    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.cursorColor).toBe('system');
+    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.cursorColor).toBe('black');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.focusWidth).toBe('2');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.focusColor).toBe('yellow');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.focusHalo).toBe(false);
@@ -61,13 +57,11 @@ describe('ACCESSIBILITY_PREFERENCES_DEFAULTS', () => {
   it('contains every expected key', () => {
     const expectedKeys = [
       'version',
-      'theme',
       'contrast',
       'saturation',
       'invert',
       'highlightLinks',
       'colorblindSimulate',
-      'colorblindCorrect',
       'fontSize',
       'letterSpacing',
       'lineHeight',
@@ -76,9 +70,7 @@ describe('ACCESSIBILITY_PREFERENCES_DEFAULTS', () => {
       'fontFamily',
       'magnifier',
       'readingGuide',
-      'readerView',
       'pageStructure',
-      'hideImages',
       'ttsEnabled',
       'ttsVoice',
       'streamChatAloud',
@@ -123,13 +115,11 @@ describe('accessibilityPreferencesSchema — full object', () => {
   it('accepts a fully-specified valid object', () => {
     const fullObject: AccessibilityPreferences = {
       version: 1,
-      theme: 'dark',
       contrast: 'high',
       saturation: '150',
       invert: true,
       highlightLinks: true,
       colorblindSimulate: 'protan',
-      colorblindCorrect: 'deutan',
       fontSize: '200',
       letterSpacing: '0.12',
       lineHeight: '2.0',
@@ -138,14 +128,12 @@ describe('accessibilityPreferencesSchema — full object', () => {
       fontFamily: 'open-dyslexic',
       magnifier: true,
       readingGuide: true,
-      readerView: true,
       pageStructure: true,
-      hideImages: true,
       ttsEnabled: true,
       ttsVoice: 'bm_george',
       streamChatAloud: true,
       muteSounds: true,
-      stopAnimations: 'force-on',
+      stopAnimations: true,
       cursorSize: 'xlarge',
       cursorColor: 'white',
       focusWidth: '6',
@@ -165,14 +153,11 @@ describe('accessibilityPreferencesSchema — full object', () => {
   it('preserves explicitly-set values that differ from defaults', () => {
     const parsed = accessibilityPreferencesSchema.parse({
       version: 1,
-      theme: 'dark',
       fontSize: '175',
       ttsEnabled: true,
     });
-    expect(parsed.theme).toBe('dark');
     expect(parsed.fontSize).toBe('175');
     expect(parsed.ttsEnabled).toBe(true);
-    // Other fields fall back to defaults
     expect(parsed.contrast).toBe('normal');
     expect(parsed.invert).toBe(false);
     expect(parsed.fontFamily).toBe('system');
@@ -180,11 +165,6 @@ describe('accessibilityPreferencesSchema — full object', () => {
 });
 
 describe('accessibilityPreferencesSchema — enum field rejections', () => {
-  // Visual enums
-  it('rejects invalid theme value', () => {
-    expect(() => accessibilityPreferencesSchema.parse({ version: 1, theme: 'midnight' })).toThrow();
-  });
-
   it('rejects invalid contrast value', () => {
     expect(() =>
       accessibilityPreferencesSchema.parse({ version: 1, contrast: 'medium' })
@@ -201,13 +181,6 @@ describe('accessibilityPreferencesSchema — enum field rejections', () => {
     ).toThrow();
   });
 
-  it('rejects invalid colorblindCorrect value (achromatomaly is simulate-only)', () => {
-    expect(() =>
-      accessibilityPreferencesSchema.parse({ version: 1, colorblindCorrect: 'achromatomaly' })
-    ).toThrow();
-  });
-
-  // Typography enums
   it('rejects invalid fontSize value', () => {
     expect(() => accessibilityPreferencesSchema.parse({ version: 1, fontSize: '300' })).toThrow();
   });
@@ -234,30 +207,27 @@ describe('accessibilityPreferencesSchema — enum field rejections', () => {
     ).toThrow();
   });
 
-  // Audio enum
   it('rejects invalid ttsVoice value', () => {
     expect(() =>
       accessibilityPreferencesSchema.parse({ version: 1, ttsVoice: 'cf_unknown' })
     ).toThrow();
   });
 
-  // Motion enum
-  it('rejects invalid stopAnimations value', () => {
+  it('rejects non-boolean stopAnimations value', () => {
     expect(() =>
-      accessibilityPreferencesSchema.parse({ version: 1, stopAnimations: 'maybe' })
+      accessibilityPreferencesSchema.parse({ version: 1, stopAnimations: 'force-on' })
     ).toThrow();
   });
 
-  // Pointer & focus enums
   it('rejects invalid cursorSize value', () => {
     expect(() =>
       accessibilityPreferencesSchema.parse({ version: 1, cursorSize: 'huge' })
     ).toThrow();
   });
 
-  it('rejects invalid cursorColor value', () => {
+  it('rejects invalid cursorColor value (system removed)', () => {
     expect(() =>
-      accessibilityPreferencesSchema.parse({ version: 1, cursorColor: 'red' })
+      accessibilityPreferencesSchema.parse({ version: 1, cursorColor: 'system' })
     ).toThrow();
   });
 
@@ -279,12 +249,11 @@ describe('accessibilityPreferencesSchema — boolean field validation', () => {
     'forceLeftAlign',
     'magnifier',
     'readingGuide',
-    'readerView',
     'pageStructure',
-    'hideImages',
     'ttsEnabled',
     'streamChatAloud',
     'muteSounds',
+    'stopAnimations',
     'focusHalo',
   ] as const;
 

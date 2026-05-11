@@ -54,16 +54,6 @@ describe('accessibility styles bundle', () => {
     expect(contents).toMatch(/html\.a11y-contrast-high\s*{[^}]*--muted-foreground:\s*#1a1a1a/);
   });
 
-  it('contrast.css declares chat reader-mode rules that hide chrome and narrow main', () => {
-    const contents = readFileSync(path.join(stylesDir, 'contrast.css'), 'utf8');
-    expect(contents).toMatch(
-      /html\[data-reader-mode\]\s+\[data-chrome\]\s*{\s*display:\s*none\s*!important/
-    );
-    expect(contents).toMatch(
-      /html\[data-reader-mode\]\s+main\s*{[^}]*max-width:\s*65ch[^}]*margin-inline:\s*auto/
-    );
-  });
-
   it('contrast.css applies saturation/invert to body, never html (avoids stacking-context bug)', () => {
     const contents = readFileSync(path.join(stylesDir, 'contrast.css'), 'utf8');
     expect(contents).toMatch(/html\.a11y-saturate-0 body\s*{\s*filter:\s*saturate\(0\)/);

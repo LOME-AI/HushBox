@@ -1,0 +1,61 @@
+import * as React from 'react';
+
+import { activateFont } from './lib/font-loader';
+import { applySettings } from './lib/apply-settings';
+import { installMediaPauser } from './lib/media-pauser';
+import { installMutePauser } from './lib/mute';
+import { SvgColorblindDefs } from './lib/svg-colorblind-defs';
+import { Magnifier } from './sections/aids/magnifier';
+import { PageStructure } from './sections/aids/page-structure';
+import { ReadingGuide } from './sections/aids/reading-guide';
+import { useA11yStore } from './store';
+
+interface A11yProviderProps {
+  readonly children?: React.ReactNode;
+}
+
+/**
+ * Mount once near the root of the app (or marketing site). Subscribes to the
+ * accessibility store and:
+ *  - mirrors every setting change to `<html>` via {@link applySettings}
+ *  - installs the global side-effect hooks (media-pauser, mute-pauser)
+ *  - mounts the visual aids (magnifier, reading guide, page outline) so they
+ *    track the cursor over the whole page — not just the panel
+ *  - lazy-loads the chosen custom font when the user picks one
+ *  - injects the SVG `<defs>` used by the colorblind-filter CSS
+ */
+export function A11yProvider({ children }: Readonly<A11yProviderProps>): React.JSX.Element {
+  const prefs = useA11yStore();
+
+  React.useEffect(() => {
+    applySettings(prefs);
+  }, [prefs]);
+
+  React.useEffect(() => {
+    if (prefs.fontFamily === 'system') {
+      void activateFont('system');
+    } else {
+      void activateFont(prefs.fontFamily);
+    }
+  }, [prefs.fontFamily]);
+
+  React.useEffect(() => {
+    if (!prefs.stopAnimations) return;
+    return installMediaPauser();
+  }, [prefs.stopAnimations]);
+
+  React.useEffect(() => {
+    if (!prefs.muteSounds) return;
+    return installMutePauser();
+  }, [prefs.muteSounds]);
+
+  return (
+    <>
+      <SvgColorblindDefs />
+      {prefs.magnifier && <Magnifier enabled />}
+      {prefs.readingGuide && <ReadingGuide enabled />}
+      {prefs.pageStructure && <PageStructure enabled />}
+      {children}
+    </>
+  );
+}

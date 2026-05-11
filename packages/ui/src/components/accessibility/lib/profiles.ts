@@ -1,3 +1,4 @@
+import { ACCESSIBILITY_PREFERENCES_DEFAULTS } from '@hushbox/shared';
 import type { AccessibilityPreferences } from '../store/schema';
 
 export type ProfileId =
@@ -10,66 +11,85 @@ export type ProfileId =
 export interface AccessibilityProfile {
   id: ProfileId;
   label: string;
-  description: string; // short, what kind of friction it helps with
-  preset: Partial<AccessibilityPreferences>;
+  description: string;
+  /** Full snapshot — every setting has an opinion. Applying replaces all current settings. */
+  preset: AccessibilityPreferences;
 }
 
-/**
- * One-click preset bundles. Labeled by *kind of friction*, not by claiming to "fix" the user.
- * Applying a profile MERGES its preset into the current settings (does NOT reset other settings).
- */
+const BASE = ACCESSIBILITY_PREFERENCES_DEFAULTS;
+
 export const ACCESSIBILITY_PROFILES: readonly AccessibilityProfile[] = [
   {
     id: 'vision-friendly',
-    label: 'Vision-friendly starter',
-    description: 'High contrast, larger text, strong focus rings, large cursor.',
+    label: 'Easier to see',
+    description: 'Higher contrast, bigger text, stronger focus rings, larger pointer.',
     preset: {
+      ...BASE,
       contrast: 'high',
+      saturation: '100',
       fontSize: '150',
+      letterSpacing: '0.05',
+      lineHeight: '1.5',
+      paragraphSpacing: '2',
       focusWidth: '4',
+      focusColor: 'yellow',
       focusHalo: true,
       cursorSize: 'large',
+      cursorColor: 'black',
     },
   },
   {
     id: 'reading-focus',
-    label: 'Reading focus starter',
-    description: 'Reading guide, dyslexia-friendly font, looser line spacing, no animations.',
+    label: 'Easier to read',
+    description: 'Reading band, dyslexia-friendly font, looser spacing, left-aligned text.',
     preset: {
-      readingGuide: true,
+      ...BASE,
+      contrast: 'normal',
       fontFamily: 'atkinson',
+      fontSize: '125',
+      letterSpacing: '0.05',
       lineHeight: '2.0',
-      stopAnimations: 'force-on',
+      paragraphSpacing: '2',
+      forceLeftAlign: true,
+      readingGuide: true,
+      stopAnimations: true,
     },
   },
   {
     id: 'motion-sensitive',
-    label: 'Motion-sensitive starter',
-    description: 'No animations, reduced saturation, light theme.',
+    label: 'Calmer movement',
+    description: 'Animations off, softer colors, autoplay paused.',
     preset: {
-      stopAnimations: 'force-on',
-      saturation: '100',
-      theme: 'light',
+      ...BASE,
+      stopAnimations: true,
+      saturation: '50',
+      muteSounds: true,
     },
   },
   {
     id: 'color-vision',
-    label: 'Color vision starter',
-    description: 'Highlights links by underline + outline. Pick a color-vision filter below.',
+    label: 'Color help',
+    description: 'Highlighted links and stronger focus colors that do not rely on hue alone.',
     preset: {
+      ...BASE,
       highlightLinks: true,
-      // Note: doesn't auto-pick a colorblind type — user chooses
+      focusWidth: '4',
+      focusColor: 'magenta',
+      focusHalo: true,
     },
   },
   {
     id: 'cognitive-load',
-    label: 'Cognitive-load starter',
-    description: 'Force left-align, reading guide, hide images, reader mode.',
+    label: 'Less distraction',
+    description: 'Left-aligned text, reading band, sound muted, animations off.',
     preset: {
+      ...BASE,
       forceLeftAlign: true,
       readingGuide: true,
-      hideImages: true,
-      readerView: true,
+      stopAnimations: true,
+      muteSounds: true,
+      lineHeight: '2.0',
+      paragraphSpacing: '2',
     },
   },
 ];

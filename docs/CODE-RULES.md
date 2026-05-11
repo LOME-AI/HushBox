@@ -144,7 +144,7 @@ JS animation libraries (`gsap`, `anime`, `motion-one`) are also banned via `no-r
 
 Semantic tags imply roles, support keyboard interactions natively, and integrate with the page-structure landmarks navigator without configuration.
 
-Tag chrome wrappers (sidebar, header, footer, panels surrounding main content) with `data-chrome=""` so reader-view mode can hide them.
+Tag chrome wrappers (sidebar, header, footer, panels surrounding main content) with `data-chrome=""` for future opt-out behaviors (e.g. focus-mode toggles).
 
 ---
 

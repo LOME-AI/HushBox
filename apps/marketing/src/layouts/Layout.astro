@@ -2,7 +2,7 @@
 import ThemeScript from '../components/ThemeScript.astro';
 import BaseBody from '../components/BaseBody.astro';
 import faviconUrl from '@hushbox/ui/assets/favicon.ico';
-import { AccessibilityWidget } from '@hushbox/ui/accessibility';
+import { A11yProvider, AccessibilityWidget } from '@hushbox/ui/accessibility';
 import { A11Y_INIT_SCRIPT } from '@hushbox/ui/accessibility/init-script';
 import '../styles/global.css';
 
@@ -30,6 +30,7 @@ const { title, description } = Astro.props;
   </head>
   <BaseBody>
     <slot />
-    <AccessibilityWidget client:idle />
+    <A11yProvider client:load />
+    <AccessibilityWidget client:load />
   </BaseBody>
 </html>

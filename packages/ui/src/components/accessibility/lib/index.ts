@@ -3,7 +3,6 @@ export { SvgColorblindDefs } from './svg-colorblind-defs';
 export { applySettings } from './apply-settings';
 export { A11Y_INIT_SCRIPT } from './init-script';
 export { activateFont, _resetFontLoaderForTesting } from './font-loader';
-export { extractArticle, setChatReaderMode, type ExtractedArticle } from './reader-view';
 export { installMutePauser } from './mute';
 export { installMediaPauser } from './media-pauser';
 export { MotionProvider } from './motion-provider';

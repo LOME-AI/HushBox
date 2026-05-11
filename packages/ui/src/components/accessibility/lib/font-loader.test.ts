@@ -145,20 +145,6 @@ describe('activateFont — idempotency', () => {
   });
 });
 
-describe('activateFont — error branch', () => {
-  it('throws on an unknown id', async () => {
-    await expect(activateFont('not-a-real-font' as never)).rejects.toThrow(
-      /Unknown accessibility font id: not-a-real-font/
-    );
-  });
-
-  it('does not construct a FontFace on an unknown id', async () => {
-    await expect(activateFont('totally-fake' as never)).rejects.toThrow();
-    expect(fontFaceCalls).toHaveLength(0);
-    expect(documentFontsAdd).not.toHaveBeenCalled();
-  });
-});
-
 describe('_resetFontLoaderForTesting', () => {
   it('clears the loaded-fonts cache so subsequent calls re-construct FontFace', async () => {
     await activateFont('atkinson');

@@ -1,9 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { expectNoA11yViolations } from './helpers/axe.js';
-import {
-  expectAllTogglesPersisted,
-  walkAccessibilityToggles,
-} from './helpers/accessibility.js';
+import { expectAllTogglesPersisted, walkAccessibilityToggles } from './helpers/accessibility.js';
 
 /**
  * Marketing-site accessibility widget walkthrough.
