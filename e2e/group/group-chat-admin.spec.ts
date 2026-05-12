@@ -26,6 +26,10 @@ test.describe('Group Chat Admin', () => {
       await aliceChatPage.waitForConversationLoaded();
       await aliceChatPage.expectMessageVisible('Hello from Alice');
 
+      // Park the first row at the top so `.first()` refers to Alice's first
+      // message rather than whichever message Virtuoso happens to keep in
+      // the DOM after `expectMessageVisible` finishes scrolling.
+      await aliceChatPage.scrollMessageIntoView(0);
       const aliceLabels = aliceChatPage.getSenderLabels();
       await expect(aliceLabels.first()).toHaveText('You');
 

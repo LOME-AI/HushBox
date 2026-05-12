@@ -142,7 +142,6 @@ test.describe('Solo Regeneration', () => {
     });
 
     await test.step('retry first user message', async () => {
-      await chatPage.scrollToTop();
       await chatPage.clickRetry(0);
       await chatPage.waitForAIResponse();
       await chatPage.waitForStreamComplete();

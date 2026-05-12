@@ -188,54 +188,28 @@ describe('computeWorstCaseCents', () => {
 });
 
 describe('derivedIsSmartModel', () => {
-  it('returns false for an empty billing list', () => {
+  it('returns false when no stages ran', () => {
     expect(derivedIsSmartModel([])).toBe(false);
   });
 
-  it('returns true when at least one billing entry has stageId smart-model', () => {
-    expect(
-      derivedIsSmartModel([
-        {
-          stageId: 'smart-model',
-          modelId: 'cheap/c',
-          generationId: 'gen-1',
-          inputContent: 'in',
-          outputContent: 'out',
-        },
-      ])
-    ).toBe(true);
+  it('returns true when the smart-model stage ran', () => {
+    expect(derivedIsSmartModel(['smart-model'])).toBe(true);
   });
 
-  it('does NOT return true for a hypothetical non-Smart-Model stage that produced billing', () => {
-    // Forward-compat: a future stage type (prompt-enhancer, fallback-router, etc.)
-    // that bills should NOT flag the slot as Smart Model.
-    const fakeBilling = {
-      // Cast lets us simulate a future StageId without polluting the real union.
-      stageId: 'prompt-enhancer' as 'smart-model',
-      modelId: 'cheap/c',
-      generationId: 'gen-1',
-      inputContent: 'in',
-      outputContent: 'out',
-    };
-    expect(derivedIsSmartModel([fakeBilling])).toBe(false);
+  it('returns true when classifier failed and no billing was produced — the stage still ran', () => {
+    // Captures the contract: `is_smart_model` is bound to "did the routing
+    // stage execute," not "did it produce a billable LLM call." Classifier
+    // failure → fallback path has no billing entry but the chip must still
+    // render on the persisted response.
+    expect(derivedIsSmartModel(['smart-model'])).toBe(true);
   });
 
-  it('returns true when smart-model billing is mixed with other stages', () => {
-    const fakePromptEnhancer = {
-      stageId: 'prompt-enhancer' as 'smart-model',
-      modelId: 'cheap/c',
-      generationId: 'gen-1',
-      inputContent: 'in',
-      outputContent: 'out',
-    };
-    const smartModel = {
-      stageId: 'smart-model' as const,
-      modelId: 'cheap/c',
-      generationId: 'gen-2',
-      inputContent: 'in',
-      outputContent: 'out',
-    };
-    expect(derivedIsSmartModel([fakePromptEnhancer, smartModel])).toBe(true);
+  it('does NOT return true for a hypothetical non-Smart-Model stage', () => {
+    expect(derivedIsSmartModel(['prompt-enhancer'])).toBe(false);
+  });
+
+  it('returns true when smart-model ran alongside other stages', () => {
+    expect(derivedIsSmartModel(['prompt-enhancer', 'smart-model'])).toBe(true);
   });
 });
 

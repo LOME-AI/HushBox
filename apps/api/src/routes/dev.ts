@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { getIronSession } from 'iron-session';
 import { users, sharedMessages, llmCompletions, messages, usageRecords } from '@hushbox/db';
 import { ERROR_CODE_NOT_FOUND, ERROR_CODE_SERVER_MISCONFIGURED } from '@hushbox/shared';
@@ -10,6 +10,7 @@ import {
   cleanupTestData,
   resetTrialUsage,
   resetAuthRateLimits,
+  resetUsageRateLimits,
   createDevConversation,
   createDevGroupChat,
   setWalletBalance,
@@ -105,6 +106,11 @@ export const devRoute = new Hono<AppEnv>()
   .delete('/auth-rate-limits', async (c) => {
     const redis = c.get('redis');
     const result = await resetAuthRateLimits(redis);
+    return c.json({ success: true, deleted: result.deleted });
+  })
+  .delete('/usage-rate-limits', async (c) => {
+    const redis = c.get('redis');
+    const result = await resetUsageRateLimits(redis);
     return c.json({ success: true, deleted: result.deleted });
   })
   .post(
@@ -233,6 +239,35 @@ export const devRoute = new Hono<AppEnv>()
         .innerJoin(messages, eq(messages.id, usageRecords.sourceId))
         .where(eq(messages.conversationId, conversationId));
       return c.json({ count: row?.count ?? 0 });
+    }
+  )
+  // Lists AI messages with their resolved payer (from `usage_records.user_id`).
+  // `messages.payer_id` was dropped in the wrap-once refactor — payment lives in
+  // `usage_records`. Group-billing E2E tests use this to verify the
+  // owner-funded vs personal-fallthrough decision (`payerId` differs from
+  // sender id in the personal-fallthrough case).
+  .get(
+    '/message-payers/:conversationId',
+    zValidator('param', z.object({ conversationId: z.string().min(1) })),
+    async (c) => {
+      const db = c.get('db');
+      const { conversationId } = c.req.valid('param');
+      const rows = await db
+        .select({
+          messageId: messages.id,
+          payerId: usageRecords.userId,
+          sequenceNumber: messages.sequenceNumber,
+        })
+        .from(messages)
+        .leftJoin(
+          usageRecords,
+          and(eq(usageRecords.sourceId, messages.id), eq(usageRecords.sourceType, 'message'))
+        )
+        .where(and(eq(messages.conversationId, conversationId), eq(messages.senderType, 'ai')))
+        .orderBy(messages.sequenceNumber);
+      return c.json({
+        payers: rows.map((r) => ({ messageId: r.messageId, payerId: r.payerId })),
+      });
     }
   )
   // Revokes a single message share by deleting the row from `shared_messages`.

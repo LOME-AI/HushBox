@@ -7,12 +7,11 @@ async function getLastAiPayerId(
   request: APIRequestContext,
   conversationId: string
 ): Promise<string | null | undefined> {
-  const convResponse = await request.get(`/api/conversations/${conversationId}`);
-  const convData = (await convResponse.json()) as {
-    messages: { senderType: string; payerId: string | null }[];
+  const response = await request.get(`/api/dev/message-payers/${conversationId}`);
+  const data = (await response.json()) as {
+    payers: { messageId: string; payerId: string | null }[];
   };
-  const aiMessages = convData.messages.filter((m) => m.senderType === 'ai');
-  return aiMessages.at(-1)?.payerId;
+  return data.payers.at(-1)?.payerId;
 }
 
 /**

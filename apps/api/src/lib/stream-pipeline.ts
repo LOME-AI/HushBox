@@ -1175,14 +1175,13 @@ interface RunPreInferenceForSlotsArgs {
  * The `is_smart_model` flag must be tied to the routing stage specifically,
  * not "any stage that produces a `resolvedModelId`" — future stages (model
  * fallback, safety redirect) might also rewrite the model id without being
- * routing. Exported so the discriminator can be unit-tested directly.
- *
- * The cast to `string` widens `b.stageId` away from today's literal union so
- * the comparison reads as forward-compat against future stage types, not
- * "is the only existing stage equal to itself."
+ * routing. Driven by the list of stages that actually ran, NOT by billings:
+ * a classifier failure that falls back to the cheapest eligible model
+ * produces no billing entry yet the smart-model stage did run, so the chip
+ * still belongs on the response.
  */
-export function derivedIsSmartModel(billings: readonly PreInferenceBilling[]): boolean {
-  return billings.some((b) => (b.stageId as string) === 'smart-model');
+export function derivedIsSmartModel(stagesRun: readonly string[]): boolean {
+  return stagesRun.includes('smart-model');
 }
 
 async function runPreInferenceForSlot(
@@ -1229,7 +1228,7 @@ async function runPreInferenceForSlot(
     modelId,
     assistantMessageId: assistantMsgId,
     resolvedModelId: chainResult.transformation.resolvedModelId ?? modelId,
-    isSmartModel: derivedIsSmartModel(chainResult.billings),
+    isSmartModel: derivedIsSmartModel(chainResult.stagesRun),
     preInferenceBillings: chainResult.billings,
   };
 }

@@ -1,4 +1,4 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
 import { ChatPage } from '../pages';
 
 /**
@@ -119,7 +119,6 @@ test.describe('Video Generation', () => {
     await chatPage.expectVideoVisible();
     await chatPage.waitForStreamComplete();
 
-    await chatPage.scrollToTop();
     await chatPage.clickRegenerate(1);
     await chatPage.waitForStreamComplete();
     await chatPage.expectVideoVisible();
@@ -147,7 +146,6 @@ test.describe('Video Generation', () => {
     const originalSource = await chatPage.messageList.locator('video').first().getAttribute('src');
     expect(originalSource).toMatch(/^blob:/);
 
-    await chatPage.scrollToTop();
     await chatPage.clickEdit(0);
     await chatPage.expectEditModeActive();
 
@@ -187,7 +185,6 @@ test.describe('Video Generation', () => {
     const originalSource = await chatPage.messageList.locator('video').first().getAttribute('src');
     expect(originalSource).toMatch(/^blob:/);
 
-    await chatPage.scrollToTop();
     await chatPage.clickRetry(0);
     await chatPage.waitForStreamComplete();
     await chatPage.expectVideoVisible();
@@ -400,11 +397,13 @@ test.describe('Video Generation', () => {
   });
 
   /**
-   * C9: low-balance user attempting a video generation hits the preflight
-   * affordability check. Send button is disabled, banner shows the friendly
-   * "Insufficient balance." message, and no <video> element is created.
+   * Free-tier user (zero balance) in video mode: every video model is premium
+   * so no model auto-resolves and the resolution panel renders its empty-state
+   * hint ("Select a video model to see resolution options"). Model selector
+   * shows the lock icon on every video model. Cost preflight is unreachable
+   * by design — the test verifies the gating UX, not a cost-denial banner.
    */
-  test('low-balance user sees insufficient-balance error and cannot send', async ({
+  test('free-tier user sees video models locked and cannot generate', async ({
     lowBalancePage,
   }) => {
     test.slow();
@@ -412,17 +411,32 @@ test.describe('Video Generation', () => {
     await chatPage.goto();
     await chatPage.waitForAppStable();
 
-    await chatPage.switchToVideoMode();
+    // Don't use `switchToVideoMode()` — that helper asserts the 720p button is
+    // visible, which only happens once a video model is selected. Free-tier
+    // users can enter the modality but the resolution panel stays empty.
+    const videoIcon = lowBalancePage.getByRole('button', { name: /switch to video/i });
+    await expect(videoIcon).toBeVisible();
+    await videoIcon.click();
 
-    await chatPage.promptInput.fill(`Insufficient video ${String(Date.now())}`);
+    await expect(
+      lowBalancePage.getByText(/Select a video model to see resolution options/i)
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(lowBalancePage.getByRole('button', { name: /720p/i })).toHaveCount(0);
 
-    await unsettledExpect(lowBalancePage.getByTestId('budget-messages')).toBeVisible({
-      timeout: 10_000,
+    await test.step('all video models in the modal show the premium lock icon', async () => {
+      await chatPage.openModelSelector();
+      const modal = lowBalancePage.getByTestId('model-selector-modal');
+      await expect(modal).toBeVisible();
+      const items = modal.locator('[data-testid^="model-item-"]');
+      const total = await items.count();
+      expect(total).toBeGreaterThan(0);
+      const locked = modal.locator('[data-testid^="model-item-"]:has([data-testid="lock-icon"])');
+      await expect(locked).toHaveCount(total);
+      await lowBalancePage.keyboard.press('Escape');
+      await expect(modal).not.toBeVisible();
     });
-    await expect(lowBalancePage.getByText(/Insufficient balance\./i)).toBeVisible();
-    await expect(chatPage.sendButton).toBeDisabled();
 
     await expect(lowBalancePage).toHaveURL(/\/chat$/);
-    await expect(lowBalancePage.locator('video')).toHaveCount(0);
+    await expect(chatPage.messageList.locator('video')).toHaveCount(0);
   });
 });

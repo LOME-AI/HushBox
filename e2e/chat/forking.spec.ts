@@ -346,7 +346,6 @@ test.describe('Fork History Preservation', () => {
     expect(totalMessages).toBe(6);
 
     await test.step('fork from 4th message (2nd AI response)', async () => {
-      await chatPage.scrollToTop();
       await chatPage.clickFork(3);
       await chatPage.expectForkTabCount(2);
       await chatPage.expectActiveForkTab('Fork 1');
@@ -398,7 +397,6 @@ test.describe('Fork History Preservation', () => {
     expect(await chatPage.getMessageCountViaAPI()).toBe(6);
 
     await test.step('fork from 4th message (2nd AI response)', async () => {
-      await chatPage.scrollToTop();
       await chatPage.clickFork(3);
       await chatPage.expectForkTabCount(2);
       await chatPage.expectActiveForkTab('Fork 1');
@@ -449,7 +447,6 @@ test.describe('Fork History Preservation', () => {
       await expect(chatPage.messageList.locator('img').first()).toBeVisible({ timeout: 30_000 });
       await chatPage.waitForStreamComplete();
 
-      await chatPage.scrollToTop();
       await chatPage.clickFork(1);
       await chatPage.expectForkTabCount(2);
       await chatPage.expectActiveForkTab('Fork 1');

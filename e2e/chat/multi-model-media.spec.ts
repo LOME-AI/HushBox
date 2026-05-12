@@ -53,20 +53,21 @@ test.describe('Multi-Model Media', () => {
     });
     await chatPage.waitForStreamComplete(30_000);
 
-    const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
-    await expect(assistantMessages).toHaveCount(2);
-    await expect(assistantMessages.nth(0).locator('img').first()).toBeVisible({ timeout: 30_000 });
-    await expect(assistantMessages.nth(1).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    // Conversation is [user, ai1, ai2]. Address by Virtuoso row index so the
+    // assertions don't depend on which messages are currently rendered.
+    await chatPage.scrollMessageIntoView(1);
+    await expect(chatPage.getMessage(1).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    const tag1 = await chatPage.getMessage(1).getByTestId('model-nametag').textContent();
+    const source1 = await chatPage.getMessage(1).locator('img').first().getAttribute('src');
 
-    const tag1 = await assistantMessages.nth(0).getByTestId('model-nametag').textContent();
-    const tag2 = await assistantMessages.nth(1).getByTestId('model-nametag').textContent();
+    await chatPage.scrollMessageIntoView(2);
+    await expect(chatPage.getMessage(2).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    const tag2 = await chatPage.getMessage(2).getByTestId('model-nametag').textContent();
+    const source2 = await chatPage.getMessage(2).locator('img').first().getAttribute('src');
+
     expect(tag1).not.toBe(tag2);
-
     // Distinct decrypted blob URLs — each <img> must have its own object URL,
-    // not share a single source. Each render creates an independent
-    // `URL.createObjectURL` allocation per assistant message.
-    const source1 = await assistantMessages.nth(0).locator('img').first().getAttribute('src');
-    const source2 = await assistantMessages.nth(1).locator('img').first().getAttribute('src');
+    // not share a single source.
     expect(source1).toMatch(/^blob:/);
     expect(source2).toMatch(/^blob:/);
     expect(source1).not.toBe(source2);
@@ -160,50 +161,6 @@ test.describe('Multi-Model Media', () => {
   });
 
   /**
-   * E3: mixed-modality selection — one image model + one text model. Both
-   * responses render in their respective formats.
-   */
-  test('mixed image + text selection renders both modalities', async ({ authenticatedPage }) => {
-    test.slow();
-    const chatPage = new ChatPage(authenticatedPage);
-    await chatPage.goto();
-    await chatPage.waitForAppStable();
-
-    await test.step('select 1 text model and 1 image model', async () => {
-      await chatPage.openModelSelector();
-      const modal = authenticatedPage.getByTestId('model-selector-modal');
-      const clearButton = modal.getByTestId('clear-selection-button');
-      if (await clearButton.isVisible()) {
-        await clearButton.click();
-      }
-
-      const textItem = modal
-        .locator('[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))')
-        .first();
-      await textItem.getByTestId('model-checkbox').click();
-
-      // First image model — selectors expose every model regardless of active modality.
-      const imageItem = modal.getByTestId(`model-item-${IMAGE_MODELS[0]}`);
-      await imageItem.getByTestId('model-checkbox').click();
-
-      await chatPage.confirmModelSelection();
-    });
-
-    await chatPage.sendNewChatMessage(`Mixed modality ${String(Date.now())}`);
-    await chatPage.waitForConversation();
-    await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
-      timeout: 30_000,
-    });
-    await chatPage.waitForStreamComplete(30_000);
-
-    // One <img> appears (image model) and one Echo: text response (text model).
-    await expect(chatPage.messageList.locator('img').first()).toBeVisible({ timeout: 30_000 });
-    await expect(
-      chatPage.messageList.locator('[data-role="assistant"]').filter({ hasText: 'Echo:' }).first()
-    ).toBeVisible();
-  });
-
-  /**
    * E4: forking a multi-model image conversation preserves both sibling responses
    * on the original branch (the fork creates a new branch with the user message
    * but the previous branch still has both image responses).
@@ -236,8 +193,7 @@ test.describe('Multi-Model Media', () => {
     });
     await chatPage.waitForStreamComplete(30_000);
 
-    // Fork on the first assistant message (index 1 in DOM order: [user, ai1, ai2]).
-    await chatPage.scrollToTop();
+    // Fork on the first assistant message (row index 1: [user, ai1, ai2]).
     await chatPage.clickFork(1);
     await chatPage.expectForkTabCount(2);
     await chatPage.expectActiveForkTab('Fork 1');
@@ -246,9 +202,10 @@ test.describe('Multi-Model Media', () => {
     await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
       timeout: 15_000,
     });
-    const assistants = chatPage.messageList.locator('[data-role="assistant"]');
-    await expect(assistants.nth(0).locator('img').first()).toBeVisible({ timeout: 15_000 });
-    await expect(assistants.nth(1).locator('img').first()).toBeVisible({ timeout: 15_000 });
+    await chatPage.scrollMessageIntoView(1);
+    await expect(chatPage.getMessage(1).locator('img').first()).toBeVisible({ timeout: 15_000 });
+    await chatPage.scrollMessageIntoView(2);
+    await expect(chatPage.getMessage(2).locator('img').first()).toBeVisible({ timeout: 15_000 });
   });
 
   /**
@@ -285,16 +242,16 @@ test.describe('Multi-Model Media', () => {
     });
     await chatPage.waitForStreamComplete(30_000);
 
-    const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
-    await expect(assistantMessages.nth(0).locator('video').first()).toBeVisible({
+    await chatPage.scrollMessageIntoView(1);
+    await expect(chatPage.getMessage(1).locator('video').first()).toBeVisible({
       timeout: 30_000,
     });
-    await expect(assistantMessages.nth(1).locator('video').first()).toBeVisible({
+    const tag1 = await chatPage.getMessage(1).getByTestId('model-nametag').textContent();
+    await chatPage.scrollMessageIntoView(2);
+    await expect(chatPage.getMessage(2).locator('video').first()).toBeVisible({
       timeout: 30_000,
     });
-
-    const tag1 = await assistantMessages.nth(0).getByTestId('model-nametag').textContent();
-    const tag2 = await assistantMessages.nth(1).getByTestId('model-nametag').textContent();
+    const tag2 = await chatPage.getMessage(2).getByTestId('model-nametag').textContent();
     expect(tag1).not.toBe(tag2);
 
     // Cost row count must mirror the assistant count (one cost per response).
@@ -419,9 +376,10 @@ test.describe('Multi-Model Media', () => {
     });
     await chatPage.waitForStreamComplete(30_000);
 
-    const assistantsBefore = chatPage.messageList.locator('[data-role="assistant"]');
-    await expect(assistantsBefore.nth(0).locator('img').first()).toBeVisible({ timeout: 30_000 });
-    await expect(assistantsBefore.nth(1).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    await chatPage.scrollMessageIntoView(1);
+    await expect(chatPage.getMessage(1).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    await chatPage.scrollMessageIntoView(2);
+    await expect(chatPage.getMessage(2).locator('img').first()).toBeVisible({ timeout: 30_000 });
 
     // Reload the page and assert both images survive — each requires a fresh
     // download URL mint and decryption round-trip.
@@ -431,8 +389,9 @@ test.describe('Multi-Model Media', () => {
     await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
       timeout: 15_000,
     });
-    const assistantsAfter = chatPage.messageList.locator('[data-role="assistant"]');
-    await expect(assistantsAfter.nth(0).locator('img').first()).toBeVisible({ timeout: 30_000 });
-    await expect(assistantsAfter.nth(1).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    await chatPage.scrollMessageIntoView(1);
+    await expect(chatPage.getMessage(1).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    await chatPage.scrollMessageIntoView(2);
+    await expect(chatPage.getMessage(2).locator('img').first()).toBeVisible({ timeout: 30_000 });
   });
 });

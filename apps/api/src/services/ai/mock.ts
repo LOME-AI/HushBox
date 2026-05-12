@@ -268,30 +268,63 @@ function isClassifierRequest(request: TextRequest): boolean {
   return content.startsWith(CLASSIFIER_SYSTEM_PROMPT_MARKER);
 }
 
-function createClassifierStream(modelId: string): InferenceStream {
-  return syncStream(function* (): Generator<InferenceEvent> {
-    for (const char of modelId) {
-      yield { kind: 'text-delta', content: char };
-    }
-    yield {
-      kind: 'finish',
-      providerMetadata: {
-        generationId: `mock-classifier-${String(Date.now())}`,
-        usage: {
-          inputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN_STANDARD),
-          outputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN_STANDARD),
-        },
+function createClassifierStream(modelId: string, delayMs: number): InferenceStream {
+  const events: InferenceEvent[] = [];
+  for (const char of modelId) {
+    events.push({ kind: 'text-delta', content: char });
+  }
+  events.push({
+    kind: 'finish',
+    providerMetadata: {
+      generationId: `mock-classifier-${String(Date.now())}`,
+      usage: {
+        inputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN_STANDARD),
+        outputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN_STANDARD),
       },
-    };
+    },
   });
+  return delayedEventStream(events, delayMs);
 }
 
-function createFailingClassifierStream(error: Error): InferenceStream {
+function createFailingClassifierStream(error: Error, delayMs: number): InferenceStream {
   return {
     [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+      let firstCall = true;
       return {
-        next(): Promise<IteratorResult<InferenceEvent>> {
+        async next(): Promise<IteratorResult<InferenceEvent>> {
+          if (firstCall && delayMs > 0) {
+            firstCall = false;
+            await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+          }
           return Promise.reject(error);
+        },
+      };
+    },
+  };
+}
+
+/**
+ * Yield a pre-built event list one at a time, awaiting `delayMs` before the
+ * first yield. Used by the classifier stream so the "Choosing the best
+ * model…" indicator is observable in tests — without a delay the
+ * `stage:start` → `stage:done` round-trip completes on the microtask queue
+ * faster than Playwright's polling window.
+ */
+function delayedEventStream(events: readonly InferenceEvent[], delayMs: number): InferenceStream {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+      let i = 0;
+      let firstCall = true;
+      return {
+        async next(): Promise<IteratorResult<InferenceEvent>> {
+          if (firstCall && delayMs > 0) {
+            firstCall = false;
+            await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+          }
+          if (i >= events.length) {
+            return { value: undefined, done: true };
+          }
+          return { value: events[i++]!, done: false };
         },
       };
     },
@@ -385,6 +418,7 @@ export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClien
   const classifierFailure = config.classifierFailure === true
     ? new Error('Classifier unavailable (test)')
     : null;
+  const classifierDelayMs = Math.max(0, config.classifierDelayMs ?? 0);
 
   return {
     isMock: true,
@@ -431,9 +465,9 @@ export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClien
         case 'text': {
           if (isClassifierRequest(request)) {
             if (classifierFailure !== null) {
-              return createFailingClassifierStream(classifierFailure);
+              return createFailingClassifierStream(classifierFailure, classifierDelayMs);
             }
-            return createClassifierStream(classifierResolution);
+            return createClassifierStream(classifierResolution, classifierDelayMs);
           }
           return createTextStream(request);
         }

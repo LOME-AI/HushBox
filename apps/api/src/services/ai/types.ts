@@ -166,6 +166,14 @@ export interface MockAIClientConfig {
   classifierFailure?: boolean;
   /** Model ids whose inference stream rejects immediately. */
   failingModels?: readonly string[];
+  /**
+   * Sleep this many milliseconds before yielding the first classifier event.
+   * Mock streams resolve on the microtask queue, so without a delay the
+   * `stage:start` → `stage:done` round-trip completes in microseconds — the
+   * "Choosing the best model…" thinking indicator never has a chance to
+   * render observably. Tests that assert that indicator set this to ~500ms.
+   */
+  classifierDelayMs?: number;
 }
 
 /** Discriminated union — narrows on `client.isMock` without casts. */

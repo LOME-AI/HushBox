@@ -1,4 +1,4 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
 import { ChatPage } from '../pages';
 
 /**
@@ -120,9 +120,6 @@ test.describe('Image Generation', () => {
     await chatPage.expectImageVisible();
     await chatPage.waitForStreamComplete();
 
-    // Tall media on a mobile viewport pushes the user message above the top of
-    // Virtuoso's rendered window. Scroll to top so `nth(1)` resolves.
-    await chatPage.scrollToTop();
     await chatPage.clickRegenerate(1);
 
     // After regenerate, the new image renders. Re-assert that the message
@@ -154,7 +151,6 @@ test.describe('Image Generation', () => {
     const originalSource = await chatPage.messageList.locator('img').first().getAttribute('src');
     expect(originalSource).toMatch(/^blob:/);
 
-    await chatPage.scrollToTop();
     await chatPage.clickEdit(0);
     await chatPage.expectEditModeActive();
 
@@ -197,7 +193,6 @@ test.describe('Image Generation', () => {
     const originalSource = await chatPage.messageList.locator('img').first().getAttribute('src');
     expect(originalSource).toMatch(/^blob:/);
 
-    await chatPage.scrollToTop();
     await chatPage.clickRetry(0);
     await chatPage.waitForStreamComplete();
     await chatPage.expectImageVisible();
@@ -368,12 +363,13 @@ test.describe('Image Generation', () => {
   });
 
   /**
-   * B9: low-balance user attempting an image generation hits the preflight
-   * affordability check. The send button must be disabled, the budget banner
-   * must show "Insufficient balance.", and no image is rendered (no /api/chat
-   * round-trip ever happens, so no R2 object is created).
+   * Free-tier user (zero balance) lands on premium-gated image models — every
+   * image model is premium, so the model-selector modal locks them all and no
+   * default image model auto-resolves. The test verifies the gating UX rather
+   * than a cost-denial banner: the affordability path is unreachable because
+   * the user can't select a model in the first place.
    */
-  test('low-balance user sees insufficient-balance error and cannot send', async ({
+  test('free-tier user sees image models locked and cannot generate', async ({
     lowBalancePage,
   }) => {
     test.slow();
@@ -383,19 +379,22 @@ test.describe('Image Generation', () => {
 
     await chatPage.switchToImageMode();
 
-    await chatPage.promptInput.fill(`Insufficient image ${String(Date.now())}`);
-
-    await unsettledExpect(lowBalancePage.getByTestId('budget-messages')).toBeVisible({
-      timeout: 10_000,
+    await test.step('all image models in the modal show the premium lock icon', async () => {
+      await chatPage.openModelSelector();
+      const modal = lowBalancePage.getByTestId('model-selector-modal');
+      await expect(modal).toBeVisible();
+      const items = modal.locator('[data-testid^="model-item-"]');
+      const total = await items.count();
+      expect(total).toBeGreaterThan(0);
+      const locked = modal.locator('[data-testid^="model-item-"]:has([data-testid="lock-icon"])');
+      await expect(locked).toHaveCount(total);
+      await lowBalancePage.keyboard.press('Escape');
+      await expect(modal).not.toBeVisible();
     });
-    await expect(
-      lowBalancePage.getByText(/Your free daily usage can't cover this message/i)
-    ).toBeVisible();
-    await expect(chatPage.sendButton).toBeDisabled();
 
-    // No conversation was ever created — still on /chat (no /:id segment).
+    // Image generation never happens — no /api/chat round-trip, no R2 object.
     await expect(lowBalancePage).toHaveURL(/\/chat$/);
-    await expect(lowBalancePage.locator('img')).toHaveCount(0);
+    await expect(chatPage.messageList.locator('img')).toHaveCount(0);
   });
 
   /**

@@ -19,6 +19,14 @@ export type ExecuteChainResult =
       transformation: InferenceTransformation;
       /** Billing breadcrumbs from stages that made billable LLM calls. */
       billings: PreInferenceBilling[];
+      /**
+       * Stage ids that ran successfully, in order. Tracked separately from
+       * `billings` because some stage outcomes (e.g. Smart Model classifier
+       * failure → fallback) produce no billing entry yet still semantically
+       * "ran." Downstream consumers that care about the routing semantics
+       * (e.g. `derivedIsSmartModel`) should read this list, not `billings`.
+       */
+      stagesRun: string[];
     }
   | { ok: false; errorCode: string };
 
@@ -40,6 +48,7 @@ export async function executePreInferenceChain(
   const { stages, aiClient, writer, assistantMessageId } = args;
   let merged: InferenceTransformation = {};
   const billings: PreInferenceBilling[] = [];
+  const stagesRun: string[] = [];
 
   for (const stage of stages) {
     const outcome = await stage.run({
@@ -52,10 +61,11 @@ export async function executePreInferenceChain(
       return { ok: false, errorCode: outcome.errorCode };
     }
     merged = { ...merged, ...outcome.transformation };
+    stagesRun.push(stage.id);
     if (outcome.billing !== null) {
       billings.push(outcome.billing);
     }
   }
 
-  return { ok: true, transformation: merged, billings };
+  return { ok: true, transformation: merged, billings, stagesRun };
 }

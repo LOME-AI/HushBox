@@ -171,6 +171,33 @@ export async function resetAuthRateLimits(redis: Redis): Promise<ResetAuthRateLi
     'totp:used:*',
   ];
 
+  return deleteRedisKeysByPrefixes(redis, prefixes);
+}
+
+export interface ResetUsageRateLimitsResult {
+  deleted: number;
+}
+
+/**
+ * Reset authenticated-user usage rate limits between tests. Excludes
+ * `trial:chat:stream:ip:ratelimit:*` because `trial-chat.spec.ts` exercises
+ * that limit firing — clearing it would break those tests. Excludes IP-scoped
+ * anti-scraping limits for the same reason.
+ */
+export async function resetUsageRateLimits(redis: Redis): Promise<ResetUsageRateLimitsResult> {
+  const prefixes = [
+    'chat:stream:user:ratelimit:*',
+    'media:download:user:ratelimit:*',
+    'share:create:user:ratelimit:*',
+  ];
+
+  return deleteRedisKeysByPrefixes(redis, prefixes);
+}
+
+async function deleteRedisKeysByPrefixes(
+  redis: Redis,
+  prefixes: readonly string[]
+): Promise<{ deleted: number }> {
   let deleted = 0;
 
   for (const prefix of prefixes) {

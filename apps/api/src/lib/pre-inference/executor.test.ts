@@ -76,7 +76,7 @@ describe('executePreInferenceChain', () => {
       writer: noopWriter(),
       assistantMessageId: 'asst-1',
     });
-    expect(result).toEqual({ ok: true, transformation: {}, billings: [] });
+    expect(result).toEqual({ ok: true, transformation: {}, billings: [], stagesRun: [] });
   });
 
   it('runs each stage and merges transformations in order', async () => {

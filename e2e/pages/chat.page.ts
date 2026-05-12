@@ -383,16 +383,29 @@ export class ChatPage {
     await expect(slider).toHaveValue(String(seconds));
   }
 
-  /** Wait for an inline `<img>` to render in the assistant message list. */
+  /**
+   * Park the last row in view and wait for an inline `<img>` to render.
+   * The scroll-to-last guards against Virtuoso virtualizing the bottommost
+   * media tile out of the DOM after several prior messages in the same
+   * conversation push it below the rendered window.
+   */
   async expectImageVisible(timeout = 30_000): Promise<void> {
+    await this.scrollLastMessageIntoView();
     const imageElement = this.messageList.locator('img').first();
     await expect(imageElement).toBeVisible({ timeout });
   }
 
   /** Wait for an inline `<video>` element to render in the assistant message list. */
   async expectVideoVisible(timeout = 30_000): Promise<void> {
+    await this.scrollLastMessageIntoView();
     const videoElement = this.messageList.locator('video').first();
     await expect(videoElement).toBeVisible({ timeout });
+  }
+
+  private async scrollLastMessageIntoView(): Promise<void> {
+    const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
+    if (Number.isNaN(rowsCount) || rowsCount <= 0) return;
+    await this.scrollMessageIntoView(rowsCount - 1);
   }
 
   /** Confirm the "Download media" link is rendered alongside the inline media element. */
@@ -505,9 +518,16 @@ export class ChatPage {
     return data.messages.length;
   }
 
-  /** Get the nth message item (0-indexed). */
+  /**
+   * Get the message-item at Virtuoso row index N (0-indexed). Addresses by
+   * `data-item-index` (Virtuoso's per-row attribute) rather than by DOM
+   * position, so callers don't get the wrong message when some rows are
+   * virtualized out of the DOM.
+   */
   getMessage(index: number): Locator {
-    return this.messageList.locator('[data-testid="message-item"]').nth(index);
+    return this.messageList.locator(
+      `[data-item-index="${String(index)}"] [data-testid="message-item"]`
+    );
   }
 
   /** Get the last message item. */
@@ -520,13 +540,52 @@ export class ChatPage {
     return this.messageList.locator('[data-testid="message-item"]').count();
   }
 
-  /** Hover over the nth message to reveal action buttons (opacity-0 until hover). */
+  /**
+   * Deterministically park a virtualized row in view. Uses Virtuoso's native
+   * `scrollIntoView({ index, done })` via the dev/E2E-gated window backdoor in
+   * `MessageList`. Resolves when the target row is measured and mounted —
+   * `getMessage(index)` is guaranteed to resolve afterwards. Avoids the
+   * iPhone-15 virtualization failure mode where `scrollTop = 0` alone leaves
+   * the target unmounted because a tall media tile dominates the viewport.
+   *
+   * `index` is a Virtuoso row index, NOT a message index. In group chats
+   * consecutive same-sender messages are collapsed into a single row, so
+   * `rowsCount < messageCount`. Use `data-rows-count` (exposed by the
+   * MessageList component) to bound the index.
+   */
+  async scrollMessageIntoView(index: number): Promise<void> {
+    const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
+    if (Number.isNaN(rowsCount) || index < 0 || index >= rowsCount) {
+      throw new Error(
+        `scrollMessageIntoView: index ${String(index)} out of range [0, ${String(rowsCount)})`
+      );
+    }
+    await this.page.evaluate(async (i) => {
+      const fn = (window as unknown as { __virtuosoScrollToIndex?: (n: number) => Promise<void> })
+        .__virtuosoScrollToIndex;
+      if (typeof fn !== 'function') {
+        throw new Error(
+          '__virtuosoScrollToIndex not exposed — check env.isLocalDev or env.isE2E is true'
+        );
+      }
+      await fn(i);
+    }, index);
+    await expect(this.getMessage(index)).toBeAttached({ timeout: 5_000 });
+  }
+
+  /**
+   * Hover the nth message to reveal action buttons. Scrolls the target into
+   * Virtuoso's mounted window first. On touch devices the click target is the
+   * `message-cost` row when present — clicking the media tile would open the
+   * lightbox dialog instead of revealing the action menu.
+   */
   async hoverMessage(index: number): Promise<void> {
-    const target = this.getMessage(index);
+    await this.scrollMessageIntoView(index);
+    const item = this.getMessage(index);
     if (await isTouchDevice(this.page)) {
-      await target.click();
+      await touchActivateMessage(item);
     } else {
-      await target.hover();
+      await item.hover();
     }
   }
 
@@ -534,7 +593,7 @@ export class ChatPage {
   async hoverLastMessage(): Promise<void> {
     const target = this.getLastMessage();
     if (await isTouchDevice(this.page)) {
-      await target.click();
+      await touchActivateMessage(target);
     } else {
       await target.hover();
     }
@@ -856,4 +915,20 @@ export class ChatPage {
     }
     return id;
   }
+}
+
+/**
+ * Activate the touch-equivalent of hover on a message-item. The action menu
+ * uses `group-hover:opacity-100`, so we need the browser to set `:hover` on
+ * the inner `.group` wrapper. Clicking the outer row container doesn't work
+ * for right-aligned user messages (the click lands in empty margin outside
+ * `.group`) and clicking the row center for media AI messages opens the
+ * lightbox (the `<img>`/`<video>` is wrapped in a button). Targeting the
+ * direct child div — Virtuoso's row container's only child — lands inside
+ * `.group` for both alignments and skips the media tile via top-left
+ * positioning.
+ */
+async function touchActivateMessage(item: Locator): Promise<void> {
+  const groupWrapper = item.locator(':scope > div').first();
+  await groupWrapper.click({ position: { x: 5, y: 5 } });
 }

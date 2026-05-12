@@ -10,6 +10,7 @@ import {
 } from '@playwright/test';
 import { ChatPage } from './pages';
 import { requireEnv } from './helpers/env.js';
+import { clearUsageRateLimits } from './helpers/auth.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
 
@@ -109,6 +110,14 @@ interface MediaConversation {
 }
 
 interface CustomFixtures {
+  /**
+   * Auto-fixture: clears per-user usage rate-limit buckets (chat stream,
+   * media download, share creation) at the start of every test. Stops late
+   * tests in a worker from hitting 429s caused by prior tests reusing the
+   * same test user. Trial IP limits are deliberately not cleared so that
+   * `trial-chat.spec.ts` continues to exercise the trial cap firing.
+   */
+  resetRateLimitsAutoHook: void;
   authenticatedPage: Page;
   unauthenticatedPage: Page;
   /** Factory for creating fresh, fully-instrumented browser contexts on demand.
@@ -178,6 +187,16 @@ async function teardownPage(
 }
 
 export const test = base.extend<CustomFixtures>({
+  resetRateLimitsAutoHook: [
+    async ({ playwright }, use) => {
+      const ctx = await playwright.request.newContext({ baseURL: apiUrl });
+      await clearUsageRateLimits(ctx);
+      await ctx.dispose();
+      await use();
+    },
+    { auto: true },
+  ],
+
   authenticatedPage: createPageFixture('e2e/.auth/test-alice.json', 'authenticatedPage'),
 
   // Explicitly clear storage state to override project-level default auth

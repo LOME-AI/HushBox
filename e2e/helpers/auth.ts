@@ -105,6 +105,16 @@ export async function clearAuthRateLimits(request: APIRequestContext): Promise<v
 }
 
 /**
+ * Clears authenticated-user usage rate limits (chat stream, media download,
+ * share creation) so consecutive E2E tests sharing a user don't saturate the
+ * per-minute buckets. Excludes trial IP limits and IP-scoped anti-scraping
+ * limits, which `trial-chat.spec.ts` and friends legitimately exercise.
+ */
+export async function clearUsageRateLimits(request: APIRequestContext): Promise<void> {
+  await request.delete(`${API_BASE}/api/dev/usage-rate-limits`);
+}
+
+/**
  * Waits for the TOTP code to rotate to a new value.
  * TOTP codes change every 30 seconds. This polls every 2s until a fresh code appears.
  * Use this between steps that verify different TOTP codes for the same user

@@ -164,6 +164,13 @@ export function aiClientMiddleware(): MiddlewareHandler<AppEnv> {
         mockConfig.failingModels = failingModels;
       }
     }
+    const classifierDelayHeader = c.req.header('x-mock-classifier-delay-ms');
+    if (classifierDelayHeader !== undefined) {
+      const parsed = Number.parseInt(classifierDelayHeader, 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        mockConfig.classifierDelayMs = parsed;
+      }
+    }
     c.set('aiClient', getAIClient(c.env, { ...createEvidenceConfig(c), mockConfig }));
     await next();
   };
