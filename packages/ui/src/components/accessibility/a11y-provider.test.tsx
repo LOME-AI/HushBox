@@ -50,10 +50,6 @@ vi.mock('./sections/aids/reading-guide', () => ({
   ReadingGuide: ({ enabled }: { enabled: boolean }): React.JSX.Element | null =>
     enabled ? <div data-testid="reading-guide" /> : null,
 }));
-vi.mock('./sections/aids/page-structure', () => ({
-  PageStructure: ({ enabled }: { enabled: boolean }): React.JSX.Element | null =>
-    enabled ? <div data-testid="page-structure" /> : null,
-}));
 
 import { A11yProvider } from './a11y-provider';
 
@@ -89,7 +85,6 @@ describe('A11yProvider', () => {
     render(<A11yProvider />);
     expect(screen.queryByTestId('magnifier')).toBeNull();
     expect(screen.queryByTestId('reading-guide')).toBeNull();
-    expect(screen.queryByTestId('page-structure')).toBeNull();
   });
 
   it('mounts the magnifier when prefs.magnifier is true', () => {
@@ -102,12 +97,6 @@ describe('A11yProvider', () => {
     storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, readingGuide: true };
     render(<A11yProvider />);
     expect(screen.getByTestId('reading-guide')).not.toBeNull();
-  });
-
-  it('mounts the page outline when prefs.pageStructure is true', () => {
-    storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, pageStructure: true };
-    render(<A11yProvider />);
-    expect(screen.getByTestId('page-structure')).not.toBeNull();
   });
 
   it('installs the media pauser when stopAnimations is true', () => {

@@ -15,8 +15,6 @@ describe('ACCESSIBILITY_PREFERENCES_DEFAULTS', () => {
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.version).toBe(1);
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.contrast).toBe('normal');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.saturation).toBe('100');
-    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.invert).toBe(false);
-    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.highlightLinks).toBe(false);
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.colorblindSimulate).toBe('none');
   });
 
@@ -25,14 +23,12 @@ describe('ACCESSIBILITY_PREFERENCES_DEFAULTS', () => {
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.letterSpacing).toBe('0');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.lineHeight).toBe('1.5');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.paragraphSpacing).toBe('1');
-    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.forceLeftAlign).toBe(false);
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.fontFamily).toBe('system');
   });
 
   it('has the correct default values for all reading aids fields', () => {
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.magnifier).toBe(false);
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.readingGuide).toBe(false);
-    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.pageStructure).toBe(false);
   });
 
   it('has the correct default values for all audio fields', () => {
@@ -49,7 +45,7 @@ describe('ACCESSIBILITY_PREFERENCES_DEFAULTS', () => {
   it('has the correct default values for pointer & focus fields', () => {
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.cursorSize).toBe('normal');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.cursorColor).toBe('black');
-    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.focusWidth).toBe('2');
+    expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.focusWidth).toBe('0');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.focusColor).toBe('yellow');
     expect(ACCESSIBILITY_PREFERENCES_DEFAULTS.focusHalo).toBe(false);
   });
@@ -59,18 +55,14 @@ describe('ACCESSIBILITY_PREFERENCES_DEFAULTS', () => {
       'version',
       'contrast',
       'saturation',
-      'invert',
-      'highlightLinks',
       'colorblindSimulate',
       'fontSize',
       'letterSpacing',
       'lineHeight',
       'paragraphSpacing',
-      'forceLeftAlign',
       'fontFamily',
       'magnifier',
       'readingGuide',
-      'pageStructure',
       'ttsEnabled',
       'ttsVoice',
       'streamChatAloud',
@@ -86,6 +78,14 @@ describe('ACCESSIBILITY_PREFERENCES_DEFAULTS', () => {
     expect(Object.keys(ACCESSIBILITY_PREFERENCES_DEFAULTS).toSorted(localeSort)).toEqual(
       expectedKeys.toSorted(localeSort)
     );
+  });
+
+  it('does not contain removed keys (invert, highlightLinks, forceLeftAlign, pageStructure)', () => {
+    const keys = Object.keys(ACCESSIBILITY_PREFERENCES_DEFAULTS);
+    expect(keys).not.toContain('invert');
+    expect(keys).not.toContain('highlightLinks');
+    expect(keys).not.toContain('forceLeftAlign');
+    expect(keys).not.toContain('pageStructure');
   });
 });
 
@@ -117,18 +117,14 @@ describe('accessibilityPreferencesSchema — full object', () => {
       version: 1,
       contrast: 'high',
       saturation: '150',
-      invert: true,
-      highlightLinks: true,
       colorblindSimulate: 'protan',
       fontSize: '200',
       letterSpacing: '0.12',
       lineHeight: '2.0',
       paragraphSpacing: '2',
-      forceLeftAlign: true,
       fontFamily: 'open-dyslexic',
       magnifier: true,
       readingGuide: true,
-      pageStructure: true,
       ttsEnabled: true,
       ttsVoice: 'bm_george',
       streamChatAloud: true,
@@ -159,8 +155,21 @@ describe('accessibilityPreferencesSchema — full object', () => {
     expect(parsed.fontSize).toBe('175');
     expect(parsed.ttsEnabled).toBe(true);
     expect(parsed.contrast).toBe('normal');
-    expect(parsed.invert).toBe(false);
     expect(parsed.fontFamily).toBe('system');
+  });
+
+  it('strips unknown / removed keys without erroring', () => {
+    const parsed = accessibilityPreferencesSchema.parse({
+      version: 1,
+      invert: true,
+      highlightLinks: true,
+      forceLeftAlign: true,
+      pageStructure: true,
+    });
+    expect(parsed).not.toHaveProperty('invert');
+    expect(parsed).not.toHaveProperty('highlightLinks');
+    expect(parsed).not.toHaveProperty('forceLeftAlign');
+    expect(parsed).not.toHaveProperty('pageStructure');
   });
 });
 
@@ -244,12 +253,8 @@ describe('accessibilityPreferencesSchema — enum field rejections', () => {
 
 describe('accessibilityPreferencesSchema — boolean field validation', () => {
   const booleanFields = [
-    'invert',
-    'highlightLinks',
-    'forceLeftAlign',
     'magnifier',
     'readingGuide',
-    'pageStructure',
     'ttsEnabled',
     'streamChatAloud',
     'muteSounds',

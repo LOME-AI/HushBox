@@ -6,8 +6,6 @@ export const accessibilityPreferencesSchema = z.object({
   // Visual
   contrast: z.enum(['normal', 'increased', 'high', 'low']).default('normal'),
   saturation: z.enum(['0', '50', '100', '150']).default('100'),
-  invert: z.boolean().default(false),
-  highlightLinks: z.boolean().default(false),
   colorblindSimulate: z
     .enum(['none', 'protan', 'deutan', 'tritan', 'achroma', 'achromatomaly'])
     .default('none'),
@@ -17,13 +15,11 @@ export const accessibilityPreferencesSchema = z.object({
   letterSpacing: z.enum(['0', '0.05', '0.12']).default('0'),
   lineHeight: z.enum(['1.0', '1.5', '2.0']).default('1.5'),
   paragraphSpacing: z.enum(['1', '2']).default('1'),
-  forceLeftAlign: z.boolean().default(false),
   fontFamily: z.enum(['system', 'atkinson', 'open-dyslexic', 'lexend']).default('system'),
 
   // Reading aids
   magnifier: z.boolean().default(false),
   readingGuide: z.boolean().default(false),
-  pageStructure: z.boolean().default(false),
 
   // Audio
   ttsEnabled: z.boolean().default(false),
@@ -39,7 +35,8 @@ export const accessibilityPreferencesSchema = z.object({
   // Pointer & focus
   cursorSize: z.enum(['normal', 'large', 'xlarge']).default('normal'),
   cursorColor: z.enum(['black', 'white']).default('black'),
-  focusWidth: z.enum(['2', '4', '6']).default('2'),
+  // '0' means "off" — disables the always-on focus ring; browser default rings still apply.
+  focusWidth: z.enum(['0', '2', '4', '6']).default('0'),
   focusColor: z.enum(['yellow', 'magenta', 'cyan', 'lime', 'red']).default('yellow'),
   focusHalo: z.boolean().default(false),
 });

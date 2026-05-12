@@ -7,9 +7,28 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 vi.mock('@hushbox/ui/accessibility', () => ({
-  AccessibilityPage: (): React.JSX.Element => (
-    <div data-testid="accessibility-page-mock">Accessibility</div>
+  AccessibilityPanel: (): React.JSX.Element => (
+    <section data-testid="accessibility-panel-mock">Panel</section>
   ),
+}));
+
+vi.mock('@/components/shared/page-header', () => ({
+  PageHeader: ({
+    title,
+    right,
+  }: {
+    title?: string;
+    right?: React.ReactNode;
+  }): React.JSX.Element => (
+    <header data-testid="page-header-mock">
+      <span data-testid="page-header-title">{title}</span>
+      <span data-testid="page-header-right">{right}</span>
+    </header>
+  ),
+}));
+
+vi.mock('@/components/shared/theme-toggle', () => ({
+  ThemeToggle: (): React.JSX.Element => <button data-testid="theme-toggle-mock">Theme</button>,
 }));
 
 import { Route } from './accessibility';
@@ -27,9 +46,22 @@ describe('/accessibility route', () => {
     expect((Route as unknown as RouteShape).component).toBeDefined();
   });
 
-  it('renders the AccessibilityPage component', () => {
+  it('renders the PageHeader with title "Accessibility"', () => {
     const Component = (Route as unknown as RouteShape).component;
     render(<Component />);
-    expect(screen.getByTestId('accessibility-page-mock')).toBeInTheDocument();
+    expect(screen.getByTestId('page-header-mock')).toBeInTheDocument();
+    expect(screen.getByTestId('page-header-title').textContent).toBe('Accessibility');
+  });
+
+  it('renders the ThemeToggle in the header right slot', () => {
+    const Component = (Route as unknown as RouteShape).component;
+    render(<Component />);
+    expect(screen.getByTestId('theme-toggle-mock')).toBeInTheDocument();
+  });
+
+  it('renders the AccessibilityPanel below the header', () => {
+    const Component = (Route as unknown as RouteShape).component;
+    render(<Component />);
+    expect(screen.getByTestId('accessibility-panel-mock')).toBeInTheDocument();
   });
 });

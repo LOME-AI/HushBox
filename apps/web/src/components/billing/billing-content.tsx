@@ -15,6 +15,7 @@ import { useStableBalance } from '@/hooks/use-stable-balance';
 import { useTransactions } from '@/hooks/billing';
 import { formatBalance } from '@/lib/format';
 import { PaymentModal } from '@/components/billing/payment-modal';
+import { PageBody } from '@/components/shared/page-body';
 import { ManageOnlineButton } from '@/components/billing/manage-online-button';
 import { isPaymentDisabled } from '@/capacitor/platform';
 
@@ -189,7 +190,7 @@ export function BillingContent({ billingOnly }: { billingOnly?: boolean } = {}):
 
   return (
     <>
-      <div className="container mx-auto max-w-4xl flex-1 space-y-6 overflow-y-auto p-4">
+      <PageBody className="space-y-6">
         <BalanceCard
           displayBalance={displayBalance}
           isStable={isBalanceStable}
@@ -251,7 +252,7 @@ export function BillingContent({ billingOnly }: { billingOnly?: boolean } = {}):
             </p>
           </CardContent>
         </Card>
-      </div>
+      </PageBody>
 
       {!paymentDisabled && (
         <PaymentModal

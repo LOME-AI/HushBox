@@ -41,7 +41,7 @@ export const ACCESSIBILITY_PROFILES: readonly AccessibilityProfile[] = [
   {
     id: 'reading-focus',
     label: 'Easier to read',
-    description: 'Reading band, dyslexia-friendly font, looser spacing, left-aligned text.',
+    description: 'Dyslexia-friendly font, looser spacing, animations off.',
     preset: {
       ...BASE,
       contrast: 'normal',
@@ -50,8 +50,6 @@ export const ACCESSIBILITY_PROFILES: readonly AccessibilityProfile[] = [
       letterSpacing: '0.05',
       lineHeight: '2.0',
       paragraphSpacing: '2',
-      forceLeftAlign: true,
-      readingGuide: true,
       stopAnimations: true,
     },
   },
@@ -69,10 +67,9 @@ export const ACCESSIBILITY_PROFILES: readonly AccessibilityProfile[] = [
   {
     id: 'color-vision',
     label: 'Color help',
-    description: 'Highlighted links and stronger focus colors that do not rely on hue alone.',
+    description: 'Stronger focus colors that do not rely on hue alone.',
     preset: {
       ...BASE,
-      highlightLinks: true,
       focusWidth: '4',
       focusColor: 'magenta',
       focusHalo: true,
@@ -81,11 +78,9 @@ export const ACCESSIBILITY_PROFILES: readonly AccessibilityProfile[] = [
   {
     id: 'cognitive-load',
     label: 'Less distraction',
-    description: 'Left-aligned text, reading band, sound muted, animations off.',
+    description: 'Looser spacing, sound muted, animations off.',
     preset: {
       ...BASE,
-      forceLeftAlign: true,
-      readingGuide: true,
       stopAnimations: true,
       muteSounds: true,
       lineHeight: '2.0',

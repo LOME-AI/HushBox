@@ -116,4 +116,56 @@ describe('SettingCard', () => {
     fireEvent.keyDown(screen.getByRole('button'), { key: 'a' });
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('renders a previous-arrow and next-arrow alongside the dots', () => {
+    render(<SettingCard title="X" options={OPTIONS} value="mid" onChange={() => {}} />);
+    const button = screen.getByRole('button');
+    expect(button.querySelector('[data-slot="setting-card-prev"]')).not.toBeNull();
+    expect(button.querySelector('[data-slot="setting-card-next"]')).not.toBeNull();
+  });
+
+  it('marks both arrows as decorative (aria-hidden)', () => {
+    render(<SettingCard title="X" options={OPTIONS} value="mid" onChange={() => {}} />);
+    const previous = screen.getByTestId('setting-card-prev');
+    const next = screen.getByTestId('setting-card-next');
+    expect(previous.getAttribute('aria-hidden')).toBe('true');
+    expect(next.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('clicking the previous arrow cycles backward', () => {
+    const onChange = vi.fn();
+    render(<SettingCard title="X" options={OPTIONS} value="mid" onChange={onChange} />);
+    fireEvent.click(screen.getByTestId('setting-card-prev'));
+    expect(onChange).toHaveBeenCalledWith('off');
+  });
+
+  it('clicking the next arrow cycles forward', () => {
+    const onChange = vi.fn();
+    render(<SettingCard title="X" options={OPTIONS} value="mid" onChange={onChange} />);
+    fireEvent.click(screen.getByTestId('setting-card-next'));
+    expect(onChange).toHaveBeenCalledWith('on');
+  });
+
+  it('clicking the previous arrow does not also trigger the card click handler', () => {
+    const onChange = vi.fn();
+    render(<SettingCard title="X" options={OPTIONS} value="mid" onChange={onChange} />);
+    fireEvent.click(screen.getByTestId('setting-card-prev'));
+    // Forward cycle would call with 'on'; backward with 'off'. We must NOT see both.
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('off');
+  });
+
+  it('renders dots inside a centered controls row alongside the arrows', () => {
+    render(<SettingCard title="X" options={OPTIONS} value="mid" onChange={() => {}} />);
+    const dots = screen
+      .getByRole('button')
+      .querySelector<HTMLElement>('[data-slot="setting-card-dots"]');
+    expect(dots).not.toBeNull();
+    expect(dots?.parentElement?.className).toContain('justify-center');
+  });
+
+  it('uses cursor-pointer so the card shows the clickable cursor on hover', () => {
+    render(<SettingCard title="X" options={OPTIONS} value="mid" onChange={() => {}} />);
+    expect(screen.getByRole('button').className).toContain('cursor-pointer');
+  });
 });

@@ -3,7 +3,7 @@ import * as React from 'react';
 export interface ReadingGuideProps {
   /** When true, mounts the spotlight overlay; when false, renders nothing. */
   enabled: boolean;
-  /** Height of the unobscured "spotlight" band, in pixels. Defaults to 50. */
+  /** Height of the unobscured "spotlight" band, in pixels. Defaults to 120. */
   bandHeight?: number;
   /** Opacity (0–1) of the dim panels above and below the spotlight. Defaults to 0.5. */
   dimOpacity?: number;
@@ -21,7 +21,7 @@ export interface ReadingGuideProps {
  */
 export function ReadingGuide({
   enabled,
-  bandHeight = 50,
+  bandHeight = 120,
   dimOpacity = 0.5,
   followFocus = false,
 }: Readonly<ReadingGuideProps>): React.JSX.Element | null {

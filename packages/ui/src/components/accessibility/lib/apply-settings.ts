@@ -12,10 +12,6 @@ function buildToggles(prefs: AccessibilityPreferences): ClassToggle[] {
     ['a11y-saturate-50', prefs.saturation === '50'],
     ['a11y-saturate-150', prefs.saturation === '150'],
 
-    ['a11y-invert', prefs.invert],
-
-    ['a11y-highlight-links', prefs.highlightLinks],
-
     ['a11y-cb-protan', prefs.colorblindSimulate === 'protan'],
     ['a11y-cb-deutan', prefs.colorblindSimulate === 'deutan'],
     ['a11y-cb-tritan', prefs.colorblindSimulate === 'tritan'],
@@ -35,8 +31,6 @@ function buildToggles(prefs: AccessibilityPreferences): ClassToggle[] {
 
     ['a11y-para-spacing-double', prefs.paragraphSpacing === '2'],
 
-    ['a11y-force-left', prefs.forceLeftAlign],
-
     ['a11y-font-override', prefs.fontFamily !== 'system'],
 
     ['a11y-stop-animations', prefs.stopAnimations],
@@ -46,10 +40,8 @@ function buildToggles(prefs: AccessibilityPreferences): ClassToggle[] {
 
     ['a11y-cursor-white', prefs.cursorColor === 'white'],
 
-    [
-      'a11y-focus-strong',
-      prefs.focusWidth !== '2' || prefs.focusColor !== 'yellow' || prefs.focusHalo,
-    ],
+    // focusWidth === '0' means "no custom focus ring" — leave the browser default alone.
+    ['a11y-focus-strong', prefs.focusWidth !== '0'],
     ['a11y-focus-halo', prefs.focusHalo],
   ];
 }

@@ -6,7 +6,6 @@ import { installMediaPauser } from './lib/media-pauser';
 import { installMutePauser } from './lib/mute';
 import { SvgColorblindDefs } from './lib/svg-colorblind-defs';
 import { Magnifier } from './sections/aids/magnifier';
-import { PageStructure } from './sections/aids/page-structure';
 import { ReadingGuide } from './sections/aids/reading-guide';
 import { useA11yStore } from './store';
 
@@ -19,8 +18,8 @@ interface A11yProviderProps {
  * accessibility store and:
  *  - mirrors every setting change to `<html>` via {@link applySettings}
  *  - installs the global side-effect hooks (media-pauser, mute-pauser)
- *  - mounts the visual aids (magnifier, reading guide, page outline) so they
- *    track the cursor over the whole page — not just the panel
+ *  - mounts the visual aids (magnifier, reading guide) so they track the
+ *    cursor over the whole page — not just the panel
  *  - lazy-loads the chosen custom font when the user picks one
  *  - injects the SVG `<defs>` used by the colorblind-filter CSS
  */
@@ -54,7 +53,6 @@ export function A11yProvider({ children }: Readonly<A11yProviderProps>): React.J
       <SvgColorblindDefs />
       {prefs.magnifier && <Magnifier enabled />}
       {prefs.readingGuide && <ReadingGuide enabled />}
-      {prefs.pageStructure && <PageStructure enabled />}
       {children}
     </>
   );

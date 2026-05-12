@@ -41,13 +41,6 @@ html.a11y-para-spacing-double p {
   margin-bottom: 2em;
 }
 
-/* Force left-align — scoped to text blocks, NOT headings or UI chrome */
-html.a11y-force-left p,
-html.a11y-force-left li,
-html.a11y-force-left td {
-  text-align: left !important;
-}
-
 /* Font family override — applied via inline style by font-loader (sets --a11y-font-family) */
 html.a11y-font-override body * {
   font-family: var(--a11y-font-family), system-ui, sans-serif !important;

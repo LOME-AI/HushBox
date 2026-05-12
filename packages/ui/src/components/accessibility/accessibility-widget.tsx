@@ -32,7 +32,7 @@ export function AccessibilityWidget(): React.JSX.Element {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           side="left"
-          className="bg-sidebar text-sidebar-foreground flex w-72 flex-col gap-0 p-0"
+          className="bg-sidebar text-sidebar-foreground flex w-[85%] flex-col gap-0 p-0 sm:w-auto sm:max-w-md"
           showCloseButton={false}
         >
           <SheetTitle className="sr-only">Accessibility settings</SheetTitle>

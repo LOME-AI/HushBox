@@ -67,17 +67,17 @@ function clickCard(title: string): void {
 }
 
 describe('VisualSection', () => {
-  it('renders one card per visual setting', () => {
+  it('renders only the three remaining visual cards', () => {
     render(<VisualSection />);
-    for (const title of [
-      'Contrast',
-      'Color intensity',
-      'Reverse colors',
-      'Underline links',
-      'Color-blindness filter',
-    ]) {
+    for (const title of ['Contrast', 'Color intensity', 'Color-blindness filter']) {
       expect(screen.getByRole('button', { name: new RegExp(`^${title}: `) })).not.toBeNull();
     }
+  });
+
+  it('does not render removed cards (Reverse colors, Underline links)', () => {
+    render(<VisualSection />);
+    expect(screen.queryByRole('button', { name: /^Reverse colors/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Underline links/ })).toBeNull();
   });
 
   it('cycling Contrast calls update with the next value', () => {
@@ -86,32 +86,26 @@ describe('VisualSection', () => {
     expect(storeState.update).toHaveBeenCalledWith({ contrast: 'increased' });
   });
 
-  it('toggling Reverse colors maps off→on to a boolean update', () => {
+  it('Color-blindness filter labels use technical term first', () => {
+    storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, colorblindSimulate: 'protan' };
     render(<VisualSection />);
-    clickCard('Reverse colors');
-    expect(storeState.update).toHaveBeenCalledWith({ invert: true });
-  });
-
-  it('toggling Underline links maps off→on to a boolean update', () => {
-    render(<VisualSection />);
-    clickCard('Underline links');
-    expect(storeState.update).toHaveBeenCalledWith({ highlightLinks: true });
+    expect(screen.getByText('Protanopia (red-blind)')).not.toBeNull();
   });
 });
 
 describe('TypographySection', () => {
-  it('renders all typography cards including Font', () => {
+  it('renders typography cards (no Align text left)', () => {
     render(<TypographySection />);
     for (const title of [
       'Text size',
       'Space between letters',
       'Space between lines',
       'Space between paragraphs',
-      'Align text left',
       'Font',
     ]) {
       expect(screen.getByRole('button', { name: new RegExp(`^${title}: `) })).not.toBeNull();
     }
+    expect(screen.queryByRole('button', { name: /^Align text left/ })).toBeNull();
   });
 
   it('cycling Text size updates fontSize', () => {
@@ -119,19 +113,20 @@ describe('TypographySection', () => {
     clickCard('Text size');
     expect(storeState.update).toHaveBeenCalledWith({ fontSize: '125' });
   });
+
+  it('default Font label is "Merriweather (default)"', () => {
+    render(<TypographySection />);
+    expect(screen.getByText('Merriweather (default)')).not.toBeNull();
+  });
 });
 
 describe('ReadingAidsSection', () => {
-  it('renders the three reading helpers', () => {
+  it('renders the two reading helpers (Page outline removed)', () => {
     render(<ReadingAidsSection />);
-    for (const title of ['Magnifier lens', 'Reading band', 'Page outline']) {
+    for (const title of ['Magnifier lens', 'Reading band']) {
       expect(screen.getByRole('button', { name: new RegExp(`^${title}: `) })).not.toBeNull();
     }
-  });
-
-  it('does not render the removed Hide images card', () => {
-    render(<ReadingAidsSection />);
-    expect(screen.queryByRole('button', { name: /Hide images/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Page outline/ })).toBeNull();
   });
 
   it('toggling Magnifier lens calls update with magnifier:true', () => {
@@ -179,19 +174,64 @@ describe('PointerFocusSection', () => {
     clickCard('Pointer color');
     expect(storeState.update).toHaveBeenCalledWith({ cursorColor: 'white' });
   });
+
+  it('clicking Focus ring color while thickness is Off also bumps thickness to Thin', () => {
+    storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, focusWidth: '0' };
+    render(<PointerFocusSection />);
+    clickCard('Focus ring color');
+    expect(storeState.update).toHaveBeenCalledWith({ focusColor: 'magenta', focusWidth: '2' });
+  });
+
+  it('clicking Focus ring color while thickness is non-Off does NOT change thickness', () => {
+    storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, focusWidth: '4' };
+    render(<PointerFocusSection />);
+    clickCard('Focus ring color');
+    expect(storeState.update).toHaveBeenCalledWith({ focusColor: 'magenta' });
+  });
+
+  it('toggling Focus glow ON while thickness is Off also bumps thickness to Thin', () => {
+    storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, focusWidth: '0', focusHalo: false };
+    render(<PointerFocusSection />);
+    clickCard('Focus glow');
+    expect(storeState.update).toHaveBeenCalledWith({ focusHalo: true, focusWidth: '2' });
+  });
+
+  it('toggling Focus glow ON while thickness is already set does NOT touch thickness', () => {
+    storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, focusWidth: '4', focusHalo: false };
+    render(<PointerFocusSection />);
+    clickCard('Focus glow');
+    expect(storeState.update).toHaveBeenCalledWith({ focusHalo: true });
+  });
+
+  it('toggling Focus glow OFF never bumps thickness', () => {
+    storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, focusWidth: '0', focusHalo: true };
+    render(<PointerFocusSection />);
+    clickCard('Focus glow');
+    expect(storeState.update).toHaveBeenCalledWith({ focusHalo: false });
+  });
 });
 
 describe('AudioSection', () => {
-  it('renders Mute all sounds card and TTS gate when ttsEnabled is false', () => {
+  it('renders Mute all sounds + Read chat replies aloud + disclaimer regardless of ttsEnabled', () => {
     render(<AudioSection />);
     expect(screen.getByRole('button', { name: /^Mute all sounds: / })).not.toBeNull();
-    expect(screen.getByText(/Turn on read-aloud/)).not.toBeNull();
+    expect(screen.getByRole('button', { name: /^Read chat replies aloud: / })).not.toBeNull();
+    expect(screen.getByText(/80 MB, one-time download/)).not.toBeNull();
+    expect(
+      screen.getByText(/Runs entirely on your device\. No audio or text ever leaves this device/)
+    ).not.toBeNull();
   });
 
-  it('renders read-aloud controls when ttsEnabled is true', () => {
+  it('does NOT render the old "Turn on read-aloud" gate button', () => {
+    render(<AudioSection />);
+    expect(screen.queryByText(/Turn on read-aloud/)).toBeNull();
+  });
+
+  it('renders the same controls when ttsEnabled is already true', () => {
     storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, ttsEnabled: true };
     render(<AudioSection />);
     expect(screen.getByRole('button', { name: /^Read chat replies aloud: / })).not.toBeNull();
+    expect(screen.getByText(/80 MB, one-time download/)).not.toBeNull();
   });
 
   it('does not render placeholder "Read page" / "Read selection" buttons', () => {
@@ -199,6 +239,13 @@ describe('AudioSection', () => {
     render(<AudioSection />);
     expect(screen.queryByText('Read page')).toBeNull();
     expect(screen.queryByText('Read selection')).toBeNull();
+  });
+
+  it('voice selector trigger uses the widened (twice as wide) class', () => {
+    const { container } = render(<AudioSection />);
+    const trigger = container.querySelector('[aria-labelledby="a11y-voice-label"]');
+    expect(trigger).not.toBeNull();
+    expect(trigger?.className).toContain('w-[22rem]');
   });
 });
 
@@ -221,15 +268,30 @@ describe('MetaSection', () => {
 });
 
 describe('ProfilesSection', () => {
-  it('renders all five profile entries', () => {
+  it('renders all five profile entries plus a Default entry', () => {
     render(<ProfilesSection />);
     const buttons = screen.getAllByRole('button');
-    expect(buttons.length).toBeGreaterThanOrEqual(5);
+    expect(buttons.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('renders a Default quick-start button as the first entry', () => {
+    render(<ProfilesSection />);
+    const first = screen.getAllByRole('button')[0]!;
+    expect(first.textContent).toContain('Default');
+  });
+
+  it('clicking the Default button calls reset() only (no update)', () => {
+    render(<ProfilesSection />);
+    const first = screen.getAllByRole('button')[0]!;
+    fireEvent.click(first);
+    expect(storeState.reset).toHaveBeenCalledTimes(1);
+    expect(storeState.update).not.toHaveBeenCalled();
   });
 
   it('clicking a profile calls reset() then update(profile.preset)', () => {
     render(<ProfilesSection />);
-    const firstProfile = screen.getAllByRole('button')[0]!;
+    // Default is index 0; first real profile is index 1.
+    const firstProfile = screen.getAllByRole('button')[1]!;
     fireEvent.click(firstProfile);
     expect(storeState.reset).toHaveBeenCalledTimes(1);
     expect(storeState.update).toHaveBeenCalledTimes(1);
@@ -237,5 +299,12 @@ describe('ProfilesSection', () => {
     expect(Object.keys(passed as Record<string, unknown>).length).toBeGreaterThanOrEqual(
       Object.keys(ACCESSIBILITY_PREFERENCES_DEFAULTS).length
     );
+  });
+
+  it('every quick-start button uses cursor-pointer', () => {
+    render(<ProfilesSection />);
+    for (const button of screen.getAllByRole('button')) {
+      expect(button.className).toContain('cursor-pointer');
+    }
   });
 });

@@ -7,7 +7,6 @@ import { ON_OFF_OPTIONS } from './_constants';
 export function ReadingAidsSection(): React.JSX.Element {
   const magnifier = useA11yStore((s) => s.magnifier);
   const readingGuide = useA11yStore((s) => s.readingGuide);
-  const pageStructure = useA11yStore((s) => s.pageStructure);
   const update = useA11yStore((s) => s.update);
 
   return (
@@ -30,14 +29,6 @@ export function ReadingAidsSection(): React.JSX.Element {
           value={readingGuide ? 'on' : 'off'}
           onChange={(v) => {
             update({ readingGuide: v === 'on' });
-          }}
-        />
-        <SettingCard
-          title="Page outline"
-          options={ON_OFF_OPTIONS}
-          value={pageStructure ? 'on' : 'off'}
-          onChange={(v) => {
-            update({ pageStructure: v === 'on' });
           }}
         />
       </div>

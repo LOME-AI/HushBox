@@ -8,6 +8,7 @@ import { requireAuth, changePassword, useAuthStore } from '@/lib/auth';
 import { ROUTES } from '@hushbox/shared';
 import { openExternalPage } from '@/capacitor';
 import { PageHeader } from '@/components/shared/page-header';
+import { PageBody } from '@/components/shared/page-body';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { ChangePasswordModal } from '@/components/auth/ChangePasswordModal';
 import { TwoFactorSetup } from '@/components/auth/TwoFactorSetup';
@@ -188,7 +189,7 @@ export function SettingsPage(): React.JSX.Element {
     <div className="flex h-full flex-col">
       <PageHeader title="Settings" right={<ThemeToggle />} />
 
-      <div className="container mx-auto max-w-4xl flex-1 space-y-6 overflow-y-auto p-4">
+      <PageBody className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-[#ec4755]">Account</CardTitle>
@@ -288,7 +289,7 @@ export function SettingsPage(): React.JSX.Element {
             </p>
           </CardContent>
         </Card>
-      </div>
+      </PageBody>
 
       <CustomInstructionsModal
         open={showCustomInstructions}

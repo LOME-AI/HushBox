@@ -17,6 +17,7 @@ const CURSOR_COLOR_OPTIONS = [
 ] as const;
 
 const FOCUS_WIDTH_OPTIONS = [
+  { value: '0', label: 'Off' },
   { value: '2', label: 'Thin' },
   { value: '4', label: 'Medium' },
   { value: '6', label: 'Thick' },
@@ -78,7 +79,12 @@ export function PointerFocusSection(): React.JSX.Element {
           options={FOCUS_COLOR_OPTIONS}
           value={focusColor}
           onChange={(v) => {
-            update({ focusColor: v });
+            // Color only matters when the ring is visible — bump thickness to Thin
+            // if the ring is currently off so the chosen color is actually applied.
+            update({
+              focusColor: v,
+              ...(focusWidth === '0' ? { focusWidth: '2' as const } : {}),
+            });
           }}
         />
         <SettingCard
@@ -86,7 +92,13 @@ export function PointerFocusSection(): React.JSX.Element {
           options={ON_OFF_OPTIONS}
           value={focusHalo ? 'on' : 'off'}
           onChange={(v) => {
-            update({ focusHalo: v === 'on' });
+            // Glow is gated on a visible ring — turning it on while thickness is
+            // Off would have no effect, so bump thickness to Thin in that case.
+            const next = v === 'on';
+            update({
+              focusHalo: next,
+              ...(next && focusWidth === '0' ? { focusWidth: '2' as const } : {}),
+            });
           }}
         />
       </div>

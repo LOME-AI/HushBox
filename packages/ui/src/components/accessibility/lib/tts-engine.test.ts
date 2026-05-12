@@ -73,34 +73,42 @@ describe('detectDevice', () => {
     }
   });
 
-  it('returns "wasm" when Capacitor.isNativePlatform() is true', () => {
+  it('returns "wasm" when Capacitor.isNativePlatform() is true', async () => {
     (globalThis.window as WindowWithCapacitor).Capacitor = { isNativePlatform: () => true };
-    (navigator as unknown as { gpu?: unknown }).gpu = {};
-    expect(_detectDeviceForTesting()).toBe('wasm');
+    (navigator as unknown as { gpu?: unknown }).gpu = {
+      requestAdapter: () => Promise.resolve({}),
+    };
+    await expect(_detectDeviceForTesting()).resolves.toBe('wasm');
   });
 
-  it('returns "webgpu" when navigator.gpu exists and not in Capacitor', () => {
+  it('returns "webgpu" when requestAdapter returns a valid adapter', async () => {
     delete (globalThis.window as WindowWithCapacitor).Capacitor;
-    (navigator as unknown as { gpu?: unknown }).gpu = {};
-    expect(_detectDeviceForTesting()).toBe('webgpu');
+    (navigator as unknown as { gpu?: unknown }).gpu = {
+      requestAdapter: () => Promise.resolve({}),
+    };
+    await expect(_detectDeviceForTesting()).resolves.toBe('webgpu');
   });
 
-  it('returns "wasm" when neither Capacitor nor navigator.gpu present', () => {
+  it('returns "wasm" when requestAdapter returns null (API present but no adapter)', async () => {
+    delete (globalThis.window as WindowWithCapacitor).Capacitor;
+    (navigator as unknown as { gpu?: unknown }).gpu = {
+      requestAdapter: () => Promise.resolve(null),
+    };
+    await expect(_detectDeviceForTesting()).resolves.toBe('wasm');
+  });
+
+  it('returns "wasm" when requestAdapter throws', async () => {
+    delete (globalThis.window as WindowWithCapacitor).Capacitor;
+    (navigator as unknown as { gpu?: unknown }).gpu = {
+      requestAdapter: () => Promise.reject(new Error('GPU init failed')),
+    };
+    await expect(_detectDeviceForTesting()).resolves.toBe('wasm');
+  });
+
+  it('returns "wasm" when neither Capacitor nor navigator.gpu present', async () => {
     delete (globalThis.window as WindowWithCapacitor).Capacitor;
     delete (navigator as unknown as { gpu?: unknown }).gpu;
-    expect(_detectDeviceForTesting()).toBe('wasm');
-  });
-
-  it('returns "wasm" when Capacitor exists but isNativePlatform is undefined', () => {
-    (globalThis.window as WindowWithCapacitor).Capacitor = {};
-    delete (navigator as unknown as { gpu?: unknown }).gpu;
-    expect(_detectDeviceForTesting()).toBe('wasm');
-  });
-
-  it('returns "webgpu" when Capacitor.isNativePlatform exists but returns false', () => {
-    (globalThis.window as WindowWithCapacitor).Capacitor = { isNativePlatform: () => false };
-    (navigator as unknown as { gpu?: unknown }).gpu = {};
-    expect(_detectDeviceForTesting()).toBe('webgpu');
+    await expect(_detectDeviceForTesting()).resolves.toBe('wasm');
   });
 });
 
@@ -271,6 +279,58 @@ describe('KokoroTtsService', () => {
     await service.load();
     await service.load();
     expect(fromPretrainedMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('load() falls back to wasm when webgpu adapter is available but model load fails', async () => {
+    type WindowWithCapacitor = Window & {
+      Capacitor?: { isNativePlatform?: () => boolean };
+    };
+    const originalGpu = (navigator as unknown as { gpu?: unknown }).gpu;
+    delete (globalThis.window as WindowWithCapacitor).Capacitor;
+    (navigator as unknown as { gpu?: unknown }).gpu = {
+      requestAdapter: () => Promise.resolve({}),
+    };
+
+    // First call (webgpu) rejects; second call (wasm) resolves.
+    let calls = 0;
+    fromPretrainedMock.mockImplementation(() => {
+      calls += 1;
+      if (calls === 1) return Promise.reject(new Error('Failed to get GPU adapter'));
+      return Promise.resolve({ generate: generateMock });
+    });
+
+    const service = getTtsService();
+    await service.load();
+
+    expect(fromPretrainedMock).toHaveBeenCalledTimes(2);
+    expect(fromPretrainedMock.mock.calls[0]![1].device).toBe('webgpu');
+    expect(fromPretrainedMock.mock.calls[1]![1].device).toBe('wasm');
+    expect(service.isLoaded()).toBe(true);
+
+    if (originalGpu === undefined) {
+      delete (navigator as unknown as { gpu?: unknown }).gpu;
+    } else {
+      (navigator as unknown as { gpu?: unknown }).gpu = originalGpu;
+    }
+  });
+
+  it('load() does not fall back when first attempt was already wasm', async () => {
+    type WindowWithCapacitor = Window & {
+      Capacitor?: { isNativePlatform?: () => boolean };
+    };
+    const originalGpu = (navigator as unknown as { gpu?: unknown }).gpu;
+    delete (globalThis.window as WindowWithCapacitor).Capacitor;
+    delete (navigator as unknown as { gpu?: unknown }).gpu;
+
+    fromPretrainedMock.mockRejectedValue(new Error('Something else failed'));
+
+    const service = getTtsService();
+    await expect(service.load()).rejects.toThrow('Something else failed');
+    expect(fromPretrainedMock).toHaveBeenCalledTimes(1);
+
+    if (originalGpu !== undefined) {
+      (navigator as unknown as { gpu?: unknown }).gpu = originalGpu;
+    }
   });
 
   it('load() concurrent calls share a single in-flight promise', async () => {

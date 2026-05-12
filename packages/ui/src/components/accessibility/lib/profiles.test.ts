@@ -58,10 +58,10 @@ describe('ACCESSIBILITY_PROFILES', () => {
     expect(profile?.preset.cursorSize).toBe('large');
   });
 
-  it('reading-focus preset chooses dyslexia-friendly font and reading guide', () => {
+  it('reading-focus preset does NOT enable readingGuide (too aggressive)', () => {
     const profile = getProfile('reading-focus');
+    expect(profile?.preset.readingGuide).toBe(false);
     expect(profile?.preset.fontFamily).toBe('atkinson');
-    expect(profile?.preset.readingGuide).toBe(true);
     expect(profile?.preset.lineHeight).toBe('2.0');
     expect(profile?.preset.stopAnimations).toBe(true);
   });
@@ -73,16 +73,15 @@ describe('ACCESSIBILITY_PROFILES', () => {
     expect(profile?.preset.muteSounds).toBe(true);
   });
 
-  it('color-vision preset highlights links and strengthens focus', () => {
+  it('color-vision preset strengthens focus', () => {
     const profile = getProfile('color-vision');
-    expect(profile?.preset.highlightLinks).toBe(true);
     expect(profile?.preset.focusHalo).toBe(true);
+    expect(profile?.preset.focusColor).toBe('magenta');
   });
 
-  it('cognitive-load preset reduces distractions', () => {
+  it('cognitive-load preset does NOT enable readingGuide (too aggressive)', () => {
     const profile = getProfile('cognitive-load');
-    expect(profile?.preset.forceLeftAlign).toBe(true);
-    expect(profile?.preset.readingGuide).toBe(true);
+    expect(profile?.preset.readingGuide).toBe(false);
     expect(profile?.preset.stopAnimations).toBe(true);
     expect(profile?.preset.muteSounds).toBe(true);
   });

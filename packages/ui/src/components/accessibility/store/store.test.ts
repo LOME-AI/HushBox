@@ -71,7 +71,7 @@ describe('createA11yStore', () => {
       const state = store.getState();
       expect(state.contrast).toBe('high');
       expect(state.fontSize).toBe('150');
-      expect(state.invert).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.invert);
+      expect(state.saturation).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.saturation);
     });
 
     it('preserves the action handlers across updates', () => {
@@ -88,13 +88,13 @@ describe('createA11yStore', () => {
       store.getState().update({
         contrast: 'high',
         fontSize: '200',
-        invert: true,
+        magnifier: true,
       });
       store.getState().reset();
       const state = store.getState();
       expect(state.contrast).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.contrast);
       expect(state.fontSize).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.fontSize);
-      expect(state.invert).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.invert);
+      expect(state.magnifier).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.magnifier);
     });
   });
 

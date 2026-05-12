@@ -51,13 +51,38 @@ interface WindowWithCapacitor extends Window {
   Capacitor?: { isNativePlatform?: () => boolean };
 }
 
-function detectDevice(): 'webgpu' | 'wasm' {
-  if ('window' in globalThis) {
-    const cap = (globalThis.window as WindowWithCapacitor).Capacitor;
-    if (cap?.isNativePlatform?.() === true) return 'wasm';
+interface NavigatorGpu {
+  requestAdapter: () => Promise<unknown>;
+}
+
+function isCapacitorNative(): boolean {
+  if (!('window' in globalThis)) return false;
+  const cap = (globalThis.window as WindowWithCapacitor).Capacitor;
+  return cap?.isNativePlatform?.() === true;
+}
+
+function getNavigatorGpu(): NavigatorGpu | undefined {
+  if (!('navigator' in globalThis) || !('gpu' in globalThis.navigator)) return undefined;
+  return (globalThis.navigator as Navigator & { gpu?: NavigatorGpu }).gpu;
+}
+
+/**
+ * Async device detection. Returns `'webgpu'` only when an adapter is actually
+ * available — `'gpu' in navigator` alone is insufficient because some browsers
+ * (e.g. Chrome on Linux without the unsafe-webgpu flag) expose the API surface
+ * but fail to produce an adapter at runtime. Falls back to `'wasm'` on any
+ * failure or absence.
+ */
+async function detectDevice(): Promise<'webgpu' | 'wasm'> {
+  if (isCapacitorNative()) return 'wasm';
+  const gpu = getNavigatorGpu();
+  if (!gpu) return 'wasm';
+  try {
+    const adapter = await gpu.requestAdapter();
+    return adapter == null ? 'wasm' : 'webgpu';
+  } catch {
+    return 'wasm';
   }
-  if ('navigator' in globalThis && 'gpu' in globalThis.navigator) return 'webgpu';
-  return 'wasm';
 }
 
 /** Test-only export; do not consume in production code. */
@@ -90,42 +115,54 @@ class KokoroTtsService implements TtsService {
     if (this.tts !== null) return;
     if (this.loadPromise !== null) return this.loadPromise;
 
+    const progressCallback = (event: KokoroProgressEvent): void => {
+      if (onProgress === undefined) return;
+      if (typeof event.loaded === 'number' && typeof event.total === 'number') {
+        onProgress(event.loaded, event.total);
+      }
+    };
+
     const promise = (async (): Promise<void> => {
-      // Bridge kokoro-js' verbose progress callback shape to a 2-arg numeric one.
-      const progressCallback = (event: KokoroProgressEvent): void => {
-        if (onProgress === undefined) return;
-        if (typeof event.loaded === 'number' && typeof event.total === 'number') {
-          onProgress(event.loaded, event.total);
-        }
-      };
       // Dynamic import keeps kokoro-js (and its phonemizer + espeak-ng WASM)
       // out of the module-init graph. See file header for why this matters.
       const { KokoroTTS } = await import('kokoro-js');
-      // Cast: kokoro-js' from_pretrained signature uses HF Transformers types we
-      // don't import here; the runtime contract (model id, dtype, device, callback)
-      // is what we test against.
-      const instance = await (
-        KokoroTTS.from_pretrained as unknown as (
-          modelId: string,
-          options: {
-            dtype: string;
-            device: 'wasm' | 'webgpu';
-            progress_callback: (event: KokoroProgressEvent) => void;
-          }
-        ) => Promise<KokoroTtsInstance>
-      )(MODEL_ID, {
-        dtype: MODEL_DTYPE,
-        device: detectDevice(),
-        progress_callback: progressCallback,
-      });
-      this.tts = instance;
+      const preferred = await detectDevice();
+      const tryLoad = (device: 'wasm' | 'webgpu'): Promise<KokoroTtsInstance> =>
+        // Cast: kokoro-js' from_pretrained uses HF Transformers types we don't
+        // import here. The static method doesn't use `this`, so calling it
+        // directly through KokoroTTS preserves binding while the cast erases
+        // only the parameter typing.
+        (
+          KokoroTTS.from_pretrained as unknown as (
+            modelId: string,
+            options: {
+              dtype: string;
+              device: 'wasm' | 'webgpu';
+              progress_callback: (event: KokoroProgressEvent) => void;
+            }
+          ) => Promise<KokoroTtsInstance>
+        )(MODEL_ID, {
+          dtype: MODEL_DTYPE,
+          device,
+          progress_callback: progressCallback,
+        });
+
+      try {
+        this.tts = await tryLoad(preferred);
+      } catch (error) {
+        // WebGPU can advertise an adapter but still fail at load time (driver,
+        // browser flag, runtime backend). Fall back to WASM, which works
+        // everywhere onnxruntime-web is supported. Re-throw if we were already
+        // on WASM — nothing else to try.
+        if (preferred !== 'webgpu') throw error;
+        this.tts = await tryLoad('wasm');
+      }
     })();
 
     this.loadPromise = promise;
     try {
       await promise;
     } catch (error) {
-      // Reset so a subsequent load() can retry.
       this.loadPromise = null;
       throw error;
     }

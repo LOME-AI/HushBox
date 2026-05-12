@@ -140,18 +140,6 @@ describe('A11Y_INIT_SCRIPT', () => {
       expect(document.documentElement.classList.contains(className)).toBe(true);
     });
 
-    it('invert true applies a11y-invert', () => {
-      setStoredPrefs({ invert: true });
-      runInitScript();
-      expect(document.documentElement.classList.contains('a11y-invert')).toBe(true);
-    });
-
-    it('highlightLinks true applies a11y-highlight-links', () => {
-      setStoredPrefs({ highlightLinks: true });
-      runInitScript();
-      expect(document.documentElement.classList.contains('a11y-highlight-links')).toBe(true);
-    });
-
     it.each([
       ['protan', 'a11y-cb-protan'],
       ['deutan', 'a11y-cb-deutan'],
@@ -213,12 +201,6 @@ describe('A11Y_INIT_SCRIPT', () => {
       runInitScript();
       expect(document.documentElement.classList.contains('a11y-para-spacing-double')).toBe(true);
     });
-
-    it('forceLeftAlign true applies a11y-force-left', () => {
-      setStoredPrefs({ forceLeftAlign: true });
-      runInitScript();
-      expect(document.documentElement.classList.contains('a11y-force-left')).toBe(true);
-    });
   });
 
   describe('class application — pointer & focus', () => {
@@ -243,21 +225,27 @@ describe('A11Y_INIT_SCRIPT', () => {
       expect(document.documentElement.classList.contains('a11y-cursor-white')).toBe(false);
     });
 
-    it('focusHalo true applies a11y-focus-strong and a11y-focus-halo', () => {
-      setStoredPrefs({ focusHalo: true });
+    it('focusHalo true with non-off focusWidth applies a11y-focus-strong and a11y-focus-halo', () => {
+      setStoredPrefs({ focusWidth: '4', focusHalo: true });
       runInitScript();
       expect(document.documentElement.classList.contains('a11y-focus-strong')).toBe(true);
       expect(document.documentElement.classList.contains('a11y-focus-halo')).toBe(true);
     });
 
-    it('non-default focusWidth applies a11y-focus-strong', () => {
-      setStoredPrefs({ focusWidth: '4' });
+    it('does NOT apply a11y-focus-strong when focusWidth is "0" (off)', () => {
+      setStoredPrefs({ focusWidth: '0' });
       runInitScript();
-      expect(document.documentElement.classList.contains('a11y-focus-strong')).toBe(true);
+      expect(document.documentElement.classList.contains('a11y-focus-strong')).toBe(false);
     });
 
-    it('non-default focusColor applies a11y-focus-strong', () => {
-      setStoredPrefs({ focusColor: 'magenta' });
+    it('does NOT apply a11y-focus-strong at schema defaults (focusWidth is "0")', () => {
+      setStoredPrefs();
+      runInitScript();
+      expect(document.documentElement.classList.contains('a11y-focus-strong')).toBe(false);
+    });
+
+    it('non-off focusWidth applies a11y-focus-strong', () => {
+      setStoredPrefs({ focusWidth: '4' });
       runInitScript();
       expect(document.documentElement.classList.contains('a11y-focus-strong')).toBe(true);
     });
@@ -362,14 +350,11 @@ describe('A11Y_INIT_SCRIPT', () => {
       setStoredPrefs({
         contrast: 'high',
         saturation: '50',
-        invert: true,
-        highlightLinks: true,
         colorblindSimulate: 'protan',
         fontSize: '150',
         letterSpacing: '0.12',
         lineHeight: '2.0',
         paragraphSpacing: '2',
-        forceLeftAlign: true,
         fontFamily: 'lexend',
         stopAnimations: true,
         cursorSize: 'xlarge',
@@ -388,9 +373,6 @@ describe('A11Y_INIT_SCRIPT', () => {
         'a11y-focus-strong',
         'a11y-font-override',
         'a11y-font-scale-150',
-        'a11y-force-left',
-        'a11y-highlight-links',
-        'a11y-invert',
         'a11y-letter-spacing-loosest',
         'a11y-line-height-double',
         'a11y-para-spacing-double',

@@ -3,38 +3,46 @@ import * as React from 'react';
 import { SettingCard } from '../controls/setting-card';
 import { activateFont } from '../lib/font-loader';
 import { useA11yStore } from '../store';
-import { ON_OFF_OPTIONS } from './_constants';
 
+// One-directional ramp (Normal → Huge). Labels are linear so each step reads
+// as bigger than the last.
 const FONT_SIZE_OPTIONS = [
   { value: '100', label: 'Normal' },
   { value: '125', label: 'Larger' },
-  { value: '150', label: 'Large' },
+  { value: '150', label: 'Even larger' },
   { value: '175', label: 'Very large' },
   { value: '200', label: 'Huge' },
 ] as const;
 
+// One-directional: '0' is the browser default (no extra letter-spacing), so
+// Normal sits at index 0 and we ramp toward Wider. Adding negative letter-
+// spacing isn't in scope.
 const LETTER_SPACING_OPTIONS = [
-  { value: '0', label: 'Tight' },
-  { value: '0.05', label: 'Normal' },
-  { value: '0.12', label: 'Wide' },
+  { value: '0', label: 'Normal' },
+  { value: '0.05', label: 'Wide' },
+  { value: '0.12', label: 'Wider' },
 ] as const;
 
+// Two-directional for line height: '1.5' is both the schema default and the
+// natural middle. Tight ← Normal → Wide.
 const LINE_HEIGHT_OPTIONS = [
   { value: '1.0', label: 'Tight' },
   { value: '1.5', label: 'Normal' },
   { value: '2.0', label: 'Wide' },
 ] as const;
+const LINE_HEIGHT_NEUTRAL_INDEX = 1;
 
+// One-directional: Normal → Wide.
 const PARAGRAPH_SPACING_OPTIONS = [
   { value: '1', label: 'Normal' },
   { value: '2', label: 'Wide' },
 ] as const;
 
 const FONT_OPTIONS = [
-  { value: 'system', label: 'Default' },
-  { value: 'atkinson', label: 'Atkinson Hyperlegible' },
-  { value: 'lexend', label: 'Lexend' },
-  { value: 'open-dyslexic', label: 'OpenDyslexic' },
+  { value: 'system', label: 'Merriweather (default)' },
+  { value: 'atkinson', label: 'Atkinson Hyperlegible (low vision)' },
+  { value: 'lexend', label: 'Lexend (reading speed)' },
+  { value: 'open-dyslexic', label: 'OpenDyslexic (dyslexia)' },
 ] as const;
 
 export function TypographySection(): React.JSX.Element {
@@ -42,7 +50,6 @@ export function TypographySection(): React.JSX.Element {
   const letterSpacing = useA11yStore((s) => s.letterSpacing);
   const lineHeight = useA11yStore((s) => s.lineHeight);
   const paragraphSpacing = useA11yStore((s) => s.paragraphSpacing);
-  const forceLeftAlign = useA11yStore((s) => s.forceLeftAlign);
   const fontFamily = useA11yStore((s) => s.fontFamily);
   const update = useA11yStore((s) => s.update);
 
@@ -72,6 +79,7 @@ export function TypographySection(): React.JSX.Element {
           title="Space between lines"
           options={LINE_HEIGHT_OPTIONS}
           value={lineHeight}
+          neutralIndex={LINE_HEIGHT_NEUTRAL_INDEX}
           onChange={(v) => {
             update({ lineHeight: v });
           }}
@@ -85,14 +93,6 @@ export function TypographySection(): React.JSX.Element {
           }}
         />
         <SettingCard
-          title="Align text left"
-          options={ON_OFF_OPTIONS}
-          value={forceLeftAlign ? 'on' : 'off'}
-          onChange={(v) => {
-            update({ forceLeftAlign: v === 'on' });
-          }}
-        />
-        <SettingCard
           title="Font"
           options={FONT_OPTIONS}
           value={fontFamily}
@@ -102,6 +102,7 @@ export function TypographySection(): React.JSX.Element {
               void activateFont(v);
             }
           }}
+          className="sm:col-span-2"
         />
       </div>
     </section>

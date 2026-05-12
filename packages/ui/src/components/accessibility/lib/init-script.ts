@@ -33,9 +33,6 @@ export const A11Y_INIT_SCRIPT: string = String.raw`
     add('a11y-saturate-50', s.saturation === '50');
     add('a11y-saturate-150', s.saturation === '150');
 
-    add('a11y-invert', s.invert === true);
-    add('a11y-highlight-links', s.highlightLinks === true);
-
     add('a11y-cb-protan', s.colorblindSimulate === 'protan');
     add('a11y-cb-deutan', s.colorblindSimulate === 'deutan');
     add('a11y-cb-tritan', s.colorblindSimulate === 'tritan');
@@ -52,7 +49,6 @@ export const A11Y_INIT_SCRIPT: string = String.raw`
     add('a11y-line-height-tall', s.lineHeight === '1.5');
     add('a11y-line-height-double', s.lineHeight === '2.0');
     add('a11y-para-spacing-double', s.paragraphSpacing === '2');
-    add('a11y-force-left', s.forceLeftAlign === true);
 
     add('a11y-cursor-large', s.cursorSize === 'large');
     add('a11y-cursor-xlarge', s.cursorSize === 'xlarge');
@@ -60,10 +56,7 @@ export const A11Y_INIT_SCRIPT: string = String.raw`
 
     add('a11y-stop-animations', s.stopAnimations === true);
 
-    var focusStrong = (s.focusWidth && s.focusWidth !== '2')
-      || (s.focusColor && s.focusColor !== 'yellow')
-      || (s.focusHalo === true);
-    add('a11y-focus-strong', focusStrong);
+    add('a11y-focus-strong', s.focusWidth !== '0');
     add('a11y-focus-halo', s.focusHalo === true);
 
     if (s.focusWidth) html.style.setProperty('--a11y-focus-width', s.focusWidth + 'px');

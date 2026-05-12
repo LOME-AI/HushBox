@@ -54,12 +54,25 @@ describe('accessibility styles bundle', () => {
     expect(contents).toMatch(/html\.a11y-contrast-high\s*{[^}]*--muted-foreground:\s*#1a1a1a/);
   });
 
-  it('contrast.css applies saturation/invert to body, never html (avoids stacking-context bug)', () => {
+  it('contrast.css applies saturation to body, never html (avoids stacking-context bug)', () => {
     const contents = readFileSync(path.join(stylesDir, 'contrast.css'), 'utf8');
     expect(contents).toMatch(/html\.a11y-saturate-0 body\s*{\s*filter:\s*saturate\(0\)/);
     expect(contents).toMatch(/html\.a11y-saturate-50 body\s*{\s*filter:\s*saturate\(0\.5\)/);
     expect(contents).toMatch(/html\.a11y-saturate-150 body\s*{\s*filter:\s*saturate\(1\.5\)/);
-    expect(contents).toMatch(/html\.a11y-invert body\s*{\s*filter:\s*invert\(1\)/);
+  });
+
+  it('contrast.css uses !important on variable redefinitions to win against unlayered :root', () => {
+    const contents = readFileSync(path.join(stylesDir, 'contrast.css'), 'utf8');
+    expect(contents).toMatch(/--background:\s*#ffffff\s*!important/);
+    expect(contents).toMatch(/--foreground:\s*#000000\s*!important/);
+  });
+
+  it('contrast-increased darkens foreground and border (not just muted-foreground)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'contrast.css'), 'utf8');
+    // Stronger contrast must visibly change actual text/border colors, not only
+    // the rarely-rendered muted-foreground variable.
+    expect(contents).toMatch(/html\.a11y-contrast-increased\s*{[^}]*--foreground:\s*#000000/);
+    expect(contents).toMatch(/html\.a11y-contrast-increased\s*{[^}]*--border:/);
   });
 
   it('colorblind.css references the SVG filter ids injected by SvgColorblindDefs', () => {
@@ -84,20 +97,60 @@ describe('accessibility styles bundle', () => {
     expect(contents).toMatch(/scroll-behavior:\s*auto\s*!important/);
   });
 
-  it('pointer.css references SVG cursor assets for large/xlarge variants', () => {
+  it('pointer.css inlines SVG cursors via data URIs (no external asset files)', () => {
     const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
     expect(contents).toMatch(/html\.a11y-cursor-large/);
     expect(contents).toMatch(/html\.a11y-cursor-xlarge/);
-    expect(contents).toMatch(/cursors\/arrow-32-black\.svg/);
-    expect(contents).toMatch(/cursors\/arrow-48-black\.svg/);
-    expect(contents).toMatch(/cursors\/pointer-32-black\.svg/);
+    // Each cursor variant must use a data: URL — no external /cursors/*.svg references
+    expect(contents).toMatch(/cursor:\s*url\("data:image\/svg\+xml,/);
+    expect(contents).not.toMatch(/\/cursors\//);
+  });
+
+  it('pointer.css forces the custom cursor on every descendant via cursor: inherit !important', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // The universal-selector rule overrides element-level cursors (e.g. Tailwind cursor-pointer)
+    // so the big-arrow cursor actually wins when hovering over interactive UI.
+    expect(contents).toMatch(/html\.a11y-cursor-large \*[^{]*{[^}]*cursor:\s*inherit\s*!important/);
+    expect(contents).toMatch(
+      /html\.a11y-cursor-xlarge \*[^{]*{[^}]*cursor:\s*inherit\s*!important/
+    );
+  });
+
+  it('pointer.css applies a hand-cursor variant to interactive elements when a custom size is active', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // Hovering a button/card under a custom cursor should show the "clickable" cursor.
+    expect(contents).toMatch(/html\.a11y-cursor-large button/);
+    expect(contents).toMatch(/html\.a11y-cursor-large \[role="button"]/);
+    expect(contents).toMatch(/html\.a11y-cursor-large \[data-slot="setting-card"]/);
+    expect(contents).toMatch(/html\.a11y-cursor-large \.cursor-pointer/);
+  });
+
+  it('pointer.css disables pointer-events on the magnifier AND its descendants (click-through)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // pointer-events is non-inherited — must target both the lens and `*`
+    // so cloned DOM elements inside don't intercept clicks meant for the
+    // live element underneath.
+    expect(contents).toMatch(
+      /\[data-a11y-magnifier],\s*\[data-a11y-magnifier]\s*\*\s*{[^}]*pointer-events:\s*none\s*!important/
+    );
+  });
+
+  it('pointer.css hides nested magnifier lenses inside the magnifier clone (no Droste recursion)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    expect(contents).toMatch(
+      /\[data-a11y-magnifier-content]\s*\[data-a11y-magnifier]\s*{[^}]*display:\s*none\s*!important/
+    );
+  });
+
+  it('pointer.css focus rule fires on :focus AND :focus-visible (so click-focus also shows the ring)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    expect(contents).toMatch(/html\.a11y-focus-strong \*:focus\b/);
+    expect(contents).toMatch(/html\.a11y-focus-strong \*:focus-visible\b/);
   });
 
   it('pointer.css configures focus indicator width/color via CSS variables', () => {
     const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
-    expect(contents).toMatch(
-      /html\.a11y-focus-strong \*:focus-visible\s*{[^}]*outline:\s*var\(--a11y-focus-width/
-    );
+    expect(contents).toMatch(/outline:\s*var\(--a11y-focus-width/);
     expect(contents).toMatch(/var\(--a11y-focus-color/);
   });
 });

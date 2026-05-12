@@ -17,7 +17,7 @@ function classes(root: HTMLElement): string[] {
 
 describe('applySettings', () => {
   describe('defaults', () => {
-    it('adds only the schema-default classes (a11y-line-height-tall — schema default is "1.5")', () => {
+    it('adds only the schema-default classes (a11y-line-height-tall — focus ring off, line-height "1.5")', () => {
       const root = createRoot();
       applySettings(makePrefs(), root);
       expect(classes(root).filter((c) => c.startsWith('a11y-'))).toEqual(['a11y-line-height-tall']);
@@ -80,34 +80,6 @@ describe('applySettings', () => {
       const root = createRoot();
       applySettings(makePrefs({ saturation: '100' }), root);
       expect(root.classList.contains('a11y-saturate-100')).toBe(false);
-    });
-  });
-
-  describe('invert', () => {
-    it('applies a11y-invert when true', () => {
-      const root = createRoot();
-      applySettings(makePrefs({ invert: true }), root);
-      expect(root.classList.contains('a11y-invert')).toBe(true);
-    });
-
-    it('skips a11y-invert when false', () => {
-      const root = createRoot();
-      applySettings(makePrefs({ invert: false }), root);
-      expect(root.classList.contains('a11y-invert')).toBe(false);
-    });
-  });
-
-  describe('highlightLinks', () => {
-    it('applies a11y-highlight-links when true', () => {
-      const root = createRoot();
-      applySettings(makePrefs({ highlightLinks: true }), root);
-      expect(root.classList.contains('a11y-highlight-links')).toBe(true);
-    });
-
-    it('skips a11y-highlight-links when false', () => {
-      const root = createRoot();
-      applySettings(makePrefs({ highlightLinks: false }), root);
-      expect(root.classList.contains('a11y-highlight-links')).toBe(false);
     });
   });
 
@@ -210,20 +182,6 @@ describe('applySettings', () => {
     });
   });
 
-  describe('forceLeftAlign', () => {
-    it('applies a11y-force-left when true', () => {
-      const root = createRoot();
-      applySettings(makePrefs({ forceLeftAlign: true }), root);
-      expect(root.classList.contains('a11y-force-left')).toBe(true);
-    });
-
-    it('skips a11y-force-left when false', () => {
-      const root = createRoot();
-      applySettings(makePrefs({ forceLeftAlign: false }), root);
-      expect(root.classList.contains('a11y-force-left')).toBe(false);
-    });
-  });
-
   describe('fontFamily', () => {
     it.each([['atkinson'], ['open-dyslexic'], ['lexend']] as const)(
       'applies a11y-font-override when %s',
@@ -297,29 +255,20 @@ describe('applySettings', () => {
   });
 
   describe('focus indicator (width/color/halo)', () => {
-    it('applies a11y-focus-strong when focusWidth is non-default', () => {
+    it('does NOT apply a11y-focus-strong when focusWidth is "0" (default — focus ring off)', () => {
       const root = createRoot();
-      applySettings(makePrefs({ focusWidth: '4' }), root);
-      expect(root.classList.contains('a11y-focus-strong')).toBe(true);
-    });
-
-    it('applies a11y-focus-strong when focusColor is non-default', () => {
-      const root = createRoot();
-      applySettings(makePrefs({ focusColor: 'magenta' }), root);
-      expect(root.classList.contains('a11y-focus-strong')).toBe(true);
-    });
-
-    it('applies a11y-focus-strong when focusHalo is true', () => {
-      const root = createRoot();
-      applySettings(makePrefs({ focusHalo: true }), root);
-      expect(root.classList.contains('a11y-focus-strong')).toBe(true);
-    });
-
-    it('does not apply a11y-focus-strong when all focus settings are at defaults', () => {
-      const root = createRoot();
-      applySettings(makePrefs(), root);
+      applySettings(makePrefs({ focusWidth: '0' }), root);
       expect(root.classList.contains('a11y-focus-strong')).toBe(false);
     });
+
+    it.each([['2'], ['4'], ['6']] as const)(
+      'applies a11y-focus-strong when focusWidth is %s (non-off)',
+      (width) => {
+        const root = createRoot();
+        applySettings(makePrefs({ focusWidth: width }), root);
+        expect(root.classList.contains('a11y-focus-strong')).toBe(true);
+      }
+    );
 
     it('also applies a11y-focus-halo when focusHalo is true', () => {
       const root = createRoot();
@@ -373,7 +322,6 @@ describe('applySettings', () => {
       const root = createRoot();
       const prefs = makePrefs({
         contrast: 'high',
-        invert: true,
         fontSize: '150',
         cursorSize: 'large',
         cursorColor: 'white',
@@ -419,14 +367,11 @@ describe('applySettings', () => {
         makePrefs({
           contrast: 'high',
           saturation: '0',
-          invert: true,
-          highlightLinks: true,
           colorblindSimulate: 'protan',
           fontSize: '200',
           letterSpacing: '0.12',
           lineHeight: '2.0',
           paragraphSpacing: '2',
-          forceLeftAlign: true,
           fontFamily: 'atkinson',
           stopAnimations: true,
           cursorSize: 'large',
