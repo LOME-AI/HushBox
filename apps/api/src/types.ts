@@ -82,6 +82,17 @@ export interface Variables {
   callerId: string;
   conversationOwnerId: string;
   linkGuest: { linkId: string; publicKey: Uint8Array } | null;
+  /**
+   * Authenticated caller for the `/api/media/:id/download-url` route.
+   * Set by `requireMediaCaller()`. Tagged union: session users carry their
+   * `userId` (used for the conversation_members.user_id JOIN), link guests
+   * carry their `linkId` (used for the conversation_members.link_id JOIN).
+   * Both kinds carry the public key keyed in `epoch_members` for the
+   * epoch-gating check.
+   */
+  mediaCaller:
+    | { kind: 'user'; userId: string; publicKey: Uint8Array }
+    | { kind: 'link'; linkId: string; publicKey: Uint8Array };
   session: SessionData | null;
   sessionData: SessionData | null;
 }

@@ -6,6 +6,7 @@ import {
   users,
   messages,
   conversations,
+  conversationForks,
   epochs,
   type Database,
 } from '@hushbox/db';
@@ -74,6 +75,7 @@ describe('applyTreeAction', () => {
         .where(inArray(conversations.userId, createdUserIds));
       const ids = convIds.map((c) => c.id);
       if (ids.length > 0) {
+        await db.delete(conversationForks).where(inArray(conversationForks.conversationId, ids));
         await db.delete(messages).where(inArray(messages.conversationId, ids));
         await db.delete(epochs).where(inArray(epochs.conversationId, ids));
       }
@@ -267,6 +269,100 @@ describe('applyTreeAction', () => {
       const ids = remaining.map((r) => r.id);
       expect(ids).toContain(userMsg.id);
       expect(ids).not.toContain(aiMsg.id);
+    });
+
+    it('returns forkTipExpectedMessageId=null when forkId is passed and the cascade nulls the tip', async () => {
+      // Regression: deleting a fork's tip message used to cascade `ON DELETE
+      // SET NULL` on conversation_forks.tip_message_id WITHIN the regenerate
+      // transaction, then the saveChatTurn updateForkTip call would compare
+      // against the OLD tip id and find zero rows, throwing
+      // ForkTipConflictError. The fix locks the fork row up front (SELECT
+      // FOR UPDATE), validates the expected tip, then returns null so the
+      // downstream optimistic UPDATE matches the cascaded NULL.
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const userMsg = await insertMsg(db, {
+        conversationId: setup.conversation.id,
+        sequenceNumber: 1,
+        senderId: setup.user.id,
+        parentMessageId: null,
+      });
+      const aiMsg = await insertMsg(db, {
+        conversationId: setup.conversation.id,
+        sequenceNumber: 2,
+        senderType: 'ai',
+        senderId: null,
+        parentMessageId: userMsg.id,
+      });
+
+      const [fork] = await db
+        .insert(conversationForks)
+        .values({ conversationId: setup.conversation.id, name: 'Main', tipMessageId: aiMsg.id })
+        .returning({ id: conversationForks.id });
+      if (!fork) throw new Error('fork insert failed');
+
+      const result = await db.transaction(async (tx) =>
+        applyTreeAction(tx, setup.conversation.id, {
+          kind: 'regenerate',
+          anchorUserMessageId: userMsg.id,
+          forkId: fork.id,
+          forkTipMessageId: aiMsg.id,
+        })
+      );
+
+      expect(result.forkTipExpectedMessageId).toBeNull();
+
+      // The fork tip should be NULL post-cascade (the AI message we pointed
+      // to was deleted as part of the regenerate).
+      const [forkAfter] = await db
+        .select({ tipMessageId: conversationForks.tipMessageId })
+        .from(conversationForks)
+        .where(eq(conversationForks.id, fork.id));
+      expect(forkAfter?.tipMessageId).toBeNull();
+    });
+
+    it('throws ForkTipConflictError when forkId is passed but the observed tip diverges from the expected tip', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const userMsg = await insertMsg(db, {
+        conversationId: setup.conversation.id,
+        sequenceNumber: 1,
+        senderId: setup.user.id,
+        parentMessageId: null,
+      });
+      const oldTip = await insertMsg(db, {
+        conversationId: setup.conversation.id,
+        sequenceNumber: 2,
+        senderType: 'ai',
+        senderId: null,
+        parentMessageId: userMsg.id,
+      });
+      const newTip = await insertMsg(db, {
+        conversationId: setup.conversation.id,
+        sequenceNumber: 3,
+        senderType: 'ai',
+        senderId: null,
+        parentMessageId: userMsg.id,
+      });
+
+      const [fork] = await db
+        .insert(conversationForks)
+        .values({ conversationId: setup.conversation.id, name: 'Main', tipMessageId: newTip.id })
+        .returning({ id: conversationForks.id });
+      if (!fork) throw new Error('fork insert failed');
+
+      await expect(
+        db.transaction(async (tx) =>
+          applyTreeAction(tx, setup.conversation.id, {
+            kind: 'regenerate',
+            anchorUserMessageId: userMsg.id,
+            forkId: fork.id,
+            forkTipMessageId: oldTip.id, // stale snapshot
+          })
+        )
+      ).rejects.toMatchObject({ code: 'FORK_TIP_CONFLICT' });
     });
 
     it('is a no-op when the anchor has no descendants', async () => {

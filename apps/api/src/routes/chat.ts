@@ -1006,17 +1006,25 @@ export const chatRoute = new Hono<AppEnv>()
       // 'retry' and 'regenerate' map to the same backend kind — both keep the
       // anchor user message and swap the AI reply. 'edit' replaces the user
       // message too.
+      // Passing `forkId` makes applyTreeAction lock the fork row up-front
+      // (SELECT FOR UPDATE) and validate the expected tip atomically. Without
+      // this, our own delete cascade would null the tip mid-transaction and
+      // the downstream optimistic UPDATE in updateForkTip would mismatch and
+      // throw ForkTipConflictError on every regenerate that targets a fork
+      // tip message.
       const treeAction: TreeAction =
         action === 'edit'
           ? {
               kind: 'edit',
               anchorUserMessageId: targetMessageId,
               newUserMessage: userMessage,
+              ...(forkId !== undefined && { forkId }),
               ...(forkTipMessageId !== undefined && { forkTipMessageId }),
             }
           : {
               kind: 'regenerate',
               anchorUserMessageId: targetMessageId,
+              ...(forkId !== undefined && { forkId }),
               ...(forkTipMessageId !== undefined && { forkTipMessageId }),
             };
 

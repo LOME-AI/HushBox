@@ -300,6 +300,93 @@ describe('mediaRoute GET /:contentItemId/download-url', () => {
     expect(res.status).toBe(200);
   });
 
+  it('returns 200 for a link guest who is an active member with epoch access', async () => {
+    // Link guests authenticate via the `x-link-public-key` header. The route
+    // must accept this identity in addition to session users, and join the
+    // authorization query on `conversationMembers.linkId` + the link's
+    // publicKey in `epochMembers`. Mirrors the access path used by
+    // /api/conversations/:id for link-guest reads.
+    const LINK_ID = 'link-001';
+    const LINK_PUBLIC_KEY_B64 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'; // 32 bytes base64
+    /* eslint-disable unicorn/no-thenable */
+    const createQueryChain = (rows: unknown[]): Record<string, unknown> => ({
+      from: () => createQueryChain(rows),
+      innerJoin: () => createQueryChain(rows),
+      leftJoin: () => createQueryChain(rows),
+      where: () => createQueryChain(rows),
+      limit: () => ({
+        then: (resolve: (v: unknown[]) => unknown) => Promise.resolve(resolve(rows)),
+      }),
+      then: (resolve: (v: unknown[]) => unknown) => Promise.resolve(resolve(rows)),
+    });
+    /* eslint-enable unicorn/no-thenable */
+
+    // resolveLinkGuest queries sharedLinks then conversationMembers — we satisfy
+    // both with a select() that returns rows shaped for whichever caller is
+    // asking. The media query itself comes last and gets the row config.
+    let selectCallCount = 0;
+    const linkRow = {
+      id: LINK_ID,
+      conversationId: TEST_CONVERSATION_ID,
+      displayName: 'Guest 1',
+      revokedAt: null,
+    };
+    const memberRow = {
+      id: 'cm-link-001',
+      privilege: 'read',
+      visibleFromEpoch: 1,
+    };
+    const mediaRow = {
+      id: TEST_CONTENT_ITEM_ID,
+      contentType: 'image' as const,
+      storageKey: TEST_STORAGE_KEY,
+      conversationId: TEST_CONVERSATION_ID,
+    };
+    const db = {
+      select: () => {
+        selectCallCount += 1;
+        // Order: 1) shared link lookup, 2) link-member lookup, 3) media query
+        if (selectCallCount === 1) return createQueryChain([linkRow]);
+        if (selectCallCount === 2) return createQueryChain([memberRow]);
+        return createQueryChain([mediaRow]);
+      },
+    };
+
+    const storage = createFakeStorage();
+    const app = new Hono<AppEnv>();
+    app.use('*', async (c, next) => {
+      c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+      c.set('user', null);
+      c.set('session', null);
+      c.set('sessionData', null);
+      c.set('db', db as unknown as AppEnv['Variables']['db']);
+      c.set('mediaStorage', storage as unknown as MediaStorage);
+      c.set('redis', createNoopRedis() as unknown as AppEnv['Variables']['redis']);
+      await next();
+    });
+    app.route('/', mediaRoute);
+
+    const res = await app.request(`/${TEST_CONTENT_ITEM_ID}/download-url`, {
+      headers: { 'x-link-public-key': LINK_PUBLIC_KEY_B64 },
+    });
+
+    expect(res.status).toBe(200);
+    const body = await jsonBody<{ downloadUrl: string; expiresAt: string }>(res);
+    expect(body.downloadUrl).toContain(TEST_STORAGE_KEY);
+    expect(storage.mintedFor).toEqual([TEST_STORAGE_KEY]);
+  });
+
+  it('returns 401 for a link guest whose public key does not match any active link', async () => {
+    const LINK_PUBLIC_KEY_B64 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const { app } = createMediaTestApp({ user: null, dbConfig: { row: null } });
+
+    const res = await app.request(`/${TEST_CONTENT_ITEM_ID}/download-url`, {
+      headers: { 'x-link-public-key': LINK_PUBLIC_KEY_B64 },
+    });
+
+    expect(res.status).toBe(401);
+  });
+
   it('returns 500 with STORAGE_READ_FAILED when minting fails', async () => {
     const storage = createFakeStorage({ fail: true });
     const { app } = createMediaTestApp({

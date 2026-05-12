@@ -49,7 +49,7 @@ import {
 import { usePendingChatStore } from '@/stores/pending-chat';
 import { useModelStore, getPrimaryModel } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
-import { useChatErrorStore, createChatError } from '@/stores/chat-error';
+import { useChatErrorStore, createChatError, MAIN_FORK_KEY } from '@/stores/chat-error';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { billingKeys } from '@/hooks/billing';
 import {
@@ -438,10 +438,12 @@ function computeInputDisabled(
 function handleRegenerationError(
   error: unknown,
   failedContent: string,
+  forkKey: string,
   promptInputRef: React.RefObject<PromptInputRef | null>
 ): void {
   if (error instanceof BillingMismatchError || error instanceof BalanceReservedError) {
     useChatErrorStore.getState().setError(
+      forkKey,
       createChatError({
         content: friendlyErrorMessage(error.code),
         retryable: true,
@@ -450,6 +452,7 @@ function handleRegenerationError(
     );
   } else if (error instanceof ContextCapacityError) {
     useChatErrorStore.getState().setError(
+      forkKey,
       createChatError({
         content: friendlyErrorMessage(error.code),
         retryable: false,
@@ -459,6 +462,7 @@ function handleRegenerationError(
   } else {
     console.error('Regeneration failed:', error);
     useChatErrorStore.getState().setError(
+      forkKey,
       createChatError({
         content: friendlyErrorMessage(ERROR_CODE_CHAT_STREAM_FAILED),
         retryable: false,
@@ -522,7 +526,11 @@ export function useAuthenticatedChat({
   const audioConfig = useModelStore((state) => state.audioConfig);
   const { webSearchEnabled } = useSearchStore();
   const { isStreaming, startStream, startRegenerateStream } = useChatStream('authenticated');
-  const chatError = useChatErrorStore((s) => s.error);
+  // Scope the error subscription to the currently-active fork (or 'main' for
+  // linear / no-fork conversations). Switching forks reads a different slot,
+  // so an error that occurred on Main no longer leaks onto Fork 1's view.
+  const errorForkKey = activeForkId ?? MAIN_FORK_KEY;
+  const chatError = useChatErrorStore((s) => s.errorsByFork[errorForkKey] ?? null);
   const createConversation = useCreateConversation();
   const createConversationRef = React.useRef(createConversation.mutateAsync);
   React.useEffect(() => {
@@ -565,12 +573,14 @@ export function useAuthenticatedChat({
     resetOptimisticMessages();
     setLocalMessages([]);
     setLocalTitle(null);
-    useChatErrorStore.getState().clearError();
+    // Conversation switch — drop every fork's error since none of them apply
+    // to the new conversation.
+    useChatErrorStore.getState().clearAll();
   }, [isCreateMode, routeConversationId, realConversationId, resetOptimisticMessages]);
 
   React.useEffect(() => {
     return () => {
-      useChatErrorStore.getState().clearError();
+      useChatErrorStore.getState().clearAll();
     };
   }, []);
 
@@ -606,6 +616,51 @@ export function useAuthenticatedChat({
         )
       );
     }
+  }, []);
+
+  /**
+   * Stage events fire on the new-chat flow when a model has pre-inference
+   * stages (e.g. Smart Model's classifier). Without these handlers the
+   * classifier `stage:start` reaches the SSE parser but never updates UI
+   * state — the "Choosing the best model…" indicator stays hidden until
+   * `stage:done` arrives, by which point inference is already streaming.
+   * The handlers mutate `localMessages` (not optimistic) because the
+   * new-chat flow renders from `localMessages` during create-mode.
+   */
+  const handleStreamStageStart = React.useCallback((data: StageStartPayload) => {
+    setLocalMessages((previous) =>
+      previous.map((m) =>
+        m.id === data.assistantMessageId ? { ...m, classifyingStageId: data.stageId } : m
+      )
+    );
+  }, []);
+
+  const handleStreamStageDone = React.useCallback((data: StageDoneEventData) => {
+    setLocalMessages((previous) =>
+      previous.map((m) => {
+        if (m.id !== data.assistantMessageId) return m;
+        const next: Message = {
+          ...m,
+          classifyingStageId: undefined,
+          modelName: data.payload.resolvedModelId,
+          resolvedModelName: data.payload.resolvedModelName,
+        };
+        if ((data.payload.stageId as string) === 'smart-model') {
+          next.isSmartModel = true;
+        }
+        return next;
+      })
+    );
+  }, []);
+
+  const handleStreamStageError = React.useCallback((data: StageErrorPayload) => {
+    setLocalMessages((previous) =>
+      previous.map((m) =>
+        m.id === data.assistantMessageId
+          ? { ...m, classifyingStageId: undefined, errorCode: data.errorCode, content: '' }
+          : m
+      )
+    );
   }, []);
 
   const optimisticModelMapRef = React.useRef(new Map<string, string>());
@@ -809,6 +864,9 @@ export function useAuthenticatedChat({
             onStart: handleStreamStart,
             onToken: handleStreamToken,
             onModelError: handleStreamModelError,
+            onStageStart: handleStreamStageStart,
+            onStageDone: handleStreamStageDone,
+            onStageError: handleStreamStageError,
           }
         );
 
@@ -855,7 +913,9 @@ export function useAuthenticatedChat({
         console.error('Stream failed:', streamError);
         state.stopStreaming();
         useStreamingActivityStore.getState().endStream();
+        // New-chat flow has no fork yet — error belongs on the main slot.
         useChatErrorStore.getState().setError(
+          MAIN_FORK_KEY,
           createChatError({
             content: friendlyErrorMessage(ERROR_CODE_CHAT_STREAM_FAILED),
             retryable: false,
@@ -876,6 +936,9 @@ export function useAuthenticatedChat({
     handleStreamStart,
     handleStreamToken,
     handleStreamModelError,
+    handleStreamStageStart,
+    handleStreamStageDone,
+    handleStreamStageError,
     selectedModels,
     webSearchEnabled,
     customInstructions,
@@ -895,7 +958,9 @@ export function useAuthenticatedChat({
       return null;
     }
 
-    useChatErrorStore.getState().clearError();
+    // User typed a new message on the active fork — clear that fork's
+    // previous error tile (if any) before sending.
+    useChatErrorStore.getState().clearError(errorForkKey);
 
     state.clearInput();
     if (!isMobile) {
@@ -903,7 +968,7 @@ export function useAuthenticatedChat({
     }
 
     return { content, convId: realConversationId };
-  }, [state, realConversationId, isMobile, promptInputRef]);
+  }, [state, realConversationId, errorForkKey, isMobile, promptInputRef]);
 
   const handleSend = React.useCallback(
     (fundingSource: FundingSource) => {
@@ -962,7 +1027,7 @@ export function useAuthenticatedChat({
           if (error instanceof BillingMismatchError) {
             await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
           }
-          handleRegenerationError(error, content, promptInputRef);
+          handleRegenerationError(error, content, errorForkKey, promptInputRef);
 
           removeOptimisticMessage(optimisticUserMessage.id);
           state.stopStreaming();
@@ -978,6 +1043,7 @@ export function useAuthenticatedChat({
       forkFilteredDecrypted,
       optimisticMessages,
       activeForkId,
+      errorForkKey,
       state,
       realConversationId,
       promptInputRef,
@@ -1031,7 +1097,9 @@ export function useAuthenticatedChat({
     (targetMessageId: string, action: RegenerateAction, editedContent?: string) => {
       if (!realConversationId) return;
 
-      useChatErrorStore.getState().clearError();
+      // Regenerating on this fork — clear any prior error tile for this fork
+      // before kicking off the new request.
+      useChatErrorStore.getState().clearError(errorForkKey);
 
       // Build messagesForInference from fork-filtered decrypted messages up to the target
       const allMsgs = [...forkFilteredDecrypted, ...optimisticMessages];
@@ -1140,7 +1208,7 @@ export function useAuthenticatedChat({
           if (error instanceof BillingMismatchError) {
             await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
           }
-          handleRegenerationError(error, userContent, promptInputRef);
+          handleRegenerationError(error, userContent, errorForkKey, promptInputRef);
 
           await queryClient.invalidateQueries({
             queryKey: chatKeys.conversation(realConversationId),
@@ -1155,6 +1223,7 @@ export function useAuthenticatedChat({
     [
       realConversationId,
       activeForkId,
+      errorForkKey,
       forkFilteredDecrypted,
       optimisticMessages,
       selectedModels,

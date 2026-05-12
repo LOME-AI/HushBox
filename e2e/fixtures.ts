@@ -5,6 +5,8 @@ import {
   type Browser,
   type BrowserContext,
   type Page,
+  type Request,
+  type Response,
   type APIRequestContext,
   type TestInfo,
 } from '@playwright/test';
@@ -29,6 +31,51 @@ function attachConsoleErrors(page: Page): { errors: string[]; cleanup: () => voi
     cleanup: () => {
       page.off('console', onConsole);
       page.off('pageerror', onPageError);
+    },
+  };
+}
+
+const API_ERROR_BODY_CAP = 2000;
+
+/**
+ * Capture /api/* responses with status >= 400 and network-level request
+ * failures. Body fetch is wrapped in try/catch because streaming responses
+ * (SSE) can't be re-read after the fact and `response.text()` rejects.
+ * Mirror of `attachConsoleErrors` — same lifecycle, same attach pattern on
+ * test failure, surfaced as `api-errors-<label>` test attachment.
+ */
+function attachApiErrors(page: Page): { errors: string[]; cleanup: () => void } {
+  const errors: string[] = [];
+  const onResponse = (response: Response): void => {
+    const url = response.url();
+    if (!url.includes('/api/')) return;
+    const status = response.status();
+    if (status < 400) return;
+    const time = new Date().toISOString();
+    const method = response.request().method();
+    void response
+      .text()
+      .catch(() => '')
+      .then((body) => {
+        const trimmed = body ? `\n  body: ${body.slice(0, API_ERROR_BODY_CAP)}` : '';
+        errors.push(`${time} ${String(status)} ${response.statusText()} ${method} ${url}${trimmed}`);
+      });
+  };
+  const onRequestFailed = (request: Request): void => {
+    const url = request.url();
+    if (!url.includes('/api/')) return;
+    const failure = request.failure();
+    errors.push(
+      `${new Date().toISOString()} NETWORK_FAILED ${request.method()} ${url} — ${failure?.errorText ?? 'unknown'}`
+    );
+  };
+  page.on('response', onResponse);
+  page.on('requestfailed', onRequestFailed);
+  return {
+    errors,
+    cleanup: () => {
+      page.off('response', onResponse);
+      page.off('requestfailed', onRequestFailed);
     },
   };
 }
@@ -58,6 +105,7 @@ function createPageFixture(
     });
     const page = await context.newPage();
     const { errors, cleanup } = attachConsoleErrors(page);
+    const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
     await use(page);
 
     const failed = testInfo.status !== testInfo.expectedStatus;
@@ -65,6 +113,13 @@ function createPageFixture(
     if (failed && errors.length > 0) {
       await testInfo.attach(`console-errors-${label}`, {
         body: errors.join('\n'),
+        contentType: 'text/plain',
+      });
+    }
+
+    if (failed && apiErrors.length > 0) {
+      await testInfo.attach(`api-errors-${label}`, {
+        body: apiErrors.join('\n\n'),
         contentType: 'text/plain',
       });
     }
@@ -80,6 +135,7 @@ function createPageFixture(
     }
 
     cleanup();
+    cleanupApi();
     await context.close();
 
     if (failed && isRetry && existsSync(harPath)) {
@@ -155,7 +211,9 @@ async function teardownPage(
     context: BrowserContext;
     label: string;
     errors: string[];
+    apiErrors: string[];
     cleanup: () => void;
+    cleanupApi: () => void;
     harPath: string;
   },
   failed: boolean,
@@ -164,6 +222,12 @@ async function teardownPage(
   if (failed && entry.errors.length > 0) {
     await testInfo.attach(`console-errors-${entry.label}`, {
       body: entry.errors.join('\n'),
+      contentType: 'text/plain',
+    });
+  }
+  if (failed && entry.apiErrors.length > 0) {
+    await testInfo.attach(`api-errors-${entry.label}`, {
+      body: entry.apiErrors.join('\n\n'),
       contentType: 'text/plain',
     });
   }
@@ -180,6 +244,7 @@ async function teardownPage(
     }
   }
   entry.cleanup();
+  entry.cleanupApi();
   await entry.context.close();
   if (failed && existsSync(entry.harPath)) {
     await testInfo.attach(`har-${entry.label}`, {
@@ -211,7 +276,9 @@ export const test = base.extend<CustomFixtures>({
       context: BrowserContext;
       label: string;
       errors: string[];
+      apiErrors: string[];
       cleanup: () => void;
+      cleanupApi: () => void;
       harPath: string;
     }[] = [];
     let counter = 0;
@@ -230,7 +297,8 @@ export const test = base.extend<CustomFixtures>({
       });
       const page = await context.newPage();
       const { errors, cleanup } = attachConsoleErrors(page);
-      pages.push({ page, context, label, errors, cleanup, harPath });
+      const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
+      pages.push({ page, context, label, errors, apiErrors, cleanup, cleanupApi, harPath });
       return page;
     };
 
@@ -448,12 +516,19 @@ export const test = base.extend<CustomFixtures>({
     });
     const page = await context.newPage();
     const { errors, cleanup } = attachConsoleErrors(page);
+    const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
     await use(page);
 
     const failed = testInfo.status !== testInfo.expectedStatus;
     if (failed && errors.length > 0) {
       await testInfo.attach(`console-errors-lowBalancePage`, {
         body: errors.join('\n'),
+        contentType: 'text/plain',
+      });
+    }
+    if (failed && apiErrors.length > 0) {
+      await testInfo.attach(`api-errors-lowBalancePage`, {
+        body: apiErrors.join('\n\n'),
         contentType: 'text/plain',
       });
     }
@@ -471,6 +546,7 @@ export const test = base.extend<CustomFixtures>({
     }
 
     cleanup();
+    cleanupApi();
     await context.close();
 
     if (failed && isRetry && existsSync(harPath)) {

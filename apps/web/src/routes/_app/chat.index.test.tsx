@@ -50,12 +50,15 @@ vi.mock('@/lib/api', () => ({
 }));
 
 const mockClearError = vi.fn();
+const mockClearAll = vi.fn();
 vi.mock('@/stores/chat-error', () => ({
+  MAIN_FORK_KEY: 'main',
   useChatErrorStore: Object.assign(() => null, {
     getState: () => ({
-      error: null,
+      errorsByFork: {},
       setError: vi.fn(),
       clearError: mockClearError,
+      clearAll: mockClearAll,
     }),
   }),
 }));
@@ -307,7 +310,7 @@ describe('ChatIndex', () => {
 
       render(<ChatIndex />, { wrapper: createWrapper() });
 
-      expect(mockClearError).toHaveBeenCalled();
+      expect(mockClearAll).toHaveBeenCalled();
     });
 
     it('clears chat error when sending a message', async () => {
@@ -323,14 +326,14 @@ describe('ChatIndex', () => {
 
       render(<ChatIndex />, { wrapper: createWrapper() });
 
-      mockClearError.mockClear();
+      mockClearAll.mockClear();
 
       const textarea = screen.getByRole('textbox');
       const userEventModule = await import('@testing-library/user-event');
       const user = userEventModule.default;
       await user.setup().type(textarea, 'Hello AI!{enter}');
 
-      expect(mockClearError).toHaveBeenCalled();
+      expect(mockClearAll).toHaveBeenCalled();
     });
   });
 });

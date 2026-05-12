@@ -162,15 +162,18 @@ vi.mock('@/stores/ui-modals', () => ({
 
 const mockSetError = vi.fn();
 const mockClearError = vi.fn();
-const mockChatErrorState = {
-  error: null as null | {
-    id: string;
-    content: string;
-    retryable: boolean;
-    failedUserMessage: { id: string; content: string };
-  },
+const mockClearAll = vi.fn();
+type MockChatError = {
+  id: string;
+  content: string;
+  retryable: boolean;
+  failedUserMessage: { id: string; content: string };
+};
+const mockChatErrorState: { errorsByFork: Record<string, MockChatError | null> } = {
+  errorsByFork: {},
 };
 vi.mock('@/stores/chat-error', () => ({
+  MAIN_FORK_KEY: 'main',
   useChatErrorStore: Object.assign(
     (selector?: (state: typeof mockChatErrorState) => unknown) =>
       selector ? selector(mockChatErrorState) : mockChatErrorState,
@@ -179,6 +182,7 @@ vi.mock('@/stores/chat-error', () => ({
         ...mockChatErrorState,
         setError: mockSetError,
         clearError: mockClearError,
+        clearAll: mockClearAll,
       }),
     }
   ),
@@ -275,7 +279,7 @@ describe('TrialChatPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     streamingMessageIdsRef.current = new Set<string>();
-    mockChatErrorState.error = null;
+    mockChatErrorState.errorsByFork = {};
     capturedOnRegenerate = undefined;
     setupMocks();
   });
@@ -476,6 +480,7 @@ describe('TrialChatPage', () => {
       });
 
       expect(mockSetError).toHaveBeenCalledWith(
+        'main',
         expect.objectContaining({
           retryable: false,
         })
@@ -498,6 +503,7 @@ describe('TrialChatPage', () => {
       });
 
       expect(mockSetError).toHaveBeenCalledWith(
+        'main',
         expect.objectContaining({
           retryable: false,
         })
@@ -835,6 +841,7 @@ describe('TrialChatPage', () => {
       });
 
       expect(mockSetError).toHaveBeenCalledWith(
+        'main',
         expect.objectContaining({
           retryable: false,
         })
@@ -864,6 +871,7 @@ describe('TrialChatPage', () => {
       });
 
       expect(mockSetError).toHaveBeenCalledWith(
+        'main',
         expect.objectContaining({
           retryable: false,
         })
@@ -894,11 +902,13 @@ describe('TrialChatPage', () => {
 
   describe('error message in messages list', () => {
     it('appends error message to messages when chat error exists', () => {
-      mockChatErrorState.error = {
-        id: 'error-id',
-        content: 'You have used all 5 free messages today.',
-        retryable: false,
-        failedUserMessage: { id: 'failed-msg-id', content: 'Hello' },
+      mockChatErrorState.errorsByFork = {
+        main: {
+          id: 'error-id',
+          content: 'You have used all 5 free messages today.',
+          retryable: false,
+          failedUserMessage: { id: 'failed-msg-id', content: 'Hello' },
+        },
       };
 
       setupMocks({
@@ -942,7 +952,7 @@ describe('TrialChatPage', () => {
   });
 
   describe('error cleanup', () => {
-    it('clears chat error on mount', () => {
+    it('clears all fork errors on mount', () => {
       setupMocks({
         pendingMessage: 'Hello',
         messages: [
@@ -952,10 +962,10 @@ describe('TrialChatPage', () => {
 
       render(<TrialChatPage />);
 
-      expect(mockClearError).toHaveBeenCalled();
+      expect(mockClearAll).toHaveBeenCalled();
     });
 
-    it('clears chat error on unmount', () => {
+    it('clears all fork errors on unmount', () => {
       setupMocks({
         messages: [
           { id: '1', conversationId: 'trial', role: 'user', content: 'Hi', createdAt: '' },
@@ -964,10 +974,10 @@ describe('TrialChatPage', () => {
 
       const { unmount } = render(<TrialChatPage />);
 
-      mockClearError.mockClear();
+      mockClearAll.mockClear();
       unmount();
 
-      expect(mockClearError).toHaveBeenCalled();
+      expect(mockClearAll).toHaveBeenCalled();
     });
 
     it('clears chat error when submitting a message', async () => {
@@ -1161,6 +1171,7 @@ describe('TrialChatPage', () => {
       });
 
       expect(mockSetError).toHaveBeenCalledWith(
+        'main',
         expect.objectContaining({
           retryable: false,
         })
@@ -1190,6 +1201,7 @@ describe('TrialChatPage', () => {
       });
 
       expect(mockSetError).toHaveBeenCalledWith(
+        'main',
         expect.objectContaining({
           retryable: false,
         })

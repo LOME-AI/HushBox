@@ -433,6 +433,7 @@ describe('e2e-debug', () => {
       expect(result.screenshot).toBeUndefined();
       expect(result.video).toBeUndefined();
       expect(result.consoleErrors).toBeUndefined();
+      expect(result.apiErrors).toBeUndefined();
       expect(result.pageSnapshot).toBeUndefined();
       expect(result.harFiles).toEqual([]);
     });
@@ -459,6 +460,64 @@ describe('e2e-debug', () => {
       const result = extractArtifactPaths(test);
 
       expect(result.consoleErrors).toBe('TypeError: foo is not a function');
+    });
+
+    it('extracts labeled api-errors body from attachments', () => {
+      const test: FlattenedTestResult = {
+        title: 'test',
+        file: 'test.spec.ts',
+        projectName: 'chromium',
+        status: 'failed',
+        retry: 0,
+        duration: 1000,
+        errors: [],
+        steps: [],
+        attachments: [
+          {
+            name: 'api-errors-authenticatedPage',
+            body: '2026-05-12T00:00:00Z 500 Internal Server Error POST /api/chat/abc/stream\n  body: {"code":"BILLING_ERROR"}',
+            contentType: 'text/plain',
+          },
+        ],
+      };
+
+      const result = extractArtifactPaths(test);
+
+      expect(result.apiErrors).toBe(
+        '2026-05-12T00:00:00Z 500 Internal Server Error POST /api/chat/abc/stream\n  body: {"code":"BILLING_ERROR"}'
+      );
+    });
+
+    it('concatenates multiple labeled api-errors bodies with headers', () => {
+      const test: FlattenedTestResult = {
+        title: 'test',
+        file: 'test.spec.ts',
+        projectName: 'chromium',
+        status: 'failed',
+        retry: 0,
+        duration: 1000,
+        errors: [],
+        steps: [],
+        attachments: [
+          {
+            name: 'api-errors-unauthenticatedPage-1',
+            body: '500 GET /api/conversations/xyz',
+            contentType: 'text/plain',
+          },
+          {
+            name: 'api-errors-authenticatedPage',
+            body: '404 POST /api/links/abc',
+            contentType: 'text/plain',
+          },
+        ],
+      };
+
+      const result = extractArtifactPaths(test);
+
+      expect(result.apiErrors).toContain('--- unauthenticatedPage-1 ---');
+      expect(result.apiErrors).toContain('--- authenticatedPage ---');
+      expect(result.apiErrors).toContain('500 GET /api/conversations/xyz');
+      expect(result.apiErrors).toContain('404 POST /api/links/abc');
     });
 
     it('concatenates multiple labeled page-snapshot bodies with headers', () => {
@@ -710,6 +769,7 @@ describe('e2e-debug', () => {
           screenshot: 'test-results/broken-webkit/screenshot.png',
           video: undefined,
           consoleErrors: undefined,
+          apiErrors: undefined,
           pageSnapshot: undefined,
           harFiles: [],
         },
@@ -940,6 +1000,7 @@ describe('e2e-debug', () => {
               screenshot: '/abs/path/screenshot.png',
               video: undefined,
               consoleErrors: undefined,
+              apiErrors: undefined,
               pageSnapshot: undefined,
               harFiles: [],
             },
@@ -977,6 +1038,7 @@ describe('e2e-debug', () => {
               screenshot: undefined,
               video: undefined,
               consoleErrors: undefined,
+              apiErrors: undefined,
               pageSnapshot: undefined,
               harFiles: [],
             },
@@ -993,6 +1055,7 @@ describe('e2e-debug', () => {
               screenshot: undefined,
               video: undefined,
               consoleErrors: undefined,
+              apiErrors: undefined,
               pageSnapshot: undefined,
               harFiles: [],
             },
@@ -1009,6 +1072,7 @@ describe('e2e-debug', () => {
               screenshot: undefined,
               video: undefined,
               consoleErrors: undefined,
+              apiErrors: undefined,
               pageSnapshot: undefined,
               harFiles: [],
             },
@@ -1045,6 +1109,7 @@ describe('e2e-debug', () => {
               screenshot: 'shot.png',
               video: undefined,
               consoleErrors: 'TypeError',
+              apiErrors: undefined,
               pageSnapshot: undefined,
               harFiles: [],
             },
@@ -1061,6 +1126,102 @@ describe('e2e-debug', () => {
       // Per-test artifact links point at flaky/, not failed/.
       expect(md).toContain('flaky/e2e-chat-chat-spec-ts-firefox-flaky-test');
       expect(md).not.toContain('failed/e2e-chat-chat-spec-ts-firefox-flaky-test');
+    });
+
+    it('renders API Errors line when apiErrors present', () => {
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'broken test',
+            file: 'e2e/test.spec.ts',
+            project: 'chromium',
+            error: 'test error',
+            duration: 1000,
+            steps: [],
+            artifacts: {
+              trace: undefined,
+              screenshot: undefined,
+              video: undefined,
+              consoleErrors: undefined,
+              apiErrors: '500 POST /api/chat/abc/stream',
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
+        ],
+      };
+
+      const md = generateMarkdownReport(report);
+
+      expect(md).toContain('**API Errors:** See `failed/');
+      expect(md).toContain('/api-errors.txt`');
+    });
+
+    it('omits API Errors line when apiErrors absent', () => {
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'broken test',
+            file: 'e2e/test.spec.ts',
+            project: 'chromium',
+            error: 'test error',
+            duration: 1000,
+            steps: [],
+            artifacts: {
+              trace: undefined,
+              screenshot: undefined,
+              video: undefined,
+              consoleErrors: 'TypeError',
+              apiErrors: undefined,
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
+        ],
+      };
+
+      const md = generateMarkdownReport(report);
+
+      expect(md).not.toContain('**API Errors:**');
+    });
+
+    it('renders API Errors line under flaky/ for flaky tests', () => {
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 1, failed: 0, duration: 1000 },
+        passed: [],
+        flaky: [
+          {
+            title: 'flaky test',
+            file: 'e2e/chat/chat.spec.ts',
+            project: 'firefox',
+            attempts: 2,
+            error: 'race',
+            duration: 1000,
+            steps: [],
+            artifacts: {
+              trace: undefined,
+              screenshot: undefined,
+              video: undefined,
+              consoleErrors: undefined,
+              apiErrors: '429 POST /api/chat/xyz/stream',
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
+        ],
+        failed: [],
+      };
+
+      const md = generateMarkdownReport(report);
+
+      expect(md).toContain('**API Errors:** See `flaky/');
+      expect(md).toContain('/api-errors.txt`');
     });
 
     it('strips ANSI codes from error messages', () => {
@@ -1081,6 +1242,7 @@ describe('e2e-debug', () => {
               screenshot: undefined,
               video: undefined,
               consoleErrors: undefined,
+              apiErrors: undefined,
               pageSnapshot: undefined,
               harFiles: [],
             },
@@ -1113,6 +1275,7 @@ describe('e2e-debug', () => {
               screenshot: undefined,
               video: undefined,
               consoleErrors: undefined,
+              apiErrors: undefined,
               pageSnapshot: undefined,
               harFiles: [],
             },
@@ -1144,6 +1307,7 @@ describe('e2e-debug', () => {
               screenshot: '/some/path/screenshot.png',
               video: undefined,
               consoleErrors: undefined,
+              apiErrors: undefined,
               pageSnapshot: undefined,
               harFiles: [],
             },
@@ -1175,6 +1339,7 @@ describe('e2e-debug', () => {
               screenshot: undefined,
               video: undefined,
               consoleErrors: undefined,
+              apiErrors: undefined,
               pageSnapshot: undefined,
               harFiles: [],
             },
@@ -1262,6 +1427,7 @@ describe('e2e-debug', () => {
               screenshot: sourceScreenshot,
               video: undefined,
               consoleErrors: 'TypeError: x',
+              apiErrors: undefined,
               pageSnapshot: undefined,
               harFiles: [],
             },
@@ -1304,6 +1470,7 @@ describe('e2e-debug', () => {
               screenshot: sourceScreenshot,
               video: undefined,
               consoleErrors: 'oops',
+              apiErrors: undefined,
               pageSnapshot: undefined,
               harFiles: [],
             },
@@ -1324,6 +1491,121 @@ describe('e2e-debug', () => {
       expect(readFileSync(path.join(flakyDir, 'error.txt'), 'utf8')).toBe('race on first attempt');
     });
 
+    it('writes api-errors.txt in failed/ directory when apiErrors set', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const baseDir = path.join(temporaryDir, 'report');
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'broken test',
+            file: 'e2e/test.spec.ts',
+            project: 'chromium',
+            error: 'test error',
+            duration: 1000,
+            steps: [],
+            artifacts: {
+              trace: undefined,
+              screenshot: undefined,
+              video: undefined,
+              consoleErrors: undefined,
+              apiErrors: '500 POST /api/chat/abc/stream\n  body: {"code":"BILLING_ERROR"}',
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
+        ],
+      };
+
+      const resultDir = writeReport(report, baseDir);
+
+      const slug = 'e2e-test-spec-ts-chromium-broken-test';
+      const failedDir = path.join(resultDir, 'failed', slug);
+      expect(existsSync(path.join(failedDir, 'api-errors.txt'))).toBe(true);
+      expect(readFileSync(path.join(failedDir, 'api-errors.txt'), 'utf8')).toContain(
+        'POST /api/chat/abc/stream'
+      );
+    });
+
+    it('writes api-errors.txt in flaky/ directory when apiErrors set', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const baseDir = path.join(temporaryDir, 'report');
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 1, failed: 0, duration: 1000 },
+        passed: [],
+        flaky: [
+          {
+            title: 'intermittent test',
+            file: 'e2e/chat/flaky.spec.ts',
+            project: 'webkit',
+            attempts: 2,
+            error: 'race condition',
+            duration: 500,
+            steps: [],
+            artifacts: {
+              trace: undefined,
+              screenshot: undefined,
+              video: undefined,
+              consoleErrors: undefined,
+              apiErrors: '429 POST /api/chat/abc/stream',
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
+        ],
+        failed: [],
+      };
+
+      const resultDir = writeReport(report, baseDir);
+
+      const slug = 'e2e-chat-flaky-spec-ts-webkit-intermittent-test';
+      const flakyDir = path.join(resultDir, 'flaky', slug);
+      expect(existsSync(path.join(flakyDir, 'api-errors.txt'))).toBe(true);
+      expect(readFileSync(path.join(flakyDir, 'api-errors.txt'), 'utf8')).toContain(
+        '429 POST /api/chat/abc/stream'
+      );
+    });
+
+    it('omits api-errors.txt when apiErrors is undefined', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const baseDir = path.join(temporaryDir, 'report');
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'no api errors test',
+            file: 'e2e/test.spec.ts',
+            project: 'chromium',
+            error: 'oops',
+            duration: 1000,
+            steps: [],
+            artifacts: {
+              trace: undefined,
+              screenshot: undefined,
+              video: undefined,
+              consoleErrors: 'TypeError',
+              apiErrors: undefined,
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
+        ],
+      };
+
+      const resultDir = writeReport(report, baseDir);
+
+      const slug = 'e2e-test-spec-ts-chromium-no-api-errors-test';
+      const failedDir = path.join(resultDir, 'failed', slug);
+      expect(existsSync(path.join(failedDir, 'api-errors.txt'))).toBe(false);
+    });
+
     it('writes report.json alongside REPORT.md', () => {
       temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
       const baseDir = path.join(temporaryDir, 'report');
@@ -1336,6 +1618,43 @@ describe('e2e-debug', () => {
       ) as JsonReport;
       expect(json.summary.passed).toBe(1);
       expect(json.passed).toHaveLength(1);
+    });
+
+    it('includes apiErrors in report.json for failed tests', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const baseDir = path.join(temporaryDir, 'report');
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'broken',
+            file: 'e2e/test.spec.ts',
+            project: 'chromium',
+            error: 'e',
+            duration: 1,
+            steps: [],
+            artifacts: {
+              trace: undefined,
+              screenshot: undefined,
+              video: undefined,
+              consoleErrors: undefined,
+              apiErrors: '500 POST /api/x',
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
+        ],
+      };
+
+      const resultDir = writeReport(report, baseDir);
+
+      const json = JSON.parse(
+        readFileSync(path.join(resultDir, 'report.json'), 'utf8')
+      ) as JsonReport;
+      expect(json.failed[0]?.artifacts.apiErrors).toBe('500 POST /api/x');
     });
 
     it('preserves previous reports', () => {
@@ -1372,6 +1691,7 @@ describe('e2e-debug', () => {
               screenshot: '/nonexistent/path/screenshot.png',
               video: undefined,
               consoleErrors: undefined,
+              apiErrors: undefined,
               pageSnapshot: undefined,
               harFiles: ['/nonexistent/path/network.har'],
             },

@@ -54,12 +54,12 @@ export function ChatIndex(): React.JSX.Element {
   }, [session]);
 
   React.useEffect(() => {
-    useChatErrorStore.getState().clearError();
+    useChatErrorStore.getState().clearAll();
   }, []);
 
   const handleSend = React.useCallback(
     (content: string, fundingSource: FundingSource): void => {
-      useChatErrorStore.getState().clearError();
+      useChatErrorStore.getState().clearAll();
       const currentSession = sessionRef.current;
       const isUserAuthenticated = Boolean(currentSession?.user);
       if (isUserAuthenticated) {

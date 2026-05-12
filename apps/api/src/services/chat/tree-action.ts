@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm';
-import { messages, type DatabaseClient } from '@hushbox/db';
+import { ERROR_CODE_FORK_TIP_CONFLICT } from '@hushbox/shared';
+import { conversationForks, messages, type DatabaseClient } from '@hushbox/db';
 import { deleteMessagesAfterAnchor } from './message-deletion.js';
-import { validateParentMessageId } from './message-helpers.js';
+import { validateParentMessageId, ForkTipConflictError } from './message-helpers.js';
 
 /**
  * How a chat turn grafts onto the message tree. Both `/stream` and
@@ -20,12 +21,21 @@ export type TreeAction =
   | {
       kind: 'regenerate';
       anchorUserMessageId: string;
+      /**
+       * When set together with `forkTipMessageId`, the fork row is locked
+       * with `SELECT … FOR UPDATE` and the tip is validated up front. After
+       * deletion the cascade nulls the tip; this function then returns
+       * `forkTipExpectedMessageId: null` so the downstream `updateForkTip`
+       * optimistic check matches the cascaded NULL.
+       */
+      forkId?: string;
       forkTipMessageId?: string;
     }
   | {
       kind: 'edit';
       anchorUserMessageId: string;
       newUserMessage: { id: string; content: string };
+      forkId?: string;
       forkTipMessageId?: string;
     };
 
@@ -53,6 +63,41 @@ export function treeActionUserMessageId(action: TreeAction): string {
 }
 
 /**
+ * Locks the fork row with `SELECT … FOR UPDATE` and validates that its
+ * current tip matches the caller's expectation. Two concurrent regenerate
+ * requests targeting the same fork serialize on this row; the second one
+ * sees the first's committed tip and surfaces ForkTipConflictError. After
+ * this call returns, our transaction owns the row and the
+ * `ON DELETE SET NULL` cascade from deleting the tip is safe — no other
+ * writer can see the intermediate NULL before our final UPDATE.
+ *
+ * Threads through `null` as the expected tip, NOT the caller's
+ * `forkTipMessageId`: by the time `updateForkTip` runs inside
+ * `saveChatTurn`, the FK cascade has already nulled the tip in our
+ * transaction's view. The optimistic UPDATE's `WHERE tip_message_id IS NULL`
+ * clause matches that cascaded NULL.
+ */
+async function lockAndValidateForkTip(
+  tx: DatabaseClient,
+  forkId: string,
+  expectedTipMessageId: string | undefined
+): Promise<void> {
+  const [fork] = await tx
+    .select({ tipMessageId: conversationForks.tipMessageId })
+    .from(conversationForks)
+    .where(eq(conversationForks.id, forkId))
+    .for('update');
+
+  if (!fork) return;
+
+  const observed = fork.tipMessageId ?? null;
+  const expected = expectedTipMessageId ?? null;
+  if (observed !== expected) {
+    throw new ForkTipConflictError(ERROR_CODE_FORK_TIP_CONFLICT, forkId, expected);
+  }
+}
+
+/**
  * Runs inside the caller's transaction. Throws when an `edit` action
  * references a target id that does not exist — caller's txn rolls back.
  */
@@ -75,6 +120,9 @@ export async function applyTreeAction(
       };
     }
     case 'regenerate': {
+      if (action.forkId !== undefined) {
+        await lockAndValidateForkTip(tx, action.forkId, action.forkTipMessageId);
+      }
       await deleteMessagesAfterAnchor(tx, {
         conversationId,
         anchorMessageId: action.anchorUserMessageId,
@@ -85,7 +133,12 @@ export async function applyTreeAction(
       return {
         parentMessageIdForAssistants: action.anchorUserMessageId,
         userMessageInsert: undefined,
-        forkTipExpectedMessageId: action.forkTipMessageId ?? null,
+        // forkId path: our delete just cascaded the tip to NULL — that's
+        // what updateForkTip will see. Non-forkId path keeps legacy
+        // behaviour for backward compatibility with callers that haven't
+        // started passing forkId yet.
+        forkTipExpectedMessageId:
+          action.forkId !== undefined ? null : (action.forkTipMessageId ?? null),
       };
     }
     case 'edit': {
@@ -99,6 +152,10 @@ export async function applyTreeAction(
       const targetParentId = target.parentMessageId;
       const forkTipSpread =
         action.forkTipMessageId === undefined ? {} : { forkTipMessageId: action.forkTipMessageId };
+
+      if (action.forkId !== undefined) {
+        await lockAndValidateForkTip(tx, action.forkId, action.forkTipMessageId);
+      }
 
       if (targetParentId) {
         await deleteMessagesAfterAnchor(tx, {
@@ -122,7 +179,8 @@ export async function applyTreeAction(
           content: action.newUserMessage.content,
           parentMessageId: targetParentId,
         },
-        forkTipExpectedMessageId: action.forkTipMessageId ?? null,
+        forkTipExpectedMessageId:
+          action.forkId !== undefined ? null : (action.forkTipMessageId ?? null),
       };
     }
   }
