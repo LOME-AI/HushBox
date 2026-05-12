@@ -32,15 +32,17 @@ function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>):
       <h3 className="font-semibold">See it for yourself</h3>
 
       <div>
-        <label className="text-muted-foreground text-xs">What you type:</label>
-        <input
-          type="text"
-          value={text}
-          onChange={(e): void => {
-            setText(e.target.value);
-          }}
-          className="bg-background mt-1 w-full rounded-md border px-3 py-2 text-sm"
-        />
+        <label className="text-muted-foreground block text-xs">
+          What you type:
+          <input
+            type="text"
+            value={text}
+            onChange={(e): void => {
+              setText(e.target.value);
+            }}
+            className="bg-background mt-1 w-full rounded-md border px-3 py-2 text-sm"
+          />
+        </label>
       </div>
 
       <button
