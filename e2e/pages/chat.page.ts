@@ -560,17 +560,18 @@ export class ChatPage {
         `scrollMessageIntoView: index ${String(index)} out of range [0, ${String(rowsCount)})`
       );
     }
-    await this.page.evaluate(async (i) => {
-      const fn = (window as unknown as { __virtuosoScrollToIndex?: (n: number) => Promise<void> })
-        .__virtuosoScrollToIndex;
-      if (typeof fn !== 'function') {
-        throw new Error(
+    await this.page.evaluate(async (index_) => {
+      const function_ = (
+        globalThis as unknown as { __virtuosoScrollToIndex?: (n: number) => Promise<void> }
+      ).__virtuosoScrollToIndex;
+      if (typeof function_ !== 'function') {
+        throw new TypeError(
           '__virtuosoScrollToIndex not exposed — check env.isLocalDev or env.isE2E is true'
         );
       }
-      await fn(i);
+      await function_(index_);
     }, index);
-    await expect(this.getMessage(index)).toBeAttached({ timeout: 5_000 });
+    await expect(this.getMessage(index)).toBeAttached({ timeout: 5000 });
   }
 
   /**

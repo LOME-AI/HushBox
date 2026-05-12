@@ -116,8 +116,11 @@ interface CustomFixtures {
    * tests in a worker from hitting 429s caused by prior tests reusing the
    * same test user. Trial IP limits are deliberately not cleared so that
    * `trial-chat.spec.ts` continues to exercise the trial cap firing.
+   *
+   * Returns `null` (and the fixture value is never read) — Playwright requires
+   * a defined return type, and `void` is reserved for function return types.
    */
-  resetRateLimitsAutoHook: void;
+  resetRateLimitsAutoHook: null;
   authenticatedPage: Page;
   unauthenticatedPage: Page;
   /** Factory for creating fresh, fully-instrumented browser contexts on demand.
@@ -192,7 +195,7 @@ export const test = base.extend<CustomFixtures>({
       const ctx = await playwright.request.newContext({ baseURL: apiUrl });
       await clearUsageRateLimits(ctx);
       await ctx.dispose();
-      await use();
+      await use(null);
     },
     { auto: true },
   ],

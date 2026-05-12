@@ -91,6 +91,48 @@ describe('createMockAIClient', () => {
       );
     });
 
+    it('delays the first classifier event by classifierDelayMs', async () => {
+      // Real-classifier round-trip timing is ~1-3s; the mock resolves on the
+      // microtask queue with no delay, so the "Choosing the best model…"
+      // indicator never paints long enough for E2E to observe. The delay
+      // option restores observability without slowing every test.
+      const delayMs = 80;
+      const delayed = createMockAIClient({
+        classifierResolution: 'anthropic/claude-haiku-4.5',
+        classifierDelayMs: delayMs,
+      });
+      const start = Date.now();
+      await collectEvents(delayed.stream(classifierRequest()));
+      const elapsed = Date.now() - start;
+      expect(elapsed).toBeGreaterThanOrEqual(delayMs);
+    });
+
+    it('delays the failure rejection by classifierDelayMs as well', async () => {
+      const delayMs = 80;
+      const delayedFailure = createMockAIClient({
+        classifierFailure: true,
+        classifierDelayMs: delayMs,
+      });
+      const start = Date.now();
+      await expect(collectEvents(delayedFailure.stream(classifierRequest()))).rejects.toThrow(
+        'Classifier unavailable (test)'
+      );
+      const elapsed = Date.now() - start;
+      expect(elapsed).toBeGreaterThanOrEqual(delayMs);
+    });
+
+    it('does not delay when classifierDelayMs is zero or unset', async () => {
+      const noDelay = createMockAIClient({
+        classifierResolution: 'anthropic/claude-haiku-4.5',
+      });
+      const start = Date.now();
+      await collectEvents(noDelay.stream(classifierRequest()));
+      const elapsed = Date.now() - start;
+      // Generous ceiling — the entire iteration drains on the microtask queue,
+      // but we leave headroom for CI scheduler jitter.
+      expect(elapsed).toBeLessThan(50);
+    });
+
     it('does not classify when system prompt lacks the marker', async () => {
       const configured = createMockAIClient({
         classifierResolution: 'classifier/should-not-fire',

@@ -87,7 +87,6 @@ describe('BATCH_INTERVAL_MS', () => {
   });
 });
 
-
 describe('lookupModelPricing', () => {
   beforeEach(() => {
     vi.mocked(getModelPricing).mockClear();
@@ -192,15 +191,11 @@ describe('derivedIsSmartModel', () => {
     expect(derivedIsSmartModel([])).toBe(false);
   });
 
-  it('returns true when the smart-model stage ran', () => {
-    expect(derivedIsSmartModel(['smart-model'])).toBe(true);
-  });
-
-  it('returns true when classifier failed and no billing was produced — the stage still ran', () => {
-    // Captures the contract: `is_smart_model` is bound to "did the routing
-    // stage execute," not "did it produce a billable LLM call." Classifier
-    // failure → fallback path has no billing entry but the chip must still
-    // render on the persisted response.
+  // Bound to "did the routing stage execute," NOT "did it produce a billable
+  // LLM call." The classifier-failure → fallback path runs the stage without
+  // producing a billing breadcrumb; the chip must still render. Reading from
+  // the stages-run list rather than billings is what gives us this contract.
+  it('returns true when the smart-model stage ran (even with no billing)', () => {
     expect(derivedIsSmartModel(['smart-model'])).toBe(true);
   });
 

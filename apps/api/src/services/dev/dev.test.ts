@@ -5,6 +5,7 @@ import {
   cleanupTestData,
   resetTrialUsage,
   resetAuthRateLimits,
+  resetUsageRateLimits,
   createDevGroupChat,
   createDevConversation,
   setWalletBalance,
@@ -268,6 +269,65 @@ describe('dev service', () => {
         .mockResolvedValue(['0', []]);
 
       const result = await resetAuthRateLimits(mockRedis as never);
+
+      expect(result).toEqual({ deleted: 2 });
+      expect(mockRedis.del).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('resetUsageRateLimits', () => {
+    let mockRedis: {
+      scan: ReturnType<typeof vi.fn>;
+      del: ReturnType<typeof vi.fn>;
+    };
+
+    beforeEach(() => {
+      mockRedis = {
+        scan: vi.fn(),
+        del: vi.fn().mockResolvedValue(0),
+      };
+    });
+
+    it('deletes usage rate limit keys across all three per-user prefixes', async () => {
+      mockRedis.scan
+        .mockResolvedValueOnce(['0', ['chat:stream:user:ratelimit:alice']]) // chat stream
+        .mockResolvedValueOnce(['0', ['media:download:user:ratelimit:bob']]) // media download
+        .mockResolvedValueOnce(['0', ['share:create:user:ratelimit:carol']]); // share create
+
+      const result = await resetUsageRateLimits(mockRedis as never);
+
+      expect(result).toEqual({ deleted: 3 });
+      expect(mockRedis.del).toHaveBeenCalledTimes(3);
+    });
+
+    it('returns zero when no usage rate limit keys exist', async () => {
+      mockRedis.scan.mockResolvedValue(['0', []]);
+
+      const result = await resetUsageRateLimits(mockRedis as never);
+
+      expect(result).toEqual({ deleted: 0 });
+      expect(mockRedis.del).not.toHaveBeenCalled();
+    });
+
+    it('does not scan trial or IP-scoped buckets that other tests depend on', async () => {
+      mockRedis.scan.mockResolvedValue(['0', []]);
+
+      await resetUsageRateLimits(mockRedis as never);
+
+      const matchedPatterns = mockRedis.scan.mock.calls.map(
+        (call: unknown[]) => (call[1] as { match: string }).match
+      );
+      expect(matchedPatterns).not.toContain('trial:chat:stream:ip:ratelimit:*');
+      expect(matchedPatterns).not.toContain('share:get:ip:ratelimit:*');
+    });
+
+    it('handles multi-page scan results within a single prefix', async () => {
+      mockRedis.scan
+        .mockResolvedValueOnce(['99', ['chat:stream:user:ratelimit:alice']])
+        .mockResolvedValueOnce(['0', ['chat:stream:user:ratelimit:bob']])
+        .mockResolvedValue(['0', []]);
+
+      const result = await resetUsageRateLimits(mockRedis as never);
 
       expect(result).toEqual({ deleted: 2 });
       expect(mockRedis.del).toHaveBeenCalledTimes(2);

@@ -287,16 +287,13 @@ function createClassifierStream(modelId: string, delayMs: number): InferenceStre
 }
 
 function createFailingClassifierStream(error: Error, delayMs: number): InferenceStream {
+  const gate = createFirstCallDelay(delayMs);
   return {
     [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
-      let firstCall = true;
       return {
         async next(): Promise<IteratorResult<InferenceEvent>> {
-          if (firstCall && delayMs > 0) {
-            firstCall = false;
-            await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-          }
-          return Promise.reject(error);
+          await gate();
+          throw error;
         },
       };
     },
@@ -311,23 +308,38 @@ function createFailingClassifierStream(error: Error, delayMs: number): Inference
  * faster than Playwright's polling window.
  */
 function delayedEventStream(events: readonly InferenceEvent[], delayMs: number): InferenceStream {
+  const gate = createFirstCallDelay(delayMs);
   return {
     [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
-      let i = 0;
-      let firstCall = true;
+      let index = 0;
       return {
         async next(): Promise<IteratorResult<InferenceEvent>> {
-          if (firstCall && delayMs > 0) {
-            firstCall = false;
-            await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-          }
-          if (i >= events.length) {
+          await gate();
+          const event = events[index];
+          if (event === undefined) {
             return { value: undefined, done: true };
           }
-          return { value: events[i++]!, done: false };
+          index++;
+          return { value: event, done: false };
         },
       };
     },
+  };
+}
+
+/**
+ * Returns a function that resolves after `delayMs` the first time it's called
+ * and immediately on subsequent calls. `delayMs <= 0` returns a no-op gate.
+ * Shared by mock streams that need to slow down their first event without
+ * delaying every subsequent yield.
+ */
+function createFirstCallDelay(delayMs: number): () => Promise<void> {
+  if (delayMs <= 0) return () => Promise.resolve();
+  let pending = true;
+  return () => {
+    if (!pending) return Promise.resolve();
+    pending = false;
+    return new Promise<void>((resolve) => setTimeout(resolve, delayMs));
   };
 }
 
