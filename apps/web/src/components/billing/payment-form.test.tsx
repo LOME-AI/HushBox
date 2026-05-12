@@ -426,10 +426,7 @@ describe('PaymentForm', () => {
 
     it('shows processing button state during payment', async () => {
       const user = userEvent.setup();
-      mockCreatePayment.mutateAsync.mockImplementation(
-        () =>
-          new Promise(() => {})
-      );
+      mockCreatePayment.mutateAsync.mockImplementation(() => new Promise(() => {}));
 
       renderWithProviders(<PaymentForm />);
 
@@ -534,10 +531,7 @@ describe('PaymentForm', () => {
 
   describe('helcim script loading', () => {
     it('shows loading state while helcim script loads', () => {
-      vi.mocked(helcimLoader.loadHelcimScript).mockImplementation(
-        () =>
-          new Promise(() => {})
-      );
+      vi.mocked(helcimLoader.loadHelcimScript).mockImplementation(() => new Promise(() => {}));
 
       renderWithProviders(<PaymentForm />);
 

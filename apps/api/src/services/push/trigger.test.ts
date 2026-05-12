@@ -102,10 +102,7 @@ describe('sendPushForNewMessage', () => {
 
   it('does not call send when no tokens found', async () => {
     const pushClient = createMockPushClient();
-    const db = createMockDb(
-      [{ userId: 'user-2', muted: false }],
-      []
-    ) as Database;
+    const db = createMockDb([{ userId: 'user-2', muted: false }], []) as Database;
 
     await sendPushForNewMessage({
       db,
@@ -121,10 +118,7 @@ describe('sendPushForNewMessage', () => {
 
   it('does not call send when all members are muted', async () => {
     const pushClient = createMockPushClient();
-    const db = createMockDb(
-      [{ userId: 'user-2', muted: true }],
-      []
-    ) as Database;
+    const db = createMockDb([{ userId: 'user-2', muted: true }], []) as Database;
 
     await sendPushForNewMessage({
       db,

@@ -400,6 +400,5 @@ describe('createApp', () => {
       expect(body).toHaveProperty('personas');
       expect(Array.isArray(body.personas)).toBe(true);
     });
-
   });
 });

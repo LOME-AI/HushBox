@@ -14,11 +14,11 @@ import { createRedisClient } from '../lib/redis.js';
 import { createEvidenceConfig } from '../lib/evidence-config.js';
 import { createIronSessionMiddleware } from './iron-session.js';
 import { getAIClient } from '../services/ai/index.js';
-import type { MockAIClientConfig } from '../services/ai/index.js';
 import { getMediaStorage } from '../services/storage/index.js';
 import { getHelcimClient } from '../services/helcim/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { LINK_PUBLIC_KEY_HEADER } from './constants.js';
+import type { MockAIClientConfig } from '../services/ai/index.js';
 import type { AppEnv } from '../types.js';
 import type { MiddlewareHandler } from 'hono';
 

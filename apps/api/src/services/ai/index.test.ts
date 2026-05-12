@@ -78,9 +78,10 @@ describe('getAIClient', () => {
       events.push(event);
     }
     const text = events
-      .filter((e): e is { kind: 'text-delta'; content: string } =>
-        typeof (e as { kind?: unknown }).kind === 'string' &&
-        (e as { kind: string }).kind === 'text-delta'
+      .filter(
+        (e): e is { kind: 'text-delta'; content: string } =>
+          typeof (e as { kind?: unknown }).kind === 'string' &&
+          (e as { kind: string }).kind === 'text-delta'
       )
       .map((e) => e.content)
       .join('');

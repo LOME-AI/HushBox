@@ -425,11 +425,10 @@ function createAudioStream(): InferenceStream {
 
 export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClient {
   const history: RecordedInferenceRequest[] = [];
-  const failingModels = new Set(config.failingModels ?? []);
+  const failingModels = new Set(config.failingModels);
   const classifierResolution = config.classifierResolution ?? DEFAULT_CLASSIFIER_RESOLUTION;
-  const classifierFailure = config.classifierFailure === true
-    ? new Error('Classifier unavailable (test)')
-    : null;
+  const classifierFailure =
+    config.classifierFailure === true ? new Error('Classifier unavailable (test)') : null;
   const classifierDelayMs = Math.max(0, config.classifierDelayMs ?? 0);
 
   return {

@@ -911,7 +911,9 @@ export function executeMediaPipeline(
           resolveBroadcastModelName: (modelId) => modelId,
           senderId,
           db,
-          mutateBillingResult: (result) => attachDownloadUrls(result, stored.downloadUrls),
+          mutateBillingResult: (result) => {
+            attachDownloadUrls(result, stored.downloadUrls);
+          },
         });
       } else {
         await writer.writeError({

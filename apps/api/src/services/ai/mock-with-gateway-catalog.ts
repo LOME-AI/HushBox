@@ -38,9 +38,11 @@ const DEFAULT_PUBLIC_MODELS_URL = 'https://test.example/v1/models';
 export function createMockAIClientWithGatewayCatalog(
   options: GatewayCatalogOptions = {}
 ): MockAIClient {
-  const apiKey = options.apiKey ?? DEFAULT_API_KEY;
-  const publicModelsUrl = options.publicModelsUrl ?? DEFAULT_PUBLIC_MODELS_URL;
-  const { apiKey: _a, publicModelsUrl: _p, ...mockConfig } = options;
+  const {
+    apiKey = DEFAULT_API_KEY,
+    publicModelsUrl = DEFAULT_PUBLIC_MODELS_URL,
+    ...mockConfig
+  } = options;
   const base = createMockAIClient(mockConfig);
   return {
     ...base,

@@ -686,9 +686,9 @@ describe('devRoute', () => {
       const res = await app.request('/dev/message-payers/conv-1');
 
       expect(res.status).toBe(200);
-      const body = (await res.json()) as {
+      const body = await jsonBody<{
         payers: { messageId: string; payerId: string | null }[];
-      };
+      }>(res);
       expect(body.payers).toEqual([
         { messageId: 'msg-1', payerId: 'user-alice' },
         { messageId: 'msg-2', payerId: 'user-bob' },
@@ -702,9 +702,9 @@ describe('devRoute', () => {
       const res = await app.request('/dev/message-payers/conv-empty');
 
       expect(res.status).toBe(200);
-      const body = (await res.json()) as {
+      const body = await jsonBody<{
         payers: { messageId: string; payerId: string | null }[];
-      };
+      }>(res);
       expect(body.payers).toEqual([{ messageId: 'msg-only', payerId: null }]);
     });
 
@@ -713,7 +713,7 @@ describe('devRoute', () => {
       const res = await app.request('/dev/message-payers/conv-none');
 
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { payers: unknown[] };
+      const body = await jsonBody<{ payers: unknown[] }>(res);
       expect(body.payers).toEqual([]);
     });
   });
@@ -939,5 +939,4 @@ describe('devRoute', () => {
       expect(res.status).toBe(400);
     });
   });
-
 });

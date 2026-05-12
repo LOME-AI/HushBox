@@ -22,14 +22,10 @@ import type { LinkInfo } from '@/lib/chat-sender';
 import type { MemberPrivilege } from '@hushbox/shared';
 
 declare global {
-  interface Window {
-    /**
-     * Test-only escape hatch exposed by `MessageList` in dev/E2E builds. Calls
-     * Virtuoso's native `scrollIntoView({ index, done })` and resolves when the
-     * row is measured and rendered.
-     */
-    __virtuosoScrollToIndex?: (index: number) => Promise<void>;
-  }
+  // Test-only escape hatch exposed by `MessageList` in dev/E2E builds. Calls
+  // Virtuoso's native `scrollIntoView({ index, done })` and resolves when the
+  // row is measured and rendered.
+  var __virtuosoScrollToIndex: ((index: number) => Promise<void>) | undefined;
 }
 
 /**
@@ -162,8 +158,8 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   // can locate it. Exposing `scrollIntoView({ done })` lets tests deterministically
   // park a specific row in view and `await` its measurement.
   useEffect(() => {
-    if (!env.isLocalDev && !env.isE2E) return undefined;
-    window.__virtuosoScrollToIndex = (index: number): Promise<void> =>
+    if (!env.isLocalDev && !env.isE2E) return;
+    globalThis.__virtuosoScrollToIndex = (index: number): Promise<void> =>
       new Promise((resolve) => {
         const handle = virtuosoRef.current;
         if (!handle) {
@@ -173,7 +169,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
         handle.scrollIntoView({ index, align: 'center', behavior: 'auto', done: resolve });
       });
     return () => {
-      delete window.__virtuosoScrollToIndex;
+      globalThis.__virtuosoScrollToIndex = undefined;
     };
   }, []);
 

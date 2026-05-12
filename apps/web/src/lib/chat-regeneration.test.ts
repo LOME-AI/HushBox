@@ -322,71 +322,91 @@ describe('buildMessagesForRegeneration', () => {
   });
 });
 
-describe("inferRegenerateModality", () => {
+describe('inferRegenerateModality', () => {
   interface Msg {
     id: string;
     role: string;
     parentMessageId?: string | null;
-    mediaItems?: { contentType: "image" | "audio" | "video" }[] | undefined;
+    mediaItems?: { contentType: 'image' | 'audio' | 'video' }[] | undefined;
   }
 
-  it("returns the AI childs first mediaItem contentType for image", () => {
+  it('returns the AI childs first mediaItem contentType for image', () => {
     const messages: Msg[] = [
-      { id: "u1", role: "user", parentMessageId: null },
-      { id: "a1", role: "assistant", parentMessageId: "u1", mediaItems: [{ contentType: "image" }] },
+      { id: 'u1', role: 'user', parentMessageId: null },
+      {
+        id: 'a1',
+        role: 'assistant',
+        parentMessageId: 'u1',
+        mediaItems: [{ contentType: 'image' }],
+      },
     ];
 
-    expect(inferRegenerateModality("u1", messages)).toBe("image");
+    expect(inferRegenerateModality('u1', messages)).toBe('image');
   });
 
-  it("returns video when the AI child has a video mediaItem", () => {
+  it('returns video when the AI child has a video mediaItem', () => {
     const messages: Msg[] = [
-      { id: "u1", role: "user", parentMessageId: null },
-      { id: "a1", role: "assistant", parentMessageId: "u1", mediaItems: [{ contentType: "video" }] },
+      { id: 'u1', role: 'user', parentMessageId: null },
+      {
+        id: 'a1',
+        role: 'assistant',
+        parentMessageId: 'u1',
+        mediaItems: [{ contentType: 'video' }],
+      },
     ];
 
-    expect(inferRegenerateModality("u1", messages)).toBe("video");
+    expect(inferRegenerateModality('u1', messages)).toBe('video');
   });
 
-  it("returns audio when the AI child has an audio mediaItem", () => {
+  it('returns audio when the AI child has an audio mediaItem', () => {
     const messages: Msg[] = [
-      { id: "u1", role: "user", parentMessageId: null },
-      { id: "a1", role: "assistant", parentMessageId: "u1", mediaItems: [{ contentType: "audio" }] },
+      { id: 'u1', role: 'user', parentMessageId: null },
+      {
+        id: 'a1',
+        role: 'assistant',
+        parentMessageId: 'u1',
+        mediaItems: [{ contentType: 'audio' }],
+      },
     ];
 
-    expect(inferRegenerateModality("u1", messages)).toBe("audio");
+    expect(inferRegenerateModality('u1', messages)).toBe('audio');
   });
 
-  it("returns text when the AI child has no mediaItems (text reply)", () => {
+  it('returns text when the AI child has no mediaItems (text reply)', () => {
     const messages: Msg[] = [
-      { id: "u1", role: "user", parentMessageId: null },
-      { id: "a1", role: "assistant", parentMessageId: "u1" },
+      { id: 'u1', role: 'user', parentMessageId: null },
+      { id: 'a1', role: 'assistant', parentMessageId: 'u1' },
     ];
 
-    expect(inferRegenerateModality("u1", messages)).toBe("text");
+    expect(inferRegenerateModality('u1', messages)).toBe('text');
   });
 
-  it("returns text when the user message has no AI child yet", () => {
-    const messages: Msg[] = [{ id: "u1", role: "user", parentMessageId: null }];
+  it('returns text when the user message has no AI child yet', () => {
+    const messages: Msg[] = [{ id: 'u1', role: 'user', parentMessageId: null }];
 
-    expect(inferRegenerateModality("u1", messages)).toBe("text");
+    expect(inferRegenerateModality('u1', messages)).toBe('text');
   });
 
-  it("returns text when the target id is not found", () => {
+  it('returns text when the target id is not found', () => {
     const messages: Msg[] = [
-      { id: "u1", role: "user", parentMessageId: null },
-      { id: "a1", role: "assistant", parentMessageId: "u1", mediaItems: [{ contentType: "image" }] },
+      { id: 'u1', role: 'user', parentMessageId: null },
+      {
+        id: 'a1',
+        role: 'assistant',
+        parentMessageId: 'u1',
+        mediaItems: [{ contentType: 'image' }],
+      },
     ];
 
-    expect(inferRegenerateModality("nonexistent", messages)).toBe("text");
+    expect(inferRegenerateModality('nonexistent', messages)).toBe('text');
   });
 
-  it("ignores user messages with the same parent (only checks assistant role)", () => {
+  it('ignores user messages with the same parent (only checks assistant role)', () => {
     const messages: Msg[] = [
-      { id: "u1", role: "user", parentMessageId: null },
-      { id: "u2", role: "user", parentMessageId: "u1", mediaItems: [{ contentType: "image" }] },
+      { id: 'u1', role: 'user', parentMessageId: null },
+      { id: 'u2', role: 'user', parentMessageId: 'u1', mediaItems: [{ contentType: 'image' }] },
     ];
 
-    expect(inferRegenerateModality("u1", messages)).toBe("text");
+    expect(inferRegenerateModality('u1', messages)).toBe('text');
   });
 });
