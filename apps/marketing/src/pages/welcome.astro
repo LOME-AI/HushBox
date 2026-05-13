@@ -1,4 +1,5 @@
 ---
+import * as lucideStatic from 'lucide-static';
 import { ROUTES } from '@hushbox/shared/routes';
 import {
   SHIPPED_FEATURES,
@@ -53,26 +54,14 @@ const comparisonRows = COMPARISON_ROWS.map((row) => ({
   values: [row.others ? 'Yes' : 'No', row.hushbox ? 'Yes' : 'No'],
 }));
 
-function toKebabCase(name: string): string {
-  return name
-    .replaceAll(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replaceAll(/([A-Z])([A-Z][a-z])/g, '$1-$2')
-    .toLowerCase();
-}
+const icons = lucideStatic as unknown as Record<string, string>;
 
-const iconUrls = import.meta.glob<string>('../../../../packages/ui/src/assets/icons/*.svg', {
-  eager: true,
-  query: '?url',
-  import: 'default',
-});
-
-function iconUrl(lucideIcon: string): string {
-  const key = `../../../../packages/ui/src/assets/icons/${toKebabCase(lucideIcon)}.svg`;
-  const url = iconUrls[key];
-  if (!url) {
-    throw new Error(`Generated icon missing for "${lucideIcon}" (expected ${key}). Run \`pnpm readme:generate\` to regenerate.`);
+function iconSvg(lucideIcon: string): string {
+  const svg = icons[lucideIcon];
+  if (!svg) {
+    throw new Error(`Lucide icon "${lucideIcon}" not found in lucide-static.`);
   }
-  return url;
+  return svg.replace('<svg', '<svg aria-hidden="true" focusable="false"');
 }
 ---
 
@@ -279,7 +268,7 @@ function iconUrl(lucideIcon: string): string {
           {
             SHIPPED_FEATURES.map((f) => (
               <FeatureCard name={f.name} description={f.description}>
-                <img slot="icon" src={iconUrl(f.lucideIcon)} width="16" height="16" alt="" />
+                <Fragment slot="icon" set:html={iconSvg(f.lucideIcon)} />
               </FeatureCard>
             ))
           }
@@ -289,7 +278,7 @@ function iconUrl(lucideIcon: string): string {
           {
             COMING_SOON_FEATURES.map((f) => (
               <FeatureCard name={f.name} comingSoon>
-                <img slot="icon" src={iconUrl(f.lucideIcon)} width="16" height="16" alt="" />
+                <Fragment slot="icon" set:html={iconSvg(f.lucideIcon)} />
               </FeatureCard>
             ))
           }
